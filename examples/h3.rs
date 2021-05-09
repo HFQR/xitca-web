@@ -37,7 +37,7 @@ async fn handle(mut udp: UdpStream) -> io::Result<()> {
                 .await
                 .unwrap();
 
-            while let Some((req, mut stream)) = h3_conn.accept().await.unwrap() {
+            while let Ok(Some((req, mut stream))) = h3_conn.accept().await {
                 debug!("connection requested: {:#?}", req);
 
                 tokio::spawn(async move {
@@ -63,7 +63,7 @@ async fn handle(mut udp: UdpStream) -> io::Result<()> {
         }
         Err(err) => {
             warn!("connecting client failed with error: {:?}", err);
-            panic!("error not handled");
+            Ok(())
         }
     }
 }

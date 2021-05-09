@@ -6,7 +6,7 @@ use std::{future::Future, net::SocketAddr};
 
 use async_channel::{Receiver, Recv};
 use futures_core::ready;
-use h3_quinn::quinn::{
+use quinn::{
     crypto::{rustls::TlsSession, Session},
     generic::{Connecting, Endpoint, ServerConfig},
 };

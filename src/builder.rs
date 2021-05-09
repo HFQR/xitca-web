@@ -113,6 +113,7 @@ impl Builder {
     }
 
     pub fn build(self) -> ServerFuture {
+        #[cfg(feature = "signal")]
         let enable_signal = self.enable_signal;
         match Server::new(self) {
             Ok(server) => ServerFuture::Server(ServerFutureInner {
