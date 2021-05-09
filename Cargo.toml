@@ -12,7 +12,7 @@ path = "examples/hello_world.rs"
 name = "bench"
 path = "examples/bench.rs"
 
-[[exampe]]
+[[example]]
 name = "h3"
 path = "examples/h3.rs"
 
@@ -25,6 +25,7 @@ signal = ["tokio/signal"]
 [dependencies]
 actix-service = "2"
 
+async-channel = "1.6.1"
 futures-core = "0.3"
 futures-util = "0.3"
 log = "0.4"

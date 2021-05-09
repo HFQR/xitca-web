@@ -23,7 +23,6 @@ async fn main() -> io::Result<()> {
     let config = config.build();
 
     actix_server_alt::Builder::new()
-        .workers(1)
         .bind_h3("test", addr, config, || fn_service(handle))?
         .build()
         .await

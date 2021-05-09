@@ -1,30 +1,41 @@
 use std::io;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
-use std::sync::Mutex;
 use std::task::{Context, Poll};
 use std::{future::Future, net::SocketAddr};
 
+use async_channel::{Receiver, Recv};
 use futures_core::ready;
 use h3_quinn::quinn::{
     crypto::{rustls::TlsSession, Session},
-    generic::{Connecting, Endpoint, Incoming, ServerConfig},
+    generic::{Connecting, Endpoint, ServerConfig},
 };
+use tokio::task::JoinHandle;
 
 use super::{AsListener, FromStream, Listener, Stream};
 
 pub type H3ServerConfig = ServerConfig<TlsSession>;
 
 #[derive(Debug)]
-pub struct UdpListener<S: Session = TlsSession> {
+pub struct UdpListener<S = TlsSession>
+where
+    S: Session,
+{
     endpoint: Endpoint<S>,
-    incoming: Mutex<Incoming<S>>,
+    incoming: Receiver<Connecting<S>>,
+    handle: JoinHandle<()>,
+}
+
+impl<S: Session> Drop for UdpListener<S> {
+    fn drop(&mut self) {
+        self.handle.abort();
+    }
 }
 
 impl UdpListener {
     pub fn accept(&self) -> Accept<'_> {
         Accept {
-            incoming: &self.incoming,
+            recv: self.incoming.recv(),
         }
     }
 }
@@ -56,31 +67,37 @@ where
         let mut builder = Endpoint::builder();
         builder.listen(config);
 
-        let (endpoint, incoming) = builder.bind(&addr).unwrap();
+        let (endpoint, mut incoming) = builder.bind(&addr).unwrap();
+
+        let (tx, rx) = async_channel::unbounded();
+        let handle = tokio::spawn(async move {
+            use futures_util::StreamExt;
+            while let Some(conn) = incoming.next().await {
+                if tx.send(conn).await.is_err() {
+                    return;
+                }
+            }
+        });
 
         Ok(UdpListener {
             endpoint,
-            incoming: Mutex::new(incoming),
+            incoming: rx,
+            handle,
         })
     }
 }
 
 pub struct Accept<'a> {
-    incoming: &'a Mutex<Incoming<TlsSession>>,
+    recv: Recv<'a, Connecting<TlsSession>>,
 }
 
 impl Future for Accept<'_> {
     type Output = io::Result<UdpStream>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut incoming = self.get_mut().incoming.lock().unwrap();
-
-        match ready!(futures_core::Stream::poll_next(
-            Pin::new(&mut *incoming),
-            cx
-        )) {
-            Some(connecting) => Poll::Ready(Ok(UdpStream { connecting })),
-            None => Poll::Ready(Err(io::Error::new(
+        match ready!(Pin::new(&mut self.get_mut().recv).poll(cx)) {
+            Ok(connecting) => Poll::Ready(Ok(UdpStream { connecting })),
+            Err(_) => Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "quinn endpoint is closed",
             ))),
