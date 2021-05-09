@@ -173,3 +173,36 @@ impl Builder {
         Ok(self)
     }
 }
+
+#[cfg(feature = "http3")]
+impl Builder {
+    pub fn bind_h3<N, A, F>(
+        mut self,
+        name: N,
+        addr: A,
+        config: crate::net::H3ServerConfig,
+        factory: F,
+    ) -> io::Result<Self>
+    where
+        N: AsRef<str>,
+        A: net::ToSocketAddrs,
+        F: IntoServiceFactoryClone<crate::net::UdpStream>,
+    {
+        let addr = addr.to_socket_addrs()?.next().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr")
+        })?;
+
+        let builder = crate::net::UdpListenerBuilder::new(addr, config);
+
+        self.listeners
+            .entry(name.as_ref().to_string())
+            .or_insert_with(Vec::new)
+            .push(Box::new(Some(builder)));
+
+        let factory = ServerServiceFactory::create(factory);
+
+        self.factories.insert(name.as_ref().to_string(), factory);
+
+        Ok(self)
+    }
+}

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod builder;
 mod server;
 mod worker;

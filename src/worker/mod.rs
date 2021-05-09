@@ -41,7 +41,7 @@ impl WorkerInner {
                     Err(ref e) if connection_error(e) => continue,
                     // TODO: This error branch is used to detect Accept thread exit.
                     // Should use other notifier other than error.
-                    Err(ref e) if e.kind() == io::ErrorKind::Other => return,
+                    Err(ref e) if fatal_error(e) => return,
                     Err(e) => {
                         error!("Error accepting connection: {}", e);
                         sleep(Duration::from_secs(1)).await;
@@ -128,4 +128,8 @@ fn connection_error(e: &io::Error) -> bool {
     e.kind() == io::ErrorKind::ConnectionRefused
         || e.kind() == io::ErrorKind::ConnectionAborted
         || e.kind() == io::ErrorKind::ConnectionReset
+}
+
+fn fatal_error(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::BrokenPipe || e.kind() == io::ErrorKind::Other
 }

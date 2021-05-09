@@ -1,3 +1,9 @@
+#[cfg(feature = "http3")]
+mod h3;
+
+#[cfg(feature = "http3")]
+pub use self::h3::{H3ServerConfig, UdpListener, UdpListenerBuilder, UdpStream};
+
 pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
 #[cfg(unix)]
@@ -9,12 +15,16 @@ use std::net;
 #[derive(Debug)]
 pub(crate) enum Listener {
     Tcp(TcpListener),
+    #[cfg(feature = "http3")]
+    Udp(UdpListener),
     #[cfg(unix)]
     Unix(UnixListener),
 }
 
 pub enum Stream {
     Tcp(TcpStream),
+    #[cfg(feature = "http3")]
+    Udp(UdpStream),
     #[cfg(unix)]
     Unix(UnixStream),
 }
@@ -27,18 +37,17 @@ impl FromStream for TcpStream {
     fn from_stream(stream: Stream) -> Self {
         match stream {
             Stream::Tcp(tcp) => tcp,
-            #[cfg(unix)]
-            Stream::Unix(_) => unreachable!("UnixStream can not be casted to TcpStream"),
+            _ => unreachable!("Can not be casted to TcpStream"),
         }
     }
 }
 
+#[cfg(unix)]
 impl FromStream for UnixStream {
     fn from_stream(stream: Stream) -> Self {
         match stream {
-            Stream::Tcp(_) => unreachable!("TcpStream can not be casted to UnixStream"),
-            #[cfg(unix)]
             Stream::Unix(unix) => unix,
+            _ => unreachable!("Can not be casted to UnixStream"),
         }
     }
 }
@@ -78,6 +87,11 @@ impl Listener {
                 let stream = stream.into_std()?;
                 let stream = TcpStream::from_std(stream)?;
                 Ok(Stream::Tcp(stream))
+            }
+            #[cfg(feature = "http3")]
+            Self::Udp(ref udp) => {
+                let stream = udp.accept().await?;
+                Ok(Stream::Udp(stream))
             }
             #[cfg(unix)]
             Self::Unix(ref unix) => {

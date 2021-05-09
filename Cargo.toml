@@ -12,23 +12,38 @@ path = "examples/hello_world.rs"
 name = "bench"
 path = "examples/bench.rs"
 
+[[exampe]]
+name = "h3"
+path = "examples/h3.rs"
+
 [features]
-default = ["signal"]
+default = ["signal", "http3"]
+http3 = ["h3", "h3-quinn"]
 actix = ["actix-rt"]
 signal = ["tokio/signal"]
 
 [dependencies]
 actix-service = "2"
-actix-rt = { version = "2.2", default-features = false, optional = true }
 
 futures-core = "0.3"
+futures-util = "0.3"
 log = "0.4"
 num_cpus = "1.13"
+rcgen = ""
 tokio = { version = "1.5", features = ["net", "rt", "sync", "time", "parking_lot"] }
+
+# actix runtime support
+actix-rt = { version = "2.2", default-features = false, optional = true }
+
+# http/3 support
+h3 = { git = "https://github.com/hyperium/h3", optional = true }
+h3-quinn = { git = "https://github.com/hyperium/h3", optional = true }
 
 [dev-dependencies]
 actix-http = { version = "3.0.0-beta.6", default-features = false }
 actix-web = { version = "4.0.0-beta.6", default-features = false }
 
+rcgen = "0.8"
+http = "0.2"
 env_logger = "0.8"
 tokio = { version = "1.5", features = ["io-util", "macros"] }
