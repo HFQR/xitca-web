@@ -1,0 +1,34 @@
+[package]
+name = "actix-server-alt"
+version = "0.1.0"
+authors = ["fakeshadow <24548779@qq.com>"]
+edition = "2018"
+
+[[example]]
+name = "hello-world"
+path = "examples/hello_world.rs"
+
+[[example]]
+name = "bench"
+path = "examples/bench.rs"
+
+[features]
+default = ["signal"]
+actix = ["actix-rt"]
+signal = ["tokio/signal"]
+
+[dependencies]
+actix-service = "2"
+actix-rt = { version = "2.2", default-features = false, optional = true }
+
+futures-core = "0.3"
+log = "0.4"
+num_cpus = "1.13"
+tokio = { version = "1.5", features = ["net", "rt", "sync", "time", "parking_lot"] }
+
+[dev-dependencies]
+actix-http = { version = "3.0.0-beta.6", default-features = false }
+actix-web = { version = "4.0.0-beta.6", default-features = false }
+
+env_logger = "0.8"
+tokio = { version = "1.5", features = ["io-util", "macros"] }
