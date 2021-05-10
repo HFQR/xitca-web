@@ -3,12 +3,12 @@ use std::{collections::HashMap, net};
 
 use crate::net::{AsListener, TcpSocket, TcpStream};
 use crate::server::{
-    IntoServiceFactoryClone, Server, ServerFuture, ServerFutureInner, ServerServiceFactory,
-    ServiceFactoryClone,
+    Factory, IntoServiceFactoryClone, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone,
 };
 
 pub struct Builder {
-    pub(crate) workers: usize,
+    pub(crate) server_threads: usize,
+    pub(crate) worker_threads: usize,
     pub(crate) connection_limit: usize,
     pub(crate) max_blocking_threads: usize,
     pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener + Send>>>,
@@ -26,7 +26,8 @@ impl Default for Builder {
 impl Builder {
     pub fn new() -> Self {
         Self {
-            workers: num_cpus::get(),
+            server_threads: 1,
+            worker_threads: num_cpus::get(),
             connection_limit: 25600,
             max_blocking_threads: 512,
             listeners: HashMap::new(),
@@ -36,10 +37,22 @@ impl Builder {
         }
     }
 
-    pub fn workers(mut self, num: usize) -> Self {
+    /// Set the thread count dedicated to accepting connections.
+    ///
+    /// Default set to 1.
+    pub fn server_threads(mut self, num: usize) -> Self {
+        assert_ne!(num, 0, "There must be at least one server thread");
+        self.server_threads = num;
+        self
+    }
+
+    /// Set the thread count for handling connections.
+    ///
+    /// Default set to machine's logic core count.
+    pub fn worker_threads(mut self, num: usize) -> Self {
         assert_ne!(num, 0, "There must be at least one worker thread");
 
-        self.workers = num;
+        self.worker_threads = num;
         self
     }
 
@@ -105,7 +118,7 @@ impl Builder {
             .or_insert_with(Vec::new)
             .push(Box::new(Some(listener)));
 
-        let factory = ServerServiceFactory::create(factory);
+        let factory = Factory::create(factory);
 
         self.factories.insert(name.as_ref().to_string(), factory);
 
@@ -113,13 +126,12 @@ impl Builder {
     }
 
     pub fn build(self) -> ServerFuture {
-        #[cfg(feature = "signal")]
-        let enable_signal = self.enable_signal;
+        let _enable_signal = self.enable_signal;
         match Server::new(self) {
             Ok(server) => ServerFuture::Server(ServerFutureInner {
                 server,
                 #[cfg(feature = "signal")]
-                signals: if enable_signal {
+                signals: if _enable_signal {
                     Some(crate::signals::Signals::start())
                 } else {
                     None
@@ -167,7 +179,7 @@ impl Builder {
             .or_insert_with(Vec::new)
             .push(Box::new(Some(listener)));
 
-        let factory = ServerServiceFactory::create(factory);
+        let factory = Factory::create(factory);
 
         self.factories.insert(name.as_ref().to_string(), factory);
 
@@ -200,7 +212,7 @@ impl Builder {
             .or_insert_with(Vec::new)
             .push(Box::new(Some(builder)));
 
-        let factory = ServerServiceFactory::create(factory);
+        let factory = Factory::create(factory);
 
         self.factories.insert(name.as_ref().to_string(), factory);
 

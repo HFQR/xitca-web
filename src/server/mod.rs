@@ -5,9 +5,7 @@ mod service;
 pub use handle::ServerHandle;
 
 pub(crate) use self::future::{ServerFuture, ServerFutureInner};
-pub(crate) use self::service::{
-    IntoServiceFactoryClone, ServerServiceFactory, ServiceFactoryClone,
-};
+pub(crate) use self::service::{Factory, IntoServiceFactoryClone, ServiceFactoryClone};
 
 use std::io;
 use std::mem;
@@ -51,7 +49,8 @@ impl Drop for Server {
 impl Server {
     pub fn new(builder: Builder) -> io::Result<Self> {
         let Builder {
-            workers,
+            server_threads,
+            worker_threads,
             max_blocking_threads,
             connection_limit,
             listeners,
@@ -62,8 +61,13 @@ impl Server {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
         let server_handle = thread::spawn(move || {
-            let res = runtime::Builder::new_current_thread()
+            let res = runtime::Builder::new_multi_thread()
                 .enable_all()
+                // This worker threads is only used for accepting connections.
+                // actix-sever worker does not run task on them.
+                .worker_threads(server_threads)
+                // Place holder setting and currently no blocking tasks would run
+                // in server runtime.
                 .max_blocking_threads(max_blocking_threads)
                 .build()
                 .and_then(|rt| {
@@ -105,9 +109,7 @@ impl Server {
         let (tx, res) = rx.recv().unwrap();
         let listeners = res?;
 
-        let ran = 0..workers;
-
-        let worker_handles = ran
+        let worker_handles = (0..worker_threads)
             .map(|_| {
                 let listeners = listeners.clone();
                 let factories = factories

@@ -4,10 +4,9 @@ use actix_service::ServiceFactory;
 use futures_core::future::LocalBoxFuture;
 
 use crate::net::FromStream;
+use crate::worker::{RcWorkerService, WorkerService};
 
-use crate::worker::{BoxedWorkerService, WorkerService};
-
-pub(crate) struct ServerServiceFactory<F, Req>
+pub(crate) struct Factory<F, Req>
 where
     F: IntoServiceFactoryClone<Req>,
     Req: FromStream + Send,
@@ -16,7 +15,7 @@ where
     _t: PhantomData<Req>,
 }
 
-impl<F, Req> ServerServiceFactory<F, Req>
+impl<F, Req> Factory<F, Req>
 where
     F: IntoServiceFactoryClone<Req>,
     Req: FromStream + Send + 'static,
@@ -32,10 +31,10 @@ where
 pub(crate) trait ServiceFactoryClone: Send {
     fn clone_factory(&self) -> Box<dyn ServiceFactoryClone>;
 
-    fn create(&self) -> LocalBoxFuture<'static, Result<BoxedWorkerService, ()>>;
+    fn create(&self) -> LocalBoxFuture<'static, Result<RcWorkerService, ()>>;
 }
 
-impl<F, Req> ServiceFactoryClone for ServerServiceFactory<F, Req>
+impl<F, Req> ServiceFactoryClone for Factory<F, Req>
 where
     F: IntoServiceFactoryClone<Req>,
     Req: FromStream + Send + 'static,
@@ -47,12 +46,12 @@ where
         })
     }
 
-    fn create(&self) -> LocalBoxFuture<'static, Result<BoxedWorkerService, ()>> {
+    fn create(&self) -> LocalBoxFuture<'static, Result<RcWorkerService, ()>> {
         let fut = self.inner.create().new_service(());
         Box::pin(async move {
             let service = fut.await.map_err(|_| ())?;
 
-            Ok(WorkerService::new_boxed(service))
+            Ok(WorkerService::new_rcboxed(service))
         })
     }
 }

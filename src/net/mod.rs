@@ -2,7 +2,7 @@
 mod h3;
 
 #[cfg(feature = "http3")]
-pub use self::h3::{H3ServerConfig, UdpListener, UdpListenerBuilder, UdpStream};
+pub use self::h3::{H3ServerConfig, UdpConnecting, UdpListener, UdpListenerBuilder, UdpStream};
 
 pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
@@ -31,6 +31,12 @@ pub enum Stream {
 
 pub trait FromStream {
     fn from_stream(stream: Stream) -> Self;
+}
+
+impl FromStream for Stream {
+    fn from_stream(stream: Stream) -> Self {
+        stream
+    }
 }
 
 impl FromStream for TcpStream {

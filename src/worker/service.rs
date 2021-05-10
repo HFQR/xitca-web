@@ -1,3 +1,4 @@
+use std::future::{ready, Ready};
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::task::{Context, Poll};
@@ -8,20 +9,9 @@ use super::limit::LimitGuard;
 
 use crate::net::{FromStream, Stream};
 
-pub(crate) type BoxedWorkerService = Box<dyn ServerService<(LimitGuard, Stream), Error = ()>>;
-
-/// A special Service trait for actix_server.
-/// The goal is to add clone_service method for trait object and simplify
-/// associated type.
-pub(crate) trait ServerService<Req> {
-    type Error;
-
-    fn poll_ready(&self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
-
-    fn call(&self, req: Req);
-
-    fn clone_service(&self) -> Box<dyn ServerService<Req, Error = Self::Error>>;
-}
+pub(crate) type RcWorkerService = Rc<
+    dyn Service<(LimitGuard, Stream), Response = (), Error = (), Future = Ready<Result<(), ()>>>,
+>;
 
 pub(crate) struct WorkerService<S, Req> {
     service: S,
@@ -33,49 +23,39 @@ where
     S: Service<Req> + 'static,
     Req: FromStream + 'static,
 {
-    pub(crate) fn new_boxed(service: S) -> BoxedWorkerService {
-        Box::new(WorkerService {
-            service: Rc::new(service),
+    pub(crate) fn new_rcboxed(service: S) -> RcWorkerService {
+        Rc::new(WorkerService {
+            service,
             _req: PhantomData,
         })
     }
 }
 
-impl<S, Req> Clone for WorkerService<S, Req>
+impl<S, Req> Service<(LimitGuard, Stream)> for WorkerService<S, Req>
 where
-    S: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            service: self.service.clone(),
-            _req: PhantomData,
-        }
-    }
-}
-
-impl<S, Req> ServerService<(LimitGuard, Stream)> for WorkerService<S, Req>
-where
-    S: Service<Req> + Clone + 'static,
+    S: Service<Req> + 'static,
     Req: FromStream + 'static,
 {
+    type Response = ();
+
     type Error = ();
+
+    type Future = Ready<Result<(), ()>>;
 
     #[inline]
     fn poll_ready(&self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(ctx).map_err(|_| ())
     }
 
-    fn call(&self, (guard, req): (LimitGuard, Stream)) {
+    fn call(&self, (guard, req): (LimitGuard, Stream)) -> Self::Future {
         let stream = FromStream::from_stream(req);
-        let service = self.service.clone();
+        let service = self.service.call(stream);
 
         tokio::task::spawn_local(async move {
-            let _ = service.call(stream).await;
+            let _ = service.await;
             drop(guard);
         });
-    }
 
-    fn clone_service(&self) -> Box<dyn ServerService<(LimitGuard, Stream), Error = Self::Error>> {
-        Box::new(self.clone())
+        ready(Ok(()))
     }
 }

@@ -1,7 +1,7 @@
 mod limit;
 mod service;
 
-pub(crate) use self::service::{BoxedWorkerService, WorkerService};
+pub(crate) use self::service::{RcWorkerService, WorkerService};
 
 use std::future::Future;
 use std::io;
@@ -22,7 +22,7 @@ use crate::server::ServiceFactoryClone;
 
 struct WorkerInner {
     listener: Arc<Listener>,
-    service: BoxedWorkerService,
+    service: RcWorkerService,
     limit: Limit,
 }
 
@@ -56,7 +56,7 @@ impl WorkerInner {
     }
 }
 
-struct ServiceReady<'a>(&'a BoxedWorkerService);
+struct ServiceReady<'a>(&'a RcWorkerService);
 
 impl Future for ServiceReady<'_> {
     type Output = ();
@@ -91,7 +91,7 @@ pub(crate) async fn run(
                 .iter()
                 .find_map(|(n, service)| {
                     if n == &name {
-                        Some(service.clone_service())
+                        Some(service.clone())
                     } else {
                         None
                     }

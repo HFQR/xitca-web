@@ -2,8 +2,10 @@
 
 use std::io;
 
-use actix_server_alt::net::UdpStream;
+use actix_server_alt::{net::UdpStream, Builder};
 use actix_service::fn_service;
+use bytes::Bytes;
+use h3::server::RequestStream;
 use h3_quinn::quinn::{Certificate, CertificateChain, PrivateKey, ServerConfigBuilder};
 use log::{debug, error, warn};
 
@@ -17,62 +19,85 @@ async fn main() -> io::Result<()> {
     // construct server config
     let mut config = ServerConfigBuilder::default();
     config.protocols(&[b"h3-29"]);
-    let (cert_chain, _cert, key) = build_certs();
+    let (cert_chain, key) = build_certs();
     config.certificate(cert_chain, key).unwrap();
 
     let config = config.build();
 
-    actix_server_alt::Builder::new()
+    Builder::new()
         .bind_h3("test", addr, config, || fn_service(handle))?
         .build()
         .await
 }
 
-async fn handle(mut udp: UdpStream) -> io::Result<()> {
-    match (&mut *udp).await {
-        Ok(conn) => {
-            debug!("New connection now established");
+async fn handle(udp: UdpStream) -> io::Result<()> {
+    let conn = udp.connecting().await.map_err(|err| {
+        warn!("connecting client failed with error: {:?}", err);
+        io::Error::new(io::ErrorKind::Other, err)
+    })?;
 
-            let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(conn))
-                .await
-                .unwrap();
+    debug!("New connection now established");
 
-            while let Ok(Some((req, mut stream))) = h3_conn.accept().await {
-                debug!("connection requested: {:#?}", req);
+    let conn = h3_quinn::Connection::new(conn);
+    let mut conn = h3::server::Connection::new(conn).await.unwrap();
 
-                tokio::spawn(async move {
-                    let resp = http::Response::builder()
-                        .status(http::StatusCode::NOT_FOUND)
-                        .body(())
-                        .unwrap();
+    while let Some(res) = conn.accept().await.transpose() {
+        let (req, stream) = res.map_err(|err| {
+            warn!("accepting request failed with error: {:?}", err);
+            io::Error::new(io::ErrorKind::Other, err)
+        })?;
 
-                    match stream.send_response(resp).await {
-                        Ok(_) => {
-                            debug!("Response to connection successful");
-                        }
-                        Err(err) => {
-                            error!("Unable to send response to connection peer: {:?}", err);
-                        }
-                    }
+        debug!("connection requested: {:#?}", req);
 
-                    stream.finish().await.unwrap();
-                });
+        tokio::spawn(async move {
+            match send_response(stream).await {
+                Ok(_) => {
+                    debug!("Response to connection successful");
+                }
+                Err(err) => {
+                    error!("Unable to send response to connection peer: {:?}", err);
+                }
             }
-
-            Ok(())
-        }
-        Err(err) => {
-            warn!("connecting client failed with error: {:?}", err);
-            Ok(())
-        }
+        });
     }
+
+    Ok(())
+}
+
+const BODY: &[u8] = b"
+<!DOCTYPE html>\
+<html>\
+<body>\
+\r\n\
+<h1>Http3 Example</h1>\
+\r\n\
+<p>It's working.</p>\
+\r\n\
+</body>\
+</html>";
+
+async fn send_response<S>(mut stream: RequestStream<S>) -> Result<(), Box<dyn std::error::Error>>
+where
+    S: h3::quic::SendStream<Bytes>,
+{
+    let res = http::Response::builder()
+        .status(http::StatusCode::OK)
+        .header("Content-Type", "text/html")
+        .header("content-length", BODY.len())
+        .body(())?;
+
+    stream.send_response(res).await?;
+    stream.send_data(Bytes::from_static(BODY)).await?;
+    stream.finish().await?;
+
+    Ok(())
 }
 
 // random self sign cert generator.
-fn build_certs() -> (CertificateChain, Certificate, PrivateKey) {
+fn build_certs() -> (CertificateChain, PrivateKey) {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let key = PrivateKey::from_der(&cert.serialize_private_key_der()).unwrap();
     let cert = Certificate::from_der(&cert.serialize_der().unwrap()).unwrap();
 
-    (CertificateChain::from_certs(vec![cert.clone()]), cert, key)
+    (CertificateChain::from_certs(vec![cert.clone()]), key)
 }

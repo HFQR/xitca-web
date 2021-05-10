@@ -30,7 +30,7 @@ futures-core = "0.3"
 futures-util = "0.3"
 log = "0.4"
 num_cpus = "1.13"
-tokio = { version = "1.5", features = ["net", "rt", "sync", "time", "parking_lot"] }
+tokio = { version = "1.5", features = ["net", "rt", "rt-multi-thread", "sync", "time", "parking_lot"] }
 
 # actix runtime support
 actix-rt = { version = "2.2", default-features = false, optional = true }
@@ -42,6 +42,7 @@ quinn = { version = "0.7.2", optional = true }
 actix-http = { version = "3.0.0-beta.6", default-features = false }
 actix-web = { version = "4.0.0-beta.6", default-features = false }
 
+bytes = "1"
 env_logger = "0.8"
 http = "0.2"
 rcgen = "0.8"
@@ -49,3 +50,8 @@ tokio = { version = "1.5", features = ["io-util", "macros"] }
 
 h3 = { git = "https://github.com/hyperium/h3" }
 h3-quinn = { git = "https://github.com/hyperium/h3" }
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
