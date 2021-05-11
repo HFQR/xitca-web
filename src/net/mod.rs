@@ -9,8 +9,9 @@ pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
 #[cfg(unix)]
 pub use tokio::net::{UnixListener, UnixStream};
 
-use std::io;
-use std::net;
+use std::{io, net};
+
+use log::info;
 
 #[derive(Debug)]
 pub(crate) enum Listener {
@@ -21,6 +22,7 @@ pub(crate) enum Listener {
     Unix(UnixListener),
 }
 
+/// A collection of stream types of different protocol.
 pub enum Stream {
     Tcp(TcpStream),
     #[cfg(feature = "http3")]
@@ -58,9 +60,9 @@ impl FromStream for UnixStream {
     }
 }
 
-/// Helper trait for convert std listener types to tokio types.
-/// This is to delay the conversion and make it happen in server thread.
-/// Otherwise it would panic.
+/// Helper trait for convert listener types to tokio types.
+/// This is to delay the conversion and make it happen in server thread(s).
+/// Otherwise it could panic.
 pub(crate) trait AsListener {
     fn as_listener(&mut self) -> io::Result<Listener>;
 }
@@ -69,7 +71,12 @@ impl AsListener for Option<net::TcpListener> {
     fn as_listener(&mut self) -> io::Result<Listener> {
         let this = self.take().unwrap();
         this.set_nonblocking(true)?;
-        TcpListener::from_std(this).map(Listener::Tcp)
+
+        let tcp = TcpListener::from_std(this)?;
+
+        info!("Started Tcp listening on : {:?}", tcp.local_addr().ok());
+
+        Ok(Listener::Tcp(tcp))
     }
 }
 
@@ -78,7 +85,12 @@ impl AsListener for Option<std::os::unix::net::UnixListener> {
     fn as_listener(&mut self) -> io::Result<Listener> {
         let this = self.take().unwrap();
         this.set_nonblocking(true)?;
-        UnixListener::from_std(this).map(Listener::Unix)
+
+        let unix = UnixListener::from_std(this)?;
+
+        info!("Started Unix listening on : {:?}", unix.local_addr().ok());
+
+        Ok(Listener::Unix(unix))
     }
 }
 

@@ -10,4 +10,4 @@ mod signals;
 pub mod net;
 
 pub use builder::Builder;
-pub use server::ServerHandle;
+pub use server::{ServerFuture, ServerHandle};

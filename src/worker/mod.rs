@@ -3,22 +3,21 @@ mod service;
 
 pub(crate) use self::service::{RcWorkerService, WorkerService};
 
-use std::future::Future;
-use std::io;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::thread;
-use std::time::Duration;
+use std::{
+    future::Future,
+    io,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
-use log::{error, info};
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use log::error;
+use tokio::{task::JoinHandle, time::sleep};
 
 use self::limit::Limit;
 
 use crate::net::Listener;
-use crate::server::ServiceFactoryClone;
 
 struct WorkerInner {
     listener: Arc<Listener>,
@@ -28,7 +27,6 @@ struct WorkerInner {
 
 impl WorkerInner {
     fn spawn_handling(self) -> JoinHandle<()> {
-        info!("Started worker on {:?}", thread::current().id());
         tokio::task::spawn_local(async move {
             loop {
                 self.ready().await;
@@ -72,16 +70,9 @@ impl Future for ServiceReady<'_> {
 
 pub(crate) async fn run(
     listeners: Vec<(String, Arc<Listener>)>,
-    factories: Vec<(String, Box<dyn ServiceFactoryClone>)>,
+    services: Vec<(String, RcWorkerService)>,
     connection_limit: usize,
 ) {
-    let mut services = Vec::new();
-
-    for (name, factory) in factories {
-        let service = factory.create().await.unwrap();
-        services.push((name, service));
-    }
-
     let limit = Limit::new(connection_limit);
 
     let handles = listeners

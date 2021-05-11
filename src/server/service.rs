@@ -8,7 +8,7 @@ use crate::worker::{RcWorkerService, WorkerService};
 
 pub(crate) struct Factory<F, Req>
 where
-    F: IntoServiceFactoryClone<Req>,
+    F: AsServiceFactoryClone<Req>,
     Req: FromStream + Send,
 {
     inner: F,
@@ -17,10 +17,10 @@ where
 
 impl<F, Req> Factory<F, Req>
 where
-    F: IntoServiceFactoryClone<Req>,
+    F: AsServiceFactoryClone<Req>,
     Req: FromStream + Send + 'static,
 {
-    pub(crate) fn create(inner: F) -> Box<dyn ServiceFactoryClone> {
+    pub(crate) fn new_boxed(inner: F) -> Box<dyn ServiceFactoryClone> {
         Box::new(Self {
             inner,
             _t: PhantomData,
@@ -31,12 +31,12 @@ where
 pub(crate) trait ServiceFactoryClone: Send {
     fn clone_factory(&self) -> Box<dyn ServiceFactoryClone>;
 
-    fn create(&self) -> LocalBoxFuture<'static, Result<RcWorkerService, ()>>;
+    fn new_service(&self) -> LocalBoxFuture<'static, Result<RcWorkerService, ()>>;
 }
 
 impl<F, Req> ServiceFactoryClone for Factory<F, Req>
 where
-    F: IntoServiceFactoryClone<Req>,
+    F: AsServiceFactoryClone<Req>,
     Req: FromStream + Send + 'static,
 {
     fn clone_factory(&self) -> Box<dyn ServiceFactoryClone> {
@@ -46,8 +46,8 @@ where
         })
     }
 
-    fn create(&self) -> LocalBoxFuture<'static, Result<RcWorkerService, ()>> {
-        let fut = self.inner.create().new_service(());
+    fn new_service(&self) -> LocalBoxFuture<'static, Result<RcWorkerService, ()>> {
+        let fut = self.inner.as_factory_clone().new_service(());
         Box::pin(async move {
             let service = fut.await.map_err(|_| ())?;
 
@@ -56,25 +56,27 @@ where
     }
 }
 
-pub trait IntoServiceFactoryClone<Req>
+/// Helper trait to cast a cloneable type that impl [actix_service::ServiceFactory]
+/// to a trait object that is `Send` and `Clone`.
+pub trait AsServiceFactoryClone<Req>
 where
     Req: FromStream,
     Self: Send + Clone + 'static,
 {
-    type Factory: ServiceFactory<Req, Config = ()>;
+    type ServiceFactoryClone: ServiceFactory<Req, Config = ()>;
 
-    fn create(&self) -> Self::Factory;
+    fn as_factory_clone(&self) -> Self::ServiceFactoryClone;
 }
 
-impl<F, T, Req> IntoServiceFactoryClone<Req> for F
+impl<F, T, Req> AsServiceFactoryClone<Req> for F
 where
     F: Fn() -> T + Send + Clone + 'static,
     T: ServiceFactory<Req, Config = ()>,
     Req: FromStream,
 {
-    type Factory = T;
+    type ServiceFactoryClone = T;
 
-    fn create(&self) -> T {
+    fn as_factory_clone(&self) -> T {
         (self)()
     }
 }

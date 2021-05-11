@@ -1,8 +1,9 @@
-use std::future::Future;
-use std::io;
-use std::mem;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    future::Future,
+    io, mem,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use futures_core::{future::BoxFuture, ready};
 
@@ -18,6 +19,30 @@ pub enum ServerFuture {
 }
 
 impl ServerFuture {
+    /// A handle for mutate Server state.
+    ///
+    /// # Examples:
+    ///
+    /// ```rust
+    /// # use actix_server_alt::Builder;
+    /// # use actix_service::fn_service;
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let mut server = Builder::new()
+    ///     .bind("test", "127.0.0.1:0", || fn_service(|_| async { Ok::<_, ()>(())}))
+    ///     .unwrap()
+    ///     .build();
+    ///
+    /// // obtain a handle. if server fail to start a std::io::Error would return.
+    /// let handle = server.handle().unwrap();
+    ///
+    /// // spawn server future.
+    /// tokio::spawn(server);
+    ///
+    /// // do a graceful shutdown of server.
+    /// handle.stop(true).await
+    /// # }
+    /// ```
     pub fn handle(&mut self) -> io::Result<ServerHandle> {
         match *self {
             Self::Server(ref inner) => Ok(ServerHandle {

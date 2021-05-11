@@ -1,15 +1,18 @@
-use std::io;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::{future::Future, net::SocketAddr};
+use std::{
+    future::Future,
+    io,
+    net::SocketAddr,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use async_channel::{Receiver, Recv};
 use futures_core::ready;
+use log::info;
 use quinn::{
     crypto::{rustls::TlsSession, Session},
     generic::{Connecting, Endpoint, ServerConfig},
 };
-use tokio::task::JoinHandle;
 
 use super::{AsListener, FromStream, Listener, Stream};
 
@@ -26,14 +29,6 @@ where
     endpoint: Endpoint<S>,
     /// async-channel is used to receive Connecting from [quinn::generic::Incoming]
     incoming: Receiver<Connecting<S>>,
-    handle: JoinHandle<()>,
-}
-
-impl<S: Session> Drop for UdpListener<S> {
-    fn drop(&mut self) {
-        // cancel `quinn::generic::Incoming` task on drop.
-        self.handle.abort();
-    }
 }
 
 impl<S: Session> UdpListener<S> {
@@ -63,6 +58,7 @@ impl<S: Session> Future for Accept<'_, S> {
     }
 }
 
+/// Builder type for UdpListener.
 pub struct UdpListenerBuilder<S: Session = TlsSession> {
     addr: SocketAddr,
     config: ServerConfig<S>,
@@ -70,7 +66,14 @@ pub struct UdpListenerBuilder<S: Session = TlsSession> {
 
 impl AsListener for Option<UdpListenerBuilder> {
     fn as_listener(&mut self) -> io::Result<Listener> {
-        self.take().unwrap().build().map(Listener::Udp)
+        let udp = self.take().unwrap().build()?;
+
+        info!(
+            "Started Udp listening on : {:?}",
+            udp.endpoint.local_addr().ok()
+        );
+
+        Ok(Listener::Udp(udp))
     }
 }
 
@@ -91,23 +94,23 @@ where
 
         let (endpoint, mut incoming) = builder.bind(&addr).unwrap();
 
-        // Use async channel to dispatch Connecting<S> to worker threads.
+        // Use async channel to dispatch Connecting<Session> to worker threads.
         // Incoming can only be held by single task and sharing it between
         // threads would cause hanging.
         let (tx, rx) = async_channel::unbounded();
-        let handle = tokio::spawn(async move {
+
+        // Detach the Incoming<Session> as a spawn task.
+        // When Endpoint<Session> dropped incoming will be wakeup and get None to end task.
+        tokio::spawn(async move {
             use futures_util::StreamExt;
             while let Some(conn) = incoming.next().await {
-                if tx.send(conn).await.is_err() {
-                    return;
-                }
+                tx.send(conn).await.unwrap();
             }
         });
 
         Ok(UdpListener {
             endpoint,
             incoming: rx,
-            handle,
         })
     }
 }

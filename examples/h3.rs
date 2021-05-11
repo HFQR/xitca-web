@@ -2,7 +2,10 @@
 
 use std::io;
 
-use actix_server_alt::{net::UdpStream, Builder};
+use actix_server_alt::{
+    net::{TcpStream, UdpStream},
+    Builder,
+};
 use actix_service::fn_service;
 use bytes::Bytes;
 use h3::server::RequestStream;
@@ -25,12 +28,19 @@ async fn main() -> io::Result<()> {
     let config = config.build();
 
     Builder::new()
-        .bind_h3("test", addr, config, || fn_service(handle))?
+        .bind("test", addr, || fn_service(handle))?
+        .bind_h3("test_h3", addr, config, || fn_service(handle_h3))?
         .build()
         .await
 }
 
-async fn handle(udp: UdpStream) -> io::Result<()> {
+// ignore tcp handling.
+async fn handle(stream: TcpStream) -> io::Result<()> {
+    drop(stream);
+    Ok(())
+}
+
+async fn handle_h3(udp: UdpStream) -> io::Result<()> {
     let conn = udp.connecting().await.map_err(|err| {
         warn!("connecting client failed with error: {:?}", err);
         io::Error::new(io::ErrorKind::Other, err)

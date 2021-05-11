@@ -3,7 +3,7 @@ use std::{collections::HashMap, net};
 
 use crate::net::{AsListener, TcpSocket, TcpStream};
 use crate::server::{
-    Factory, IntoServiceFactoryClone, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone,
+    AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone,
 };
 
 pub struct Builder {
@@ -84,7 +84,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: IntoServiceFactoryClone<TcpStream>,
+        F: AsServiceFactoryClone<TcpStream>,
     {
         let addr = addr.to_socket_addrs()?.next().ok_or_else(|| {
             io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr")
@@ -111,14 +111,14 @@ impl Builder {
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: IntoServiceFactoryClone<TcpStream>,
+        F: AsServiceFactoryClone<TcpStream>,
     {
         self.listeners
             .entry(name.as_ref().to_string())
             .or_insert_with(Vec::new)
             .push(Box::new(Some(listener)));
 
-        let factory = Factory::create(factory);
+        let factory = Factory::new_boxed(factory);
 
         self.factories.insert(name.as_ref().to_string(), factory);
 
@@ -148,7 +148,7 @@ impl Builder {
     where
         N: AsRef<str>,
         P: AsRef<std::path::Path>,
-        F: IntoServiceFactoryClone<crate::net::UnixStream>,
+        F: AsServiceFactoryClone<crate::net::UnixStream>,
     {
         // The path must not exist when we try to bind.
         // Try to remove it to avoid bind error.
@@ -172,14 +172,14 @@ impl Builder {
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: IntoServiceFactoryClone<crate::net::UnixStream>,
+        F: AsServiceFactoryClone<crate::net::UnixStream>,
     {
         self.listeners
             .entry(name.as_ref().to_string())
             .or_insert_with(Vec::new)
             .push(Box::new(Some(listener)));
 
-        let factory = Factory::create(factory);
+        let factory = Factory::new_boxed(factory);
 
         self.factories.insert(name.as_ref().to_string(), factory);
 
@@ -199,7 +199,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: IntoServiceFactoryClone<crate::net::UdpStream>,
+        F: AsServiceFactoryClone<crate::net::UdpStream>,
     {
         let addr = addr.to_socket_addrs()?.next().ok_or_else(|| {
             io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr")
@@ -212,7 +212,7 @@ impl Builder {
             .or_insert_with(Vec::new)
             .push(Box::new(Some(builder)));
 
-        let factory = Factory::create(factory);
+        let factory = Factory::new_boxed(factory);
 
         self.factories.insert(name.as_ref().to_string(), factory);
 

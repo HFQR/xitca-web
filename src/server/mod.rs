@@ -2,21 +2,22 @@ mod future;
 mod handle;
 mod service;
 
-pub use handle::ServerHandle;
+pub use self::future::{ServerFuture, ServerFutureInner};
+pub use self::handle::ServerHandle;
 
-pub(crate) use self::future::{ServerFuture, ServerFutureInner};
-pub(crate) use self::service::{Factory, IntoServiceFactoryClone, ServiceFactoryClone};
+pub(crate) use self::service::{AsServiceFactoryClone, Factory, ServiceFactoryClone};
 
-use std::io;
-use std::mem;
-use std::sync::Arc;
-use std::thread;
+use std::{io, mem, sync::Arc, thread};
 
-use log::error;
-use tokio::runtime;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot;
-use tokio::task::LocalSet;
+use log::{error, info};
+use tokio::{
+    runtime,
+    sync::{
+        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+        oneshot,
+    },
+    task::LocalSet,
+};
 
 use crate::builder::Builder;
 
@@ -66,9 +67,6 @@ impl Server {
                 // This worker threads is only used for accepting connections.
                 // actix-sever worker does not run task on them.
                 .worker_threads(server_threads)
-                // Place holder setting and currently no blocking tasks would run
-                // in server runtime.
-                .max_blocking_threads(max_blocking_threads)
                 .build()
                 .and_then(|rt| {
                     let res = rt.block_on(async {
@@ -115,12 +113,14 @@ impl Server {
                 let factories = factories
                     .iter()
                     .map(|(name, factory)| (name.to_owned(), factory.clone_factory()))
-                    .collect();
+                    .collect::<Vec<_>>();
 
                 #[cfg(feature = "actix")]
                 let actix = actix_rt::System::try_current();
 
-                thread::spawn(move || {
+                let (tx, rx) = std::sync::mpsc::sync_channel(1);
+
+                let handle = thread::spawn(move || {
                     #[cfg(feature = "actix")]
                     if let Some(actix) = actix {
                         actix_rt::System::set_current(actix);
@@ -128,16 +128,46 @@ impl Server {
 
                     let rt = runtime::Builder::new_current_thread()
                         .enable_all()
+                        .max_blocking_threads(max_blocking_threads)
                         .build()
                         .unwrap();
                     let local = LocalSet::new();
 
-                    rt.block_on(local.run_until(async {
-                        crate::worker::run(listeners, factories, connection_limit).await;
-                    }))
-                })
+                    let services = rt.block_on(local.run_until(async {
+                        let mut services = Vec::new();
+
+                        for (name, factory) in factories {
+                            let service = factory.new_service().await?;
+                            services.push((name, service));
+                        }
+
+                        Ok::<_, ()>(services)
+                    }));
+
+                    match services {
+                        Ok(services) => {
+                            tx.send(Ok(())).unwrap();
+                            rt.block_on(local.run_until(async {
+                                info!("Started worker on {:?}", thread::current().id());
+                                crate::worker::run(listeners, services, connection_limit).await;
+                                info!("Stopped worker on {:?}", thread::current().id());
+                            }))
+                        }
+                        Err(_) => {
+                            tx.send(Err(io::Error::new(
+                                io::ErrorKind::Other,
+                                "Worker Services failt to start",
+                            )))
+                            .unwrap();
+                        }
+                    }
+                });
+
+                rx.recv().unwrap()?;
+
+                Ok(handle)
             })
-            .collect();
+            .collect::<io::Result<Vec<_>>>()?;
 
         let (tx_cmd, rx_cmd) = unbounded_channel();
 

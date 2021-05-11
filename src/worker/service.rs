@@ -1,7 +1,9 @@
-use std::future::{ready, Ready};
-use std::marker::PhantomData;
-use std::rc::Rc;
-use std::task::{Context, Poll};
+use std::{
+    future::{ready, Ready},
+    marker::PhantomData,
+    rc::Rc,
+    task::{Context, Poll},
+};
 
 use actix_service::Service;
 
