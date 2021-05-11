@@ -11,7 +11,7 @@ pub struct Builder {
     pub(crate) worker_threads: usize,
     pub(crate) connection_limit: usize,
     pub(crate) max_blocking_threads: usize,
-    pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener + Send>>>,
+    pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener>>>,
     pub(crate) factories: HashMap<String, Box<dyn ServiceFactoryClone>>,
     pub(crate) enable_signal: bool,
     backlog: u32,
@@ -70,6 +70,10 @@ impl Builder {
         self
     }
 
+    /// Disable signal listening.
+    ///
+    /// `tokio::signal` is used for listening and it only functional in tokio runtime 1.x.
+    /// Disabling it would enable server runs in other async runtimes.
     pub fn disable_signal(mut self) -> Self {
         self.enable_signal = false;
         self

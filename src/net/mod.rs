@@ -63,7 +63,7 @@ impl FromStream for UnixStream {
 /// Helper trait for convert listener types to tokio types.
 /// This is to delay the conversion and make it happen in server thread(s).
 /// Otherwise it could panic.
-pub(crate) trait AsListener {
+pub(crate) trait AsListener: Send {
     fn as_listener(&mut self) -> io::Result<Listener>;
 }
 

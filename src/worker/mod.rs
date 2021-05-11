@@ -29,11 +29,11 @@ impl WorkerInner {
     fn spawn_handling(self) -> JoinHandle<()> {
         tokio::task::spawn_local(async move {
             loop {
-                self.ready().await;
+                let guard = self.limit.ready().await;
 
                 match self.listener.accept().await {
                     Ok(stream) => {
-                        let guard = self.limit.ready().await;
+                        self.service_ready().await;
                         let _ = self.service.call((guard, stream));
                     }
                     Err(ref e) if connection_error(e) => continue,
@@ -49,7 +49,7 @@ impl WorkerInner {
         })
     }
 
-    fn ready(&self) -> ServiceReady<'_> {
+    fn service_ready(&self) -> ServiceReady<'_> {
         ServiceReady(&self.service)
     }
 }

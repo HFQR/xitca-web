@@ -20,19 +20,16 @@ pub type UdpConnecting = Connecting<TlsSession>;
 
 pub type H3ServerConfig = ServerConfig<TlsSession>;
 
-/// UdpListener is a wrapper type of [quinn::generic::Endpoint].
+/// UdpListener is a wrapper type of [`Endpoint`](quinn::generic::Endpoint).
 #[derive(Debug)]
-pub struct UdpListener<S = TlsSession>
-where
-    S: Session,
-{
+pub struct UdpListener<S: Session = TlsSession> {
     endpoint: Endpoint<S>,
-    /// async-channel is used to receive Connecting from [quinn::generic::Incoming]
+    /// `async-channel` is used to receive Connecting from [`Incoming`](quinn::generic::Incoming).
     incoming: Receiver<Connecting<S>>,
 }
 
 impl<S: Session> UdpListener<S> {
-    /// Accept one [quinn::generic::Connecting].
+    /// Accept [`UdpStream`](self::UdpStream).
     pub fn accept(&self) -> Accept<'_, S> {
         Accept {
             recv: self.incoming.recv(),
@@ -115,15 +112,30 @@ where
     }
 }
 
+/// Wrapper type for [`Connecting`](quinn::generic::Connecting).
+///
+/// Naming is to keep consistent with `TcpStream` / `UnixStream`.
 pub struct UdpStream<S: Session = TlsSession> {
     connecting: Connecting<S>,
 }
 
 impl<S: Session> UdpStream<S> {
+    /// Expose [`Connecting`](quinn::generic::Connecting) type that can be polled or awaited.
+    ///
+    /// # Examples:
+    ///
+    /// ```rust
+    /// # use actix_server_alt::net::UdpStream;
+    /// async fn handle(stream: UdpStream) {
+    ///     use quinn::NewConnection;
+    ///     let new_conn: NewConnection = stream.connecting().await.unwrap();
+    /// }
+    /// ```
     pub fn connecting(self) -> Connecting<S> {
         self.connecting
     }
 
+    /// Get remote `SocketAddr` self connected to.
     pub fn peer_addr(&self) -> SocketAddr {
         self.connecting.remote_address()
     }
