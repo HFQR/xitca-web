@@ -116,6 +116,7 @@ trait NextTrait<S: Session> {
 }
 
 impl<S: Session> NextTrait<S> for Incoming<S> {
+    #[inline(always)]
     fn next(&mut self) -> Next<'_, S> {
         Next { stream: self }
     }
@@ -128,6 +129,7 @@ struct Next<'a, S: Session> {
 impl<S: Session> Future for Next<'_, S> {
     type Output = Option<<Incoming<S> as futures_core::Stream>::Item>;
 
+    #[inline(always)]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         futures_core::Stream::poll_next(Pin::new(&mut self.get_mut().stream), cx)
     }

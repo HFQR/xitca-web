@@ -3,13 +3,13 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    thread,
     time::{Duration, Instant},
 };
 
 use log::info;
 
 use super::limit::Limit;
+use super::worker_name;
 
 pub(super) struct ShutdownHandle {
     shutdown_timeout: Duration,
@@ -20,13 +20,12 @@ pub(super) struct ShutdownHandle {
 
 impl Drop for ShutdownHandle {
     fn drop(&mut self) {
-        let id = thread::current().id();
         if self.fulfilled {
-            info!("Graceful stopped worker on {:?}", id);
+            info!("Graceful stopped {}", worker_name());
         } else {
             info!(
-                "Force stopped worker on {:?}. {:?} connections left.",
-                id,
+                "Force stopped {}. {:?} connections left.",
+                worker_name(),
                 self.limit.get()
             );
         }
@@ -39,7 +38,6 @@ impl ShutdownHandle {
         limit: Limit,
         is_graceful_shutdown: Arc<AtomicBool>,
     ) -> Self {
-        info!("Started worker on {:?}", thread::current().id());
         Self {
             shutdown_timeout,
             limit,

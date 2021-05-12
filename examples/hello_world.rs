@@ -13,7 +13,7 @@ const BUF: &[u8] = b"HTTP/1.1 200 OK\r\n\
     \r\n\
     Hello World!";
 
-#[tokio::main(flavor = "current_thread")]
+#[actix_web::main]
 async fn main() -> io::Result<()> {
     std::env::set_var("RUST_LOG", "actix=trace, info");
     env_logger::init();

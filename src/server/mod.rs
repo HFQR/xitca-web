@@ -103,7 +103,7 @@ impl Server {
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
 
         let worker_handles = (0..worker_threads)
-            .map(|_| {
+            .map(|idx| {
                 let is_graceful_shutdown = is_graceful_shutdown.clone();
                 let listeners = listeners.clone();
                 let factories = factories
@@ -116,54 +116,56 @@ impl Server {
 
                 let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
-                let handle = thread::spawn(move || {
-                    #[cfg(feature = "actix")]
-                    if let Some(actix) = actix {
-                        actix_rt::System::set_current(actix);
-                    }
-
-                    let rt = runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .max_blocking_threads(worker_max_blocking_threads)
-                        .build()
-                        .unwrap();
-                    let local = LocalSet::new();
-
-                    let services = rt.block_on(local.run_until(async {
-                        let mut services = Vec::new();
-
-                        for (name, factory) in factories {
-                            let service = factory.new_service().await?;
-                            services.push((name, service));
+                let handle = thread::Builder::new()
+                    .name(format!("actix-server-worker-{}", idx))
+                    .spawn(move || {
+                        #[cfg(feature = "actix")]
+                        if let Some(actix) = actix {
+                            actix_rt::System::set_current(actix);
                         }
 
-                        Ok::<_, ()>(services)
-                    }));
-
-                    match services {
-                        Ok(services) => {
-                            tx.send(Ok(())).unwrap();
-
-                            rt.block_on(local.run_until(async {
-                                crate::worker::run(
-                                    listeners,
-                                    services,
-                                    connection_limit,
-                                    shutdown_timeout,
-                                    is_graceful_shutdown,
-                                )
-                                .await;
-                            }))
-                        }
-                        Err(_) => {
-                            tx.send(Err(io::Error::new(
-                                io::ErrorKind::Other,
-                                "Worker Services fail to start",
-                            )))
+                        let rt = runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .max_blocking_threads(worker_max_blocking_threads)
+                            .build()
                             .unwrap();
+                        let local = LocalSet::new();
+
+                        let services = rt.block_on(local.run_until(async {
+                            let mut services = Vec::new();
+
+                            for (name, factory) in factories {
+                                let service = factory.new_service().await?;
+                                services.push((name, service));
+                            }
+
+                            Ok::<_, ()>(services)
+                        }));
+
+                        match services {
+                            Ok(services) => {
+                                tx.send(Ok(())).unwrap();
+
+                                rt.block_on(local.run_until(async {
+                                    crate::worker::run(
+                                        listeners,
+                                        services,
+                                        connection_limit,
+                                        shutdown_timeout,
+                                        is_graceful_shutdown,
+                                    )
+                                    .await;
+                                }))
+                            }
+                            Err(_) => {
+                                tx.send(Err(io::Error::new(
+                                    io::ErrorKind::Other,
+                                    "Worker Services fail to start",
+                                )))
+                                .unwrap();
+                            }
                         }
-                    }
-                });
+                    })?;
 
                 rx.recv().unwrap()?;
 

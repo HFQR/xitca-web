@@ -10,11 +10,12 @@ use std::{
     pin::Pin,
     sync::{atomic::AtomicBool, Arc},
     task::{Context, Poll},
+    thread,
     time::Duration,
 };
 
 use futures_core::ready;
-use log::error;
+use log::{error, info};
 use tokio::{task::JoinHandle, time::sleep};
 
 use self::limit::Limit;
@@ -51,6 +52,7 @@ impl WorkerInner {
         })
     }
 
+    #[inline(always)]
     async fn accept(&self) -> io::Result<Stream> {
         let fut = self.listener.accept();
         let service = &self.service;
@@ -73,6 +75,7 @@ where
 {
     type Output = Fut::Output;
 
+    #[inline(always)]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
 
@@ -125,15 +128,24 @@ pub(crate) async fn run(
     // Drop services early as they are cloned and held by WorkerInner
     drop(services);
 
+    info!("Started {}", worker_name());
+
     let shutdown_handle = ShutdownHandle::new(shutdown_timeout, limit, is_graceful_shutdown);
 
     for handle in handles {
         handle
             .await
-            .unwrap_or_else(|e| error!("Error running Worker: {}", e));
+            .unwrap_or_else(|e| error!("{} exit on error: {}", worker_name(), e));
     }
 
     shutdown_handle.shutdown().await;
+}
+
+fn worker_name() -> String {
+    thread::current()
+        .name()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| String::from("actix-server-worker"))
 }
 
 /// This function defines errors that are per-connection. Which basically
