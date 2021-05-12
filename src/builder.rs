@@ -1,5 +1,4 @@
-use std::io;
-use std::{collections::HashMap, net};
+use std::{collections::HashMap, io, net, time::Duration};
 
 use crate::net::{AsListener, TcpSocket, TcpStream};
 use crate::server::{
@@ -10,10 +9,11 @@ pub struct Builder {
     pub(crate) server_threads: usize,
     pub(crate) worker_threads: usize,
     pub(crate) connection_limit: usize,
-    pub(crate) max_blocking_threads: usize,
+    pub(crate) worker_max_blocking_threads: usize,
     pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener>>>,
     pub(crate) factories: HashMap<String, Box<dyn ServiceFactoryClone>>,
     pub(crate) enable_signal: bool,
+    pub(crate) shutdown_timeout: Duration,
     backlog: u32,
 }
 
@@ -24,31 +24,39 @@ impl Default for Builder {
 }
 
 impl Builder {
+    /// Create new Builder instance
     pub fn new() -> Self {
         Self {
             server_threads: 1,
             worker_threads: num_cpus::get(),
             connection_limit: 25600,
-            max_blocking_threads: 512,
+            worker_max_blocking_threads: 512,
             listeners: HashMap::new(),
             factories: HashMap::new(),
             enable_signal: true,
+            shutdown_timeout: Duration::from_secs(30),
             backlog: 2048,
         }
     }
 
-    /// Set the thread count dedicated to accepting connections.
+    /// Set number of threads dedicated to accepting connections.
     ///
     /// Default set to 1.
+    ///
+    /// # Panics:
+    /// When receive 0 as number of server thread.
     pub fn server_threads(mut self, num: usize) -> Self {
         assert_ne!(num, 0, "There must be at least one server thread");
         self.server_threads = num;
         self
     }
 
-    /// Set the thread count for handling connections.
+    /// Set number of workers to start.
     ///
-    /// Default set to machine's logic core count.
+    /// Default set to available logical cpu as workers count.
+    ///
+    /// # Panics:
+    /// When received 0 as number of worker thread.
     pub fn worker_threads(mut self, num: usize) -> Self {
         assert_ne!(num, 0, "There must be at least one worker thread");
 
@@ -63,10 +71,23 @@ impl Builder {
         self
     }
 
-    pub fn max_blocking_threads(mut self, num: usize) -> Self {
+    /// Set max number of threads for each worker's blocking task thread pool.
+    ///
+    /// One thread pool is set up **per worker**; not shared across workers.
+    ///
+    /// # Examples:
+    /// ```
+    /// # use actix_server_alt::Builder;
+    /// let builder = Builder::new()
+    ///     .worker_threads(4) // server has 4 worker threads.
+    ///     .worker_max_blocking_threads(4); // every worker has 4 max blocking threads.
+    /// ```
+    ///
+    /// See [tokio::runtime::Builder::max_blocking_threads] for behavior reference.
+    pub fn worker_max_blocking_threads(mut self, num: usize) -> Self {
         assert_ne!(num, 0, "Blocking threads must be higher than 0");
 
-        self.max_blocking_threads = num;
+        self.worker_max_blocking_threads = num;
         self
     }
 
@@ -76,6 +97,17 @@ impl Builder {
     /// Disabling it would enable server runs in other async runtimes.
     pub fn disable_signal(mut self) -> Self {
         self.enable_signal = false;
+        self
+    }
+
+    /// Timeout for graceful workers shutdown in seconds.
+    ///
+    /// After receiving a stop signal, workers have this much time to finish serving requests.
+    /// Workers still alive after the timeout are force dropped.
+    ///
+    /// By default shutdown timeout sets to 30 seconds.
+    pub fn shutdown_timeout(mut self, secs: u64) -> Self {
+        self.shutdown_timeout = Duration::from_secs(secs);
         self
     }
 

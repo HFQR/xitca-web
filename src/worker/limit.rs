@@ -43,6 +43,10 @@ impl Limit {
     pub(super) fn ready(&self) -> LimitReady<'_> {
         LimitReady(self)
     }
+
+    pub(super) fn get(&self) -> usize {
+        self.inner.current.get()
+    }
 }
 
 pub(super) struct LimitReady<'a>(&'a Limit);

@@ -40,7 +40,7 @@ impl ServerFuture {
     /// tokio::spawn(server);
     ///
     /// // do a graceful shutdown of server.
-    /// handle.stop(true).await
+    /// handle.stop(true);
     /// # }
     /// ```
     pub fn handle(&mut self) -> io::Result<ServerHandle> {
@@ -72,28 +72,45 @@ impl Default for ServerFuture {
 
 impl ServerFutureInner {
     #[cfg(feature = "signal")]
-    fn poll_signal(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+    fn poll_signal(&mut self, cx: &mut Context<'_>) -> Poll<Command> {
+        use crate::signals::Signal;
         if let Some(signals) = self.signals.as_mut() {
             if let Poll::Ready(sig) = Pin::new(signals).poll(cx) {
                 log::info!("Signal {:?} received.", sig);
-                return Poll::Ready(());
+                let cmd = match sig {
+                    Signal::Int => Command::ForceStop,
+                    _ => Command::GracefulStop,
+                };
+                return Poll::Ready(cmd);
             }
         }
 
         Poll::Pending
     }
 
-    fn poll_cmd(&mut self, cx: &mut Context<'_>) -> Poll<BoxFuture<'static, io::Result<()>>> {
+    fn poll_cmd(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         match ready!(Pin::new(&mut self.server.rx_cmd).poll_recv(cx)) {
-            Some(cmd) => match cmd {
-                Command::ForceStop => Poll::Ready(Box::pin(async { Ok(()) })),
-                Command::GracefulStop(tx) => Poll::Ready(Box::pin(async {
-                    let _ = tx.send(());
-                    Ok(())
-                })),
-            },
+            Some(cmd) => {
+                self.handle_cmd(cmd);
+                Poll::Ready(())
+            }
             None => Poll::Pending,
         }
+    }
+
+    fn handle_cmd(&mut self, cmd: Command) {
+        match cmd {
+            Command::ForceStop => {
+                self.server.stop(false);
+            }
+            Command::GracefulStop => {
+                self.server.stop(true);
+            }
+        }
+    }
+
+    fn on_stop(&mut self) -> BoxFuture<'static, io::Result<()>> {
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -110,13 +127,17 @@ impl Future for ServerFuture {
             Self::Server(ref mut inner) => {
                 #[cfg(feature = "signal")]
                 {
-                    if inner.poll_signal(cx).is_ready() {
-                        return Poll::Ready(Ok(()));
+                    if let Poll::Ready(cmd) = inner.poll_signal(cx) {
+                        inner.handle_cmd(cmd);
+                        let task = inner.on_stop();
+                        self.set(Self::Shutdown(task));
+                        return self.poll(cx);
                     }
                 }
 
-                let shutdown = ready!(inner.poll_cmd(cx));
-                self.set(Self::Shutdown(shutdown));
+                ready!(inner.poll_cmd(cx));
+                let task = inner.on_stop();
+                self.set(Self::Shutdown(task));
                 self.poll(cx)
             }
             Self::Shutdown(ref mut fut) => fut.as_mut().poll(cx),

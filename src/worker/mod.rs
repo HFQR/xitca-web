@@ -1,5 +1,6 @@
 mod limit;
 mod service;
+mod shutdown;
 
 pub(crate) use self::service::{RcWorkerService, WorkerService};
 
@@ -7,7 +8,7 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
     task::{Context, Poll},
     time::Duration,
 };
@@ -16,6 +17,7 @@ use log::error;
 use tokio::{task::JoinHandle, time::sleep};
 
 use self::limit::Limit;
+use self::shutdown::ShutdownHandle;
 
 use crate::net::Listener;
 
@@ -72,6 +74,8 @@ pub(crate) async fn run(
     listeners: Vec<(String, Arc<Listener>)>,
     services: Vec<(String, RcWorkerService)>,
     connection_limit: usize,
+    shutdown_timeout: Duration,
+    is_graceful_shutdown: Arc<AtomicBool>,
 ) {
     let limit = Limit::new(connection_limit);
 
@@ -101,11 +105,15 @@ pub(crate) async fn run(
     // Drop services early as they are cloned and held by WorkerInner
     drop(services);
 
+    let shutdown_handle = ShutdownHandle::new(shutdown_timeout, limit, is_graceful_shutdown);
+
     for handle in handles {
         handle
             .await
             .unwrap_or_else(|e| error!("Error running Worker: {}", e));
     }
+
+    shutdown_handle.shutdown().await;
 }
 
 /// This function defines errors that are per-connection. Which basically

@@ -7,7 +7,14 @@ pub use self::handle::ServerHandle;
 
 pub(crate) use self::service::{AsServiceFactoryClone, Factory, ServiceFactoryClone};
 
-use std::{io, mem, sync::Arc, thread};
+use std::{
+    io, mem,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+};
 
 use log::{error, info};
 use tokio::{
@@ -22,6 +29,7 @@ use tokio::{
 use crate::builder::Builder;
 
 pub struct Server {
+    is_graceful_shutdown: Arc<AtomicBool>,
     tx_cmd: UnboundedSender<Command>,
     rx_cmd: UnboundedReceiver<Command>,
     server_join_handle: Option<thread::JoinHandle<()>>,
@@ -29,33 +37,16 @@ pub struct Server {
     worker_join_handles: Vec<thread::JoinHandle<()>>,
 }
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        self.tx
-            .take()
-            .unwrap()
-            .send(())
-            .expect("Accept thread exited unexpectedly");
-
-        self.server_join_handle.take().unwrap().join().unwrap();
-
-        mem::take(&mut self.worker_join_handles)
-            .into_iter()
-            .for_each(|handle| {
-                handle.join().unwrap();
-            });
-    }
-}
-
 impl Server {
     pub fn new(builder: Builder) -> io::Result<Self> {
         let Builder {
             server_threads,
             worker_threads,
-            max_blocking_threads,
+            worker_max_blocking_threads,
             connection_limit,
             listeners,
             factories,
+            shutdown_timeout,
             ..
         } = builder;
 
@@ -94,7 +85,9 @@ impl Server {
 
                     rt.block_on(async {
                         if rx2.await.is_err() {
-                            error!("ServerFuture dropped unexpectedly.");
+                            error!("Force stopped Accept. ServerFuture dropped unexpectedly.");
+                        } else {
+                            info!("Graceful stopped Accept.");
                         };
                     })
                 }
@@ -107,8 +100,11 @@ impl Server {
         let (tx, res) = rx.recv().unwrap();
         let listeners = res?;
 
+        let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
+
         let worker_handles = (0..worker_threads)
             .map(|_| {
+                let is_graceful_shutdown = is_graceful_shutdown.clone();
                 let listeners = listeners.clone();
                 let factories = factories
                     .iter()
@@ -128,7 +124,7 @@ impl Server {
 
                     let rt = runtime::Builder::new_current_thread()
                         .enable_all()
-                        .max_blocking_threads(max_blocking_threads)
+                        .max_blocking_threads(worker_max_blocking_threads)
                         .build()
                         .unwrap();
                     let local = LocalSet::new();
@@ -147,16 +143,22 @@ impl Server {
                     match services {
                         Ok(services) => {
                             tx.send(Ok(())).unwrap();
+
                             rt.block_on(local.run_until(async {
-                                info!("Started worker on {:?}", thread::current().id());
-                                crate::worker::run(listeners, services, connection_limit).await;
-                                info!("Stopped worker on {:?}", thread::current().id());
+                                crate::worker::run(
+                                    listeners,
+                                    services,
+                                    connection_limit,
+                                    shutdown_timeout,
+                                    is_graceful_shutdown,
+                                )
+                                .await;
                             }))
                         }
                         Err(_) => {
                             tx.send(Err(io::Error::new(
                                 io::ErrorKind::Other,
-                                "Worker Services failt to start",
+                                "Worker Services fail to start",
                             )))
                             .unwrap();
                         }
@@ -172,6 +174,7 @@ impl Server {
         let (tx_cmd, rx_cmd) = unbounded_channel();
 
         Ok(Self {
+            is_graceful_shutdown,
             tx_cmd,
             rx_cmd,
             server_join_handle: Some(server_handle),
@@ -179,9 +182,27 @@ impl Server {
             worker_join_handles: worker_handles,
         })
     }
+
+    pub(crate) fn stop(&mut self, graceful: bool) {
+        self.is_graceful_shutdown.store(graceful, Ordering::SeqCst);
+
+        self.tx
+            .take()
+            .unwrap()
+            .send(())
+            .expect("Accept thread exited unexpectedly");
+
+        self.server_join_handle.take().unwrap().join().unwrap();
+
+        mem::take(&mut self.worker_join_handles)
+            .into_iter()
+            .for_each(|handle| {
+                handle.join().unwrap();
+            });
+    }
 }
 
 enum Command {
-    GracefulStop(oneshot::Sender<()>),
+    GracefulStop,
     ForceStop,
 }
