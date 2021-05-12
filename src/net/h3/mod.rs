@@ -11,7 +11,7 @@ use futures_core::ready;
 use log::info;
 use quinn::{
     crypto::{rustls::TlsSession, Session},
-    generic::{Connecting, Endpoint, ServerConfig},
+    generic::{Connecting, Endpoint, Incoming, ServerConfig},
 };
 
 use super::{AsListener, FromStream, Listener, Stream};
@@ -99,9 +99,8 @@ where
         // Detach the Incoming<Session> as a spawn task.
         // When Endpoint<Session> dropped incoming will be wakeup and get None to end task.
         tokio::spawn(async move {
-            use futures_util::StreamExt;
             while let Some(conn) = incoming.next().await {
-                tx.send(conn).await.unwrap();
+                tx.send(conn).await.unwrap()
             }
         });
 
@@ -109,6 +108,28 @@ where
             endpoint,
             incoming: rx,
         })
+    }
+}
+
+trait NextTrait<S: Session> {
+    fn next(&mut self) -> Next<'_, S>;
+}
+
+impl<S: Session> NextTrait<S> for Incoming<S> {
+    fn next(&mut self) -> Next<'_, S> {
+        Next { stream: self }
+    }
+}
+
+struct Next<'a, S: Session> {
+    stream: &'a mut Incoming<S>,
+}
+
+impl<S: Session> Future for Next<'_, S> {
+    type Output = Option<<Incoming<S> as futures_core::Stream>::Item>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        futures_core::Stream::poll_next(Pin::new(&mut self.get_mut().stream), cx)
     }
 }
 

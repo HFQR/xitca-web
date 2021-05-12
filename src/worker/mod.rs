@@ -13,13 +13,14 @@ use std::{
     time::Duration,
 };
 
+use futures_core::ready;
 use log::error;
 use tokio::{task::JoinHandle, time::sleep};
 
 use self::limit::Limit;
 use self::shutdown::ShutdownHandle;
 
-use crate::net::Listener;
+use crate::net::{Listener, Stream};
 
 struct WorkerInner {
     listener: Arc<Listener>,
@@ -33,9 +34,8 @@ impl WorkerInner {
             loop {
                 let guard = self.limit.ready().await;
 
-                match self.listener.accept().await {
+                match self.accept().await {
                     Ok(stream) => {
-                        self.service_ready().await;
                         let _ = self.service.call((guard, stream));
                     }
                     Err(ref e) if connection_error(e) => continue,
@@ -51,21 +51,41 @@ impl WorkerInner {
         })
     }
 
-    fn service_ready(&self) -> ServiceReady<'_> {
-        ServiceReady(&self.service)
+    async fn accept(&self) -> io::Result<Stream> {
+        let fut = self.listener.accept();
+        let service = &self.service;
+
+        Accept { service, fut }.await
     }
 }
 
-struct ServiceReady<'a>(&'a RcWorkerService);
+pin_project_lite::pin_project! {
+    struct Accept<'a, Fut> {
+        service: &'a RcWorkerService,
+        #[pin]
+        fut: Fut
+    }
+}
 
-impl Future for ServiceReady<'_> {
-    type Output = ();
+impl<Fut> Future for Accept<'_, Fut>
+where
+    Fut: Future<Output = io::Result<Stream>>,
+{
+    type Output = Fut::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // FIXME: poll_ready error is treated as pending.
-        match self.0.poll_ready(cx) {
-            Poll::Ready(Ok(_)) => Poll::Ready(()),
-            _ => Poll::Pending,
+        let this = self.project();
+
+        match ready!(this.service.poll_ready(cx)) {
+            Ok(_) => this.fut.poll(cx),
+            Err(_) => {
+                // FIXME: poll_ready error is treated as io error and delay retry accept.
+                // It should restart service instead.
+                Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Service::poll_ready returns error",
+                )))
+            }
         }
     }
 }

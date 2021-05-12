@@ -27,9 +27,9 @@ actix-service = "2"
 
 async-channel = "1.6.1"
 futures-core = "0.3"
-futures-util = "0.3"
 log = "0.4"
 num_cpus = "1.13"
+pin-project-lite = "0.2.6"
 tokio = { version = "1.5", features = ["net", "rt", "rt-multi-thread", "sync", "time", "parking_lot"] }
 
 # actix runtime support
