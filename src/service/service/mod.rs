@@ -16,7 +16,10 @@ pub trait Service {
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
 
-    fn call(&self, req: Self::Request<'_>) -> Self::Future<'_>;
+    fn call<'s, 'r, 'f>(&'s self, req: Self::Request<'r>) -> Self::Future<'f>
+    where
+        's: 'f,
+        'r: 'f;
 }
 
 impl<S: Service> Service for &'_ S {
@@ -29,7 +32,11 @@ impl<S: Service> Service for &'_ S {
         (*self).poll_ready(cx)
     }
 
-    fn call(&self, req: S::Request<'_>) -> Self::Future<'_> {
+    fn call<'s, 'r, 'f>(&'s self, req: Self::Request<'r>) -> Self::Future<'f>
+    where
+        's: 'f,
+        'r: 'f,
+    {
         (*self).call(req)
     }
 }
@@ -47,7 +54,11 @@ where
         (**self).poll_ready(cx)
     }
 
-    fn call(&self, req: S::Request<'_>) -> Self::Future<'_> {
+    fn call<'s, 'r, 'f>(&'s self, req: Self::Request<'r>) -> Self::Future<'f>
+    where
+        's: 'f,
+        'r: 'f,
+    {
         (**self).call(req)
     }
 }
@@ -65,7 +76,11 @@ where
         (**self).poll_ready(cx)
     }
 
-    fn call(&self, req: S::Request<'_>) -> Self::Future<'_> {
+    fn call<'s, 'r, 'f>(&'s self, req: Self::Request<'r>) -> Self::Future<'f>
+    where
+        's: 'f,
+        'r: 'f,
+    {
         (**self).call(req)
     }
 }

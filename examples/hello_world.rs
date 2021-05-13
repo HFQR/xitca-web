@@ -39,11 +39,19 @@ impl ServiceFactory<(Parts, RecvStream)> for MyServiceFactor {
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, _: Self::Config) -> Self::Future {
-        async { Ok(MyService(String::from("MyService"))) }
+        async {
+            Ok(MyService {
+                name: String::from("MyService"),
+                child: ChildService,
+            })
+        }
     }
 }
 
-struct MyService(String);
+struct MyService {
+    name: String,
+    child: ChildService,
+}
 
 impl Service for MyService {
     type Request<'r> = (Parts, RecvStream);
@@ -55,9 +63,38 @@ impl Service for MyService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&self, (req, _): Self::Request<'_>) -> Self::Future<'_> {
+    fn call<'s, 'r, 'f>(&'s self, (req, body): Self::Request<'r>) -> Self::Future<'f>
+    where
+        's: 'f,
+        'r: 'f,
+    {
         async move {
-            println!("{}, got req: {:?}", self.0.as_str(), req);
+            let state = BorrowState(self.name.as_str());
+
+            self.child.call((state, req, body)).await
+        }
+    }
+}
+
+struct ChildService;
+
+impl Service for ChildService {
+    type Request<'r> = (BorrowState<'r>, Parts, RecvStream);
+    type Response = Response<Bytes>;
+    type Error = Box<dyn std::error::Error>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+
+    fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call<'s, 'r, 'f>(&'s self, (state, req, _): Self::Request<'r>) -> Self::Future<'f>
+    where
+        's: 'f,
+        'r: 'f,
+    {
+        async move {
+            println!("{}, got req: {:?}", state.0, req);
 
             let res = Response::builder()
                 .status(200)
@@ -67,3 +104,5 @@ impl Service for MyService {
         }
     }
 }
+
+struct BorrowState<'a>(&'a str);

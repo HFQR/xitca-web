@@ -84,7 +84,11 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&self, req: Self::Request<'_>) -> Self::Future<'_> {
+    fn call<'s, 'r, 'f>(&'s self, req: Self::Request<'r>) -> Self::Future<'f> 
+    where
+        's: 'f,
+        'r: 'f,
+    {
         async move {
             let ssl_ctx = self.acceptor.context();
             let ssl = Ssl::new(ssl_ctx).expect("Provided SSL acceptor was invalid.");
