@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
-use actix_service::ServiceFactory;
 use futures_core::future::LocalBoxFuture;
 
 use crate::net::FromStream;
+use crate::service::ServiceFactory;
 use crate::worker::{RcWorkerService, WorkerService};
 
 pub(crate) struct Factory<F, Req>

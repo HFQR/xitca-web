@@ -1,10 +1,9 @@
 use std::{
-    marker::PhantomData,
     rc::Rc,
     task::{Context, Poll},
 };
 
-use actix_service::Service;
+use crate::service::Service;
 
 use super::limit::LimitGuard;
 
@@ -16,30 +15,28 @@ pub(crate) trait WorkerServiceTrait {
     fn call(&self, req: (LimitGuard, Stream));
 }
 
-pub(crate) struct WorkerService<S, Req> {
+pub(crate) struct WorkerService<S> {
     service: S,
-    _req: PhantomData<Req>,
 }
 
-impl<S, Req> WorkerService<S, Req>
+impl<S> WorkerService<S>
 where
-    S: Service<Req> + 'static,
-    Req: FromStream + 'static,
+    S: Service + 'static,
+    S::Request<'static>: FromStream + 'static,
 {
     pub(crate) fn new_rcboxed(service: S) -> RcWorkerService {
         Rc::new(WorkerService {
             service: Rc::new(service),
-            _req: PhantomData,
         })
     }
 }
 
 pub(crate) type RcWorkerService = Rc<dyn WorkerServiceTrait>;
 
-impl<S, Req> WorkerServiceTrait for WorkerService<S, Req>
+impl<S> WorkerServiceTrait for WorkerService<S>
 where
-    S: Service<Req> + Clone + 'static,
-    Req: FromStream + 'static,
+    S: Service + Clone + 'static,
+    S::Request<'static>: FromStream + 'static,
 {
     #[inline]
     fn poll_ready(&self, ctx: &mut Context<'_>) -> Poll<Result<(), ()>> {
