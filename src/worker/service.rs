@@ -1,5 +1,4 @@
 use std::{
-    future::{ready, Ready},
     marker::PhantomData,
     rc::Rc,
     task::{Context, Poll},
@@ -11,9 +10,11 @@ use super::limit::LimitGuard;
 
 use crate::net::{FromStream, Stream};
 
-pub(crate) type RcWorkerService = Rc<
-    dyn Service<(LimitGuard, Stream), Response = (), Error = (), Future = Ready<Result<(), ()>>>,
->;
+pub(crate) trait WorkerServiceTrait {
+    fn poll_ready(&self, cx: &mut Context) -> Poll<Result<(), ()>>;
+
+    fn call(&self, req: (LimitGuard, Stream));
+}
 
 pub(crate) struct WorkerService<S, Req> {
     service: S,
@@ -27,37 +28,31 @@ where
 {
     pub(crate) fn new_rcboxed(service: S) -> RcWorkerService {
         Rc::new(WorkerService {
-            service,
+            service: Rc::new(service),
             _req: PhantomData,
         })
     }
 }
 
-impl<S, Req> Service<(LimitGuard, Stream)> for WorkerService<S, Req>
+pub(crate) type RcWorkerService = Rc<dyn WorkerServiceTrait>;
+
+impl<S, Req> WorkerServiceTrait for WorkerService<S, Req>
 where
-    S: Service<Req> + 'static,
+    S: Service<Req> + Clone + 'static,
     Req: FromStream + 'static,
 {
-    type Response = ();
-
-    type Error = ();
-
-    type Future = Ready<Result<(), ()>>;
-
     #[inline]
-    fn poll_ready(&self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&self, ctx: &mut Context<'_>) -> Poll<Result<(), ()>> {
         self.service.poll_ready(ctx).map_err(|_| ())
     }
 
-    fn call(&self, (guard, req): (LimitGuard, Stream)) -> Self::Future {
+    fn call(&self, (guard, req): (LimitGuard, Stream)) {
         let stream = FromStream::from_stream(req);
-        let service = self.service.call(stream);
+        let service = self.service.clone();
 
         tokio::task::spawn_local(async move {
-            let _ = service.await;
+            let _ = service.call(stream).await;
             drop(guard);
         });
-
-        ready(Ok(()))
     }
 }
