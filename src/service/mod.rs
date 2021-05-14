@@ -1,4 +1,5 @@
 mod factory;
+#[allow(clippy::module_inception)]
 mod service;
 mod transform;
 

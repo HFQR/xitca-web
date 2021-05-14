@@ -3,15 +3,15 @@
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
 
-use std::io;
-
-use actix_server_alt::http::HttpServiceBuilder;
-use actix_server_alt::{Service, ServiceFactory};
-use bytes::Bytes;
-use h2::RecvStream;
-use http::{request::Parts, Response};
 use std::future::Future;
+use std::io;
 use std::task::{Context, Poll};
+
+use actix_server_alt::http::{h2::RequestBody, HttpRequest, HttpServiceBuilder};
+use actix_server_alt::{Service, ServiceFactory};
+use bytes::{Bytes, BytesMut};
+use futures_util::StreamExt;
+use http::Response;
 
 #[actix_web::main]
 async fn main() -> io::Result<()> {
@@ -22,7 +22,38 @@ async fn main() -> io::Result<()> {
 
     actix_server_alt::Builder::new()
         .bind("test", addr, || {
-            HttpServiceBuilder::new(MyServiceFactor).finish()
+            use openssl::pkey::PKey;
+            use openssl::ssl::{AlpnError, SslAcceptor, SslMethod};
+            use openssl::x509::X509;
+
+            let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
+            let cert_file = cert.serialize_pem().unwrap();
+            let key_file = cert.serialize_private_key_pem();
+            let cert = X509::from_pem(cert_file.as_bytes()).unwrap();
+            let key = PKey::private_key_from_pem(key_file.as_bytes()).unwrap();
+
+            let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+            builder.set_certificate(&cert).unwrap();
+            builder.set_private_key(&key).unwrap();
+
+            builder.set_alpn_select_callback(|_, protocols| {
+                const H2: &[u8] = b"\x02h2";
+                const H11: &[u8] = b"\x08http/1.1";
+
+                if protocols.windows(3).any(|window| window == H2) {
+                    Ok(b"h2")
+                } else if protocols.windows(9).any(|window| window == H11) {
+                    Ok(b"http/1.1")
+                } else {
+                    Err(AlpnError::NOACK)
+                }
+            });
+
+            builder.set_alpn_protos(b"\x08http/1.1\x02h2").unwrap();
+
+            let acceptor = builder.build();
+
+            HttpServiceBuilder::new(MyServiceFactor).openssl(acceptor)
         })?
         .build()
         .await
@@ -30,7 +61,7 @@ async fn main() -> io::Result<()> {
 
 struct MyServiceFactor;
 
-impl ServiceFactory<(Parts, RecvStream)> for MyServiceFactor {
+impl ServiceFactory<HttpRequest<RequestBody>> for MyServiceFactor {
     type Response = Response<Bytes>;
     type Error = Box<dyn std::error::Error>;
     type Config = ();
@@ -48,30 +79,32 @@ impl ServiceFactory<(Parts, RecvStream)> for MyServiceFactor {
     }
 }
 
+// a parent service that hold string state and a child service.
 struct MyService {
     name: String,
     child: ChildService,
 }
 
 impl Service for MyService {
-    type Request<'r> = (Parts, RecvStream);
+    type Request<'r> = HttpRequest<RequestBody>;
     type Response = Response<Bytes>;
     type Error = Box<dyn std::error::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
 
-    fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.child.poll_ready(cx)
     }
 
-    fn call<'s, 'r, 'f>(&'s self, (req, body): Self::Request<'r>) -> Self::Future<'f>
+    fn call<'s, 'r, 'f>(&'s self, req: Self::Request<'r>) -> Self::Future<'f>
     where
         's: 'f,
         'r: 'f,
     {
         async move {
+            // pass self's name as borrowed state to child service.
             let state = BorrowState(self.name.as_str());
 
-            self.child.call((state, req, body)).await
+            self.child.call((state, req)).await
         }
     }
 }
@@ -79,7 +112,7 @@ impl Service for MyService {
 struct ChildService;
 
 impl Service for ChildService {
-    type Request<'r> = (BorrowState<'r>, Parts, RecvStream);
+    type Request<'r> = (BorrowState<'r>, HttpRequest<RequestBody>);
     type Response = Response<Bytes>;
     type Error = Box<dyn std::error::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
@@ -88,13 +121,29 @@ impl Service for ChildService {
         Poll::Ready(Ok(()))
     }
 
-    fn call<'s, 'r, 'f>(&'s self, (state, req, _): Self::Request<'r>) -> Self::Future<'f>
+    fn call<'s, 'r, 'f>(&'s self, (_, req): Self::Request<'r>) -> Self::Future<'f>
     where
         's: 'f,
         'r: 'f,
     {
         async move {
-            println!("{}, got req: {:?}", state.0, req);
+            // split request into head and body
+            let (parts, mut body) = req.into_parts();
+
+            println!("Request head: {:?}", parts);
+
+            // collect body and print as string.
+            let mut collect = BytesMut::new();
+
+            while let Some(chunk) = body.next().await {
+                let chunk = chunk?;
+                collect.extend_from_slice(&chunk);
+            }
+
+            println!(
+                "Request body as String: {:?}",
+                String::from_utf8_lossy(&collect)
+            );
 
             let res = Response::builder()
                 .status(200)
