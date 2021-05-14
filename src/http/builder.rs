@@ -1,103 +1,62 @@
-use std::{future::Future, marker::PhantomData};
+use std::marker::PhantomData;
 
 use bytes::Bytes;
-use http::Response;
+use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::service::ServiceFactory;
 
-use super::error::HttpServiceError;
-use super::h2::H2Service;
+use super::body::ResponseBody;
+use super::error::BodyError;
+use super::h2::H2ServiceBuilder;
 use super::request::HttpRequest;
+use super::response::HttpResponse;
 use super::tls::NoOpTlsAcceptorFactory;
 
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
-pub struct HttpServiceBuilder<St, F, AF, TlsSt> {
+pub struct HttpServiceBuilder<St, F, B, AF, TlsSt> {
     factory: F,
     tls_factory: AF,
-    _phantom: PhantomData<(St, TlsSt)>,
+    _phantom: PhantomData<(St, B, TlsSt)>,
 }
 
-impl<St, F> HttpServiceBuilder<St, F, NoOpTlsAcceptorFactory, St>
+impl<St, B, E, F> HttpServiceBuilder<St, F, B, NoOpTlsAcceptorFactory, St>
 where
-    F: ServiceFactory<HttpRequest<super::h2::RequestBody>, Response = Response<Bytes>, Config = ()>,
-    F::Service: 'static,
-
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
+    B: Stream<Item = Result<Bytes, E>> + 'static,
+    E: 'static,
+    BodyError: From<E>,
 {
     /// Construct a new Service Builder with given service factory.
-    pub fn new(factory: F) -> Self {
+    pub fn new(factory: F) -> Self
+    where
+        F: ServiceFactory<HttpRequest, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
+        F::Service: 'static,
+
+        St: AsyncRead + AsyncWrite + Unpin + 'static,
+    {
         Self {
             factory,
             tls_factory: NoOpTlsAcceptorFactory,
             _phantom: PhantomData,
         }
     }
-}
 
-use super::tls::openssl::{TlsAcceptor, TlsAcceptorService, TlsStream};
+    /// Construct a new Http/2 ServiceBuilder.
+    ///
+    /// Note factory type F ues `HttpRequest<h2::RequestBody>` as Request type.
+    /// This is a request type specific for Http/2 request body.
+    pub fn h2(factory: F) -> H2ServiceBuilder<St, F, B, NoOpTlsAcceptorFactory, St>
+    where
+        F: ServiceFactory<
+            HttpRequest<super::h2::RequestBody>,
+            Response = HttpResponse<ResponseBody<B>>,
+            Config = (),
+        >,
+        F::Service: 'static,
 
-impl<St, F, AF, TlsSt> HttpServiceBuilder<St, F, AF, TlsSt>
-where
-    F: ServiceFactory<HttpRequest<super::h2::RequestBody>, Response = Response<Bytes>, Config = ()>,
-    F::Service: 'static,
-
-    AF: ServiceFactory<St, Response = TlsSt, Config = ()>,
-    AF::Service: 'static,
-
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
-    TlsSt: AsyncRead + AsyncWrite + Unpin + 'static,
-
-    HttpServiceError: From<AF::Error>,
-{
-    pub fn openssl(
-        self,
-        acceptor: TlsAcceptor,
-    ) -> HttpServiceBuilder<St, F, TlsAcceptorService<St>, TlsStream<St>> {
-        HttpServiceBuilder {
-            factory: self.factory,
-            tls_factory: TlsAcceptorService::new(acceptor),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<St, F, AF, TlsSt> ServiceFactory<St> for HttpServiceBuilder<St, F, AF, TlsSt>
-where
-    F: ServiceFactory<HttpRequest<super::h2::RequestBody>, Response = Response<Bytes>, Config = ()>,
-    F::Service: 'static,
-
-    AF: ServiceFactory<St, Response = TlsSt, Config = ()>,
-    AF::Service: 'static,
-
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
-    TlsSt: AsyncRead + AsyncWrite + Unpin + 'static,
-
-    HttpServiceError: From<AF::Error>,
-{
-    type Response = ();
-    type Error = HttpServiceError;
-    type Config = ();
-    type Service = H2Service<St, F::Service, AF::Service, TlsSt>;
-    type InitError = ();
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
-
-    fn new_service(&self, _: Self::Config) -> Self::Future {
-        let service = self.factory.new_service(());
-        let tls_acceptor = self.tls_factory.new_service(());
-        async {
-            let service = match service.await {
-                Ok(service) => service,
-                Err(_) => panic!("TODO"),
-            };
-
-            let tls_acceptor = match tls_acceptor.await {
-                Ok(service) => service,
-                Err(_) => panic!("TODO"),
-            };
-
-            Ok(H2Service::new(service, tls_acceptor))
-        }
+        St: AsyncRead + AsyncWrite + Unpin + 'static,
+    {
+        H2ServiceBuilder::new(factory)
     }
 }

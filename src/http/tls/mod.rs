@@ -1,4 +1,7 @@
+#[cfg(feature = "openssl")]
 pub(crate) mod openssl;
+
+pub(crate) mod rustls;
 
 use std::{
     future::Future,

@@ -3,75 +3,63 @@
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
 
+use std::fs::File;
 use std::future::Future;
 use std::io;
+use std::io::BufReader;
 use std::task::{Context, Poll};
 
-use actix_server_alt::http::{h2::RequestBody, HttpRequest, HttpServiceBuilder};
+use actix_server_alt::http::{h2::RequestBody, HttpRequest, HttpResponse, HttpServiceBuilder};
 use actix_server_alt::{Service, ServiceFactory};
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
-use http::Response;
+use rustls::{
+    internal::pemfile::{certs, pkcs8_private_keys},
+    NoClientAuth, ServerConfig,
+};
 
-#[actix_web::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix=trace, info");
+    std::env::set_var("RUST_LOG", "actix=trace, error");
     env_logger::init();
 
     let addr = "127.0.0.1:8080";
 
+    let mut acceptor = ServerConfig::new(NoClientAuth::new());
+    let cert_file = &mut BufReader::new(File::open("./examples/cert/cert.pem")?);
+    let key_file = &mut BufReader::new(File::open("./examples/cert/key.pem")?);
+    let cert_chain = certs(cert_file).unwrap();
+    let mut keys = pkcs8_private_keys(key_file).unwrap();
+    acceptor
+        .set_single_cert(cert_chain, keys.remove(0))
+        .unwrap();
+
+    let protos = vec!["h2".to_string().into(), "http/1.1".to_string().into()];
+    acceptor.set_protocols(&protos);
+
+    let acceptor = std::sync::Arc::new(acceptor);
+
     actix_server_alt::Builder::new()
-        .bind("test", addr, || {
-            use openssl::pkey::PKey;
-            use openssl::ssl::{AlpnError, SslAcceptor, SslMethod};
-            use openssl::x509::X509;
-
-            let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
-            let cert_file = cert.serialize_pem().unwrap();
-            let key_file = cert.serialize_private_key_pem();
-            let cert = X509::from_pem(cert_file.as_bytes()).unwrap();
-            let key = PKey::private_key_from_pem(key_file.as_bytes()).unwrap();
-
-            let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
-            builder.set_certificate(&cert).unwrap();
-            builder.set_private_key(&key).unwrap();
-
-            builder.set_alpn_select_callback(|_, protocols| {
-                const H2: &[u8] = b"\x02h2";
-                const H11: &[u8] = b"\x08http/1.1";
-
-                if protocols.windows(3).any(|window| window == H2) {
-                    Ok(b"h2")
-                } else if protocols.windows(9).any(|window| window == H11) {
-                    Ok(b"http/1.1")
-                } else {
-                    Err(AlpnError::NOACK)
-                }
-            });
-
-            builder.set_alpn_protos(b"\x08http/1.1\x02h2").unwrap();
-
-            let acceptor = builder.build();
-
-            HttpServiceBuilder::new(MyServiceFactor).openssl(acceptor)
+        .bind("hell_world", addr, move || {
+            HttpServiceBuilder::h2(H2Factory).rustls(acceptor.clone())
         })?
         .build()
         .await
 }
 
-struct MyServiceFactor;
+struct H2Factory;
 
-impl ServiceFactory<HttpRequest<RequestBody>> for MyServiceFactor {
-    type Response = Response<Bytes>;
+impl ServiceFactory<HttpRequest<RequestBody>> for H2Factory {
+    type Response = HttpResponse;
     type Error = Box<dyn std::error::Error>;
     type Config = ();
-    type Service = MyService;
+    type Service = H2Service;
     type InitError = ();
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, _: Self::Config) -> Self::Future {
         async {
-            Ok(MyService {
+            Ok(H2Service {
                 name: String::from("MyService"),
                 child: ChildService,
             })
@@ -80,14 +68,14 @@ impl ServiceFactory<HttpRequest<RequestBody>> for MyServiceFactor {
 }
 
 // a parent service that hold string state and a child service.
-struct MyService {
+struct H2Service {
     name: String,
     child: ChildService,
 }
 
-impl Service for MyService {
+impl Service for H2Service {
     type Request<'r> = HttpRequest<RequestBody>;
-    type Response = Response<Bytes>;
+    type Response = HttpResponse;
     type Error = Box<dyn std::error::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
 
@@ -113,7 +101,7 @@ struct ChildService;
 
 impl Service for ChildService {
     type Request<'r> = (BorrowState<'r>, HttpRequest<RequestBody>);
-    type Response = Response<Bytes>;
+    type Response = HttpResponse;
     type Error = Box<dyn std::error::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
 
@@ -130,7 +118,7 @@ impl Service for ChildService {
             // split request into head and body
             let (parts, mut body) = req.into_parts();
 
-            println!("Request head: {:?}", parts);
+            // println!("Request head: {:?}", parts);
 
             // collect body and print as string.
             let mut collect = BytesMut::new();
@@ -140,14 +128,15 @@ impl Service for ChildService {
                 collect.extend_from_slice(&chunk);
             }
 
-            println!(
-                "Request body as String: {:?}",
-                String::from_utf8_lossy(&collect)
-            );
+            // println!(
+            //     "Request body as String: {:?}",
+            //     String::from_utf8_lossy(&collect)
+            // );
 
-            let res = Response::builder()
+            let res = HttpResponse::builder()
                 .status(200)
-                .body(Bytes::from_static(b"Hello World!"))?;
+                .header("Content-Type", "text/plain")
+                .body(Bytes::from_static(b"Hello World!").into())?;
 
             Ok(res)
         }

@@ -6,25 +6,26 @@ use std::{
 };
 
 use bytes::Bytes;
+use futures_core::Stream;
 use futures_util::future::poll_fn;
 use h2::server::{handshake, SendResponse};
-use http::Response;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::http::error::HttpServiceError;
-use crate::http::flow::HttpFlow;
-use crate::http::request::HttpRequest;
+use crate::http::{
+    body::ResponseBody, error::BodyError, error::HttpServiceError, flow::HttpFlow,
+    request::HttpRequest, response::HttpResponse,
+};
 use crate::service::Service;
 
 use super::body::RequestBody;
 
-pub struct H2Service<St, S, A, TlsSt> {
+pub struct H2Service<St, S, B, A, TlsSt> {
     tls_acceptor: A,
     flow: HttpFlow<S>,
-    _stream: PhantomData<(St, TlsSt)>,
+    _stream: PhantomData<(St, B, TlsSt)>,
 }
 
-impl<St, S, A, TlsSt> H2Service<St, S, A, TlsSt> {
+impl<St, S, B, A, TlsSt> H2Service<St, S, B, A, TlsSt> {
     /// Construct new Http2Service.
     /// No upgrade/expect services allowed in Http/2.
     pub fn new(service: S, tls_acceptor: A) -> Self {
@@ -37,10 +38,14 @@ impl<St, S, A, TlsSt> H2Service<St, S, A, TlsSt> {
 }
 
 #[rustfmt::skip]
-impl<St, S, A, TlsSt> Service for H2Service<St, S, A, TlsSt>
+impl<St, S, B, E, A, TlsSt> Service for H2Service<St, S, B, A, TlsSt>
 where
-    S: for<'r> Service<Request<'r> = HttpRequest<RequestBody>, Response = Response<Bytes>> + 'static,
+    S: for<'r> Service<Request<'r> = HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
     A: for<'r> Service<Request<'r> = St, Response = TlsSt> + 'static,
+
+    B: Stream<Item = Result<Bytes, E>> + 'static,
+    E: 'static,
+    BodyError: From<E>,
 
     St: AsyncRead + AsyncWrite + Unpin + 'static,
     TlsSt: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -70,7 +75,8 @@ where
 
             let mut conn = handshake(tls_stream).await?;
 
-            while let Some(Ok((req, tx))) = conn.accept().await {
+            while let Some(res) = conn.accept().await {
+                let (req, tx) = res?;
                 // Convert http::Request body type to crate::h2::Body
                 // and reconstruct as HttpRequest.
                 let (parts, body) = req.into_parts();
@@ -92,40 +98,65 @@ where
     }
 }
 
-async fn h2_handler<Fut, E>(fut: Fut, mut tx: SendResponse<Bytes>) -> Result<(), HttpServiceError>
+async fn h2_handler<Fut, B, BE, E>(
+    fut: Fut,
+    mut tx: SendResponse<Bytes>,
+) -> Result<(), HttpServiceError>
 where
-    Fut: Future<Output = Result<Response<Bytes>, E>>,
+    Fut: Future<Output = Result<HttpResponse<ResponseBody<B>>, E>>,
+    B: Stream<Item = Result<Bytes, BE>>,
+    BodyError: From<BE>,
 {
-    let res = fut
-        .await
-        .unwrap_or_else(|_| Response::builder().status(500).body(Bytes::new()).unwrap());
+    let res = fut.await.unwrap_or_else(|_| {
+        HttpResponse::builder()
+            .status(500)
+            .body(ResponseBody::None)
+            .unwrap()
+    });
 
-    let (res, mut body) = res.into_parts();
-    let res = Response::from_parts(res, ());
+    let (res, body) = res.into_parts();
+    let res = HttpResponse::from_parts(res, ());
 
-    let mut stream = tx.send_response(res, false)?;
+    if body.is_eof() {
+        let _ = tx.send_response(res, true)?;
+        Ok(())
+    } else {
+        let mut stream = tx.send_response(res, false)?;
 
-    while !body.is_empty() {
-        stream.reserve_capacity(cmp::min(body.len(), CHUNK_SIZE));
+        tokio::pin!(body);
 
-        match poll_fn(|cx| stream.poll_capacity(cx)).await {
-            // No capacity left. drop body and return.
-            None => return Ok(()),
-            Some(res) => {
-                // Split chuck to writeable size and send to client.
-                let cap = res.unwrap();
+        // TODO: remove dependent on futures_util
+        use futures_util::StreamExt;
+        while let Some(res) = body.next().await {
+            let mut chunk = res?;
 
-                let len = body.len();
-                let bytes = body.split_to(cmp::min(cap, len));
+            'send: loop {
+                stream.reserve_capacity(cmp::min(chunk.len(), CHUNK_SIZE));
 
-                stream.send_data(bytes, false)?;
+                match poll_fn(|cx| stream.poll_capacity(cx)).await {
+                    // No capacity left. drop body and return.
+                    None => return Ok(()),
+                    Some(res) => {
+                        // Split chuck to writeable size and send to client.
+                        let cap = res?;
+
+                        let len = chunk.len();
+                        let bytes = chunk.split_to(cmp::min(cap, len));
+
+                        stream.send_data(bytes, false)?;
+
+                        if chunk.is_empty() {
+                            break 'send;
+                        }
+                    }
+                }
             }
         }
+
+        stream.send_data(Bytes::new(), true)?;
+
+        Ok(())
     }
-
-    stream.send_data(Bytes::new(), true)?;
-
-    Ok(())
 }
 
 const CHUNK_SIZE: usize = 16_384;
