@@ -12,7 +12,7 @@ pub trait Service {
 
     type Error;
 
-    type Future<'f>: Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f>: Future<Output = Result<Self::Response, Self::Error>> + 'f;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
 
@@ -59,7 +59,7 @@ where
     type Request<'r> = S::Request<'r>;
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = S::Future<'f>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         (**self).poll_ready(cx)
@@ -85,7 +85,7 @@ mod test {
         type Request<'r> = S::Request<'r>;
         type Response = S::Response;
         type Error = S::Error;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
 
         fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
             self.service.poll_ready(cx)

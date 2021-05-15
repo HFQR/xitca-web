@@ -16,13 +16,13 @@ use super::service::H2Service;
 
 /// Http/2 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
-pub struct H2ServiceBuilder<St, F, B, AF, TlsSt> {
+pub struct H2ServiceBuilder<St, F, AF> {
     factory: F,
     tls_factory: AF,
-    _phantom: PhantomData<(St, B, TlsSt)>,
+    _phantom: PhantomData<St>,
 }
 
-impl<St, F, B, E> H2ServiceBuilder<St, F, B, tls::NoOpTlsAcceptorFactory, St>
+impl<St, F, B, E> H2ServiceBuilder<St, F, tls::NoOpTlsAcceptorFactory>
 where
     F: ServiceFactory<
         HttpRequest<RequestBody>,
@@ -47,7 +47,7 @@ where
     }
 }
 
-impl<St, F, B, E, AF, TlsSt> H2ServiceBuilder<St, F, B, AF, TlsSt>
+impl<St, F, B, E, AF, TlsSt> H2ServiceBuilder<St, F, AF>
 where
     F: ServiceFactory<
         HttpRequest<RequestBody>,
@@ -71,8 +71,7 @@ where
     pub fn openssl(
         self,
         acceptor: tls::openssl::TlsAcceptor,
-    ) -> H2ServiceBuilder<St, F, B, tls::openssl::TlsAcceptorService<St>, tls::openssl::TlsStream<St>>
-    {
+    ) -> H2ServiceBuilder<St, F, tls::openssl::TlsAcceptorService<St>> {
         H2ServiceBuilder {
             factory: self.factory,
             tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
@@ -84,8 +83,7 @@ where
     pub fn rustls(
         self,
         config: std::sync::Arc<tls::rustls::ServerConfig>,
-    ) -> H2ServiceBuilder<St, F, B, tls::rustls::TlsAcceptorService<St>, tls::rustls::TlsStream<St>>
-    {
+    ) -> H2ServiceBuilder<St, F, tls::rustls::TlsAcceptorService<St>> {
         H2ServiceBuilder {
             factory: self.factory,
             tls_factory: tls::rustls::TlsAcceptorService::new(config),
@@ -94,7 +92,7 @@ where
     }
 }
 
-impl<St, F, B, E, AF, TlsSt> ServiceFactory<St> for H2ServiceBuilder<St, F, B, AF, TlsSt>
+impl<St, F, B, E, AF, TlsSt> ServiceFactory<St> for H2ServiceBuilder<St, F, AF>
 where
     F: ServiceFactory<
         HttpRequest<RequestBody>,
@@ -119,7 +117,7 @@ where
     type Response = ();
     type Error = HttpServiceError;
     type Config = ();
-    type Service = H2Service<St, F::Service, B, AF::Service, TlsSt>;
+    type Service = H2Service<F::Service, AF::Service>;
     type InitError = ();
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 

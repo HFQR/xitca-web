@@ -7,7 +7,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::body::ResponseBody;
 use super::error::BodyError;
-use super::h2::H2ServiceBuilder;
 use super::request::HttpRequest;
 use super::response::HttpResponse;
 use super::tls::NoOpTlsAcceptorFactory;
@@ -45,7 +44,7 @@ where
     ///
     /// Note factory type F ues `HttpRequest<h2::RequestBody>` as Request type.
     /// This is a request type specific for Http/2 request body.
-    pub fn h2(factory: F) -> H2ServiceBuilder<St, F, B, NoOpTlsAcceptorFactory, St>
+    pub fn h2(factory: F) -> super::h2::H2ServiceBuilder<St, F, NoOpTlsAcceptorFactory>
     where
         F: ServiceFactory<
             HttpRequest<super::h2::RequestBody>,
@@ -56,6 +55,22 @@ where
 
         St: AsyncRead + AsyncWrite + Unpin + 'static,
     {
-        H2ServiceBuilder::new(factory)
+        super::h2::H2ServiceBuilder::new(factory)
+    }
+
+    /// Construct a new Http/3 ServiceBuilder.
+    ///
+    /// Note factory type F ues `HttpRequest<h3::RequestBody>` as Request type.
+    /// This is a request type specific for Http/3 request body.
+    pub fn h3(factory: F) -> super::h3::H3ServiceBuilder<F>
+    where
+        F: ServiceFactory<
+            HttpRequest<super::h3::RequestBody>,
+            Response = HttpResponse<ResponseBody<B>>,
+            Config = (),
+        >,
+        F::Service: 'static,
+    {
+        super::h3::H3ServiceBuilder::new(factory)
     }
 }

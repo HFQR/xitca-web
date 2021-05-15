@@ -1,3 +1,5 @@
+//! Multi-threaded server for Tcp/Udp/UnixDomain handling.
+
 #![forbid(unsafe_code)]
 
 mod builder;

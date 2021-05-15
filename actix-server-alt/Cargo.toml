@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2018"
 
 [features]
-default = ["signal"]
+default = ["signal", "http3"]
 http3 = ["quinn"]
 actix = ["actix-rt"]
 signal = ["tokio/signal"]

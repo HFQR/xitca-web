@@ -26,3 +26,5 @@ futures-util = "0.3"
 log = "0.4"
 rustls = "0.19"
 tokio = { version = "1.5", features = ["macros", "rt"] }
+
+h3-quinn = { git = "https://github.com/hyperium/h3.git" }

@@ -1,9 +1,9 @@
 use std::{error, io};
 
-use http::{header, Response};
+use bytes::Bytes;
+use http::{header, status::StatusCode, Response};
 
 use super::body::ResponseBody;
-use bytes::Bytes;
 
 /// Type alias for [Request](http::Response) type where generic body type
 /// is default to [Body](super::body::ResponseBody)
@@ -22,7 +22,7 @@ impl<B> ResponseError<HttpResponse<ResponseBody<B>>> for Box<dyn error::Error> {
         // TODO: write this to bytes mut directly.
         let bytes = Bytes::copy_from_slice(format!("{}", this).as_bytes());
         HttpResponse::builder()
-            .status(500)
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
             .header(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("text/plain; charset=utf-8"),
@@ -37,7 +37,7 @@ impl<B> ResponseError<HttpResponse<ResponseBody<B>>> for io::Error {
         // TODO: write this to bytes mut directly.
         let bytes = Bytes::copy_from_slice(format!("{}", this).as_bytes());
         HttpResponse::builder()
-            .status(500)
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
             .header(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("text/plain; charset=utf-8"),

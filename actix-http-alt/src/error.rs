@@ -15,7 +15,11 @@ pub enum HttpServiceError {
     ServiceReady,
     Body(BodyError),
     // Http/2 error happen in HttpService handle.
+    #[cfg(feature = "http2")]
     H2(h2::Error),
+    // Http/3 error happen in HttpService handle.
+    #[cfg(feature = "http3")]
+    H3(super::h3::H3Error),
 }
 
 impl Debug for HttpServiceError {
@@ -23,7 +27,10 @@ impl Debug for HttpServiceError {
         match *self {
             Self::ServiceReady => write!(f, "Service is not ready"),
             Self::Body(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "http2")]
             Self::H2(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "http3")]
+            Self::H3(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "openssl")]
             Self::Openssl(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "rustls")]
@@ -44,7 +51,10 @@ pub enum BodyError {
     Std(Box<dyn Error>),
     Io(io::Error),
     // Http/2 error happens when handling body.
+    #[cfg(feature = "http2")]
     H2(h2::Error),
+    #[cfg(feature = "http3")]
+    H3(super::h3::H3Error),
 }
 
 impl Debug for BodyError {
@@ -52,7 +62,10 @@ impl Debug for BodyError {
         match *self {
             Self::Std(ref e) => write!(f, "{:?}", e),
             Self::Io(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "http2")]
             Self::H2(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "http3")]
+            Self::H3(ref e) => write!(f, "{:?}", e),
         }
     }
 }
@@ -62,7 +75,10 @@ impl Display for BodyError {
         match *self {
             Self::Std(ref e) => write!(f, "{:?}", e),
             Self::Io(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "http2")]
             Self::H2(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "http3")]
+            Self::H3(ref e) => write!(f, "{:?}", e),
         }
     }
 }

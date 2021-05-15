@@ -1,7 +1,6 @@
 use std::{
     cmp,
     future::Future,
-    marker::PhantomData,
     task::{Context, Poll},
 };
 
@@ -20,28 +19,29 @@ use crate::response::{HttpResponse, ResponseError};
 
 use super::body::RequestBody;
 
-pub struct H2Service<St, S, B, A, TlsSt> {
-    tls_acceptor: A,
+pub struct H2Service<S, A> {
     flow: HttpFlow<S>,
-    _stream: PhantomData<(St, B, TlsSt)>,
+    tls_acceptor: A,
 }
 
-impl<St, S, B, A, TlsSt> H2Service<St, S, B, A, TlsSt> {
+impl<S, A> H2Service<S, A> {
     /// Construct new Http2Service.
     /// No upgrade/expect services allowed in Http/2.
     pub fn new(service: S, tls_acceptor: A) -> Self {
         Self {
-            tls_acceptor,
             flow: HttpFlow::new(service),
-            _stream: PhantomData,
+            tls_acceptor,
         }
     }
 }
 
 #[rustfmt::skip]
-impl<St, S, B, E, A, TlsSt> Service for H2Service<St, S, B, A, TlsSt>
+impl<St, S, B, E, A, TlsSt> Service for H2Service<S, A>
 where
-    S: for<'r> Service<Request<'r> = HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
+    S: for<'r> Service<
+            Request<'r> = HttpRequest<RequestBody>,
+            Response = HttpResponse<ResponseBody<B>>,
+        > + 'static,
     A: for<'r> Service<Request<'r> = St, Response = TlsSt> + 'static,
 
     S::Error: ResponseError<S::Response>,
@@ -68,8 +68,7 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'s>(&'s self, req: Self::Request<'s>) -> Self::Future<'s>
-    {
+    fn call<'s>(&'s self, req: Self::Request<'s>) -> Self::Future<'s> {
         async move {
             let tls_stream = self.tls_acceptor.call(req).await?;
 

@@ -18,10 +18,6 @@ use super::error::HttpServiceError;
 /// A NoOp Tls Acceptor pass through input Stream type.
 pub struct NoOpTlsAcceptorFactory;
 
-pub struct NoOpTlsAcceptor<St> {
-    _stream: PhantomData<St>,
-}
-
 impl<St> ServiceFactory<St> for NoOpTlsAcceptorFactory
 where
     St: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -40,6 +36,10 @@ where
             })
         }
     }
+}
+
+pub struct NoOpTlsAcceptor<St> {
+    _stream: PhantomData<St>,
 }
 
 impl<St> Service for NoOpTlsAcceptor<St>
