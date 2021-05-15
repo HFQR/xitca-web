@@ -1,0 +1,39 @@
+[package]
+name = "actix-http-alt"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = ["http2"]
+http2 = ["h2"]
+http3 = ["quinn"]
+openssl = ["tokio-openssl", "openssl-crate"]
+rustls = ["tokio-rustls"]
+
+[dependencies]
+actix-server-alt = "0.1"
+actix-service-alt = "0.1"
+
+bytes = "1"
+futures-core = "0.3"
+futures-util = "0.3"
+http = "0.2"
+log = "0.4"
+num_cpus = "1.13"
+pin-project-lite = "0.2.6"
+tokio = { version = "1.5", features = ["io-util"] }
+
+# openssl support
+tokio-openssl = { version = "0.6", optional = true }
+openssl-crate = { package = "openssl", version = "0.10", optional = true }
+
+# rustls support
+tokio-rustls = { version = "0.22", optional = true }
+
+# http/2 support
+h2 = { version = "0.3", optional = true }
+
+# http/3 support
+quinn = { version = "0.7.2", optional = true }
+
+[dev-dependencies]

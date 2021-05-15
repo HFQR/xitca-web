@@ -1,0 +1,31 @@
+[package]
+name = "actix-server-alt"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = ["signal"]
+http3 = ["quinn"]
+actix = ["actix-rt"]
+signal = ["tokio/signal"]
+
+[dependencies]
+actix-service-alt = "0.1"
+
+async-channel = "1.6.1"
+futures-core = "0.3"
+log = "0.4"
+num_cpus = "1.13"
+pin-project-lite = "0.2.6"
+tokio = { version = "1.5", features = ["net", "parking_lot", "rt-multi-thread", "sync", "time"] }
+
+# actix runtime support
+actix-rt = { version = "2.2", default-features = false, optional = true }
+
+# http/3 support
+quinn = { version = "0.7.2", optional = true }
+
+[dev-dependencies]
+bytes = "1"
+env_logger = "0.8"
+tokio = { version = "1.5", features = ["io-util", "macros"] }

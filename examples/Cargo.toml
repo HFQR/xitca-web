@@ -1,0 +1,28 @@
+[package]
+name = "examples"
+version = "0.1.0"
+edition = "2018"
+
+[[example]]
+name = "hello-world"
+path = "examples/hello_world.rs"
+
+[[example]]
+name = "bench"
+path = "examples/bench.rs"
+
+[[example]]
+name = "h3"
+path = "examples/h3.rs"
+
+[dependencies]
+actix-http-alt = { version = "0.1", features = ["rustls"] }
+actix-server-alt = "0.1"
+actix-service-alt = "0.1"
+
+bytes = "1"
+env_logger = "0.8"
+futures-util = "0.3"
+log = "0.4"
+rustls = "0.19"
+tokio = { version = "1.5", features = ["macros", "rt"] }

@@ -1,69 +1,15 @@
-[package]
-name = "actix-server-alt"
-version = "0.1.0"
-authors = ["fakeshadow <24548779@qq.com>"]
-edition = "2018"
-resolver = "2"
+[workspace]
+members = [
+    "actix-http-alt",
+    "actix-server-alt",
+    "actix-service-alt",
+    "examples"
+]
 
-[[example]]
-name = "hello-world"
-path = "examples/hello_world.rs"
-
-[[example]]
-name = "bench"
-path = "examples/bench.rs"
-
-[[example]]
-name = "h3"
-path = "examples/h3.rs"
-
-[features]
-default = ["signal", "http2", "http3"]
-http2 = ["h2"]
-http3 = ["quinn"]
-openssl = ["tokio-openssl", "openssl-crate"]
-actix = ["actix-rt"]
-signal = ["tokio/signal"]
-
-[dependencies]
-actix-service = "2"
-
-async-channel = "1.6.1"
-bytes = "1"
-futures-core = "0.3"
-futures-util = "0.3"
-http = "0.2"
-log = "0.4"
-num_cpus = "1.13"
-pin-project-lite = "0.2.6"
-tokio = { version = "1.5", features = ["net", "rt", "rt-multi-thread", "sync", "time", "parking_lot"] }
-
-# actix runtime support
-actix-rt = { version = "2.2", default-features = false, optional = true }
-
-# openssl support
-tokio-openssl = { version = "0.6", optional = true }
-openssl-crate = { package = "openssl", version = "0.10", optional = true }
-
-# rustls support
-tokio-rustls = "0.22"
-rustls = "0.19"
-
-# http/2 support
-h2 = { version = "0.3", optional = true }
-
-# http/3 support
-quinn = { version = "0.7.2", optional = true }
-
-[dev-dependencies]
-bytes = "1"
-env_logger = "0.8"
-http = "0.2"
-tokio = { version = "1.5", features = ["io-util", "macros"] }
-rcgen = "0.8"
-
-h3 = { git = "https://github.com/hyperium/h3" }
-h3-quinn = { git = "https://github.com/hyperium/h3" }
+[patch.crates-io]
+actix-http-alt = { path = "./actix-http-alt" }
+actix-server-alt = { path = "./actix-server-alt" }
+actix-service-alt = { path = "./actix-service-alt" }
 
 [profile.release]
 lto = true
