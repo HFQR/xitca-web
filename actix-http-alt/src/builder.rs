@@ -40,6 +40,7 @@ where
         }
     }
 
+    #[cfg(feature = "http2")]
     /// Construct a new Http/2 ServiceBuilder.
     ///
     /// Note factory type F ues `HttpRequest<h2::RequestBody>` as Request type.
@@ -58,6 +59,7 @@ where
         super::h2::H2ServiceBuilder::new(factory)
     }
 
+    #[cfg(feature = "http3")]
     /// Construct a new Http/3 ServiceBuilder.
     ///
     /// Note factory type F ues `HttpRequest<h3::RequestBody>` as Request type.

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2018"
 
 [features]
-default = ["http2", "http3"]
+default = []
 http2 = ["h2"]
 http3 = ["h3", "h3-quinn"]
 openssl = ["tokio-openssl", "openssl-crate"]
@@ -38,3 +38,4 @@ h3 = { git = "https://github.com/hyperium/h3.git", optional = true }
 h3-quinn = { git = "https://github.com/hyperium/h3.git", optional = true }
 
 [dev-dependencies]
+tokio = { version = "1.5", features = ["macros"] }

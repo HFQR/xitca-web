@@ -13,7 +13,11 @@ use super::error::BodyError;
 /// A unified request body type for different http protocols.
 /// This enables one service type to handle multiple http protocols.
 pub enum RequestBody {
+    H1(super::h1::RequestBody),
+    #[cfg(feature = "http2")]
     H2(super::h2::RequestBody),
+    #[cfg(feature = "http3")]
+    H3(super::h3::RequestBody),
 }
 
 impl Stream for RequestBody {
@@ -22,7 +26,11 @@ impl Stream for RequestBody {
     #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
+            Self::H1(body) => Pin::new(body).poll_next(cx),
+            #[cfg(feature = "http2")]
             Self::H2(body) => Pin::new(body).poll_next(cx),
+            #[cfg(feature = "http3")]
+            Self::H3(body) => Pin::new(body).poll_next(cx),
         }
     }
 }

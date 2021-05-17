@@ -14,12 +14,13 @@ pub enum HttpServiceError {
     Rustls(super::tls::rustls::RustlsError),
     ServiceReady,
     Body(BodyError),
+    H1(super::h1::Error),
     // Http/2 error happen in HttpService handle.
     #[cfg(feature = "http2")]
     H2(h2::Error),
     // Http/3 error happen in HttpService handle.
     #[cfg(feature = "http3")]
-    H3(super::h3::H3Error),
+    H3(super::h3::Error),
 }
 
 impl Debug for HttpServiceError {
@@ -27,6 +28,7 @@ impl Debug for HttpServiceError {
         match *self {
             Self::ServiceReady => write!(f, "Service is not ready"),
             Self::Body(ref e) => write!(f, "{:?}", e),
+            Self::H1(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http2")]
             Self::H2(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http3")]
@@ -54,7 +56,7 @@ pub enum BodyError {
     #[cfg(feature = "http2")]
     H2(h2::Error),
     #[cfg(feature = "http3")]
-    H3(super::h3::H3Error),
+    H3(super::h3::Error),
 }
 
 impl Debug for BodyError {

@@ -1,0 +1,16 @@
+[package]
+name = "actix-web-alt"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = []
+http2 = ["actix-http-alt/http2"]
+http3 = ["actix-http-alt/http3", "actix-server-alt/http3"]
+openssl = ["actix-http-alt/openssl"]
+rustls = ["actix-http-alt/rustls"]
+
+[dependencies]
+actix-http-alt = { version = "0.1", default-features = false }
+actix-server-alt = { version = "0.1", default-features = false }
+actix-service-alt = "0.1"

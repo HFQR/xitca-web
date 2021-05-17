@@ -13,23 +13,26 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
-use crate::flow::HttpFlow;
+use crate::flow::HttpFlowSimple;
 use crate::request::HttpRequest;
 use crate::response::{HttpResponse, ResponseError};
 
 use super::body::RequestBody;
 
 pub struct H2Service<S, A> {
-    flow: HttpFlow<S>,
+    flow: HttpFlowSimple<S>,
     tls_acceptor: A,
 }
 
-impl<S, A> H2Service<S, A> {
+impl<S, A> H2Service<S, A>
+where
+    S: Service,
+{
     /// Construct new Http2Service.
     /// No upgrade/expect services allowed in Http/2.
     pub fn new(service: S, tls_acceptor: A) -> Self {
         Self {
-            flow: HttpFlow::new(service),
+            flow: HttpFlowSimple::new(service),
             tls_acceptor,
         }
     }
@@ -62,10 +65,7 @@ where
 
     #[inline]
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.flow
-            .service
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady)
+        self.flow.poll_ready(cx).map_err(|_| HttpServiceError::ServiceReady)
     }
 
     fn call<'s>(&'s self, req: Self::Request<'s>) -> Self::Future<'s> {

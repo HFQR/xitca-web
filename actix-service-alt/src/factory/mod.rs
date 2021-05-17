@@ -14,7 +14,7 @@ pub trait ServiceFactory<Req> {
 
     /// The kind of `Service` created by this factory.
     #[rustfmt::skip]
-    type Service: for<'r> Service<Request<'r> = Req, Response = Self::Response, Error = Self::Error>;
+    type Service: for<'req> Service<Request<'req> = Req, Response = Self::Response, Error = Self::Error>;
 
     /// Errors potentially raised while building a service.
     type InitError;
