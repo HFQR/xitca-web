@@ -18,63 +18,52 @@ pub(crate) use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
 pub(crate) use tokio_openssl::SslStream as TlsStream;
 
 /// Openssl Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
-pub struct TlsAcceptorService<St> {
+#[derive(Clone)]
+pub struct TlsAcceptorService {
     acceptor: TlsAcceptor,
-    _stream: PhantomData<St>,
 }
 
-impl<St> TlsAcceptorService<St> {
+impl TlsAcceptorService {
     pub fn new(acceptor: TlsAcceptor) -> Self {
-        Self {
-            acceptor,
-            _stream: PhantomData,
-        }
+        Self { acceptor }
     }
 }
 
-impl<St> Clone for TlsAcceptorService<St> {
-    fn clone(&self) -> Self {
-        Self {
-            acceptor: self.acceptor.clone(),
-            _stream: PhantomData,
-        }
-    }
-}
-
-impl<St> ServiceFactory<St> for TlsAcceptorService<St>
+impl<St> ServiceFactory<St> for TlsAcceptorService
 where
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
 {
     type Response = TlsStream<St>;
     type Error = OpensslError;
     type Config = ();
-    type Service = TlsAcceptorService<St>;
+    type Service = TlsAcceptorService;
     type InitError = ();
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, _: Self::Config) -> Self::Future {
         let this = self.clone();
-
         async move { Ok(this) }
     }
 }
 
-impl<St> Service for TlsAcceptorService<St>
+impl<St> Service<St> for TlsAcceptorService
 where
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
 {
-    type Request<'r> = St;
     type Response = TlsStream<St>;
     type Error = OpensslError;
 
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn poll_ready(&self, _: &mut Context) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn call<'s>(&'s self, io: Self::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, io: St) -> Self::Future<'c>
+    where
+        St: 'c,
+    {
         async move {
             let ctx = self.acceptor.context();
             let ssl = Ssl::new(ctx)?;

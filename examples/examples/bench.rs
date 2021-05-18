@@ -14,9 +14,7 @@ async fn main() -> io::Result<()> {
     actix_server_alt::Builder::new()
         .bind("bench", "127.0.0.1:8080", || {
             HttpServiceBuilder::new()
-                .h1(map_config(App::new().service(index), |_| {
-                    AppConfig::default()
-                }))
+                .h1(map_config(App::new().service(index), |_| AppConfig::default()))
                 .tcp()
         })?
         .build()

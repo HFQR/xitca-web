@@ -25,15 +25,14 @@ where
     }
 }
 
-impl<Req, Err> Service for ExpectHandler<Req, Err>
+impl<Req, Err> Service<Req> for ExpectHandler<Req, Err>
 where
     Req: 'static,
     Err: 'static,
 {
-    type Request<'r> = Req;
     type Response = Req;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -41,7 +40,10 @@ where
     }
 
     #[inline]
-    fn call<'s>(&'s self, req: Self::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
+    where
+        Req: 'c,
+    {
         async { Ok(req) }
     }
 }

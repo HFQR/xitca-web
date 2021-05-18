@@ -51,13 +51,7 @@ impl Signals {
                 .filter_map(|(kind, sig)| {
                     unix::signal(*kind)
                         .map(|tokio_sig| (*sig, tokio_sig))
-                        .map_err(|e| {
-                            log::error!(
-                                "Can not initialize stream handler for {:?} err: {}",
-                                sig,
-                                e
-                            )
-                        })
+                        .map_err(|e| log::error!("Can not initialize stream handler for {:?} err: {}", sig, e))
                         .ok()
                 })
                 .collect::<Vec<_>>();

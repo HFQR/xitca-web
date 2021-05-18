@@ -43,21 +43,23 @@ pub struct LoggerService<S> {
     service: S,
 }
 
-impl<S: Service> Service for LoggerService<S>
+impl<S, Req> Service<Req> for LoggerService<S>
 where
-    S: Service + 'static,
+    S: Service<Req> + 'static,
     S::Error: Debug,
 {
-    type Request<'r> = S::Request<'r>;
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
-    fn call<'s>(&'s self, req: S::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
+    where
+        Req: 'c,
+    {
         async move {
             self.service.call(req).await.map_err(|e| {
                 log::error!("Error Logger: {:?}", e);

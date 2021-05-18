@@ -63,17 +63,19 @@ impl ServiceFactory<HttpRequest<RequestBody>> for H3Factory {
 
 struct H3Service;
 
-impl Service for H3Service {
-    type Request<'r> = HttpRequest<RequestBody>;
+impl Service<HttpRequest<RequestBody>> for H3Service {
     type Response = HttpResponse;
     type Error = Box<dyn std::error::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn call<'s>(&'s self, req: Self::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, req: HttpRequest<RequestBody>) -> Self::Future<'c>
+    where
+        HttpRequest<RequestBody>: 'c,
+    {
         async move {
             // split request into head and body
             let (parts, _) = req.into_parts();

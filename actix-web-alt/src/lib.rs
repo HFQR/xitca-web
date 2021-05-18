@@ -9,4 +9,8 @@ mod response;
 mod server;
 mod service;
 
+pub use app::App;
+pub use request::WebRequest;
+pub use response::{Responder, WebResponse};
 pub use server::HttpServer;
+pub use service::EnumService;

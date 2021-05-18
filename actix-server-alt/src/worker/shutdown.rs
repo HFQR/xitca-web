@@ -33,11 +33,7 @@ impl Drop for ShutdownHandle {
 }
 
 impl ShutdownHandle {
-    pub(super) fn new(
-        shutdown_timeout: Duration,
-        limit: Limit,
-        is_graceful_shutdown: Arc<AtomicBool>,
-    ) -> Self {
+    pub(super) fn new(shutdown_timeout: Duration, limit: Limit, is_graceful_shutdown: Arc<AtomicBool>) -> Self {
         Self {
             shutdown_timeout,
             limit,

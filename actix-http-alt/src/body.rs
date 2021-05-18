@@ -20,6 +20,12 @@ pub enum RequestBody {
     H3(super::h3::RequestBody),
 }
 
+impl Default for RequestBody {
+    fn default() -> Self {
+        RequestBody::H1(super::h1::RequestBody::empty())
+    }
+}
+
 impl Stream for RequestBody {
     type Item = Result<Bytes, BodyError>;
 

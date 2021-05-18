@@ -65,10 +65,7 @@ impl AsListener for Option<UdpListenerBuilder> {
     fn as_listener(&mut self) -> io::Result<Listener> {
         let udp = self.take().unwrap().build()?;
 
-        info!(
-            "Started Udp listening on : {:?}",
-            udp.endpoint.local_addr().ok()
-        );
+        info!("Started Udp listening on : {:?}", udp.endpoint.local_addr().ok());
 
         Ok(Listener::Udp(udp))
     }
@@ -104,10 +101,7 @@ where
             }
         });
 
-        Ok(UdpListener {
-            endpoint,
-            incoming: rx,
-        })
+        Ok(UdpListener { endpoint, incoming: rx })
     }
 }
 

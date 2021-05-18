@@ -2,7 +2,6 @@ use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
     io,
-    marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
 };
@@ -16,37 +15,27 @@ use crate::error::HttpServiceError;
 pub(crate) use tokio_rustls::{rustls::ServerConfig, server::TlsStream};
 
 /// Rustls Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
-pub struct TlsAcceptorService<St> {
+#[derive(Clone)]
+pub struct TlsAcceptorService {
     acceptor: TlsAcceptor,
-    _stream: PhantomData<St>,
 }
 
-impl<St> TlsAcceptorService<St> {
+impl TlsAcceptorService {
     pub fn new(config: Arc<ServerConfig>) -> Self {
         Self {
             acceptor: TlsAcceptor::from(config),
-            _stream: PhantomData,
         }
     }
 }
 
-impl<St> Clone for TlsAcceptorService<St> {
-    fn clone(&self) -> Self {
-        Self {
-            acceptor: self.acceptor.clone(),
-            _stream: PhantomData,
-        }
-    }
-}
-
-impl<St> ServiceFactory<St> for TlsAcceptorService<St>
+impl<St> ServiceFactory<St> for TlsAcceptorService
 where
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
 {
     type Response = TlsStream<St>;
     type Error = RustlsError;
     type Config = ();
-    type Service = TlsAcceptorService<St>;
+    type Service = TlsAcceptorService;
     type InitError = ();
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
@@ -56,22 +45,24 @@ where
     }
 }
 
-impl<St> Service for TlsAcceptorService<St>
+impl<St> Service<St> for TlsAcceptorService
 where
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
 {
-    type Request<'r> = St;
     type Response = TlsStream<St>;
     type Error = RustlsError;
 
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn poll_ready(&self, _: &mut Context) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn call<'s>(&'s self, io: Self::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, io: St) -> Self::Future<'c>
+    where
+        St: 'c,
+    {
         async move {
             let stream = self.acceptor.accept(io).await?;
             Ok(stream)

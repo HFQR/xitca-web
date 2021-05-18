@@ -1,10 +1,4 @@
-use std::{
-    ops::Deref,
-    rc::Rc,
-    task::{Context, Poll},
-};
-
-use actix_service_alt::Service;
+use std::{ops::Deref, rc::Rc};
 
 /// A smart pointer holds one service type. Used for Http/2 and Http/3
 pub(crate) struct HttpFlowSimple<S>(Rc<HttpFlowSimpleInner<S>>);
@@ -27,15 +21,11 @@ pub(crate) struct HttpFlowSimpleInner<S> {
     pub(crate) service: S,
 }
 
-impl<S: Service> HttpFlowSimple<S> {
+impl<S> HttpFlowSimple<S> {
     pub fn new(service: S) -> Self {
         let inner = HttpFlowSimpleInner { service };
 
         Self(Rc::new(inner))
-    }
-
-    pub fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), S::Error>> {
-        self.service.poll_ready(cx)
     }
 }
 

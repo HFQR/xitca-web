@@ -11,8 +11,8 @@ use crate::request::HttpRequest;
 use crate::response::{HttpResponse, ResponseError};
 use crate::tls;
 
-use super::body::RequestBody;
 use super::service::H2Service;
+use crate::body::RequestBody;
 
 /// Http/2 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
@@ -24,11 +24,7 @@ pub struct H2ServiceBuilder<St, F, AF> {
 
 impl<St, F, B, E> H2ServiceBuilder<St, F, tls::NoOpTlsAcceptorFactory>
 where
-    F: ServiceFactory<
-        HttpRequest<RequestBody>,
-        Response = HttpResponse<ResponseBody<B>>,
-        Config = (),
-    >,
+    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
@@ -49,11 +45,7 @@ where
 
 impl<St, F, B, E, AF, TlsSt> H2ServiceBuilder<St, F, AF>
 where
-    F: ServiceFactory<
-        HttpRequest<RequestBody>,
-        Response = HttpResponse<ResponseBody<B>>,
-        Config = (),
-    >,
+    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
 
     AF: ServiceFactory<St, Response = TlsSt, Config = ()>,
@@ -71,7 +63,7 @@ where
     pub fn openssl(
         self,
         acceptor: tls::openssl::TlsAcceptor,
-    ) -> H2ServiceBuilder<St, F, tls::openssl::TlsAcceptorService<St>> {
+    ) -> H2ServiceBuilder<St, F, tls::openssl::TlsAcceptorService> {
         H2ServiceBuilder {
             factory: self.factory,
             tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
@@ -83,7 +75,7 @@ where
     pub fn rustls(
         self,
         config: std::sync::Arc<tls::rustls::ServerConfig>,
-    ) -> H2ServiceBuilder<St, F, tls::rustls::TlsAcceptorService<St>> {
+    ) -> H2ServiceBuilder<St, F, tls::rustls::TlsAcceptorService> {
         H2ServiceBuilder {
             factory: self.factory,
             tls_factory: tls::rustls::TlsAcceptorService::new(config),
@@ -94,14 +86,10 @@ where
 
 impl<St, F, B, E, AF, TlsSt> ServiceFactory<St> for H2ServiceBuilder<St, F, AF>
 where
-    F: ServiceFactory<
-        HttpRequest<RequestBody>,
-        Response = HttpResponse<ResponseBody<B>>,
-        Config = (),
-    >,
+    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
 
-    <F::Service as Service>::Error: ResponseError<<F::Service as Service>::Response>,
+    F::Error: ResponseError<F::Response>,
 
     AF: ServiceFactory<St, Response = TlsSt, Config = ()>,
     AF::Service: 'static,
@@ -111,8 +99,8 @@ where
     E: 'static,
     BodyError: From<E>,
 
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
-    TlsSt: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
+    TlsSt: AsyncRead + AsyncWrite + Unpin,
 {
     type Response = ();
     type Error = HttpServiceError;

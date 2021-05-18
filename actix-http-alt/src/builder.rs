@@ -47,11 +47,7 @@ where
     /// This is a request type specific for Http/2 request body.
     pub fn h2(factory: F) -> super::h2::H2ServiceBuilder<St, F, NoOpTlsAcceptorFactory>
     where
-        F: ServiceFactory<
-            HttpRequest<super::h2::RequestBody>,
-            Response = HttpResponse<ResponseBody<B>>,
-            Config = (),
-        >,
+        F: ServiceFactory<HttpRequest<crate::body::RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
 
         St: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -66,11 +62,7 @@ where
     /// This is a request type specific for Http/3 request body.
     pub fn h3(factory: F) -> super::h3::H3ServiceBuilder<F>
     where
-        F: ServiceFactory<
-            HttpRequest<super::h3::RequestBody>,
-            Response = HttpResponse<ResponseBody<B>>,
-            Config = (),
-        >,
+        F: ServiceFactory<HttpRequest<super::h3::RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
     {
         super::h3::H3ServiceBuilder::new(factory)

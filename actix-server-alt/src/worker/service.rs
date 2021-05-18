@@ -1,4 +1,5 @@
 use std::{
+    marker::PhantomData,
     rc::Rc,
     task::{Context, Poll},
 };
@@ -15,19 +16,21 @@ pub(crate) trait WorkerServiceTrait {
     fn call(&self, req: (LimitGuard, Stream));
 }
 
-pub(crate) struct WorkerService<S> {
+pub(crate) struct WorkerService<S, Req> {
     service: S,
+    _req: PhantomData<Req>,
 }
 
 #[rustfmt::skip]
-impl<S, Req> WorkerService<S>
+impl<S, Req> WorkerService<S, Req>
 where
-    S: for<'r> Service<Request<'r> = Req> + 'static,
+    S: Service<Req> + 'static,
     Req: FromStream + 'static,
 {
     pub(crate) fn new_rcboxed(service: S) -> RcWorkerService {
         Rc::new(WorkerService {
             service: Rc::new(service),
+            _req: PhantomData
         })
     }
 }
@@ -35,9 +38,9 @@ where
 pub(crate) type RcWorkerService = Rc<dyn WorkerServiceTrait>;
 
 #[rustfmt::skip]
-impl<S, Req> WorkerServiceTrait for WorkerService<S>
+impl<S, Req> WorkerServiceTrait for WorkerService<S, Req>
 where
-    S: for<'r> Service<Request<'r> = Req> + Clone + 'static,
+    S: Service<Req> + Clone + 'static,
     Req: FromStream + 'static,
 {
     #[inline]

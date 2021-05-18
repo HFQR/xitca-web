@@ -63,9 +63,7 @@ impl Server {
                     let res = rt.block_on(async {
                         listeners
                             .into_iter()
-                            .map(|(name, listeners)| {
-                                listeners.into_iter().map(move |l| (name.to_owned(), l))
-                            })
+                            .map(|(name, listeners)| listeners.into_iter().map(move |l| (name.to_owned(), l)))
                             .flatten()
                             .map(|(name, mut l)| {
                                 let l = l.as_listener()?;
@@ -196,11 +194,9 @@ impl Server {
 
         self.server_join_handle.take().unwrap().join().unwrap();
 
-        mem::take(&mut self.worker_join_handles)
-            .into_iter()
-            .for_each(|handle| {
-                handle.join().unwrap();
-            });
+        mem::take(&mut self.worker_join_handles).into_iter().for_each(|handle| {
+            handle.join().unwrap();
+        });
     }
 }
 

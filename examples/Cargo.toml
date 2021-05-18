@@ -16,9 +16,10 @@ name = "h3"
 path = "examples/h3.rs"
 
 [dependencies]
-actix-http-alt = { version = "0.1", features = ["rustls"] }
+actix-http-alt = { version = "0.1", features = ["http2", "http3", "rustls"] }
 actix-server-alt = "0.1"
 actix-service-alt = "0.1"
+actix-web-alt = { version = "0.1", features = ["http2", "http3", "rustls"] }
 
 bytes = "1"
 env_logger = "0.8"

@@ -24,10 +24,7 @@ pub struct H3Service<S> {
     flow: HttpFlowSimple<S>,
 }
 
-impl<S> H3Service<S>
-where
-    S: Service,
-{
+impl<S> H3Service<S> {
     /// Construct new Http3Service.
     /// No upgrade/expect services allowed in Http/3.
     pub fn new(service: S) -> Self {
@@ -37,13 +34,9 @@ where
     }
 }
 
-#[rustfmt::skip]
-impl<S, B, E> Service for H3Service<S>
+impl<S, B, E> Service<UdpStream> for H3Service<S>
 where
-    S: for<'r> Service<
-            Request<'r> = HttpRequest<RequestBody>,
-            Response = HttpResponse<ResponseBody<B>>,
-        > + 'static,
+    S: Service<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
 
     S::Error: ResponseError<S::Response>,
 
@@ -51,10 +44,9 @@ where
     E: 'static,
     BodyError: From<E>,
 {
-    type Request<'r> = UdpStream;
     type Response = ();
     type Error = HttpServiceError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -64,7 +56,10 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'s>(&'s self, req: Self::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, req: UdpStream) -> Self::Future<'c>
+    where
+        UdpStream: 'c,
+    {
         async move {
             // wait for connecting.
             let conn = req.connecting().await?;
@@ -97,10 +92,7 @@ where
     }
 }
 
-async fn h3_handler<Fut, C, B, BE, E>(
-    fut: Fut,
-    mut stream: RequestStream<C>,
-) -> Result<(), HttpServiceError>
+async fn h3_handler<Fut, C, B, BE, E>(fut: Fut, mut stream: RequestStream<C>) -> Result<(), HttpServiceError>
 where
     Fut: Future<Output = Result<HttpResponse<ResponseBody<B>>, E>>,
     C: SendStream<Bytes>,

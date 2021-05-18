@@ -6,7 +6,6 @@ pub(crate) mod rustls;
 
 use std::{
     future::Future,
-    marker::PhantomData,
     task::{Context, Poll},
 };
 
@@ -20,37 +19,30 @@ pub struct NoOpTlsAcceptorFactory;
 
 impl<St> ServiceFactory<St> for NoOpTlsAcceptorFactory
 where
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
 {
     type Response = St;
     type Error = HttpServiceError;
     type Config = ();
-    type Service = NoOpTlsAcceptor<St>;
+    type Service = NoOpTlsAcceptor;
     type InitError = ();
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, _: Self::Config) -> Self::Future {
-        async move {
-            Ok(NoOpTlsAcceptor {
-                _stream: PhantomData,
-            })
-        }
+        async move { Ok(NoOpTlsAcceptor) }
     }
 }
 
-pub struct NoOpTlsAcceptor<St> {
-    _stream: PhantomData<St>,
-}
+pub struct NoOpTlsAcceptor;
 
-impl<St> Service for NoOpTlsAcceptor<St>
+impl<St> Service<St> for NoOpTlsAcceptor
 where
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
 {
-    type Request<'r> = St;
     type Response = St;
     type Error = HttpServiceError;
 
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn poll_ready(&self, _: &mut Context) -> Poll<Result<(), Self::Error>> {
@@ -58,7 +50,10 @@ where
     }
 
     #[inline]
-    fn call<'s>(&'s self, io: Self::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, io: St) -> Self::Future<'c>
+    where
+        St: 'c,
+    {
         async move { Ok(io) }
     }
 }

@@ -1,9 +1,7 @@
 use std::{collections::HashMap, io, net, time::Duration};
 
 use crate::net::{AsListener, TcpSocket, TcpStream};
-use crate::server::{
-    AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone,
-};
+use crate::server::{AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone};
 
 pub struct Builder {
     pub(crate) server_threads: usize,
@@ -122,9 +120,10 @@ impl Builder {
         A: net::ToSocketAddrs,
         F: AsServiceFactoryClone<TcpStream>,
     {
-        let addr = addr.to_socket_addrs()?.next().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr")
-        })?;
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
         let socket = if addr.is_ipv4() {
             TcpSocket::new_v4()?
@@ -139,12 +138,7 @@ impl Builder {
         self.listen(name, listener, factory)
     }
 
-    pub fn listen<N, F>(
-        mut self,
-        name: N,
-        listener: net::TcpListener,
-        factory: F,
-    ) -> io::Result<Self>
+    pub fn listen<N, F>(mut self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
         F: AsServiceFactoryClone<TcpStream>,
@@ -237,9 +231,10 @@ impl Builder {
         A: net::ToSocketAddrs,
         F: AsServiceFactoryClone<crate::net::UdpStream>,
     {
-        let addr = addr.to_socket_addrs()?.next().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr")
-        })?;
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
         let builder = crate::net::UdpListenerBuilder::new(addr, config);
 

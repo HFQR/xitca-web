@@ -79,10 +79,7 @@ impl RequestBody {
 impl Stream for RequestBody {
     type Item = Result<Bytes, BodyError>;
 
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Bytes, BodyError>>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
         self.0.borrow_mut().readany(cx)
     }
 }
@@ -172,12 +169,7 @@ impl Inner {
     /// Register future waiting data from payload.
     /// Waker would be used in `Inner::wake`
     fn register(&mut self, cx: &mut Context<'_>) {
-        if self
-            .task
-            .as_ref()
-            .map(|w| !cx.waker().will_wake(w))
-            .unwrap_or(true)
-        {
+        if self.task.as_ref().map(|w| !cx.waker().will_wake(w)).unwrap_or(true) {
             self.task = Some(cx.waker().clone());
         }
     }
@@ -185,12 +177,7 @@ impl Inner {
     // Register future feeding data to payload.
     /// Waker would be used in `Inner::wake_io`
     fn register_io(&mut self, cx: &mut Context<'_>) {
-        if self
-            .io_task
-            .as_ref()
-            .map(|w| !cx.waker().will_wake(w))
-            .unwrap_or(true)
-        {
+        if self.io_task.as_ref().map(|w| !cx.waker().will_wake(w)).unwrap_or(true) {
             self.io_task = Some(cx.waker().clone());
         }
     }

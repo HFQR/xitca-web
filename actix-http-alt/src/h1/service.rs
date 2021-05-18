@@ -31,13 +31,9 @@ impl<S, X, U> H1Service<S, X, U> {
     }
 }
 
-#[rustfmt::skip]
-impl<S, X, U, B, E> Service for H1Service<S, X, U>
+impl<S, X, U, B, E> Service<TcpStream> for H1Service<S, X, U>
 where
-    S: for<'r> Service<
-            Request<'r> = HttpRequest<RequestBody>,
-            Response = HttpResponse<ResponseBody<B>>,
-        > + 'static,
+    S: Service<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,
 
     X: 'static,
@@ -48,7 +44,6 @@ where
     E: 'static,
     BodyError: From<E>,
 {
-    type Request<'r> = TcpStream;
     type Response = ();
     type Error = HttpServiceError;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
@@ -63,7 +58,10 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'s>(&'s self, io: Self::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, io: TcpStream) -> Self::Future<'c>
+    where
+        TcpStream: 'c,
+    {
         async move {
             let mut dispatcher = Dispatcher::new(io, &self.flow);
 

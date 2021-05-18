@@ -17,17 +17,14 @@ use crate::flow::HttpFlowSimple;
 use crate::request::HttpRequest;
 use crate::response::{HttpResponse, ResponseError};
 
-use super::body::RequestBody;
+use crate::body::RequestBody;
 
 pub struct H2Service<S, A> {
     flow: HttpFlowSimple<S>,
     tls_acceptor: A,
 }
 
-impl<S, A> H2Service<S, A>
-where
-    S: Service,
-{
+impl<S, A> H2Service<S, A> {
     /// Construct new Http2Service.
     /// No upgrade/expect services allowed in Http/2.
     pub fn new(service: S, tls_acceptor: A) -> Self {
@@ -38,14 +35,10 @@ where
     }
 }
 
-#[rustfmt::skip]
-impl<St, S, B, E, A, TlsSt> Service for H2Service<S, A>
+impl<St, S, B, E, A, TlsSt> Service<St> for H2Service<S, A>
 where
-    S: for<'r> Service<
-            Request<'r> = HttpRequest<RequestBody>,
-            Response = HttpResponse<ResponseBody<B>>,
-        > + 'static,
-    A: for<'r> Service<Request<'r> = St, Response = TlsSt> + 'static,
+    S: Service<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
+    A: Service<St, Response = TlsSt> + 'static,
 
     S::Error: ResponseError<S::Response>,
 
@@ -53,22 +46,27 @@ where
     E: 'static,
     BodyError: From<E>,
 
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
-    TlsSt: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
+    TlsSt: AsyncRead + AsyncWrite + Unpin,
 
     HttpServiceError: From<A::Error>,
 {
-    type Request<'r> = St;
     type Response = ();
     type Error = HttpServiceError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.flow.poll_ready(cx).map_err(|_| HttpServiceError::ServiceReady)
+        self.flow
+            .service
+            .poll_ready(cx)
+            .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'s>(&'s self, req: Self::Request<'s>) -> Self::Future<'s> {
+    fn call<'c>(&'c self, req: St) -> Self::Future<'c>
+    where
+        St: 'c,
+    {
         async move {
             let tls_stream = self.tls_acceptor.call(req).await?;
 
@@ -97,10 +95,7 @@ where
     }
 }
 
-async fn h2_handler<Fut, B, BE, E>(
-    fut: Fut,
-    mut tx: SendResponse<Bytes>,
-) -> Result<(), HttpServiceError>
+async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>) -> Result<(), HttpServiceError>
 where
     Fut: Future<Output = Result<HttpResponse<ResponseBody<B>>, E>>,
     E: ResponseError<HttpResponse<ResponseBody<B>>>,

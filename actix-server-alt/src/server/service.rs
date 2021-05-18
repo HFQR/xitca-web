@@ -21,10 +21,7 @@ where
     Req: FromStream + Send + 'static,
 {
     pub(crate) fn new_boxed(inner: F) -> Box<dyn ServiceFactoryClone> {
-        Box::new(Self {
-            inner,
-            _t: PhantomData,
-        })
+        Box::new(Self { inner, _t: PhantomData })
     }
 }
 

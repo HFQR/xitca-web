@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use actix_server_alt::net::UdpStream;
-use actix_service_alt::{Service, ServiceFactory};
+use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
 
@@ -21,11 +21,7 @@ pub struct H3ServiceBuilder<F> {
 
 impl<F, B, E> H3ServiceBuilder<F>
 where
-    F: ServiceFactory<
-        HttpRequest<RequestBody>,
-        Response = HttpResponse<ResponseBody<B>>,
-        Config = (),
-    >,
+    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
@@ -40,14 +36,10 @@ where
 
 impl<F, B, E> ServiceFactory<UdpStream> for H3ServiceBuilder<F>
 where
-    F: ServiceFactory<
-        HttpRequest<RequestBody>,
-        Response = HttpResponse<ResponseBody<B>>,
-        Config = (),
-    >,
+    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
 
-    <F::Service as Service>::Error: ResponseError<<F::Service as Service>::Response>,
+    F::Error: ResponseError<F::Response>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,

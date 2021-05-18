@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, net::ToSocketAddrs};
 
-use actix_http_alt::HttpRequest;
+use actix_server_alt::net::TcpStream;
 use actix_server_alt::{Builder, ServerFuture};
 use actix_service_alt::ServiceFactory;
 
@@ -13,7 +13,7 @@ pub struct HttpServer<F, S> {
 impl<F, I, S> HttpServer<F, S>
 where
     F: Fn() -> I + Send + Clone + 'static,
-    I: ServiceFactory<HttpRequest>,
+    I: ServiceFactory<TcpStream, Config = ()>,
 {
     pub fn new(factory: F) -> Self {
         Self {
@@ -49,11 +49,11 @@ where
         self
     }
 
-    // pub fn bind<A: ToSocketAddrs>(mut self, addr: A) -> std::io::Result<Self> {
-    //     self.builder = self.builder.bind("test", addr, self.factory.clone())?;
-    //
-    //     Ok(self)
-    // }
+    pub fn bind<A: ToSocketAddrs>(mut self, addr: A) -> std::io::Result<Self> {
+        self.builder = self.builder.bind("test", addr, self.factory.clone())?;
+
+        Ok(self)
+    }
 
     pub fn run(self) -> ServerFuture {
         self.builder.build()

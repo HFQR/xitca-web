@@ -106,13 +106,7 @@ pub(crate) async fn run(
         .map(|(name, listener)| {
             let service = services
                 .iter()
-                .find_map(|(n, service)| {
-                    if n == &name {
-                        Some(service.clone())
-                    } else {
-                        None
-                    }
-                })
+                .find_map(|(n, service)| if n == &name { Some(service.clone()) } else { None })
                 .unwrap();
 
             let listener = WorkerInner {
