@@ -1,5 +1,6 @@
 use std::{
     future::Future,
+    rc::Rc,
     task::{Context, Poll},
 };
 
@@ -7,6 +8,7 @@ use actix_server_alt::net::UdpStream;
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::Stream;
+use futures_intrusive::sync::LocalMutex;
 use h3::{
     quic::SendStream,
     server::{self, RequestStream},
@@ -69,13 +71,21 @@ where
             let mut conn = server::Connection::new(conn).await?;
 
             // accept loop
-            while let Some(res) = conn.accept().await.transpose() {
-                // TODO: pass stream receiver to HttpRequest.
-                let (req, stream) = res?;
-
+            while let Some((req, stream)) = conn.accept().await? {
                 // Reconstruct HttpRequest to attach crate body type.
                 let (parts, _) = req.into_parts();
-                let body = RequestBody;
+
+                // a hack to split read/write of request stream.
+                // TODO: may deadlock?
+                let stream = Rc::new(LocalMutex::new(stream, true));
+                let sender = stream.clone();
+                let body = async_stream::stream! {
+                    while let Some(res) = sender.lock().await.recv_data().await.transpose() {
+                        yield res;
+                    }
+                };
+                let body = RequestBody(Box::pin(body));
+
                 let req = HttpRequest::from_parts(parts, body);
 
                 let flow = self.flow.clone();
@@ -92,7 +102,10 @@ where
     }
 }
 
-async fn h3_handler<Fut, C, B, BE, E>(fut: Fut, mut stream: RequestStream<C>) -> Result<(), HttpServiceError>
+async fn h3_handler<Fut, C, B, BE, E>(
+    fut: Fut,
+    stream: Rc<LocalMutex<RequestStream<C>>>,
+) -> Result<(), HttpServiceError>
 where
     Fut: Future<Output = Result<HttpResponse<ResponseBody<B>>, E>>,
     C: SendStream<Bytes>,
@@ -105,14 +118,16 @@ where
     let (res, body) = res.into_parts();
     let res = HttpResponse::from_parts(res, ());
 
-    stream.send_response(res).await?;
+    stream.lock().await.send_response(res).await?;
 
     tokio::pin!(body);
 
     while let Some(res) = body.as_mut().next().await {
         let bytes = res?;
-        stream.send_data(bytes).await?;
+        stream.lock().await.send_data(bytes).await?;
     }
+
+    stream.lock().await.finish().await?;
 
     Ok(())
 }

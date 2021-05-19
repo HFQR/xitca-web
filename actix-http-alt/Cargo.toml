@@ -6,7 +6,7 @@ edition = "2018"
 [features]
 default = []
 http2 = ["h2"]
-http3 = ["actix-server-alt/http3", "h3", "h3-quinn"]
+http3 = ["actix-server-alt/http3", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
 openssl = ["tokio-openssl", "openssl-crate"]
 rustls = ["tokio-rustls"]
 
@@ -34,6 +34,8 @@ tokio-rustls = { version = "0.22", optional = true }
 h2 = { version = "0.3", optional = true }
 
 # http/3 support
+async-stream = { version = "0.3", optional = true }
+futures-intrusive = { version = "0.4", optional = true }
 h3 = { git = "https://github.com/hyperium/h3.git", optional = true }
 h3-quinn = { git = "https://github.com/hyperium/h3.git", optional = true }
 

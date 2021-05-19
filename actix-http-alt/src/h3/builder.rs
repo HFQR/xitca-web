@@ -36,7 +36,7 @@ where
 
 impl<F, B, E> ServiceFactory<UdpStream> for H3ServiceBuilder<F>
 where
-    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
+    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>>,
     F::Service: 'static,
 
     F::Error: ResponseError<F::Response>,
@@ -47,19 +47,15 @@ where
 {
     type Response = ();
     type Error = HttpServiceError;
-    type Config = ();
+    type Config = F::Config;
     type Service = H3Service<F::Service>;
-    type InitError = ();
+    type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
-    fn new_service(&self, _: Self::Config) -> Self::Future {
-        let service = self.factory.new_service(());
+    fn new_service(&self, cfg: Self::Config) -> Self::Future {
+        let service = self.factory.new_service(cfg);
         async {
-            let service = match service.await {
-                Ok(service) => service,
-                Err(_) => panic!("TODO"),
-            };
-
+            let service = service.await?;
             Ok(H3Service::new(service))
         }
     }

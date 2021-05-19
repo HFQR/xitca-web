@@ -13,7 +13,8 @@ use actix_http_alt::{
     HttpRequest, HttpResponse,
 };
 use actix_service_alt::{Service, ServiceFactory};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
+use futures_util::StreamExt;
 use h3_quinn::quinn::{CertificateChain, PrivateKey, ServerConfigBuilder};
 
 #[tokio::main(flavor = "current_thread")]
@@ -78,9 +79,18 @@ impl Service<HttpRequest<RequestBody>> for H3Service {
     {
         async move {
             // split request into head and body
-            let (parts, _) = req.into_parts();
+            let (parts, mut body) = req.into_parts();
 
             log::info!("Request head: {:?}", parts);
+
+            // collect body and log as String.
+            let mut buf = BytesMut::new();
+            while let Some(chunk) = body.next().await {
+                let chunk = chunk?;
+                buf.extend_from_slice(&chunk);
+            }
+
+            log::info!("Request body as String: {:?}", String::from_utf8_lossy(&buf));
 
             let res = HttpResponse::builder()
                 .status(200)
