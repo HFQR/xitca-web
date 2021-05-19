@@ -1,26 +1,38 @@
-use std::{collections::VecDeque, io};
+use std::{collections::VecDeque, io, marker::PhantomData};
 
 use actix_server_alt::net::TcpStream;
+use actix_service_alt::Service;
 use bytes::BytesMut;
 use tokio::io::Ready;
 
+use crate::body::ResponseBody;
 use crate::flow::HttpFlow;
-use crate::h1::{body::RequestBodySender, error::Error};
+use crate::h1::{
+    body::{RequestBody, RequestBodySender},
+    error::Error,
+};
+use crate::request::HttpRequest;
+use crate::response::{HttpResponse, ResponseError};
 
 use super::state::State;
 
-pub(crate) struct Dispatcher<'a, S, X, U> {
+pub(crate) struct Dispatcher<'a, S, B, X, U> {
     io: TcpStream,
     state: State,
     read_buf: ReadBuffer,
     write_buf: BytesMut,
-    queue: VecDeque<usize>,
+    queue: VecDeque<HttpRequest<RequestBody>>,
     body_sender: Option<RequestBodySender>,
     error: Option<Error>,
     flow: &'a HttpFlow<S, X, U>,
+    _phantom: PhantomData<B>,
 }
 
-impl<'a, S, X, U> Dispatcher<'a, S, X, U> {
+impl<'a, S, B, X, U> Dispatcher<'a, S, B, X, U>
+where
+    S: Service<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
+    S::Error: ResponseError<S::Response>,
+{
     pub(crate) fn new(io: TcpStream, flow: &'a HttpFlow<S, X, U>) -> Self {
         Self {
             io,
@@ -31,6 +43,7 @@ impl<'a, S, X, U> Dispatcher<'a, S, X, U> {
             body_sender: None,
             error: None,
             flow,
+            _phantom: PhantomData,
         }
     }
 
@@ -43,6 +56,19 @@ impl<'a, S, X, U> Dispatcher<'a, S, X, U> {
                 self.try_read()?;
                 self.try_decode()?;
             }
+
+            self.handle_request().await?;
+
+            if ready.is_writable() {}
+        }
+
+        Ok(())
+    }
+
+    async fn handle_request(&mut self) -> Result<(), Error> {
+        while let Some(req) = self.queue.pop_front() {
+            let res = self.flow.service.call(req).await;
+            self.try_encode(res)?;
         }
 
         Ok(())
@@ -75,6 +101,10 @@ impl<'a, S, X, U> Dispatcher<'a, S, X, U> {
     fn try_decode(&mut self) -> Result<(), Error> {
         if self.read_buf.advanced() {}
 
+        Ok(())
+    }
+
+    fn try_encode(&mut self, res: Result<S::Response, S::Error>) -> Result<(), Error> {
         Ok(())
     }
 

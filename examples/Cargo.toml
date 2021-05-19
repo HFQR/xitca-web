@@ -8,10 +8,6 @@ name = "hello-world"
 path = "examples/hello_world.rs"
 
 [[example]]
-name = "bench"
-path = "examples/bench.rs"
-
-[[example]]
 name = "h3"
 path = "examples/h3.rs"
 

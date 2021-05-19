@@ -10,7 +10,7 @@ mod service;
 mod transform;
 
 pub use self::{
-    factory::{ServiceFactory, ServiceFactoryExt},
+    factory::{fn_factory, ServiceFactory, ServiceFactoryExt},
     service::Service,
-    transform::Transform,
+    transform::{Transform, TransformFactory},
 };

@@ -25,20 +25,20 @@ pub trait Transform<S, Req> {
     fn new_transform(&self, service: S) -> Self::Future;
 }
 
-pub struct TransformFactory<F, Req, T>
+pub struct TransformFactory<F, S, Req, T>
 where
     F: ServiceFactory<Req>,
-    T: Transform<F::Service, Req>,
+    T: Transform<S, Req>,
 {
     factory: F,
     transform: Rc<T>,
-    _req: PhantomData<Req>,
+    _req: PhantomData<(S, Req)>,
 }
 
-impl<F, Req, T> TransformFactory<F, Req, T>
+impl<F, S, Req, T> TransformFactory<F, S, Req, T>
 where
     F: ServiceFactory<Req>,
-    T: Transform<F::Service, Req>,
+    T: Transform<S, Req>,
 {
     pub fn new(factory: F, transform: T) -> Self {
         Self {
@@ -49,17 +49,18 @@ where
     }
 }
 
-impl<F, Req, T> ServiceFactory<Req> for TransformFactory<F, Req, T>
+impl<F, S, Req, T> ServiceFactory<Req> for TransformFactory<F, S, Req, T>
 where
-    F: ServiceFactory<Req>,
-    T: Transform<F::Service, Req>,
-    T::InitError: From<F::InitError>,
+    F: ServiceFactory<Req, Service = S>,
+    S: Service<Req>,
+    T: Transform<S, Req>,
+    // T::InitError: From<F::InitError>,
 {
     type Response = T::Response;
     type Error = T::Error;
     type Config = F::Config;
     type Service = T::Transform;
-    type InitError = T::InitError;
+    type InitError = ();
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
@@ -68,10 +69,73 @@ where
         let transform = self.transform.clone();
 
         async move {
-            let service = service.await?;
-            let transform = transform.new_transform(service).await?;
+            let service = service.await.ok().unwrap();
+            let transform = transform.new_transform(service).await.ok().unwrap();
 
             Ok(transform)
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use core::{
+        task::{Context, Poll},
+        time::Duration,
+    };
+
+    // pseudo-doctest for Transform trait
+    struct TimeoutTransform {
+        timeout: Duration,
+    }
+
+    // pseudo-doctest for Transform trait
+    impl<S, Req> Transform<S, Req> for TimeoutTransform
+    where
+        S: Service<Req>,
+    {
+        type Response = S::Response;
+        type Error = S::Error;
+        type Transform = Timeout<S>;
+        type InitError = S::Error;
+        type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+
+        fn new_transform(&self, service: S) -> Self::Future {
+            let service = Timeout {
+                service,
+                _timeout: self.timeout,
+            };
+
+            async { Ok(service) }
+        }
+    }
+
+    // pseudo-doctest for Transform trait
+    struct Timeout<S> {
+        service: S,
+        _timeout: Duration,
+    }
+
+    // pseudo-doctest for Transform trait
+    impl<S, Req> Service<Req> for Timeout<S>
+    where
+        S: Service<Req>,
+    {
+        type Response = S::Response;
+        type Error = S::Error;
+        type Future<'f> = S::Future<'f>;
+
+        fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
+        where
+            Req: 'c,
+        {
+            self.service.call(req)
         }
     }
 }

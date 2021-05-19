@@ -6,7 +6,7 @@ use std::{
 };
 
 use actix_http_alt::HttpRequest;
-use actix_service_alt::{Service, ServiceFactory, ServiceFactoryExt, Transform};
+use actix_service_alt::{Service, ServiceFactory};
 
 use crate::request::WebRequest;
 
@@ -14,7 +14,7 @@ use crate::request::WebRequest;
 
 pub struct App<State = (), F = ()> {
     state: State,
-    factory: F,
+    pub factory: F,
 }
 
 impl App {
@@ -27,7 +27,7 @@ impl App {
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<State>(state: State) -> App<State, ()>
+    pub fn with_current_thread_state<State>(state: State) -> App<State>
     where
         State: Clone + 'static,
     {
@@ -37,7 +37,7 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<State>(state: State) -> App<State, ()>
+    pub fn with_multi_thread_state<State>(state: State) -> App<State>
     where
         State: Send + Sync + Clone + 'static,
     {
@@ -45,13 +45,13 @@ impl App {
     }
 }
 
-impl<State> App<State, ()>
+impl<State> App<State>
 where
     State: Clone,
 {
     pub fn service<F>(self, factory: F) -> App<State, F>
     where
-        F: for<'r> ServiceFactory<WebRequest<'r, State>, Config = (), InitError = ()>,
+        F: for<'f> ServiceFactory<WebRequest<'f, State>>,
     {
         App {
             state: self.state,
@@ -60,48 +60,29 @@ where
     }
 }
 
-impl<'r, State, F> App<State, F>
+impl<State, F, S, Res, Err, Cfg, IntErr> ServiceFactory<HttpRequest> for App<State, F>
 where
-    State: Clone + 'r,
-    F: ServiceFactory<WebRequest<'r, State>, Config = (), InitError = ()>,
-{
-    pub fn service<F2>(self, factory: F2) -> App<State, F2> {
-        App {
-            state: self.state,
-            factory,
-        }
-    }
-
-    pub fn wrap<F2>(
-        self,
-        factory: F2,
-    ) -> App<State, impl ServiceFactory<WebRequest<'r, State>, Config = (), InitError = ()>>
-    where
-        F2: Transform<F::Service, WebRequest<'r, State>, InitError = ()>,
-    {
-        App {
-            factory: self.factory.transform(factory),
-            state: self.state,
-        }
-    }
-}
-
-impl<State, F, S, Res, Err> ServiceFactory<HttpRequest> for App<State, F>
-where
-    State: Send + Sync + Clone + 'static,
-    F: for<'r> ServiceFactory<WebRequest<'r, State>, Service = S, Config = (), InitError = ()>,
+    State: Clone + 'static,
+    F: for<'r> ServiceFactory<
+        WebRequest<'r, State>,
+        Service = S,
+        Response = Res,
+        Error = Err,
+        Config = Cfg,
+        InitError = IntErr,
+    >,
     S: for<'r> Service<WebRequest<'r, State>, Response = Res, Error = Err> + 'static,
 {
     type Response = Res;
     type Error = Err;
-    type Config = ();
+    type Config = Cfg;
     type Service = AppService<State, S>;
-    type InitError = ();
+    type InitError = IntErr;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
-    fn new_service(&self, _: Self::Config) -> Self::Future {
+    fn new_service(&self, cfg: Self::Config) -> Self::Future {
         let state = self.state.clone();
-        let service = self.factory.new_service(());
+        let service = self.factory.new_service(cfg);
         async {
             let service = service.await?;
             Ok(AppService { service, state })
@@ -117,11 +98,11 @@ pub struct AppService<State, S> {
 impl<State, S, Res, Err> Service<HttpRequest> for AppService<State, S>
 where
     State: 'static,
-    S: for<'r> Service<WebRequest<'r, State>, Response = Res, Error = Err> + 'static,
+    S: for<'s> Service<WebRequest<'s, State>, Response = Res, Error = Err> + 'static,
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -168,7 +149,7 @@ mod test {
         type Error = ();
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-        fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
 

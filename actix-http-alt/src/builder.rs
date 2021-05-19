@@ -50,7 +50,7 @@ where
         F: ServiceFactory<HttpRequest<crate::body::RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
 
-        St: AsyncRead + AsyncWrite + Unpin + 'static,
+        St: AsyncRead + AsyncWrite + Unpin,
     {
         super::h2::H2ServiceBuilder::new(factory)
     }

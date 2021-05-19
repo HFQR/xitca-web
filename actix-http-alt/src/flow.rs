@@ -1,6 +1,8 @@
 use std::{ops::Deref, rc::Rc};
 
 /// A smart pointer holds one service type. Used for Http/2 and Http/3
+///
+/// Rc is used for multiplexing connections in Http/2 and Http/3.
 pub(crate) struct HttpFlowSimple<S>(Rc<HttpFlowSimpleInner<S>>);
 
 impl<S> Clone for HttpFlowSimple<S> {
@@ -29,14 +31,14 @@ impl<S> HttpFlowSimple<S> {
     }
 }
 
-/// A smart pointer holds 3 services. Used for Http/1
-pub(crate) struct HttpFlow<S, X, U>(Rc<HttpFlowInner<S, X, U>>);
+/// A struct holds 3 services. Used for Http/1
+pub(crate) struct HttpFlow<S, X, U>(HttpFlowInner<S, X, U>);
 
 impl<S, X, U> Deref for HttpFlow<S, X, U> {
     type Target = HttpFlowInner<S, X, U>;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        &self.0
     }
 }
 
@@ -54,6 +56,6 @@ impl<S, X, U> HttpFlow<S, X, U> {
             upgrade,
         };
 
-        Self(Rc::new(inner))
+        Self(inner)
     }
 }

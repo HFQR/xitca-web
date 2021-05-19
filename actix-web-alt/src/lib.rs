@@ -13,4 +13,9 @@ pub use app::App;
 pub use request::WebRequest;
 pub use response::{Responder, WebResponse};
 pub use server::HttpServer;
-pub use service::EnumService;
+
+pub mod dev {
+    pub use actix_service_alt::{Service, ServiceFactory, ServiceFactoryExt, Transform};
+
+    pub use crate::service::EnumService;
+}

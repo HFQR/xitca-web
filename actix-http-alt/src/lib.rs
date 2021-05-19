@@ -22,5 +22,5 @@ pub mod util;
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
 pub use error::HttpServiceError;
-pub use request::{HttpParts, HttpRequest};
+pub use request::HttpRequest;
 pub use response::HttpResponse;

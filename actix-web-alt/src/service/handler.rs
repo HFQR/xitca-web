@@ -24,7 +24,7 @@ where
 }
 
 #[doc(hidden)]
-/// Extract arguments from request, run factory function and make response.
+/// Extract arguments from request, run handler function and make response.
 pub struct HandlerService<State, F, T, R>
 where
     State: 'static,
@@ -38,12 +38,10 @@ where
 
 impl<'r, State, F, T, R, Err> Service<&'r WebRequest<'r, State>> for HandlerService<State, F, T, R>
 where
-    State: 'static,
     F: Handler<State, T, R>,
-    R: Future + 'static,
+    R: Future,
     R::Output: Responder<State>,
-    T: for<'f> FromRequest<'f, State, Error = Err>,
-    Err: 'static,
+    T: FromRequest<'r, State, Error = Err>,
 {
     type Response = WebResponse;
     type Error = Err;
@@ -101,12 +99,17 @@ mod test {
 
     use crate::extract::State;
 
-    async fn handler(req: State<String>) -> WebResponse {
-        unimplemented!();
+    use actix_http_alt::ResponseBody;
+
+    async fn handler(req: &WebRequest<'_, String>, state: State<'_, String>) -> WebResponse {
+        let state2 = req.state();
+        assert_eq!(state2, &*state);
+        assert_eq!("123", state2.as_str());
+        WebResponse::new(ResponseBody::None)
     }
 
-    #[test]
-    fn test_handler_service() {
+    #[tokio::test]
+    async fn handler_service() {
         let service = HandlerService {
             hnd: handler,
             _phantom: PhantomData,
@@ -114,10 +117,10 @@ mod test {
 
         let data = String::from("123");
 
-        let web_req = WebRequest::with_state(&data);
+        let req = WebRequest::with_state(&data);
 
-        let _ = async move {
-            let _ = service.call(&web_req).await;
-        };
+        let res = service.call(&req).await;
+
+        assert!(res.is_ok());
     }
 }

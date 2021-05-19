@@ -12,8 +12,9 @@ rustls = ["actix-http-alt/rustls"]
 
 [dependencies]
 actix-http-alt = { version = "0.1", default-features = false }
-actix-server-alt = { version = "0.1", default-features = false }
+actix-server-alt = { version = "0.1" }
 actix-service-alt = "0.1"
+log = "0.4"
 
 [dev-dependencies]
-tokio = { version = "1.6", features = ["full"] }
+tokio = { version = "1.6", features = ["rt", "macros"] }

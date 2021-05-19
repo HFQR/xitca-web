@@ -6,20 +6,20 @@ edition = "2018"
 [features]
 default = []
 http2 = ["h2"]
-http3 = ["h3", "h3-quinn"]
+http3 = ["actix-server-alt/http3", "h3", "h3-quinn"]
 openssl = ["tokio-openssl", "openssl-crate"]
 rustls = ["tokio-rustls"]
 
 [dependencies]
-actix-server-alt = { version = "0.1", features = ["http3"] }
+actix-server-alt = "0.1"
 actix-service-alt = "0.1"
 
 bytes = "1"
 futures-core = "0.3"
 futures-util = "0.3"
 http = "0.2"
+httparse = "1.4"
 log = "0.4"
-num_cpus = "1.13"
 pin-project-lite = "0.2.6"
 tokio = { version = "1.5", features = ["io-util"] }
 
@@ -38,4 +38,4 @@ h3 = { git = "https://github.com/hyperium/h3.git", optional = true }
 h3-quinn = { git = "https://github.com/hyperium/h3.git", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.5", features = ["macros"] }
+tokio = { version = "1.6", features = ["macros", "rt"] }

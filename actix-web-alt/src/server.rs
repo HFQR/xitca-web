@@ -1,16 +1,15 @@
-use std::{marker::PhantomData, net::ToSocketAddrs};
+use std::net::ToSocketAddrs;
 
 use actix_server_alt::net::TcpStream;
 use actix_server_alt::{Builder, ServerFuture};
 use actix_service_alt::ServiceFactory;
 
-pub struct HttpServer<F, S> {
+pub struct HttpServer<F> {
     factory: F,
     builder: Builder,
-    _phantom: PhantomData<S>,
 }
 
-impl<F, I, S> HttpServer<F, S>
+impl<F, I> HttpServer<F>
 where
     F: Fn() -> I + Send + Clone + 'static,
     I: ServiceFactory<TcpStream, Config = ()>,
@@ -19,7 +18,6 @@ where
         Self {
             factory,
             builder: Builder::new(),
-            _phantom: PhantomData,
         }
     }
 
@@ -50,7 +48,7 @@ where
     }
 
     pub fn bind<A: ToSocketAddrs>(mut self, addr: A) -> std::io::Result<Self> {
-        self.builder = self.builder.bind("test", addr, self.factory.clone())?;
+        self.builder = self.builder.bind("actix-web-alt", addr, self.factory.clone())?;
 
         Ok(self)
     }

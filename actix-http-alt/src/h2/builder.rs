@@ -31,7 +31,7 @@ where
     E: 'static,
     BodyError: From<E>,
 
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
 {
     /// Construct a new Service Builder with given service factory.
     pub fn new(factory: F) -> Self {
@@ -45,10 +45,10 @@ where
 
 impl<St, F, B, E, AF, TlsSt> H2ServiceBuilder<St, F, AF>
 where
-    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
+    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>>,
     F::Service: 'static,
 
-    AF: ServiceFactory<St, Response = TlsSt, Config = ()>,
+    AF: ServiceFactory<St, Response = TlsSt>,
     AF::Service: 'static,
     HttpServiceError: From<AF::Error>,
 
@@ -56,8 +56,8 @@ where
     E: 'static,
     BodyError: From<E>,
 
-    St: AsyncRead + AsyncWrite + Unpin + 'static,
-    TlsSt: AsyncRead + AsyncWrite + Unpin + 'static,
+    St: AsyncRead + AsyncWrite + Unpin,
+    TlsSt: AsyncRead + AsyncWrite + Unpin,
 {
     #[cfg(feature = "openssl")]
     pub fn openssl(
@@ -86,10 +86,12 @@ where
 
 impl<St, F, B, E, AF, TlsSt> ServiceFactory<St> for H2ServiceBuilder<St, F, AF>
 where
-    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
+    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>>,
     F::Service: 'static,
 
     F::Error: ResponseError<F::Response>,
+
+    F::InitError: From<AF::InitError>,
 
     AF: ServiceFactory<St, Response = TlsSt, Config = ()>,
     AF::Service: 'static,
@@ -104,24 +106,17 @@ where
 {
     type Response = ();
     type Error = HttpServiceError;
-    type Config = ();
+    type Config = F::Config;
     type Service = H2Service<F::Service, AF::Service>;
-    type InitError = ();
+    type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
-    fn new_service(&self, _: Self::Config) -> Self::Future {
-        let service = self.factory.new_service(());
+    fn new_service(&self, cfg: Self::Config) -> Self::Future {
+        let service = self.factory.new_service(cfg);
         let tls_acceptor = self.tls_factory.new_service(());
         async {
-            let service = match service.await {
-                Ok(service) => service,
-                Err(_) => panic!("TODO"),
-            };
-
-            let tls_acceptor = match tls_acceptor.await {
-                Ok(service) => service,
-                Err(_) => panic!("TODO"),
-            };
+            let service = service.await?;
+            let tls_acceptor = tls_acceptor.await?;
 
             Ok(H2Service::new(service, tls_acceptor))
         }

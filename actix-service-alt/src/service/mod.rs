@@ -182,24 +182,22 @@ mod test {
         }
     }
 
-    #[test]
-    fn nest_service() {
-        let _ = async {
-            let service = Layer2 {
-                name: String::from("Layer2"),
-                service: DummyService,
-            };
-
-            let service = Layer1 {
-                name: String::from("Layer1"),
-                service,
-            };
-
-            let req = "Request";
-
-            let res = service.call(req).await.unwrap();
-
-            assert_eq!(res, String::from("RequestLayer1Layer2"));
+    #[tokio::test]
+    async fn nest_service() {
+        let service = Layer2 {
+            name: String::from("Layer2"),
+            service: DummyService,
         };
+
+        let service = Layer1 {
+            name: String::from("Layer1"),
+            service,
+        };
+
+        let req = "Request";
+
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res, String::from("RequestLayer1Layer2"));
     }
 }
