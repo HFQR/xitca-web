@@ -119,6 +119,17 @@ where
             ResponseBodyProj::Stream { stream } => stream.poll_next(cx).map_err(From::from),
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match *self {
+            ResponseBody::None => (0, None),
+            ResponseBody::Bytes { ref bytes } => {
+                let len = bytes.len();
+                (len, Some(len))
+            }
+            ResponseBody::Stream { .. } => (1, None),
+        }
+    }
 }
 
 impl<B> From<Bytes> for ResponseBody<B> {

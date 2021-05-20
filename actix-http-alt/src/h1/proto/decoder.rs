@@ -10,7 +10,7 @@ const MAX_HEADERS: usize = 96;
 pub struct Decoder;
 
 impl Decoder {
-    fn poll_decode(buf: &mut BytesMut) -> Result<Option<HttpRequest>, ProtoError> {
+    fn decode(buf: &mut BytesMut) -> Result<Option<HttpRequest>, ProtoError> {
         let mut parsed = [EMPTY_HEADER; MAX_HEADERS];
 
         let mut req = Request::new(&mut parsed);
@@ -19,6 +19,7 @@ impl Decoder {
             Status::Complete(len) => {
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
                 let uri = req.path.unwrap().parse::<Uri>()?;
+                let version = req.version.unwrap();
 
                 Ok(None)
             }

@@ -75,10 +75,10 @@ impl Debug for BodyError {
 impl Display for BodyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Std(ref e) => write!(f, "{:?}", e),
-            Self::Io(ref e) => write!(f, "{:?}", e),
+            Self::Std(ref e) => write!(f, "{}", e),
+            Self::Io(ref e) => write!(f, "{}", e),
             #[cfg(feature = "http2")]
-            Self::H2(ref e) => write!(f, "{:?}", e),
+            Self::H2(ref e) => write!(f, "{}", e),
             #[cfg(feature = "http3")]
             Self::H3(ref e) => write!(f, "{:?}", e),
         }

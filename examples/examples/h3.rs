@@ -16,6 +16,7 @@ use actix_service_alt::{Service, ServiceFactory};
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use h3_quinn::quinn::{CertificateChain, PrivateKey, ServerConfigBuilder};
+use http::Version;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
@@ -69,6 +70,7 @@ impl Service<HttpRequest<RequestBody>> for H3Service {
     type Error = Box<dyn std::error::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
+    #[inline]
     fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
@@ -94,6 +96,7 @@ impl Service<HttpRequest<RequestBody>> for H3Service {
 
             let res = HttpResponse::builder()
                 .status(200)
+                .version(Version::HTTP_3)
                 .header("Content-Type", "text/plain")
                 .body(Bytes::from_static(b"Hello World!").into())?;
 

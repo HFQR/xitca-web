@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData};
 
-use actix_service_alt::{ServiceFactory};
+use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncWrite};

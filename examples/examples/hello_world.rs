@@ -3,15 +3,17 @@
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
 
+use std::fmt::Debug;
 use std::fs::File;
 use std::future::Future;
 use std::io;
 use std::io::BufReader;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use actix_http_alt::{util::ErrorLoggerFactory, HttpResponse, HttpServiceBuilder};
 use actix_web_alt::{
-    dev::{Service, ServiceFactory, Transform},
+    dev::{Service, ServiceFactory},
     App, HttpServer, WebRequest,
 };
 use bytes::{Bytes, BytesMut};
@@ -28,25 +30,13 @@ async fn main() -> io::Result<()> {
     env_logger::init();
 
     // configure rustls.
-    let mut acceptor = ServerConfig::new(NoClientAuth::new());
-    let cert_file = &mut BufReader::new(File::open("./examples/cert/cert.pem")?);
-    let key_file = &mut BufReader::new(File::open("./examples/cert/key.pem")?);
-    let cert_chain = certs(cert_file).unwrap();
-    let mut keys = pkcs8_private_keys(key_file).unwrap();
-
-    acceptor.set_single_cert(cert_chain, keys.remove(0)).unwrap();
-    let protos = vec!["h2".to_string().into(), "http/1.1".to_string().into()];
-    acceptor.set_protocols(&protos);
-
-    let acceptor = std::sync::Arc::new(acceptor);
+    let acceptor = rustls_acceptor()?;
 
     // construct http server
     HttpServer::new(move || {
         let app = App::with_current_thread_state(String::from("AppState")).service(H2Factory);
-
-        let h2 = HttpServiceBuilder::h2(app).rustls(acceptor.clone());
-
-        ErrorLoggerFactory::new(h2)
+        let builder = HttpServiceBuilder::h2(app).rustls(acceptor.clone());
+        ErrorLoggerFactory::new(builder)
     })
     .bind("127.0.0.1:8080")?
     .run()
@@ -57,7 +47,7 @@ struct H2Factory;
 
 impl<State> ServiceFactory<WebRequest<'_, State>> for H2Factory
 where
-    State: std::fmt::Debug,
+    State: Debug,
 {
     type Response = HttpResponse;
     type Error = Box<dyn std::error::Error>;
@@ -81,7 +71,7 @@ struct H2Service {
 
 impl<'r, State> Service<WebRequest<'r, State>> for H2Service
 where
-    State: std::fmt::Debug,
+    State: Debug,
 {
     type Response = HttpResponse;
     type Error = Box<dyn std::error::Error>;
@@ -127,45 +117,16 @@ where
     }
 }
 
-// A dummy middleware
-struct H2Middleware;
+fn rustls_acceptor() -> io::Result<Arc<ServerConfig>> {
+    let mut acceptor = ServerConfig::new(NoClientAuth::new());
+    let cert_file = &mut BufReader::new(File::open("./examples/cert/cert.pem")?);
+    let key_file = &mut BufReader::new(File::open("./examples/cert/key.pem")?);
+    let cert_chain = certs(cert_file).unwrap();
+    let mut keys = pkcs8_private_keys(key_file).unwrap();
 
-impl<S, Req> Transform<S, Req> for H2Middleware
-where
-    S: Service<Req>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Transform = H2MiddlewareService<S>;
-    type InitError = ();
-    type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+    acceptor.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+    let protos = vec!["h2".to_string().into(), "http/1.1".to_string().into()];
+    acceptor.set_protocols(&protos);
 
-    fn new_transform(&self, service: S) -> Self::Future {
-        async { Ok(H2MiddlewareService { service }) }
-    }
-}
-
-struct H2MiddlewareService<S> {
-    service: S,
-}
-
-impl<S, Req> Service<Req> for H2MiddlewareService<S>
-where
-    S: Service<Req>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future<'f> = S::Future<'f>;
-
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
-    }
-
-    fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
-    where
-        Req: 'c,
-    {
-        info!("H2MiddlewareService passing through");
-        self.service.call(req)
-    }
+    Ok(Arc::new(acceptor))
 }

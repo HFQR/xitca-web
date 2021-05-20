@@ -9,6 +9,7 @@ use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::Stream;
 use futures_util::future::poll_fn;
+use http::{header::CONTENT_LENGTH, HeaderValue, Version};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::body::ResponseBody;
@@ -102,14 +103,27 @@ where
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
+    // resolve service call. map error to response.
     let res = fut.await.unwrap_or_else(ResponseError::response_error);
 
+    // split response to header and body.
     let (res, body) = res.into_parts();
-    let res = HttpResponse::from_parts(res, ());
+    let mut res = HttpResponse::from_parts(res, ());
 
+    // set response version.
+    *res.version_mut() = Version::HTTP_2;
+
+    // set content length header.
+    match body.size_hint() {
+        (_, Some(n)) => {
+            res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(n));
+        }
+        (_, None) => {}
+    }
+
+    // send response and body(if there is one).
     if body.is_eof() {
         let _ = tx.send_response(res, true)?;
-        Ok(())
     } else {
         let mut stream = tx.send_response(res, false)?;
 
@@ -142,9 +156,9 @@ where
         }
 
         stream.send_data(Bytes::new(), true)?;
-
-        Ok(())
     }
+
+    Ok(())
 }
 
 const CHUNK_SIZE: usize = 16_384;
