@@ -6,7 +6,7 @@ use core::{
 use super::ServiceFactory;
 use crate::Service;
 
-pub fn fn_factory<F, Req, Fut, Res, Err>(f: F) -> FnServiceFactory<F>
+pub fn fn_service<F, Req, Fut, Res, Err>(f: F) -> FnServiceFactory<F>
 where
     F: Fn(Req) -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
