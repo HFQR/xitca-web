@@ -8,7 +8,6 @@ mod body;
 mod builder;
 mod error;
 mod flow;
-mod request;
 mod response;
 mod tls;
 
@@ -19,8 +18,8 @@ pub mod h2;
 pub mod h3;
 pub mod util;
 
+pub use http;
+
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
 pub use error::HttpServiceError;
-pub use request::HttpRequest;
-pub use response::HttpResponse;

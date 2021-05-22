@@ -3,12 +3,11 @@ use std::marker::PhantomData;
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
+use http::{Request, Response};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use super::body::ResponseBody;
+use super::body::{RequestBody, ResponseBody};
 use super::error::BodyError;
-use super::request::HttpRequest;
-use super::response::HttpResponse;
 use super::tls::NoOpTlsAcceptorFactory;
 
 /// HttpService Builder type.
@@ -28,7 +27,7 @@ where
     /// Construct a new Service Builder with given service factory.
     pub fn new(factory: F) -> Self
     where
-        F: ServiceFactory<HttpRequest, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
+        F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
 
         St: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -47,7 +46,7 @@ where
     /// This is a request type specific for Http/2 request body.
     pub fn h2(factory: F) -> super::h2::H2ServiceBuilder<St, F, NoOpTlsAcceptorFactory>
     where
-        F: ServiceFactory<HttpRequest<crate::body::RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
+        F: ServiceFactory<Request<crate::body::RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
 
         St: AsyncRead + AsyncWrite + Unpin,
@@ -62,7 +61,7 @@ where
     /// This is a request type specific for Http/3 request body.
     pub fn h3(factory: F) -> super::h3::H3ServiceBuilder<F>
     where
-        F: ServiceFactory<HttpRequest<super::h3::RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
+        F: ServiceFactory<Request<super::h3::RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
     {
         super::h3::H3ServiceBuilder::new(factory)

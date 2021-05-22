@@ -4,6 +4,7 @@
 mod app;
 mod error;
 mod extract;
+mod guard;
 mod request;
 mod response;
 mod server;

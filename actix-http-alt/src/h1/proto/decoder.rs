@@ -3,14 +3,13 @@ use http::{Method, Uri};
 use httparse::{Request, Status, EMPTY_HEADER};
 
 use super::error::ProtoError;
-use crate::HttpRequest;
 
 const MAX_HEADERS: usize = 96;
 
 pub struct Decoder;
 
 impl Decoder {
-    fn decode(buf: &mut BytesMut) -> Result<Option<HttpRequest>, ProtoError> {
+    fn decode(buf: &mut BytesMut) -> Result<Option<Request>, ProtoError> {
         let mut parsed = [EMPTY_HEADER; MAX_HEADERS];
 
         let mut req = Request::new(&mut parsed);

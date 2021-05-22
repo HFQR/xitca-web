@@ -5,10 +5,11 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_http_alt::HttpRequest;
+use actix_http_alt::http::Request;
 use actix_service_alt::{Service, ServiceFactory};
 
 use crate::request::WebRequest;
+use actix_http_alt::RequestBody;
 
 // App keeps a similar API to actix-web::App. But in real it can be much simpler.
 
@@ -60,7 +61,7 @@ where
     }
 }
 
-impl<State, F, S, Res, Err, Cfg, IntErr> ServiceFactory<HttpRequest> for App<State, F>
+impl<State, F, S, Res, Err, Cfg, IntErr> ServiceFactory<Request<RequestBody>> for App<State, F>
 where
     State: Clone + 'static,
     F: for<'r> ServiceFactory<
@@ -95,7 +96,7 @@ pub struct AppService<State, S> {
     service: S,
 }
 
-impl<State, S, Res, Err> Service<HttpRequest> for AppService<State, S>
+impl<State, S, Res, Err> Service<Request<RequestBody>> for AppService<State, S>
 where
     State: 'static,
     S: for<'s> Service<WebRequest<'s, State>, Response = Res, Error = Err> + 'static,
@@ -109,9 +110,9 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call<'c>(&'c self, req: HttpRequest) -> Self::Future<'c>
+    fn call<'c>(&'c self, req: Request<RequestBody>) -> Self::Future<'c>
     where
-        HttpRequest: 'c,
+        Request<RequestBody>: 'c,
     {
         async move {
             let req = WebRequest::new(req, &self.state);

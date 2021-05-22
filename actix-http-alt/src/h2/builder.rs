@@ -3,12 +3,12 @@ use std::{future::Future, marker::PhantomData};
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
+use http::{Request, Response};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
-use crate::request::HttpRequest;
-use crate::response::{HttpResponse, ResponseError};
+use crate::response::ResponseError;
 use crate::tls;
 
 use super::service::H2Service;
@@ -24,7 +24,7 @@ pub struct H2ServiceBuilder<St, F, AF> {
 
 impl<St, F, B, E> H2ServiceBuilder<St, F, tls::NoOpTlsAcceptorFactory>
 where
-    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>, Config = ()>,
+    F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
@@ -45,7 +45,7 @@ where
 
 impl<St, F, B, E, AF, TlsSt> H2ServiceBuilder<St, F, AF>
 where
-    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>>,
+    F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
 
     AF: ServiceFactory<St, Response = TlsSt>,
@@ -86,7 +86,7 @@ where
 
 impl<St, F, B, E, AF, TlsSt> ServiceFactory<St> for H2ServiceBuilder<St, F, AF>
 where
-    F: ServiceFactory<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>>,
+    F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
 
     F::Error: ResponseError<F::Response>,

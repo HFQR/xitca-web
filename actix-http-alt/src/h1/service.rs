@@ -8,12 +8,12 @@ use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
+use http::{Request, Response};
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
-use crate::request::HttpRequest;
-use crate::response::{HttpResponse, ResponseError};
+use crate::response::ResponseError;
 
 use super::body::RequestBody;
 use super::proto::Dispatcher;
@@ -33,7 +33,7 @@ impl<S, X, U> H1Service<S, X, U> {
 
 impl<S, X, U, B, E> Service<TcpStream> for H1Service<S, X, U>
 where
-    S: Service<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,
 
     X: 'static,

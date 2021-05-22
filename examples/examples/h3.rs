@@ -8,7 +8,8 @@ use std::io;
 use actix_http_alt::util::ErrorLoggerFactory;
 use actix_http_alt::{
     h3::{H3ServiceBuilder, RequestBody},
-    HttpRequest, HttpResponse,
+    http::{Request, Response},
+    ResponseBody,
 };
 use actix_service_alt::fn_service;
 use bytes::{Bytes, BytesMut};
@@ -34,7 +35,7 @@ async fn main() -> io::Result<()> {
         .await
 }
 
-async fn handler(req: HttpRequest<RequestBody>) -> Result<HttpResponse, Box<dyn std::error::Error>> {
+async fn handler(req: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
     // split request into head and body
     let (parts, mut body) = req.into_parts();
 
@@ -49,7 +50,7 @@ async fn handler(req: HttpRequest<RequestBody>) -> Result<HttpResponse, Box<dyn 
 
     info!("Request body as String: {:?}", String::from_utf8_lossy(&buf));
 
-    let res = HttpResponse::builder()
+    let res = Response::builder()
         .status(200)
         .version(Version::HTTP_3)
         .header("Content-Type", "text/plain")

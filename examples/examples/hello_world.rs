@@ -11,7 +11,7 @@ use std::io::BufReader;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use actix_http_alt::{util::ErrorLoggerFactory, HttpResponse, HttpServiceBuilder};
+use actix_http_alt::{http::Response, util::ErrorLoggerFactory, HttpServiceBuilder, ResponseBody};
 use actix_web_alt::{
     dev::{Service, ServiceFactory},
     App, HttpServer, WebRequest,
@@ -49,7 +49,7 @@ impl<State> ServiceFactory<WebRequest<'_, State>> for H2Factory
 where
     State: Debug,
 {
-    type Response = HttpResponse;
+    type Response = Response<ResponseBody>;
     type Error = Box<dyn std::error::Error>;
     type Config = ();
     type Service = H2Service;
@@ -73,7 +73,7 @@ impl<'r, State> Service<WebRequest<'r, State>> for H2Service
 where
     State: Debug,
 {
-    type Response = HttpResponse;
+    type Response = Response<ResponseBody>;
     type Error = Box<dyn std::error::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
@@ -107,7 +107,7 @@ where
 
             info!("Request body as String: {:?}", String::from_utf8_lossy(&collect));
 
-            let res = HttpResponse::builder()
+            let res = Response::builder()
                 .status(200)
                 .header("Content-Type", "text/plain")
                 .body(Bytes::from_static(b"Hello World!").into())?;

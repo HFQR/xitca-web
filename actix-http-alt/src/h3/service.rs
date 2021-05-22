@@ -13,12 +13,12 @@ use h3::{
     quic::SendStream,
     server::{self, RequestStream},
 };
+use http::{Request, Response};
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlowSimple;
-use crate::request::HttpRequest;
-use crate::response::{HttpResponse, ResponseError};
+use crate::response::ResponseError;
 
 use super::body::RequestBody;
 
@@ -38,7 +38,7 @@ impl<S> H3Service<S> {
 
 impl<S, B, E> Service<UdpStream> for H3Service<S>
 where
-    S: Service<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
 
     S::Error: ResponseError<S::Response>,
 
@@ -86,7 +86,7 @@ where
                 };
                 let body = RequestBody(Box::pin(body));
 
-                let req = HttpRequest::from_parts(parts, body);
+                let req = Request::from_parts(parts, body);
 
                 let flow = self.flow.clone();
                 tokio::task::spawn_local(async move {
@@ -107,16 +107,16 @@ async fn h3_handler<Fut, C, B, BE, E>(
     stream: Rc<LocalMutex<RequestStream<C>>>,
 ) -> Result<(), HttpServiceError>
 where
-    Fut: Future<Output = Result<HttpResponse<ResponseBody<B>>, E>>,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
     C: SendStream<Bytes>,
-    E: ResponseError<HttpResponse<ResponseBody<B>>>,
+    E: ResponseError<Response<ResponseBody<B>>>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
     let res = fut.await.unwrap_or_else(ResponseError::response_error);
 
     let (res, body) = res.into_parts();
-    let res = HttpResponse::from_parts(res, ());
+    let res = Response::from_parts(res, ());
 
     stream.lock().await.send_response(res).await?;
 

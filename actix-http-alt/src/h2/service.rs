@@ -9,16 +9,13 @@ use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::Stream;
 use futures_util::future::poll_fn;
-use http::{header::CONTENT_LENGTH, HeaderValue, Version};
+use http::{header::CONTENT_LENGTH, HeaderValue, Request, Response, Version};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::body::ResponseBody;
+use crate::body::{RequestBody, ResponseBody};
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlowSimple;
-use crate::request::HttpRequest;
-use crate::response::{HttpResponse, ResponseError};
-
-use crate::body::RequestBody;
+use crate::response::ResponseError;
 
 pub struct H2Service<S, A> {
     flow: HttpFlowSimple<S>,
@@ -38,7 +35,7 @@ impl<S, A> H2Service<S, A> {
 
 impl<St, S, B, E, A, TlsSt> Service<St> for H2Service<S, A>
 where
-    S: Service<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     A: Service<St, Response = TlsSt> + 'static,
 
     S::Error: ResponseError<S::Response>,
@@ -79,7 +76,7 @@ where
                 // and reconstruct as HttpRequest.
                 let (parts, body) = req.into_parts();
                 let body = RequestBody::from(body);
-                let req = HttpRequest::from_parts(parts, body);
+                let req = Request::from_parts(parts, body);
 
                 let flow = self.flow.clone();
 
@@ -98,8 +95,8 @@ where
 
 async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>) -> Result<(), HttpServiceError>
 where
-    Fut: Future<Output = Result<HttpResponse<ResponseBody<B>>, E>>,
-    E: ResponseError<HttpResponse<ResponseBody<B>>>,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
+    E: ResponseError<Response<ResponseBody<B>>>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
@@ -108,7 +105,7 @@ where
 
     // split response to header and body.
     let (res, body) = res.into_parts();
-    let mut res = HttpResponse::from_parts(res, ());
+    let mut res = Response::from_parts(res, ());
 
     // set response version.
     *res.version_mut() = Version::HTTP_2;

@@ -3,6 +3,7 @@ use std::{collections::VecDeque, io, marker::PhantomData};
 use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
 use bytes::BytesMut;
+use http::{Request, Response};
 use tokio::io::Ready;
 
 use crate::body::ResponseBody;
@@ -11,8 +12,7 @@ use crate::h1::{
     body::{RequestBody, RequestBodySender},
     error::Error,
 };
-use crate::request::HttpRequest;
-use crate::response::{HttpResponse, ResponseError};
+use crate::response::ResponseError;
 
 use super::state::State;
 
@@ -21,7 +21,7 @@ pub(crate) struct Dispatcher<'a, S, B, X, U> {
     state: State,
     read_buf: ReadBuffer,
     write_buf: BytesMut,
-    queue: VecDeque<HttpRequest<RequestBody>>,
+    queue: VecDeque<Request<RequestBody>>,
     body_sender: Option<RequestBodySender>,
     error: Option<Error>,
     flow: &'a HttpFlow<S, X, U>,
@@ -30,7 +30,7 @@ pub(crate) struct Dispatcher<'a, S, B, X, U> {
 
 impl<'a, S, B, X, U> Dispatcher<'a, S, B, X, U>
 where
-    S: Service<HttpRequest<RequestBody>, Response = HttpResponse<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,
 {
     pub(crate) fn new(io: TcpStream, flow: &'a HttpFlow<S, X, U>) -> Self {
