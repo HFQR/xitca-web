@@ -1,7 +1,17 @@
 #[derive(Debug)]
 pub enum ProtoError {
+    // crate level parse error.
+    Parse(Parse),
+    // error from httparse crate.
     HttpParse(httparse::Error),
+    // error from http crate.
     Http(http::Error),
+}
+
+#[derive(Debug)]
+pub enum Parse {
+    // Failed to parse header.
+    Header,
 }
 
 impl From<httparse::Error> for ProtoError {
@@ -25,5 +35,11 @@ impl From<http::method::InvalidMethod> for ProtoError {
 impl From<http::uri::InvalidUri> for ProtoError {
     fn from(e: http::uri::InvalidUri) -> Self {
         Self::Http(e.into())
+    }
+}
+
+impl From<Parse> for ProtoError {
+    fn from(e: Parse) -> Self {
+        Self::Parse(e)
     }
 }

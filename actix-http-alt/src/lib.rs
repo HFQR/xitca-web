@@ -11,13 +11,16 @@ mod flow;
 mod response;
 mod tls;
 
+#[cfg(feature = "http1")]
 pub mod h1;
 #[cfg(feature = "http2")]
 pub mod h2;
 #[cfg(feature = "http3")]
 pub mod h3;
+
 pub mod util;
 
+/// re-export http crate as module.
 pub use http;
 
 pub use body::{RequestBody, ResponseBody};

@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2018"
 
 [features]
-default = []
+default = ["http1"]
+http1 = []
 http2 = ["h2"]
 http3 = ["actix-server-alt/http3", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
 openssl = ["tokio-openssl", "openssl-crate"]
