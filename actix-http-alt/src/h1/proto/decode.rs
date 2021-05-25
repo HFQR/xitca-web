@@ -1,0 +1,405 @@
+use std::{io, task::Poll};
+
+use bytes::{Buf, Bytes, BytesMut};
+use http::{
+    header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
+    Method, Uri, Version,
+};
+use httparse::{Header, Request, Status, EMPTY_HEADER};
+
+use super::context::{ConnectionType, Context};
+use super::error::{Parse, ProtoError};
+
+impl Context {
+    pub(super) fn decode_head(&mut self, buf: &mut BytesMut) -> Result<Option<Request>, ProtoError> {
+        let mut headers = [EMPTY_HEADER; Self::MAX_HEADERS];
+
+        let mut req = Request::new(&mut headers);
+
+        match req.parse(buf)? {
+            Status::Complete(len) => {
+                let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
+                let uri = req.path.unwrap().parse::<Uri>()?;
+
+                // Set connection type to keep alive when given a http/1.1 version.
+                let version = if req.version.unwrap() == 1 {
+                    self.ctype = if self.flag.keep_alive_enable() {
+                        ConnectionType::KeepAlive
+                    } else {
+                        ConnectionType::Close
+                    };
+
+                    Version::HTTP_11
+                } else {
+                    self.ctype = ConnectionType::Close;
+                    Version::HTTP_10
+                };
+
+                // record the index of headers from the buffer.
+                let mut header_idx = [HeaderIndex::new(); Self::MAX_HEADERS];
+
+                HeaderIndex::record(buf, req.headers, &mut header_idx);
+
+                let headers_len = req.headers.len();
+
+                // split the headers from buffer.
+                let slice = buf.split_to(len).freeze();
+
+                // pop a cached headermap or construct a new one.
+                let mut headers = self.header_cache.pop().unwrap_or_else(HeaderMap::new);
+                headers.reserve(headers_len);
+
+                // flags for request states.
+                let mut decoder = None;
+                let mut expected = false;
+                let mut upgrade = false;
+
+                // write headers to headermap and update request states.
+                for idx in &header_idx[..headers_len] {
+                    let name = HeaderName::from_bytes(&slice[idx.name.0..idx.name.1]).unwrap();
+                    let value = HeaderValue::from_maybe_shared(slice.slice(idx.value.0..idx.value.1)).unwrap();
+
+                    match name {
+                        TRANSFER_ENCODING => {
+                            if version != Version::HTTP_11 {
+                                return Err(ProtoError::Parse(Parse::Header));
+                            }
+
+                            decoder = value
+                                .to_str()
+                                .map_err(|_| ProtoError::Parse(Parse::Header))?
+                                .trim()
+                                .eq_ignore_ascii_case("chunked")
+                                .then(PayloadDecoder::chunked);
+                        }
+                        CONTENT_LENGTH => {
+                            let len = value
+                                .to_str()
+                                .map_err(|_| ProtoError::Parse(Parse::Header))?
+                                .parse::<u64>()
+                                .map_err(|_| ProtoError::Parse(Parse::Header))?;
+
+                            decoder = (len != 0).then(|| PayloadDecoder::length(len));
+                        }
+                        CONNECTION => {
+                            if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
+                                // Connection header would update context state.
+                                if value.eq_ignore_ascii_case("keep-alive") && self.flag.keep_alive_enable() {
+                                    self.ctype = ConnectionType::KeepAlive;
+                                } else if value.eq_ignore_ascii_case("close") {
+                                    self.ctype = ConnectionType::Close;
+                                } else if value.eq_ignore_ascii_case("upgrade") {
+                                    self.ctype = ConnectionType::Upgrade
+                                }
+                            }
+                        }
+                        EXPECT => {
+                            expected = value.as_bytes() == b"100-continue";
+                        }
+                        UPGRADE => {
+                            // Upgrades are only allowed with HTTP/1.1
+                            upgrade = version == Version::HTTP_11;
+                        }
+                        _ => {}
+                    }
+
+                    headers.append(name, value);
+                }
+
+                Ok(None)
+            }
+            Status::Partial => Ok(None),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct HeaderIndex {
+    name: (usize, usize),
+    value: (usize, usize),
+}
+
+impl HeaderIndex {
+    fn new() -> Self {
+        Self {
+            name: (0, 0),
+            value: (0, 0),
+        }
+    }
+
+    fn record(bytes: &[u8], headers: &[Header<'_>], indices: &mut [HeaderIndex]) {
+        let bytes_ptr = bytes.as_ptr() as usize;
+        for (header, indices) in headers.iter().zip(indices.iter_mut()) {
+            let name_start = header.name.as_ptr() as usize - bytes_ptr;
+            let name_end = name_start + header.name.len();
+            indices.name = (name_start, name_end);
+            let value_start = header.value.as_ptr() as usize - bytes_ptr;
+            let value_end = value_start + header.value.len();
+            indices.value = (value_start, value_end);
+        }
+    }
+}
+
+/// Decoders to handle different Transfer-Encodings.
+///
+/// If a message body does not include a Transfer-Encoding, it *should*
+/// include a Content-Length header.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PayloadDecoder {
+    kind: Kind,
+}
+
+impl PayloadDecoder {
+    pub fn length(x: u64) -> PayloadDecoder {
+        PayloadDecoder { kind: Kind::Length(x) }
+    }
+
+    pub fn chunked() -> PayloadDecoder {
+        PayloadDecoder {
+            kind: Kind::Chunked(ChunkedState::Size, 0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Kind {
+    /// A Reader used when a Content-Length header is passed with a positive
+    /// integer.
+    Length(u64),
+    /// A Reader used when Transfer-Encoding is `chunked`.
+    Chunked(ChunkedState, u64),
+    /// A Reader used for responses that don't indicate a length or chunked.
+    ///
+    /// Note: This should only used for `Response`s. It is illegal for a
+    /// `Request` to be made with both `Content-Length` and
+    /// `Transfer-Encoding: chunked` missing, as explained from the spec:
+    ///
+    /// > If a Transfer-Encoding header field is present in a response and
+    /// > the chunked transfer coding is not the final encoding, the
+    /// > message body length is determined by reading the connection until
+    /// > it is closed by the server.  If a Transfer-Encoding header field
+    /// > is present in a request and the chunked transfer coding is not
+    /// > the final encoding, the message body length cannot be determined
+    /// > reliably; the server MUST respond with the 400 (Bad Request)
+    /// > status code and then close the connection.
+    Eof,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum ChunkedState {
+    Size,
+    SizeLws,
+    Extension,
+    SizeLf,
+    Body,
+    BodyCr,
+    BodyLf,
+    EndCr,
+    EndLf,
+    End,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// Http payload item
+pub enum PayloadItem {
+    Chunk(Bytes),
+    Eof,
+}
+
+impl PayloadDecoder {
+    fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<PayloadItem>> {
+        match self.kind {
+            Kind::Length(ref mut remaining) => {
+                if *remaining == 0 {
+                    Ok(Some(PayloadItem::Eof))
+                } else {
+                    if src.is_empty() {
+                        return Ok(None);
+                    }
+                    let len = src.len() as u64;
+                    let buf;
+                    if *remaining > len {
+                        buf = src.split().freeze();
+                        *remaining -= len;
+                    } else {
+                        buf = src.split_to(*remaining as usize).freeze();
+                        *remaining = 0;
+                    };
+                    Ok(Some(PayloadItem::Chunk(buf)))
+                }
+            }
+            Kind::Chunked(ref mut state, ref mut size) => {
+                loop {
+                    let mut buf = None;
+                    // advances the chunked state
+                    *state = match state.step(src, size, &mut buf) {
+                        Poll::Pending => return Ok(None),
+                        Poll::Ready(Ok(state)) => state,
+                        Poll::Ready(Err(e)) => return Err(e),
+                    };
+                    if *state == ChunkedState::End {
+                        return Ok(Some(PayloadItem::Eof));
+                    }
+                    if let Some(buf) = buf {
+                        return Ok(Some(PayloadItem::Chunk(buf)));
+                    }
+                    if src.is_empty() {
+                        return Ok(None);
+                    }
+                }
+            }
+            Kind::Eof => {
+                if src.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(PayloadItem::Chunk(src.split().freeze())))
+                }
+            }
+        }
+    }
+}
+
+macro_rules! byte (
+    ($rdr:ident) => ({
+        if $rdr.len() > 0 {
+            let b = $rdr[0];
+            $rdr.advance(1);
+            b
+        } else {
+            return Poll::Pending
+        }
+    })
+);
+
+impl ChunkedState {
+    fn step(&self, body: &mut BytesMut, size: &mut u64, buf: &mut Option<Bytes>) -> Poll<io::Result<ChunkedState>> {
+        use self::ChunkedState::*;
+        match *self {
+            Size => ChunkedState::read_size(body, size),
+            SizeLws => ChunkedState::read_size_lws(body),
+            Extension => ChunkedState::read_extension(body),
+            SizeLf => ChunkedState::read_size_lf(body, size),
+            Body => ChunkedState::read_body(body, size, buf),
+            BodyCr => ChunkedState::read_body_cr(body),
+            BodyLf => ChunkedState::read_body_lf(body),
+            EndCr => ChunkedState::read_end_cr(body),
+            EndLf => ChunkedState::read_end_lf(body),
+            End => Poll::Ready(Ok(ChunkedState::End)),
+        }
+    }
+
+    fn read_size(rdr: &mut BytesMut, size: &mut u64) -> Poll<io::Result<ChunkedState>> {
+        let radix = 16;
+        match byte!(rdr) {
+            b @ b'0'..=b'9' => {
+                *size *= radix;
+                *size += u64::from(b - b'0');
+            }
+            b @ b'a'..=b'f' => {
+                *size *= radix;
+                *size += u64::from(b + 10 - b'a');
+            }
+            b @ b'A'..=b'F' => {
+                *size *= radix;
+                *size += u64::from(b + 10 - b'A');
+            }
+            b'\t' | b' ' => return Poll::Ready(Ok(ChunkedState::SizeLws)),
+            b';' => return Poll::Ready(Ok(ChunkedState::Extension)),
+            b'\r' => return Poll::Ready(Ok(ChunkedState::SizeLf)),
+            _ => {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Invalid chunk size line: Invalid Size",
+                )));
+            }
+        }
+        Poll::Ready(Ok(ChunkedState::Size))
+    }
+
+    fn read_size_lws(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
+        match byte!(rdr) {
+            // LWS can follow the chunk size, but no more digits can come
+            b'\t' | b' ' => Poll::Ready(Ok(ChunkedState::SizeLws)),
+            b';' => Poll::Ready(Ok(ChunkedState::Extension)),
+            b'\r' => Poll::Ready(Ok(ChunkedState::SizeLf)),
+            _ => Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid chunk size linear white space",
+            ))),
+        }
+    }
+
+    fn read_extension(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
+        match byte!(rdr) {
+            b'\r' => Poll::Ready(Ok(ChunkedState::SizeLf)),
+            _ => Poll::Ready(Ok(ChunkedState::Extension)), // no supported extensions
+        }
+    }
+
+    fn read_size_lf(rdr: &mut BytesMut, size: &mut u64) -> Poll<io::Result<ChunkedState>> {
+        match byte!(rdr) {
+            b'\n' if *size > 0 => Poll::Ready(Ok(ChunkedState::Body)),
+            b'\n' if *size == 0 => Poll::Ready(Ok(ChunkedState::EndCr)),
+            _ => Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid chunk size LF",
+            ))),
+        }
+    }
+
+    fn read_body(rdr: &mut BytesMut, rem: &mut u64, buf: &mut Option<Bytes>) -> Poll<io::Result<ChunkedState>> {
+        let len = rdr.len() as u64;
+        if len == 0 {
+            Poll::Ready(Ok(ChunkedState::Body))
+        } else {
+            let slice;
+            if *rem > len {
+                slice = rdr.split().freeze();
+                *rem -= len;
+            } else {
+                slice = rdr.split_to(*rem as usize).freeze();
+                *rem = 0;
+            }
+            *buf = Some(slice);
+            if *rem > 0 {
+                Poll::Ready(Ok(ChunkedState::Body))
+            } else {
+                Poll::Ready(Ok(ChunkedState::BodyCr))
+            }
+        }
+    }
+
+    fn read_body_cr(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
+        match byte!(rdr) {
+            b'\r' => Poll::Ready(Ok(ChunkedState::BodyLf)),
+            _ => Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid chunk body CR",
+            ))),
+        }
+    }
+
+    fn read_body_lf(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
+        match byte!(rdr) {
+            b'\n' => Poll::Ready(Ok(ChunkedState::Size)),
+            _ => Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid chunk body LF",
+            ))),
+        }
+    }
+
+    fn read_end_cr(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
+        match byte!(rdr) {
+            b'\r' => Poll::Ready(Ok(ChunkedState::EndLf)),
+            _ => Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end CR"))),
+        }
+    }
+
+    fn read_end_lf(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
+        match byte!(rdr) {
+            b'\n' => Poll::Ready(Ok(ChunkedState::End)),
+            _ => Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end LF"))),
+        }
+    }
+}

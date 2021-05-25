@@ -5,11 +5,10 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_http_alt::http::Request;
+use actix_http_alt::{http::Request, RequestBody};
 use actix_service_alt::{Service, ServiceFactory};
 
 use crate::request::WebRequest;
-use actix_http_alt::RequestBody;
 
 // App keeps a similar API to actix-web::App. But in real it can be much simpler.
 
@@ -50,10 +49,7 @@ impl<State> App<State>
 where
     State: Clone,
 {
-    pub fn service<F>(self, factory: F) -> App<State, F>
-    where
-        F: for<'f> ServiceFactory<WebRequest<'f, State>>,
-    {
+    pub fn service<F>(self, factory: F) -> App<State, F> {
         App {
             state: self.state,
             factory,
@@ -165,13 +161,14 @@ mod test {
     #[tokio::test]
     async fn test_app() {
         let state = String::from("state");
+        let app = App::with_current_thread_state(state).service(TestFactory);
 
-        let service = <TestFactory as ServiceFactory<WebRequest<'_, String>>>::new_service(&TestFactory, ())
-            .await
-            .unwrap();
+        let service = app.new_service(()).await.ok().unwrap();
 
-        let req = WebRequest::with_state(&state);
+        let req = Request::default();
 
-        service.call(req).await.unwrap();
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res, "state")
     }
 }

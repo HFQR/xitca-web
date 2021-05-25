@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, io, marker::PhantomData};
+use std::{io, marker::PhantomData};
 
 use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
@@ -14,14 +14,15 @@ use crate::h1::{
 };
 use crate::response::ResponseError;
 
+use super::context::Context;
 use super::state::State;
 
 pub(crate) struct Dispatcher<'a, S, B, X, U> {
     io: TcpStream,
     state: State,
+    context: Context,
     read_buf: ReadBuffer,
     write_buf: BytesMut,
-    queue: VecDeque<Request<RequestBody>>,
     body_sender: Option<RequestBodySender>,
     error: Option<Error>,
     flow: &'a HttpFlow<S, X, U>,
@@ -37,9 +38,9 @@ where
         Self {
             io,
             state: State::new(),
+            context: Context::new(),
             read_buf: ReadBuffer::new(),
             write_buf: BytesMut::new(),
-            queue: VecDeque::new(),
             body_sender: None,
             error: None,
             flow,
@@ -66,10 +67,10 @@ where
     }
 
     async fn handle_request(&mut self) -> Result<(), Error> {
-        while let Some(req) = self.queue.pop_front() {
-            let res = self.flow.service.call(req).await;
-            self.try_encode(res)?;
-        }
+        // while let Some(req) = self.queue.pop_front() {
+        //     let res = self.flow.service.call(req).await;
+        //     self.try_encode(res)?;
+        // }
 
         Ok(())
     }
@@ -99,7 +100,9 @@ where
     }
 
     fn try_decode(&mut self) -> Result<(), Error> {
-        if self.read_buf.advanced() {}
+        if self.read_buf.advanced() {
+            let res = self.context.decode_head(&mut self.read_buf.buf)?;
+        }
 
         Ok(())
     }
