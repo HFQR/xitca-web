@@ -12,10 +12,12 @@ use futures_util::future::poll_fn;
 use http::{header::CONTENT_LENGTH, HeaderValue, Request, Response, Version};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::body::{RequestBody, ResponseBody};
+use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlowSimple;
 use crate::response::ResponseError;
+
+use super::body::RequestBody;
 
 pub struct H2Service<S, A> {
     flow: HttpFlowSimple<S>,

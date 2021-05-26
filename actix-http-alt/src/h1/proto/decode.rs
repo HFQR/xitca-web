@@ -3,18 +3,21 @@ use std::{io, task::Poll};
 use bytes::{Buf, Bytes, BytesMut};
 use http::{
     header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
-    Method, Uri, Version,
+    Method, Request, Uri, Version,
 };
-use httparse::{Header, Request, Status, EMPTY_HEADER};
+use httparse::{Header, Status, EMPTY_HEADER};
 
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
 impl Context {
-    pub(super) fn decode_head(&mut self, buf: &mut BytesMut) -> Result<Option<Request>, ProtoError> {
+    pub(super) fn decode_head(
+        &mut self,
+        buf: &mut BytesMut,
+    ) -> Result<Option<(Request<()>, RequestBodyDecoder)>, ProtoError> {
         let mut headers = [EMPTY_HEADER; Self::MAX_HEADERS];
 
-        let mut req = Request::new(&mut headers);
+        let mut req = httparse::Request::new(&mut headers);
 
         match req.parse(buf)? {
             Status::Complete(len) => {
@@ -50,7 +53,7 @@ impl Context {
                 headers.reserve(headers_len);
 
                 // flags for request states.
-                let mut decoder = None;
+                let mut decoder = RequestBodyDecoder::eof();
                 let mut expected = false;
                 let mut upgrade = false;
 
@@ -65,12 +68,14 @@ impl Context {
                                 return Err(ProtoError::Parse(Parse::Header));
                             }
 
-                            decoder = value
+                            let chunked = value
                                 .to_str()
                                 .map_err(|_| ProtoError::Parse(Parse::Header))?
                                 .trim()
-                                .eq_ignore_ascii_case("chunked")
-                                .then(PayloadDecoder::chunked);
+                                .eq_ignore_ascii_case("chunked");
+                            if chunked {
+                                decoder = RequestBodyDecoder::chunked();
+                            }
                         }
                         CONTENT_LENGTH => {
                             let len = value
@@ -79,7 +84,9 @@ impl Context {
                                 .parse::<u64>()
                                 .map_err(|_| ProtoError::Parse(Parse::Header))?;
 
-                            decoder = (len != 0).then(|| PayloadDecoder::length(len));
+                            if len != 0 {
+                                decoder = RequestBodyDecoder::length(len);
+                            }
                         }
                         CONNECTION => {
                             if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
@@ -106,7 +113,14 @@ impl Context {
                     headers.append(name, value);
                 }
 
-                Ok(None)
+                let mut req = Request::new(());
+
+                *req.method_mut() = method;
+                *req.version_mut() = version;
+                *req.uri_mut() = uri;
+                *req.headers_mut() = headers;
+
+                Ok(Some((req, decoder)))
             }
             Status::Partial => Ok(None),
         }
@@ -127,7 +141,7 @@ impl HeaderIndex {
         }
     }
 
-    fn record(bytes: &[u8], headers: &[Header<'_>], indices: &mut [HeaderIndex]) {
+    fn record(bytes: &[u8], headers: &[Header<'_>], indices: &mut [Self]) {
         let bytes_ptr = bytes.as_ptr() as usize;
         for (header, indices) in headers.iter().zip(indices.iter_mut()) {
             let name_start = header.name.as_ptr() as usize - bytes_ptr;
@@ -145,18 +159,29 @@ impl HeaderIndex {
 /// If a message body does not include a Transfer-Encoding, it *should*
 /// include a Content-Length header.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PayloadDecoder {
+pub struct RequestBodyDecoder {
     kind: Kind,
 }
 
-impl PayloadDecoder {
-    pub fn length(x: u64) -> PayloadDecoder {
-        PayloadDecoder { kind: Kind::Length(x) }
+impl RequestBodyDecoder {
+    pub fn length(x: u64) -> RequestBodyDecoder {
+        RequestBodyDecoder { kind: Kind::Length(x) }
     }
 
-    pub fn chunked() -> PayloadDecoder {
-        PayloadDecoder {
+    pub fn chunked() -> RequestBodyDecoder {
+        RequestBodyDecoder {
             kind: Kind::Chunked(ChunkedState::Size, 0),
+        }
+    }
+
+    pub fn eof() -> RequestBodyDecoder {
+        RequestBodyDecoder { kind: Kind::Eof }
+    }
+
+    pub fn is_eof(&self) -> bool {
+        match self.kind {
+            Kind::Eof => true,
+            _ => false,
         }
     }
 }
@@ -201,17 +226,17 @@ enum ChunkedState {
 
 #[derive(Debug, Clone, PartialEq)]
 /// Http payload item
-pub enum PayloadItem {
+pub enum RequestBodyItem {
     Chunk(Bytes),
     Eof,
 }
 
-impl PayloadDecoder {
-    fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<PayloadItem>> {
+impl RequestBodyDecoder {
+    pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<RequestBodyItem>> {
         match self.kind {
             Kind::Length(ref mut remaining) => {
                 if *remaining == 0 {
-                    Ok(Some(PayloadItem::Eof))
+                    Ok(Some(RequestBodyItem::Eof))
                 } else {
                     if src.is_empty() {
                         return Ok(None);
@@ -225,7 +250,7 @@ impl PayloadDecoder {
                         buf = src.split_to(*remaining as usize).freeze();
                         *remaining = 0;
                     };
-                    Ok(Some(PayloadItem::Chunk(buf)))
+                    Ok(Some(RequestBodyItem::Chunk(buf)))
                 }
             }
             Kind::Chunked(ref mut state, ref mut size) => {
@@ -238,10 +263,10 @@ impl PayloadDecoder {
                         Poll::Ready(Err(e)) => return Err(e),
                     };
                     if *state == ChunkedState::End {
-                        return Ok(Some(PayloadItem::Eof));
+                        return Ok(Some(RequestBodyItem::Eof));
                     }
                     if let Some(buf) = buf {
-                        return Ok(Some(PayloadItem::Chunk(buf)));
+                        return Ok(Some(RequestBodyItem::Chunk(buf)));
                     }
                     if src.is_empty() {
                         return Ok(None);
@@ -252,7 +277,7 @@ impl PayloadDecoder {
                 if src.is_empty() {
                     Ok(None)
                 } else {
-                    Ok(Some(PayloadItem::Chunk(src.split().freeze())))
+                    Ok(Some(RequestBodyItem::Chunk(src.split().freeze())))
                 }
             }
         }

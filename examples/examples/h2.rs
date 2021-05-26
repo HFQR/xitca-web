@@ -11,10 +11,15 @@ use std::io::BufReader;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use actix_http_alt::{http::Response, util::ErrorLoggerFactory, HttpServiceBuilder, ResponseBody};
+use actix_http_alt::{
+    h2::RequestBody,
+    http::{Request, Response},
+    util::ErrorLoggerFactory,
+    HttpServiceBuilder, ResponseBody,
+};
 use actix_web_alt::{
     dev::{Service, ServiceFactory},
-    App, HttpServer, WebRequest,
+    HttpServer,
 };
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
@@ -34,8 +39,7 @@ async fn main() -> io::Result<()> {
 
     // construct http server
     HttpServer::new(move || {
-        let app = App::with_current_thread_state(String::from("AppState")).service(H2Factory);
-        let builder = HttpServiceBuilder::h2(app).rustls(acceptor.clone());
+        let builder = HttpServiceBuilder::h2(H2Factory).rustls(acceptor.clone());
         ErrorLoggerFactory::new(builder)
     })
     .bind("127.0.0.1:8080")?
@@ -45,10 +49,7 @@ async fn main() -> io::Result<()> {
 
 struct H2Factory;
 
-impl<State> ServiceFactory<WebRequest<'_, State>> for H2Factory
-where
-    State: Debug,
-{
+impl ServiceFactory<Request<RequestBody>> for H2Factory {
     type Response = Response<ResponseBody>;
     type Error = Box<dyn std::error::Error>;
     type Config = ();
@@ -69,10 +70,7 @@ struct H2Service {
     state: String,
 }
 
-impl<'r, State> Service<WebRequest<'r, State>> for H2Service
-where
-    State: Debug,
-{
+impl Service<Request<RequestBody>> for H2Service {
     type Response = Response<ResponseBody>;
     type Error = Box<dyn std::error::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
@@ -81,19 +79,13 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call<'c>(&'c self, mut req: WebRequest<'r, State>) -> Self::Future<'c>
+    fn call<'c>(&'c self, mut req: Request<RequestBody>) -> Self::Future<'c>
     where
-        'r: 'c,
+        Request<RequestBody>: 'c,
     {
         async move {
             // borrow service state
             info!("Service state: {:?}", self.state);
-
-            // borrow app state from request
-            info!("App state: {:?}", req.state());
-
-            // borrow http request from web request.
-            let req = req.request_mut();
 
             info!("Request header: {:?}", req.headers());
 

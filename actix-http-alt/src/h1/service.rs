@@ -17,6 +17,7 @@ use crate::response::ResponseError;
 
 use super::body::RequestBody;
 use super::proto::Dispatcher;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct H1Service<S, X, U> {
     flow: HttpFlow<S, X, U>,

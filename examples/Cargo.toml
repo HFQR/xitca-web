@@ -5,7 +5,11 @@ edition = "2018"
 
 [[example]]
 name = "hello-world"
-path = "examples/hello_world.rs"
+path = "examples/hello-world.rs"
+
+[[example]]
+name = "h2"
+path = "examples/h2.rs"
 
 [[example]]
 name = "h3"

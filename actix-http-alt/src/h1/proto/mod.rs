@@ -4,6 +4,7 @@
 mod context;
 mod decode;
 mod dispatcher;
+mod encode;
 mod error;
 mod state;
 

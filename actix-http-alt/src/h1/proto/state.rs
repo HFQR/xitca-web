@@ -4,12 +4,12 @@ use tokio::io::{Interest, Ready};
 
 /// Bit marker for tracking state of an IO type like tokio::net::TcpStream
 #[derive(Copy, Clone, PartialOrd, PartialEq)]
-pub(super) struct State(usize);
+pub(super) struct State(u8);
 
-const READABLE: usize = 0b0_01;
-const WRITABLE: usize = 0b0_10;
-const READ_CLOSED: usize = 0b0_0100;
-const WRITE_CLOSED: usize = 0b0_1000;
+const READABLE: u8 = 0b0_01;
+const WRITABLE: u8 = 0b0_10;
+const READ_CLOSED: u8 = 0b0_0100;
+const WRITE_CLOSED: u8 = 0b0_1000;
 
 impl State {
     const READABLE: Self = Self(READABLE);
