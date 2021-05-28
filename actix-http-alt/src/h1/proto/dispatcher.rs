@@ -2,15 +2,10 @@ use std::{io, marker::PhantomData};
 
 use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use futures_core::stream::Stream;
 use http::{Request, Response};
 use pin_project_lite::pin_project;
-use tokio::io::{Interest, Ready};
-
-use super::context::Context;
-use super::decode::{RequestBodyDecoder, RequestBodyItem};
-use super::state::State;
 
 use crate::body::ResponseBody;
 use crate::error::BodyError;
@@ -20,6 +15,10 @@ use crate::h1::{
     error::Error,
 };
 use crate::response::ResponseError;
+
+use super::context::Context;
+use super::decode::RequestBodyDecoder;
+use super::state::State;
 
 pub(crate) struct Dispatcher<'a, S, B, X, U> {
     io: TcpStream,
@@ -65,7 +64,11 @@ where
 
                     self.try_encode(res)?;
                     self.io.writable().await;
-                    // self.try_write()?;
+                    self.try_write()?;
+
+                    if self.state.write_closed() {
+                        return Ok(());
+                    }
                 }
                 None => continue,
             }
@@ -103,6 +106,25 @@ where
         }
     }
 
+    fn try_write(&mut self) -> Result<(), Error> {
+        loop {
+            match self.io.try_write(&mut self.write_buf) {
+                Ok(0) => {
+                    self.set_write_close();
+                    return Ok(());
+                }
+                Ok(n) => {
+                    self.write_buf.advance(n);
+                    if self.write_buf.remaining() == 0 {
+                        return Ok(());
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
     fn running(&self) -> bool {
         !(self.state.read_closed() && self.state.write_closed())
     }
@@ -112,19 +134,13 @@ where
         if self.read_buf.advanced() {
             let buf = self.read_buf.buf();
 
-            match self.context.decode_head(buf)? {
-                Some((req, decoder)) => {
-                    let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
+            if let Some((req, decoder)) = self.context.decode_head(buf)? {
+                let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
-                    let (parts, _) = req.into_parts();
-                    let req = Request::from_parts(parts, body);
+                let (parts, _) = req.into_parts();
+                let req = Request::from_parts(parts, body);
 
-                    return Ok(Some((req, body_handle)));
-                }
-                // Nothing new decoded.
-                None => {
-                    // should disable write interest checking.
-                }
+                return Ok(Some((req, body_handle)));
             }
         }
 
@@ -155,8 +171,10 @@ where
         let res = res.unwrap_or_else(ResponseError::response_error);
 
         let (parts, body) = res.into_parts();
-        use futures_core::Stream;
-        let size = body.size_hint();
+
+        let size = body.size();
+
+        self.context.encode_head(parts, size, &mut self.write_buf)?;
 
         Ok(())
     }

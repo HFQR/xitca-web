@@ -12,6 +12,8 @@ pub enum ProtoError {
 pub enum Parse {
     // Failed to parse header.
     Header,
+    // Failed to status code.
+    StatusCode,
 }
 
 impl From<httparse::Error> for ProtoError {

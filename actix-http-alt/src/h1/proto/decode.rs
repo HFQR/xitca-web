@@ -11,6 +11,7 @@ use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
 impl Context {
+    // decode head and generate request and body decoder.
     pub(super) fn decode_head(
         &mut self,
         buf: &mut BytesMut,
@@ -49,7 +50,7 @@ impl Context {
                 let slice = buf.split_to(len).freeze();
 
                 // pop a cached headermap or construct a new one.
-                let mut headers = self.header_cache.pop().unwrap_or_else(HeaderMap::new);
+                let mut headers = self.header_cache.take().unwrap_or_else(HeaderMap::new);
                 headers.reserve(headers_len);
 
                 // flags for request states.
@@ -179,10 +180,7 @@ impl RequestBodyDecoder {
     }
 
     pub fn is_eof(&self) -> bool {
-        match self.kind {
-            Kind::Eof => true,
-            _ => false,
-        }
+        matches!(self.kind, Kind::Eof)
     }
 }
 

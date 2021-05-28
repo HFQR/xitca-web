@@ -1,6 +1,6 @@
 use std::ops;
 
-use tokio::io::{Interest, Ready};
+use tokio::io::Interest;
 
 /// Bit marker for tracking state of an IO type like tokio::net::TcpStream
 #[derive(Copy, Clone, PartialOrd, PartialEq)]

@@ -1,9 +1,10 @@
-use http::header::HeaderMap;
+use http::{header::HeaderMap, Method};
 
 pub(super) struct Context {
     pub(super) flag: ContextFlag,
     pub(super) ctype: ConnectionType,
-    pub(super) header_cache: Vec<HeaderMap>,
+    pub(super) method: Method,
+    pub(super) header_cache: Option<HeaderMap>,
 }
 
 impl Context {
@@ -15,7 +16,8 @@ impl Context {
         Self {
             flag,
             ctype: ConnectionType::Close,
-            header_cache: Vec::new(),
+            method: Method::default(),
+            header_cache: None,
         }
     }
 }

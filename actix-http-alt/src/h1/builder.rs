@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData};
+use std::future::Future;
 
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;

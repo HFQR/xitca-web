@@ -88,6 +88,14 @@ where
     pub fn stream(stream: B) -> Self {
         Self::Stream { stream }
     }
+
+    pub fn size(&self) -> ResponseBodySize {
+        match *self {
+            Self::None => ResponseBodySize::None,
+            Self::Bytes { ref bytes } => ResponseBodySize::Sized(bytes.len()),
+            Self::Stream { .. } => ResponseBodySize::Stream,
+        }
+    }
 }
 
 pub struct Next<'a, B: Stream> {
@@ -123,17 +131,6 @@ where
             ResponseBodyProj::Stream { stream } => stream.poll_next(cx).map_err(From::from),
         }
     }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match *self {
-            ResponseBody::None => (0, None),
-            ResponseBody::Bytes { ref bytes } => {
-                let len = bytes.len();
-                (len, Some(len))
-            }
-            ResponseBody::Stream { .. } => (1, None),
-        }
-    }
 }
 
 impl<B> From<Bytes> for ResponseBody<B> {
@@ -146,4 +143,23 @@ impl From<StreamBody> for ResponseBody {
     fn from(stream: StreamBody) -> Self {
         Self::Stream { stream }
     }
+}
+
+/// Body size hint.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ResponseBodySize {
+    /// Absence of body can be assumed from method or status code.
+    ///
+    /// Will skip writing Content-Length header.
+    None,
+
+    /// Known size body.
+    ///
+    /// Will write `Content-Length: N` header. `Sized(0)` is treated the same as `Empty`.
+    Sized(usize),
+
+    /// Unknown size body.
+    ///
+    /// Will not write Content-Length header. Can be used with chunked Transfer-Encoding.
+    Stream,
 }

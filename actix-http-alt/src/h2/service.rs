@@ -12,7 +12,7 @@ use futures_util::future::poll_fn;
 use http::{header::CONTENT_LENGTH, HeaderValue, Request, Response, Version};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::body::ResponseBody;
+use crate::body::{ResponseBody, ResponseBodySize};
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlowSimple;
 use crate::response::ResponseError;
@@ -113,11 +113,11 @@ where
     *res.version_mut() = Version::HTTP_2;
 
     // set content length header.
-    match body.size_hint() {
-        (_, Some(n)) => {
+    match body.size() {
+        ResponseBodySize::Sized(n) => {
             res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(n));
         }
-        (_, None) => {}
+        _ => {}
     }
 
     // send response and body(if there is one).

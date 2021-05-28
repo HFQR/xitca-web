@@ -1,13 +1,12 @@
 use std::{
     future::Future,
-    io,
     task::{Context, Poll},
 };
 
 use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
 use bytes::Bytes;
-use futures_core::{ready, Stream};
+use futures_core::Stream;
 use http::{Request, Response};
 
 use crate::body::ResponseBody;
@@ -17,7 +16,6 @@ use crate::response::ResponseError;
 
 use super::body::RequestBody;
 use super::proto::Dispatcher;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct H1Service<S, X, U> {
     flow: HttpFlow<S, X, U>,

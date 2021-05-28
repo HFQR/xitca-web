@@ -1,7 +1,10 @@
+// TODO: use guard or remove dead code.
+#![allow(dead_code)]
+
 //! Route match guards.
 
 #![allow(non_snake_case)]
-use std::{convert::TryFrom, ops::Deref, rc::Rc};
+use std::rc::Rc;
 
 use actix_http_alt::http::{self, header, request::Parts, uri::Uri};
 
