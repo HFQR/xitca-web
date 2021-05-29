@@ -3,8 +3,8 @@
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
 
-use actix_http_alt::h1::RequestBody;
 use actix_http_alt::{
+    h1::RequestBody,
     http::{Request, Response},
     util::ErrorLoggerFactory,
     HttpServiceBuilder, ResponseBody,
@@ -33,7 +33,7 @@ async fn handler(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<
     let body = Bytes::from_static(b"Hello World!");
     let res = Response::builder()
         .status(200)
-        .header("Content-Type", "text/plain")
+        .header("Content-Type", "text/plain; charset=utf-8")
         .header("Content-Length", body.len())
         .body(body.into())?;
 

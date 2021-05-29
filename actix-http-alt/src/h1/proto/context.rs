@@ -1,16 +1,19 @@
 use http::{header::HeaderMap, Method};
 
-pub(super) struct Context {
+use crate::util::date::Date;
+
+pub(super) struct Context<'a> {
     pub(super) flag: ContextFlag,
     pub(super) ctype: ConnectionType,
     pub(super) method: Method,
     pub(super) header_cache: Option<HeaderMap>,
+    pub(super) date: &'a Date,
 }
 
-impl Context {
+impl<'a> Context<'a> {
     pub(super) const MAX_HEADERS: usize = 96;
 
-    pub(super) fn new() -> Self {
+    pub(super) fn new(date: &'a Date) -> Self {
         let flag = ContextFlag::new(false);
 
         Self {
@@ -18,6 +21,7 @@ impl Context {
             ctype: ConnectionType::Close,
             method: Method::default(),
             header_cache: None,
+            date,
         }
     }
 }

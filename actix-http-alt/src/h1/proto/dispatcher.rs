@@ -15,6 +15,7 @@ use crate::h1::{
     error::Error,
 };
 use crate::response::ResponseError;
+use crate::util::date::DateTask;
 
 use super::context::Context;
 use super::decode::RequestBodyDecoder;
@@ -23,7 +24,7 @@ use super::state::State;
 pub(crate) struct Dispatcher<'a, S, B, X, U> {
     io: TcpStream,
     state: State,
-    context: Context,
+    context: Context<'a>,
     read_buf: ReadBuffer,
     write_buf: BytesMut,
     error: Option<Error>,
@@ -39,11 +40,11 @@ where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
-    pub(crate) fn new(io: TcpStream, flow: &'a HttpFlow<S, X, U>) -> Self {
+    pub(crate) fn new(io: TcpStream, flow: &'a HttpFlow<S, X, U>, date: &'a DateTask) -> Self {
         Self {
             io,
             state: State::new(),
-            context: Context::new(),
+            context: Context::new(date.get()),
             read_buf: ReadBuffer::new(),
             write_buf: BytesMut::new(),
             error: None,
@@ -56,21 +57,22 @@ where
         while !self.state.read_closed() {
             self.io.readable().await?;
             self.try_read()?;
-            match self.decode_head()? {
-                Some((req, body_handle)) => {
-                    log::trace!("New Request with headers: {:?}", req.headers());
 
-                    let res = self.flow.service.call(req).await;
+            while let Some((req, body_handle)) = self.decode_head()? {
+                log::trace!("New Request with headers: {:?}", req.headers());
 
-                    self.try_encode(res)?;
-                    self.io.writable().await;
+                let res = self.flow.service.call(req).await;
+
+                self.try_encode(res)?;
+
+                while self.write_buf.has_remaining() {
+                    self.io.writable().await?;
                     self.try_write()?;
 
                     if self.state.write_closed() {
                         return Ok(());
                     }
                 }
-                None => continue,
             }
         }
 
@@ -123,10 +125,6 @@ where
                 Err(e) => return Err(e.into()),
             }
         }
-    }
-
-    fn running(&self) -> bool {
-        !(self.state.read_closed() && self.state.write_closed())
     }
 
     fn decode_head(&mut self) -> Result<Option<(Request<RequestBody>, Option<RequestBodyHandle>)>, Error> {

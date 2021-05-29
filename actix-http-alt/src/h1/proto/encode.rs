@@ -1,13 +1,14 @@
 use bytes::{BufMut, BytesMut};
-use http::{response::Parts, StatusCode, Version};
+use http::{header::DATE, response::Parts, StatusCode, Version};
 use log::{debug, warn};
 
 use crate::body::ResponseBodySize;
+use crate::util::date::DATE_VALUE_LENGTH;
 
 use super::context::Context;
 use super::error::{Parse, ProtoError};
 
-impl Context {
+impl Context<'_> {
     pub(super) fn encode_head(
         &mut self,
         mut parts: Parts,
@@ -37,8 +38,15 @@ impl Context {
         // encode version, status code and reason
         encode_version_status_reason(buf, version, status);
 
+        let mut date_header = false;
+
         for (name, value) in parts.headers.drain() {
             let name = name.expect("Handling optional header name is not implemented");
+
+            match name {
+                DATE => date_header = true,
+                _ => {}
+            }
 
             buf.put_slice(name.as_str().as_bytes());
             buf.put_slice(b": ");
@@ -46,7 +54,17 @@ impl Context {
             buf.put_slice(b"\r\n");
         }
 
-        buf.put_slice(b"\r\nHello World!\r\n");
+        // set date header if there is not any.
+        if !date_header {
+            buf.reserve(DATE_VALUE_LENGTH + 8);
+            buf.put_slice(b"date: ");
+            buf.put_slice(self.date.get().as_bytes());
+            buf.put_slice(b"\r\n\r\n");
+        } else {
+            buf.put_slice(b"\r\n");
+        }
+
+        buf.put_slice(b"Hello World!\r\n");
 
         // put header map back to cache.
         self.header_cache = Some(parts.headers);

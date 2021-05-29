@@ -10,7 +10,7 @@ use httparse::{Header, Status, EMPTY_HEADER};
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
-impl Context {
+impl Context<'_> {
     // decode head and generate request and body decoder.
     pub(super) fn decode_head(
         &mut self,

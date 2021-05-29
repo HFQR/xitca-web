@@ -44,7 +44,7 @@ where
     ///
     /// Note factory type F ues `Request<h1::RequestBody>` as Request type.
     /// This is a request type specific for Http/1 request body.
-    pub fn h1(factory: F) -> super::h1::H1ServiceBuilder<F, NoOpTlsAcceptorFactory>
+    pub fn h1(factory: F) -> super::h1::H1ServiceBuilder<F>
     where
         F: ServiceFactory<Request<super::h1::RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,

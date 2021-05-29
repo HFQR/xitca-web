@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use actix_server_alt::net::TcpStream;
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
@@ -12,17 +13,18 @@ use crate::response::ResponseError;
 use crate::tls;
 
 use super::body::RequestBody;
+use super::expect::ExpectHandler;
 use super::service::H1Service;
-use tokio::net::TcpStream;
 
 /// Http/1 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
-pub struct H1ServiceBuilder<F, AF> {
+pub struct H1ServiceBuilder<F, EF = ExpectHandler<F>, AF = tls::NoOpTlsAcceptorFactory> {
     factory: F,
+    expect: EF,
     tls_factory: AF,
 }
 
-impl<F, B, E> H1ServiceBuilder<F, tls::NoOpTlsAcceptorFactory>
+impl<F, B, E> H1ServiceBuilder<F>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
@@ -35,15 +37,19 @@ where
     pub fn new(factory: F) -> Self {
         Self {
             factory,
+            expect: ExpectHandler::new(),
             tls_factory: tls::NoOpTlsAcceptorFactory,
         }
     }
 }
 
-impl<F, B, E, AF, TlsSt> H1ServiceBuilder<F, AF>
+impl<F, B, E, EF, AF, TlsSt> H1ServiceBuilder<F, EF, AF>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
+
+    EF: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>>,
+    EF::Service: 'static,
 
     AF: ServiceFactory<TcpStream, Response = TlsSt>,
     AF::Service: 'static,
@@ -56,9 +62,13 @@ where
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 {
     #[cfg(feature = "openssl")]
-    pub fn openssl(self, acceptor: tls::openssl::TlsAcceptor) -> H1ServiceBuilder<F, tls::openssl::TlsAcceptorService> {
+    pub fn openssl(
+        self,
+        acceptor: tls::openssl::TlsAcceptor,
+    ) -> H1ServiceBuilder<F, EF, tls::openssl::TlsAcceptorService> {
         H1ServiceBuilder {
             factory: self.factory,
+            expect: self.expect,
             tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
         }
     }
@@ -67,22 +77,25 @@ where
     pub fn rustls(
         self,
         config: std::sync::Arc<tls::rustls::ServerConfig>,
-    ) -> H1ServiceBuilder<F, tls::rustls::TlsAcceptorService> {
+    ) -> H1ServiceBuilder<F, EF, tls::rustls::TlsAcceptorService> {
         H1ServiceBuilder {
             factory: self.factory,
+            expect: self.expect,
             tls_factory: tls::rustls::TlsAcceptorService::new(config),
         }
     }
 }
 
-impl<F, B, E, AF, TlsSt> ServiceFactory<TcpStream> for H1ServiceBuilder<F, AF>
+impl<F, B, E, EF, AF, TlsSt> ServiceFactory<TcpStream> for H1ServiceBuilder<F, EF, AF>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
-
     F::Error: ResponseError<F::Response>,
+    F::InitError: From<AF::InitError> + From<EF::InitError>,
 
-    F::InitError: From<AF::InitError>,
+    // TODO: use a meaningful config.
+    EF: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>, Config = ()>,
+    EF::Service: 'static,
 
     AF: ServiceFactory<TcpStream, Response = TlsSt, Config = ()>,
     AF::Service: 'static,
@@ -97,18 +110,20 @@ where
     type Response = ();
     type Error = HttpServiceError;
     type Config = F::Config;
-    type Service = H1Service<F::Service, (), ()>;
+    type Service = H1Service<F::Service, EF::Service, ()>;
     type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
+        let expect = self.expect.new_service(());
         let service = self.factory.new_service(cfg);
         let tls_acceptor = self.tls_factory.new_service(());
         async {
+            let expect = expect.await?;
             let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
 
-            Ok(H1Service::new(service, (), ()))
+            Ok(H1Service::new(service, expect, ()))
         }
     }
 }

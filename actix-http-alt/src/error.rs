@@ -8,12 +8,13 @@ use log::error;
 
 /// HttpService layer error.
 pub enum HttpServiceError {
+    Ignored,
+    ServiceReady,
+    Body(BodyError),
     #[cfg(feature = "openssl")]
     Openssl(super::tls::openssl::OpensslError),
     #[cfg(feature = "rustls")]
     Rustls(super::tls::rustls::RustlsError),
-    ServiceReady,
-    Body(BodyError),
     #[cfg(feature = "http1")]
     H1(super::h1::Error),
     // Http/2 error happen in HttpService handle.
@@ -27,18 +28,19 @@ pub enum HttpServiceError {
 impl Debug for HttpServiceError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::Ignored => write!(f, "Error detail is ignored."),
             Self::ServiceReady => write!(f, "Service is not ready"),
             Self::Body(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "openssl")]
+            Self::Openssl(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "rustls")]
+            Self::Rustls(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http1")]
             Self::H1(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http2")]
             Self::H2(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http3")]
             Self::H3(ref e) => write!(f, "{:?}", e),
-            #[cfg(feature = "openssl")]
-            Self::Openssl(ref e) => write!(f, "{:?}", e),
-            #[cfg(feature = "rustls")]
-            Self::Rustls(ref e) => write!(f, "{:?}", e),
         }
     }
 }
@@ -104,5 +106,11 @@ impl From<Box<dyn Error>> for BodyError {
 impl From<BodyError> for HttpServiceError {
     fn from(e: BodyError) -> Self {
         Self::Body(e)
+    }
+}
+
+impl From<()> for HttpServiceError {
+    fn from(_: ()) -> Self {
+        Self::Ignored
     }
 }
