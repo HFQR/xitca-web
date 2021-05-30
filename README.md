@@ -4,7 +4,9 @@
 - rust version 1.54.0-nightly
 
 ### Motivation:
-- Experiment nightly rust feature to make async web frameworks more easy to use.
+- 100% safe rust. All unsafe code are outsourced to dependencies.
+- Low memory footprint. Avoid pre-allocation whenever possible.
+- Experiment nightly rust feature to make async web frameworks easier to use.
 - Make code base compat and simple. Reduce the barrier of understanding of source code for easier contributing.
 
 ### Limitation:
