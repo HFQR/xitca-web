@@ -61,6 +61,18 @@ where
 
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 {
+    pub fn expect<EF2>(self, expect: EF2) -> H1ServiceBuilder<F, EF2, AF>
+    where
+        EF2: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>>,
+        EF2::Service: 'static,
+    {
+        H1ServiceBuilder {
+            factory: self.factory,
+            expect,
+            tls_factory: self.tls_factory,
+        }
+    }
+
     #[cfg(feature = "openssl")]
     pub fn openssl(
         self,
@@ -122,7 +134,6 @@ where
             let expect = expect.await?;
             let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
-
             Ok(H1Service::new(service, expect, ()))
         }
     }

@@ -3,7 +3,8 @@ use http::{header::HeaderMap, Method};
 use crate::util::date::Date;
 
 pub(super) struct Context<'a> {
-    pub(super) flag: ContextFlag,
+    enable_ka: bool,
+    is_expect: bool,
     pub(super) ctype: ConnectionType,
     pub(super) method: Method,
     pub(super) header_cache: Option<HeaderMap>,
@@ -14,33 +15,49 @@ impl<'a> Context<'a> {
     pub(super) const MAX_HEADERS: usize = 96;
 
     pub(super) fn new(date: &'a Date) -> Self {
-        let flag = ContextFlag::new(false);
-
         Self {
-            flag,
-            ctype: ConnectionType::Close,
+            enable_ka: true,
+            is_expect: false,
+            ctype: ConnectionType::KeepAlive,
             method: Method::default(),
             header_cache: None,
             date,
         }
     }
-}
 
-pub(super) struct ContextFlag {
-    flag: u8,
-}
-
-impl ContextFlag {
-    const ENABLE_KEEP_ALIVE: u8 = 0b0_01;
-
-    fn new(enable_ka: bool) -> Self {
-        let flag = if enable_ka { Self::ENABLE_KEEP_ALIVE } else { 0 };
-
-        Self { flag }
+    #[inline(always)]
+    pub(super) fn is_expect(&self) -> bool {
+        self.is_expect
     }
 
-    pub(super) fn keep_alive_enable(&self) -> bool {
-        self.flag & Self::ENABLE_KEEP_ALIVE == Self::ENABLE_KEEP_ALIVE
+    #[inline(always)]
+    pub(super) fn is_head_method(&self) -> bool {
+        self.method == Method::HEAD
+    }
+
+    /// Context should be reset when a new request is decoded.
+    #[inline(always)]
+    pub(super) fn reset(&mut self) {
+        self.ctype = ConnectionType::KeepAlive;
+        self.is_expect = false;
+    }
+
+    pub(super) fn set_expect(&mut self) {
+        self.is_expect = true;
+    }
+
+    pub(super) fn set_method(&mut self, method: Method) {
+        self.method = method;
+    }
+
+    pub(super) fn set_ctype(&mut self, ctype: ConnectionType) {
+        match (self.ctype, ctype) {
+            // When connection is in upgrade state it can not be override.
+            (ConnectionType::Upgrade, _) => {}
+            // only set connection to keep alive when enabled.
+            (_, ConnectionType::KeepAlive) if self.enable_ka => self.ctype = ConnectionType::KeepAlive,
+            _ => self.ctype = ctype,
+        }
     }
 }
 

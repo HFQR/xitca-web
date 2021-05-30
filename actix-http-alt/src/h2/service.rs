@@ -8,7 +8,6 @@ use ::h2::server::{handshake, SendResponse};
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::Stream;
-use futures_util::future::poll_fn;
 use http::{header::CONTENT_LENGTH, HeaderValue, Request, Response, Version};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -16,6 +15,7 @@ use crate::body::{ResponseBody, ResponseBodySize};
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlowSimple;
 use crate::response::ResponseError;
+use crate::util::poll_fn::poll_fn;
 
 use super::body::RequestBody;
 

@@ -16,6 +16,9 @@ impl Context<'_> {
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Request<()>, RequestBodyDecoder)>, ProtoError> {
+        // reset context state for new request.
+        self.reset();
+
         let mut headers = [EMPTY_HEADER; Self::MAX_HEADERS];
 
         let mut req = httparse::Request::new(&mut headers);
@@ -23,19 +26,22 @@ impl Context<'_> {
         match req.parse(buf)? {
             Status::Complete(len) => {
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
+
+                // set method to context so it can pass method to response.
+                self.set_method(method.clone());
+
+                if method == Method::CONNECT {
+                    self.set_ctype(ConnectionType::Upgrade);
+                }
+
                 let uri = req.path.unwrap().parse::<Uri>()?;
 
-                // Set connection type to keep alive when given a http/1.1 version.
+                // Set connection type when doing version match.
                 let version = if req.version.unwrap() == 1 {
-                    self.ctype = if self.flag.keep_alive_enable() {
-                        ConnectionType::KeepAlive
-                    } else {
-                        ConnectionType::Close
-                    };
-
+                    // Default ctype is KeepAlive so set_ctype is skipped here.
                     Version::HTTP_11
                 } else {
-                    self.ctype = ConnectionType::Close;
+                    self.set_ctype(ConnectionType::Close);
                     Version::HTTP_10
                 };
 
@@ -53,10 +59,7 @@ impl Context<'_> {
                 let mut headers = self.header_cache.take().unwrap_or_else(HeaderMap::new);
                 headers.reserve(headers_len);
 
-                // flags for request states.
                 let mut decoder = RequestBodyDecoder::eof();
-                let mut expected = false;
-                let mut upgrade = false;
 
                 // write headers to headermap and update request states.
                 for idx in &header_idx[..headers_len] {
@@ -74,6 +77,7 @@ impl Context<'_> {
                                 .map_err(|_| ProtoError::Parse(Parse::Header))?
                                 .trim()
                                 .eq_ignore_ascii_case("chunked");
+
                             if chunked {
                                 decoder = RequestBodyDecoder::chunked();
                             }
@@ -92,22 +96,18 @@ impl Context<'_> {
                         CONNECTION => {
                             if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
                                 // Connection header would update context state.
-                                if value.eq_ignore_ascii_case("keep-alive") && self.flag.keep_alive_enable() {
-                                    self.ctype = ConnectionType::KeepAlive;
+                                if value.eq_ignore_ascii_case("keep-alive") {
+                                    self.set_ctype(ConnectionType::KeepAlive);
                                 } else if value.eq_ignore_ascii_case("close") {
-                                    self.ctype = ConnectionType::Close;
+                                    self.set_ctype(ConnectionType::Close);
                                 } else if value.eq_ignore_ascii_case("upgrade") {
-                                    self.ctype = ConnectionType::Upgrade
+                                    self.set_ctype(ConnectionType::Upgrade);
                                 }
                             }
                         }
-                        EXPECT => {
-                            expected = value.as_bytes() == b"100-continue";
-                        }
-                        UPGRADE => {
-                            // Upgrades are only allowed with HTTP/1.1
-                            upgrade = version == Version::HTTP_11;
-                        }
+                        EXPECT if value.as_bytes() == b"100-continue" => self.set_expect(),
+                        // Upgrades are only allowed with HTTP/1.1
+                        UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
                         _ => {}
                     }
 
@@ -123,6 +123,7 @@ impl Context<'_> {
 
                 Ok(Some((req, decoder)))
             }
+
             Status::Partial => Ok(None),
         }
     }

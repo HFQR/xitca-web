@@ -17,7 +17,6 @@ actix-service-alt = "0.1"
 
 bytes = "1"
 futures-core = "0.3"
-futures-util = { version = "0.3", default-features = false }
 http = "0.2"
 httpdate = "1.0"
 httparse = "1.4"

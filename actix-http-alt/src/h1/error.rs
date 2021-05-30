@@ -6,6 +6,8 @@ use crate::error::HttpServiceError;
 
 #[derive(Debug)]
 pub enum Error {
+    /// Closed error should be treated as success and transform to Ok(())
+    Closed,
     IO(io::Error),
     Proto(ProtoError),
 }

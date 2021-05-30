@@ -49,26 +49,6 @@ impl_alloc!(Box);
 impl_alloc!(Rc);
 impl_alloc!(Arc);
 
-impl<S, Req> Service<Req> for &'_ S
-where
-    S: Service<Req>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future<'f> = S::Future<'f>;
-
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        (*self).poll_ready(cx)
-    }
-
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        (*self).call(req)
-    }
-}
-
 impl<S, Req> Service<Req> for Pin<S>
 where
     S: Deref,

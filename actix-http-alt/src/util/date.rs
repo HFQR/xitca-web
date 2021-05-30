@@ -74,6 +74,7 @@ impl DateTask {
         Self { current, handle }
     }
 
+    #[inline(always)]
     pub(crate) fn get(&self) -> &Date {
         &*self.current
     }

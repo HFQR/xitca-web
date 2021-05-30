@@ -30,7 +30,7 @@ where
         F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
 
-        St: AsyncRead + AsyncWrite + Unpin + 'static,
+        St: AsyncRead + AsyncWrite + Unpin,
     {
         Self {
             factory,

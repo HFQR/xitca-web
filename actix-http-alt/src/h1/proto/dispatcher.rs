@@ -4,8 +4,7 @@ use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
 use bytes::{Buf, Bytes, BytesMut};
 use futures_core::stream::Stream;
-use http::{Request, Response};
-use pin_project_lite::pin_project;
+use http::{response::Parts, Request, Response};
 
 use crate::body::ResponseBody;
 use crate::error::BodyError;
@@ -22,9 +21,9 @@ use super::decode::RequestBodyDecoder;
 use super::state::State;
 
 pub(crate) struct Dispatcher<'a, S, B, X, U> {
-    io: TcpStream,
+    io: &'a mut TcpStream,
     state: State,
-    context: Context<'a>,
+    ctx: Context<'a>,
     read_buf: ReadBuffer,
     write_buf: BytesMut,
     error: Option<Error>,
@@ -40,11 +39,11 @@ where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
-    pub(crate) fn new(io: TcpStream, flow: &'a HttpFlow<S, X, U>, date: &'a DateTask) -> Self {
+    pub(crate) fn new(io: &'a mut TcpStream, flow: &'a HttpFlow<S, X, U>, date: &'a DateTask) -> Self {
         Self {
             io,
             state: State::new(),
-            context: Context::new(date.get()),
+            ctx: Context::new(date.get()),
             read_buf: ReadBuffer::new(),
             write_buf: BytesMut::new(),
             error: None,
@@ -54,38 +53,37 @@ where
     }
 
     pub(crate) async fn run(&mut self) -> Result<(), Error> {
-        while !self.state.read_closed() {
+        loop {
+            while let Some((req, body_handle)) = self.decode_head()? {
+                let (parts, body) = self
+                    .flow
+                    .service
+                    .call(req)
+                    .await
+                    .unwrap_or_else(ResponseError::response_error)
+                    .into_parts();
+
+                self.encode_head(parts, &body)?;
+
+                let mut encoder = body.encoder();
+
+                tokio::pin!(body);
+                let buf = &mut self.write_buf;
+                while let Some(bytes) = body.as_mut().next().await {
+                    let bytes = bytes.unwrap();
+                    encoder.encode(&bytes, buf)?;
+                }
+                encoder.encode_eof(buf)?;
+            }
+
+            while self.write_buf.has_remaining() {
+                self.io.writable().await?;
+                self.try_write()?;
+            }
+
             self.io.readable().await?;
             self.try_read()?;
-
-            while let Some((req, body_handle)) = self.decode_head()? {
-                log::trace!("New Request with headers: {:?}", req.headers());
-
-                let res = self.flow.service.call(req).await;
-
-                self.try_encode(res)?;
-
-                while self.write_buf.has_remaining() {
-                    self.io.writable().await?;
-                    self.try_write()?;
-
-                    if self.state.write_closed() {
-                        return Ok(());
-                    }
-                }
-            }
         }
-
-        Ok(())
-    }
-
-    async fn handle_request(&mut self) -> Result<(), Error> {
-        // while let Some(req) = self.queue.pop_front() {
-        //     let res = self.flow.service.call(req).await;
-        //     self.try_encode(res)?;
-        // }
-
-        Ok(())
     }
 
     fn try_read(&mut self) -> Result<(), Error> {
@@ -93,10 +91,7 @@ where
 
         loop {
             match self.io.try_read_buf(self.read_buf.buf()) {
-                Ok(0) => {
-                    self.set_read_close();
-                    return Ok(());
-                }
+                Ok(0) => return Err(Error::Closed),
                 Ok(_) => self.read_buf.advance(true),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(ref e) if e.kind() == io::ErrorKind::ConnectionReset => {
@@ -111,10 +106,7 @@ where
     fn try_write(&mut self) -> Result<(), Error> {
         loop {
             match self.io.try_write(&mut self.write_buf) {
-                Ok(0) => {
-                    self.set_write_close();
-                    return Ok(());
-                }
+                Ok(0) => return Err(Error::Closed),
                 Ok(n) => {
                     self.write_buf.advance(n);
                     if self.write_buf.remaining() == 0 {
@@ -132,7 +124,7 @@ where
         if self.read_buf.advanced() {
             let buf = self.read_buf.buf();
 
-            if let Some((req, decoder)) = self.context.decode_head(buf)? {
+            if let Some((req, decoder)) = self.ctx.decode_head(buf)? {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
                 let (parts, _) = req.into_parts();
@@ -145,35 +137,9 @@ where
         Ok(None)
     }
 
-    // fn decode_body(&mut self) -> Result<(), Error> {
-    //     // Do not try when nothing new read.
-    //     if self.read_buf.advanced() {
-    //         let buf = self.read_buf.buf();
-    //
-    //         let body_handle = self.body_handle.as_mut().unwrap();
-    //
-    //         while let Some(item) = body_handle.decoder.decode(buf)? {
-    //             match item {
-    //                 RequestBodyItem::Chunk(chunk) => body_handle.sender.feed_data(chunk),
-    //                 RequestBodyItem::Eof => {
-    //                     body_handle.sender.feed_eof();
-    //                 }
-    //             }
-    //         }
-    //     }
-    //
-    //     Ok(())
-    // }
-
-    fn try_encode(&mut self, res: Result<S::Response, S::Error>) -> Result<(), Error> {
-        let res = res.unwrap_or_else(ResponseError::response_error);
-
-        let (parts, body) = res.into_parts();
-
+    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<B>) -> Result<(), Error> {
         let size = body.size();
-
-        self.context.encode_head(parts, size, &mut self.write_buf)?;
-
+        self.ctx.encode_head(parts, size, &mut self.write_buf)?;
         Ok(())
     }
 
@@ -183,12 +149,6 @@ where
 
     fn set_write_close(&mut self) {
         self.state.set_write_close();
-    }
-}
-
-pin_project! {
-    struct Task<Fut> {
-        fut: Fut
     }
 }
 

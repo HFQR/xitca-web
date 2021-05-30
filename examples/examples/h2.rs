@@ -3,7 +3,6 @@
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
 
-use std::fmt::Debug;
 use std::fs::File;
 use std::future::Future;
 use std::io;

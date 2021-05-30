@@ -16,6 +16,7 @@ use crate::response::ResponseError;
 use crate::util::date::DateTask;
 
 use super::body::RequestBody;
+use super::error::Error;
 use super::proto::Dispatcher;
 
 pub struct H1Service<S, X, U> {
@@ -70,16 +71,17 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'c>(&'c self, io: TcpStream) -> Self::Future<'c>
+    fn call<'c>(&'c self, mut io: TcpStream) -> Self::Future<'c>
     where
         TcpStream: 'c,
     {
         async move {
-            let mut dispatcher = Dispatcher::new(io, &self.flow, &self.date);
+            let mut dispatcher = Dispatcher::new(&mut io, &self.flow, &self.date);
 
-            dispatcher.run().await?;
-
-            Ok(())
+            match dispatcher.run().await {
+                Ok(_) | Err(Error::Closed) => Ok(()),
+                Err(e) => Err(e.into()),
+            }
         }
     }
 }
