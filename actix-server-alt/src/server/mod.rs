@@ -109,19 +109,11 @@ impl Server {
                     .map(|(name, factory)| (name.to_owned(), factory.clone_factory()))
                     .collect::<Vec<_>>();
 
-                #[cfg(feature = "actix")]
-                let actix = actix_rt::System::try_current();
-
                 let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
                 let handle = thread::Builder::new()
                     .name(format!("actix-server-worker-{}", idx))
                     .spawn(move || {
-                        #[cfg(feature = "actix")]
-                        if let Some(actix) = actix {
-                            actix_rt::System::set_current(actix);
-                        }
-
                         let rt = runtime::Builder::new_current_thread()
                             .enable_all()
                             .max_blocking_threads(worker_max_blocking_threads)

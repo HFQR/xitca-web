@@ -87,16 +87,16 @@ where
     }
 
     fn try_read(&mut self) -> Result<(), Error> {
-        self.read_buf.advance(false);
+        let read_buf = &mut self.read_buf;
+        read_buf.advance(false);
 
         loop {
-            match self.io.try_read_buf(self.read_buf.buf()) {
+            match self.io.try_read_buf(read_buf.buf()) {
                 Ok(0) => return Err(Error::Closed),
-                Ok(_) => self.read_buf.advance(true),
+                Ok(_) => read_buf.advance(true),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(ref e) if e.kind() == io::ErrorKind::ConnectionReset => {
-                    self.set_read_close();
-                    return Ok(());
+                    return Err(Error::Closed);
                 }
                 Err(e) => return Err(e.into()),
             }
