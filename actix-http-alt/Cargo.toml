@@ -1,0 +1,45 @@
+[package]
+name = "actix-http-alt"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = ["http1"]
+http1 = []
+http2 = ["h2"]
+http3 = ["actix-server-alt/http3", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
+openssl = ["tokio-openssl", "openssl-crate"]
+rustls = ["tokio-rustls"]
+
+[dependencies]
+actix-server-alt = { version = "0.1", default-features = false }
+actix-service-alt = "0.1"
+
+bytes = "1"
+futures-core = "0.3"
+http = "0.2"
+httpdate = "1.0"
+httparse = "1.4"
+itoa = "0.4.7"
+log = "0.4"
+pin-project-lite = "0.2.6"
+tokio = { version = "1.6", features = ["io-util"] }
+
+# openssl support
+tokio-openssl = { version = "0.6", optional = true }
+openssl-crate = { package = "openssl", version = "0.10", optional = true }
+
+# rustls support
+tokio-rustls = { version = "0.22", optional = true }
+
+# http/2 support
+h2 = { version = "0.3", optional = true }
+
+# http/3 support
+async-stream = { version = "0.3", optional = true }
+futures-intrusive = { version = "0.4", optional = true }
+h3 = { git = "https://github.com/hyperium/h3.git", optional = true }
+h3-quinn = { git = "https://github.com/hyperium/h3.git", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.6", features = ["macros", "rt"] }

@@ -1,55 +1,17 @@
-[package]
-name = "actix-server-alt"
-version = "0.1.0"
-authors = ["fakeshadow <24548779@qq.com>"]
-edition = "2018"
+[workspace]
+members = [
+    "actix-http-alt",
+    "actix-server-alt",
+    "actix-service-alt",
+    "actix-web-alt",
+    "examples"
+]
 
-[[example]]
-name = "hello-world"
-path = "examples/hello_world.rs"
-
-[[example]]
-name = "bench"
-path = "examples/bench.rs"
-
-[[example]]
-name = "h3"
-path = "examples/h3.rs"
-
-[features]
-default = ["signal", "http3"]
-http3 = ["quinn"]
-actix = ["actix-rt"]
-signal = ["tokio/signal"]
-
-[dependencies]
-actix-service = "2"
-
-async-channel = "1.6.1"
-futures-core = "0.3"
-log = "0.4"
-num_cpus = "1.13"
-pin-project-lite = "0.2.6"
-tokio = { version = "1.5", features = ["net", "rt", "rt-multi-thread", "sync", "time", "parking_lot"] }
-
-# actix runtime support
-actix-rt = { version = "2.2", default-features = false, optional = true }
-
-# http/3 support
-quinn = { version = "0.7.2", optional = true }
-
-[dev-dependencies]
-actix-http = { version = "3.0.0-beta.6", default-features = false }
-actix-web = { version = "4.0.0-beta.6", default-features = false }
-
-bytes = "1"
-env_logger = "0.8"
-http = "0.2"
-rcgen = "0.8"
-tokio = { version = "1.5", features = ["io-util", "macros"] }
-
-h3 = { git = "https://github.com/hyperium/h3" }
-h3-quinn = { git = "https://github.com/hyperium/h3" }
+[patch.crates-io]
+actix-http-alt = { path = "./actix-http-alt" }
+actix-server-alt = { path = "./actix-server-alt" }
+actix-service-alt = { path = "./actix-service-alt" }
+actix-web-alt = { path = "./actix-web-alt" }
 
 [profile.release]
 lto = true

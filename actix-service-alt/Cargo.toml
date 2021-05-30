@@ -1,0 +1,7 @@
+[package]
+name = "actix-service-alt"
+version = "0.1.0"
+edition = "2018"
+
+[dev-dependencies]
+tokio = { version = "1.6", features = ["macros", "rt"] }

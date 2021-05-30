@@ -1,0 +1,32 @@
+[package]
+name = "examples"
+version = "0.1.0"
+edition = "2018"
+
+[[example]]
+name = "hello-world"
+path = "examples/hello-world.rs"
+
+[[example]]
+name = "h2"
+path = "examples/h2.rs"
+
+[[example]]
+name = "h3"
+path = "examples/h3.rs"
+
+[dependencies]
+actix-http-alt = { version = "0.1", features = ["http2", "http3", "rustls"] }
+actix-server-alt = "0.1"
+actix-service-alt = "0.1"
+actix-web-alt = { version = "0.1", features = ["http2", "http3", "rustls"] }
+
+bytes = "1"
+env_logger = "0.8"
+futures-util = "0.3"
+http = "0.2"
+log = "0.4"
+rustls = "0.19"
+tokio = { version = "1.5", features = ["macros", "rt"] }
+
+h3-quinn = { git = "https://github.com/hyperium/h3.git" }
