@@ -16,15 +16,15 @@ impl Context<'_> {
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Request<()>, RequestBodyDecoder)>, ProtoError> {
-        // reset context state for new request.
-        self.reset();
-
         let mut headers = [EMPTY_HEADER; Self::MAX_HEADERS];
 
         let mut req = httparse::Request::new(&mut headers);
 
         match req.parse(buf)? {
             Status::Complete(len) => {
+                // Important: reset context state for new request.
+                self.reset();
+
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
 
                 // set method to context so it can pass method to response.

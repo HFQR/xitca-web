@@ -10,6 +10,12 @@ use actix_service_alt::{Service, ServiceFactory};
 
 pub struct ExpectHandler<F>(PhantomData<F>);
 
+impl<F> Default for ExpectHandler<F> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<F> ExpectHandler<F> {
     pub fn new() -> Self {
         Self(PhantomData)

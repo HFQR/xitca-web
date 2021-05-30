@@ -16,9 +16,9 @@ pub trait Service<Req> {
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
 
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
     where
-        Req: 's;
+        Req: 'c;
 }
 
 macro_rules! impl_alloc {
@@ -35,9 +35,9 @@ macro_rules! impl_alloc {
                 (**self).poll_ready(cx)
             }
 
-            fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+            fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
             where
-                Req: 's,
+                Req: 'c,
             {
                 (**self).call(req)
             }
@@ -62,9 +62,9 @@ where
         self.as_ref().get_ref().poll_ready(cx)
     }
 
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
     where
-        Req: 's,
+        Req: 'c,
     {
         self.as_ref().get_ref().call(req)
     }
@@ -100,9 +100,9 @@ mod test {
             self.service.poll_ready(cx)
         }
 
-        fn call<'s>(&'s self, req: &'r str) -> Self::Future<'s>
+        fn call<'c>(&'c self, req: &'r str) -> Self::Future<'c>
         where
-            'r: 's,
+            'r: 'c,
         {
             async move {
                 let req = (req, self.name.as_str());

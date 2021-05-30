@@ -53,7 +53,7 @@ where
     }
 }
 
-/// Helper trait to cast a cloneable type that impl [`ServiceFactory`](actix_service::ServiceFactory)
+/// Helper trait to cast a cloneable type that impl [`ServiceFactory`](actix_service_alt::ServiceFactory)
 /// to a trait object that is `Send` and `Clone`.
 pub trait AsServiceFactoryClone<Req>
 where

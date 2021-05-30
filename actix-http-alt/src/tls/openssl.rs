@@ -1,7 +1,6 @@
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
-    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };

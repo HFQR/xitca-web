@@ -21,7 +21,6 @@ pub(crate) struct WorkerService<S, Req> {
     _req: PhantomData<Req>,
 }
 
-#[rustfmt::skip]
 impl<S, Req> WorkerService<S, Req>
 where
     S: Service<Req> + 'static,
@@ -30,14 +29,13 @@ where
     pub(crate) fn new_rcboxed(service: S) -> RcWorkerService {
         Rc::new(WorkerService {
             service: Rc::new(service),
-            _req: PhantomData
+            _req: PhantomData,
         })
     }
 }
 
 pub(crate) type RcWorkerService = Rc<dyn WorkerServiceTrait>;
 
-#[rustfmt::skip]
 impl<S, Req> WorkerServiceTrait for WorkerService<S, Req>
 where
     S: Service<Req> + Clone + 'static,

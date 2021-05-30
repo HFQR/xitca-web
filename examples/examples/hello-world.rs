@@ -30,12 +30,10 @@ async fn main() -> std::io::Result<()> {
 }
 
 async fn handler(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
-    let body = Bytes::from_static(b"Hello World!");
     let res = Response::builder()
         .status(200)
         .header("Content-Type", "text/plain; charset=utf-8")
-        .header("Content-Length", body.len())
-        .body(body.into())?;
+        .body(Bytes::from_static(b"Hello World!").into())?;
 
     Ok(res)
 }

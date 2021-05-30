@@ -2,16 +2,25 @@ use http::{header::HeaderMap, Method};
 
 use crate::util::date::Date;
 
+/// Context is connection specific struct contain states for processing.
+/// It needs manually reset with every new successfully decoded request.
+/// See `Context::reset` method for detail.
 pub(super) struct Context<'a> {
+    /// user configuration of keep alive.
     enable_ka: bool,
+    /// set to true when connection has 100-continue header.
     is_expect: bool,
     pub(super) ctype: ConnectionType,
-    pub(super) method: Method,
+    /// method cache of current request. Used for generate correct response.
+    pub(super) req_method: Method,
+    /// header map reused by next request.
     pub(super) header_cache: Option<HeaderMap>,
+    /// smart pointer of cached date with 1 second update interval.
     pub(super) date: &'a Date,
 }
 
 impl<'a> Context<'a> {
+    /// No particular reason. Copied from `actix-http` crate.
     pub(super) const MAX_HEADERS: usize = 96;
 
     pub(super) fn new(date: &'a Date) -> Self {
@@ -19,7 +28,7 @@ impl<'a> Context<'a> {
             enable_ka: true,
             is_expect: false,
             ctype: ConnectionType::KeepAlive,
-            method: Method::default(),
+            req_method: Method::default(),
             header_cache: None,
             date,
         }
@@ -31,8 +40,8 @@ impl<'a> Context<'a> {
     }
 
     #[inline(always)]
-    pub(super) fn is_head_method(&self) -> bool {
-        self.method == Method::HEAD
+    pub(super) fn req_method(&self) -> &Method {
+        &self.req_method
     }
 
     /// Context should be reset when a new request is decoded.
@@ -46,8 +55,9 @@ impl<'a> Context<'a> {
         self.is_expect = true;
     }
 
+    #[inline(always)]
     pub(super) fn set_method(&mut self, method: Method) {
-        self.method = method;
+        self.req_method = method;
     }
 
     pub(super) fn set_ctype(&mut self, ctype: ConnectionType) {

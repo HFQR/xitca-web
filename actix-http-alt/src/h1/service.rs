@@ -51,7 +51,6 @@ where
     type Error = HttpServiceError;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
 
-    #[inline]
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         // ready!(self
         //     .flow

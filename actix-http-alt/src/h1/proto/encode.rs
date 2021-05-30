@@ -1,13 +1,17 @@
 use std::{cmp, fmt::Write, io};
 
 use bytes::{BufMut, BytesMut};
-use http::{header::DATE, response::Parts, StatusCode, Version};
+use http::{
+    header::{CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
+    response::Parts,
+    Method, StatusCode, Version,
+};
 use log::{debug, warn};
 
 use crate::body::{ResponseBody, ResponseBodySize};
 use crate::util::date::DATE_VALUE_LENGTH;
 
-use super::context::Context;
+use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
 impl Context<'_> {
@@ -20,11 +24,12 @@ impl Context<'_> {
         let version = parts.version;
         let status = parts.status;
 
-        let skip_len = match (status, version) {
+        // decide if content-length or transfer-encoding header would be skipped.
+        let mut skip_len = match (status, version) {
             (StatusCode::SWITCHING_PROTOCOLS, _) => true,
-            // TODO: add Request method to context and check in following branch.
-            // Connect method with success status code should have no body.
-            (s, _) if self.is_head_method() && s.is_success() => true,
+            // Sending content-length or transfer-encoding header on 2xx response
+            // to CONNECT is forbidden in RFC 7231.
+            (s, _) if self.req_method() == Method::CONNECT && s.is_success() => true,
             (s, _) if s.is_informational() => {
                 warn!("response with 1xx status code not supported");
                 return Err(ProtoError::Parse(Parse::StatusCode));
@@ -40,13 +45,35 @@ impl Context<'_> {
         // encode version, status code and reason
         encode_version_status_reason(buf, version, status);
 
-        let mut date_header = false;
+        let mut skip_date = false;
 
         for (name, value) in parts.headers.drain() {
             let name = name.expect("Handling optional header name is not implemented");
 
+            // TODO: more spec check needed. the current check barely does anything.
             match name {
-                DATE => date_header = true,
+                CONTENT_LENGTH => {
+                    debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
+                    skip_len = true;
+                }
+                TRANSFER_ENCODING => {
+                    debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
+                    skip_len = true;
+                }
+                CONNECTION => {
+                    for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
+                        let val = val.trim();
+
+                        if val.eq_ignore_ascii_case("close") {
+                            self.ctype = ConnectionType::Close;
+                            break;
+                        } else if val.eq_ignore_ascii_case("keep-alive") {
+                            self.ctype = ConnectionType::KeepAlive;
+                            break;
+                        }
+                    }
+                }
+                DATE => skip_date = true,
                 _ => {}
             }
 
@@ -56,8 +83,22 @@ impl Context<'_> {
             buf.put_slice(b"\r\n");
         }
 
+        // encode transfer-encoding or content-length
+        if !skip_len {
+            match size {
+                ResponseBodySize::None => {}
+                ResponseBodySize::Stream => buf.put_slice(b"transfer-encoding: chunked\r\n"),
+                ResponseBodySize::Sized(size) => {
+                    let mut buffer = itoa::Buffer::new();
+                    buf.put_slice(b"content-length: ");
+                    buf.put_slice(buffer.format(size).as_bytes());
+                    buf.put_slice(b"\r\n");
+                }
+            }
+        }
+
         // set date header if there is not any.
-        if !date_header {
+        if !skip_date {
             buf.reserve(DATE_VALUE_LENGTH + 8);
             buf.put_slice(b"date: ");
             buf.put_slice(self.date.get().as_bytes());

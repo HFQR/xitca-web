@@ -113,11 +113,8 @@ where
     *res.version_mut() = Version::HTTP_2;
 
     // set content length header.
-    match body.size() {
-        ResponseBodySize::Sized(n) => {
-            res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(n));
-        }
-        _ => {}
+    if let ResponseBodySize::Sized(n) = body.size() {
+        res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(n));
     }
 
     // send response and body(if there is one).

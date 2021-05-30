@@ -8,12 +8,12 @@ pub enum ProtoError {
     Http(http::Error),
 }
 
+/// Failure on parsing.
 #[derive(Debug)]
 pub enum Parse {
-    // Failed to parse header.
     Header,
-    // Failed to status code.
     StatusCode,
+    HeaderValue,
 }
 
 impl From<httparse::Error> for ProtoError {
