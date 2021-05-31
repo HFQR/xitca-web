@@ -142,16 +142,18 @@ fn encode_version_status_reason<B: BufMut>(buf: &mut B, version: Version, status
 }
 
 impl<B> ResponseBody<B> {
+    /// `TransferEncoding` must match the behavior of `Stream` impl of `ResponseBody`.
+    /// Which means when `Stream::poll_next` returns Some(`Stream::Item`) the encoding
+    /// must be able to encode data. And when it returns `None` it must valid to encode
+    /// eof which would finish the encoding.
     pub(super) fn encoder(&self) -> TransferEncoding {
         match *self {
-            Self::None => TransferEncoding::empty(),
-            Self::Bytes { ref bytes } => {
-                if bytes.is_empty() {
-                    TransferEncoding::eof()
-                } else {
-                    TransferEncoding::length(bytes.len() as u64)
-                }
-            }
+            // None body would return None on first poll of ResponseBody as Stream.
+            // an eof encoding would return Ok(()) afterward.
+            Self::None => TransferEncoding::eof(),
+            // Empty bytes would return None on first poll of ResponseBody as Stream.
+            // A length encoding would see the remainning length is 0 and return Ok(()).
+            Self::Bytes { ref bytes } => TransferEncoding::length(bytes.len() as u64),
             Self::Stream { .. } => TransferEncoding::chunked(),
         }
     }
@@ -178,28 +180,21 @@ enum TransferEncodingKind {
 }
 
 impl TransferEncoding {
-    #[inline]
-    pub fn empty() -> TransferEncoding {
-        TransferEncoding {
-            kind: TransferEncodingKind::Length(0),
-        }
-    }
-
-    #[inline]
+    #[inline(always)]
     pub fn eof() -> TransferEncoding {
         TransferEncoding {
             kind: TransferEncodingKind::Eof,
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn chunked() -> TransferEncoding {
         TransferEncoding {
             kind: TransferEncodingKind::Chunked(false),
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn length(len: u64) -> TransferEncoding {
         TransferEncoding {
             kind: TransferEncodingKind::Length(len),
@@ -207,7 +202,7 @@ impl TransferEncoding {
     }
 
     /// Encode message. Return `EOF` state of encoder
-    #[inline]
+    #[inline(always)]
     pub fn encode(&mut self, msg: &[u8], buf: &mut BytesMut) -> io::Result<bool> {
         match self.kind {
             TransferEncodingKind::Eof => {
@@ -251,7 +246,7 @@ impl TransferEncoding {
     }
 
     /// Encode eof. Return `EOF` state of encoder
-    #[inline]
+    #[inline(always)]
     pub fn encode_eof(&mut self, buf: &mut BytesMut) -> io::Result<()> {
         match self.kind {
             TransferEncodingKind::Eof => Ok(()),
