@@ -13,12 +13,10 @@ use super::proto::{CloseCode, CloseReason, OpCode};
 #[derive(Debug)]
 pub struct Parser;
 
+pub type MetaData = (usize, bool, OpCode, usize, Option<[u8; 4]>);
+
 impl Parser {
-    fn parse_metadata(
-        src: &[u8],
-        server: bool,
-        max_size: usize,
-    ) -> Result<Option<(usize, bool, OpCode, usize, Option<[u8; 4]>)>, ProtocolError> {
+    fn parse_metadata(src: &[u8], server: bool, max_size: usize) -> Result<Option<MetaData>, ProtocolError> {
         let chunk_len = src.len();
 
         let mut idx = 2;

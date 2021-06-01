@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2018"
 
 [features]
-default = []
+default = ["stream"]
 stream = ["pin-project-lite", "tokio/sync"]
 
 [dependencies]
@@ -19,3 +19,6 @@ sha-1 = "0.9"
 # stream feature
 pin-project-lite = { version = "0.2.6", optional = true }
 tokio = { version = "1.6", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.6", features = ["rt"] }

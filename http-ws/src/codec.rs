@@ -116,23 +116,28 @@ impl Codec {
         match item {
             Message::Text(txt) => {
                 let mask = self.with_flags(|flags| !flags.contains(Flags::SERVER));
-                Ok(Parser::write_message(dst, txt, OpCode::Text, true, mask))
+                Parser::write_message(dst, txt, OpCode::Text, true, mask);
+                Ok(())
             }
             Message::Binary(bin) => {
                 let mask = self.with_flags(|flags| !flags.contains(Flags::SERVER));
-                Ok(Parser::write_message(dst, bin, OpCode::Binary, true, mask))
+                Parser::write_message(dst, bin, OpCode::Binary, true, mask);
+                Ok(())
             }
             Message::Ping(txt) => {
                 let mask = self.with_flags(|flags| !flags.contains(Flags::SERVER));
-                Ok(Parser::write_message(dst, txt, OpCode::Ping, true, mask))
+                Parser::write_message(dst, txt, OpCode::Ping, true, mask);
+                Ok(())
             }
             Message::Pong(txt) => {
                 let mask = self.with_flags(|flags| !flags.contains(Flags::SERVER));
-                Ok(Parser::write_message(dst, txt, OpCode::Pong, true, mask))
+                Parser::write_message(dst, txt, OpCode::Pong, true, mask);
+                Ok(())
             }
             Message::Close(reason) => {
                 let mask = self.with_flags(|flags| !flags.contains(Flags::SERVER));
-                Ok(Parser::write_close(dst, reason, mask))
+                Parser::write_close(dst, reason, mask);
+                Ok(())
             }
             Message::Continuation(cont) => match cont {
                 Item::FirstText(data) => self.with_flags(|flags| {
@@ -141,7 +146,8 @@ impl Codec {
                     } else {
                         flags.insert(Flags::W_CONTINUATION);
                         let mask = !flags.contains(Flags::SERVER);
-                        Ok(Parser::write_message(dst, &data[..], OpCode::Text, false, mask))
+                        Parser::write_message(dst, &data[..], OpCode::Text, false, mask);
+                        Ok(())
                     }
                 }),
                 Item::FirstBinary(data) => self.with_flags(|flags| {
@@ -150,7 +156,8 @@ impl Codec {
                     } else {
                         flags.insert(Flags::W_CONTINUATION);
                         let mask = !flags.contains(Flags::SERVER);
-                        Ok(Parser::write_message(dst, &data[..], OpCode::Binary, false, mask))
+                        Parser::write_message(dst, &data[..], OpCode::Binary, false, mask);
+                        Ok(())
                     }
                 }),
                 Item::Continue(data) => {
@@ -163,13 +170,15 @@ impl Codec {
                         }
                     })?;
 
-                    Ok(Parser::write_message(dst, &data[..], OpCode::Continue, false, mask))
+                    Parser::write_message(dst, &data[..], OpCode::Continue, false, mask);
+                    Ok(())
                 }
                 Item::Last(data) => self.with_flags(|flags| {
                     if flags.contains(Flags::W_CONTINUATION) {
                         flags.remove(Flags::W_CONTINUATION);
                         let mask = !flags.contains(Flags::SERVER);
-                        Ok(Parser::write_message(dst, &data[..], OpCode::Continue, true, mask))
+                        Parser::write_message(dst, &data[..], OpCode::Continue, true, mask);
+                        Ok(())
                     } else {
                         Err(ProtocolError::ContinuationNotStarted)
                     }

@@ -4,6 +4,72 @@
 //!
 //! To setup a WebSocket, first perform the WebSocket handshake then on success convert request's
 //! body into a `DecodeStream` stream and then use `EncodeStream` to communicate with the peer.
+//!
+//! # Examples:
+//! ```rust
+//! # use std::pin::Pin;
+//! # use std::task::{Context, Poll};
+//! use http::{Request, Response, header, Method};
+//! use http_ws::{handshake, DecodeStream, Message};
+//! # use futures_core::Stream;
+//! #
+//! # fn ws() -> Response<http_ws::EncodeStream> {
+//! #
+//! # struct DummyRequestBody;
+//! #
+//! # impl Stream for DummyRequestBody {
+//! #   type Item = Result<Vec<u8>, ()>;
+//! #   fn poll_next(self:Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//! #        Poll::Ready(Some(Ok(vec![1, 2, 3])))
+//! #    }
+//! # }
+//!
+//! // an incoming http request.
+//! let request = http::Request::get("/")
+//!     .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
+//!     .header(header::CONNECTION, header::HeaderValue::from_static("upgrade"))
+//!     .header(header::SEC_WEBSOCKET_VERSION, header::HeaderValue::from_static("13"))
+//!     .body(DummyRequestBody)
+//!     .unwrap();
+//!
+//! let method = request.method();
+//! let headers = request.headers();
+//!
+//! // handshake with request and return a response builder on success.
+//! let response_builder = handshake(method, headers).unwrap();
+//!
+//! // extract request body and construct decode stream.
+//! let body = request.into_body();
+//! let mut decode = DecodeStream::new(body);
+//!
+//! // generate an encode stream and a sender that for adding message to it.
+//! let (encode_tx, encode) = decode.encode_stream();
+//!
+//! // attach encode stream to builder to construct a full response.
+//! let response = response_builder.body(encode).unwrap();
+//!
+//! // spawn an async task that decode request streaming body and send message to encode stream
+//! // that would encode and sending response.
+//! tokio::task::spawn_local(async move {
+//!     while let Some(Ok(msg)) = decode.next().await {
+//!         match msg {
+//!             // echo back text and ping messages and ignore others.
+//!             Message::Text(txt) => encode_tx
+//!                 .send(Message::Text(txt))
+//!                 .await
+//!                 .unwrap(),
+//!             Message::Ping(ping) => encode_tx
+//!                 .send(Message::Pong(ping))
+//!                 .await
+//!                 .unwrap(),
+//!             _ => {}
+//!         }   
+//!     }
+//! });
+//!
+//! response
+//! # }
+//! ```
 
 use http::{
     header::{self, HeaderValue},
@@ -41,7 +107,7 @@ pub fn handshake(method: &Method, headers: &HeaderMap) -> Result<Builder, Handsh
 }
 
 /// Verify WebSocket handshake request and return `SEC_WEBSOCKET_KEY` header value as `&[u8]`
-pub fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'a [u8], HandshakeError> {
+fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'a [u8], HandshakeError> {
     // WebSocket accepts only GET
     if method != Method::GET {
         return Err(HandshakeError::GetMethodRequired);
@@ -89,7 +155,7 @@ pub fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Resul
 /// Create WebSocket handshake response.
 ///
 /// This function returns handshake `http::response::Builder`, ready to send to peer.
-pub fn handshake_response(key: &[u8]) -> Builder {
+fn handshake_response(key: &[u8]) -> Builder {
     let key = proto::hash_key(key);
 
     Response::builder()
