@@ -1,0 +1,21 @@
+[package]
+name = "http-ws"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = []
+stream = ["pin-project-lite", "tokio/sync"]
+
+[dependencies]
+base64 = "0.13"
+bytes = "1"
+futures-core = "0.3"
+http = "0.2"
+log = "0.4"
+rand = "0.8"
+sha-1 = "0.9"
+
+# stream feature
+pin-project-lite = { version = "0.2.6", optional = true }
+tokio = { version = "1.6", optional = true }

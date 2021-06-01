@@ -36,6 +36,9 @@ where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,
 
+    X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
+    X::Error: ResponseError<S::Response>,
+
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
@@ -55,13 +58,25 @@ where
     pub(crate) async fn run(&mut self) -> Result<(), Error> {
         loop {
             while let Some((req, body_handle)) = self.decode_head()? {
-                let (parts, body) = self
-                    .flow
-                    .service
-                    .call(req)
-                    .await
-                    .unwrap_or_else(ResponseError::response_error)
-                    .into_parts();
+                let res = if self.ctx.is_expect() {
+                    match self.flow.expect.call(req).await {
+                        Ok(req) => self
+                            .flow
+                            .service
+                            .call(req)
+                            .await
+                            .unwrap_or_else(ResponseError::response_error),
+                        Err(e) => ResponseError::response_error(e),
+                    }
+                } else {
+                    self.flow
+                        .service
+                        .call(req)
+                        .await
+                        .unwrap_or_else(ResponseError::response_error)
+                };
+
+                let (parts, body) = res.into_parts();
 
                 self.encode_head(parts, &body)?;
 

@@ -40,6 +40,7 @@ where
     S::Error: ResponseError<S::Response>,
 
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
+    X::Error: ResponseError<S::Response>,
 
     U: 'static,
 

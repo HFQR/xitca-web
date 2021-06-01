@@ -237,7 +237,7 @@ impl Inner {
 mod tests {
     use super::*;
 
-    use futures_util::future::poll_fn;
+    use crate::util::poll_fn::poll_fn;
 
     #[tokio::test]
     async fn test_unread_data() {

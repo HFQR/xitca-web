@@ -4,7 +4,8 @@ members = [
     "actix-server-alt",
     "actix-service-alt",
     "actix-web-alt",
-    "examples"
+    "examples",
+    "http-ws"
 ]
 
 [patch.crates-io]
@@ -12,6 +13,7 @@ actix-http-alt = { path = "./actix-http-alt" }
 actix-server-alt = { path = "./actix-server-alt" }
 actix-service-alt = { path = "./actix-service-alt" }
 actix-web-alt = { path = "./actix-web-alt" }
+http-ws = { path = "./http-ws" }
 
 [profile.release]
 lto = true

@@ -108,6 +108,7 @@ where
     // TODO: use a meaningful config.
     EF: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>, Config = ()>,
     EF::Service: 'static,
+    EF::Error: ResponseError<F::Response>,
 
     AF: ServiceFactory<TcpStream, Response = TlsSt, Config = ()>,
     AF::Service: 'static,
