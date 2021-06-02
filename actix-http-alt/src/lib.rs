@@ -27,4 +27,4 @@ pub use http;
 
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
-pub use error::HttpServiceError;
+pub use error::{BodyError, HttpServiceError};

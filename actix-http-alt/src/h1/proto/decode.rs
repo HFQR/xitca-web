@@ -101,6 +101,8 @@ impl Context<'_> {
                                 } else if value.eq_ignore_ascii_case("close") {
                                     self.set_ctype(ConnectionType::Close);
                                 } else if value.eq_ignore_ascii_case("upgrade") {
+                                    // set decoder to upgrade variant.
+                                    decoder = RequestBodyDecoder::plain_chunked();
                                     self.set_ctype(ConnectionType::Upgrade);
                                 }
                             }
@@ -176,6 +178,12 @@ impl RequestBodyDecoder {
         }
     }
 
+    pub fn plain_chunked() -> RequestBodyDecoder {
+        RequestBodyDecoder {
+            kind: Kind::PlainChunked,
+        }
+    }
+
     pub fn eof() -> RequestBodyDecoder {
         RequestBodyDecoder { kind: Kind::Eof }
     }
@@ -207,6 +215,10 @@ enum Kind {
     /// > reliably; the server MUST respond with the 400 (Bad Request)
     /// > status code and then close the connection.
     Eof,
+    /// A Reader function similar to Eof but treated as Chunked variant.
+    /// The chunk is consumed directly as IS without actual decoding.
+    /// This is used for upgrade type connections like websocket.
+    PlainChunked,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -272,7 +284,7 @@ impl RequestBodyDecoder {
                     }
                 }
             }
-            Kind::Eof => {
+            Kind::Eof | Kind::PlainChunked => {
                 if src.is_empty() {
                     Ok(None)
                 } else {

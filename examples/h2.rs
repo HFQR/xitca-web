@@ -110,8 +110,8 @@ impl Service<Request<RequestBody>> for H2Service {
 
 fn rustls_acceptor() -> io::Result<Arc<ServerConfig>> {
     let mut acceptor = ServerConfig::new(NoClientAuth::new());
-    let cert_file = &mut BufReader::new(File::open("./examples/cert/cert.pem")?);
-    let key_file = &mut BufReader::new(File::open("./examples/cert/key.pem")?);
+    let cert_file = &mut BufReader::new(File::open("./cert/cert.pem")?);
+    let key_file = &mut BufReader::new(File::open("./cert/key.pem")?);
     let cert_chain = certs(cert_file).unwrap();
     let mut keys = pkcs8_private_keys(key_file).unwrap();
 

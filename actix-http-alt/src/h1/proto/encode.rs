@@ -1,4 +1,4 @@
-use std::{cmp, fmt::Write, io};
+use std::{cmp, io};
 
 use bytes::{BufMut, BytesMut};
 use http::{
@@ -15,6 +15,11 @@ use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
 impl Context<'_> {
+    pub(super) fn encode_continue(&mut self, buf: &mut BytesMut) {
+        debug_assert!(self.is_expect());
+        buf.put_slice(b"HTTP/1.1 100 Continue\r\n\r\n");
+    }
+
     pub(super) fn encode_head(
         &mut self,
         mut parts: Parts,
@@ -26,7 +31,7 @@ impl Context<'_> {
 
         // decide if content-length or transfer-encoding header would be skipped.
         let mut skip_len = match (status, version) {
-            (StatusCode::SWITCHING_PROTOCOLS, _) => true,
+            (StatusCode::SWITCHING_PROTOCOLS, _) => false,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
             (s, _) if self.req_method() == Method::CONNECT && s.is_success() => true,
@@ -65,11 +70,11 @@ impl Context<'_> {
                         let val = val.trim();
 
                         if val.eq_ignore_ascii_case("close") {
-                            self.ctype = ConnectionType::Close;
-                            break;
+                            self.set_ctype(ConnectionType::KeepAlive);
                         } else if val.eq_ignore_ascii_case("keep-alive") {
-                            self.ctype = ConnectionType::KeepAlive;
-                            break;
+                            self.set_ctype(ConnectionType::KeepAlive);
+                        } else if val.eq_ignore_ascii_case("upgrade") {
+                            self.set_ctype(ConnectionType::Upgrade);
                         }
                     }
                 }
@@ -146,7 +151,7 @@ impl<B> ResponseBody<B> {
     /// Which means when `Stream::poll_next` returns Some(`Stream::Item`) the encoding
     /// must be able to encode data. And when it returns `None` it must valid to encode
     /// eof which would finish the encoding.
-    pub(super) fn encoder(&self) -> TransferEncoding {
+    pub(super) fn encoder(&self, ctype: ConnectionType) -> TransferEncoding {
         match *self {
             // None body would return None on first poll of ResponseBody as Stream.
             // an eof encoding would return Ok(()) afterward.
@@ -154,7 +159,13 @@ impl<B> ResponseBody<B> {
             // Empty bytes would return None on first poll of ResponseBody as Stream.
             // A length encoding would see the remainning length is 0 and return Ok(()).
             Self::Bytes { ref bytes } => TransferEncoding::length(bytes.len() as u64),
-            Self::Stream { .. } => TransferEncoding::chunked(),
+            Self::Stream { .. } => {
+                if ctype == ConnectionType::Upgrade {
+                    TransferEncoding::plain_chunked()
+                } else {
+                    TransferEncoding::chunked()
+                }
+            }
         }
     }
 }
@@ -177,6 +188,8 @@ enum TransferEncodingKind {
     ///
     /// Application decides when to stop writing.
     Eof,
+    /// See `super::decode::Kind::PlainChunked` for reason and usage.
+    PlainChunked,
 }
 
 impl TransferEncoding {
@@ -195,6 +208,13 @@ impl TransferEncoding {
     }
 
     #[inline(always)]
+    pub fn plain_chunked() -> TransferEncoding {
+        TransferEncoding {
+            kind: TransferEncodingKind::PlainChunked,
+        }
+    }
+
+    #[inline(always)]
     pub fn length(len: u64) -> TransferEncoding {
         TransferEncoding {
             kind: TransferEncodingKind::Length(len),
@@ -205,7 +225,7 @@ impl TransferEncoding {
     #[inline(always)]
     pub fn encode(&mut self, msg: &[u8], buf: &mut BytesMut) -> io::Result<bool> {
         match self.kind {
-            TransferEncodingKind::Eof => {
+            TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => {
                 let eof = msg.is_empty();
                 buf.extend_from_slice(msg);
                 Ok(eof)
@@ -219,7 +239,25 @@ impl TransferEncoding {
                     *eof = true;
                     buf.extend_from_slice(b"0\r\n\r\n");
                 } else {
-                    writeln!(buf, "{:X}\r", msg.len()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    use io::Write;
+
+                    struct Writer<'a, B>(pub &'a mut B);
+
+                    impl<'a, B> Write for Writer<'a, B>
+                    where
+                        B: BufMut,
+                    {
+                        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                            self.0.put_slice(buf);
+                            Ok(buf.len())
+                        }
+
+                        fn flush(&mut self) -> io::Result<()> {
+                            Ok(())
+                        }
+                    }
+
+                    writeln!(Writer(buf), "{:X}\r", msg.len()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
                     buf.reserve(msg.len() + 2);
                     buf.extend_from_slice(msg);
@@ -249,7 +287,7 @@ impl TransferEncoding {
     #[inline(always)]
     pub fn encode_eof(&mut self, buf: &mut BytesMut) -> io::Result<()> {
         match self.kind {
-            TransferEncodingKind::Eof => Ok(()),
+            TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => Ok(()),
             TransferEncodingKind::Length(rem) => {
                 if rem != 0 {
                     Err(io::Error::new(io::ErrorKind::UnexpectedEof, ""))

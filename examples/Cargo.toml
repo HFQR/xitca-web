@@ -5,21 +5,26 @@ edition = "2018"
 
 [[example]]
 name = "hello-world"
-path = "examples/hello-world.rs"
+path = "hello-world.rs"
 
 [[example]]
 name = "h2"
-path = "examples/h2.rs"
+path = "h2.rs"
 
 [[example]]
 name = "h3"
-path = "examples/h3.rs"
+path = "h3.rs"
+
+[[example]]
+name = "websocket"
+path = "websocket.rs"
 
 [dependencies]
 actix-http-alt = { version = "0.1", features = ["http2", "http3", "rustls"] }
 actix-server-alt = "0.1"
 actix-service-alt = "0.1"
 actix-web-alt = { version = "0.1", features = ["http2", "http3", "rustls"] }
+http-ws = "0.1"
 
 bytes = "1"
 env_logger = "0.8"

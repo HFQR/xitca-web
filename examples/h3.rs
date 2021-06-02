@@ -63,10 +63,10 @@ fn h3_config() -> io::Result<ServerConfig<TlsSession>> {
     let mut config = ServerConfigBuilder::default();
     config.protocols(&[b"h3-29", b"h3-28", b"h3-27"]);
 
-    let key = std::fs::read("./examples/cert/key.pem")?;
+    let key = std::fs::read("./cert/key.pem")?;
     let key = PrivateKey::from_pem(&key).unwrap();
 
-    let cert = std::fs::read("./examples/cert/cert.pem")?;
+    let cert = std::fs::read("./cert/cert.pem")?;
     let cert = CertificateChain::from_pem(&cert).unwrap();
 
     config.certificate(cert, key).unwrap();
