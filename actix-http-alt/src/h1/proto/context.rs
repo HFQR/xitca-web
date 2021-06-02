@@ -10,7 +10,7 @@ pub(super) struct Context<'a> {
     enable_ka: bool,
     /// set to true when connection has 100-continue header.
     is_expect: bool,
-    pub(super) ctype: ConnectionType,
+    ctype: ConnectionType,
     /// method cache of current request. Used for generate correct response.
     pub(super) req_method: Method,
     /// header map reused by next request.
@@ -68,6 +68,11 @@ impl<'a> Context<'a> {
             (_, ConnectionType::KeepAlive) if self.enable_ka => self.ctype = ConnectionType::KeepAlive,
             _ => self.ctype = ctype,
         }
+    }
+
+    #[inline(always)]
+    pub(super) fn ctype(&self) -> ConnectionType {
+        self.ctype
     }
 }
 

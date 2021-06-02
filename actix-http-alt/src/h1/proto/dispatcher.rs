@@ -172,28 +172,15 @@ where
 
                 self.encode_head(parts, &res_body)?;
 
-                let mut encoder = res_body.encoder(self.ctx.ctype);
+                let encoder = res_body.encoder(self.ctx.ctype());
 
-                match body_handle {
-                    Some(body_handle) => {
-                        ResponseHandler {
-                            res_body: Some(res_body),
-                            encoder,
-                            body_handle,
-                            io: &mut self.io,
-                        }
-                        .await?
-                    }
-                    None => {
-                        tokio::pin!(res_body);
-
-                        while let Some(bytes) = res_body.as_mut().next().await {
-                            let bytes = bytes.unwrap();
-                            encoder.encode(&bytes, &mut self.io.write_buf)?;
-                        }
-                        encoder.encode_eof(&mut self.io.write_buf)?;
-                    }
+                ResponseHandler {
+                    res_body,
+                    encoder,
+                    body_handle,
+                    io: &mut self.io,
                 }
+                .await?
             }
 
             self.io.drain_write().await?;
@@ -307,9 +294,9 @@ where
 pin_project! {
     struct ResponseHandler<'a, 'b, B> {
         #[pin]
-        res_body: Option<ResponseBody<B>>,
+        res_body: ResponseBody<B>,
         encoder: TransferEncoding,
-        body_handle: RequestBodyHandle,
+        body_handle: Option<RequestBodyHandle>,
         io: &'a mut Io<'b>,
     }
 }
@@ -321,60 +308,64 @@ where
 {
     type Output = Result<(), Error>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.as_mut().project();
+    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
 
         let io = this.io;
 
-        while let Some(res_body) = this.res_body.as_mut().as_pin_mut() {
-            match res_body.poll_next(cx) {
-                Poll::Pending => break,
+        loop {
+            match this.res_body.as_mut().poll_next(cx) {
                 Poll::Ready(Some(bytes)) => {
-                    let bytes = bytes.unwrap();
+                    let bytes = bytes?;
                     this.encoder.encode(&bytes, &mut io.write_buf)?;
                 }
                 Poll::Ready(None) => {
                     this.encoder.encode_eof(&mut io.write_buf)?;
-                    this.res_body.set(None);
+                    return Poll::Ready(Ok(()));
                 }
-            }
-        }
+                Poll::Pending => {
+                    if io.io.poll_write_ready(cx)?.is_ready() {
+                        let _ = io.try_write()?;
+                    }
 
-        if io.io.poll_write_ready(cx)?.is_ready() {
-            let _ = io.try_write()?;
-        }
+                    let mut new = false;
+                    let mut done = false;
 
-        let mut new = false;
-        let mut done = false;
+                    if let Some(handle) = this.body_handle.as_mut() {
+                        // TODO: read error here should be treated as partial close.
+                        // Which means body_handle should treat error as finished read.
+                        // pass the partial buffer to service call and let it decide what to do.
+                        while io.io.poll_read_ready(cx)?.is_ready() {
+                            let _ = io.try_read()?;
 
-        // TODO: read error here should be treated as partial close.
-        // Which means body_handle should treat error as finished read.
-        // pass the partial buffer to service call and let it decide what to do.
-        while io.io.poll_read_ready(cx)?.is_ready() {
-            let _ = io.try_read()?;
-
-            if io.read_buf.advanced() {
-                let buf = io.read_buf.buf();
-                while let Some(item) = this.body_handle.decoder.decode(buf)? {
-                    new = true;
-                    match item {
-                        RequestBodyItem::Chunk(bytes) => this.body_handle.sender.feed_data(bytes),
-                        RequestBodyItem::Eof => {
-                            this.body_handle.sender.feed_eof();
-                            done = true;
-                            break;
+                            if io.read_buf.advanced() {
+                                let buf = io.read_buf.buf();
+                                while let Some(item) = handle.decoder.decode(buf)? {
+                                    new = true;
+                                    match item {
+                                        RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
+                                        RequestBodyItem::Eof => {
+                                            handle.sender.feed_eof();
+                                            done = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                         }
+                    }
+
+                    if done {
+                        *this.body_handle = None;
+                    }
+
+                    if new {
+                        continue;
+                    } else {
+                        return Poll::Pending;
                     }
                 }
             }
-        }
-
-        if new {
-            self.poll(cx)
-        } else if this.res_body.is_none() && done {
-            Poll::Ready(Ok(()))
-        } else {
-            Poll::Pending
         }
     }
 }
