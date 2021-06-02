@@ -9,7 +9,7 @@ use std::{
 use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
 use bytes::{Buf, Bytes, BytesMut};
-use futures_core::{ready, stream::Stream};
+use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use pin_project_lite::pin_project;
 use tokio::io::AsyncWrite;
@@ -40,17 +40,18 @@ pub(crate) struct Dispatcher<'a, S, B, X, U> {
 struct Io<'a> {
     io: &'a mut TcpStream,
     state: State,
-    read_buf: ReadBuffer,
+    read_buf: ReadBuf,
     write_buf: BytesMut,
 }
 
 impl Io<'_> {
+    /// read until blocked and advance readbuf.
     fn try_read(&mut self) -> Result<(), Error> {
         let read_buf = &mut self.read_buf;
         read_buf.advance(false);
 
         loop {
-            match self.io.try_read_buf(read_buf.buf()) {
+            match self.io.try_read_buf(read_buf.as_bytes_mut()) {
                 Ok(0) => return Err(Error::Closed),
                 Ok(_) => read_buf.advance(true),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
@@ -85,7 +86,7 @@ impl Io<'_> {
         Ok(false)
     }
 
-    /// Read once and fill read buffer.
+    /// Block task and read.
     #[inline(always)]
     async fn read(&mut self) -> Result<(), Error> {
         self.io.readable().await?;
@@ -101,24 +102,71 @@ impl Io<'_> {
         poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await?;
         Ok(())
     }
+
+    /// Return true when new data is decoded.
+    /// Return false when write is finished.(Did not blocked)
+    fn poll_read_decode_body(
+        &mut self,
+        body_handle: &mut Option<RequestBodyHandle>,
+        cx: &mut task::Context<'_>,
+    ) -> Result<bool, Error> {
+        match *body_handle {
+            Some(ref mut handle) => {
+                let mut new = false;
+                let mut done = false;
+
+                // TODO: read error here should be treated as partial close.
+                // Which means body_handle should treat error as finished read.
+                // pass the partial buffer to service call and let it decide what to do.
+                'read: while self.io.poll_read_ready(cx)?.is_ready() {
+                    let _ = self.try_read()?;
+
+                    let buf = &mut self.read_buf;
+
+                    if buf.advanced() {
+                        while let Some(item) = handle.decoder.decode(buf.as_bytes_mut())? {
+                            new = true;
+                            match item {
+                                RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
+                                RequestBodyItem::Eof => {
+                                    handle.sender.feed_eof();
+                                    done = true;
+                                    break 'read;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // remove body handle when client sent eof chunk.
+                // No more read is needed anymore.
+                if done {
+                    *body_handle = None;
+                }
+
+                Ok(new)
+            }
+            None => Ok(false),
+        }
+    }
 }
 
-impl<'a, S, B, E, X, U> Dispatcher<'a, S, B, X, U>
+impl<'a, S, ResB, E, X, U> Dispatcher<'a, S, ResB, X, U>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: ResponseError<S::Response>,
 
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     X::Error: ResponseError<S::Response>,
 
-    B: Stream<Item = Result<Bytes, E>>,
+    ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
     pub(crate) fn new(io: &'a mut TcpStream, flow: &'a HttpFlow<S, X, U>, date: &'a DateTask) -> Self {
         let io = Io {
             io,
             state: State::new(),
-            read_buf: ReadBuffer::new(),
+            read_buf: ReadBuf::new(),
             write_buf: BytesMut::new(),
         };
 
@@ -134,39 +182,7 @@ where
     pub(crate) async fn run(&mut self) -> Result<(), Error> {
         loop {
             while let Some((req, mut body_handle)) = self.decode_head()? {
-                let res = if self.ctx.is_expect() {
-                    match self.flow.expect.call(req).await {
-                        Ok(req) => {
-                            // encode continue
-                            self.ctx.encode_continue(&mut self.io.write_buf);
-
-                            // use drain write to make sure continue is sent to client.
-                            // the world can wait until it happens.
-                            self.io.drain_write().await?;
-
-                            let fut = self.flow.service.call(req);
-
-                            RequestHandler {
-                                fut,
-                                body_handle: body_handle.as_mut(),
-                                io: &mut self.io,
-                                _body: PhantomData,
-                            }
-                            .await?
-                        }
-                        Err(e) => ResponseError::response_error(e),
-                    }
-                } else {
-                    let fut = self.flow.service.call(req);
-
-                    RequestHandler {
-                        fut,
-                        body_handle: body_handle.as_mut(),
-                        io: &mut self.io,
-                        _body: PhantomData,
-                    }
-                    .await?
-                };
+                let res = self.request_handler(req, &mut body_handle).await?;
 
                 let (parts, res_body) = res.into_parts();
 
@@ -184,7 +200,6 @@ where
             }
 
             self.io.drain_write().await?;
-
             self.io.read().await?;
         }
     }
@@ -192,7 +207,7 @@ where
     fn decode_head(&mut self) -> Result<Option<DecodedHead>, Error> {
         // Do not try when nothing new read.
         if self.io.read_buf.advanced() {
-            let buf = self.io.read_buf.buf();
+            let buf = self.io.read_buf.as_bytes_mut();
 
             if let Some((req, decoder)) = self.ctx.decode_head(buf)? {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
@@ -207,10 +222,40 @@ where
         Ok(None)
     }
 
-    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<B>) -> Result<(), Error> {
+    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error> {
         let size = body.size();
         self.ctx.encode_head(parts, size, &mut self.io.write_buf)?;
         Ok(())
+    }
+
+    async fn request_handler(
+        &mut self,
+        mut req: Request<RequestBody>,
+        body_handle: &mut Option<RequestBodyHandle>,
+    ) -> Result<Response<ResponseBody<ResB>>, Error> {
+        if self.ctx.is_expect() {
+            match self.flow.expect.call(req).await {
+                Ok(expect_res) => {
+                    // encode continue
+                    self.ctx.encode_continue(&mut self.io.write_buf);
+
+                    // use drain write to make sure continue is sent to client.
+                    // the world can wait until it happens.
+                    self.io.drain_write().await?;
+
+                    req = expect_res;
+                }
+                Err(e) => return Ok(ResponseError::response_error(e)),
+            }
+        };
+
+        RequestHandler {
+            fut: self.flow.service.call(req),
+            body_handle,
+            io: &mut self.io,
+            _body: PhantomData,
+        }
+        .await
     }
 
     fn set_read_close(&mut self) {
@@ -223,68 +268,38 @@ where
 }
 
 pin_project! {
-    struct RequestHandler<'a, 'b, Fut, B> {
+    struct RequestHandler<'a, 'b, Fut, ResB> {
         #[pin]
         fut: Fut,
-        body_handle: Option<&'a mut RequestBodyHandle>,
+        body_handle: &'a mut Option<RequestBodyHandle>,
         io: &'a mut Io<'b>,
-        _body: PhantomData<B>
+        _body: PhantomData<ResB>
     }
 }
 
-impl<Fut, E, B> Future for RequestHandler<'_, '_, Fut, B>
+impl<Fut, E, ResB> Future for RequestHandler<'_, '_, Fut, ResB>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
-    E: ResponseError<Response<ResponseBody<B>>>,
+    Fut: Future<Output = Result<Response<ResponseBody<ResB>>, E>>,
+    E: ResponseError<Response<ResponseBody<ResB>>>,
 {
-    type Output = Result<Response<ResponseBody<B>>, Error>;
+    type Output = Result<Response<ResponseBody<ResB>>, Error>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        let this = self.as_mut().project();
+    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
 
-        match this.fut.poll(cx) {
-            Poll::Ready(res) => {
-                let res = res.unwrap_or_else(ResponseError::response_error);
-                Poll::Ready(Ok(res))
-            }
-            // service call is pending. could be waiting for more read.
-            Poll::Pending => {
-                let mut new = false;
-                let mut done = false;
-
-                if let Some(handle) = this.body_handle.as_deref_mut() {
-                    let io = this.io;
-
-                    // TODO: read error here should be treated as partial close.
-                    // Which means body_handle should treat error as finished read.
-                    // pass the partial buffer to service call and let it decide what to do.
-                    ready!(io.io.poll_read_ready(cx))?;
-                    io.try_read()?;
-
-                    if io.read_buf.advanced() {
-                        let buf = io.read_buf.buf();
-
-                        while let Some(item) = handle.decoder.decode(buf)? {
-                            new = true;
-                            match item {
-                                RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
-                                RequestBodyItem::Eof => {
-                                    handle.sender.feed_eof();
-                                    done = true;
-                                }
-                            }
-                        }
+        loop {
+            match this.fut.as_mut().poll(cx) {
+                Poll::Ready(res) => {
+                    let res = res.unwrap_or_else(ResponseError::response_error);
+                    return Poll::Ready(Ok(res));
+                }
+                // service call is pending. could be waiting for more read.
+                Poll::Pending => {
+                    if this.io.poll_read_decode_body(this.body_handle, cx)? {
+                        continue;
+                    } else {
+                        return Poll::Pending;
                     }
-                }
-
-                if done {
-                    *this.body_handle = None;
-                }
-
-                if new {
-                    self.poll(cx)
-                } else {
-                    Poll::Pending
                 }
             }
         }
@@ -292,18 +307,18 @@ where
 }
 
 pin_project! {
-    struct ResponseHandler<'a, 'b, B> {
+    struct ResponseHandler<'a, 'b, ResB> {
         #[pin]
-        res_body: ResponseBody<B>,
+        res_body: ResponseBody<ResB>,
         encoder: TransferEncoding,
         body_handle: Option<RequestBodyHandle>,
         io: &'a mut Io<'b>,
     }
 }
 
-impl<B, E> Future for ResponseHandler<'_, '_, B>
+impl<ResB, E> Future for ResponseHandler<'_, '_, ResB>
 where
-    B: Stream<Item = Result<Bytes, E>>,
+    ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
     type Output = Result<(), Error>;
@@ -323,43 +338,16 @@ where
                     this.encoder.encode_eof(&mut io.write_buf)?;
                     return Poll::Ready(Ok(()));
                 }
+                // payload sending is pending.
+                // it could be waiting for more read from client.
                 Poll::Pending => {
+                    // write buffer to client so it can feed us new
+                    // chunked requests if there is any.
                     if io.io.poll_write_ready(cx)?.is_ready() {
                         let _ = io.try_write()?;
                     }
 
-                    let mut new = false;
-                    let mut done = false;
-
-                    if let Some(handle) = this.body_handle.as_mut() {
-                        // TODO: read error here should be treated as partial close.
-                        // Which means body_handle should treat error as finished read.
-                        // pass the partial buffer to service call and let it decide what to do.
-                        while io.io.poll_read_ready(cx)?.is_ready() {
-                            let _ = io.try_read()?;
-
-                            if io.read_buf.advanced() {
-                                let buf = io.read_buf.buf();
-                                while let Some(item) = handle.decoder.decode(buf)? {
-                                    new = true;
-                                    match item {
-                                        RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
-                                        RequestBodyItem::Eof => {
-                                            handle.sender.feed_eof();
-                                            done = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if done {
-                        *this.body_handle = None;
-                    }
-
-                    if new {
+                    if io.poll_read_decode_body(this.body_handle, cx)? {
                         continue;
                     } else {
                         return Poll::Pending;
@@ -372,12 +360,12 @@ where
 
 type DecodedHead = (Request<RequestBody>, Option<RequestBodyHandle>);
 
-struct ReadBuffer {
+struct ReadBuf {
     advanced: bool,
     buf: BytesMut,
 }
 
-impl ReadBuffer {
+impl ReadBuf {
     fn new() -> Self {
         Self {
             advanced: false,
@@ -385,7 +373,7 @@ impl ReadBuffer {
         }
     }
 
-    fn buf(&mut self) -> &mut BytesMut {
+    fn as_bytes_mut(&mut self) -> &mut BytesMut {
         &mut self.buf
     }
 
@@ -409,13 +397,10 @@ impl RequestBodyHandle {
     fn new_pair(decoder: RequestBodyDecoder) -> (Option<RequestBodyHandle>, RequestBody) {
         if decoder.is_eof() {
             let (_, body) = RequestBody::create(true);
-
             (None, body)
         } else {
             let (sender, body) = RequestBody::create(false);
-
             let body_handle = RequestBodyHandle { decoder, sender };
-
             (Some(body_handle), body)
         }
     }

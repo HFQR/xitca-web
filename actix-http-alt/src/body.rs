@@ -49,7 +49,7 @@ pub type StreamBody = LocalBoxStream<'static, Result<Bytes, BodyError>>;
 
 pin_project! {
     /// A unified response body type.
-    /// Generic type is for custom pinned response body.
+    /// Generic type is for custom pinned response body(type implement [Stream](futures_core::Stream)).
     #[project = ResponseBodyProj]
     #[project_replace = ResponseBodyProjReplace]
     pub enum ResponseBody<B = StreamBody> {
