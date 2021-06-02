@@ -9,7 +9,7 @@ pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
 #[cfg(unix)]
 pub use tokio::net::{UnixListener, UnixStream};
 
-use std::{io, net};
+use std::net;
 
 use log::info;
 
@@ -67,11 +67,11 @@ impl FromStream for UnixStream {
 /// This is to delay the conversion and make it happen in server thread(s).
 /// Otherwise it could panic.
 pub(crate) trait AsListener: Send {
-    fn as_listener(&mut self) -> io::Result<Listener>;
+    fn as_listener(&mut self) -> std::io::Result<Listener>;
 }
 
 impl AsListener for Option<net::TcpListener> {
-    fn as_listener(&mut self) -> io::Result<Listener> {
+    fn as_listener(&mut self) -> std::io::Result<Listener> {
         let this = self.take().unwrap();
         this.set_nonblocking(true)?;
 
@@ -85,7 +85,7 @@ impl AsListener for Option<net::TcpListener> {
 
 #[cfg(unix)]
 impl AsListener for Option<std::os::unix::net::UnixListener> {
-    fn as_listener(&mut self) -> io::Result<Listener> {
+    fn as_listener(&mut self) -> std::io::Result<Listener> {
         let this = self.take().unwrap();
         this.set_nonblocking(true)?;
 
@@ -98,7 +98,7 @@ impl AsListener for Option<std::os::unix::net::UnixListener> {
 }
 
 impl Listener {
-    pub(crate) async fn accept(&self) -> io::Result<Stream> {
+    pub(crate) async fn accept(&self) -> std::io::Result<Stream> {
         match *self {
             Self::Tcp(ref tcp) => {
                 let (stream, _) = tcp.accept().await?;

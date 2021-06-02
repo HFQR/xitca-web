@@ -16,6 +16,10 @@ name = "h3"
 path = "h3.rs"
 
 [[example]]
+name = "unix"
+path = "unix.rs"
+
+[[example]]
 name = "websocket"
 path = "websocket.rs"
 

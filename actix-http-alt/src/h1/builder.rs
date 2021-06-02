@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::response::ResponseError;
+use crate::stream::AsyncStream;
 use crate::tls;
 
 use super::body::RequestBody;
@@ -98,7 +99,7 @@ where
     }
 }
 
-impl<F, B, E, EF, AF, TlsSt> ServiceFactory<TcpStream> for H1ServiceBuilder<F, EF, AF>
+impl<St, F, B, E, EF, AF, TlsSt> ServiceFactory<St> for H1ServiceBuilder<F, EF, AF>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
@@ -110,7 +111,7 @@ where
     EF::Service: 'static,
     EF::Error: ResponseError<F::Response>,
 
-    AF: ServiceFactory<TcpStream, Response = TlsSt, Config = ()>,
+    AF: ServiceFactory<St, Response = TlsSt, Config = ()>,
     AF::Service: 'static,
     HttpServiceError: From<AF::Error>,
 
@@ -118,6 +119,7 @@ where
     E: 'static,
     BodyError: From<E>,
 
+    St: AsyncStream,
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 {
     type Response = ();

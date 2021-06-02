@@ -8,7 +8,6 @@ use std::{
 use actix_service_alt::{Service, ServiceFactory};
 use openssl_crate::error::{Error, ErrorStack};
 use openssl_crate::ssl::{Error as TlsError, Ssl};
-
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::error::HttpServiceError;

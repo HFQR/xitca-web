@@ -1,6 +1,8 @@
 //! Multi-threaded server for Tcp/Udp/UnixDomain handling.
 
 #![forbid(unsafe_code)]
+#![allow(incomplete_features)]
+#![feature(generic_associated_types, min_type_alias_impl_trait)]
 
 mod builder;
 mod server;

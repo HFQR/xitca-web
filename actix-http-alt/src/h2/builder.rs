@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData};
+use std::future::Future;
 
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
@@ -16,13 +16,12 @@ use super::service::H2Service;
 
 /// Http/2 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
-pub struct H2ServiceBuilder<St, F, AF> {
+pub struct H2ServiceBuilder<F, AF> {
     factory: F,
     tls_factory: AF,
-    _phantom: PhantomData<St>,
 }
 
-impl<St, F, B, E> H2ServiceBuilder<St, F, tls::NoOpTlsAcceptorFactory>
+impl<F, B, E> H2ServiceBuilder<F, tls::NoOpTlsAcceptorFactory>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
@@ -30,44 +29,30 @@ where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
-
-    St: AsyncRead + AsyncWrite + Unpin,
 {
     /// Construct a new Service Builder with given service factory.
     pub fn new(factory: F) -> Self {
         Self {
             factory,
             tls_factory: tls::NoOpTlsAcceptorFactory,
-            _phantom: PhantomData,
         }
     }
 }
 
-impl<St, F, B, E, AF, TlsSt> H2ServiceBuilder<St, F, AF>
+impl<F, B, E, AF> H2ServiceBuilder<F, AF>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
 
-    AF: ServiceFactory<St, Response = TlsSt>,
-    AF::Service: 'static,
-    HttpServiceError: From<AF::Error>,
-
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
-
-    St: AsyncRead + AsyncWrite + Unpin,
-    TlsSt: AsyncRead + AsyncWrite + Unpin,
 {
     #[cfg(feature = "openssl")]
-    pub fn openssl(
-        self,
-        acceptor: tls::openssl::TlsAcceptor,
-    ) -> H2ServiceBuilder<St, F, tls::openssl::TlsAcceptorService> {
+    pub fn openssl(self, acceptor: tls::openssl::TlsAcceptor) -> H2ServiceBuilder<F, tls::openssl::TlsAcceptorService> {
         H2ServiceBuilder {
             factory: self.factory,
             tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
-            _phantom: PhantomData,
         }
     }
 
@@ -75,16 +60,15 @@ where
     pub fn rustls(
         self,
         config: std::sync::Arc<tls::rustls::ServerConfig>,
-    ) -> H2ServiceBuilder<St, F, tls::rustls::TlsAcceptorService> {
+    ) -> H2ServiceBuilder<F, tls::rustls::TlsAcceptorService> {
         H2ServiceBuilder {
             factory: self.factory,
             tls_factory: tls::rustls::TlsAcceptorService::new(config),
-            _phantom: PhantomData,
         }
     }
 }
 
-impl<St, F, B, E, AF, TlsSt> ServiceFactory<St> for H2ServiceBuilder<St, F, AF>
+impl<St, F, B, E, AF, TlsSt> ServiceFactory<St> for H2ServiceBuilder<F, AF>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,

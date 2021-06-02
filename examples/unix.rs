@@ -1,4 +1,4 @@
-//! A Http/1 server returns Hello World String as Response.
+//! A UnixDomain server returns Hello World String as Response.
 
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
@@ -18,12 +18,11 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "actix=info, info");
     env_logger::init();
 
-    // construct http server
     HttpServer::new(move || {
         let builder = HttpServiceBuilder::h1(fn_service(handler));
         ErrorLoggerFactory::new(builder)
     })
-    .bind("127.0.0.1:8080")?
+    .bind_unix("/tmp/actix-web-alt.socket")?
     .run()
     .await
 }

@@ -6,13 +6,12 @@ use std::{
     task::{self, Poll},
 };
 
-use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
 use bytes::{Buf, Bytes, BytesMut};
 use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use pin_project_lite::pin_project;
-use tokio::io::AsyncWrite;
+use tokio::io::Interest;
 
 use crate::body::ResponseBody;
 use crate::error::BodyError;
@@ -22,6 +21,7 @@ use crate::h1::{
     error::Error,
 };
 use crate::response::ResponseError;
+use crate::stream::AsyncStream;
 use crate::util::{date::DateTask, poll_fn::poll_fn};
 
 use super::context::Context;
@@ -29,22 +29,25 @@ use super::decode::{RequestBodyDecoder, RequestBodyItem};
 use super::encode::TransferEncoding;
 use super::state::State;
 
-pub(crate) struct Dispatcher<'a, S, B, X, U> {
-    io: Io<'a>,
+pub(crate) struct Dispatcher<'a, St, S, B, X, U> {
+    io: Io<'a, St>,
     ctx: Context<'a>,
     error: Option<Error>,
     flow: &'a HttpFlow<S, X, U>,
     _phantom: PhantomData<B>,
 }
 
-struct Io<'a> {
-    io: &'a mut TcpStream,
+struct Io<'a, St> {
+    io: &'a mut St,
     state: State,
     read_buf: ReadBuf,
     write_buf: BytesMut,
 }
 
-impl Io<'_> {
+impl<St> Io<'_, St>
+where
+    St: AsyncStream,
+{
     /// read until blocked and advance readbuf.
     fn try_read(&mut self) -> Result<(), Error> {
         let read_buf = &mut self.read_buf;
@@ -89,7 +92,7 @@ impl Io<'_> {
     /// Block task and read.
     #[inline(always)]
     async fn read(&mut self) -> Result<(), Error> {
-        self.io.readable().await?;
+        let _ = self.io.ready(Interest::READABLE).await?;
         self.try_read()
     }
 
@@ -97,7 +100,7 @@ impl Io<'_> {
     #[inline(always)]
     async fn drain_write(&mut self) -> Result<(), Error> {
         while self.try_write()? {
-            self.io.writable().await?;
+            let _ = self.io.ready(Interest::WRITABLE).await?;
         }
         poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await?;
         Ok(())
@@ -151,7 +154,7 @@ impl Io<'_> {
     }
 }
 
-impl<'a, S, ResB, E, X, U> Dispatcher<'a, S, ResB, X, U>
+impl<'a, St, S, ResB, E, X, U> Dispatcher<'a, St, S, ResB, X, U>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -161,8 +164,10 @@ where
 
     ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
+
+    St: AsyncStream,
 {
-    pub(crate) fn new(io: &'a mut TcpStream, flow: &'a HttpFlow<S, X, U>, date: &'a DateTask) -> Self {
+    pub(crate) fn new(io: &'a mut St, flow: &'a HttpFlow<S, X, U>, date: &'a DateTask) -> Self {
         let io = Io {
             io,
             state: State::new(),
@@ -176,31 +181,6 @@ where
             error: None,
             flow,
             _phantom: PhantomData,
-        }
-    }
-
-    pub(crate) async fn run(&mut self) -> Result<(), Error> {
-        loop {
-            while let Some((req, mut body_handle)) = self.decode_head()? {
-                let res = self.request_handler(req, &mut body_handle).await?;
-
-                let (parts, res_body) = res.into_parts();
-
-                self.encode_head(parts, &res_body)?;
-
-                let encoder = res_body.encoder(self.ctx.ctype());
-
-                ResponseHandler {
-                    res_body,
-                    encoder,
-                    body_handle,
-                    io: &mut self.io,
-                }
-                .await?
-            }
-
-            self.io.drain_write().await?;
-            self.io.read().await?;
         }
     }
 
@@ -226,6 +206,31 @@ where
         let size = body.size();
         self.ctx.encode_head(parts, size, &mut self.io.write_buf)?;
         Ok(())
+    }
+
+    pub(crate) async fn run(&mut self) -> Result<(), Error> {
+        loop {
+            while let Some((req, mut body_handle)) = self.decode_head()? {
+                let res = self.request_handler(req, &mut body_handle).await?;
+
+                let (parts, res_body) = res.into_parts();
+
+                self.encode_head(parts, &res_body)?;
+
+                let encoder = res_body.encoder(self.ctx.ctype());
+
+                ResponseHandler {
+                    res_body,
+                    encoder,
+                    body_handle,
+                    io: &mut self.io,
+                }
+                .await?
+            }
+
+            self.io.drain_write().await?;
+            self.io.read().await?;
+        }
     }
 
     async fn request_handler(
@@ -268,19 +273,21 @@ where
 }
 
 pin_project! {
-    struct RequestHandler<'a, 'b, Fut, ResB> {
+    struct RequestHandler<'a, 'b, St, Fut, ResB> {
         #[pin]
         fut: Fut,
         body_handle: &'a mut Option<RequestBodyHandle>,
-        io: &'a mut Io<'b>,
+        io: &'a mut Io<'b, St>,
         _body: PhantomData<ResB>
     }
 }
 
-impl<Fut, E, ResB> Future for RequestHandler<'_, '_, Fut, ResB>
+impl<St, Fut, E, ResB> Future for RequestHandler<'_, '_, St, Fut, ResB>
 where
     Fut: Future<Output = Result<Response<ResponseBody<ResB>>, E>>,
     E: ResponseError<Response<ResponseBody<ResB>>>,
+
+    St: AsyncStream,
 {
     type Output = Result<Response<ResponseBody<ResB>>, Error>;
 
@@ -307,19 +314,21 @@ where
 }
 
 pin_project! {
-    struct ResponseHandler<'a, 'b, ResB> {
+    struct ResponseHandler<'a, 'b, St, ResB> {
         #[pin]
         res_body: ResponseBody<ResB>,
         encoder: TransferEncoding,
         body_handle: Option<RequestBodyHandle>,
-        io: &'a mut Io<'b>,
+        io: &'a mut Io<'b, St>,
     }
 }
 
-impl<ResB, E> Future for ResponseHandler<'_, '_, ResB>
+impl<St, ResB, E> Future for ResponseHandler<'_, '_, St, ResB>
 where
     ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
+
+    St: AsyncStream,
 {
     type Output = Result<(), Error>;
 

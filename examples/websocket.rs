@@ -1,4 +1,4 @@
-//! A Http/1 server returns Hello World String as Response.
+//! A Http/1 server echos back websocket text message and respond to ping message.
 
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
@@ -12,7 +12,6 @@ use actix_http_alt::{
     util::ErrorLoggerFactory,
     BodyError, HttpServiceBuilder, ResponseBody,
 };
-use actix_server_alt::net::TcpStream;
 use actix_service_alt::fn_service;
 use actix_web_alt::HttpServer;
 use bytes::Bytes;
@@ -27,7 +26,7 @@ async fn main() -> std::io::Result<()> {
 
     // construct http server
     HttpServer::new(move || {
-        let builder = HttpServiceBuilder::<TcpStream, _, _, _, _>::h1(fn_service(handler));
+        let builder = HttpServiceBuilder::h1(fn_service(handler));
         ErrorLoggerFactory::new(builder)
     })
     .bind("127.0.0.1:8080")?

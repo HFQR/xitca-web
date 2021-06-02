@@ -51,14 +51,6 @@ where
         EncodeStream::new(codec)
     }
 
-    /// Make an [EncodeStream] from current DecodeStream.
-    ///
-    /// capacity is how many messages a encode stream can buffer before sending them out.
-    pub fn encode_stream_with_capacity(&self, cap: usize) -> (Sender<Message>, EncodeStream) {
-        let codec = self.codec.clone();
-        EncodeStream::with_capacity(cap, codec)
-    }
-
     #[allow(clippy::should_implement_trait)]
     #[inline]
     pub fn next(&mut self) -> Next<'_, Self> {
@@ -117,14 +109,10 @@ pub struct EncodeStream {
 }
 
 impl EncodeStream {
-    /// Construct new stream with given codec. Max buffered message count is 128.
+    /// Construct new stream with given codec.
     #[inline]
     pub fn new(codec: Rc<Codec>) -> (Sender<Message>, Self) {
-        Self::with_capacity(128, codec)
-    }
-
-    /// Construct new stream with given capacity and codec.
-    pub fn with_capacity(cap: usize, codec: Rc<Codec>) -> (Sender<Message>, Self) {
+        let cap = codec.capacity();
         let (tx, rx) = channel(cap);
 
         let stream = EncodeStream {

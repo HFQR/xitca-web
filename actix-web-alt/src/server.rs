@@ -12,7 +12,6 @@ pub struct HttpServer<F> {
 impl<F, I> HttpServer<F>
 where
     F: Fn() -> I + Send + Clone + 'static,
-    I: ServiceFactory<TcpStream, Config = ()>,
 {
     pub fn new(factory: F) -> Self {
         Self {
@@ -47,8 +46,21 @@ where
         self
     }
 
-    pub fn bind<A: ToSocketAddrs>(mut self, addr: A) -> std::io::Result<Self> {
+    pub fn bind<A: ToSocketAddrs>(mut self, addr: A) -> std::io::Result<Self>
+    where
+        I: ServiceFactory<TcpStream, Config = ()>,
+    {
         self.builder = self.builder.bind("actix-web-alt", addr, self.factory.clone())?;
+
+        Ok(self)
+    }
+
+    #[cfg(unix)]
+    pub fn bind_unix<P: AsRef<std::path::Path>>(mut self, path: P) -> std::io::Result<Self>
+    where
+        I: ServiceFactory<actix_server_alt::net::UnixStream, Config = ()>,
+    {
+        self.builder = self.builder.bind_unix("actix-web-alt", path, self.factory.clone())?;
 
         Ok(self)
     }

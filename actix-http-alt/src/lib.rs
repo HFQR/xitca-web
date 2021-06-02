@@ -4,13 +4,14 @@
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
 // TODO: remove these allow flag.
-#![allow(dead_code, unused_must_use, unused_variables, unused_assignments)]
+#![allow(dead_code, unused_variables)]
 
 mod body;
 mod builder;
 mod error;
 mod flow;
 mod response;
+mod stream;
 mod tls;
 
 #[cfg(feature = "http1")]

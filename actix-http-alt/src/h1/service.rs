@@ -3,7 +3,6 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_server_alt::net::TcpStream;
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
@@ -13,6 +12,7 @@ use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
 use crate::response::ResponseError;
+use crate::stream::AsyncStream;
 use crate::util::date::DateTask;
 
 use super::body::RequestBody;
@@ -34,7 +34,7 @@ impl<S, X, U> H1Service<S, X, U> {
     }
 }
 
-impl<S, X, U, B, E> Service<TcpStream> for H1Service<S, X, U>
+impl<St, S, X, U, B, E> Service<St> for H1Service<S, X, U>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -47,10 +47,12 @@ where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
+
+    St: AsyncStream,
 {
     type Response = ();
     type Error = HttpServiceError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         // ready!(self
@@ -71,9 +73,9 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'c>(&'c self, mut io: TcpStream) -> Self::Future<'c>
+    fn call<'c>(&'c self, mut io: St) -> Self::Future<'c>
     where
-        TcpStream: 'c,
+        St: 'c,
     {
         async move {
             let mut dispatcher = Dispatcher::new(&mut io, &self.flow, &self.date);

@@ -4,7 +4,6 @@ use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
 use http::{Request, Response};
-use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::body::{RequestBody, ResponseBody};
 use super::error::BodyError;
@@ -12,13 +11,13 @@ use super::tls::NoOpTlsAcceptorFactory;
 
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
-pub struct HttpServiceBuilder<St, F, B, AF, TlsSt> {
+pub struct HttpServiceBuilder<F, B, AF> {
     factory: F,
     tls_factory: AF,
-    _phantom: PhantomData<(St, B, TlsSt)>,
+    _phantom: PhantomData<B>,
 }
 
-impl<St, B, E, F> HttpServiceBuilder<St, F, B, NoOpTlsAcceptorFactory, St>
+impl<B, E, F> HttpServiceBuilder<F, B, NoOpTlsAcceptorFactory>
 where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -29,8 +28,6 @@ where
     where
         F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
-
-        St: AsyncRead + AsyncWrite + Unpin,
     {
         Self {
             factory,
@@ -57,12 +54,10 @@ where
     ///
     /// Note factory type F ues `Request<h2::RequestBody>` as Request type.
     /// This is a request type specific for Http/2 request body.
-    pub fn h2(factory: F) -> super::h2::H2ServiceBuilder<St, F, NoOpTlsAcceptorFactory>
+    pub fn h2(factory: F) -> super::h2::H2ServiceBuilder<F, NoOpTlsAcceptorFactory>
     where
         F: ServiceFactory<Request<super::h2::RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
         F::Service: 'static,
-
-        St: AsyncRead + AsyncWrite + Unpin,
     {
         super::h2::H2ServiceBuilder::new(factory)
     }

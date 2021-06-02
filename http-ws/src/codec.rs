@@ -47,6 +47,7 @@ pub enum Item {
 /// WebSocket protocol codec.
 pub struct Codec {
     flags: Cell<Flags>,
+    capacity: usize,
     max_size: usize,
 }
 
@@ -79,6 +80,7 @@ impl Codec {
     pub const fn new() -> Codec {
         Codec {
             max_size: 65_536,
+            capacity: 128,
             flags: Cell::new(Flags::SERVER),
         }
     }
@@ -89,6 +91,18 @@ impl Codec {
     pub fn max_size(mut self, size: usize) -> Self {
         self.max_size = size;
         self
+    }
+
+    /// Set capacity for concurrent buffered outgoing message.
+    ///
+    /// By default capacity is set to 128.
+    pub fn set_capacity(mut self, size: usize) -> Self {
+        self.capacity = size;
+        self
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// Set decoder to client mode.
