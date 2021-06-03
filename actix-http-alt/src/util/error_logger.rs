@@ -4,7 +4,7 @@ use actix_service_alt::{Service, ServiceFactory};
 use std::future::Future;
 use std::task::{Context, Poll};
 
-/// A factory that log
+/// A factory that log and print error with Debug impl
 pub struct ErrorLoggerFactory<F> {
     factory: F,
 }

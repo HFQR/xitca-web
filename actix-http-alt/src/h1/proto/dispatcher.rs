@@ -7,7 +7,7 @@ use std::{
 };
 
 use actix_service_alt::Service;
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, Bytes};
 use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use pin_project_lite::pin_project;
@@ -24,6 +24,7 @@ use crate::response::ResponseError;
 use crate::stream::AsyncStream;
 use crate::util::{date::DateTask, poll_fn::poll_fn};
 
+use super::buf::{ReadBuf, WriteBuf};
 use super::context::Context;
 use super::decode::{RequestBodyDecoder, RequestBodyItem};
 use super::encode::TransferEncoding;
@@ -41,7 +42,7 @@ struct Io<'a, St> {
     io: &'a mut St,
     state: State,
     read_buf: ReadBuf,
-    write_buf: BytesMut,
+    write_buf: WriteBuf,
 }
 
 impl<St> Io<'_, St>
@@ -54,7 +55,7 @@ where
         read_buf.advance(false);
 
         loop {
-            match self.io.try_read_buf(read_buf.as_bytes_mut()) {
+            match self.io.try_read_buf(read_buf.buf_mut()) {
                 Ok(0) => return Err(Error::Closed),
                 Ok(_) => read_buf.advance(true),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
@@ -69,24 +70,47 @@ where
     /// Return true when write is blocked and need wait.
     /// Return false when write is finished.(Did not blocked)
     fn try_write(&mut self) -> Result<bool, Error> {
-        let mut written = 0;
-        let len = self.write_buf.len();
-
-        while written < len {
-            match self.io.try_write(&self.write_buf[written..]) {
-                Ok(0) => return Err(Error::Closed),
-                Ok(n) => written += n,
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.write_buf.advance(written);
-                    return Ok(true);
+        match self.write_buf {
+            WriteBuf::List(ref mut list) => {
+                let queue = list.queue_mut();
+                while queue.remaining() > 0 {
+                    let mut iovs = [io::IoSlice::new(&[]); 64];
+                    let len = queue.chunks_vectored(&mut iovs);
+                    match self.io.try_write_vectored(&iovs[..len]) {
+                        Ok(0) => return Err(Error::Closed),
+                        Ok(n) => {
+                            queue.advance(n);
+                        }
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            return Ok(true);
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
                 }
-                Err(e) => return Err(e.into()),
+
+                Ok(false)
+            }
+            WriteBuf::Flat(ref mut bytes) => {
+                let mut written = 0;
+                let len = bytes.len();
+
+                while written < len {
+                    match self.io.try_write(&bytes[written..]) {
+                        Ok(0) => return Err(Error::Closed),
+                        Ok(n) => written += n,
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            bytes.advance(written);
+                            return Ok(true);
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+
+                bytes.clear();
+
+                Ok(false)
             }
         }
-
-        self.write_buf.clear();
-
-        Ok(false)
     }
 
     /// Block task and read.
@@ -127,7 +151,7 @@ where
                     let buf = &mut self.read_buf;
 
                     if buf.advanced() {
-                        while let Some(item) = handle.decoder.decode(buf.as_bytes_mut())? {
+                        while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
                             new = true;
                             match item {
                                 RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
@@ -152,6 +176,11 @@ where
             None => Ok(false),
         }
     }
+
+    #[inline(always)]
+    fn write_buf_mut(&mut self) -> &mut WriteBuf {
+        &mut self.write_buf
+    }
 }
 
 impl<'a, St, S, ResB, E, X, U> Dispatcher<'a, St, S, ResB, X, U>
@@ -168,11 +197,13 @@ where
     St: AsyncStream,
 {
     pub(crate) fn new(io: &'a mut St, flow: &'a HttpFlow<S, X, U>, date: &'a DateTask) -> Self {
+        let is_vectored = io.is_write_vectored();
+
         let io = Io {
             io,
             state: State::new(),
             read_buf: ReadBuf::new(),
-            write_buf: BytesMut::new(),
+            write_buf: WriteBuf::new(is_vectored),
         };
 
         Self {
@@ -187,7 +218,7 @@ where
     fn decode_head(&mut self) -> Result<Option<DecodedHead>, Error> {
         // Do not try when nothing new read.
         if self.io.read_buf.advanced() {
-            let buf = self.io.read_buf.as_bytes_mut();
+            let buf = self.io.read_buf.buf_mut();
 
             if let Some((req, decoder)) = self.ctx.decode_head(buf)? {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
@@ -204,7 +235,8 @@ where
 
     fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error> {
         let size = body.size();
-        self.ctx.encode_head(parts, size, &mut self.io.write_buf)?;
+        let write_buf = self.io.write_buf_mut();
+        self.ctx.encode_head(parts, size, write_buf)?;
         Ok(())
     }
 
@@ -242,7 +274,7 @@ where
             match self.flow.expect.call(req).await {
                 Ok(expect_res) => {
                     // encode continue
-                    self.ctx.encode_continue(&mut self.io.write_buf);
+                    self.ctx.encode_continue(self.io.write_buf_mut());
 
                     // use drain write to make sure continue is sent to client.
                     // the world can wait until it happens.
@@ -341,7 +373,7 @@ where
             match this.res_body.as_mut().poll_next(cx) {
                 Poll::Ready(Some(bytes)) => {
                     let bytes = bytes?;
-                    this.encoder.encode(&bytes, &mut io.write_buf)?;
+                    this.encoder.encode(bytes, &mut io.write_buf)?;
                 }
                 Poll::Ready(None) => {
                     this.encoder.encode_eof(&mut io.write_buf)?;
@@ -368,34 +400,6 @@ where
 }
 
 type DecodedHead = (Request<RequestBody>, Option<RequestBodyHandle>);
-
-struct ReadBuf {
-    advanced: bool,
-    buf: BytesMut,
-}
-
-impl ReadBuf {
-    fn new() -> Self {
-        Self {
-            advanced: false,
-            buf: BytesMut::new(),
-        }
-    }
-
-    fn as_bytes_mut(&mut self) -> &mut BytesMut {
-        &mut self.buf
-    }
-
-    #[inline(always)]
-    fn advanced(&self) -> bool {
-        self.advanced
-    }
-
-    #[inline(always)]
-    fn advance(&mut self, advanced: bool) {
-        self.advanced = advanced;
-    }
-}
 
 struct RequestBodyHandle {
     decoder: RequestBodyDecoder,

@@ -19,6 +19,8 @@ pub trait AsyncStream: AsyncRead + AsyncWrite + Unpin {
 
     fn try_read_buf<B: BufMut>(&self, buf: &mut B) -> io::Result<usize>;
 
+    fn try_write_vectored(&self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize>;
+
     fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
 
     fn poll_write_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
@@ -43,6 +45,10 @@ macro_rules! basic_impl {
 
             fn try_read_buf<B: BufMut>(&self, buf: &mut B) -> io::Result<usize> {
                 Self::try_read_buf(self, buf)
+            }
+
+            fn try_write_vectored(&self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+                Self::try_write_vectored(self, bufs)
             }
 
             fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {

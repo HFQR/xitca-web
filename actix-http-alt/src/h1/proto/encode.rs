@@ -1,6 +1,6 @@
 use std::{cmp, io};
 
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use http::{
     header::{CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
     response::Parts,
@@ -11,16 +11,43 @@ use log::{debug, warn};
 use crate::body::{ResponseBody, ResponseBodySize};
 use crate::util::date::DATE_VALUE_LENGTH;
 
+use super::buf::WriteBuf;
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
 impl Context<'_> {
-    pub(super) fn encode_continue(&mut self, buf: &mut BytesMut) {
+    pub(super) fn encode_continue(&mut self, buf: &mut WriteBuf) {
         debug_assert!(self.is_expect());
-        buf.put_slice(b"HTTP/1.1 100 Continue\r\n\r\n");
+        match *buf {
+            WriteBuf::Flat(ref mut bytes) => bytes.put_slice(b"HTTP/1.1 100 Continue\r\n\r\n"),
+            WriteBuf::List(ref mut list) => {
+                list.buffer(Bytes::from_static(b"HTTP/1.1 100 Continue\r\n\r\n"));
+            }
+        }
     }
 
     pub(super) fn encode_head(
+        &mut self,
+        parts: Parts,
+        size: ResponseBodySize,
+        buf: &mut WriteBuf,
+    ) -> Result<(), ProtoError> {
+        match *buf {
+            WriteBuf::List(ref mut list) => {
+                let buf = list.buf_mut();
+
+                self.encode_head_inner(parts, size, buf)?;
+
+                let bytes = buf.split().freeze();
+                list.queue_mut().push(bytes);
+
+                Ok(())
+            }
+            WriteBuf::Flat(ref mut buf) => self.encode_head_inner(parts, size, buf),
+        }
+    }
+
+    fn encode_head_inner(
         &mut self,
         mut parts: Parts,
         size: ResponseBodySize,
@@ -172,7 +199,7 @@ impl<B> ResponseBody<B> {
 
 /// Encoders to handle different Transfer-Encodings.
 #[derive(Debug)]
-pub(crate) struct TransferEncoding {
+pub(super) struct TransferEncoding {
     kind: TransferEncodingKind,
 }
 
@@ -194,28 +221,28 @@ enum TransferEncodingKind {
 
 impl TransferEncoding {
     #[inline(always)]
-    pub fn eof() -> TransferEncoding {
+    pub(super) fn eof() -> TransferEncoding {
         TransferEncoding {
             kind: TransferEncodingKind::Eof,
         }
     }
 
     #[inline(always)]
-    pub fn chunked() -> TransferEncoding {
+    pub(super) fn chunked() -> TransferEncoding {
         TransferEncoding {
             kind: TransferEncodingKind::Chunked(false),
         }
     }
 
     #[inline(always)]
-    pub fn plain_chunked() -> TransferEncoding {
+    pub(super) fn plain_chunked() -> TransferEncoding {
         TransferEncoding {
             kind: TransferEncodingKind::PlainChunked,
         }
     }
 
     #[inline(always)]
-    pub fn length(len: u64) -> TransferEncoding {
+    pub(super) fn length(len: u64) -> TransferEncoding {
         TransferEncoding {
             kind: TransferEncodingKind::Length(len),
         }
@@ -223,11 +250,14 @@ impl TransferEncoding {
 
     /// Encode message. Return `EOF` state of encoder
     #[inline(always)]
-    pub fn encode(&mut self, msg: &[u8], buf: &mut BytesMut) -> io::Result<bool> {
+    pub(super) fn encode(&mut self, mut msg: Bytes, buf: &mut WriteBuf) -> io::Result<bool> {
         match self.kind {
             TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => {
                 let eof = msg.is_empty();
-                buf.extend_from_slice(msg);
+                match *buf {
+                    WriteBuf::List(ref mut list) => list.buffer(msg),
+                    WriteBuf::Flat(ref mut bytes) => bytes.put_slice(&msg),
+                }
                 Ok(eof)
             }
             TransferEncodingKind::Chunked(ref mut eof) => {
@@ -235,33 +265,48 @@ impl TransferEncoding {
                     return Ok(true);
                 }
 
-                if msg.is_empty() {
-                    *eof = true;
-                    buf.extend_from_slice(b"0\r\n\r\n");
-                } else {
-                    use io::Write;
-
-                    struct Writer<'a, B>(pub &'a mut B);
-
-                    impl<'a, B> Write for Writer<'a, B>
-                    where
-                        B: BufMut,
-                    {
-                        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                            self.0.put_slice(buf);
-                            Ok(buf.len())
-                        }
-
-                        fn flush(&mut self) -> io::Result<()> {
-                            Ok(())
+                match *buf {
+                    WriteBuf::List(ref mut list) => {
+                        if msg.is_empty() {
+                            *eof = true;
+                            list.buffer(Bytes::from_static(b"0\r\n\r\n"));
+                        } else {
+                            list.buffer(Bytes::from(format!("{:X}\r", msg.len())));
+                            list.buffer(msg);
+                            list.buffer(Bytes::from_static(b"\r\n"));
                         }
                     }
+                    WriteBuf::Flat(ref mut bytes) => {
+                        if msg.is_empty() {
+                            *eof = true;
+                            bytes.put_slice(b"0\r\n\r\n");
+                        } else {
+                            use io::Write;
 
-                    writeln!(Writer(buf), "{:X}\r", msg.len()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                            struct Writer<'a, B>(pub &'a mut B);
 
-                    buf.reserve(msg.len() + 2);
-                    buf.extend_from_slice(msg);
-                    buf.extend_from_slice(b"\r\n");
+                            impl<'a, B> Write for Writer<'a, B>
+                            where
+                                B: BufMut,
+                            {
+                                fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                                    self.0.put_slice(buf);
+                                    Ok(buf.len())
+                                }
+
+                                fn flush(&mut self) -> io::Result<()> {
+                                    Ok(())
+                                }
+                            }
+
+                            writeln!(Writer(bytes), "{:X}\r", msg.len())
+                                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                            bytes.reserve(msg.len() + 2);
+                            bytes.put_slice(&msg);
+                            bytes.put_slice(b"\r\n");
+                        }
+                    }
                 }
                 Ok(*eof)
             }
@@ -272,7 +317,14 @@ impl TransferEncoding {
                     }
                     let len = cmp::min(*remaining, msg.len() as u64);
 
-                    buf.extend_from_slice(&msg[..len as usize]);
+                    match buf {
+                        WriteBuf::Flat(ref mut bytes) => {
+                            bytes.put_slice(&msg.split_to(len as usize));
+                        }
+                        WriteBuf::List(ref mut list) => {
+                            list.buffer(msg.split_to(len as usize));
+                        }
+                    }
 
                     *remaining -= len as u64;
                     Ok(*remaining == 0)
@@ -285,7 +337,7 @@ impl TransferEncoding {
 
     /// Encode eof. Return `EOF` state of encoder
     #[inline(always)]
-    pub fn encode_eof(&mut self, buf: &mut BytesMut) -> io::Result<()> {
+    pub(super) fn encode_eof(&mut self, buf: &mut WriteBuf) -> io::Result<()> {
         match self.kind {
             TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => Ok(()),
             TransferEncodingKind::Length(rem) => {
@@ -298,7 +350,10 @@ impl TransferEncoding {
             TransferEncodingKind::Chunked(ref mut eof) => {
                 if !*eof {
                     *eof = true;
-                    buf.extend_from_slice(b"0\r\n\r\n");
+                    match *buf {
+                        WriteBuf::Flat(ref mut bytes) => bytes.put_slice(b"0\r\n\r\n"),
+                        WriteBuf::List(ref mut list) => list.buffer(Bytes::from_static(b"0\r\n\r\n")),
+                    }
                 }
                 Ok(())
             }
