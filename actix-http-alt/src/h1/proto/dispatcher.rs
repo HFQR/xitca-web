@@ -4,14 +4,20 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     task::{self, Poll},
+    time::Duration,
 };
 
 use actix_service_alt::Service;
 use bytes::{Buf, Bytes};
 use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
+use log::trace;
 use pin_project_lite::pin_project;
-use tokio::io::Interest;
+use tokio::{
+    io::Interest,
+    pin, select,
+    time::{sleep, Instant},
+};
 
 use crate::body::ResponseBody;
 use crate::error::BodyError;
@@ -239,6 +245,19 @@ where
     }
 
     pub(crate) async fn run(&mut self) -> Result<(), Error> {
+        // connection timer.
+        let timer = sleep(Duration::from_secs(5));
+        pin!(timer);
+
+        // use timer to detect slow connection.
+        select! {
+            _ = (&mut timer) => {
+                trace!("Slow Connection detected. Shutting down");
+                return Ok(())
+            }
+            res = self.io.read() => res?,
+        }
+
         loop {
             while let Some((req, mut body_handle)) = self.decode_head()? {
                 let res = self.request_handler(req, &mut body_handle).await?;
@@ -259,7 +278,25 @@ where
             }
 
             self.io.drain_write().await?;
-            self.io.read().await?;
+
+            if self.ctx.is_keep_alive() {
+                // if connection is keep alive reset timer and wait for next request.
+                // TODO: reset timer with every request is not great.
+                // use another expire timer for caching the expire timer and only reset
+                // when timer expires.
+                timer.as_mut().reset(Instant::now() + Duration::from_secs(5));
+
+                select! {
+                    _ = timer.as_mut() => {
+                        trace!("Connection keep-alive timeout. Shutting down");
+                        return Ok(())
+                    }
+                    res = self.io.read() => res?,
+                }
+            } else {
+                trace!("Connection not keep-alive. Shutting down");
+                return Ok(());
+            }
         }
     }
 

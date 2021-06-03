@@ -40,6 +40,11 @@ impl<'a> Context<'a> {
     }
 
     #[inline(always)]
+    pub(super) fn is_keep_alive(&self) -> bool {
+        matches!(self.ctype, ConnectionType::KeepAlive)
+    }
+
+    #[inline(always)]
     pub(super) fn req_method(&self) -> &Method {
         &self.req_method
     }
