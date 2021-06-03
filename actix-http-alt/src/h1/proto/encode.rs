@@ -11,7 +11,7 @@ use log::{debug, warn};
 use crate::body::{ResponseBody, ResponseBodySize};
 use crate::util::date::DATE_VALUE_LENGTH;
 
-use super::buf::WriteBuf;
+use super::buf::{EncodedBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
@@ -21,7 +21,7 @@ impl Context<'_> {
         match *buf {
             WriteBuf::Flat(ref mut bytes) => bytes.put_slice(b"HTTP/1.1 100 Continue\r\n\r\n"),
             WriteBuf::List(ref mut list) => {
-                list.buffer(Bytes::from_static(b"HTTP/1.1 100 Continue\r\n\r\n"));
+                list.buffer(EncodedBuf::Static(b"HTTP/1.1 100 Continue\r\n\r\n"));
             }
         }
     }
@@ -39,7 +39,7 @@ impl Context<'_> {
                 self.encode_head_inner(parts, size, buf)?;
 
                 let bytes = buf.split().freeze();
-                list.queue_mut().push(bytes);
+                list.queue_mut().push(EncodedBuf::Buf(bytes));
 
                 Ok(())
             }
@@ -255,8 +255,8 @@ impl TransferEncoding {
             TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => {
                 let eof = msg.is_empty();
                 match *buf {
-                    WriteBuf::List(ref mut list) => list.buffer(msg),
                     WriteBuf::Flat(ref mut bytes) => bytes.put_slice(&msg),
+                    WriteBuf::List(ref mut list) => list.buffer(EncodedBuf::Buf(msg)),
                 }
                 Ok(eof)
             }
@@ -269,11 +269,11 @@ impl TransferEncoding {
                     WriteBuf::List(ref mut list) => {
                         if msg.is_empty() {
                             *eof = true;
-                            list.buffer(Bytes::from_static(b"0\r\n\r\n"));
+                            list.buffer(EncodedBuf::Static(b"0\r\n\r\n"));
                         } else {
-                            list.buffer(Bytes::from(format!("{:X}\r", msg.len())));
-                            list.buffer(msg);
-                            list.buffer(Bytes::from_static(b"\r\n"));
+                            list.buffer(EncodedBuf::Buf(Bytes::from(format!("{:X}\r\n", msg.len()))));
+                            list.buffer(EncodedBuf::Buf(msg));
+                            list.buffer(EncodedBuf::Static(b"\r\n"));
                         }
                     }
                     WriteBuf::Flat(ref mut bytes) => {
@@ -322,7 +322,7 @@ impl TransferEncoding {
                             bytes.put_slice(&msg.split_to(len as usize));
                         }
                         WriteBuf::List(ref mut list) => {
-                            list.buffer(msg.split_to(len as usize));
+                            list.buffer(EncodedBuf::Buf(msg.split_to(len as usize)));
                         }
                     }
 
@@ -352,7 +352,7 @@ impl TransferEncoding {
                     *eof = true;
                     match *buf {
                         WriteBuf::Flat(ref mut bytes) => bytes.put_slice(b"0\r\n\r\n"),
-                        WriteBuf::List(ref mut list) => list.buffer(Bytes::from_static(b"0\r\n\r\n")),
+                        WriteBuf::List(ref mut list) => list.buffer(EncodedBuf::Static(b"0\r\n\r\n")),
                     }
                 }
                 Ok(())

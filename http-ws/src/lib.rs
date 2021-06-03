@@ -162,7 +162,6 @@ fn handshake_response(key: &[u8]) -> Builder {
         .status(StatusCode::SWITCHING_PROTOCOLS)
         .header(header::UPGRADE, "websocket")
         .header(header::CONNECTION, "upgrade")
-        .header(header::TRANSFER_ENCODING, "chunked")
         .header(
             header::SEC_WEBSOCKET_ACCEPT,
             // key is known to be header value safe ascii

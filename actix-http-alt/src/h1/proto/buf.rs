@@ -1,7 +1,7 @@
 //! Copied from `hyper::proto::h1::io`.
 //! A write buffer that use vectored buf list.
 
-use std::fmt;
+use std::{fmt, io};
 
 use bytes::{Buf, Bytes, BytesMut};
 
@@ -50,7 +50,7 @@ impl ReadBuf {
 
 pub(super) enum WriteBuf {
     Flat(BytesMut),
-    List(WriteListBuf<Bytes>),
+    List(WriteListBuf<EncodedBuf<Bytes>>),
 }
 
 impl WriteBuf {
@@ -109,5 +109,44 @@ impl<B: Buf> fmt::Debug for WriteListBuf<B> {
         f.debug_struct("WriteBuf")
             .field("remaining", &self.queue.remaining())
             .finish()
+    }
+}
+
+pub(super) enum EncodedBuf<B> {
+    Buf(B),
+    Static(&'static [u8]),
+}
+
+impl<B: Buf> Buf for EncodedBuf<B> {
+    #[inline]
+    fn remaining(&self) -> usize {
+        match *self {
+            Self::Buf(ref buf) => buf.remaining(),
+            Self::Static(ref buf) => buf.remaining(),
+        }
+    }
+
+    #[inline]
+    fn chunk(&self) -> &[u8] {
+        match *self {
+            Self::Buf(ref buf) => buf.chunk(),
+            Self::Static(ref buf) => buf.chunk(),
+        }
+    }
+
+    #[inline]
+    fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
+        match *self {
+            Self::Buf(ref buf) => buf.chunks_vectored(dst),
+            Self::Static(ref buf) => buf.chunks_vectored(dst),
+        }
+    }
+
+    #[inline]
+    fn advance(&mut self, cnt: usize) {
+        match *self {
+            Self::Buf(ref mut buf) => buf.advance(cnt),
+            Self::Static(ref mut buf) => buf.advance(cnt),
+        }
     }
 }
