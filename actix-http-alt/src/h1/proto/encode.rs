@@ -39,7 +39,7 @@ impl Context<'_> {
                 self.encode_head_inner(parts, size, buf)?;
 
                 let bytes = buf.split().freeze();
-                list.queue_mut().push(EncodedBuf::Buf(bytes));
+                list.list_mut().push(EncodedBuf::Buf(bytes));
 
                 Ok(())
             }

@@ -72,7 +72,7 @@ where
     fn try_write(&mut self) -> Result<bool, Error> {
         match self.write_buf {
             WriteBuf::List(ref mut list) => {
-                let queue = list.queue_mut();
+                let queue = list.list_mut();
                 while queue.remaining() > 0 {
                     let mut iovs = [io::IoSlice::new(&[]); 64];
                     let len = queue.chunks_vectored(&mut iovs);
@@ -87,30 +87,28 @@ where
                         Err(e) => return Err(e.into()),
                     }
                 }
-
-                Ok(false)
             }
-            WriteBuf::Flat(ref mut bytes) => {
+            WriteBuf::Flat(ref mut buf) => {
                 let mut written = 0;
-                let len = bytes.len();
+                let len = buf.len();
 
                 while written < len {
-                    match self.io.try_write(&bytes[written..]) {
+                    match self.io.try_write(&buf[written..]) {
                         Ok(0) => return Err(Error::Closed),
                         Ok(n) => written += n,
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                            bytes.advance(written);
+                            buf.advance(written);
                             return Ok(true);
                         }
                         Err(e) => return Err(e.into()),
                     }
                 }
 
-                bytes.clear();
-
-                Ok(false)
+                buf.clear();
             }
         }
+
+        Ok(false)
     }
 
     /// Block task and read.

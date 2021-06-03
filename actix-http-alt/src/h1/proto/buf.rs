@@ -9,15 +9,14 @@ use crate::util::buf_list::BufList;
 
 /// The default maximum read buffer size. If the buffer gets this big and
 /// a message is still not complete, a `TooLarge` error is triggered.
-// Note: if this changes, update server::conn::Http::max_buf_size docs.
-pub(crate) const DEFAULT_MAX_BUFFER_SIZE: usize = 8192 + 4096 * 100;
+pub(crate) const DEFAULT_MAX_SIZE: usize = 8192 + 4096 * 100;
 
 /// The maximum number of distinct `Buf`s to hold in a list before requiring
 /// a flush. Only affects when the buffer strategy is to queue buffers.
 ///
 /// Note that a flush can happen before reaching the maximum. This simply
 /// forces a flush if the queue gets this big.
-const MAX_BUF_LIST_BUFFERS: usize = 16;
+const MAX_BUF_LIST_CNT: usize = 16;
 
 pub(super) struct ReadBuf {
     advanced: bool,
@@ -65,19 +64,20 @@ impl WriteBuf {
 
 // an internal buffer to collect writes before flushes
 pub(super) struct WriteListBuf<B> {
-    /// Re-usable buffer that holds message headers
+    /// Re-usable buffer that holds response head.
+    /// After head writing finished it's split and pushed to list.
     buf: BytesMut,
-    max_buf_size: usize,
+    max_size: usize,
     /// Deque of user buffers if strategy is Queue
-    queue: BufList<B>,
+    list: BufList<B>,
 }
 
 impl<B: Buf> WriteListBuf<B> {
     fn new() -> Self {
         Self {
             buf: BytesMut::new(),
-            max_buf_size: DEFAULT_MAX_BUFFER_SIZE,
-            queue: BufList::new(),
+            max_size: DEFAULT_MAX_SIZE,
+            list: BufList::new(),
         }
     }
 }
@@ -85,29 +85,31 @@ impl<B: Buf> WriteListBuf<B> {
 impl<B: Buf> WriteListBuf<B> {
     pub(super) fn buffer<BB: Buf + Into<B>>(&mut self, buf: BB) {
         debug_assert!(buf.has_remaining());
-        self.queue.push(buf.into());
+        self.list.push(buf.into());
     }
 
     fn can_buffer(&self) -> bool {
-        self.queue.bufs_cnt() < MAX_BUF_LIST_BUFFERS && self.queue.remaining() < self.max_buf_size
+        // When buffering buf must be empty.
+        // (Whoever write into it must split it afterwards)
+        debug_assert!(!self.buf.has_remaining());
+        self.list.bufs_cnt() < MAX_BUF_LIST_CNT && self.list.remaining() < self.max_size
     }
 
     #[inline(always)]
     pub(super) fn buf_mut(&mut self) -> &mut BytesMut {
-        debug_assert!(!self.queue.has_remaining());
         &mut self.buf
     }
 
     #[inline(always)]
-    pub(super) fn queue_mut(&mut self) -> &mut BufList<B> {
-        &mut self.queue
+    pub(super) fn list_mut(&mut self) -> &mut BufList<B> {
+        &mut self.list
     }
 }
 
 impl<B: Buf> fmt::Debug for WriteListBuf<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteBuf")
-            .field("remaining", &self.queue.remaining())
+            .field("remaining", &self.list.remaining())
             .finish()
     }
 }
