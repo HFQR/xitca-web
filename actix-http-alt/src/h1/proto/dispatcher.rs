@@ -13,11 +13,7 @@ use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use log::trace;
 use pin_project_lite::pin_project;
-use tokio::{
-    io::Interest,
-    pin, select,
-    time::{sleep, Instant},
-};
+use tokio::{io::Interest, pin, select};
 
 use crate::body::ResponseBody;
 use crate::error::BodyError;
@@ -28,12 +24,13 @@ use crate::h1::{
 };
 use crate::response::ResponseError;
 use crate::stream::AsyncStream;
-use crate::util::{date::DateTask, poll_fn::poll_fn};
+use crate::util::{date::DateTimeTask, poll_fn::poll_fn};
 
 use super::buf::{ReadBuf, WriteBuf};
-use super::context::Context;
+use super::context::{ConnectionType, Context};
 use super::decode::{RequestBodyDecoder, RequestBodyItem};
 use super::encode::TransferEncoding;
+use super::keep_alive::KeepAlive;
 use super::state::State;
 
 pub(crate) struct Dispatcher<'a, St, S, B, X, U> {
@@ -200,14 +197,14 @@ where
 
     St: AsyncStream,
 {
-    pub(crate) fn new(io: &'a mut St, flow: &'a HttpFlow<S, X, U>, date: &'a DateTask) -> Self {
+    pub(crate) fn new(io: &'a mut St, flow: &'a HttpFlow<S, X, U>, date: &'a DateTimeTask) -> Self {
         let is_vectored = io.is_write_vectored();
 
         let io = Io {
             io,
             state: State::new(),
             read_buf: ReadBuf::new(),
-            write_buf: WriteBuf::new(is_vectored),
+            write_buf: WriteBuf::new(false),
         };
 
         Self {
@@ -246,20 +243,16 @@ where
 
     pub(crate) async fn run(&mut self) -> Result<(), Error> {
         // connection timer.
-        let timer = sleep(Duration::from_secs(5));
+        let now = self.ctx.date.get().now();
+        let timer = KeepAlive::new(Duration::from_secs(5), now);
         pin!(timer);
-
-        // use timer to detect slow connection.
-        select! {
-            _ = (&mut timer) => {
-                trace!("Slow Connection detected. Shutting down");
-                return Ok(())
-            }
-            res = self.io.read() => res?,
-        }
 
         loop {
             while let Some((req, mut body_handle)) = self.decode_head()? {
+                // have new connection. update timer deadline.
+                let now = self.ctx.date.get().now();
+                timer.as_mut().update(now);
+
                 let res = self.request_handler(req, &mut body_handle).await?;
 
                 let (parts, res_body) = res.into_parts();
@@ -279,23 +272,36 @@ where
 
             self.io.drain_write().await?;
 
-            if self.ctx.is_keep_alive() {
-                // if connection is keep alive reset timer and wait for next request.
-                // TODO: reset timer with every request is not great.
-                // use another expire timer for caching the expire timer and only reset
-                // when timer expires.
-                timer.as_mut().reset(Instant::now() + Duration::from_secs(5));
-
-                select! {
-                    _ = timer.as_mut() => {
-                        trace!("Connection keep-alive timeout. Shutting down");
-                        return Ok(())
+            match self.ctx.ctype() {
+                ConnectionType::Init => {
+                    // use timer to detect slow connection.
+                    select! {
+                        res = self.io.read() => res?,
+                        _ = timer.as_mut() => {
+                            trace!("Slow Connection detected. Shutting down");
+                            return Ok(())
+                        }
                     }
-                    res = self.io.read() => res?,
                 }
-            } else {
-                trace!("Connection not keep-alive. Shutting down");
-                return Ok(());
+
+                ConnectionType::KeepAlive => {
+                    select! {
+                        res = self.io.read() => res?,
+                        _ = timer.as_mut() => {
+                            if timer.as_mut().is_expired() {
+                                trace!("Connection keep-alive timeout. Shutting down");
+                                return Ok(());
+                            } else {
+                                timer.as_mut().reset();
+                            }
+                        }
+                    }
+                }
+
+                ConnectionType::Upgrade | ConnectionType::Close => {
+                    trace!("Connection not keep-alive. Shutting down");
+                    return Ok(());
+                }
             }
         }
     }

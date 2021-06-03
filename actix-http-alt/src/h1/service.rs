@@ -13,14 +13,14 @@ use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
 use crate::response::ResponseError;
 use crate::stream::AsyncStream;
-use crate::util::date::DateTask;
+use crate::util::date::DateTimeTask;
 
 use super::body::RequestBody;
 use super::error::Error;
 use super::proto::Dispatcher;
 
 pub struct H1Service<S, X, U> {
-    date: DateTask,
+    date: DateTimeTask,
     flow: HttpFlow<S, X, U>,
 }
 
@@ -28,7 +28,7 @@ impl<S, X, U> H1Service<S, X, U> {
     /// Construct new Http1Service.
     pub fn new(service: S, expect: X, upgrade: U) -> Self {
         Self {
-            date: DateTask::new(),
+            date: DateTimeTask::new(),
             flow: HttpFlow::new(service, expect, upgrade),
         }
     }

@@ -30,10 +30,6 @@ impl Context<'_> {
                 // set method to context so it can pass method to response.
                 self.set_method(method.clone());
 
-                if method == Method::CONNECT {
-                    self.set_ctype(ConnectionType::Upgrade);
-                }
-
                 let uri = req.path.unwrap().parse::<Uri>()?;
 
                 // Set connection type when doing version match.
@@ -114,6 +110,10 @@ impl Context<'_> {
                     }
 
                     headers.append(name, value);
+                }
+
+                if method == Method::CONNECT {
+                    self.set_ctype(ConnectionType::Upgrade);
                 }
 
                 let mut req = Request::new(());

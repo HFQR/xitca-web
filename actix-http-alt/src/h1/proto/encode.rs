@@ -133,7 +133,7 @@ impl Context<'_> {
         if !skip_date {
             buf.reserve(DATE_VALUE_LENGTH + 8);
             buf.put_slice(b"date: ");
-            buf.put_slice(self.date.get().as_bytes());
+            buf.put_slice(self.date.get().date());
             buf.put_slice(b"\r\n\r\n");
         } else {
             buf.put_slice(b"\r\n");
@@ -299,8 +299,7 @@ impl TransferEncoding {
                                 }
                             }
 
-                            writeln!(Writer(bytes), "{:X}\r", msg.len())
-                                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                            writeln!(Writer(bytes), "{:X}\r", msg.len()).unwrap();
 
                             bytes.reserve(msg.len() + 2);
                             bytes.put_slice(&msg);

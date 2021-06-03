@@ -27,7 +27,7 @@ impl<'a> Context<'a> {
         Self {
             enable_ka: true,
             is_expect: false,
-            ctype: ConnectionType::KeepAlive,
+            ctype: ConnectionType::Init,
             req_method: Method::default(),
             header_cache: None,
             date,
@@ -40,16 +40,13 @@ impl<'a> Context<'a> {
     }
 
     #[inline(always)]
-    pub(super) fn is_keep_alive(&self) -> bool {
-        matches!(self.ctype, ConnectionType::KeepAlive)
-    }
-
-    #[inline(always)]
     pub(super) fn req_method(&self) -> &Method {
         &self.req_method
     }
 
     /// Context should be reset when a new request is decoded.
+    ///
+    /// A reset of context only happen on a keep alive connection type.
     #[inline(always)]
     pub(super) fn reset(&mut self) {
         self.ctype = ConnectionType::KeepAlive;
@@ -65,10 +62,9 @@ impl<'a> Context<'a> {
         self.req_method = method;
     }
 
+    #[inline(always)]
     pub(super) fn set_ctype(&mut self, ctype: ConnectionType) {
         match (self.ctype, ctype) {
-            // When connection is in upgrade state it can not be override.
-            (ConnectionType::Upgrade, _) => {}
             // only set connection to keep alive when enabled.
             (_, ConnectionType::KeepAlive) if self.enable_ka => self.ctype = ConnectionType::KeepAlive,
             _ => self.ctype = ctype,
@@ -84,6 +80,9 @@ impl<'a> Context<'a> {
 /// Represents various types of connection
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub(super) enum ConnectionType {
+    /// A connection that has no request yet.
+    Init,
+
     /// Close connection after response
     Close,
 
