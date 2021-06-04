@@ -46,6 +46,7 @@ async fn main() -> io::Result<()> {
     .await
 }
 
+// a http/2 factory that can produce stateful service.
 struct H2Factory;
 
 impl ServiceFactory<Request<RequestBody>> for H2Factory {
@@ -65,6 +66,7 @@ impl ServiceFactory<Request<RequestBody>> for H2Factory {
     }
 }
 
+// a http/2 service that can lend it's state to service call future.
 struct H2Service {
     state: String,
 }

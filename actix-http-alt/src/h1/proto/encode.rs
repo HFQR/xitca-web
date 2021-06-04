@@ -97,8 +97,10 @@ impl Context<'_> {
                         let val = val.trim();
 
                         if val.eq_ignore_ascii_case("close") {
-                            self.set_ctype(ConnectionType::KeepAlive);
+                            self.set_ctype(ConnectionType::Close);
                         } else if val.eq_ignore_ascii_case("keep-alive") {
+                            // TODO: there is case where ctype is set to force close.
+                            // Should reconsider if override here a good idea.
                             self.set_ctype(ConnectionType::KeepAlive);
                         } else if val.eq_ignore_ascii_case("upgrade") {
                             self.set_ctype(ConnectionType::Upgrade);

@@ -18,7 +18,7 @@ use crate::body::ResponseBody;
 use crate::error::BodyError;
 use crate::flow::HttpFlow;
 use crate::h1::{
-    body::{RequestBody, RequestBodySender},
+    body::{RequestBody, RequestBodySender, RequestBodyStatus},
     error::Error,
 };
 use crate::response::ResponseError;
@@ -136,43 +136,54 @@ where
     fn poll_read_decode_body(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
+        ctx: &mut Context<'_>,
         cx: &mut task::Context<'_>,
     ) -> Result<bool, Error> {
         match *body_handle {
             Some(ref mut handle) => {
-                let mut new = false;
-                let mut done = false;
+                match handle.sender.need_read(cx) {
+                    RequestBodyStatus::Read => {
+                        let mut new = false;
+                        let mut done = false;
 
-                // TODO: read error here should be treated as partial close.
-                // Which means body_handle should treat error as finished read.
-                // pass the partial buffer to service call and let it decide what to do.
-                'read: while self.io.poll_read_ready(cx)?.is_ready() {
-                    let _ = self.try_read()?;
+                        // TODO: read error here should be treated as partial close.
+                        // Which means body_handle should treat error as finished read.
+                        // pass the partial buffer to service call and let it decide what to do.
+                        'read: while self.io.poll_read_ready(cx)?.is_ready() {
+                            let _ = self.try_read()?;
 
-                    let buf = &mut self.read_buf;
+                            let buf = &mut self.read_buf;
 
-                    if buf.advanced() {
-                        while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
-                            new = true;
-                            match item {
-                                RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
-                                RequestBodyItem::Eof => {
-                                    handle.sender.feed_eof();
-                                    done = true;
-                                    break 'read;
+                            if buf.advanced() {
+                                while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
+                                    new = true;
+                                    match item {
+                                        RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
+                                        RequestBodyItem::Eof => {
+                                            handle.sender.feed_eof();
+                                            done = true;
+                                            break 'read;
+                                        }
+                                    }
                                 }
                             }
                         }
+
+                        // remove body handle when client sent eof chunk.
+                        // No more read is needed.
+                        if done {
+                            *body_handle = None;
+                        }
+
+                        Ok(new)
+                    }
+                    RequestBodyStatus::Pause => Ok(false),
+                    RequestBodyStatus::Dropped => {
+                        *body_handle = None;
+                        ctx.set_force_close();
+                        Ok(false)
                     }
                 }
-
-                // remove body handle when client sent eof chunk.
-                // No more read is needed.
-                if done {
-                    *body_handle = None;
-                }
-
-                Ok(new)
             }
             None => Ok(false),
         }
@@ -209,7 +220,7 @@ where
             io,
             state: State::new(),
             read_buf: ReadBuf::new(),
-            write_buf: WriteBuf::new(false),
+            write_buf: WriteBuf::new(is_vectored),
         };
 
         Self {
@@ -267,6 +278,7 @@ where
                     encoder,
                     body_handle,
                     io: &mut self.io,
+                    ctx: &mut self.ctx,
                 }
                 .await?
             }
@@ -285,14 +297,19 @@ where
                     }
                 }
                 ConnectionType::KeepAlive => {
-                    select! {
-                        res = self.io.read() => res?,
-                        _ = self.timer.as_mut() => {
-                            if self.timer.as_mut().is_expired() {
-                                trace!("Connection keep-alive timeout. Shutting down");
-                                return Ok(());
-                            } else {
-                                self.timer.as_mut().reset();
+                    if self.ctx.is_force_close() {
+                        trace!("Connection is keep-alive but meet a force close condition. Shutting down");
+                        return Ok(());
+                    } else {
+                        select! {
+                            res = self.io.read() => res?,
+                            _ = self.timer.as_mut() => {
+                                if self.timer.as_mut().is_expired() {
+                                    trace!("Connection keep-alive timeout. Shutting down");
+                                    return Ok(());
+                                } else {
+                                    self.timer.as_mut().reset();
+                                }
                             }
                         }
                     }
@@ -330,6 +347,7 @@ where
             fut: self.flow.service.call(req),
             body_handle,
             io: &mut self.io,
+            ctx: &mut self.ctx,
             _body: PhantomData,
         }
         .await
@@ -350,6 +368,7 @@ pin_project! {
         fut: Fut,
         body_handle: &'a mut Option<RequestBodyHandle>,
         io: &'a mut Io<'b, St>,
+        ctx: &'a mut Context<'b>,
         _body: PhantomData<ResB>
     }
 }
@@ -374,7 +393,7 @@ where
                 }
                 // service call is pending. could be waiting for more read.
                 Poll::Pending => {
-                    if this.io.poll_read_decode_body(this.body_handle, cx)? {
+                    if this.io.poll_read_decode_body(this.body_handle, this.ctx, cx)? {
                         continue;
                     } else {
                         return Poll::Pending;
@@ -392,6 +411,7 @@ pin_project! {
         encoder: TransferEncoding,
         body_handle: Option<RequestBodyHandle>,
         io: &'a mut Io<'b, St>,
+        ctx: &'a mut Context<'b>
     }
 }
 
@@ -428,7 +448,7 @@ where
                         let _ = io.try_write()?;
                     }
 
-                    if io.poll_read_decode_body(this.body_handle, cx)? {
+                    if io.poll_read_decode_body(this.body_handle, this.ctx, cx)? {
                         continue;
                     } else {
                         return Poll::Pending;

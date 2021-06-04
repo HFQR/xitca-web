@@ -30,6 +30,7 @@ pub enum Message {
     /// Close message with optional reason.
     Close(Option<CloseReason>),
 
+    #[doc(hidden)]
     /// No-op. Useful for low-level services.
     Nop,
 }
@@ -43,8 +44,8 @@ pub enum Item {
     Last(Bytes),
 }
 
-#[derive(Debug, Clone)]
 /// WebSocket protocol codec.
+#[derive(Debug, Clone)]
 pub struct Codec {
     flags: Cell<Flags>,
     capacity: usize,

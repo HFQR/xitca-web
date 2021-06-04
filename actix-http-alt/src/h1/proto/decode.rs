@@ -114,6 +114,7 @@ impl Context<'_> {
 
                 if method == Method::CONNECT {
                     self.set_ctype(ConnectionType::Upgrade);
+                    decoder = RequestBodyDecoder::plain_chunked();
                 }
 
                 let mut req = Request::new(());

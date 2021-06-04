@@ -112,7 +112,7 @@ impl RequestBodySender {
     #[inline]
     pub fn need_read(&self, cx: &mut Context<'_>) -> RequestBodyStatus {
         // we check need_read only if Payload (other side) is alive,
-        // otherwise always return true (consume payload)
+        // otherwise always return Dropped (consume payload)
         self.0
             .upgrade()
             .map(|shared| {
