@@ -10,6 +10,7 @@ use log::error;
 pub enum HttpServiceError {
     Ignored,
     ServiceReady,
+    TlsAcceptTimeout,
     Body(BodyError),
     #[cfg(feature = "openssl")]
     Openssl(super::tls::openssl::OpensslError),
@@ -30,6 +31,7 @@ impl Debug for HttpServiceError {
         match *self {
             Self::Ignored => write!(f, "Error detail is ignored."),
             Self::ServiceReady => write!(f, "Service is not ready"),
+            Self::TlsAcceptTimeout => write!(f, "Tls Accept is timed out"),
             Self::Body(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "openssl")]
             Self::Openssl(ref e) => write!(f, "{:?}", e),

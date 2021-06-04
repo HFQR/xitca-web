@@ -49,11 +49,6 @@ where
             config,
         }
     }
-
-    pub fn config(mut self, config: HttpServiceConfig) -> Self {
-        self.config = config;
-        self
-    }
 }
 
 impl<F, B, E, EF, AF, TlsSt> H1ServiceBuilder<F, EF, AF>
@@ -74,6 +69,11 @@ where
 
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 {
+    pub fn config(mut self, config: HttpServiceConfig) -> Self {
+        self.config = config;
+        self
+    }
+
     pub fn expect<EF2>(self, expect: EF2) -> H1ServiceBuilder<F, EF2, AF>
     where
         EF2: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>>,
@@ -135,12 +135,12 @@ where
     BodyError: From<E>,
 
     St: AsyncStream,
-    TlsSt: AsyncRead + AsyncWrite + Unpin,
+    TlsSt: AsyncStream,
 {
     type Response = ();
     type Error = HttpServiceError;
     type Config = F::Config;
-    type Service = H1Service<F::Service, EF::Service, ()>;
+    type Service = H1Service<F::Service, EF::Service, (), AF::Service>;
     type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
@@ -152,8 +152,8 @@ where
         async move {
             let expect = expect.await?;
             let service = service.await?;
-            let _tls_acceptor = tls_acceptor.await?;
-            Ok(H1Service::new(config, service, expect, ()))
+            let tls_acceptor = tls_acceptor.await?;
+            Ok(H1Service::new(config, service, expect, (), tls_acceptor))
         }
     }
 }
