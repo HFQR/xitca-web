@@ -4,7 +4,7 @@
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
 // TODO: remove these allow flag.
-#![allow(dead_code, unused_variables)]
+#![allow(dead_code)]
 
 mod body;
 mod builder;

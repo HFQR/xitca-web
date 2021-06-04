@@ -11,13 +11,6 @@ use crate::util::buf_list::BufList;
 /// a message is still not complete, a `TooLarge` error is triggered.
 pub(crate) const DEFAULT_MAX_SIZE: usize = 8192 + 4096 * 100;
 
-/// The maximum number of distinct `Buf`s to hold in a list before requiring
-/// a flush. Only affects when the buffer strategy is to queue buffers.
-///
-/// Note that a flush can happen before reaching the maximum. This simply
-/// forces a flush if the queue gets this big.
-const MAX_BUF_LIST_CNT: usize = 16;
-
 pub(super) struct ReadBuf {
     advanced: bool,
     buf: BytesMut,
@@ -60,6 +53,14 @@ impl WriteBuf {
             Self::Flat(BytesMut::new())
         }
     }
+
+    #[inline(always)]
+    pub(super) fn backpressure(&self) -> bool {
+        match *self {
+            Self::Flat(ref buf) => buf.len() >= DEFAULT_MAX_SIZE,
+            Self::List(ref list) => list.backpressure(),
+        }
+    }
 }
 
 // an internal buffer to collect writes before flushes
@@ -88,11 +89,12 @@ impl<B: Buf> WriteListBuf<B> {
         self.list.push(buf.into());
     }
 
-    fn can_buffer(&self) -> bool {
+    fn backpressure(&self) -> bool {
         // When buffering buf must be empty.
         // (Whoever write into it must split it afterwards)
         debug_assert!(!self.buf.has_remaining());
-        self.list.bufs_cnt() < MAX_BUF_LIST_CNT && self.list.remaining() < self.max_size
+        // TODO: figure out a suitable backpressure point for list length.
+        self.list.remaining() >= self.max_size
     }
 
     #[inline(always)]

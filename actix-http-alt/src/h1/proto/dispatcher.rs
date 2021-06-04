@@ -12,7 +12,7 @@ use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use log::trace;
 use pin_project_lite::pin_project;
-use tokio::{io::Interest, select};
+use tokio::{io::Interest, pin, select};
 
 use crate::body::ResponseBody;
 use crate::error::BodyError;
@@ -30,7 +30,6 @@ use super::context::{ConnectionType, Context};
 use super::decode::{RequestBodyDecoder, RequestBodyItem};
 use super::encode::TransferEncoding;
 use super::keep_alive::KeepAlive;
-use super::state::State;
 
 pub(crate) struct Dispatcher<'a, St, S, B, X, U> {
     io: Io<'a, St>,
@@ -43,7 +42,6 @@ pub(crate) struct Dispatcher<'a, St, S, B, X, U> {
 
 struct Io<'a, St> {
     io: &'a mut St,
-    state: State,
     read_buf: ReadBuf,
     write_buf: WriteBuf,
 }
@@ -81,9 +79,7 @@ where
                     let len = queue.chunks_vectored(&mut iovs);
                     match self.io.try_write_vectored(&iovs[..len]) {
                         Ok(0) => return Err(Error::Closed),
-                        Ok(n) => {
-                            queue.advance(n);
-                        }
+                        Ok(n) => queue.advance(n),
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                             return Ok(true);
                         }
@@ -132,7 +128,6 @@ where
     }
 
     /// Return true when new data is decoded.
-    /// Return false when write is finished.(Did not blocked)
     fn poll_read_decode_body(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
@@ -140,58 +135,54 @@ where
         cx: &mut task::Context<'_>,
     ) -> Result<bool, Error> {
         match *body_handle {
-            Some(ref mut handle) => {
-                match handle.sender.need_read(cx) {
-                    RequestBodyStatus::Read => {
-                        let mut new = false;
-                        let mut done = false;
+            Some(ref mut handle) => match handle.sender.need_read(cx) {
+                RequestBodyStatus::Read => {
+                    let mut new = false;
+                    let mut done = false;
 
-                        // TODO: read error here should be treated as partial close.
-                        // Which means body_handle should treat error as finished read.
-                        // pass the partial buffer to service call and let it decide what to do.
-                        'read: while self.io.poll_read_ready(cx)?.is_ready() {
-                            let _ = self.try_read()?;
+                    // TODO: read error here should be treated as partial close.
+                    // Which means body_handle should treat error as finished read.
+                    // pass the partial buffer to service call and let it decide what to do.
+                    'read: while self.io.poll_read_ready(cx)?.is_ready() {
+                        let _ = self.try_read()?;
 
-                            let buf = &mut self.read_buf;
+                        let buf = &mut self.read_buf;
 
-                            if buf.advanced() {
-                                while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
-                                    new = true;
-                                    match item {
-                                        RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
-                                        RequestBodyItem::Eof => {
-                                            handle.sender.feed_eof();
-                                            done = true;
-                                            break 'read;
-                                        }
+                        if buf.advanced() {
+                            while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
+                                new = true;
+                                match item {
+                                    RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
+                                    RequestBodyItem::Eof => {
+                                        handle.sender.feed_eof();
+                                        done = true;
+                                        break 'read;
                                     }
                                 }
                             }
                         }
-
-                        // remove body handle when client sent eof chunk.
-                        // No more read is needed.
-                        if done {
-                            *body_handle = None;
-                        }
-
-                        Ok(new)
                     }
-                    RequestBodyStatus::Pause => Ok(false),
-                    RequestBodyStatus::Dropped => {
+
+                    // remove body handle when client sent eof chunk.
+                    // No more read is needed.
+                    if done {
                         *body_handle = None;
-                        ctx.set_force_close();
-                        Ok(false)
                     }
+
+                    Ok(new)
                 }
-            }
+                RequestBodyStatus::Pause => Ok(false),
+                RequestBodyStatus::Dropped => {
+                    *body_handle = None;
+                    // When service call dropped payload there is no tell how many bytes still
+                    // remain readable in the connection.
+                    // close the connection would be a safe bet than draining it.
+                    ctx.set_force_close();
+                    Ok(false)
+                }
+            },
             None => Ok(false),
         }
-    }
-
-    #[inline(always)]
-    fn write_buf_mut(&mut self) -> &mut WriteBuf {
-        &mut self.write_buf
     }
 }
 
@@ -218,7 +209,6 @@ where
 
         let io = Io {
             io,
-            state: State::new(),
             read_buf: ReadBuf::new(),
             write_buf: WriteBuf::new(is_vectored),
         };
@@ -238,6 +228,7 @@ where
         if self.io.read_buf.advanced() {
             let buf = self.io.read_buf.buf_mut();
 
+            // TODO: generate error response here for decode error that meant for response.
             if let Some((req, decoder)) = self.ctx.decode_head(buf)? {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
@@ -253,8 +244,7 @@ where
 
     fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error> {
         let size = body.size();
-        let write_buf = self.io.write_buf_mut();
-        self.ctx.encode_head(parts, size, write_buf)?;
+        self.ctx.encode_head(parts, size, &mut self.io.write_buf)?;
         Ok(())
     }
 
@@ -271,16 +261,30 @@ where
 
                 self.encode_head(parts, &res_body)?;
 
-                let encoder = res_body.encoder(self.ctx.ctype());
+                let encoder = &mut res_body.encoder(self.ctx.ctype());
 
-                ResponseHandler {
-                    res_body,
-                    encoder,
-                    body_handle,
-                    io: &mut self.io,
-                    ctx: &mut self.ctx,
+                // pin response body beforehand. this way res handler can take a break on write
+                // backpressure
+                pin!(res_body);
+
+                'res: loop {
+                    // borrow every state so it can iter.
+                    let handler = ResponseHandler {
+                        res_body: res_body.as_mut(),
+                        encoder,
+                        body_handle: &mut body_handle,
+                        io: &mut self.io,
+                        ctx: &mut self.ctx,
+                    };
+
+                    match handler.await? {
+                        ResponseHandlerResult::Ok => break 'res,
+                        // write buffer grows too big. drain it.
+                        ResponseHandlerResult::WriteBackpressure => {
+                            self.io.drain_write().await?;
+                        }
+                    }
                 }
-                .await?
             }
 
             self.io.drain_write().await?;
@@ -331,7 +335,7 @@ where
             match self.flow.expect.call(req).await {
                 Ok(expect_res) => {
                     // encode continue
-                    self.ctx.encode_continue(self.io.write_buf_mut());
+                    self.ctx.encode_continue(&mut self.io.write_buf);
 
                     // use drain write to make sure continue is sent to client.
                     // the world can wait until it happens.
@@ -351,14 +355,6 @@ where
             _body: PhantomData,
         }
         .await
-    }
-
-    fn set_read_close(&mut self) {
-        self.io.state.set_read_close();
-    }
-
-    fn set_write_close(&mut self) {
-        self.io.state.set_write_close();
     }
 }
 
@@ -393,9 +389,7 @@ where
                 }
                 // service call is pending. could be waiting for more read.
                 Poll::Pending => {
-                    if this.io.poll_read_decode_body(this.body_handle, this.ctx, cx)? {
-                        continue;
-                    } else {
+                    if !this.io.poll_read_decode_body(this.body_handle, this.ctx, cx)? {
                         return Poll::Pending;
                     }
                 }
@@ -404,15 +398,17 @@ where
     }
 }
 
-pin_project! {
-    struct ResponseHandler<'a, 'b, St, ResB> {
-        #[pin]
-        res_body: ResponseBody<ResB>,
-        encoder: TransferEncoding,
-        body_handle: Option<RequestBodyHandle>,
-        io: &'a mut Io<'b, St>,
-        ctx: &'a mut Context<'b>
-    }
+struct ResponseHandler<'a, 'b, St, ResB> {
+    res_body: Pin<&'a mut ResponseBody<ResB>>,
+    encoder: &'a mut TransferEncoding,
+    body_handle: &'a mut Option<RequestBodyHandle>,
+    io: &'a mut Io<'b, St>,
+    ctx: &'a mut Context<'b>,
+}
+
+enum ResponseHandlerResult {
+    Ok,
+    WriteBackpressure,
 }
 
 impl<St, ResB, E> Future for ResponseHandler<'_, '_, St, ResB>
@@ -422,40 +418,38 @@ where
 
     St: AsyncStream,
 {
-    type Output = Result<(), Error>;
+    type Output = Result<ResponseHandlerResult, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
+        let this = self.get_mut();
 
-        let io = this.io;
-
-        loop {
+        while !this.io.write_buf.backpressure() {
             match this.res_body.as_mut().poll_next(cx) {
                 Poll::Ready(Some(bytes)) => {
                     let bytes = bytes?;
-                    this.encoder.encode(bytes, &mut io.write_buf)?;
+                    this.encoder.encode(bytes, &mut this.io.write_buf)?;
                 }
                 Poll::Ready(None) => {
-                    this.encoder.encode_eof(&mut io.write_buf)?;
-                    return Poll::Ready(Ok(()));
+                    this.encoder.encode_eof(&mut this.io.write_buf)?;
+                    return Poll::Ready(Ok(ResponseHandlerResult::Ok));
                 }
                 // payload sending is pending.
                 // it could be waiting for more read from client.
                 Poll::Pending => {
                     // write buffer to client so it can feed us new
                     // chunked requests if there is any.
-                    if io.io.poll_write_ready(cx)?.is_ready() {
-                        let _ = io.try_write()?;
+                    if this.io.io.poll_write_ready(cx)?.is_ready() {
+                        let _ = this.io.try_write()?;
                     }
 
-                    if io.poll_read_decode_body(this.body_handle, this.ctx, cx)? {
-                        continue;
-                    } else {
+                    if !this.io.poll_read_decode_body(this.body_handle, this.ctx, cx)? {
                         return Poll::Pending;
                     }
                 }
             }
         }
+
+        Poll::Ready(Ok(ResponseHandlerResult::WriteBackpressure))
     }
 }
 
@@ -476,9 +470,5 @@ impl RequestBodyHandle {
             let body_handle = RequestBodyHandle { decoder, sender };
             (Some(body_handle), body)
         }
-    }
-
-    fn close(&mut self) {
-        self.sender.feed_eof();
     }
 }

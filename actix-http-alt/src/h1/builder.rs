@@ -136,7 +136,7 @@ where
         async {
             let expect = expect.await?;
             let service = service.await?;
-            let tls_acceptor = tls_acceptor.await?;
+            let _tls_acceptor = tls_acceptor.await?;
             Ok(H1Service::new(service, expect, ()))
         }
     }

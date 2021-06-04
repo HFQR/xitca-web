@@ -81,8 +81,13 @@ impl<'a> Context<'a> {
 struct ContextState(u8);
 
 impl ContextState {
-    /// enable when current request has 100-continue header.
+    /// Enable when current request has 100-continue header.
     const EXPECT: Self = Self(0b_0001);
+    /// Want a force close after current request served.
+    ///
+    /// This is for situation like partial read of request body. Which could leave artifact
+    /// unread data in connection that can interfere with next request(If the connection is kept
+    /// alive).
     const FORCE_CLOSE: Self = Self(0b_0010);
 
     #[inline(always)]

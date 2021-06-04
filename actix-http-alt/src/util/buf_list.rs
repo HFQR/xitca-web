@@ -4,31 +4,36 @@ use std::{collections::VecDeque, io::IoSlice};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-pub(crate) struct BufList<T> {
-    bufs: VecDeque<T>,
+pub(crate) struct BufList<B> {
+    bufs: VecDeque<B>,
+    remaining: usize,
 }
 
-impl<T: Buf> BufList<T> {
-    pub(crate) fn new() -> BufList<T> {
-        BufList { bufs: VecDeque::new() }
+impl<B: Buf> BufList<B> {
+    pub(crate) fn new() -> Self {
+        Self {
+            bufs: VecDeque::new(),
+            remaining: 0,
+        }
     }
 
     #[inline]
-    pub(crate) fn push(&mut self, buf: T) {
+    pub(crate) fn push(&mut self, buf: B) {
         debug_assert!(buf.has_remaining());
+        self.remaining += buf.remaining();
         self.bufs.push_back(buf);
     }
 
-    #[inline]
-    pub(crate) fn bufs_cnt(&self) -> usize {
-        self.bufs.len()
-    }
+    // #[inline]
+    // pub(crate) fn bufs_cnt(&self) -> usize {
+    //     self.bufs.len()
+    // }
 }
 
-impl<T: Buf> Buf for BufList<T> {
+impl<B: Buf> Buf for BufList<B> {
     #[inline]
     fn remaining(&self) -> usize {
-        self.bufs.iter().map(|buf| buf.remaining()).sum()
+        self.remaining
     }
 
     #[inline]
@@ -37,7 +42,7 @@ impl<T: Buf> Buf for BufList<T> {
     }
 
     #[inline]
-    fn chunks_vectored<'t>(&'t self, dst: &mut [IoSlice<'t>]) -> usize {
+    fn chunks_vectored<'a>(&'a self, dst: &mut [IoSlice<'a>]) -> usize {
         if dst.is_empty() {
             return 0;
         }
@@ -53,6 +58,7 @@ impl<T: Buf> Buf for BufList<T> {
 
     #[inline]
     fn advance(&mut self, mut cnt: usize) {
+        self.remaining -= cnt;
         while cnt > 0 {
             {
                 let front = &mut self.bufs[0];
@@ -76,10 +82,14 @@ impl<T: Buf> Buf for BufList<T> {
         match self.bufs.front_mut() {
             Some(front) if front.remaining() == len => {
                 let b = front.copy_to_bytes(len);
+                self.remaining -= len;
                 self.bufs.pop_front();
                 b
             }
-            Some(front) if front.remaining() > len => front.copy_to_bytes(len),
+            Some(front) if front.remaining() > len => {
+                self.remaining -= len;
+                front.copy_to_bytes(len)
+            }
             _ => {
                 assert!(len <= self.remaining(), "`len` greater than remaining");
                 let mut bm = BytesMut::with_capacity(len);
@@ -97,8 +107,11 @@ mod tests {
     use super::*;
 
     fn hello_world_buf() -> BufList<Bytes> {
+        let bufs = vec![Bytes::from("Hello"), Bytes::from(" "), Bytes::from("World")];
+        let remaining = bufs.iter().map(Buf::remaining).sum();
         BufList {
-            bufs: vec![Bytes::from("Hello"), Bytes::from(" "), Bytes::from("World")].into(),
+            bufs: bufs.into(),
+            remaining,
         }
     }
 

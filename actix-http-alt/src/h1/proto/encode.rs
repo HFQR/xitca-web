@@ -72,7 +72,7 @@ impl Context<'_> {
         // In some error cases, we don't know about the invalid message until already
         // pushing some bytes onto the `buf`. In those cases, we don't want to send
         // the half-pushed message, so rewind to before.
-        let orig_len = buf.len();
+        // let orig_len = buf.len();
 
         // encode version, status code and reason
         encode_version_status_reason(buf, version, status);
