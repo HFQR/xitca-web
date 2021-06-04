@@ -8,6 +8,7 @@
 
 mod body;
 mod builder;
+mod config;
 mod error;
 mod flow;
 mod response;
@@ -28,4 +29,5 @@ pub use http;
 
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
+pub use config::HttpServiceConfig;
 pub use error::{BodyError, HttpServiceError};

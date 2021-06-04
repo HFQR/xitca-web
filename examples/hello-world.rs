@@ -7,7 +7,7 @@ use actix_http_alt::{
     h1::RequestBody,
     http::{Request, Response},
     util::ErrorLoggerFactory,
-    HttpServiceBuilder, ResponseBody,
+    HttpServiceBuilder, HttpServiceConfig, ResponseBody,
 };
 use actix_service_alt::fn_service;
 use actix_web_alt::HttpServer;
@@ -20,7 +20,10 @@ async fn main() -> std::io::Result<()> {
 
     // construct http server
     HttpServer::new(move || {
-        let builder = HttpServiceBuilder::h1(fn_service(handler));
+        // enable pipeline mode for a better micro bench result.
+        // in real world this should be left as disabled.(which is by default).
+        let config = HttpServiceConfig::new().enable_http1_pipeline();
+        let builder = HttpServiceBuilder::h1(fn_service(handler)).config(config);
         ErrorLoggerFactory::new(builder)
     })
     .bind("127.0.0.1:8080")?

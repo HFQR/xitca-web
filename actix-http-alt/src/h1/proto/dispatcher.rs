@@ -4,6 +4,7 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     task::{self, Poll},
+    time::Duration,
 };
 
 use actix_service_alt::Service;
@@ -29,11 +30,14 @@ use super::buf::{ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
 use super::decode::{RequestBodyDecoder, RequestBodyItem};
 use super::encode::TransferEncoding;
+use super::error::ProtoError;
 use super::keep_alive::KeepAlive;
+use crate::HttpServiceConfig;
 
 pub(crate) struct Dispatcher<'a, St, S, B, X, U> {
     io: Io<'a, St>,
     timer: Pin<&'a mut KeepAlive>,
+    ka_dur: Duration,
     ctx: Context<'a>,
     error: Option<Error>,
     flow: &'a HttpFlow<S, X, U>,
@@ -202,10 +206,15 @@ where
     pub(crate) fn new(
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
+        config: HttpServiceConfig,
         flow: &'a HttpFlow<S, X, U>,
         date: &'a DateTimeTask,
     ) -> Self {
-        let is_vectored = io.is_write_vectored();
+        let is_vectored = if config.http1_pipeline {
+            false
+        } else {
+            io.is_write_vectored()
+        };
 
         let io = Io {
             io,
@@ -216,6 +225,7 @@ where
         Self {
             io,
             timer,
+            ka_dur: config.keep_alive_dur,
             ctx: Context::new(date.get()),
             error: None,
             flow,
@@ -223,23 +233,26 @@ where
         }
     }
 
-    fn decode_head(&mut self) -> Result<Option<DecodedHead>, Error> {
+    fn decode_head(&mut self) -> Option<Result<DecodedHead, ProtoError>> {
         // Do not try when nothing new read.
         if self.io.read_buf.advanced() {
             let buf = self.io.read_buf.buf_mut();
 
-            // TODO: generate error response here for decode error that meant for response.
-            if let Some((req, decoder)) = self.ctx.decode_head(buf)? {
-                let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
+            match self.ctx.decode_head(buf) {
+                Ok(Some((req, decoder))) => {
+                    let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
-                let (parts, _) = req.into_parts();
-                let req = Request::from_parts(parts, body);
+                    let (parts, _) = req.into_parts();
+                    let req = Request::from_parts(parts, body);
 
-                return Ok(Some((req, body_handle)));
+                    return Some(Ok((req, body_handle)));
+                }
+                Err(e) => return Some(Err(e)),
+                _ => {}
             }
         }
 
-        Ok(None)
+        None
     }
 
     fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error> {
@@ -250,12 +263,18 @@ where
 
     pub(crate) async fn run(&mut self) -> Result<(), Error> {
         loop {
-            while let Some((req, mut body_handle)) = self.decode_head()? {
-                // have new connection. update timer deadline.
-                let now = self.ctx.date.get().now();
-                self.timer.as_mut().update(now);
-
-                let res = self.request_handler(req, &mut body_handle).await?;
+            while let Some(res) = self.decode_head() {
+                let (res, mut body_handle) = match res {
+                    Ok((req, mut body_handle)) => {
+                        // have new connection. update timer deadline.
+                        let now = self.ctx.date.get().now() + self.ka_dur;
+                        self.timer.as_mut().update(now);
+                        let res = self.request_handler(req, &mut body_handle).await?;
+                        (res, body_handle)
+                    }
+                    // TODO: handle error that are meant to be a response.
+                    Err(e) => return Err(e.into()),
+                };
 
                 let (parts, res_body) = res.into_parts();
 
@@ -308,12 +327,8 @@ where
                         select! {
                             res = self.io.read() => res?,
                             _ = self.timer.as_mut() => {
-                                if self.timer.as_mut().is_expired() {
-                                    trace!("Connection keep-alive timeout. Shutting down");
-                                    return Ok(());
-                                } else {
-                                    self.timer.as_mut().reset();
-                                }
+                                trace!("Connection keep-alive timeout. Shutting down");
+                                return Ok(());
                             }
                         }
                     }
@@ -398,8 +413,8 @@ where
     }
 }
 
-struct ResponseHandler<'a, 'b, St, ResB> {
-    res_body: Pin<&'a mut ResponseBody<ResB>>,
+struct ResponseHandler<'a, 'b, St, B> {
+    res_body: Pin<&'a mut ResponseBody<B>>,
     encoder: &'a mut TransferEncoding,
     body_handle: &'a mut Option<RequestBodyHandle>,
     io: &'a mut Io<'b, St>,
@@ -411,9 +426,9 @@ enum ResponseHandlerResult {
     WriteBackpressure,
 }
 
-impl<St, ResB, E> Future for ResponseHandler<'_, '_, St, ResB>
+impl<St, B, E> Future for ResponseHandler<'_, '_, St, B>
 where
-    ResB: Stream<Item = Result<Bytes, E>>,
+    B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 
     St: AsyncStream,

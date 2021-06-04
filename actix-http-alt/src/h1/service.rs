@@ -1,7 +1,6 @@
 use std::{
     future::Future,
     task::{Context, Poll},
-    time::Duration,
 };
 
 use actix_service_alt::Service;
@@ -11,6 +10,7 @@ use http::{Request, Response};
 use tokio::pin;
 
 use crate::body::ResponseBody;
+use crate::config::HttpServiceConfig;
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
 use crate::response::ResponseError;
@@ -22,14 +22,16 @@ use super::error::Error;
 use super::proto::{Dispatcher, KeepAlive};
 
 pub struct H1Service<S, X, U> {
+    config: HttpServiceConfig,
     date: DateTimeTask,
     flow: HttpFlow<S, X, U>,
 }
 
 impl<S, X, U> H1Service<S, X, U> {
     /// Construct new Http1Service.
-    pub fn new(service: S, expect: X, upgrade: U) -> Self {
+    pub fn new(config: HttpServiceConfig, service: S, expect: X, upgrade: U) -> Self {
         Self {
+            config,
             date: DateTimeTask::new(),
             flow: HttpFlow::new(service, expect, upgrade),
         }
@@ -80,14 +82,20 @@ where
         St: 'c,
     {
         async move {
-            // connection timer.
-            let now = self.date.get().get().now();
-            let timer = KeepAlive::new(Duration::from_secs(5), now);
+            // tls accept timer.
+            let accept_dur = self.config.tls_accept_dur;
+            let deadline = self.date.get().get().now() + accept_dur;
+            let timer = KeepAlive::new(deadline);
             pin!(timer);
 
-            // TODO: add timeout tls handshake here.
+            // TODO: add tls accept with timer as timeout here.
 
-            let mut dispatcher = Dispatcher::new(&mut io, timer.as_mut(), &self.flow, &self.date);
+            // update timer to first request duration.
+            let request_dur = self.config.first_request_dur;
+            let deadline = self.date.get().get().now() + request_dur;
+            timer.as_mut().update(deadline);
+
+            let mut dispatcher = Dispatcher::new(&mut io, timer.as_mut(), self.config, &self.flow, &self.date);
 
             match dispatcher.run().await {
                 Ok(_) | Err(Error::Closed) => Ok(()),

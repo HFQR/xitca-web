@@ -8,6 +8,7 @@ use http::{Request, Response};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::body::ResponseBody;
+use crate::config::HttpServiceConfig;
 use crate::error::{BodyError, HttpServiceError};
 use crate::response::ResponseError;
 use crate::stream::AsyncStream;
@@ -23,6 +24,7 @@ pub struct H1ServiceBuilder<F, EF = ExpectHandler<F>, AF = tls::NoOpTlsAcceptorF
     factory: F,
     expect: EF,
     tls_factory: AF,
+    config: HttpServiceConfig,
 }
 
 impl<F, B, E> H1ServiceBuilder<F>
@@ -36,11 +38,21 @@ where
 {
     /// Construct a new Service Builder with given service factory.
     pub fn new(factory: F) -> Self {
+        Self::with_config(factory, HttpServiceConfig::default())
+    }
+
+    pub fn with_config(factory: F, config: HttpServiceConfig) -> Self {
         Self {
             factory,
             expect: ExpectHandler::new(),
             tls_factory: tls::NoOpTlsAcceptorFactory,
+            config,
         }
+    }
+
+    pub fn config(mut self, config: HttpServiceConfig) -> Self {
+        self.config = config;
+        self
     }
 }
 
@@ -71,6 +83,7 @@ where
             factory: self.factory,
             expect,
             tls_factory: self.tls_factory,
+            config: self.config,
         }
     }
 
@@ -83,6 +96,7 @@ where
             factory: self.factory,
             expect: self.expect,
             tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
+            config: self.config,
         }
     }
 
@@ -95,6 +109,7 @@ where
             factory: self.factory,
             expect: self.expect,
             tls_factory: tls::rustls::TlsAcceptorService::new(config),
+            config: self.config,
         }
     }
 }
@@ -133,11 +148,12 @@ where
         let expect = self.expect.new_service(());
         let service = self.factory.new_service(cfg);
         let tls_acceptor = self.tls_factory.new_service(());
-        async {
+        let config = self.config;
+        async move {
             let expect = expect.await?;
             let service = service.await?;
             let _tls_acceptor = tls_acceptor.await?;
-            Ok(H1Service::new(service, expect, ()))
+            Ok(H1Service::new(config, service, expect, ()))
         }
     }
 }

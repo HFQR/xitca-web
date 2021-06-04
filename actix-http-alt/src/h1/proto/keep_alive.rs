@@ -2,9 +2,9 @@ use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
 
+use futures_core::ready;
 use pin_project_lite::pin_project;
 use tokio::time::{sleep_until, Instant, Sleep};
 
@@ -14,7 +14,6 @@ pin_project! {
     pub(crate) struct KeepAlive {
         #[pin]
         timer: Sleep,
-        dur: Duration,
         deadline: Instant,
     }
 }
@@ -22,19 +21,17 @@ pin_project! {
 impl KeepAlive {
     // time is passed from outside of keep alive to reduce overhead
     // of timer syscall.
-    pub(crate) fn new(dur: Duration, now: Instant) -> Self {
-        let deadline = now + dur;
+    pub(crate) fn new(deadline: Instant) -> Self {
         Self {
             timer: sleep_until(deadline),
-            dur,
             deadline,
         }
     }
 
     #[inline(always)]
-    pub(crate) fn update(self: Pin<&mut Self>, now: Instant) {
+    pub(crate) fn update(self: Pin<&mut Self>, deadline: Instant) {
         let this = self.project();
-        *this.deadline = now + *this.dur;
+        *this.deadline = deadline;
     }
 
     pub(crate) fn is_expired(&self) -> bool {
@@ -50,7 +47,15 @@ impl KeepAlive {
 impl Future for KeepAlive {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().timer.poll(cx)
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().project();
+        ready!(this.timer.poll(cx));
+
+        if self.as_mut().is_expired() {
+            Poll::Ready(())
+        } else {
+            self.as_mut().reset();
+            self.poll(cx)
+        }
     }
 }
