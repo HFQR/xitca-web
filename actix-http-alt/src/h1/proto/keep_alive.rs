@@ -11,7 +11,7 @@ use tokio::time::{sleep_until, Instant, Sleep};
 pin_project! {
     /// A keep alive timer lazily reset the deadline.
     /// after each successful poll.
-    pub(super) struct KeepAlive {
+    pub(crate) struct KeepAlive {
         #[pin]
         timer: Sleep,
         dur: Duration,
@@ -22,7 +22,7 @@ pin_project! {
 impl KeepAlive {
     // time is passed from outside of keep alive to reduce overhead
     // of timer syscall.
-    pub(super) fn new(dur: Duration, now: Instant) -> Self {
+    pub(crate) fn new(dur: Duration, now: Instant) -> Self {
         let deadline = now + dur;
         Self {
             timer: sleep_until(deadline),
@@ -32,16 +32,16 @@ impl KeepAlive {
     }
 
     #[inline(always)]
-    pub(super) fn update(self: Pin<&mut Self>, now: Instant) {
+    pub(crate) fn update(self: Pin<&mut Self>, now: Instant) {
         let this = self.project();
         *this.deadline = now + *this.dur;
     }
 
-    pub(super) fn is_expired(&self) -> bool {
+    pub(crate) fn is_expired(&self) -> bool {
         self.timer.deadline() >= self.deadline
     }
 
-    pub(super) fn reset(self: Pin<&mut Self>) {
+    pub(crate) fn reset(self: Pin<&mut Self>) {
         let this = self.project();
         this.timer.reset(*this.deadline)
     }

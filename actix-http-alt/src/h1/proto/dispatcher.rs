@@ -4,7 +4,6 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     task::{self, Poll},
-    time::Duration,
 };
 
 use actix_service_alt::Service;
@@ -13,7 +12,7 @@ use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use log::trace;
 use pin_project_lite::pin_project;
-use tokio::{io::Interest, pin, select};
+use tokio::{io::Interest, select};
 
 use crate::body::ResponseBody;
 use crate::error::BodyError;
@@ -35,6 +34,7 @@ use super::state::State;
 
 pub(crate) struct Dispatcher<'a, St, S, B, X, U> {
     io: Io<'a, St>,
+    timer: Pin<&'a mut KeepAlive>,
     ctx: Context<'a>,
     error: Option<Error>,
     flow: &'a HttpFlow<S, X, U>,
@@ -167,7 +167,7 @@ where
                 }
 
                 // remove body handle when client sent eof chunk.
-                // No more read is needed anymore.
+                // No more read is needed.
                 if done {
                     *body_handle = None;
                 }
@@ -197,7 +197,12 @@ where
 
     St: AsyncStream,
 {
-    pub(crate) fn new(io: &'a mut St, flow: &'a HttpFlow<S, X, U>, date: &'a DateTimeTask) -> Self {
+    pub(crate) fn new(
+        io: &'a mut St,
+        timer: Pin<&'a mut KeepAlive>,
+        flow: &'a HttpFlow<S, X, U>,
+        date: &'a DateTimeTask,
+    ) -> Self {
         let is_vectored = io.is_write_vectored();
 
         let io = Io {
@@ -209,6 +214,7 @@ where
 
         Self {
             io,
+            timer,
             ctx: Context::new(date.get()),
             error: None,
             flow,
@@ -242,16 +248,11 @@ where
     }
 
     pub(crate) async fn run(&mut self) -> Result<(), Error> {
-        // connection timer.
-        let now = self.ctx.date.get().now();
-        let timer = KeepAlive::new(Duration::from_secs(5), now);
-        pin!(timer);
-
         loop {
             while let Some((req, mut body_handle)) = self.decode_head()? {
                 // have new connection. update timer deadline.
                 let now = self.ctx.date.get().now();
-                timer.as_mut().update(now);
+                self.timer.as_mut().update(now);
 
                 let res = self.request_handler(req, &mut body_handle).await?;
 
@@ -277,27 +278,25 @@ where
                     // use timer to detect slow connection.
                     select! {
                         res = self.io.read() => res?,
-                        _ = timer.as_mut() => {
+                        _ = self.timer.as_mut() => {
                             trace!("Slow Connection detected. Shutting down");
                             return Ok(())
                         }
                     }
                 }
-
                 ConnectionType::KeepAlive => {
                     select! {
                         res = self.io.read() => res?,
-                        _ = timer.as_mut() => {
-                            if timer.as_mut().is_expired() {
+                        _ = self.timer.as_mut() => {
+                            if self.timer.as_mut().is_expired() {
                                 trace!("Connection keep-alive timeout. Shutting down");
                                 return Ok(());
                             } else {
-                                timer.as_mut().reset();
+                                self.timer.as_mut().reset();
                             }
                         }
                     }
                 }
-
                 ConnectionType::Upgrade | ConnectionType::Close => {
                     trace!("Connection not keep-alive. Shutting down");
                     return Ok(());

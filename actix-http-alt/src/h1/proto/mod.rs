@@ -12,3 +12,4 @@ mod state;
 
 pub(super) use dispatcher::Dispatcher;
 pub(super) use error::ProtoError;
+pub(super) use keep_alive::KeepAlive;

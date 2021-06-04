@@ -1,12 +1,14 @@
 use std::{
     future::Future,
     task::{Context, Poll},
+    time::Duration,
 };
 
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
 use http::{Request, Response};
+use tokio::pin;
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
@@ -17,7 +19,7 @@ use crate::util::date::DateTimeTask;
 
 use super::body::RequestBody;
 use super::error::Error;
-use super::proto::Dispatcher;
+use super::proto::{Dispatcher, KeepAlive};
 
 pub struct H1Service<S, X, U> {
     date: DateTimeTask,
@@ -78,7 +80,14 @@ where
         St: 'c,
     {
         async move {
-            let mut dispatcher = Dispatcher::new(&mut io, &self.flow, &self.date);
+            // connection timer.
+            let now = self.date.get().get().now();
+            let timer = KeepAlive::new(Duration::from_secs(5), now);
+            pin!(timer);
+
+            // TODO: add timeout tls handshake here.
+
+            let mut dispatcher = Dispatcher::new(&mut io, timer.as_mut(), &self.flow, &self.date);
 
             match dispatcher.run().await {
                 Ok(_) | Err(Error::Closed) => Ok(()),
