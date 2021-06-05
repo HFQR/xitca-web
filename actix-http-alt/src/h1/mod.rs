@@ -6,6 +6,9 @@ mod proto;
 mod service;
 mod upgrade;
 
+pub(crate) use self::expect::ExpectHandler;
+pub(crate) use self::proto::Dispatcher;
+
 pub use self::body::RequestBody;
 pub use self::builder::H1ServiceBuilder;
 pub use self::error::Error;

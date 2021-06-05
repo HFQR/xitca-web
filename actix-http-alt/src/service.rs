@@ -1,5 +1,6 @@
 use std::{
     future::Future,
+    marker::PhantomData,
     task::{Context, Poll},
 };
 
@@ -9,20 +10,37 @@ use futures_core::{ready, Stream};
 use http::{Request, Response};
 use tokio::{pin, select};
 
-use crate::body::ResponseBody;
-use crate::error::{BodyError, HttpServiceError};
-use crate::response::ResponseError;
-use crate::service::HttpService;
-use crate::stream::AsyncStream;
-use crate::util::keep_alive::KeepAlive;
+use super::body::{RequestBody, ResponseBody};
+use super::config::HttpServiceConfig;
+use super::error::{BodyError, HttpServiceError};
+use super::flow::HttpFlow;
+use super::h1::{Dispatcher, Error};
+use super::response::ResponseError;
+use super::stream::AsyncStream;
+use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
 
-use super::body::RequestBody;
-use super::error::Error;
-use super::proto::Dispatcher;
+pub struct HttpService<S, ReqB, X, U, A> {
+    pub(crate) config: HttpServiceConfig,
+    pub(crate) date: DateTimeTask,
+    pub(crate) flow: HttpFlow<S, X, U>,
+    pub(crate) tls_acceptor: A,
+    _body: PhantomData<ReqB>,
+}
 
-pub type H1Service<S, X, U, A> = HttpService<S, RequestBody, X, U, A>;
+impl<S, ReqB, X, U, A> HttpService<S, ReqB, X, U, A> {
+    /// Construct new Http Service.
+    pub fn new(config: HttpServiceConfig, service: S, expect: X, upgrade: U, tls_acceptor: A) -> Self {
+        Self {
+            config,
+            date: DateTimeTask::new(),
+            flow: HttpFlow::new(service, expect, upgrade),
+            tls_acceptor,
+            _body: PhantomData,
+        }
+    }
+}
 
-impl<St, S, X, U, B, E, A, TlsSt> Service<St> for H1Service<S, X, U, A>
+impl<St, S, X, U, B, E, A, TlsSt> Service<St> for HttpService<S, RequestBody, X, U, A>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -34,11 +52,12 @@ where
     U::Error: ResponseError<S::Response>,
 
     A: Service<St, Response = TlsSt> + 'static,
-    HttpServiceError: From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
+
+    HttpServiceError: From<A::Error>,
 
     St: AsyncStream,
     TlsSt: AsyncStream,

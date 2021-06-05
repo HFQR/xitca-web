@@ -7,8 +7,6 @@ mod decode;
 mod dispatcher;
 mod encode;
 mod error;
-mod keep_alive;
 
-pub(super) use dispatcher::Dispatcher;
-pub(super) use error::ProtoError;
-pub(super) use keep_alive::KeepAlive;
+pub(crate) use dispatcher::Dispatcher;
+pub(crate) use error::ProtoError;

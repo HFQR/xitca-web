@@ -3,8 +3,6 @@
 #![forbid(unsafe_code)]
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
-// TODO: remove these allow flag.
-#![allow(dead_code)]
 
 mod body;
 mod builder;
@@ -12,6 +10,7 @@ mod config;
 mod error;
 mod flow;
 mod response;
+mod service;
 mod stream;
 mod tls;
 
@@ -31,3 +30,4 @@ pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
 pub use config::HttpServiceConfig;
 pub use error::{BodyError, HttpServiceError};
+pub use service::HttpService;

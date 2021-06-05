@@ -96,11 +96,6 @@ impl ContextState {
     }
 
     #[inline(always)]
-    fn remove(&mut self, other: Self) {
-        self.0 &= !other.0;
-    }
-
-    #[inline(always)]
     fn insert(&mut self, other: Self) {
         self.0 |= other.0;
     }

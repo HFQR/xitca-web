@@ -28,6 +28,13 @@ impl Default for RequestBody {
     }
 }
 
+#[cfg(feature = "http1")]
+impl From<super::h1::RequestBody> for RequestBody {
+    fn from(body: super::h1::RequestBody) -> Self {
+        Self::H1(body)
+    }
+}
+
 impl Stream for RequestBody {
     type Item = Result<Bytes, BodyError>;
 

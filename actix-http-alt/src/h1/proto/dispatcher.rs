@@ -9,13 +9,14 @@ use std::{
 
 use actix_service_alt::Service;
 use bytes::{Buf, Bytes};
-use futures_core::stream::Stream;
+use futures_core::Stream;
 use http::{response::Parts, Request, Response};
 use log::trace;
 use pin_project_lite::pin_project;
 use tokio::{io::Interest, pin, select};
 
 use crate::body::ResponseBody;
+use crate::config::HttpServiceConfig;
 use crate::error::BodyError;
 use crate::flow::HttpFlow;
 use crate::h1::{
@@ -24,24 +25,22 @@ use crate::h1::{
 };
 use crate::response::ResponseError;
 use crate::stream::AsyncStream;
-use crate::util::{date::DateTimeTask, poll_fn::poll_fn};
+use crate::util::{date::DateTimeTask, keep_alive::KeepAlive, poll_fn::poll_fn};
 
 use super::buf::{ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
 use super::decode::{RequestBodyDecoder, RequestBodyItem};
 use super::encode::TransferEncoding;
 use super::error::ProtoError;
-use super::keep_alive::KeepAlive;
-use crate::HttpServiceConfig;
 
-pub(crate) struct Dispatcher<'a, St, S, B, X, U> {
+/// Http/1 dispatcher
+pub(crate) struct Dispatcher<'a, St, S, ReqB, ResB, X, U> {
     io: Io<'a, St>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a>,
-    error: Option<Error>,
     flow: &'a HttpFlow<S, X, U>,
-    _phantom: PhantomData<B>,
+    _phantom: PhantomData<(ReqB, ResB)>,
 }
 
 struct Io<'a, St> {
@@ -190,13 +189,15 @@ where
     }
 }
 
-impl<'a, St, S, ResB, E, X, U> Dispatcher<'a, St, S, ResB, X, U>
+impl<'a, St, S, ReqB, ResB, E, X, U> Dispatcher<'a, St, S, ReqB, ResB, X, U>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: ResponseError<S::Response>,
 
-    X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
+    X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
     X::Error: ResponseError<S::Response>,
+
+    ReqB: From<RequestBody>,
 
     ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
@@ -227,13 +228,12 @@ where
             timer,
             ka_dur: config.keep_alive_dur,
             ctx: Context::new(date.get()),
-            error: None,
             flow,
             _phantom: PhantomData,
         }
     }
 
-    fn decode_head(&mut self) -> Option<Result<DecodedHead, ProtoError>> {
+    fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
         // Do not try when nothing new read.
         if self.io.read_buf.advanced() {
             let buf = self.io.read_buf.buf_mut();
@@ -312,6 +312,7 @@ where
                 ConnectionType::Init => {
                     // use timer to detect slow connection.
                     select! {
+                        biased;
                         res = self.io.read() => res?,
                         _ = self.timer.as_mut() => {
                             trace!("Slow Connection detected. Shutting down");
@@ -325,6 +326,7 @@ where
                         return Ok(());
                     } else {
                         select! {
+                            biased;
                             res = self.io.read() => res?,
                             _ = self.timer.as_mut() => {
                                 trace!("Connection keep-alive timeout. Shutting down");
@@ -343,7 +345,7 @@ where
 
     async fn request_handler(
         &mut self,
-        mut req: Request<RequestBody>,
+        mut req: Request<ReqB>,
         body_handle: &mut Option<RequestBodyHandle>,
     ) -> Result<Response<ResponseBody<ResB>>, Error> {
         if self.ctx.is_expect() {
@@ -468,7 +470,7 @@ where
     }
 }
 
-type DecodedHead = (Request<RequestBody>, Option<RequestBodyHandle>);
+type DecodedHead<ReqB> = (Request<ReqB>, Option<RequestBodyHandle>);
 
 struct RequestBodyHandle {
     decoder: RequestBodyDecoder,
@@ -476,14 +478,17 @@ struct RequestBodyHandle {
 }
 
 impl RequestBodyHandle {
-    fn new_pair(decoder: RequestBodyDecoder) -> (Option<RequestBodyHandle>, RequestBody) {
+    fn new_pair<ReqB>(decoder: RequestBodyDecoder) -> (Option<Self>, ReqB)
+    where
+        ReqB: From<RequestBody>,
+    {
         if decoder.is_eof() {
             let (_, body) = RequestBody::create(true);
-            (None, body)
+            (None, body.into())
         } else {
             let (sender, body) = RequestBody::create(false);
             let body_handle = RequestBodyHandle { decoder, sender };
-            (Some(body_handle), body)
+            (Some(body_handle), body.into())
         }
     }
 }
