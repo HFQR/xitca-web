@@ -1,5 +1,6 @@
 use std::{future::Future, marker::PhantomData};
 
+use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
@@ -11,7 +12,6 @@ use super::error::{BodyError, HttpServiceError};
 use super::h1::ExpectHandler;
 use super::response::ResponseError;
 use super::service::HttpService;
-use super::stream::AsyncStream;
 use super::tls;
 
 /// HttpService Builder type.
@@ -135,6 +135,23 @@ impl<F, ReqB, FE, FU, FA> HttpServiceBuilder<F, ReqB, FE, FU, FA> {
     }
 }
 
+impl<F, ReqB, FE, FU, FA> HttpServiceBuilder<F, ReqB, FE, FU, FA> {
+    #[cfg(feature = "openssl")]
+    pub fn openssl(
+        self,
+        acceptor: actix_tls_alt::accept::openssl::TlsAcceptor,
+    ) -> HttpServiceBuilder<F, ReqB, FE, FU, actix_tls_alt::accept::openssl::TlsAcceptorService> {
+        HttpServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            upgrade: self.upgrade,
+            tls_factory: actix_tls_alt::accept::openssl::TlsAcceptorService::new(acceptor),
+            config: self.config,
+            _body: PhantomData,
+        }
+    }
+}
+
 // impl<F, B, E, EF, AF, TlsSt> HttpServiceBuilder<F, EF, AF>
 // // where
 // //     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
@@ -206,8 +223,8 @@ where
     E: 'static,
     BodyError: From<E>,
 
-    St: AsyncStream,
-    TlsSt: AsyncStream,
+    St: AsyncReadWrite,
+    TlsSt: AsyncReadWrite,
 {
     type Response = ();
     type Error = HttpServiceError;
@@ -228,6 +245,7 @@ where
             let upgrade = upgrade.await?;
             let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
+
             Ok(HttpService::new(config, service, expect, upgrade, tls_acceptor))
         }
     }

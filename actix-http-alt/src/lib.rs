@@ -11,7 +11,6 @@ mod error;
 mod flow;
 mod response;
 mod service;
-mod stream;
 mod tls;
 
 #[cfg(feature = "http1")]

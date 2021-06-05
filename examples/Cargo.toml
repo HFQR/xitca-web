@@ -24,10 +24,10 @@ name = "websocket"
 path = "websocket.rs"
 
 [dependencies]
-actix-http-alt = { version = "0.1", features = ["http2", "http3", "rustls"] }
+actix-http-alt = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
 actix-server-alt = "0.1"
 actix-service-alt = "0.1"
-actix-web-alt = { version = "0.1", features = ["http2", "http3", "rustls"] }
+actix-web-alt = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
 http-ws = "0.1"
 
 bytes = "1"
@@ -37,5 +37,6 @@ http = "0.2"
 log = "0.4"
 rustls = "0.19"
 tokio = { version = "1.5", features = ["macros", "rt"] }
+openssl = "0.10"
 
 h3-quinn = { git = "https://github.com/hyperium/h3.git" }

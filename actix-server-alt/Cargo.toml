@@ -11,6 +11,7 @@ signal = ["tokio/signal"]
 [dependencies]
 actix-service-alt = "0.1"
 
+bytes = "1"
 futures-core = "0.3"
 log = "0.4"
 num_cpus = "1.13"

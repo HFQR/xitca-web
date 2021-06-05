@@ -3,6 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
@@ -13,7 +14,6 @@ use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::response::ResponseError;
 use crate::service::HttpService;
-use crate::stream::AsyncStream;
 use crate::util::keep_alive::KeepAlive;
 
 use super::body::RequestBody;
@@ -40,8 +40,8 @@ where
     E: 'static,
     BodyError: From<E>,
 
-    St: AsyncStream,
-    TlsSt: AsyncStream,
+    St: AsyncReadWrite,
+    TlsSt: AsyncReadWrite,
 {
     type Response = ();
     type Error = HttpServiceError;

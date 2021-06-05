@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::Service;
 use bytes::{Buf, Bytes};
 use futures_core::Stream;
@@ -24,7 +25,6 @@ use crate::h1::{
     error::Error,
 };
 use crate::response::ResponseError;
-use crate::stream::AsyncStream;
 use crate::util::{date::DateTimeTask, keep_alive::KeepAlive, poll_fn::poll_fn};
 
 use super::buf::{ReadBuf, WriteBuf};
@@ -51,7 +51,7 @@ struct Io<'a, St> {
 
 impl<St> Io<'_, St>
 where
-    St: AsyncStream,
+    St: AsyncReadWrite,
 {
     /// read until blocked and advance readbuf.
     fn try_read(&mut self) -> Result<(), Error> {
@@ -202,7 +202,7 @@ where
     ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 
-    St: AsyncStream,
+    St: AsyncReadWrite,
 {
     pub(crate) fn new(
         io: &'a mut St,
@@ -391,7 +391,7 @@ where
     Fut: Future<Output = Result<Response<ResponseBody<ResB>>, E>>,
     E: ResponseError<Response<ResponseBody<ResB>>>,
 
-    St: AsyncStream,
+    St: AsyncReadWrite,
 {
     type Output = Result<Response<ResponseBody<ResB>>, Error>;
 
@@ -433,7 +433,7 @@ where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 
-    St: AsyncStream,
+    St: AsyncReadWrite,
 {
     type Output = Result<ResponseHandlerResult, Error>;
 

@@ -4,6 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
@@ -16,7 +17,6 @@ use super::error::{BodyError, HttpServiceError};
 use super::flow::HttpFlow;
 use super::h1::{Dispatcher, Error};
 use super::response::ResponseError;
-use super::stream::AsyncStream;
 use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
 
 pub struct HttpService<S, ReqB, X, U, A> {
@@ -59,8 +59,8 @@ where
 
     HttpServiceError: From<A::Error>,
 
-    St: AsyncStream,
-    TlsSt: AsyncStream,
+    St: AsyncReadWrite,
+    TlsSt: AsyncReadWrite,
 {
     type Response = ();
     type Error = HttpServiceError;

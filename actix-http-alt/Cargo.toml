@@ -8,7 +8,7 @@ default = ["http1"]
 http1 = []
 http2 = ["h2"]
 http3 = ["actix-server-alt/http3", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
-openssl = ["tokio-openssl", "openssl-crate"]
+openssl = ["actix-tls-alt/openssl"]
 rustls = ["tokio-rustls"]
 
 [dependencies]
@@ -26,8 +26,7 @@ pin-project-lite = "0.2.6"
 tokio = { version = "1.6", features = ["io-util"] }
 
 # openssl support
-tokio-openssl = { version = "0.6", optional = true }
-openssl-crate = { package = "openssl", version = "0.10", optional = true }
+actix-tls-alt = { version = "0.1", optional = true }
 
 # rustls support
 tokio-rustls = { version = "0.22", optional = true }

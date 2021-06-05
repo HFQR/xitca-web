@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
@@ -9,7 +10,6 @@ use crate::body::ResponseBody;
 use crate::builder::HttpServiceBuilder;
 use crate::error::{BodyError, HttpServiceError};
 use crate::response::ResponseError;
-use crate::stream::AsyncStream;
 
 use super::body::RequestBody;
 use super::service::H1Service;
@@ -43,8 +43,8 @@ where
     E: 'static,
     BodyError: From<E>,
 
-    St: AsyncStream,
-    TlsSt: AsyncStream,
+    St: AsyncReadWrite,
+    TlsSt: AsyncReadWrite,
 {
     type Response = ();
     type Error = HttpServiceError;

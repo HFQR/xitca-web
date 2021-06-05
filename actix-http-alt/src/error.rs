@@ -13,7 +13,7 @@ pub enum HttpServiceError {
     TlsAcceptTimeout,
     Body(BodyError),
     #[cfg(feature = "openssl")]
-    Openssl(super::tls::openssl::OpensslError),
+    Openssl(actix_tls_alt::accept::openssl::OpensslError),
     #[cfg(feature = "rustls")]
     Rustls(super::tls::rustls::RustlsError),
     #[cfg(feature = "http1")]
@@ -114,5 +114,12 @@ impl From<BodyError> for HttpServiceError {
 impl From<()> for HttpServiceError {
     fn from(_: ()) -> Self {
         Self::Ignored
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<actix_tls_alt::accept::openssl::OpensslError> for HttpServiceError {
+    fn from(e: actix_tls_alt::accept::openssl::OpensslError) -> Self {
+        Self::Openssl(e)
     }
 }

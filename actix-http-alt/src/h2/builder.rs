@@ -49,10 +49,13 @@ where
     BodyError: From<E>,
 {
     #[cfg(feature = "openssl")]
-    pub fn openssl(self, acceptor: tls::openssl::TlsAcceptor) -> H2ServiceBuilder<F, tls::openssl::TlsAcceptorService> {
+    pub fn openssl(
+        self,
+        acceptor: actix_tls_alt::accept::openssl::TlsAcceptor,
+    ) -> H2ServiceBuilder<F, actix_tls_alt::accept::openssl::TlsAcceptorService> {
         H2ServiceBuilder {
             factory: self.factory,
-            tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
+            tls_factory: actix_tls_alt::accept::openssl::TlsAcceptorService::new(acceptor),
         }
     }
 

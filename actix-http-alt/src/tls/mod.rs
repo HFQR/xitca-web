@@ -1,6 +1,3 @@
-#[cfg(feature = "openssl")]
-pub(crate) mod openssl;
-
 #[cfg(feature = "rustls")]
 pub(crate) mod rustls;
 
