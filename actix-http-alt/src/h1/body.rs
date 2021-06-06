@@ -84,6 +84,12 @@ impl Stream for RequestBody {
     }
 }
 
+impl From<RequestBody> for crate::body::RequestBody {
+    fn from(body: RequestBody) -> Self {
+        Self::H1(body)
+    }
+}
+
 /// Sender part of the payload stream
 pub struct RequestBodySender(Weak<RefCell<Inner>>);
 

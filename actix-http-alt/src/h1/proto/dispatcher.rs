@@ -19,7 +19,7 @@ use tokio::{io::Interest, pin, select};
 use crate::body::ResponseBody;
 use crate::config::HttpServiceConfig;
 use crate::error::BodyError;
-use crate::flow::HttpFlow;
+use crate::flow::HttpFlowInner;
 use crate::h1::{
     body::{RequestBody, RequestBodySender, RequestBodyStatus},
     error::Error,
@@ -39,7 +39,7 @@ pub(crate) struct Dispatcher<'a, St, S, ReqB, ResB, X, U> {
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a>,
-    flow: &'a HttpFlow<S, X, U>,
+    flow: &'a HttpFlowInner<S, X, U>,
     _phantom: PhantomData<(ReqB, ResB)>,
 }
 
@@ -208,7 +208,7 @@ where
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig,
-        flow: &'a HttpFlow<S, X, U>,
+        flow: &'a HttpFlowInner<S, X, U>,
         date: &'a DateTimeTask,
     ) -> Self {
         let is_vectored = if config.http1_pipeline {
@@ -261,7 +261,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn run(&mut self) -> Result<(), Error> {
+    pub(crate) async fn run(mut self) -> Result<(), Error> {
         loop {
             while let Some(res) = self.decode_head() {
                 let (res, mut body_handle) = match res {

@@ -3,7 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_server_alt::net::AsyncReadWrite;
+use actix_server_alt::net::{AsyncReadWrite, Protocol};
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
@@ -33,7 +33,7 @@ where
     U: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     U::Error: ResponseError<S::Response>,
 
-    A: Service<St, Response = TlsSt> + 'static,
+    A: Service<St, Response = (TlsSt, Protocol)> + 'static,
     HttpServiceError: From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
@@ -60,6 +60,11 @@ where
             .poll_ready(cx)
             .map_err(|_| HttpServiceError::ServiceReady))?;
 
+        ready!(self
+            .tls_acceptor
+            .poll_ready(cx)
+            .map_err(|_| HttpServiceError::ServiceReady))?;
+
         self.flow
             .service
             .poll_ready(cx)
@@ -80,14 +85,14 @@ where
             select! {
                 biased;
                 res = self.tls_acceptor.call(io) => {
-                    let mut io = res?;
+                    let (mut io, _) = res?;
 
                     // update timer to first request duration.
                     let request_dur = self.config.first_request_dur;
                     let deadline = self.date.get().get().now() + request_dur;
                     timer.as_mut().update(deadline);
 
-                    let mut dispatcher = Dispatcher::new(&mut io, timer.as_mut(), self.config, &self.flow, &self.date);
+                    let dispatcher = Dispatcher::new(&mut io, timer.as_mut(), self.config, &*self.flow, &self.date);
 
                     match dispatcher.run().await {
                         Ok(_) | Err(Error::Closed) => Ok(()),

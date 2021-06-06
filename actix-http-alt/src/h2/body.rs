@@ -28,6 +28,12 @@ impl Stream for RequestBody {
     }
 }
 
+impl From<RequestBody> for crate::body::RequestBody {
+    fn from(body: RequestBody) -> Self {
+        Self::H2(body)
+    }
+}
+
 impl From<RecvStream> for RequestBody {
     fn from(stream: RecvStream) -> Self {
         RequestBody(stream)

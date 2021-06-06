@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use actix_server_alt::net::AsyncReadWrite;
+use actix_server_alt::net::{AsyncReadWrite, Protocol};
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
@@ -35,7 +35,7 @@ where
     FU::Service: 'static,
     FU::Error: ResponseError<F::Response>,
 
-    FA: ServiceFactory<St, Response = TlsSt, Config = ()>,
+    FA: ServiceFactory<St, Response = (TlsSt, Protocol), Config = ()>,
     FA::Service: 'static,
     HttpServiceError: From<FA::Error>,
 

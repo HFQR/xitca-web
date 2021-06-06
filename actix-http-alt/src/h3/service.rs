@@ -17,13 +17,13 @@ use http::{Request, Response};
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
-use crate::flow::HttpFlowSimple;
+use crate::flow::HttpFlow;
 use crate::response::ResponseError;
 
 use super::body::RequestBody;
 
 pub struct H3Service<S> {
-    flow: HttpFlowSimple<S>,
+    flow: HttpFlow<S, (), ()>,
 }
 
 impl<S> H3Service<S> {
@@ -31,7 +31,7 @@ impl<S> H3Service<S> {
     /// No upgrade/expect services allowed in Http/3.
     pub fn new(service: S) -> Self {
         Self {
-            flow: HttpFlowSimple::new(service),
+            flow: HttpFlow::new(service, (), ()),
         }
     }
 }

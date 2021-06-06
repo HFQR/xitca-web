@@ -6,19 +6,16 @@ use std::{
     task::{Context, Poll},
 };
 
+use actix_server_alt::net::{AsyncReadWrite, Protocol};
 use actix_service_alt::{Service, ServiceFactory};
-use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::error::HttpServiceError;
 
 /// A NoOp Tls Acceptor pass through input Stream type.
 pub struct NoOpTlsAcceptorFactory;
 
-impl<St> ServiceFactory<St> for NoOpTlsAcceptorFactory
-where
-    St: AsyncRead + AsyncWrite + Unpin,
-{
-    type Response = St;
+impl<St: AsyncReadWrite> ServiceFactory<St> for NoOpTlsAcceptorFactory {
+    type Response = (St, Protocol);
     type Error = HttpServiceError;
     type Config = ();
     type Service = NoOpTlsAcceptor;
@@ -32,11 +29,8 @@ where
 
 pub struct NoOpTlsAcceptor;
 
-impl<St> Service<St> for NoOpTlsAcceptor
-where
-    St: AsyncRead + AsyncWrite + Unpin,
-{
-    type Response = St;
+impl<St: AsyncReadWrite> Service<St> for NoOpTlsAcceptor {
+    type Response = (St, Protocol);
     type Error = HttpServiceError;
 
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
@@ -51,6 +45,6 @@ where
     where
         St: 'c,
     {
-        async move { Ok(io) }
+        async move { Ok((io, Protocol::Http1)) }
     }
 }

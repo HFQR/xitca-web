@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData};
 
-use actix_server_alt::net::AsyncReadWrite;
+use actix_server_alt::net::{AsyncReadWrite, Protocol};
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
@@ -170,19 +170,6 @@ impl<F, ReqB, FE, FU, FA> HttpServiceBuilder<F, ReqB, FE, FU, FA> {
 // //
 // //     TlsSt: AsyncRead + AsyncWrite + Unpin,
 //
-//     #[cfg(feature = "openssl")]
-//     pub fn openssl(
-//         self,
-//         acceptor: tls::openssl::TlsAcceptor,
-//     ) -> H1ServiceBuilder<F, EF, tls::openssl::TlsAcceptorService> {
-//         H1ServiceBuilder {
-//             factory: self.factory,
-//             expect: self.expect,
-//             tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
-//             config: self.config,
-//         }
-//     }
-//
 //     #[cfg(feature = "rustls")]
 //     pub fn rustls(
 //         self,
@@ -215,7 +202,7 @@ where
     FU::Service: 'static,
     FU::Error: ResponseError<F::Response>,
 
-    FA: ServiceFactory<St, Response = TlsSt, Config = ()>,
+    FA: ServiceFactory<St, Response = (TlsSt, Protocol), Config = ()>,
     FA::Service: 'static,
     HttpServiceError: From<FA::Error>,
 

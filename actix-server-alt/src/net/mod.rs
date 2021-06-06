@@ -15,6 +15,15 @@ use std::net;
 
 use log::info;
 
+/// A collection of regular used protocols
+#[derive(Copy, Clone, PartialOrd, PartialEq, Debug)]
+pub enum Protocol {
+    Http1,
+    Http1Tls,
+    Http2,
+    Http3,
+}
+
 #[derive(Debug)]
 pub(crate) enum Listener {
     Tcp(TcpListener),

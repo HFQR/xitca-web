@@ -4,6 +4,7 @@ use std::{
     io,
 };
 
+use actix_server_alt::net::Protocol;
 use log::error;
 
 /// HttpService layer error.
@@ -11,6 +12,7 @@ pub enum HttpServiceError {
     Ignored,
     ServiceReady,
     TlsAcceptTimeout,
+    UnknownProtocol(Protocol),
     Body(BodyError),
     #[cfg(feature = "openssl")]
     Openssl(actix_tls_alt::accept::openssl::OpensslError),
@@ -32,6 +34,7 @@ impl Debug for HttpServiceError {
             Self::Ignored => write!(f, "Error detail is ignored."),
             Self::ServiceReady => write!(f, "Service is not ready"),
             Self::TlsAcceptTimeout => write!(f, "Tls Accept is timed out"),
+            Self::UnknownProtocol(protocol) => write!(f, "Protocol: {:?} is not supported", protocol),
             Self::Body(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "openssl")]
             Self::Openssl(ref e) => write!(f, "{:?}", e),
