@@ -25,7 +25,7 @@ path = "websocket.rs"
 
 [dependencies]
 actix-http-alt = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
-actix-server-alt = "0.1"
+actix-server-alt = { version = "0.1", features = ["http3"] }
 actix-service-alt = "0.1"
 actix-web-alt = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
 http-ws = "0.1"

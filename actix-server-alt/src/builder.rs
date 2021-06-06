@@ -219,6 +219,54 @@ impl Builder {
 
 #[cfg(feature = "http3")]
 impl Builder {
+    /// Bind to both Tcp and Udp of the same address to enable http/1/2/3 handling
+    /// with single service.
+    pub fn bind_all<N, A, F>(
+        mut self,
+        name: N,
+        addr: A,
+        config: crate::net::H3ServerConfig,
+        factory: F,
+    ) -> io::Result<Self>
+    where
+        N: AsRef<str>,
+        A: net::ToSocketAddrs,
+        F: AsServiceFactoryClone<super::net::Stream>,
+    {
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
+
+        let socket = if addr.is_ipv4() {
+            TcpSocket::new_v4()?
+        } else {
+            TcpSocket::new_v6()?
+        };
+
+        socket.set_reuseaddr(true)?;
+        socket.bind(addr)?;
+        let listener = socket.listen(self.backlog)?.into_std()?;
+
+        self.listeners
+            .entry(name.as_ref().to_string())
+            .or_insert_with(Vec::new)
+            .push(Box::new(Some(listener)));
+
+        let builder = crate::net::UdpListenerBuilder::new(addr, config);
+
+        self.listeners
+            .entry(name.as_ref().to_string())
+            .or_insert_with(Vec::new)
+            .push(Box::new(Some(builder)));
+
+        let factory = Factory::new_boxed(factory);
+
+        self.factories.insert(name.as_ref().to_string(), factory);
+
+        Ok(self)
+    }
+
     pub fn bind_h3<N, A, F>(
         mut self,
         name: N,

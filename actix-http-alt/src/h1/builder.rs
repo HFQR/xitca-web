@@ -1,6 +1,6 @@
-use std::future::Future;
+use std::{future::Future, marker::PhantomData};
 
-use actix_server_alt::net::{AsyncReadWrite, Protocol};
+use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
@@ -17,6 +17,23 @@ use super::service::H1Service;
 /// Http/1 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 pub type H1ServiceBuilder<F, FE, FU, FA> = HttpServiceBuilder<F, RequestBody, FE, FU, FA>;
+
+impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
+    #[cfg(feature = "openssl")]
+    pub fn openssl(
+        self,
+        acceptor: actix_tls_alt::accept::openssl::TlsAcceptor,
+    ) -> H1ServiceBuilder<F, FE, FU, actix_tls_alt::accept::openssl::TlsAcceptorService> {
+        H1ServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            upgrade: self.upgrade,
+            tls_factory: actix_tls_alt::accept::openssl::TlsAcceptorService::new(acceptor),
+            config: self.config,
+            _body: PhantomData,
+        }
+    }
+}
 
 impl<St, F, ResB, E, FE, FU, FA, TlsSt> ServiceFactory<St> for H1ServiceBuilder<F, FE, FU, FA>
 where
@@ -35,7 +52,7 @@ where
     FU::Service: 'static,
     FU::Error: ResponseError<F::Response>,
 
-    FA: ServiceFactory<St, Response = (TlsSt, Protocol), Config = ()>,
+    FA: ServiceFactory<St, Response = TlsSt, Config = ()>,
     FA::Service: 'static,
     HttpServiceError: From<FA::Error>,
 

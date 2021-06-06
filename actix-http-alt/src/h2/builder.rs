@@ -21,7 +21,7 @@ pub struct H2ServiceBuilder<F, AF> {
     tls_factory: AF,
 }
 
-impl<F, B, E> H2ServiceBuilder<F, tls::NoOpTlsAcceptorFactory>
+impl<F, B, E> H2ServiceBuilder<F, tls::NoOpTlsAcceptorService>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
     F::Service: 'static,
@@ -34,7 +34,7 @@ where
     pub fn new(factory: F) -> Self {
         Self {
             factory,
-            tls_factory: tls::NoOpTlsAcceptorFactory,
+            tls_factory: tls::NoOpTlsAcceptorService,
         }
     }
 }

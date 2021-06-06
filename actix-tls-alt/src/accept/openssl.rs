@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_server_alt::net::{AsyncReadWrite, Protocol};
+use actix_server_alt::net::{AsProtocol, AsyncReadWrite, Protocol};
 use actix_service_alt::{Service, ServiceFactory};
 use bytes::BufMut;
 use futures_task::noop_waker;
@@ -25,6 +25,21 @@ pin_project! {
     pub struct TlsStream<S> {
         #[pin]
         stream: tokio_openssl::SslStream<S>
+    }
+}
+
+impl<S> AsProtocol for TlsStream<S> {
+    fn as_protocol(&self) -> Protocol {
+        self.ssl()
+            .selected_alpn_protocol()
+            .map(|proto| {
+                if proto.windows(2).any(|window| window == b"h2") {
+                    Protocol::Http2
+                } else {
+                    Protocol::Http1Tls
+                }
+            })
+            .unwrap_or(Protocol::Http1Tls)
     }
 }
 
@@ -55,7 +70,7 @@ impl TlsAcceptorService {
 }
 
 impl<St: AsyncReadWrite> ServiceFactory<St> for TlsAcceptorService {
-    type Response = (TlsStream<St>, Protocol);
+    type Response = TlsStream<St>;
     type Error = OpensslError;
     type Config = ();
     type Service = TlsAcceptorService;
@@ -69,7 +84,7 @@ impl<St: AsyncReadWrite> ServiceFactory<St> for TlsAcceptorService {
 }
 
 impl<St: AsyncReadWrite> Service<St> for TlsAcceptorService {
-    type Response = (TlsStream<St>, Protocol);
+    type Response = TlsStream<St>;
     type Error = OpensslError;
 
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
@@ -88,22 +103,7 @@ impl<St: AsyncReadWrite> Service<St> for TlsAcceptorService {
             let ssl = Ssl::new(ctx)?;
             let mut stream = tokio_openssl::SslStream::new(ssl, io)?;
             Pin::new(&mut stream).accept().await?;
-
-            let protocol = stream
-                .ssl()
-                .selected_alpn_protocol()
-                .map(|proto| {
-                    if proto.windows(2).any(|window| window == b"h2") {
-                        Protocol::Http2
-                    } else {
-                        Protocol::Http1Tls
-                    }
-                })
-                .unwrap_or(Protocol::Http1Tls);
-
-            let stream = TlsStream { stream };
-
-            Ok((stream, protocol))
+            Ok(TlsStream { stream })
         }
     }
 }

@@ -1,11 +1,13 @@
 #[cfg(feature = "http3")]
 mod h3;
 mod io;
+mod protocol;
 
 #[cfg(feature = "http3")]
 pub use self::h3::{H3ServerConfig, UdpConnecting, UdpListener, UdpListenerBuilder, UdpStream};
 
 pub use self::io::AsyncReadWrite;
+pub use self::protocol::{AsProtocol, Protocol};
 pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
 #[cfg(unix)]
@@ -14,15 +16,6 @@ pub use tokio::net::{UnixListener, UnixStream};
 use std::net;
 
 use log::info;
-
-/// A collection of regular used protocols
-#[derive(Copy, Clone, PartialOrd, PartialEq, Debug)]
-pub enum Protocol {
-    Http1,
-    Http1Tls,
-    Http2,
-    Http3,
-}
 
 #[derive(Debug)]
 pub(crate) enum Listener {

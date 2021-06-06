@@ -3,7 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_server_alt::net::{AsyncReadWrite, Protocol};
+use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
@@ -33,7 +33,7 @@ where
     U: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     U::Error: ResponseError<S::Response>,
 
-    A: Service<St, Response = (TlsSt, Protocol)> + 'static,
+    A: Service<St, Response = TlsSt> + 'static,
     HttpServiceError: From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
@@ -85,7 +85,7 @@ where
             select! {
                 biased;
                 res = self.tls_acceptor.call(io) => {
-                    let (mut io, _) = res?;
+                    let mut io = res?;
 
                     // update timer to first request duration.
                     let request_dur = self.config.first_request_dur;

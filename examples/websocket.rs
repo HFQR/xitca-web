@@ -18,15 +18,25 @@ use bytes::Bytes;
 use futures_util::Stream;
 use http_ws::{ws, EncodeStream, Message};
 use log::info;
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix=info, info");
+    std::env::set_var("RUST_LOG", "actix=trace, info");
     env_logger::init();
+
+    // set up openssl and alpn protocol.
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    builder
+        .set_private_key_file("./cert/key.pem", SslFiletype::PEM)
+        .unwrap();
+    builder.set_certificate_chain_file("./cert/cert.pem").unwrap();
+
+    let acceptor = builder.build();
 
     // construct http server
     HttpServer::new(move || {
-        let builder = HttpServiceBuilder::h1(fn_service(handler));
+        let builder = HttpServiceBuilder::h1(fn_service(handler)).openssl(acceptor.clone());
         ErrorLoggerFactory::new(builder)
     })
     .bind("127.0.0.1:8080")?

@@ -4,7 +4,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_server_alt::net::{AsyncReadWrite, Protocol};
+use actix_server_alt::net::Stream as ServerStream;
+use actix_server_alt::net::{AsProtocol, Protocol};
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
@@ -16,6 +17,7 @@ use super::config::HttpServiceConfig;
 use super::error::{BodyError, HttpServiceError};
 use super::flow::HttpFlow;
 use super::response::ResponseError;
+use super::tls::TlsStream;
 use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
 
 pub struct HttpService<S, ReqB, X, U, A> {
@@ -39,7 +41,7 @@ impl<S, ReqB, X, U, A> HttpService<S, ReqB, X, U, A> {
     }
 }
 
-impl<St, S, X, U, B, E, A, TlsSt> Service<St> for HttpService<S, RequestBody, X, U, A>
+impl<S, X, U, B, E, A> Service<ServerStream> for HttpService<S, RequestBody, X, U, A>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -50,16 +52,13 @@ where
     U: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     U::Error: ResponseError<S::Response>,
 
-    A: Service<St, Response = (TlsSt, Protocol)> + 'static,
+    A: Service<ServerStream, Response = TlsStream> + 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
 
     HttpServiceError: From<A::Error>,
-
-    St: AsyncReadWrite,
-    TlsSt: AsyncReadWrite,
 {
     type Response = ();
     type Error = HttpServiceError;
@@ -89,9 +88,9 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'c>(&'c self, io: St) -> Self::Future<'c>
+    fn call<'c>(&'c self, io: ServerStream) -> Self::Future<'c>
     where
-        St: 'c,
+        ServerStream: 'c,
     {
         async move {
             // tls accept timer.
@@ -100,40 +99,50 @@ where
             let timer = KeepAlive::new(deadline);
             pin!(timer);
 
-            select! {
-                biased;
-                res = self.tls_acceptor.call(io) => {
-                    let (mut tls_stream, protocol) = res?;
+            match io {
+                #[cfg(feature = "http3")]
+                ServerStream::Udp(udp) => {
+                    let dispatcher = super::h3::Dispatcher::new(udp, &self.flow);
 
-                    // update timer to first request duration.
-                    let request_dur = self.config.first_request_dur;
-                    let deadline = self.date.get().get().now() + request_dur;
-                    timer.as_mut().update(deadline);
-
-                    match protocol {
-                        #[cfg(feature = "http1")]
-                        Protocol::Http1Tls => {
-                            let dispatcher = super::h1::Dispatcher::new(&mut tls_stream, timer.as_mut(), self.config, &*self.flow, &self.date);
-
-                            match dispatcher.run().await {
-                                Ok(_) | Err(super::h1::Error::Closed) => Ok(()),
-                                Err(e) => Err(e.into()),
-                            }
-                        }
-                        #[cfg(feature = "http2")]
-                        Protocol::Http2 => {
-                            // TODO: add h2 handshake timeout select.
-                            let mut conn = ::h2::server::handshake(tls_stream).await?;
-
-                            let dispatcher = super::h2::Dispatcher::new(&mut conn, &self.flow);
-
-                            dispatcher.run().await
-                        }
-                        protocol => Err(HttpServiceError::UnknownProtocol(protocol))
-                    }
-
+                    dispatcher.run().await
                 }
-                _ = timer.as_mut() => Err(HttpServiceError::TlsAcceptTimeout),
+                io => select! {
+                    biased;
+                    res = self.tls_acceptor.call(io) => {
+                        let mut tls_stream = res?;
+
+                        // update timer to first request duration.
+                        let request_dur = self.config.first_request_dur;
+                        let deadline = self.date.get().get().now() + request_dur;
+                        timer.as_mut().update(deadline);
+
+                        let protocol = tls_stream.as_protocol();
+
+                        match protocol {
+                            #[cfg(feature = "http1")]
+                            Protocol::Http1Tls | Protocol::Http1 => {
+                                let dispatcher = super::h1::Dispatcher::new(&mut tls_stream, timer.as_mut(), self.config, &*self.flow, &self.date);
+
+                                match dispatcher.run().await {
+                                    Ok(_) | Err(super::h1::Error::Closed) => Ok(()),
+                                    Err(e) => Err(e.into()),
+                                }
+                            }
+                            #[cfg(feature = "http2")]
+                            Protocol::Http2 => {
+                                // TODO: add h2 handshake timeout select.
+                                let mut conn = ::h2::server::handshake(tls_stream).await?;
+
+                                let dispatcher = super::h2::Dispatcher::new(&mut conn, &self.flow);
+
+                                dispatcher.run().await
+                            }
+                            protocol => Err(HttpServiceError::UnknownProtocol(protocol))
+                        }
+
+                    }
+                    _ = timer.as_mut() => Err(HttpServiceError::TlsAcceptTimeout),
+                },
             }
         }
     }

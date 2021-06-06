@@ -18,3 +18,9 @@ impl Stream for RequestBody {
         self.get_mut().0.as_mut().poll_next(cx).map_err(Into::into)
     }
 }
+
+impl From<RequestBody> for crate::body::RequestBody {
+    fn from(body: RequestBody) -> Self {
+        Self::H3(body)
+    }
+}

@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData};
 
-use actix_server_alt::net::{AsyncReadWrite, Protocol};
+use actix_server_alt::net::Stream as ServerStream;
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
@@ -12,18 +12,18 @@ use super::error::{BodyError, HttpServiceError};
 use super::h1::ExpectHandler;
 use super::response::ResponseError;
 use super::service::HttpService;
-use super::tls;
+use super::tls::{self, TlsStream};
 
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 //TODO: use real upgrade service.
-pub struct HttpServiceBuilder<F, ReqB, FE = ExpectHandler<F>, FU = ExpectHandler<F>, FA = tls::NoOpTlsAcceptorFactory> {
+pub struct HttpServiceBuilder<F, ReqB, FE = ExpectHandler<F>, FU = ExpectHandler<F>, FA = tls::TlsAcceptorService> {
     pub(crate) factory: F,
     pub(crate) expect: FE,
     pub(crate) upgrade: FU,
     pub(crate) tls_factory: FA,
     pub(crate) config: HttpServiceConfig,
-    _body: PhantomData<ReqB>,
+    pub(crate) _body: PhantomData<ReqB>,
 }
 
 impl<F> HttpServiceBuilder<F, RequestBody> {
@@ -32,7 +32,9 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
     ///
     /// Note factory type F ues `Request<h1::RequestBody>` as Request type.
     /// This is a request type specific for Http/1 request body.
-    pub fn h1<ResB, E>(factory: F) -> HttpServiceBuilder<F, super::h1::RequestBody>
+    pub fn h1<ResB, E>(
+        factory: F,
+    ) -> HttpServiceBuilder<F, super::h1::RequestBody, ExpectHandler<F>, ExpectHandler<F>, tls::NoOpTlsAcceptorService>
     where
         F: ServiceFactory<Request<super::h1::RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()>,
         F::Service: 'static,
@@ -41,7 +43,14 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
         E: 'static,
         BodyError: From<E>,
     {
-        HttpServiceBuilder::new(factory)
+        HttpServiceBuilder {
+            factory,
+            expect: ExpectHandler::new(),
+            upgrade: ExpectHandler::new(),
+            tls_factory: tls::NoOpTlsAcceptorService,
+            config: HttpServiceConfig::default(),
+            _body: PhantomData,
+        }
     }
 
     #[cfg(feature = "http2")]
@@ -49,7 +58,7 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
     ///
     /// Note factory type F ues `Request<h2::RequestBody>` as Request type.
     /// This is a request type specific for Http/2 request body.
-    pub fn h2<ResB, E>(factory: F) -> super::h2::H2ServiceBuilder<F, tls::NoOpTlsAcceptorFactory>
+    pub fn h2<ResB, E>(factory: F) -> super::h2::H2ServiceBuilder<F, tls::NoOpTlsAcceptorService>
     where
         F: ServiceFactory<Request<super::h2::RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()>,
         F::Service: 'static,
@@ -91,7 +100,7 @@ impl<F, ReqB> HttpServiceBuilder<F, ReqB> {
             factory,
             expect: ExpectHandler::new(),
             upgrade: ExpectHandler::new(),
-            tls_factory: tls::NoOpTlsAcceptorFactory,
+            tls_factory: tls::TlsAcceptorService::default(),
             config,
             _body: PhantomData,
         }
@@ -135,57 +144,26 @@ impl<F, ReqB, FE, FU, FA> HttpServiceBuilder<F, ReqB, FE, FU, FA> {
     }
 }
 
-impl<F, ReqB, FE, FU, FA> HttpServiceBuilder<F, ReqB, FE, FU, FA> {
+impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
     #[cfg(feature = "openssl")]
     pub fn openssl(
         self,
         acceptor: actix_tls_alt::accept::openssl::TlsAcceptor,
-    ) -> HttpServiceBuilder<F, ReqB, FE, FU, actix_tls_alt::accept::openssl::TlsAcceptorService> {
+    ) -> HttpServiceBuilder<F, RequestBody, FE, FU> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: actix_tls_alt::accept::openssl::TlsAcceptorService::new(acceptor),
+            tls_factory: tls::TlsAcceptorService::OpenSsl(actix_tls_alt::accept::openssl::TlsAcceptorService::new(
+                acceptor,
+            )),
             config: self.config,
             _body: PhantomData,
         }
     }
 }
 
-// impl<F, B, E, EF, AF, TlsSt> HttpServiceBuilder<F, EF, AF>
-// // where
-// //     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
-// //     F::Service: 'static,
-// //
-// //     EF: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>>,
-// //     EF::Service: 'static,
-// //
-// //     AF: ServiceFactory<TcpStream, Response = TlsSt>,
-// //     AF::Service: 'static,
-// //     HttpServiceError: From<AF::Error>,
-// //
-// //     B: Stream<Item = Result<Bytes, E>> + 'static,
-// //     E: 'static,
-// //     BodyError: From<E>,
-// //
-// //     TlsSt: AsyncRead + AsyncWrite + Unpin,
-//
-//     #[cfg(feature = "rustls")]
-//     pub fn rustls(
-//         self,
-//         config: std::sync::Arc<tls::rustls::ServerConfig>,
-//     ) -> H1ServiceBuilder<F, EF, tls::rustls::TlsAcceptorService> {
-//         H1ServiceBuilder {
-//             factory: self.factory,
-//             expect: self.expect,
-//             tls_factory: tls::rustls::TlsAcceptorService::new(config),
-//             config: self.config,
-//         }
-//     }
-// }
-//
-
-impl<St, F, ResB, E, FE, FU, FA, TlsSt> ServiceFactory<St> for HttpServiceBuilder<F, RequestBody, FE, FU, FA>
+impl<F, ResB, E, FE, FU, FA> ServiceFactory<ServerStream> for HttpServiceBuilder<F, RequestBody, FE, FU, FA>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
@@ -202,16 +180,13 @@ where
     FU::Service: 'static,
     FU::Error: ResponseError<F::Response>,
 
-    FA: ServiceFactory<St, Response = (TlsSt, Protocol), Config = ()>,
+    FA: ServiceFactory<ServerStream, Response = TlsStream, Config = ()>,
     FA::Service: 'static,
     HttpServiceError: From<FA::Error>,
 
     ResB: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
-
-    St: AsyncReadWrite,
-    TlsSt: AsyncReadWrite,
 {
     type Response = ();
     type Error = HttpServiceError;
