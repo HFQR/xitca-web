@@ -161,6 +161,18 @@ impl<S: AsyncRead + AsyncWrite> AsyncWrite for TlsStream<S> {
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         AsyncWrite::poll_shutdown(self.project().stream, cx)
     }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        AsyncWrite::poll_write_vectored(self.project().stream, cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.stream.is_write_vectored()
+    }
 }
 
 impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {

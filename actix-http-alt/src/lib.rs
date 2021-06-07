@@ -29,4 +29,5 @@ pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
 pub use config::HttpServiceConfig;
 pub use error::{BodyError, HttpServiceError};
+pub use response::ResponseError;
 pub use service::HttpService;

@@ -7,17 +7,14 @@ edition = "2018"
 name = "hello-world"
 path = "hello-world.rs"
 
-[[example]]
-name = "h2"
-path = "h2.rs"
-
-[[example]]
-name = "h3"
-path = "h3.rs"
 
 [[example]]
 name = "unix"
 path = "unix.rs"
+
+[[example]]
+name = "multi-services"
+path = "multi-services.rs"
 
 [[example]]
 name = "websocket"

@@ -81,7 +81,7 @@ impl AsListener for Option<net::TcpListener> {
 
         let tcp = TcpListener::from_std(this)?;
 
-        info!("Started Tcp listening on : {:?}", tcp.local_addr().ok());
+        info!("Started Tcp listening on: {:?}", tcp.local_addr().ok());
 
         Ok(Listener::Tcp(tcp))
     }
@@ -95,7 +95,7 @@ impl AsListener for Option<std::os::unix::net::UnixListener> {
 
         let unix = UnixListener::from_std(this)?;
 
-        info!("Started Unix listening on : {:?}", unix.local_addr().ok());
+        info!("Started Unix listening on: {:?}", unix.local_addr().ok());
 
         Ok(Listener::Unix(unix))
     }

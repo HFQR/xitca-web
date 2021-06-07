@@ -11,7 +11,6 @@ use actix_http_alt::{
     HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody,
 };
 use actix_service_alt::fn_service;
-use actix_web_alt::HttpServer;
 use bytes::Bytes;
 use h3_quinn::quinn::generic::ServerConfig;
 use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, PrivateKey, ServerConfigBuilder};
@@ -23,35 +22,14 @@ async fn main() -> io::Result<()> {
     env_logger::init();
 
     // set up openssl and alpn protocol.
-    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
-    builder
-        .set_private_key_file("./cert/key.pem", SslFiletype::PEM)
-        .unwrap();
-    builder.set_certificate_chain_file("./cert/cert.pem").unwrap();
-
-    builder.set_alpn_select_callback(|_, protocols| {
-        const H2: &[u8] = b"\x02h2";
-        const H11: &[u8] = b"\x08http/1.1";
-
-        if protocols.windows(3).any(|window| window == H2) {
-            Ok(b"h2")
-        } else if protocols.windows(9).any(|window| window == H11) {
-            Ok(b"http/1.1")
-        } else {
-            Err(AlpnError::NOACK)
-        }
-    });
-
-    builder.set_alpn_protos(b"\x08http/1.1\x02h2")?;
-
-    let acceptor = builder.build();
+    let acceptor = openssl_config()?;
 
     // construct http3 quic server config
     let config = h3_config()?;
 
-    // construct http server
+    // construct server
     actix_server_alt::Builder::new()
-        // bind to both tcp and udp addresses where a single service would handle all traffic.
+        // bind to both tcp and udp addresses where a single service would handle http/1/2/3 traffic.
         .bind_all("hello-world", "127.0.0.1:8080", config, move || {
             // enable pipeline mode for a better micro bench result.
             // in real world this should be left as disabled.(which is by default).
@@ -71,7 +49,6 @@ async fn handler(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<
         .status(200)
         .header("Content-Type", "text/plain; charset=utf-8")
         .body(Bytes::from_static(b"Hello World!").into())?;
-
     Ok(res)
 }
 
@@ -88,4 +65,30 @@ fn h3_config() -> io::Result<ServerConfig<TlsSession>> {
     config.certificate(cert, key).unwrap();
 
     Ok(config.build())
+}
+
+fn openssl_config() -> io::Result<SslAcceptor> {
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
+
+    builder.set_private_key_file("./cert/key.pem", SslFiletype::PEM)?;
+    builder.set_certificate_chain_file("./cert/cert.pem")?;
+
+    const H11: &[u8] = b"\x08http/1.1";
+    const H2: &[u8] = b"\x02h2";
+
+    builder.set_alpn_select_callback(|_, protocols| {
+        if protocols.windows(3).any(|window| window == H2) {
+            Ok(b"h2")
+        } else if protocols.windows(9).any(|window| window == H11) {
+            Ok(b"http/1.1")
+        } else {
+            Err(AlpnError::NOACK)
+        }
+    });
+
+    let protos = H11.iter().chain(H2).cloned().collect::<Vec<_>>();
+
+    builder.set_alpn_protos(&protos)?;
+
+    Ok(builder.build())
 }

@@ -11,7 +11,7 @@ use log::error;
 pub enum HttpServiceError {
     Ignored,
     ServiceReady,
-    TlsAcceptTimeout,
+    Timeout(TimeoutError),
     UnknownProtocol(Protocol),
     Body(BodyError),
     #[cfg(feature = "openssl")]
@@ -28,13 +28,19 @@ pub enum HttpServiceError {
     H3(super::h3::Error),
 }
 
+#[derive(Debug)]
+pub enum TimeoutError {
+    TlsAccept,
+    H2Handshake,
+}
+
 impl Debug for HttpServiceError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Ignored => write!(f, "Error detail is ignored."),
             Self::ServiceReady => write!(f, "Service is not ready"),
-            Self::TlsAcceptTimeout => write!(f, "Tls Accept is timed out"),
-            Self::UnknownProtocol(protocol) => write!(f, "Protocol: {:?} is not supported", protocol),
+            Self::Timeout(ref timeout) => write!(f, "{:?} is timed out", timeout),
+            Self::UnknownProtocol(ref protocol) => write!(f, "Protocol: {:?} is not supported", protocol),
             Self::Body(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "openssl")]
             Self::Openssl(ref e) => write!(f, "{:?}", e),

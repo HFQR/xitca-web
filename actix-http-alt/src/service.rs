@@ -14,7 +14,7 @@ use tokio::{pin, select};
 
 use super::body::{RequestBody, ResponseBody};
 use super::config::HttpServiceConfig;
-use super::error::{BodyError, HttpServiceError};
+use super::error::{BodyError, HttpServiceError, TimeoutError};
 use super::flow::HttpFlow;
 use super::response::ResponseError;
 use super::tls::TlsStream;
@@ -94,7 +94,7 @@ where
     {
         async move {
             // tls accept timer.
-            let accept_dur = self.config.tls_accept_dur;
+            let accept_dur = self.config.tls_accept_timeout;
             let deadline = self.date.get().get().now() + accept_dur;
             let timer = KeepAlive::new(deadline);
             pin!(timer);
@@ -111,16 +111,18 @@ where
                     res = self.tls_acceptor.call(io) => {
                         let mut tls_stream = res?;
 
-                        // update timer to first request duration.
-                        let request_dur = self.config.first_request_dur;
-                        let deadline = self.date.get().get().now() + request_dur;
-                        timer.as_mut().update(deadline);
-
                         let protocol = tls_stream.as_protocol();
 
                         match protocol {
                             #[cfg(feature = "http1")]
                             Protocol::Http1Tls | Protocol::Http1 => {
+                                log::info!("new connection with http1 protocol");
+
+                                // update timer to first request duration.
+                                let request_dur = self.config.first_request_timeout;
+                                let deadline = self.date.get().get().now() + request_dur;
+                                timer.as_mut().update(deadline);
+
                                 let dispatcher = super::h1::Dispatcher::new(&mut tls_stream, timer.as_mut(), self.config, &*self.flow, &self.date);
 
                                 match dispatcher.run().await {
@@ -130,18 +132,24 @@ where
                             }
                             #[cfg(feature = "http2")]
                             Protocol::Http2 => {
-                                // TODO: add h2 handshake timeout select.
-                                let mut conn = ::h2::server::handshake(tls_stream).await?;
+                                // reset timer to another accept_dur for h2 handshake timeout.
+                                let deadline = self.date.get().get().now() + accept_dur;
+                                timer.as_mut().update(deadline);
 
-                                let dispatcher = super::h2::Dispatcher::new(&mut conn, &self.flow);
-
-                                dispatcher.run().await
+                                select! {
+                                    biased;
+                                    res = ::h2::server::handshake(tls_stream) => {
+                                        let mut conn = res?;
+                                        let dispatcher = super::h2::Dispatcher::new(&mut conn, &self.flow);
+                                        dispatcher.run().await
+                                    }
+                                    _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::H2Handshake))
+                                }
                             }
                             protocol => Err(HttpServiceError::UnknownProtocol(protocol))
                         }
-
                     }
-                    _ = timer.as_mut() => Err(HttpServiceError::TlsAcceptTimeout),
+                    _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::TlsAccept)),
                 },
             }
         }

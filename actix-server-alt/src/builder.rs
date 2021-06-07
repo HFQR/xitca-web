@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io, net, time::Duration};
 
-use crate::net::{AsListener, TcpSocket, TcpStream};
+use crate::net::{AsListener, FromStream, TcpSocket};
 use crate::server::{AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone};
 
 pub struct Builder {
@@ -12,7 +12,7 @@ pub struct Builder {
     pub(crate) factories: HashMap<String, Box<dyn ServiceFactoryClone>>,
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
-    backlog: u32,
+    tcp_backlog: u32,
 }
 
 impl Default for Builder {
@@ -33,7 +33,7 @@ impl Builder {
             factories: HashMap::new(),
             enable_signal: true,
             shutdown_timeout: Duration::from_secs(30),
-            backlog: 2048,
+            tcp_backlog: 2048,
         }
     }
 
@@ -62,6 +62,19 @@ impl Builder {
         self
     }
 
+    /// Set limit of connection count for a single worker thread.
+    ///
+    /// When reaching limit a worker thread would enter backpressure state and stop
+    /// accepting new connections until living connections reduces below the limit.
+    ///
+    /// A worker thread enter backpressure does not prevent other worker threads from
+    /// accepting new connections as long as they have not reached their connection
+    /// limits.
+    ///
+    /// Default set to 25_600.
+    ///
+    /// # Panics:
+    /// When received 0 as number of connection limit.
     pub fn connection_limit(mut self, num: usize) -> Self {
         assert_ne!(num, 0, "Connection limit must be higher than 0");
 
@@ -109,16 +122,17 @@ impl Builder {
         self
     }
 
-    pub fn backlog(mut self, num: u32) -> Self {
-        self.backlog = num;
+    pub fn tcp_backlog(mut self, num: u32) -> Self {
+        self.tcp_backlog = num;
         self
     }
 
-    pub fn bind<N, A, F>(self, name: N, addr: A, factory: F) -> io::Result<Self>
+    pub fn bind<N, A, F, St>(self, name: N, addr: A, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: AsServiceFactoryClone<TcpStream>,
+        F: AsServiceFactoryClone<St>,
+        St: FromStream + Send + 'static,
     {
         let addr = addr
             .to_socket_addrs()?
@@ -133,15 +147,16 @@ impl Builder {
 
         socket.set_reuseaddr(true)?;
         socket.bind(addr)?;
-        let listener = socket.listen(self.backlog)?.into_std()?;
+        let listener = socket.listen(self.tcp_backlog)?.into_std()?;
 
         self.listen(name, listener, factory)
     }
 
-    pub fn listen<N, F>(mut self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
+    pub fn listen<N, F, St>(mut self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: AsServiceFactoryClone<TcpStream>,
+        F: AsServiceFactoryClone<St>,
+        St: FromStream + Send + 'static,
     {
         self.listeners
             .entry(name.as_ref().to_string())
@@ -161,11 +176,7 @@ impl Builder {
             Ok(server) => ServerFuture::Server(ServerFutureInner {
                 server,
                 #[cfg(feature = "signal")]
-                signals: if _enable_signal {
-                    Some(crate::signals::Signals::start())
-                } else {
-                    None
-                },
+                signals: _enable_signal.then(crate::signals::Signals::start),
             }),
             Err(e) => ServerFuture::Error(e),
         }
@@ -174,11 +185,12 @@ impl Builder {
 
 #[cfg(unix)]
 impl Builder {
-    pub fn bind_unix<N, P, F>(self, name: N, path: P, factory: F) -> io::Result<Self>
+    pub fn bind_unix<N, P, F, St>(self, name: N, path: P, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
         P: AsRef<std::path::Path>,
-        F: AsServiceFactoryClone<crate::net::UnixStream>,
+        F: AsServiceFactoryClone<St>,
+        St: FromStream + Send + 'static,
     {
         // The path must not exist when we try to bind.
         // Try to remove it to avoid bind error.
@@ -194,7 +206,7 @@ impl Builder {
         self.listen_unix(name, listener, factory)
     }
 
-    pub fn listen_unix<N, F>(
+    pub fn listen_unix<N, F, St>(
         mut self,
         name: N,
         listener: std::os::unix::net::UnixListener,
@@ -202,7 +214,8 @@ impl Builder {
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: AsServiceFactoryClone<crate::net::UnixStream>,
+        F: AsServiceFactoryClone<St>,
+        St: FromStream + Send + 'static,
     {
         self.listeners
             .entry(name.as_ref().to_string())
@@ -246,7 +259,7 @@ impl Builder {
 
         socket.set_reuseaddr(true)?;
         socket.bind(addr)?;
-        let listener = socket.listen(self.backlog)?.into_std()?;
+        let listener = socket.listen(self.tcp_backlog)?.into_std()?;
 
         self.listeners
             .entry(name.as_ref().to_string())

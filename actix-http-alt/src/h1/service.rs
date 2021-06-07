@@ -11,7 +11,7 @@ use http::{Request, Response};
 use tokio::{pin, select};
 
 use crate::body::ResponseBody;
-use crate::error::{BodyError, HttpServiceError};
+use crate::error::{BodyError, HttpServiceError, TimeoutError};
 use crate::response::ResponseError;
 use crate::service::HttpService;
 use crate::util::keep_alive::KeepAlive;
@@ -77,7 +77,7 @@ where
     {
         async move {
             // tls accept timer.
-            let accept_dur = self.config.tls_accept_dur;
+            let accept_dur = self.config.tls_accept_timeout;
             let deadline = self.date.get().get().now() + accept_dur;
             let timer = KeepAlive::new(deadline);
             pin!(timer);
@@ -88,7 +88,7 @@ where
                     let mut io = res?;
 
                     // update timer to first request duration.
-                    let request_dur = self.config.first_request_dur;
+                    let request_dur = self.config.first_request_timeout;
                     let deadline = self.date.get().get().now() + request_dur;
                     timer.as_mut().update(deadline);
 
@@ -99,7 +99,7 @@ where
                         Err(e) => Err(e.into()),
                     }
                 }
-                _ = timer.as_mut() => Err(HttpServiceError::TlsAcceptTimeout),
+                _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::TlsAccept)),
             }
         }
     }

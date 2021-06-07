@@ -7,14 +7,20 @@ edition = "2018"
 default = []
 http2 = ["actix-http-alt/http2"]
 http3 = ["actix-http-alt/http3", "actix-server-alt/http3"]
-openssl = ["actix-http-alt/openssl"]
+openssl = ["actix-http-alt/openssl", "openssl-crate"]
 rustls = ["actix-http-alt/rustls"]
 
 [dependencies]
 actix-http-alt = { version = "0.1", default-features = false }
 actix-server-alt = { version = "0.1" }
 actix-service-alt = "0.1"
+
+bytes = "1"
+futures-core = "0.3"
 log = "0.4"
+
+# openssl feature
+openssl-crate = { package = "openssl", version = "0.10", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.6", features = ["rt", "macros"] }

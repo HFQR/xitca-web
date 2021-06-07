@@ -34,13 +34,13 @@ use super::encode::TransferEncoding;
 use super::error::ProtoError;
 
 /// Http/1 dispatcher
-pub(crate) struct Dispatcher<'a, St, S, ReqB, ResB, X, U> {
+pub(crate) struct Dispatcher<'a, St, S, ReqB, X, U> {
     io: Io<'a, St>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a>,
     flow: &'a HttpFlowInner<S, X, U>,
-    _phantom: PhantomData<(ReqB, ResB)>,
+    _phantom: PhantomData<ReqB>,
 }
 
 struct Io<'a, St> {
@@ -189,7 +189,7 @@ where
     }
 }
 
-impl<'a, St, S, ReqB, ResB, E, X, U> Dispatcher<'a, St, S, ReqB, ResB, X, U>
+impl<'a, St, S, ReqB, ResB, E, X, U> Dispatcher<'a, St, S, ReqB, X, U>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -226,7 +226,7 @@ where
         Self {
             io,
             timer,
-            ka_dur: config.keep_alive_dur,
+            ka_dur: config.keep_alive_timeout,
             ctx: Context::new(date.get()),
             flow,
             _phantom: PhantomData,
@@ -369,24 +369,22 @@ where
             body_handle,
             io: &mut self.io,
             ctx: &mut self.ctx,
-            _body: PhantomData,
         }
         .await
     }
 }
 
 pin_project! {
-    struct RequestHandler<'a, 'b, St, Fut, ResB> {
+    struct RequestHandler<'a, 'b, St, Fut> {
         #[pin]
         fut: Fut,
         body_handle: &'a mut Option<RequestBodyHandle>,
         io: &'a mut Io<'b, St>,
         ctx: &'a mut Context<'b>,
-        _body: PhantomData<ResB>
     }
 }
 
-impl<St, Fut, E, ResB> Future for RequestHandler<'_, '_, St, Fut, ResB>
+impl<St, Fut, E, ResB> Future for RequestHandler<'_, '_, St, Fut>
 where
     Fut: Future<Output = Result<Response<ResponseBody<ResB>>, E>>,
     E: ResponseError<Response<ResponseBody<ResB>>>,
@@ -415,8 +413,8 @@ where
     }
 }
 
-struct ResponseHandler<'a, 'b, St, B> {
-    res_body: Pin<&'a mut ResponseBody<B>>,
+struct ResponseHandler<'a, 'b, St, ResB> {
+    res_body: Pin<&'a mut ResponseBody<ResB>>,
     encoder: &'a mut TransferEncoding,
     body_handle: &'a mut Option<RequestBodyHandle>,
     io: &'a mut Io<'b, St>,
@@ -428,9 +426,9 @@ enum ResponseHandlerResult {
     WriteBackpressure,
 }
 
-impl<St, B, E> Future for ResponseHandler<'_, '_, St, B>
+impl<St, ResB, E> Future for ResponseHandler<'_, '_, St, ResB>
 where
-    B: Stream<Item = Result<Bytes, E>>,
+    ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 
     St: AsyncReadWrite,
