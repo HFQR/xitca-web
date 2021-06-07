@@ -4,7 +4,6 @@ members = [
     "actix-server-alt",
     "actix-service-alt",
     "actix-web-alt",
-    "actix-tls-alt",
     "examples",
     "http-ws",
 ]
@@ -14,7 +13,6 @@ actix-http-alt = { path = "./actix-http-alt" }
 actix-server-alt = { path = "./actix-server-alt" }
 actix-service-alt = { path = "./actix-service-alt" }
 actix-web-alt = { path = "./actix-web-alt" }
-actix-tls-alt = { path = "actix-tls-alt" }
 http-ws = { path = "./http-ws" }
 
 [profile.release]

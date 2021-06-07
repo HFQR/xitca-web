@@ -1,7 +1,7 @@
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
-    io, mem,
+    io,
     ops::{Deref, DerefMut},
     pin::Pin,
     task::{Context, Poll},
@@ -14,8 +14,11 @@ use futures_task::noop_waker;
 use openssl_crate::error::{Error, ErrorStack};
 use openssl_crate::ssl::{Error as TlsError, Ssl};
 use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
+use tokio_util::io::poll_read_buf;
 
-pub use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
+use crate::error::HttpServiceError;
+
+pub(crate) use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
 
 /// A wrapper type for [SslStream](tokio_openssl::SslStream).
 ///
@@ -193,26 +196,10 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
         let waker = noop_waker();
         let cx = &mut Context::from_waker(&waker);
 
-        let n = {
-            let dst = buf.chunk_mut();
-            let dst = unsafe { &mut *(dst as *mut _ as *mut [mem::MaybeUninit<u8>]) };
-            let mut buf = ReadBuf::uninit(dst);
-            match AsyncRead::poll_read(Pin::new(self), cx, &mut buf) {
-                Poll::Pending => return Err(io::Error::from(io::ErrorKind::WouldBlock)),
-                Poll::Ready(res) => res?,
-            };
-
-            buf.filled().len()
-        };
-
-        // # SAFETY:
-        // This is guaranteed to be the number of initialized (and read)
-        // bytes due to the invariants provided by `ReadBuf::filled`.
-        unsafe {
-            buf.advance_mut(n);
+        match poll_read_buf(Pin::new(self), cx, buf) {
+            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+            Poll::Ready(res) => res,
         }
-
-        Ok(n)
     }
 
     fn try_write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -243,5 +230,11 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
     #[inline]
     fn poll_write_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.get_mut().poll_write_ready(cx)
+    }
+}
+
+impl From<OpensslError> for HttpServiceError {
+    fn from(e: OpensslError) -> Self {
+        Self::Openssl(e)
     }
 }

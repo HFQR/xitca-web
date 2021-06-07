@@ -1,7 +1,7 @@
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
-    io, mem,
+    io,
     ops::{Deref, DerefMut},
     pin::Pin,
     sync::Arc,
@@ -13,11 +13,15 @@ use actix_service_alt::{Service, ServiceFactory};
 use bytes::BufMut;
 use futures_task::noop_waker;
 use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
-use tokio_rustls::rustls::{ServerConfig, Session};
+use tokio_rustls::{
+    rustls::{ServerConfig, Session},
+    TlsAcceptor,
+};
+use tokio_util::io::poll_read_buf;
 
-use tokio_rustls::TlsAcceptor;
+use crate::error::HttpServiceError;
 
-pub type RustlsConfig = Arc<ServerConfig>;
+pub(crate) type RustlsConfig = Arc<ServerConfig>;
 
 /// A wrapper type for [TlsStream](tokio_rustls::TlsStream).
 ///
@@ -161,26 +165,10 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
         let waker = noop_waker();
         let cx = &mut Context::from_waker(&waker);
 
-        let n = {
-            let dst = buf.chunk_mut();
-            let dst = unsafe { &mut *(dst as *mut _ as *mut [mem::MaybeUninit<u8>]) };
-            let mut buf = ReadBuf::uninit(dst);
-            match AsyncRead::poll_read(Pin::new(self), cx, &mut buf) {
-                Poll::Pending => return Err(io::Error::from(io::ErrorKind::WouldBlock)),
-                Poll::Ready(res) => res?,
-            };
-
-            buf.filled().len()
-        };
-
-        // # SAFETY:
-        // This is guaranteed to be the number of initialized (and read)
-        // bytes due to the invariants provided by `ReadBuf::filled`.
-        unsafe {
-            buf.advance_mut(n);
+        match poll_read_buf(Pin::new(self), cx, buf) {
+            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+            Poll::Ready(res) => res,
         }
-
-        Ok(n)
     }
 
     fn try_write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -226,5 +214,11 @@ impl Debug for RustlsError {
 impl From<io::Error> for RustlsError {
     fn from(e: io::Error) -> Self {
         Self(e)
+    }
+}
+
+impl From<RustlsError> for HttpServiceError {
+    fn from(e: RustlsError) -> Self {
+        Self::Rustls(e)
     }
 }

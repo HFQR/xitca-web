@@ -153,34 +153,24 @@ impl<F, ReqB, FE, FU, FA> HttpServiceBuilder<F, ReqB, FE, FU, FA> {
 
 impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
     #[cfg(feature = "openssl")]
-    pub fn openssl(
-        self,
-        acceptor: actix_tls_alt::accept::openssl::TlsAcceptor,
-    ) -> HttpServiceBuilder<F, RequestBody, FE, FU> {
+    pub fn openssl(self, acceptor: tls::openssl::TlsAcceptor) -> HttpServiceBuilder<F, RequestBody, FE, FU> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: tls::TlsAcceptorService::OpenSsl(actix_tls_alt::accept::openssl::TlsAcceptorService::new(
-                acceptor,
-            )),
+            tls_factory: tls::TlsAcceptorService::OpenSsl(tls::openssl::TlsAcceptorService::new(acceptor)),
             config: self.config,
             _body: PhantomData,
         }
     }
 
     #[cfg(feature = "rustls")]
-    pub fn rustls(
-        self,
-        config: actix_tls_alt::accept::rustls::RustlsConfig,
-    ) -> HttpServiceBuilder<F, RequestBody, FE, FU> {
+    pub fn rustls(self, config: tls::rustls::RustlsConfig) -> HttpServiceBuilder<F, RequestBody, FE, FU> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: tls::TlsAcceptorService::Rustls(actix_tls_alt::accept::rustls::TlsAcceptorService::new(
-                config,
-            )),
+            tls_factory: tls::TlsAcceptorService::Rustls(tls::rustls::TlsAcceptorService::new(config)),
             config: self.config,
             _body: PhantomData,
         }

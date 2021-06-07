@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData};
+use std::future::Future;
 
 use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::ServiceFactory;
@@ -22,30 +22,30 @@ impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
     #[cfg(feature = "openssl")]
     pub fn openssl(
         self,
-        acceptor: actix_tls_alt::accept::openssl::TlsAcceptor,
-    ) -> H1ServiceBuilder<F, FE, FU, actix_tls_alt::accept::openssl::TlsAcceptorService> {
+        acceptor: crate::tls::openssl::TlsAcceptor,
+    ) -> H1ServiceBuilder<F, FE, FU, crate::tls::openssl::TlsAcceptorService> {
         H1ServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: actix_tls_alt::accept::openssl::TlsAcceptorService::new(acceptor),
+            tls_factory: crate::tls::openssl::TlsAcceptorService::new(acceptor),
             config: self.config,
-            _body: PhantomData,
+            _body: std::marker::PhantomData,
         }
     }
 
     #[cfg(feature = "rustls")]
     pub fn rustls(
         self,
-        config: actix_tls_alt::accept::rustls::RustlsConfig,
-    ) -> H1ServiceBuilder<F, FE, FU, actix_tls_alt::accept::rustls::TlsAcceptorService> {
+        config: crate::tls::rustls::RustlsConfig,
+    ) -> H1ServiceBuilder<F, FE, FU, crate::tls::rustls::TlsAcceptorService> {
         H1ServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: actix_tls_alt::accept::rustls::TlsAcceptorService::new(config),
+            tls_factory: crate::tls::rustls::TlsAcceptorService::new(config),
             config: self.config,
-            _body: PhantomData,
+            _body: std::marker::PhantomData,
         }
     }
 }

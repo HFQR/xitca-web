@@ -4,6 +4,11 @@
 //! For plain Tcp and Unix sockets connection a dummy Tls acceptor and tls stream type
 //! is used.
 
+#[cfg(feature = "openssl")]
+pub(crate) mod openssl;
+#[cfg(feature = "rustls")]
+pub(crate) mod rustls;
+
 use std::{
     future::Future,
     io,
@@ -60,9 +65,9 @@ impl<St> Service<St> for NoOpTlsAcceptorService {
 pub enum TlsAcceptorService {
     NoOp(NoOpTlsAcceptorService),
     #[cfg(feature = "openssl")]
-    OpenSsl(actix_tls_alt::accept::openssl::TlsAcceptorService),
+    OpenSsl(self::openssl::TlsAcceptorService),
     #[cfg(feature = "rustls")]
-    Rustls(actix_tls_alt::accept::rustls::TlsAcceptorService),
+    Rustls(self::rustls::TlsAcceptorService),
 }
 
 impl TlsAcceptorService {
@@ -102,15 +107,11 @@ impl Service<ServerStream> for TlsAcceptorService {
         match *self {
             Self::NoOp(ref tls) => <NoOpTlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx),
             #[cfg(feature = "openssl")]
-            Self::OpenSsl(ref tls) => {
-                <actix_tls_alt::accept::openssl::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
-                    .map_err(HttpServiceError::from)
-            }
+            Self::OpenSsl(ref tls) => <self::openssl::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
+                .map_err(HttpServiceError::from),
             #[cfg(feature = "rustls")]
-            Self::Rustls(ref tls) => {
-                <actix_tls_alt::accept::rustls::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
-                    .map_err(HttpServiceError::from)
-            }
+            Self::Rustls(ref tls) => <self::rustls::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
+                .map_err(HttpServiceError::from),
         }
     }
 
@@ -144,9 +145,9 @@ impl Service<ServerStream> for TlsAcceptorService {
 pub enum TlsStream {
     NoOp(ServerStream),
     #[cfg(feature = "openssl")]
-    OpenSsl(actix_tls_alt::accept::openssl::TlsStream<ServerStream>),
+    OpenSsl(self::openssl::TlsStream<ServerStream>),
     #[cfg(feature = "rustls")]
-    Rustls(actix_tls_alt::accept::rustls::TlsStream<ServerStream>),
+    Rustls(self::rustls::TlsStream<ServerStream>),
 }
 
 impl AsProtocol for TlsStream {

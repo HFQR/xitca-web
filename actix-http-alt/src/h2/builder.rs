@@ -22,13 +22,13 @@ impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
     #[cfg(feature = "openssl")]
     pub fn openssl(
         self,
-        acceptor: actix_tls_alt::accept::openssl::TlsAcceptor,
-    ) -> H2ServiceBuilder<F, FE, FU, actix_tls_alt::accept::openssl::TlsAcceptorService> {
+        acceptor: crate::tls::openssl::TlsAcceptor,
+    ) -> H2ServiceBuilder<F, FE, FU, crate::tls::openssl::TlsAcceptorService> {
         H2ServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: actix_tls_alt::accept::openssl::TlsAcceptorService::new(acceptor),
+            tls_factory: crate::tls::openssl::TlsAcceptorService::new(acceptor),
             config: self.config,
             _body: PhantomData,
         }
@@ -37,75 +37,18 @@ impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
     #[cfg(feature = "rustls")]
     pub fn rustls(
         self,
-        config: actix_tls_alt::accept::rustls::RustlsConfig,
-    ) -> H2ServiceBuilder<F, FE, FU, actix_tls_alt::accept::rustls::TlsAcceptorService> {
+        config: crate::tls::rustls::RustlsConfig,
+    ) -> H2ServiceBuilder<F, FE, FU, crate::tls::rustls::TlsAcceptorService> {
         H2ServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: actix_tls_alt::accept::rustls::TlsAcceptorService::new(config),
+            tls_factory: crate::tls::rustls::TlsAcceptorService::new(config),
             config: self.config,
             _body: PhantomData,
         }
     }
 }
-
-// /// Http/2 Builder type.
-// /// Take in generic types of ServiceFactory for http and tls.
-// pub struct H2ServiceBuilder<F, AF> {
-//     factory: F,
-//     tls_factory: AF,
-// }
-//
-// impl<F, B, E> H2ServiceBuilder<F, tls::NoOpTlsAcceptorService>
-// where
-//     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
-//     F::Service: 'static,
-//
-//     B: Stream<Item = Result<Bytes, E>> + 'static,
-//     E: 'static,
-//     BodyError: From<E>,
-// {
-//     /// Construct a new Service Builder with given service factory.
-//     pub fn new(factory: F) -> Self {
-//         Self {
-//             factory,
-//             tls_factory: tls::NoOpTlsAcceptorService,
-//         }
-//     }
-// }
-//
-// impl<F, B, E, AF> H2ServiceBuilder<F, AF>
-// where
-//     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
-//     F::Service: 'static,
-//
-//     B: Stream<Item = Result<Bytes, E>> + 'static,
-//     E: 'static,
-//     BodyError: From<E>,
-// {
-//     #[cfg(feature = "openssl")]
-//     pub fn openssl(
-//         self,
-//         acceptor: actix_tls_alt::accept::openssl::TlsAcceptor,
-//     ) -> H2ServiceBuilder<F, actix_tls_alt::accept::openssl::TlsAcceptorService> {
-//         H2ServiceBuilder {
-//             factory: self.factory,
-//             tls_factory: actix_tls_alt::accept::openssl::TlsAcceptorService::new(acceptor),
-//         }
-//     }
-//
-//     #[cfg(feature = "rustls")]
-//     pub fn rustls(
-//         self,
-//         config: actix_tls_alt::accept::rustls::RustlsConfig,
-//     ) -> H2ServiceBuilder<F, actix_tls_alt::accept::rustls::TlsAcceptorService> {
-//         H2ServiceBuilder {
-//             factory: self.factory,
-//             tls_factory: actix_tls_alt::accept::rustls::TlsAcceptorService::new(config),
-//         }
-//     }
-// }
 
 impl<St, F, B, E, FE, FU, FA, TlsSt> ServiceFactory<St> for H2ServiceBuilder<F, FE, FU, FA>
 where

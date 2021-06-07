@@ -15,9 +15,9 @@ pub enum HttpServiceError {
     UnknownProtocol(Protocol),
     Body(BodyError),
     #[cfg(feature = "openssl")]
-    Openssl(actix_tls_alt::accept::openssl::OpensslError),
+    Openssl(super::tls::openssl::OpensslError),
     #[cfg(feature = "rustls")]
-    Rustls(actix_tls_alt::accept::rustls::RustlsError),
+    Rustls(super::tls::rustls::RustlsError),
     #[cfg(feature = "http1")]
     H1(super::h1::Error),
     // Http/2 error happen in HttpService handle.
@@ -124,19 +124,5 @@ impl From<BodyError> for HttpServiceError {
 impl From<()> for HttpServiceError {
     fn from(_: ()) -> Self {
         Self::Ignored
-    }
-}
-
-#[cfg(feature = "openssl")]
-impl From<actix_tls_alt::accept::openssl::OpensslError> for HttpServiceError {
-    fn from(e: actix_tls_alt::accept::openssl::OpensslError) -> Self {
-        Self::Openssl(e)
-    }
-}
-
-#[cfg(feature = "rustls")]
-impl From<actix_tls_alt::accept::rustls::RustlsError> for HttpServiceError {
-    fn from(e: actix_tls_alt::accept::rustls::RustlsError) -> Self {
-        Self::Rustls(e)
     }
 }
