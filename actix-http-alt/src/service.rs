@@ -116,9 +116,7 @@ where
                         match protocol {
                             #[cfg(feature = "http1")]
                             Protocol::Http1Tls | Protocol::Http1 => {
-                                log::info!("new connection with http1 protocol");
-
-                                // update timer to first request duration.
+                                // update timer to first request timeout.
                                 let request_dur = self.config.first_request_timeout;
                                 let deadline = self.date.get().get().now() + request_dur;
                                 timer.as_mut().update(deadline);

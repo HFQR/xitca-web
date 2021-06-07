@@ -12,6 +12,7 @@ use log::info;
 use quinn::{
     crypto::{rustls::TlsSession, Session},
     generic::{Connecting, Endpoint, Incoming, ServerConfig},
+    EndpointError,
 };
 
 use super::{AsListener, FromStream, Listener, Stream};
@@ -86,7 +87,9 @@ where
         let mut builder = Endpoint::builder();
         builder.listen(config);
 
-        let (endpoint, mut incoming) = builder.bind(&addr).unwrap();
+        let (endpoint, mut incoming) = builder.bind(&addr).map_err(|e| match e {
+            EndpointError::Socket(e) => e,
+        })?;
 
         // Use async channel to dispatch Connecting<Session> to worker threads.
         // Incoming can only be held by single task and sharing it between

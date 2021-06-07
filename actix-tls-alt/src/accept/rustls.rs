@@ -4,6 +4,7 @@ use std::{
     io, mem,
     ops::{Deref, DerefMut},
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -11,23 +12,25 @@ use actix_server_alt::net::{AsProtocol, AsyncReadWrite, Protocol};
 use actix_service_alt::{Service, ServiceFactory};
 use bytes::BufMut;
 use futures_task::noop_waker;
-use openssl_crate::error::{Error, ErrorStack};
-use openssl_crate::ssl::{Error as TlsError, Ssl};
 use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
+use tokio_rustls::rustls::{ServerConfig, Session};
 
-pub use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
+use tokio_rustls::TlsAcceptor;
 
-/// A wrapper type for [SslStream](tokio_openssl::SslStream).
+pub type RustlsConfig = Arc<ServerConfig>;
+
+/// A wrapper type for [TlsStream](tokio_rustls::TlsStream).
 ///
 /// This is to impl new trait for it.
 pub struct TlsStream<S> {
-    stream: tokio_openssl::SslStream<S>,
+    stream: tokio_rustls::server::TlsStream<S>,
 }
 
 impl<S> AsProtocol for TlsStream<S> {
     fn as_protocol(&self) -> Protocol {
-        self.ssl()
-            .selected_alpn_protocol()
+        self.get_ref()
+            .1
+            .get_alpn_protocol()
             .map(|proto| {
                 if proto.windows(2).any(|window| window == b"h2") {
                     Protocol::Http2
@@ -40,7 +43,7 @@ impl<S> AsProtocol for TlsStream<S> {
 }
 
 impl<S> Deref for TlsStream<S> {
-    type Target = tokio_openssl::SslStream<S>;
+    type Target = tokio_rustls::server::TlsStream<S>;
 
     fn deref(&self) -> &Self::Target {
         &self.stream
@@ -53,21 +56,23 @@ impl<S> DerefMut for TlsStream<S> {
     }
 }
 
-/// Openssl Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
+/// Rustls Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
 #[derive(Clone)]
 pub struct TlsAcceptorService {
     acceptor: TlsAcceptor,
 }
 
 impl TlsAcceptorService {
-    pub fn new(acceptor: TlsAcceptor) -> Self {
-        Self { acceptor }
+    pub fn new(config: Arc<ServerConfig>) -> Self {
+        Self {
+            acceptor: TlsAcceptor::from(config),
+        }
     }
 }
 
 impl<St: AsyncReadWrite> ServiceFactory<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
-    type Error = OpensslError;
+    type Error = RustlsError;
     type Config = ();
     type Service = TlsAcceptorService;
     type InitError = ();
@@ -81,7 +86,7 @@ impl<St: AsyncReadWrite> ServiceFactory<St> for TlsAcceptorService {
 
 impl<St: AsyncReadWrite> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
-    type Error = OpensslError;
+    type Error = RustlsError;
 
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
@@ -90,52 +95,15 @@ impl<St: AsyncReadWrite> Service<St> for TlsAcceptorService {
         Poll::Ready(Ok(()))
     }
 
+    #[inline]
     fn call<'c>(&'c self, io: St) -> Self::Future<'c>
     where
         St: 'c,
     {
         async move {
-            let ctx = self.acceptor.context();
-            let ssl = Ssl::new(ctx)?;
-            let mut stream = tokio_openssl::SslStream::new(ssl, io)?;
-            Pin::new(&mut stream).accept().await?;
+            let stream = self.acceptor.accept(io).await?;
             Ok(TlsStream { stream })
         }
-    }
-}
-
-/// Collection of 'openssl' error types.
-pub enum OpensslError {
-    Ssl(TlsError),
-    Single(Error),
-    Stack(ErrorStack),
-}
-
-impl Debug for OpensslError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Ssl(ref e) => write!(f, "{:?}", e),
-            Self::Single(ref e) => write!(f, "{:?}", e),
-            Self::Stack(ref e) => write!(f, "{:?}", e),
-        }
-    }
-}
-
-impl From<Error> for OpensslError {
-    fn from(e: Error) -> Self {
-        Self::Single(e)
-    }
-}
-
-impl From<ErrorStack> for OpensslError {
-    fn from(e: ErrorStack) -> Self {
-        Self::Stack(e)
-    }
-}
-
-impl From<TlsError> for OpensslError {
-    fn from(e: TlsError) -> Self {
-        Self::Ssl(e)
     }
 }
 
@@ -182,7 +150,7 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
 
     #[inline]
     fn ready(&mut self, interest: Interest) -> Self::ReadyFuture<'_> {
-        self.get_mut().ready(interest)
+        self.get_mut().0.ready(interest)
     }
 
     fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
@@ -237,11 +205,26 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
 
     #[inline]
     fn poll_read_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.get_mut().poll_read_ready(cx)
+        self.get_mut().0.poll_read_ready(cx)
     }
 
     #[inline]
     fn poll_write_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.get_mut().poll_write_ready(cx)
+        self.get_mut().0.poll_write_ready(cx)
+    }
+}
+
+/// Collection of 'rustls' error types.
+pub struct RustlsError(io::Error);
+
+impl Debug for RustlsError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+impl From<io::Error> for RustlsError {
+    fn from(e: io::Error) -> Self {
+        Self(e)
     }
 }

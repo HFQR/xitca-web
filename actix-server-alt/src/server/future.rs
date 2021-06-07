@@ -24,12 +24,12 @@ impl ServerFuture {
     /// # Examples:
     ///
     /// ```rust
-    /// # use actix_server_alt::Builder;
+    /// # use actix_server_alt::{Builder, net::TcpStream};
     /// # use actix_service_alt::fn_service;
     /// # #[tokio::main]
     /// # async fn main() {
     /// let mut server = Builder::new()
-    ///     .bind("test", "127.0.0.1:0", || fn_service(|_| async { Ok::<_, ()>(())}))
+    ///     .bind("test", "127.0.0.1:0", || fn_service(|_io: TcpStream| async { Ok::<_, ()>(())}))
     ///     .unwrap()
     ///     .build();
     ///

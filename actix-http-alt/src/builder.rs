@@ -58,7 +58,7 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
     ///
     /// Note factory type F ues `Request<h2::RequestBody>` as Request type.
     /// This is a request type specific for Http/2 request body.
-    pub fn h2<ResB, E>(factory: F) -> super::h2::H2ServiceBuilder<F, tls::NoOpTlsAcceptorService>
+    pub fn h2<ResB, E>(factory: F) -> HttpServiceBuilder<F, super::h2::RequestBody, (), (), tls::NoOpTlsAcceptorService>
     where
         F: ServiceFactory<Request<super::h2::RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()>,
         F::Service: 'static,
@@ -67,7 +67,14 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
         E: 'static,
         BodyError: From<E>,
     {
-        super::h2::H2ServiceBuilder::new(factory)
+        HttpServiceBuilder {
+            factory,
+            expect: (),
+            upgrade: (),
+            tls_factory: tls::NoOpTlsAcceptorService,
+            config: HttpServiceConfig::default(),
+            _body: PhantomData,
+        }
     }
 
     #[cfg(feature = "http3")]
@@ -156,6 +163,23 @@ impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
             upgrade: self.upgrade,
             tls_factory: tls::TlsAcceptorService::OpenSsl(actix_tls_alt::accept::openssl::TlsAcceptorService::new(
                 acceptor,
+            )),
+            config: self.config,
+            _body: PhantomData,
+        }
+    }
+
+    #[cfg(feature = "rustls")]
+    pub fn rustls(
+        self,
+        config: actix_tls_alt::accept::rustls::RustlsConfig,
+    ) -> HttpServiceBuilder<F, RequestBody, FE, FU> {
+        HttpServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            upgrade: self.upgrade,
+            tls_factory: tls::TlsAcceptorService::Rustls(actix_tls_alt::accept::rustls::TlsAcceptorService::new(
+                config,
             )),
             config: self.config,
             _body: PhantomData,

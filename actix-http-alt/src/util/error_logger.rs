@@ -62,7 +62,7 @@ where
     {
         async move {
             self.service.call(req).await.map_err(|e| {
-                log::error!("Error Logger: {:?}", e);
+                log::error!("{:?}", e);
                 e
             })
         }

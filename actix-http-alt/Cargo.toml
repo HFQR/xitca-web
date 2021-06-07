@@ -9,7 +9,7 @@ http1 = []
 http2 = ["h2"]
 http3 = ["actix-server-alt/http3", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
 openssl = ["actix-tls-alt/openssl"]
-rustls = ["tokio-rustls"]
+rustls = ["actix-tls-alt/rustls"]
 
 [dependencies]
 actix-server-alt = { version = "0.1", default-features = false }
@@ -25,11 +25,8 @@ log = "0.4"
 pin-project-lite = "0.2.6"
 tokio = { version = "1.6", features = ["io-util"] }
 
-# openssl support
+# tls support
 actix-tls-alt = { version = "0.1", optional = true }
-
-# rustls support
-tokio-rustls = { version = "0.22", optional = true }
 
 # http/2 support
 h2 = { version = "0.3", optional = true }

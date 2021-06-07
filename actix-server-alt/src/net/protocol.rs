@@ -15,6 +15,7 @@ pub trait AsProtocol {
 }
 
 impl AsProtocol for super::Stream {
+    #[inline]
     fn as_protocol(&self) -> Protocol {
         match *self {
             Self::Tcp(..) => Protocol::Http1,

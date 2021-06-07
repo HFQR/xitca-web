@@ -3,7 +3,11 @@
 #![allow(incomplete_features)]
 #![feature(generic_associated_types, min_type_alias_impl_trait)]
 
-use std::io;
+use std::{
+    fs::File,
+    io::{self, BufReader},
+    sync::Arc,
+};
 
 use actix_http_alt::{
     http::{Request, Response},
@@ -14,15 +18,20 @@ use actix_service_alt::fn_service;
 use bytes::Bytes;
 use h3_quinn::quinn::generic::ServerConfig;
 use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, PrivateKey, ServerConfigBuilder};
-use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
+
+use rustls::{
+    self,
+    internal::pemfile::{certs, pkcs8_private_keys},
+    NoClientAuth,
+};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     std::env::set_var("RUST_LOG", "actix=trace, info");
     env_logger::init();
 
-    // set up openssl and alpn protocol.
-    let acceptor = openssl_config()?;
+    // set up rustls and alpn protocol.
+    let acceptor = rustls_config()?;
 
     // construct http3 quic server config
     let config = h3_config()?;
@@ -36,7 +45,7 @@ async fn main() -> io::Result<()> {
             let config = HttpServiceConfig::new().enable_http1_pipeline();
             let builder = HttpServiceBuilder::new(fn_service(handler)).config(config);
 
-            let builder = HttpServiceBuilder::<_, RequestBody, _, _, _>::openssl(builder, acceptor.clone());
+            let builder = HttpServiceBuilder::<_, RequestBody, _, _, _>::rustls(builder, acceptor.clone());
 
             ErrorLoggerFactory::new(builder)
         })?
@@ -67,28 +76,16 @@ fn h3_config() -> io::Result<ServerConfig<TlsSession>> {
     Ok(config.build())
 }
 
-fn openssl_config() -> io::Result<SslAcceptor> {
-    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
+fn rustls_config() -> io::Result<Arc<rustls::ServerConfig>> {
+    let mut acceptor = rustls::ServerConfig::new(NoClientAuth::new());
+    let cert_file = &mut BufReader::new(File::open("./cert/cert.pem")?);
+    let key_file = &mut BufReader::new(File::open("./cert/key.pem")?);
+    let cert_chain = certs(cert_file).unwrap();
+    let mut keys = pkcs8_private_keys(key_file).unwrap();
 
-    builder.set_private_key_file("./cert/key.pem", SslFiletype::PEM)?;
-    builder.set_certificate_chain_file("./cert/cert.pem")?;
+    acceptor.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+    let protos = vec!["h2".to_string().into(), "http/1.1".to_string().into()];
+    acceptor.set_protocols(&protos);
 
-    const H11: &[u8] = b"\x08http/1.1";
-    const H2: &[u8] = b"\x02h2";
-
-    builder.set_alpn_select_callback(|_, protocols| {
-        if protocols.windows(3).any(|window| window == H2) {
-            Ok(b"h2")
-        } else if protocols.windows(9).any(|window| window == H11) {
-            Ok(b"http/1.1")
-        } else {
-            Err(AlpnError::NOACK)
-        }
-    });
-
-    let protos = H11.iter().chain(H2).cloned().collect::<Vec<_>>();
-
-    builder.set_alpn_protos(&protos)?;
-
-    Ok(builder.build())
+    Ok(Arc::new(acceptor))
 }

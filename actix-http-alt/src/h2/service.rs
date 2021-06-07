@@ -3,36 +3,25 @@ use std::{
     task::{Context, Poll},
 };
 
-use ::h2::server::handshake;
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
 use http::{Request, Response};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    pin, select,
+};
 
 use crate::body::ResponseBody;
-use crate::error::{BodyError, HttpServiceError};
-use crate::flow::HttpFlow;
+use crate::error::{BodyError, HttpServiceError, TimeoutError};
 use crate::response::ResponseError;
+use crate::service::HttpService;
+use crate::util::keep_alive::KeepAlive;
 
 use super::body::RequestBody;
 use super::proto::Dispatcher;
 
-pub struct H2Service<S, A> {
-    flow: HttpFlow<S, (), ()>,
-    tls_acceptor: A,
-}
-
-impl<S, A> H2Service<S, A> {
-    /// Construct new Http2Service.
-    /// No upgrade/expect services allowed in Http/2.
-    pub fn new(service: S, tls_acceptor: A) -> Self {
-        Self {
-            flow: HttpFlow::new(service, (), ()),
-            tls_acceptor,
-        }
-    }
-}
+pub type H2Service<S, A> = HttpService<S, RequestBody, (), (), A>;
 
 impl<St, S, B, E, A, TlsSt> Service<St> for H2Service<S, A>
 where
@@ -67,18 +56,38 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'c>(&'c self, req: St) -> Self::Future<'c>
+    fn call<'c>(&'c self, io: St) -> Self::Future<'c>
     where
         St: 'c,
     {
         async move {
-            let tls_stream = self.tls_acceptor.call(req).await?;
+            // tls accept timer.
+            let accept_dur = self.config.tls_accept_timeout;
+            let deadline = self.date.get().get().now() + accept_dur;
+            let timer = KeepAlive::new(deadline);
+            pin!(timer);
 
-            let mut conn = handshake(tls_stream).await?;
+            select! {
+                biased;
+                res = self.tls_acceptor.call(io) => {
+                    let tls_stream = res?;
 
-            let dispatcher = Dispatcher::new(&mut conn, &self.flow);
+                    // reset timer to another accept_dur for h2 handshake timeout.
+                    let deadline = self.date.get().get().now() + accept_dur;
+                    timer.as_mut().update(deadline);
 
-            dispatcher.run().await
+                    select! {
+                        biased;
+                        res = ::h2::server::handshake(tls_stream) => {
+                            let mut conn = res?;
+                            let dispatcher = Dispatcher::new(&mut conn, &self.flow);
+                            dispatcher.run().await
+                        }
+                        _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::H2Handshake))
+                    }
+                }
+                _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::TlsAccept)),
+            }
         }
     }
 }

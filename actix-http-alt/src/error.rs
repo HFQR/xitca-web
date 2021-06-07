@@ -17,7 +17,7 @@ pub enum HttpServiceError {
     #[cfg(feature = "openssl")]
     Openssl(actix_tls_alt::accept::openssl::OpensslError),
     #[cfg(feature = "rustls")]
-    Rustls(super::tls::rustls::RustlsError),
+    Rustls(actix_tls_alt::accept::rustls::RustlsError),
     #[cfg(feature = "http1")]
     H1(super::h1::Error),
     // Http/2 error happen in HttpService handle.
@@ -31,6 +31,7 @@ pub enum HttpServiceError {
 #[derive(Debug)]
 pub enum TimeoutError {
     TlsAccept,
+    #[cfg(feature = "http2")]
     H2Handshake,
 }
 
@@ -130,5 +131,12 @@ impl From<()> for HttpServiceError {
 impl From<actix_tls_alt::accept::openssl::OpensslError> for HttpServiceError {
     fn from(e: actix_tls_alt::accept::openssl::OpensslError) -> Self {
         Self::Openssl(e)
+    }
+}
+
+#[cfg(feature = "rustls")]
+impl From<actix_tls_alt::accept::rustls::RustlsError> for HttpServiceError {
+    fn from(e: actix_tls_alt::accept::rustls::RustlsError) -> Self {
+        Self::Rustls(e)
     }
 }

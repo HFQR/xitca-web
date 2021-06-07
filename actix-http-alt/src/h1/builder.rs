@@ -33,6 +33,21 @@ impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
             _body: PhantomData,
         }
     }
+
+    #[cfg(feature = "rustls")]
+    pub fn rustls(
+        self,
+        config: actix_tls_alt::accept::rustls::RustlsConfig,
+    ) -> H1ServiceBuilder<F, FE, FU, actix_tls_alt::accept::rustls::TlsAcceptorService> {
+        H1ServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            upgrade: self.upgrade,
+            tls_factory: actix_tls_alt::accept::rustls::TlsAcceptorService::new(config),
+            config: self.config,
+            _body: PhantomData,
+        }
+    }
 }
 
 impl<St, F, ResB, E, FE, FU, FA, TlsSt> ServiceFactory<St> for H1ServiceBuilder<F, FE, FU, FA>
@@ -82,6 +97,7 @@ where
             let upgrade = upgrade.await?;
             let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
+
             Ok(H1Service::new(config, service, expect, upgrade, tls_acceptor))
         }
     }
