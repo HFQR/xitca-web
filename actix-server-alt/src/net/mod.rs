@@ -1,13 +1,11 @@
 #[cfg(feature = "http3")]
 mod h3;
 mod io;
-mod protocol;
 
 #[cfg(feature = "http3")]
 pub use self::h3::{H3ServerConfig, UdpConnecting, UdpListener, UdpListenerBuilder, UdpStream};
 
 pub use self::io::AsyncReadWrite;
-pub use self::protocol::{AsProtocol, Protocol};
 pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
 #[cfg(unix)]

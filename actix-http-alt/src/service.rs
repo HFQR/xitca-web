@@ -5,7 +5,6 @@ use std::{
 };
 
 use actix_server_alt::net::Stream as ServerStream;
-use actix_server_alt::net::{AsProtocol, Protocol};
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
@@ -16,6 +15,7 @@ use super::body::{RequestBody, ResponseBody};
 use super::config::HttpServiceConfig;
 use super::error::{BodyError, HttpServiceError, TimeoutError};
 use super::flow::HttpFlow;
+use super::protocol::{AsProtocol, Protocol};
 use super::response::ResponseError;
 use super::tls::TlsStream;
 use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
@@ -30,7 +30,7 @@ pub struct HttpService<S, ReqB, X, U, A> {
 
 impl<S, ReqB, X, U, A> HttpService<S, ReqB, X, U, A> {
     /// Construct new Http Service.
-    pub fn new(config: HttpServiceConfig, service: S, expect: X, upgrade: U, tls_acceptor: A) -> Self {
+    pub fn new(config: HttpServiceConfig, service: S, expect: X, upgrade: Option<U>, tls_acceptor: A) -> Self {
         Self {
             config,
             date: DateTimeTask::new(),
@@ -49,27 +49,24 @@ where
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     X::Error: ResponseError<S::Response>,
 
-    U: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
-    U::Error: ResponseError<S::Response>,
+    U: Service<Request<RequestBody>, Response = ()> + 'static,
 
     A: Service<ServerStream, Response = TlsStream> + 'static,
+
+    HttpServiceError: From<U::Error> + From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
-
-    HttpServiceError: From<A::Error>,
 {
     type Response = ();
     type Error = HttpServiceError;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self
-            .flow
-            .upgrade
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
+        if let Some(upgrade) = self.flow.upgrade.as_ref() {
+            ready!(upgrade.poll_ready(cx).map_err(|_| HttpServiceError::ServiceReady))?;
+        }
 
         ready!(self
             .flow

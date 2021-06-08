@@ -30,11 +30,11 @@ where
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     X::Error: ResponseError<S::Response>,
 
-    U: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
-    U::Error: ResponseError<S::Response>,
+    U: Service<Request<RequestBody>, Response = ()> + 'static,
 
     A: Service<St, Response = TlsSt> + 'static,
-    HttpServiceError: From<A::Error>,
+
+    HttpServiceError: From<U::Error> + From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -48,11 +48,9 @@ where
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self
-            .flow
-            .upgrade
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
+        if let Some(upgrade) = self.flow.upgrade.as_ref() {
+            ready!(upgrade.poll_ready(cx).map_err(|_| HttpServiceError::ServiceReady))?;
+        }
 
         ready!(self
             .flow

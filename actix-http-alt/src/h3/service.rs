@@ -26,7 +26,7 @@ impl<S> H3Service<S> {
     /// No upgrade/expect services allowed in Http/3.
     pub fn new(service: S) -> Self {
         Self {
-            flow: HttpFlow::new(service, (), ()),
+            flow: HttpFlow::new(service, (), None),
         }
     }
 }

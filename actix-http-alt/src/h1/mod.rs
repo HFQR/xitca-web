@@ -8,6 +8,7 @@ mod upgrade;
 
 pub(crate) use self::expect::ExpectHandler;
 pub(crate) use self::proto::Dispatcher;
+pub(crate) use self::upgrade::UpgradeHandler;
 
 pub use self::body::RequestBody;
 pub use self::builder::H1ServiceBuilder;

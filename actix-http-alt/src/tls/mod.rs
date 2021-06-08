@@ -16,12 +16,13 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_server_alt::net::{AsProtocol, AsyncReadWrite, Protocol, Stream as ServerStream};
+use actix_server_alt::net::{AsyncReadWrite, Stream as ServerStream};
 use actix_service_alt::{Service, ServiceFactory};
 use bytes::BufMut;
 use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 
 use super::error::HttpServiceError;
+use super::protocol::{AsProtocol, Protocol};
 
 /// A NoOp Tls Acceptor pass through input Stream type.
 #[derive(Copy, Clone)]
@@ -142,6 +143,7 @@ impl Service<ServerStream> for TlsAcceptorService {
 }
 
 /// a collection of streams after successful tls handshake.
+#[allow(clippy::large_enum_variant)]
 pub enum TlsStream {
     NoOp(ServerStream),
     #[cfg(feature = "openssl")]

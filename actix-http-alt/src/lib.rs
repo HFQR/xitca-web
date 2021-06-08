@@ -9,6 +9,7 @@ mod builder;
 mod config;
 mod error;
 mod flow;
+mod protocol;
 mod response;
 mod service;
 mod tls;

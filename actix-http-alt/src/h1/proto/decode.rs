@@ -75,7 +75,7 @@ impl Context<'_> {
                                 .eq_ignore_ascii_case("chunked");
 
                             if chunked {
-                                decoder = RequestBodyDecoder::chunked();
+                                decoder.reset(RequestBodyDecoder::chunked())?;
                             }
                         }
                         CONTENT_LENGTH => {
@@ -86,7 +86,7 @@ impl Context<'_> {
                                 .map_err(|_| ProtoError::Parse(Parse::Header))?;
 
                             if len != 0 {
-                                decoder = RequestBodyDecoder::length(len);
+                                decoder.reset(RequestBodyDecoder::length(len))?;
                             }
                         }
                         CONNECTION => {
@@ -191,6 +191,17 @@ impl RequestBodyDecoder {
 
     pub fn is_eof(&self) -> bool {
         matches!(self.kind, Kind::Eof)
+    }
+
+    pub fn reset(&mut self, other: Self) -> Result<(), ProtoError> {
+        match (&self.kind, &other.kind) {
+            (Kind::Chunked(..), Kind::Length(..)) => Err(ProtoError::Parse(Parse::Header)),
+            (Kind::Length(..), Kind::Chunked(..)) => Err(ProtoError::Parse(Parse::Header)),
+            _ => {
+                *self = other;
+                Ok(())
+            }
+        }
     }
 }
 

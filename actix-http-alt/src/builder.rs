@@ -9,7 +9,7 @@ use http::{Request, Response};
 use super::body::{RequestBody, ResponseBody};
 use super::config::HttpServiceConfig;
 use super::error::{BodyError, HttpServiceError};
-use super::h1::ExpectHandler;
+use super::h1::{ExpectHandler, UpgradeHandler};
 use super::response::ResponseError;
 use super::service::HttpService;
 use super::tls::{self, TlsStream};
@@ -17,10 +17,10 @@ use super::tls::{self, TlsStream};
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 //TODO: use real upgrade service.
-pub struct HttpServiceBuilder<F, ReqB, FE = ExpectHandler<F>, FU = ExpectHandler<F>, FA = tls::TlsAcceptorService> {
+pub struct HttpServiceBuilder<F, ReqB, FE = ExpectHandler<F>, FU = UpgradeHandler, FA = tls::TlsAcceptorService> {
     pub(crate) factory: F,
     pub(crate) expect: FE,
-    pub(crate) upgrade: FU,
+    pub(crate) upgrade: Option<FU>,
     pub(crate) tls_factory: FA,
     pub(crate) config: HttpServiceConfig,
     pub(crate) _body: PhantomData<ReqB>,
@@ -34,7 +34,7 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
     /// This is a request type specific for Http/1 request body.
     pub fn h1<ResB, E>(
         factory: F,
-    ) -> HttpServiceBuilder<F, super::h1::RequestBody, ExpectHandler<F>, ExpectHandler<F>, tls::NoOpTlsAcceptorService>
+    ) -> HttpServiceBuilder<F, super::h1::RequestBody, ExpectHandler<F>, UpgradeHandler, tls::NoOpTlsAcceptorService>
     where
         F: ServiceFactory<Request<super::h1::RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()>,
         F::Service: 'static,
@@ -46,7 +46,7 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
         HttpServiceBuilder {
             factory,
             expect: ExpectHandler::new(),
-            upgrade: ExpectHandler::new(),
+            upgrade: None,
             tls_factory: tls::NoOpTlsAcceptorService,
             config: HttpServiceConfig::default(),
             _body: PhantomData,
@@ -70,7 +70,7 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
         HttpServiceBuilder {
             factory,
             expect: (),
-            upgrade: (),
+            upgrade: None,
             tls_factory: tls::NoOpTlsAcceptorService,
             config: HttpServiceConfig::default(),
             _body: PhantomData,
@@ -106,7 +106,7 @@ impl<F, ReqB> HttpServiceBuilder<F, ReqB> {
         Self {
             factory,
             expect: ExpectHandler::new(),
-            upgrade: ExpectHandler::new(),
+            upgrade: None,
             tls_factory: tls::TlsAcceptorService::default(),
             config,
             _body: PhantomData,
@@ -137,13 +137,13 @@ impl<F, ReqB, FE, FU, FA> HttpServiceBuilder<F, ReqB, FE, FU, FA> {
 
     pub fn upgrade<FU2, ResB>(self, upgrade: FU2) -> HttpServiceBuilder<F, ReqB, FE, FU2, FA>
     where
-        FU2: ServiceFactory<Request<ReqB>, Response = Request<ResB>>,
+        FU2: ServiceFactory<Request<ReqB>, Response = ()>,
         FU2::Service: 'static,
     {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
-            upgrade,
+            upgrade: Some(upgrade),
             tls_factory: self.tls_factory,
             config: self.config,
             _body: PhantomData,
@@ -189,14 +189,14 @@ where
     FE::Service: 'static,
     FE::Error: ResponseError<F::Response>,
 
-    // TODO: use a meaningful config and a real upgrade service.
-    FU: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>, Config = ()>,
+    // TODO: use a meaningful config.
+    FU: ServiceFactory<Request<RequestBody>, Response = (), Config = ()>,
     FU::Service: 'static,
-    FU::Error: ResponseError<F::Response>,
 
     FA: ServiceFactory<ServerStream, Response = TlsStream, Config = ()>,
     FA::Service: 'static,
-    HttpServiceError: From<FA::Error>,
+
+    HttpServiceError: From<FU::Error> + From<FA::Error>,
 
     ResB: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -211,14 +211,17 @@ where
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
         let expect = self.expect.new_service(());
-        let upgrade = self.upgrade.new_service(());
+        let upgrade = self.upgrade.as_ref().map(|upgrade| upgrade.new_service(()));
         let service = self.factory.new_service(cfg);
         let tls_acceptor = self.tls_factory.new_service(());
         let config = self.config;
 
         async move {
             let expect = expect.await?;
-            let upgrade = upgrade.await?;
+            let upgrade = match upgrade {
+                Some(upgrade) => Some(upgrade.await?),
+                None => None,
+            };
             let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
 

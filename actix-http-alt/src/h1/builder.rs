@@ -62,14 +62,14 @@ where
     FE::Service: 'static,
     FE::Error: ResponseError<F::Response>,
 
-    // TODO: use a meaningful config and a real upgrade service.
-    FU: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>, Config = ()>,
+    // TODO: use a meaningful config.
+    FU: ServiceFactory<Request<RequestBody>, Response = (), Config = ()>,
     FU::Service: 'static,
-    FU::Error: ResponseError<F::Response>,
 
     FA: ServiceFactory<St, Response = TlsSt, Config = ()>,
     FA::Service: 'static,
-    HttpServiceError: From<FA::Error>,
+
+    HttpServiceError: From<FU::Error> + From<FA::Error>,
 
     ResB: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -87,14 +87,17 @@ where
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
         let expect = self.expect.new_service(());
-        let upgrade = self.upgrade.new_service(());
+        let upgrade = self.upgrade.as_ref().map(|upgrade| upgrade.new_service(()));
         let service = self.factory.new_service(cfg);
         let tls_acceptor = self.tls_factory.new_service(());
         let config = self.config;
 
         async move {
             let expect = expect.await?;
-            let upgrade = upgrade.await?;
+            let upgrade = match upgrade {
+                Some(upgrade) => Some(upgrade.await?),
+                None => None,
+            };
             let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
 

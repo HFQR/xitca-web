@@ -4,8 +4,9 @@ use std::{
     io,
 };
 
-use actix_server_alt::net::Protocol;
 use log::error;
+
+use super::protocol::Protocol;
 
 /// HttpService layer error.
 pub enum HttpServiceError {

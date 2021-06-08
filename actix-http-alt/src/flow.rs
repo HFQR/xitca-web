@@ -19,11 +19,11 @@ impl<S, X, U> Deref for HttpFlow<S, X, U> {
 pub(crate) struct HttpFlowInner<S, X, U> {
     pub(crate) service: S,
     pub(crate) expect: X,
-    pub(crate) upgrade: U,
+    pub(crate) upgrade: Option<U>,
 }
 
 impl<S, X, U> HttpFlow<S, X, U> {
-    pub fn new(service: S, expect: X, upgrade: U) -> Self {
+    pub fn new(service: S, expect: X, upgrade: Option<U>) -> Self {
         let inner = HttpFlowInner {
             service,
             expect,

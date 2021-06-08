@@ -1,4 +1,6 @@
-/// A collection of regular used protocols
+use actix_server_alt::net::Stream;
+
+/// A collection of regular used http protocols
 #[derive(Copy, Clone, PartialOrd, PartialEq, Debug)]
 pub enum Protocol {
     /// Plain Http1
@@ -14,7 +16,7 @@ pub trait AsProtocol {
     fn as_protocol(&self) -> Protocol;
 }
 
-impl AsProtocol for super::Stream {
+impl AsProtocol for Stream {
     #[inline]
     fn as_protocol(&self) -> Protocol {
         match *self {

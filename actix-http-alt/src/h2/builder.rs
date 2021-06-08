@@ -86,7 +86,7 @@ where
             let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
 
-            Ok(H2Service::new(config, service, (), (), tls_acceptor))
+            Ok(H2Service::new(config, service, (), None, tls_acceptor))
         }
     }
 }

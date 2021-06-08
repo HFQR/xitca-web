@@ -8,7 +8,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_server_alt::net::{AsProtocol, AsyncReadWrite, Protocol};
+use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::{Service, ServiceFactory};
 use bytes::BufMut;
 use futures_task::noop_waker;
@@ -20,6 +20,7 @@ use tokio_rustls::{
 use tokio_util::io::poll_read_buf;
 
 use crate::error::HttpServiceError;
+use crate::protocol::{AsProtocol, Protocol};
 
 pub(crate) type RustlsConfig = Arc<ServerConfig>;
 
@@ -158,10 +159,6 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
     }
 
     fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
-        if !buf.has_remaining_mut() {
-            return Ok(0);
-        }
-
         let waker = noop_waker();
         let cx = &mut Context::from_waker(&waker);
 
