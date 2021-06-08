@@ -7,7 +7,6 @@ use std::{
 use log::error;
 
 use super::protocol::Protocol;
-use super::response::ResponseError;
 
 /// HttpService layer error.
 pub enum HttpServiceError {

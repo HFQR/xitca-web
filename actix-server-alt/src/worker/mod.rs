@@ -37,7 +37,7 @@ impl WorkerInner {
                 let guard = self.limit.ready().await;
 
                 match self.accept().await {
-                    Ok(stream) => self.service.call((guard, stream)),
+                    Ok(stream) => self.service.clone().call((guard, stream)),
                     Err(ref e) if connection_error(e) => continue,
                     // TODO: This error branch is used to detect Accept thread exit.
                     // Should use other notifier other than error.

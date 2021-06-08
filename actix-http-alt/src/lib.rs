@@ -1,4 +1,8 @@
 //! Http module for [Service](actix_service_alt::Service) trait oriented http handling.
+//!
+//! This crate tries to serve both low overhead and ease of use purpose.
+//! All http protocols can be used separately with corresponding feature flag or work together
+//! for handling different protocols in one place.
 
 #![forbid(unsafe_code)]
 #![allow(incomplete_features)]

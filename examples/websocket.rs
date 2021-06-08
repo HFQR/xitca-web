@@ -1,8 +1,5 @@
 //! A Http/1 server echos back websocket text message and respond to ping message.
 
-#![allow(incomplete_features)]
-#![feature(generic_associated_types, min_type_alias_impl_trait)]
-
 use actix_http_alt::{
     http::{Request, Response},
     BodyError, RequestBody, ResponseBody,

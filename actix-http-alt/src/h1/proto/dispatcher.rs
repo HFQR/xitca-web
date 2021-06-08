@@ -63,9 +63,6 @@ where
                 Ok(0) => return Err(Error::Closed),
                 Ok(_) => read_buf.advance(true),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(ref e) if e.kind() == io::ErrorKind::ConnectionReset => {
-                    return Err(Error::Closed);
-                }
                 Err(e) => return Err(e.into()),
             }
         }

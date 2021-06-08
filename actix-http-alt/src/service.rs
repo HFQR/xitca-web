@@ -20,6 +20,7 @@ use super::response::ResponseError;
 use super::tls::TlsStream;
 use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
 
+/// General purpose http service
 pub struct HttpService<S, ReqB, X, U, A> {
     pub(crate) config: HttpServiceConfig,
     pub(crate) date: DateTimeTask,

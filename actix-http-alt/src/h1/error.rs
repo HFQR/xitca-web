@@ -27,7 +27,11 @@ impl From<ProtoError> for Error {
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Self::Io(e)
+        match e.kind() {
+            io::ErrorKind::ConnectionReset => Self::Closed,
+            io::ErrorKind::WouldBlock => panic!("WouldBlock error should never be treated as error."),
+            _ => Self::Io(e),
+        }
     }
 }
 
