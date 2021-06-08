@@ -60,7 +60,9 @@ where
         async move {
             let dispatcher = Dispatcher::new(stream, &self.flow);
 
-            dispatcher.run().await
+            dispatcher.run().await?;
+
+            Ok(())
         }
     }
 }

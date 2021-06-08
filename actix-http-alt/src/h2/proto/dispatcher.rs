@@ -13,7 +13,7 @@ use tokio::{
 use crate::body::{ResponseBody, ResponseBodySize};
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
-use crate::h2::body::RequestBody;
+use crate::h2::{body::RequestBody, error::Error};
 use crate::response::ResponseError;
 use crate::util::poll_fn::poll_fn;
 
@@ -48,7 +48,7 @@ where
         }
     }
 
-    pub(crate) async fn run(self) -> Result<(), HttpServiceError> {
+    pub(crate) async fn run(self) -> Result<(), Error> {
         while let Some(res) = self.io.accept().await {
             let (req, tx) = res?;
             // Convert http::Request body type to crate::h2::Body
@@ -62,7 +62,7 @@ where
             tokio::task::spawn_local(async move {
                 let fut = flow.service.call(req);
                 if let Err(e) = h2_handler(fut, tx).await {
-                    e.log();
+                    HttpServiceError::from(e).log();
                 }
             });
         }
@@ -71,7 +71,7 @@ where
     }
 }
 
-async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>) -> Result<(), HttpServiceError>
+async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>) -> Result<(), Error>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
     E: ResponseError<Response<ResponseBody<B>>>,

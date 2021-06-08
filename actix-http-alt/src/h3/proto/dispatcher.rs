@@ -14,10 +14,10 @@ use http::{Request, Response};
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
-use crate::h3::RequestBody;
+use crate::h3::{body::RequestBody, error::Error};
 use crate::response::ResponseError;
 
-/// Http/2 dispatcher
+/// Http/3 dispatcher
 pub(crate) struct Dispatcher<'a, S, ReqB, X, U> {
     io: UdpStream,
     flow: &'a HttpFlow<S, X, U>,
@@ -47,7 +47,7 @@ where
         }
     }
 
-    pub(crate) async fn run(self) -> Result<(), HttpServiceError> {
+    pub(crate) async fn run(self) -> Result<(), Error> {
         // wait for connecting.
         let conn = self.io.connecting().await?;
 
@@ -77,7 +77,7 @@ where
             tokio::task::spawn_local(async move {
                 let fut = flow.service.call(req);
                 if let Err(e) = h3_handler(fut, stream).await {
-                    e.log();
+                    HttpServiceError::from(e).log();
                 }
             });
         }
@@ -86,10 +86,7 @@ where
     }
 }
 
-async fn h3_handler<Fut, C, B, BE, E>(
-    fut: Fut,
-    stream: Rc<LocalMutex<RequestStream<C>>>,
-) -> Result<(), HttpServiceError>
+async fn h3_handler<Fut, C, B, BE, E>(fut: Fut, stream: Rc<LocalMutex<RequestStream<C>>>) -> Result<(), Error>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
     C: SendStream<Bytes>,

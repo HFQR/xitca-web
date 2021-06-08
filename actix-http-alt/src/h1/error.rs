@@ -9,7 +9,7 @@ pub enum Error {
     /// Closed error should be treated as success and transform to Ok(())
     Closed,
     Body(BodyError),
-    IO(io::Error),
+    Io(io::Error),
     Proto(ProtoError),
 }
 
@@ -27,7 +27,7 @@ impl From<ProtoError> for Error {
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Self::IO(e)
+        Self::Io(e)
     }
 }
 

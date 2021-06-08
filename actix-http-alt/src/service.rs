@@ -101,7 +101,9 @@ where
                 ServerStream::Udp(udp) => {
                     let dispatcher = super::h3::Dispatcher::new(udp, &self.flow);
 
-                    dispatcher.run().await
+                    dispatcher.run().await?;
+
+                    Ok(())
                 }
                 io => select! {
                     biased;
@@ -136,7 +138,8 @@ where
                                     res = ::h2::server::handshake(tls_stream) => {
                                         let mut conn = res?;
                                         let dispatcher = super::h2::Dispatcher::new(&mut conn, &self.flow);
-                                        dispatcher.run().await
+                                        dispatcher.run().await?;
+                                        Ok(())
                                     }
                                     _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::H2Handshake))
                                 }

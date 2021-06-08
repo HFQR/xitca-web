@@ -7,6 +7,7 @@ use std::{
 use log::error;
 
 use super::protocol::Protocol;
+use super::response::ResponseError;
 
 /// HttpService layer error.
 pub enum HttpServiceError {
@@ -23,12 +24,13 @@ pub enum HttpServiceError {
     H1(super::h1::Error),
     // Http/2 error happen in HttpService handle.
     #[cfg(feature = "http2")]
-    H2(h2::Error),
+    H2(super::h2::Error),
     // Http/3 error happen in HttpService handle.
     #[cfg(feature = "http3")]
     H3(super::h3::Error),
 }
 
+/// time out error from async task that run for too long.
 #[derive(Debug)]
 pub enum TimeoutError {
     TlsAccept,
@@ -69,11 +71,6 @@ impl HttpServiceError {
 pub enum BodyError {
     Std(Box<dyn Error>),
     Io(io::Error),
-    // Http/2 error happens when handling body.
-    #[cfg(feature = "http2")]
-    H2(h2::Error),
-    #[cfg(feature = "http3")]
-    H3(super::h3::Error),
 }
 
 impl Debug for BodyError {
@@ -81,10 +78,6 @@ impl Debug for BodyError {
         match *self {
             Self::Std(ref e) => write!(f, "{:?}", e),
             Self::Io(ref e) => write!(f, "{:?}", e),
-            #[cfg(feature = "http2")]
-            Self::H2(ref e) => write!(f, "{:?}", e),
-            #[cfg(feature = "http3")]
-            Self::H3(ref e) => write!(f, "{:?}", e),
         }
     }
 }
@@ -94,10 +87,6 @@ impl Display for BodyError {
         match *self {
             Self::Std(ref e) => write!(f, "{}", e),
             Self::Io(ref e) => write!(f, "{}", e),
-            #[cfg(feature = "http2")]
-            Self::H2(ref e) => write!(f, "{}", e),
-            #[cfg(feature = "http3")]
-            Self::H3(ref e) => write!(f, "{:?}", e),
         }
     }
 }

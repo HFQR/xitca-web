@@ -22,6 +22,7 @@ impl Stream for RequestBody {
             opt.map(|res| {
                 let bytes = res?;
                 stream.flow_control().release_capacity(bytes.len())?;
+
                 Ok(bytes)
             })
         })
