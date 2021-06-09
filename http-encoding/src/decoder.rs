@@ -18,7 +18,7 @@ use super::writer::Writer;
 use super::coder::{AsyncCode, Coder, CoderError, IdentityCoder};
 use crate::coding::ContentEncoding;
 
-impl<S, De, T, E> Coder<S, De, De::Future>
+impl<S, De, T, E> Coder<S, De, T>
 where
     S: Stream<Item = Result<T, E>>,
     De: AsyncCode<T>,
@@ -26,10 +26,7 @@ where
     Bytes: From<T>,
 {
     /// Construct from headers and stream body. Use for decoding.
-    pub fn try_decoder_from_parts(
-        headers: &HeaderMap,
-        body: S,
-    ) -> Result<Coder<S, ContentDecoder, <ContentDecoder as AsyncCode<T>>::Future>, CoderError<E>> {
+    pub fn try_decoder_from_parts(headers: &HeaderMap, body: S) -> Result<Coder<S, ContentDecoder, T>, CoderError<E>> {
         let decoder = from_headers(headers)?;
         Ok(Coder::new(body, decoder))
     }

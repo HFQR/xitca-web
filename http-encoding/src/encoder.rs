@@ -19,9 +19,7 @@ use super::coder::{AsyncCode, Coder, IdentityCoder};
 use super::coding::ContentEncoding;
 use crate::coder::CoderError;
 
-type Res<S, De, Fut> = Response<Coder<S, De, Fut>>;
-
-impl<S, De, T, E> Coder<S, De, De::Future>
+impl<S, De, T, E> Coder<S, De, T>
 where
     S: Stream<Item = Result<T, E>>,
     De: AsyncCode<T>,
@@ -32,7 +30,7 @@ where
     pub fn try_encoder_from_response(
         response: Response<S>,
         encoding: ContentEncoding,
-    ) -> Result<Res<S, ContentEncoder, <ContentEncoder as AsyncCode<T>>::Future>, CoderError<E>> {
+    ) -> Result<Response<Coder<S, ContentEncoder, T>>, CoderError<E>> {
         #[allow(unused_mut)]
         let (mut parts, body) = response.into_parts();
 

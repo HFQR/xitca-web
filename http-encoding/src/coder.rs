@@ -2,6 +2,7 @@ use std::{
     fmt,
     future::Future,
     io,
+    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -12,16 +13,20 @@ use pin_project_lite::pin_project;
 
 pin_project! {
     /// A coder type that can be used for either encode or decode which determined by De type.
-    pub struct Coder<S, De, Fut> {
+    pub struct Coder<S, De, I>
+    where
+        De: AsyncCode<I>
+    {
         coder: Option<De>,
         #[pin]
         body: S,
         #[pin]
-        in_flight: Option<Fut>,
+        in_flight: Option<De::Future>,
+        _item: PhantomData<I>
     }
 }
 
-impl<S, De, T, E> Coder<S, De, De::Future>
+impl<S, De, T, E> Coder<S, De, T>
 where
     S: Stream<Item = Result<T, E>>,
     De: AsyncCode<T>,
@@ -34,6 +39,7 @@ where
             coder: Some(coder),
             body,
             in_flight: None,
+            _item: PhantomData,
         }
     }
 }
@@ -87,7 +93,7 @@ impl<E> From<io::Error> for CoderError<E> {
     }
 }
 
-impl<S, De, T, E> Stream for Coder<S, De, De::Future>
+impl<S, De, T, E> Stream for Coder<S, De, T>
 where
     S: Stream<Item = Result<T, E>>,
     De: AsyncCode<T>,
