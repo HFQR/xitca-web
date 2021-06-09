@@ -5,6 +5,7 @@ members = [
     "actix-service-alt",
     "actix-web-alt",
     "examples",
+    "http-encoding",
     "http-ws",
 ]
 

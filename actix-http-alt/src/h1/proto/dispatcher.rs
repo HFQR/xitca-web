@@ -263,7 +263,7 @@ where
             while let Some(res) = self.decode_head() {
                 let (res, mut body_handle) = match res {
                     Ok((req, mut body_handle)) => {
-                        // have new connection. update timer deadline.
+                        // have new request. update timer deadline.
                         let now = self.ctx.date.get().now() + self.ka_dur;
                         self.timer.as_mut().update(now);
                         let res = self.request_handler(req, &mut body_handle).await?;

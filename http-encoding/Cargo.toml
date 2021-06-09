@@ -1,0 +1,21 @@
+[package]
+name = "http-encoding"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = []
+all = ["br", "gz", "de"]
+br = ["brotli2"]
+gz = ["flate2"]
+de = ["flate2"]
+
+[dependencies]
+bytes = "1"
+futures-core = "0.3"
+http = "0.2"
+pin-project-lite = "0.2.6"
+tokio = { version = "1.6", features = ["rt"] }
+
+brotli2 = { version="0.3.2", optional = true }
+flate2 = { version = "1.0.13", optional = true }

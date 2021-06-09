@@ -19,6 +19,12 @@ impl<B> ResponseError<Response<ResponseBody<B>>> for Box<dyn error::Error> {
     }
 }
 
+impl<B> ResponseError<Response<ResponseBody<B>>> for Box<dyn error::Error + Send> {
+    fn response_error(this: Self) -> Response<ResponseBody<B>> {
+        internal_error(this.to_string().as_bytes())
+    }
+}
+
 impl<B> ResponseError<Response<ResponseBody<B>>> for io::Error {
     fn response_error(this: Self) -> Response<ResponseBody<B>> {
         internal_error(this.to_string().as_bytes())

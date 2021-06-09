@@ -17,7 +17,13 @@ use super::tls::{self, TlsStream};
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 //TODO: use real upgrade service.
-pub struct HttpServiceBuilder<F, ReqB, FE = ExpectHandler<F>, FU = UpgradeHandler, FA = tls::TlsAcceptorService> {
+pub struct HttpServiceBuilder<
+    F,
+    ReqB = RequestBody,
+    FE = ExpectHandler<F>,
+    FU = UpgradeHandler,
+    FA = tls::TlsAcceptorService,
+> {
     pub(crate) factory: F,
     pub(crate) expect: FE,
     pub(crate) upgrade: Option<FU>,
@@ -95,7 +101,7 @@ impl<F> HttpServiceBuilder<F, RequestBody> {
     }
 }
 
-impl<F, ReqB> HttpServiceBuilder<F, ReqB> {
+impl<F> HttpServiceBuilder<F> {
     /// Construct a new Service Builder with given service factory and default configuration.
     pub fn new(factory: F) -> Self {
         Self::with_config(factory, HttpServiceConfig::default())

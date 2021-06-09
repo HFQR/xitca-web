@@ -195,8 +195,9 @@ impl RequestBodyDecoder {
 
     pub fn reset(&mut self, other: Self) -> Result<(), ProtoError> {
         match (&self.kind, &other.kind) {
-            (Kind::Chunked(..), Kind::Length(..)) => Err(ProtoError::Parse(Parse::Header)),
-            (Kind::Length(..), Kind::Chunked(..)) => Err(ProtoError::Parse(Parse::Header)),
+            (Kind::Chunked(..), Kind::Length(..)) | (Kind::Length(..), Kind::Chunked(..)) => {
+                Err(ProtoError::Parse(Parse::Header))
+            }
             _ => {
                 *self = other;
                 Ok(())
