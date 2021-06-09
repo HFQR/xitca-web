@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::VecDeque,
+    io,
     pin::Pin,
     rc::{Rc, Weak},
     task::{Context, Poll, Waker},
@@ -13,13 +14,6 @@ use crate::error::BodyError;
 
 /// max buffer size 32k
 pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;
-
-#[derive(Debug, PartialEq)]
-pub enum RequestBodyStatus {
-    Read,
-    Pause,
-    Dropped,
-}
 
 /// Buffered stream of bytes chunks
 ///
@@ -62,12 +56,6 @@ impl RequestBody {
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    /// Put unused data back to payload
-    #[inline]
-    pub fn unread_data(&mut self, data: Bytes) {
-        self.0.borrow_mut().unread_data(data);
     }
 
     #[inline]
@@ -116,21 +104,21 @@ impl RequestBodySender {
     }
 
     #[inline]
-    pub fn need_read(&self, cx: &mut Context<'_>) -> RequestBodyStatus {
+    pub fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // we check need_read only if Payload (other side) is alive,
-        // otherwise always return Dropped (consume payload)
+        // otherwise always return io error.
         self.0
             .upgrade()
             .map(|shared| {
                 let mut borrow = shared.borrow_mut();
                 if borrow.need_read {
-                    RequestBodyStatus::Read
+                    Poll::Ready(Ok(()))
                 } else {
                     borrow.register_io(cx);
-                    RequestBodyStatus::Pause
+                    Poll::Pending
                 }
             })
-            .unwrap_or(RequestBodyStatus::Dropped)
+            .unwrap_or(Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof))))
     }
 }
 
@@ -231,11 +219,6 @@ impl Inner {
             self.wake_io();
             Poll::Pending
         }
-    }
-
-    fn unread_data(&mut self, data: Bytes) {
-        self.len += data.len();
-        self.items.push_front(data);
     }
 }
 

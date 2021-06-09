@@ -2,8 +2,6 @@ use std::io;
 
 use bytes::{BufMut, Bytes, BytesMut};
 
-pub(super) const MAX_CHUNK_SIZE_DECODE_IN_PLACE: usize = 2049;
-
 pub(crate) struct Writer {
     buf: BytesMut,
 }

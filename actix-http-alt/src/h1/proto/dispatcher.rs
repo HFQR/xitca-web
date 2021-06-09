@@ -21,7 +21,7 @@ use crate::config::HttpServiceConfig;
 use crate::error::BodyError;
 use crate::flow::HttpFlowInner;
 use crate::h1::{
-    body::{RequestBody, RequestBodySender, RequestBodyStatus},
+    body::{RequestBody, RequestBodySender},
     error::Error,
 };
 use crate::response::ResponseError;
@@ -135,8 +135,8 @@ where
         cx: &mut task::Context<'_>,
     ) -> Result<bool, Error> {
         match *body_handle {
-            Some(ref mut handle) => match handle.sender.need_read(cx) {
-                RequestBodyStatus::Read => {
+            Some(ref mut handle) => match handle.sender.poll_ready(cx) {
+                Poll::Ready(Ok(_)) => {
                     let mut new = false;
                     let mut done = false;
 
@@ -171,8 +171,8 @@ where
 
                     Ok(new)
                 }
-                RequestBodyStatus::Pause => Ok(false),
-                RequestBodyStatus::Dropped => {
+                Poll::Pending => Ok(false),
+                Poll::Ready(Err(_)) => {
                     *body_handle = None;
                     // When service call dropped payload there is no tell how many bytes still
                     // remain readable in the connection.
@@ -478,7 +478,7 @@ impl RequestBodyHandle {
         ReqB: From<RequestBody>,
     {
         if decoder.is_eof() {
-            let (_, body) = RequestBody::create(true);
+            let body = RequestBody::empty();
             (None, body.into())
         } else {
             let (sender, body) = RequestBody::create(false);
