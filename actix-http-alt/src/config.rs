@@ -6,6 +6,7 @@ pub struct HttpServiceConfig {
     pub(crate) keep_alive_timeout: Duration,
     pub(crate) first_request_timeout: Duration,
     pub(crate) tls_accept_timeout: Duration,
+    pub(crate) max_head_size: usize,
 }
 
 impl Default for HttpServiceConfig {
@@ -21,6 +22,7 @@ impl HttpServiceConfig {
             keep_alive_timeout: Duration::from_secs(5),
             first_request_timeout: Duration::from_secs(5),
             tls_accept_timeout: Duration::from_secs(3),
+            max_head_size: 1024 * 1024,
         }
     }
 
@@ -41,6 +43,11 @@ impl HttpServiceConfig {
 
     pub fn tls_accept_timeout(mut self, dur: Duration) -> Self {
         self.tls_accept_timeout = dur;
+        self
+    }
+
+    pub fn max_head_size(mut self, bytes: usize) -> Self {
+        self.max_head_size = bytes;
         self
     }
 }

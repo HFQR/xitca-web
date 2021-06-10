@@ -118,6 +118,16 @@ where
         self
     }
 
+    /// Change max size for request head.
+    ///
+    /// Request has a bigger head than it would be reject with error.
+    ///
+    /// Default to 1Mb.
+    pub fn max_head_size(mut self, bytes: usize) -> Self {
+        self.config = self.config.max_head_size(bytes);
+        self
+    }
+
     pub fn bind<A: ToSocketAddrs, ResB, E>(mut self, addr: A) -> std::io::Result<Self>
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
@@ -130,7 +140,7 @@ where
         BodyError: From<E>,
     {
         let factory = self.factory.clone();
-        let config = self.config.clone();
+        let config = self.config;
         self.builder = self
             .builder
             .bind::<_, _, _, ServerStream>("actix-web-alt", addr, move || {
@@ -159,7 +169,7 @@ where
         BodyError: From<E>,
     {
         let factory = self.factory.clone();
-        let config = self.config.clone();
+        let config = self.config;
 
         let acceptor = openssl_acceptor(builder)?;
 
@@ -188,7 +198,7 @@ where
         BodyError: From<E>,
     {
         let factory = self.factory.clone();
-        let config = self.config.clone();
+        let config = self.config;
 
         self.builder = self
             .builder

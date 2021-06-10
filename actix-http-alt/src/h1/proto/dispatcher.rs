@@ -24,14 +24,14 @@ use crate::h1::{
     body::{RequestBody, RequestBodySender},
     error::Error,
 };
-use crate::response::ResponseError;
+use crate::response::{self, ResponseError};
 use crate::util::{date::DateTimeTask, keep_alive::KeepAlive, poll_fn::poll_fn};
 
 use super::buf::{ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
 use super::decode::{RequestBodyDecoder, RequestBodyItem};
 use super::encode::TransferEncoding;
-use super::error::ProtoError;
+use super::error::{Parse, ProtoError};
 
 /// Http/1 dispatcher
 pub(crate) struct Dispatcher<'a, St, S, ReqB, X, U> {
@@ -224,7 +224,7 @@ where
             io,
             timer,
             ka_dur: config.keep_alive_timeout,
-            ctx: Context::new(date.get()),
+            ctx: Context::new(date.get(), config.max_head_size),
             flow,
             _phantom: PhantomData,
         }
@@ -268,6 +268,13 @@ where
                         self.timer.as_mut().update(now);
                         let res = self.request_handler(req, &mut body_handle).await?;
                         (res, body_handle)
+                    }
+                    Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
+                        // Header is too large to be parsed.
+                        // Close the connection after sending error response as it's pointless
+                        // to read the remaining bytes inside connection.
+                        self.ctx.set_force_close();
+                        (response::payload_too_large(), None)
                     }
                     // TODO: handle error that are meant to be a response.
                     Err(e) => return Err(e.into()),

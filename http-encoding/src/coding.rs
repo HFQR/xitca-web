@@ -43,25 +43,17 @@ impl Default for ContentEncoding {
 }
 
 impl From<&str> for ContentEncoding {
-    fn from(_val: &str) -> ContentEncoding {
-        #[cfg(any(feature = "br", feature = "gz", feature = "de"))]
-        let _val = _val.trim();
+    fn from(val: &str) -> ContentEncoding {
+        let val = val.trim();
 
-        #[cfg(feature = "br")]
-        if _val.eq_ignore_ascii_case("br") {
-            return ContentEncoding::Br;
+        if val.eq_ignore_ascii_case("br") {
+            ContentEncoding::Br
+        } else if val.eq_ignore_ascii_case("gzip") {
+            ContentEncoding::Gzip
+        } else if val.eq_ignore_ascii_case("deflate") {
+            ContentEncoding::Deflate
+        } else {
+            ContentEncoding::default()
         }
-
-        #[cfg(feature = "gz")]
-        if _val.eq_ignore_ascii_case("gzip") {
-            return ContentEncoding::Gzip;
-        }
-
-        #[cfg(feature = "de")]
-        if _val.eq_ignore_ascii_case("deflate") {
-            return ContentEncoding::Deflate;
-        }
-
-        ContentEncoding::default()
     }
 }

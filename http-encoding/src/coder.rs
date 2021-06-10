@@ -53,6 +53,7 @@ pub enum CoderError<E> {
     Stream(E),
 }
 
+#[doc(hidden)]
 pub enum Feature {
     Br,
     Gzip,
@@ -120,9 +121,7 @@ where
                 match ready!(this.body.as_mut().poll_next(cx)) {
                     Some(Ok(next)) => {
                         // construct next code in_flight future and continue.
-
                         let coder = this.coder.take().unwrap();
-
                         let fut = coder.code(next);
                         this.in_flight.set(Some(fut));
                     }

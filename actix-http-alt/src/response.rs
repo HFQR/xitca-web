@@ -43,3 +43,10 @@ fn internal_error<B>(buf: &[u8]) -> Response<ResponseBody<B>> {
         .body(ResponseBody::Bytes { bytes })
         .unwrap()
 }
+
+pub(super) fn payload_too_large<B>() -> Response<ResponseBody<B>> {
+    Response::builder()
+        .status(StatusCode::PAYLOAD_TOO_LARGE)
+        .body(ResponseBody::None)
+        .unwrap()
+}

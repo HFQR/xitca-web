@@ -127,7 +127,13 @@ impl Context<'_> {
                 Ok(Some((req, decoder)))
             }
 
-            Status::Partial => Ok(None),
+            Status::Partial => {
+                if buf.remaining() > self.max_head_size {
+                    Err(ProtoError::Parse(Parse::HeaderTooLarge))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 }
@@ -169,30 +175,36 @@ pub struct RequestBodyDecoder {
 }
 
 impl RequestBodyDecoder {
+    #[inline(always)]
     pub fn length(x: u64) -> RequestBodyDecoder {
         RequestBodyDecoder { kind: Kind::Length(x) }
     }
 
+    #[inline(always)]
     pub fn chunked() -> RequestBodyDecoder {
         RequestBodyDecoder {
             kind: Kind::Chunked(ChunkedState::Size, 0),
         }
     }
 
+    #[inline(always)]
     pub fn plain_chunked() -> RequestBodyDecoder {
         RequestBodyDecoder {
             kind: Kind::PlainChunked,
         }
     }
 
+    #[inline(always)]
     pub fn eof() -> RequestBodyDecoder {
         RequestBodyDecoder { kind: Kind::Eof }
     }
 
+    #[inline(always)]
     pub fn is_eof(&self) -> bool {
         matches!(self.kind, Kind::Eof)
     }
 
+    #[inline(always)]
     pub fn reset(&mut self, other: Self) -> Result<(), ProtoError> {
         match (&self.kind, &other.kind) {
             (Kind::Chunked(..), Kind::Length(..)) | (Kind::Length(..), Kind::Chunked(..)) => {

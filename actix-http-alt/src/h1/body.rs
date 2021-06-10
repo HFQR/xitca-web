@@ -118,7 +118,7 @@ impl RequestBodySender {
                     Poll::Pending
                 }
             })
-            .unwrap_or(Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof))))
+            .unwrap_or_else(|| Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof))))
     }
 }
 
@@ -219,26 +219,5 @@ impl Inner {
             self.wake_io();
             Poll::Pending
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::util::poll_fn::poll_fn;
-
-    #[tokio::test]
-    async fn test_unread_data() {
-        let (_, mut payload) = RequestBody::create(false);
-
-        payload.unread_data(Bytes::from("data"));
-        assert!(!payload.is_empty());
-        assert_eq!(payload.len(), 4);
-
-        assert_eq!(
-            Bytes::from("data"),
-            poll_fn(|cx| payload.readany(cx)).await.unwrap().unwrap()
-        );
     }
 }

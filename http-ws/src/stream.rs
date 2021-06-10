@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     future::Future,
     pin::Pin,
     rc::Rc,
@@ -62,6 +63,26 @@ pub enum DecodeError<E> {
     Protocol(ProtocolError),
     Stream(E),
 }
+
+impl<E> fmt::Debug for DecodeError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Protocol(ref e) => write!(f, "{:?}", e),
+            Self::Stream(..) => write!(f, "Input Stream error"),
+        }
+    }
+}
+
+impl<E> fmt::Display for DecodeError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Protocol(ref e) => write!(f, "{:?}", e),
+            Self::Stream(..) => write!(f, "Input Stream error"),
+        }
+    }
+}
+
+impl<E> std::error::Error for DecodeError<E> {}
 
 impl<E> From<ProtocolError> for DecodeError<E> {
     fn from(e: ProtocolError) -> Self {

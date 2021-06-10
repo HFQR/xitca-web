@@ -12,6 +12,7 @@ pub enum ProtoError {
 #[derive(Debug)]
 pub enum Parse {
     Header,
+    HeaderTooLarge,
     StatusCode,
     HeaderValue,
 }

@@ -14,19 +14,22 @@ pub(super) struct Context<'a> {
     pub(super) header_cache: Option<HeaderMap>,
     /// smart pointer of cached date with 500 milli second update interval.
     pub(super) date: &'a Date,
+    /// Max size for request head.
+    pub(super) max_head_size: usize,
 }
 
 impl<'a> Context<'a> {
     /// No particular reason. Copied from `actix-http` crate.
     pub(super) const MAX_HEADERS: usize = 96;
 
-    pub(super) fn new(date: &'a Date) -> Self {
+    pub(super) fn new(date: &'a Date, max_head_size: usize) -> Self {
         Self {
             state: ContextState::new(),
             ctype: ConnectionType::Init,
             req_method: Method::default(),
             header_cache: None,
             date,
+            max_head_size,
         }
     }
 
