@@ -92,6 +92,7 @@ impl Context<'_> {
                     debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
                     skip_len = true;
                 }
+                CONNECTION if self.is_force_close() => continue,
                 CONNECTION => {
                     for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
                         let val = val.trim();
@@ -99,8 +100,6 @@ impl Context<'_> {
                         if val.eq_ignore_ascii_case("close") {
                             self.set_ctype(ConnectionType::Close);
                         } else if val.eq_ignore_ascii_case("keep-alive") {
-                            // TODO: there is case where ctype is set to force close.
-                            // Should reconsider if override here a good idea.
                             self.set_ctype(ConnectionType::KeepAlive);
                         } else if val.eq_ignore_ascii_case("upgrade") {
                             self.set_ctype(ConnectionType::Upgrade);
@@ -115,6 +114,10 @@ impl Context<'_> {
             buf.put_slice(b": ");
             buf.put_slice(value.as_bytes());
             buf.put_slice(b"\r\n");
+        }
+
+        if self.is_force_close() {
+            buf.put_slice(b"connection: close\r\n");
         }
 
         // encode transfer-encoding or content-length
