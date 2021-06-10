@@ -1,22 +1,29 @@
 use std::time::Duration;
 
+/// The default maximum request head size. If the head gets this big and
+/// a message is still not complete, a `TooLarge` error is triggered.
 pub const DEFAULT_HEAD_LIMIT: usize = 1024 * 1024;
 
+/// The default maximum write buffer size. If the buffer gets this big and
+/// a message is still not complete, a force draining of Io stream write
+/// would happen.
+pub const DEFAULT_WRITE_BUF_LIMIT: usize = 8192 + 4096 * 100;
+
 #[derive(Copy, Clone)]
-pub struct HttpServiceConfig<const HEAD_LIMIT: usize> {
+pub struct HttpServiceConfig<const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     pub(crate) http1_pipeline: bool,
     pub(crate) keep_alive_timeout: Duration,
     pub(crate) first_request_timeout: Duration,
     pub(crate) tls_accept_timeout: Duration,
 }
 
-impl Default for HttpServiceConfig<DEFAULT_HEAD_LIMIT> {
+impl Default for HttpServiceConfig<DEFAULT_HEAD_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HttpServiceConfig<DEFAULT_HEAD_LIMIT> {
+impl HttpServiceConfig<DEFAULT_HEAD_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
     pub const fn new() -> Self {
         Self {
             http1_pipeline: false,
@@ -27,7 +34,7 @@ impl HttpServiceConfig<DEFAULT_HEAD_LIMIT> {
     }
 }
 
-impl<const HEAD_LIMIT: usize> HttpServiceConfig<HEAD_LIMIT> {
+impl<const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> HttpServiceConfig<HEAD_LIMIT, WRITE_BUF_LIMIT> {
     pub fn enable_http1_pipeline(mut self) -> Self {
         self.http1_pipeline = true;
         self
@@ -48,7 +55,18 @@ impl<const HEAD_LIMIT: usize> HttpServiceConfig<HEAD_LIMIT> {
         self
     }
 
-    pub fn max_head_size<const NEW_LIMIT: usize>(self) -> HttpServiceConfig<NEW_LIMIT> {
+    pub fn max_head_size<const HEAD_LIMIT_2: usize>(self) -> HttpServiceConfig<HEAD_LIMIT_2, WRITE_BUF_LIMIT> {
+        HttpServiceConfig {
+            http1_pipeline: self.http1_pipeline,
+            keep_alive_timeout: self.keep_alive_timeout,
+            first_request_timeout: self.first_request_timeout,
+            tls_accept_timeout: self.tls_accept_timeout,
+        }
+    }
+
+    pub fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(
+        self,
+    ) -> HttpServiceConfig<HEAD_LIMIT, WRITE_BUF_LIMIT_2> {
         HttpServiceConfig {
             http1_pipeline: self.http1_pipeline,
             keep_alive_timeout: self.keep_alive_timeout,

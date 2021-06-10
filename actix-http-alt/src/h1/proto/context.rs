@@ -5,7 +5,7 @@ use crate::util::date::Date;
 /// Context is connection specific struct contain states for processing.
 /// It needs manually reset with every new successfully decoded request.
 /// See `Context::reset` method for detail.
-pub(super) struct Context<'a> {
+pub(super) struct Context<'a, const HEAD_LIMIT: usize> {
     state: ContextState,
     ctype: ConnectionType,
     /// method cache of current request. Used for generate correct response.
@@ -16,10 +16,7 @@ pub(super) struct Context<'a> {
     pub(super) date: &'a Date,
 }
 
-impl<'a> Context<'a> {
-    /// No particular reason. Copied from `actix-http` crate.
-    pub(super) const MAX_HEADERS: usize = 96;
-
+impl<'a, const HEAD_LIMIT: usize> Context<'a, HEAD_LIMIT> {
     pub(super) fn new(date: &'a Date) -> Self {
         Self {
             state: ContextState::new(),

@@ -10,7 +10,6 @@
 
 mod body;
 mod builder;
-mod config;
 mod error;
 mod flow;
 mod protocol;
@@ -25,6 +24,7 @@ pub mod h2;
 #[cfg(feature = "http3")]
 pub mod h3;
 
+pub mod config;
 pub mod util;
 
 /// re-export http crate as module.
@@ -32,7 +32,6 @@ pub use http;
 
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
-pub use config::{HttpServiceConfig, DEFAULT_HEAD_LIMIT};
 pub use error::{BodyError, HttpServiceError};
 pub use response::ResponseError;
 pub use service::HttpService;

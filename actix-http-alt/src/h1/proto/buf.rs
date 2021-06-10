@@ -7,10 +7,6 @@ use bytes::{Buf, Bytes, BytesMut};
 
 use crate::util::buf_list::BufList;
 
-/// The default maximum read buffer size. If the buffer gets this big and
-/// a message is still not complete, a `TooLarge` error is triggered.
-pub(crate) const DEFAULT_MAX_SIZE: usize = 8192 + 4096 * 100;
-
 pub(super) struct ReadBuf {
     advanced: bool,
     buf: BytesMut,
@@ -40,12 +36,12 @@ impl ReadBuf {
     }
 }
 
-pub(super) enum WriteBuf {
+pub(super) enum WriteBuf<const WRITE_BUF_LIMIT: usize> {
     Flat(BytesMut),
     List(WriteListBuf<EncodedBuf<Bytes>>),
 }
 
-impl WriteBuf {
+impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> {
     pub(super) fn new(is_vectored: bool) -> Self {
         if is_vectored {
             Self::List(WriteListBuf::new())
@@ -57,8 +53,14 @@ impl WriteBuf {
     #[inline(always)]
     pub(super) fn backpressure(&self) -> bool {
         match *self {
-            Self::Flat(ref buf) => buf.len() >= DEFAULT_MAX_SIZE,
-            Self::List(ref list) => list.backpressure(),
+            Self::Flat(ref buf) => buf.len() >= WRITE_BUF_LIMIT,
+            Self::List(ref list) => {
+                // When buffering buf must be empty.
+                // (Whoever write into it must split it afterwards)
+                debug_assert!(!list.buf.has_remaining());
+                // TODO: figure out a suitable backpressure point for list length.
+                list.list.remaining() >= WRITE_BUF_LIMIT
+            }
         }
     }
 }
@@ -68,7 +70,6 @@ pub(super) struct WriteListBuf<B> {
     /// Re-usable buffer that holds response head.
     /// After head writing finished it's split and pushed to list.
     buf: BytesMut,
-    max_size: usize,
     /// Deque of user buffers if strategy is Queue
     list: BufList<B>,
 }
@@ -77,7 +78,6 @@ impl<B: Buf> WriteListBuf<B> {
     fn new() -> Self {
         Self {
             buf: BytesMut::new(),
-            max_size: DEFAULT_MAX_SIZE,
             list: BufList::new(),
         }
     }
@@ -87,14 +87,6 @@ impl<B: Buf> WriteListBuf<B> {
     pub(super) fn buffer<BB: Buf + Into<B>>(&mut self, buf: BB) {
         debug_assert!(buf.has_remaining());
         self.list.push(buf.into());
-    }
-
-    fn backpressure(&self) -> bool {
-        // When buffering buf must be empty.
-        // (Whoever write into it must split it afterwards)
-        debug_assert!(!self.buf.has_remaining());
-        // TODO: figure out a suitable backpressure point for list length.
-        self.list.remaining() >= self.max_size
     }
 
     #[inline(always)]

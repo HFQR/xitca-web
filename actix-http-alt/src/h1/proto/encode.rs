@@ -15,8 +15,8 @@ use super::buf::{EncodedBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
-impl Context<'_> {
-    pub(super) fn encode_continue(&mut self, buf: &mut WriteBuf) {
+impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
+    pub(super) fn encode_continue<const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut WriteBuf<WRITE_BUF_LIMIT>) {
         debug_assert!(self.is_expect());
         match *buf {
             WriteBuf::Flat(ref mut bytes) => bytes.put_slice(b"HTTP/1.1 100 Continue\r\n\r\n"),
@@ -26,11 +26,11 @@ impl Context<'_> {
         }
     }
 
-    pub(super) fn encode_head(
+    pub(super) fn encode_head<const WRITE_BUF_LIMIT: usize>(
         &mut self,
         parts: Parts,
         size: ResponseBodySize,
-        buf: &mut WriteBuf,
+        buf: &mut WriteBuf<WRITE_BUF_LIMIT>,
     ) -> Result<(), ProtoError> {
         match *buf {
             WriteBuf::List(ref mut list) => {
@@ -255,7 +255,11 @@ impl TransferEncoding {
 
     /// Encode message. Return `EOF` state of encoder
     #[inline(always)]
-    pub(super) fn encode(&mut self, mut msg: Bytes, buf: &mut WriteBuf) -> io::Result<bool> {
+    pub(super) fn encode<const WRITE_BUF_LIMIT: usize>(
+        &mut self,
+        mut msg: Bytes,
+        buf: &mut WriteBuf<WRITE_BUF_LIMIT>,
+    ) -> io::Result<bool> {
         match self.kind {
             TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => {
                 let eof = msg.is_empty();
@@ -341,7 +345,10 @@ impl TransferEncoding {
 
     /// Encode eof. Return `EOF` state of encoder
     #[inline(always)]
-    pub(super) fn encode_eof(&mut self, buf: &mut WriteBuf) -> io::Result<()> {
+    pub(super) fn encode_eof<const WRITE_BUF_LIMIT: usize>(
+        &mut self,
+        buf: &mut WriteBuf<WRITE_BUF_LIMIT>,
+    ) -> io::Result<()> {
         match self.kind {
             TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => Ok(()),
             TransferEncodingKind::Length(rem) => {

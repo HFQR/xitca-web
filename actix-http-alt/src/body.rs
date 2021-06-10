@@ -6,7 +6,7 @@ use std::{
 
 use bytes::Bytes;
 use futures_core::stream::{LocalBoxStream, Stream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 
 use super::error::BodyError;
 
@@ -47,21 +47,18 @@ impl Stream for RequestBody {
 
 pub type StreamBody = LocalBoxStream<'static, Result<Bytes, BodyError>>;
 
-pin_project! {
-    /// A unified response body type.
-    /// Generic type is for custom pinned response body(type implement [Stream](futures_core::Stream)).
-    #[project = ResponseBodyProj]
-    #[project_replace = ResponseBodyProjReplace]
-    pub enum ResponseBody<B = StreamBody> {
-        None,
-        Bytes {
-            bytes: Bytes
-        },
-        Stream {
-            #[pin]
-            stream: B
-        },
-    }
+/// A unified response body type.
+/// Generic type is for custom pinned response body(type implement [Stream](futures_core::Stream)).
+#[pin_project(project = ResponseBodyProj, project_replace = ResponseBodyProjReplace)]
+pub enum ResponseBody<B = StreamBody> {
+    None,
+    Bytes {
+        bytes: Bytes,
+    },
+    Stream {
+        #[pin]
+        stream: B,
+    },
 }
 
 impl<B, E> ResponseBody<B>

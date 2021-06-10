@@ -20,9 +20,11 @@ use super::body::RequestBody;
 use super::error::Error;
 use super::proto::Dispatcher;
 
-pub type H1Service<S, X, U, A, const HEAD_LIMIT: usize> = HttpService<S, RequestBody, X, U, A, HEAD_LIMIT>;
+pub type H1Service<S, X, U, A, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
+    HttpService<S, RequestBody, X, U, A, HEAD_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<St, S, X, U, B, E, A, TlsSt, const HEAD_LIMIT: usize> Service<St> for H1Service<S, X, U, A, HEAD_LIMIT>
+impl<St, S, X, U, B, E, A, TlsSt, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<St>
+    for H1Service<S, X, U, A, HEAD_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,

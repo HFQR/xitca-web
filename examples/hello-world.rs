@@ -7,9 +7,10 @@ use std::{
 };
 
 use actix_http_alt::{
+    config::HttpServiceConfig,
     http::{Request, Response},
     util::ErrorLoggerFactory,
-    HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody,
+    HttpServiceBuilder, RequestBody, ResponseBody,
 };
 use actix_service_alt::fn_service;
 use bytes::Bytes;

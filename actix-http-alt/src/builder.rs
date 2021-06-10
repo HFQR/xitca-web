@@ -7,7 +7,7 @@ use futures_core::Stream;
 use http::{Request, Response};
 
 use super::body::{RequestBody, ResponseBody};
-use super::config::{HttpServiceConfig, DEFAULT_HEAD_LIMIT};
+use super::config::{HttpServiceConfig, DEFAULT_HEAD_LIMIT, DEFAULT_WRITE_BUF_LIMIT};
 use super::error::{BodyError, HttpServiceError};
 use super::h1::{ExpectHandler, UpgradeHandler};
 use super::response::ResponseError;
@@ -17,17 +17,25 @@ use super::tls::{self, TlsStream};
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 //TODO: use real upgrade service.
-pub struct HttpServiceBuilder<F, ReqB, FE, FU, FA, const HEAD_LIMIT: usize> {
+pub struct HttpServiceBuilder<F, ReqB, FE, FU, FA, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     pub(crate) factory: F,
     pub(crate) expect: FE,
     pub(crate) upgrade: Option<FU>,
     pub(crate) tls_factory: FA,
-    pub(crate) config: HttpServiceConfig<HEAD_LIMIT>,
+    pub(crate) config: HttpServiceConfig<HEAD_LIMIT, WRITE_BUF_LIMIT>,
     pub(crate) _body: PhantomData<ReqB>,
 }
 
 impl<F>
-    HttpServiceBuilder<F, RequestBody, ExpectHandler<F>, UpgradeHandler, tls::TlsAcceptorService, DEFAULT_HEAD_LIMIT>
+    HttpServiceBuilder<
+        F,
+        RequestBody,
+        ExpectHandler<F>,
+        UpgradeHandler,
+        tls::TlsAcceptorService,
+        DEFAULT_HEAD_LIMIT,
+        DEFAULT_WRITE_BUF_LIMIT,
+    >
 {
     /// Construct a new Service Builder with given service factory and default configuration.
     pub fn new(factory: F) -> Self {
@@ -35,11 +43,18 @@ impl<F>
     }
 
     /// Construct a new Service Builder with given service factory and configuration
-    pub fn with_config<const HEAD_LIMIT_2: usize>(
+    pub fn with_config<const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize>(
         factory: F,
-        config: HttpServiceConfig<HEAD_LIMIT_2>,
-    ) -> HttpServiceBuilder<F, RequestBody, ExpectHandler<F>, UpgradeHandler, tls::TlsAcceptorService, HEAD_LIMIT_2>
-    {
+        config: HttpServiceConfig<HEAD_LIMIT, WRITE_BUF_LIMIT>,
+    ) -> HttpServiceBuilder<
+        F,
+        RequestBody,
+        ExpectHandler<F>,
+        UpgradeHandler,
+        tls::TlsAcceptorService,
+        HEAD_LIMIT,
+        WRITE_BUF_LIMIT,
+    > {
         HttpServiceBuilder {
             factory,
             expect: ExpectHandler::new(),
@@ -64,6 +79,7 @@ impl<F>
         UpgradeHandler,
         tls::NoOpTlsAcceptorService,
         DEFAULT_HEAD_LIMIT,
+        DEFAULT_WRITE_BUF_LIMIT,
     >
     where
         F: ServiceFactory<Request<super::h1::RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()>,
@@ -90,7 +106,15 @@ impl<F>
     /// This is a request type specific for Http/2 request body.
     pub fn h2<ResB, E>(
         factory: F,
-    ) -> HttpServiceBuilder<F, super::h2::RequestBody, (), (), tls::NoOpTlsAcceptorService, DEFAULT_HEAD_LIMIT>
+    ) -> HttpServiceBuilder<
+        F,
+        super::h2::RequestBody,
+        (),
+        (),
+        tls::NoOpTlsAcceptorService,
+        DEFAULT_HEAD_LIMIT,
+        DEFAULT_WRITE_BUF_LIMIT,
+    >
     where
         F: ServiceFactory<Request<super::h2::RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()>,
         F::Service: 'static,
@@ -127,11 +151,13 @@ impl<F>
     }
 }
 
-impl<F, ReqB, FE, FU, FA, const HEAD_LIMIT: usize> HttpServiceBuilder<F, ReqB, FE, FU, FA, HEAD_LIMIT> {
-    pub fn config<const HEAD_LIMIT_2: usize>(
+impl<F, ReqB, FE, FU, FA, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServiceBuilder<F, ReqB, FE, FU, FA, HEAD_LIMIT, WRITE_BUF_LIMIT>
+{
+    pub fn config<const HEAD_LIMIT_2: usize, const WRITE_BUF_LIMIT_2: usize>(
         self,
-        config: HttpServiceConfig<HEAD_LIMIT_2>,
-    ) -> HttpServiceBuilder<F, ReqB, FE, FU, FA, HEAD_LIMIT_2> {
+        config: HttpServiceConfig<HEAD_LIMIT_2, WRITE_BUF_LIMIT_2>,
+    ) -> HttpServiceBuilder<F, ReqB, FE, FU, FA, HEAD_LIMIT_2, WRITE_BUF_LIMIT_2> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -142,7 +168,7 @@ impl<F, ReqB, FE, FU, FA, const HEAD_LIMIT: usize> HttpServiceBuilder<F, ReqB, F
         }
     }
 
-    pub fn expect<FE2, ResB>(self, expect: FE2) -> HttpServiceBuilder<F, ReqB, FE2, FU, FA, HEAD_LIMIT>
+    pub fn expect<FE2, ResB>(self, expect: FE2) -> HttpServiceBuilder<F, ReqB, FE2, FU, FA, HEAD_LIMIT, WRITE_BUF_LIMIT>
     where
         FE2: ServiceFactory<Request<ReqB>, Response = Request<ResB>>,
         FE2::Service: 'static,
@@ -157,7 +183,10 @@ impl<F, ReqB, FE, FU, FA, const HEAD_LIMIT: usize> HttpServiceBuilder<F, ReqB, F
         }
     }
 
-    pub fn upgrade<FU2, ResB>(self, upgrade: FU2) -> HttpServiceBuilder<F, ReqB, FE, FU2, FA, HEAD_LIMIT>
+    pub fn upgrade<FU2, ResB>(
+        self,
+        upgrade: FU2,
+    ) -> HttpServiceBuilder<F, ReqB, FE, FU2, FA, HEAD_LIMIT, WRITE_BUF_LIMIT>
     where
         FU2: ServiceFactory<Request<ReqB>, Response = ()>,
         FU2::Service: 'static,
@@ -173,12 +202,14 @@ impl<F, ReqB, FE, FU, FA, const HEAD_LIMIT: usize> HttpServiceBuilder<F, ReqB, F
     }
 }
 
-impl<F, FE, FU, FA, const HEAD_LIMIT: usize> HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEAD_LIMIT> {
+impl<F, FE, FU, FA, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEAD_LIMIT, WRITE_BUF_LIMIT>
+{
     #[cfg(feature = "openssl")]
     pub fn openssl(
         self,
         acceptor: tls::openssl::TlsAcceptor,
-    ) -> HttpServiceBuilder<F, RequestBody, FE, FU, tls::TlsAcceptorService, HEAD_LIMIT> {
+    ) -> HttpServiceBuilder<F, RequestBody, FE, FU, tls::TlsAcceptorService, HEAD_LIMIT, WRITE_BUF_LIMIT> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -193,7 +224,7 @@ impl<F, FE, FU, FA, const HEAD_LIMIT: usize> HttpServiceBuilder<F, RequestBody, 
     pub fn rustls(
         self,
         config: tls::rustls::RustlsConfig,
-    ) -> HttpServiceBuilder<F, RequestBody, FE, FU, tls::TlsAcceptorService, HEAD_LIMIT> {
+    ) -> HttpServiceBuilder<F, RequestBody, FE, FU, tls::TlsAcceptorService, HEAD_LIMIT, WRITE_BUF_LIMIT> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -205,8 +236,8 @@ impl<F, FE, FU, FA, const HEAD_LIMIT: usize> HttpServiceBuilder<F, RequestBody, 
     }
 }
 
-impl<F, ResB, E, FE, FU, FA, const HEAD_LIMIT: usize> ServiceFactory<ServerStream>
-    for HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEAD_LIMIT>
+impl<F, ResB, E, FE, FU, FA, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> ServiceFactory<ServerStream>
+    for HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEAD_LIMIT, WRITE_BUF_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
@@ -234,7 +265,8 @@ where
     type Response = ();
     type Error = HttpServiceError;
     type Config = F::Config;
-    type Service = HttpService<F::Service, RequestBody, FE::Service, FU::Service, FA::Service, HEAD_LIMIT>;
+    type Service =
+        HttpService<F::Service, RequestBody, FE::Service, FU::Service, FA::Service, HEAD_LIMIT, WRITE_BUF_LIMIT>;
     type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 

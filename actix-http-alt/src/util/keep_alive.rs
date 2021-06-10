@@ -5,17 +5,16 @@ use std::{
 };
 
 use futures_core::ready;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use tokio::time::{sleep_until, Instant, Sleep};
 
-pin_project! {
-    /// A keep alive timer lazily reset the deadline.
-    /// after each successful poll.
-    pub(crate) struct KeepAlive {
-        #[pin]
-        timer: Sleep,
-        deadline: Instant,
-    }
+/// A keep alive timer lazily reset the deadline.
+/// after each successful poll.
+#[pin_project]
+pub(crate) struct KeepAlive {
+    #[pin]
+    timer: Sleep,
+    deadline: Instant,
 }
 
 impl KeepAlive {

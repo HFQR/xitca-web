@@ -10,13 +10,16 @@ use httparse::{Header, Status, EMPTY_HEADER};
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
-impl Context<'_> {
+/// No particular reason. Copied from `actix-http` crate.
+const MAX_HEADERS: usize = 96;
+
+impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
     // decode head and generate request and body decoder.
-    pub(super) fn decode_head<const HEAD_LIMIT: usize>(
+    pub(super) fn decode_head(
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Request<()>, RequestBodyDecoder)>, ProtoError> {
-        let mut headers = [EMPTY_HEADER; Self::MAX_HEADERS];
+        let mut headers = [EMPTY_HEADER; MAX_HEADERS];
 
         let mut req = httparse::Request::new(&mut headers);
 
@@ -42,7 +45,7 @@ impl Context<'_> {
                 };
 
                 // record the index of headers from the buffer.
-                let mut header_idx = [HeaderIndex::new(); Self::MAX_HEADERS];
+                let mut header_idx = [HeaderIndex::new(); MAX_HEADERS];
 
                 HeaderIndex::record(buf, req.headers, &mut header_idx);
 

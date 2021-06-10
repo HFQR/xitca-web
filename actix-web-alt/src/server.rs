@@ -1,22 +1,23 @@
 use std::{net::ToSocketAddrs, time::Duration};
 
 use actix_http_alt::{
+    config::{HttpServiceConfig, DEFAULT_HEAD_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::{Request, Response},
     util::ErrorLoggerFactory,
-    BodyError, HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody, ResponseError, DEFAULT_HEAD_LIMIT,
+    BodyError, HttpServiceBuilder, RequestBody, ResponseBody, ResponseError,
 };
 use actix_server_alt::{net::Stream as ServerStream, Builder, ServerFuture};
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
 
-pub struct HttpServer<F, const HEAD_LIMIT: usize> {
+pub struct HttpServer<F, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     factory: F,
     builder: Builder,
-    config: HttpServiceConfig<HEAD_LIMIT>,
+    config: HttpServiceConfig<HEAD_LIMIT, WRITE_BUF_LIMIT>,
 }
 
-impl<F, I> HttpServer<F, DEFAULT_HEAD_LIMIT>
+impl<F, I> HttpServer<F, DEFAULT_HEAD_LIMIT, DEFAULT_WRITE_BUF_LIMIT>
 where
     F: Fn() -> I + Send + Clone + 'static,
 {
@@ -29,7 +30,7 @@ where
     }
 }
 
-impl<F, I, const HEAD_LIMIT: usize> HttpServer<F, HEAD_LIMIT>
+impl<F, I, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> HttpServer<F, HEAD_LIMIT, WRITE_BUF_LIMIT>
 where
     F: Fn() -> I + Send + Clone + 'static,
 {
@@ -127,12 +128,26 @@ where
     ///
     /// Request has a bigger head than it would be reject with error.
     ///
-    /// Default to 1Mb.
-    pub fn max_head_size<const HEAD_LIMIT_2: usize>(self) -> HttpServer<F, HEAD_LIMIT_2> {
+    /// Default to 1mb.
+    pub fn max_head_size<const HEAD_LIMIT_2: usize>(self) -> HttpServer<F, HEAD_LIMIT_2, WRITE_BUF_LIMIT> {
         HttpServer {
             factory: self.factory,
             builder: self.builder,
             config: self.config.max_head_size::<HEAD_LIMIT_2>(),
+        }
+    }
+
+    /// Change max size for write buffer size.
+    ///
+    /// When write buffer hit limit it would force a drain write to Io stream until it's empty
+    /// (or connection closed by error or remote peer).
+    ///
+    /// Default to 408kb.
+    pub fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(self) -> HttpServer<F, HEAD_LIMIT, WRITE_BUF_LIMIT_2> {
+        HttpServer {
+            factory: self.factory,
+            builder: self.builder,
+            config: self.config.max_write_buf_size::<WRITE_BUF_LIMIT_2>(),
         }
     }
 

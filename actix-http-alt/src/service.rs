@@ -21,18 +21,20 @@ use super::tls::TlsStream;
 use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
 
 /// General purpose http service
-pub struct HttpService<S, ReqB, X, U, A, const HEAD_LIMIT: usize> {
-    pub(crate) config: HttpServiceConfig<HEAD_LIMIT>,
+pub struct HttpService<S, ReqB, X, U, A, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+    pub(crate) config: HttpServiceConfig<HEAD_LIMIT, WRITE_BUF_LIMIT>,
     pub(crate) date: DateTimeTask,
     pub(crate) flow: HttpFlow<S, X, U>,
     pub(crate) tls_acceptor: A,
     _body: PhantomData<ReqB>,
 }
 
-impl<S, ReqB, X, U, A, const HEAD_LIMIT: usize> HttpService<S, ReqB, X, U, A, HEAD_LIMIT> {
+impl<S, ReqB, X, U, A, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpService<S, ReqB, X, U, A, HEAD_LIMIT, WRITE_BUF_LIMIT>
+{
     /// Construct new Http Service.
     pub fn new(
-        config: HttpServiceConfig<HEAD_LIMIT>,
+        config: HttpServiceConfig<HEAD_LIMIT, WRITE_BUF_LIMIT>,
         service: S,
         expect: X,
         upgrade: Option<U>,
@@ -48,8 +50,8 @@ impl<S, ReqB, X, U, A, const HEAD_LIMIT: usize> HttpService<S, ReqB, X, U, A, HE
     }
 }
 
-impl<S, X, U, B, E, A, const HEAD_LIMIT: usize> Service<ServerStream>
-    for HttpService<S, RequestBody, X, U, A, HEAD_LIMIT>
+impl<S, X, U, B, E, A, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<ServerStream>
+    for HttpService<S, RequestBody, X, U, A, HEAD_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,

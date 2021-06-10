@@ -13,7 +13,7 @@ use bytes::{Buf, Bytes};
 use futures_core::Stream;
 use http::{response::Parts, Request, Response};
 use log::trace;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use tokio::{io::Interest, pin, select};
 
 use crate::body::ResponseBody;
@@ -34,22 +34,22 @@ use super::encode::TransferEncoding;
 use super::error::{Parse, ProtoError};
 
 /// Http/1 dispatcher
-pub(crate) struct Dispatcher<'a, St, S, ReqB, X, U, const HEAD_LIMIT: usize> {
-    io: Io<'a, St>,
+pub(crate) struct Dispatcher<'a, St, S, ReqB, X, U, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+    io: Io<'a, St, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
-    ctx: Context<'a>,
+    ctx: Context<'a, HEAD_LIMIT>,
     flow: &'a HttpFlowInner<S, X, U>,
     _phantom: PhantomData<ReqB>,
 }
 
-struct Io<'a, St> {
+struct Io<'a, St, const WRITE_BUF_LIMIT: usize> {
     io: &'a mut St,
     read_buf: ReadBuf,
-    write_buf: WriteBuf,
+    write_buf: WriteBuf<WRITE_BUF_LIMIT>,
 }
 
-impl<St> Io<'_, St>
+impl<St, const WRITE_BUF_LIMIT: usize> Io<'_, St, WRITE_BUF_LIMIT>
 where
     St: AsyncReadWrite,
 {
@@ -128,10 +128,10 @@ where
     }
 
     /// Return true when new data is decoded.
-    fn poll_read_decode_body(
+    fn poll_read_decode_body<const HEAD_LIMIT: usize>(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
-        ctx: &mut Context<'_>,
+        ctx: &mut Context<'_, HEAD_LIMIT>,
         cx: &mut task::Context<'_>,
     ) -> Result<bool, Error> {
         match *body_handle {
@@ -186,7 +186,8 @@ where
     }
 }
 
-impl<'a, St, S, ReqB, ResB, E, X, U, const HEAD_LIMIT: usize> Dispatcher<'a, St, S, ReqB, X, U, HEAD_LIMIT>
+impl<'a, St, S, ReqB, ResB, E, X, U, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Dispatcher<'a, St, S, ReqB, X, U, HEAD_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -204,7 +205,7 @@ where
     pub(crate) fn new(
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
-        config: HttpServiceConfig<HEAD_LIMIT>,
+        config: HttpServiceConfig<HEAD_LIMIT, WRITE_BUF_LIMIT>,
         flow: &'a HttpFlowInner<S, X, U>,
         date: &'a DateTimeTask,
     ) -> Self {
@@ -235,7 +236,7 @@ where
         if self.io.read_buf.advanced() {
             let buf = self.io.read_buf.buf_mut();
 
-            match self.ctx.decode_head::<HEAD_LIMIT>(buf) {
+            match self.ctx.decode_head(buf) {
                 Ok(Some((req, decoder))) => {
                     let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
@@ -260,7 +261,7 @@ where
 
     pub(crate) async fn run(mut self) -> Result<(), Error> {
         loop {
-            while let Some(res) = self.decode_head() {
+            'req: while let Some(res) = self.decode_head() {
                 let (res, mut body_handle) = match res {
                     Ok((req, mut body_handle)) => {
                         // have new request. update timer deadline.
@@ -274,7 +275,12 @@ where
                         // Close the connection after sending error response as it's pointless
                         // to read the remaining bytes inside connection.
                         self.ctx.set_force_close();
-                        (response::payload_too_large(), None)
+
+                        let (parts, res_body) = response::payload_too_large().into_parts();
+
+                        self.encode_head(parts, &res_body)?;
+
+                        break 'req;
                     }
                     // TODO: handle error that are meant to be a response.
                     Err(e) => return Err(e.into()),
@@ -378,17 +384,17 @@ where
     }
 }
 
-pin_project! {
-    struct RequestHandler<'a, 'b, St, Fut> {
-        #[pin]
-        fut: Fut,
-        body_handle: &'a mut Option<RequestBodyHandle>,
-        io: &'a mut Io<'b, St>,
-        ctx: &'a mut Context<'b>,
-    }
+#[pin_project]
+struct RequestHandler<'a, 'b, St, Fut, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+    #[pin]
+    fut: Fut,
+    body_handle: &'a mut Option<RequestBodyHandle>,
+    io: &'a mut Io<'b, St, WRITE_BUF_LIMIT>,
+    ctx: &'a mut Context<'b, HEAD_LIMIT>,
 }
 
-impl<St, Fut, E, ResB> Future for RequestHandler<'_, '_, St, Fut>
+impl<St, Fut, E, ResB, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Future
+    for RequestHandler<'_, '_, St, Fut, HEAD_LIMIT, WRITE_BUF_LIMIT>
 where
     Fut: Future<Output = Result<Response<ResponseBody<ResB>>, E>>,
     E: ResponseError<Response<ResponseBody<ResB>>>,
@@ -417,12 +423,12 @@ where
     }
 }
 
-struct ResponseHandler<'a, 'b, St, ResB> {
+struct ResponseHandler<'a, 'b, St, ResB, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     res_body: Pin<&'a mut ResponseBody<ResB>>,
     encoder: &'a mut TransferEncoding,
     body_handle: &'a mut Option<RequestBodyHandle>,
-    io: &'a mut Io<'b, St>,
-    ctx: &'a mut Context<'b>,
+    io: &'a mut Io<'b, St, WRITE_BUF_LIMIT>,
+    ctx: &'a mut Context<'b, HEAD_LIMIT>,
 }
 
 enum ResponseHandlerResult {
@@ -430,7 +436,8 @@ enum ResponseHandlerResult {
     WriteBackpressure,
 }
 
-impl<St, ResB, E> Future for ResponseHandler<'_, '_, St, ResB>
+impl<St, ResB, E, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Future
+    for ResponseHandler<'_, '_, St, ResB, HEAD_LIMIT, WRITE_BUF_LIMIT>
 where
     ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
