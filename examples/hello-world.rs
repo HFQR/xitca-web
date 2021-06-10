@@ -9,7 +9,7 @@ use std::{
 use actix_http_alt::{
     http::{Request, Response},
     util::ErrorLoggerFactory,
-    HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody,
+    HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody, DEFAULT_HEAD_LIMIT,
 };
 use actix_service_alt::fn_service;
 use bytes::Bytes;
@@ -42,7 +42,8 @@ async fn main() -> io::Result<()> {
             let config = HttpServiceConfig::new().enable_http1_pipeline();
             let builder = HttpServiceBuilder::new(fn_service(handler)).config(config);
 
-            let builder = HttpServiceBuilder::<_, RequestBody, _, _, _>::rustls(builder, acceptor.clone());
+            let builder =
+                HttpServiceBuilder::<_, RequestBody, _, _, _, DEFAULT_HEAD_LIMIT>::rustls(builder, acceptor.clone());
 
             ErrorLoggerFactory::new(builder)
         })?

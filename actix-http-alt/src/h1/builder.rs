@@ -16,14 +16,15 @@ use super::service::H1Service;
 
 /// Http/1 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
-pub type H1ServiceBuilder<F, FE, FU, FA> = HttpServiceBuilder<F, RequestBody, FE, FU, FA>;
+pub type H1ServiceBuilder<F, FE, FU, FA, const HEAD_LIMIT: usize> =
+    HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEAD_LIMIT>;
 
-impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
+impl<F, FE, FU, FA, const HEAD_LIMIT: usize> HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEAD_LIMIT> {
     #[cfg(feature = "openssl")]
     pub fn openssl(
         self,
         acceptor: crate::tls::openssl::TlsAcceptor,
-    ) -> H1ServiceBuilder<F, FE, FU, crate::tls::openssl::TlsAcceptorService> {
+    ) -> H1ServiceBuilder<F, FE, FU, crate::tls::openssl::TlsAcceptorService, HEAD_LIMIT> {
         H1ServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -38,7 +39,7 @@ impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
     pub fn rustls(
         self,
         config: crate::tls::rustls::RustlsConfig,
-    ) -> H1ServiceBuilder<F, FE, FU, crate::tls::rustls::TlsAcceptorService> {
+    ) -> H1ServiceBuilder<F, FE, FU, crate::tls::rustls::TlsAcceptorService, HEAD_LIMIT> {
         H1ServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -50,7 +51,8 @@ impl<F, FE, FU, FA> HttpServiceBuilder<F, RequestBody, FE, FU, FA> {
     }
 }
 
-impl<St, F, ResB, E, FE, FU, FA, TlsSt> ServiceFactory<St> for H1ServiceBuilder<F, FE, FU, FA>
+impl<St, F, ResB, E, FE, FU, FA, TlsSt, const HEAD_LIMIT: usize> ServiceFactory<St>
+    for H1ServiceBuilder<F, FE, FU, FA, HEAD_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
@@ -81,7 +83,7 @@ where
     type Response = ();
     type Error = HttpServiceError;
     type Config = F::Config;
-    type Service = H1Service<F::Service, FE::Service, FU::Service, FA::Service>;
+    type Service = H1Service<F::Service, FE::Service, FU::Service, FA::Service, HEAD_LIMIT>;
     type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 

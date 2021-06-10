@@ -21,9 +21,9 @@ use crate::util::keep_alive::KeepAlive;
 use super::body::RequestBody;
 use super::proto::Dispatcher;
 
-pub type H2Service<S, A> = HttpService<S, RequestBody, (), (), A>;
+pub type H2Service<S, A, const HEAD_LIMIT: usize> = HttpService<S, RequestBody, (), (), A, HEAD_LIMIT>;
 
-impl<St, S, B, E, A, TlsSt> Service<St> for H2Service<S, A>
+impl<St, S, B, E, A, TlsSt, const HEAD_LIMIT: usize> Service<St> for H2Service<S, A, HEAD_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     A: Service<St, Response = TlsSt> + 'static,

@@ -34,7 +34,7 @@ use super::encode::TransferEncoding;
 use super::error::{Parse, ProtoError};
 
 /// Http/1 dispatcher
-pub(crate) struct Dispatcher<'a, St, S, ReqB, X, U> {
+pub(crate) struct Dispatcher<'a, St, S, ReqB, X, U, const HEAD_LIMIT: usize> {
     io: Io<'a, St>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
@@ -186,7 +186,7 @@ where
     }
 }
 
-impl<'a, St, S, ReqB, ResB, E, X, U> Dispatcher<'a, St, S, ReqB, X, U>
+impl<'a, St, S, ReqB, ResB, E, X, U, const HEAD_LIMIT: usize> Dispatcher<'a, St, S, ReqB, X, U, HEAD_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -204,7 +204,7 @@ where
     pub(crate) fn new(
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
-        config: HttpServiceConfig,
+        config: HttpServiceConfig<HEAD_LIMIT>,
         flow: &'a HttpFlowInner<S, X, U>,
         date: &'a DateTimeTask,
     ) -> Self {
@@ -224,7 +224,7 @@ where
             io,
             timer,
             ka_dur: config.keep_alive_timeout,
-            ctx: Context::new(date.get(), config.max_head_size),
+            ctx: Context::new(date.get()),
             flow,
             _phantom: PhantomData,
         }
@@ -235,7 +235,7 @@ where
         if self.io.read_buf.advanced() {
             let buf = self.io.read_buf.buf_mut();
 
-            match self.ctx.decode_head(buf) {
+            match self.ctx.decode_head::<HEAD_LIMIT>(buf) {
                 Ok(Some((req, decoder))) => {
                     let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 

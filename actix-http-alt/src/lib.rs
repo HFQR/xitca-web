@@ -32,7 +32,7 @@ pub use http;
 
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
-pub use config::HttpServiceConfig;
+pub use config::{HttpServiceConfig, DEFAULT_HEAD_LIMIT};
 pub use error::{BodyError, HttpServiceError};
 pub use response::ResponseError;
 pub use service::HttpService;

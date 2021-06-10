@@ -12,7 +12,7 @@ use super::error::{Parse, ProtoError};
 
 impl Context<'_> {
     // decode head and generate request and body decoder.
-    pub(super) fn decode_head(
+    pub(super) fn decode_head<const HEAD_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Request<()>, RequestBodyDecoder)>, ProtoError> {
@@ -128,7 +128,7 @@ impl Context<'_> {
             }
 
             Status::Partial => {
-                if buf.remaining() > self.max_head_size {
+                if buf.remaining() > HEAD_LIMIT {
                     Err(ProtoError::Parse(Parse::HeaderTooLarge))
                 } else {
                     Ok(None)

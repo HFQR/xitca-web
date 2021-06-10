@@ -3,20 +3,20 @@ use std::{net::ToSocketAddrs, time::Duration};
 use actix_http_alt::{
     http::{Request, Response},
     util::ErrorLoggerFactory,
-    BodyError, HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody, ResponseError,
+    BodyError, HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody, ResponseError, DEFAULT_HEAD_LIMIT,
 };
 use actix_server_alt::{net::Stream as ServerStream, Builder, ServerFuture};
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
 
-pub struct HttpServer<F> {
+pub struct HttpServer<F, const HEAD_LIMIT: usize> {
     factory: F,
     builder: Builder,
-    config: HttpServiceConfig,
+    config: HttpServiceConfig<HEAD_LIMIT>,
 }
 
-impl<F, I> HttpServer<F>
+impl<F, I> HttpServer<F, DEFAULT_HEAD_LIMIT>
 where
     F: Fn() -> I + Send + Clone + 'static,
 {
@@ -27,7 +27,12 @@ where
             config: HttpServiceConfig::default(),
         }
     }
+}
 
+impl<F, I, const HEAD_LIMIT: usize> HttpServer<F, HEAD_LIMIT>
+where
+    F: Fn() -> I + Send + Clone + 'static,
+{
     /// Set number of threads dedicated to accepting connections.
     ///
     /// Default set to 1.
@@ -123,9 +128,12 @@ where
     /// Request has a bigger head than it would be reject with error.
     ///
     /// Default to 1Mb.
-    pub fn max_head_size(mut self, bytes: usize) -> Self {
-        self.config = self.config.max_head_size(bytes);
-        self
+    pub fn max_head_size<const HEAD_LIMIT_2: usize>(self) -> HttpServer<F, HEAD_LIMIT_2> {
+        HttpServer {
+            factory: self.factory,
+            builder: self.builder,
+            config: self.config.max_head_size::<HEAD_LIMIT_2>(),
+        }
     }
 
     pub fn bind<A: ToSocketAddrs, ResB, E>(mut self, addr: A) -> std::io::Result<Self>
@@ -178,7 +186,8 @@ where
             .bind::<_, _, _, ServerStream>("actix-web-alt", addr, move || {
                 let factory = factory();
                 let builder = HttpServiceBuilder::with_config(factory, config);
-                let builder = HttpServiceBuilder::<_, RequestBody, _, _, _>::openssl(builder, acceptor.clone());
+                let builder =
+                    HttpServiceBuilder::<_, RequestBody, _, _, _, HEAD_LIMIT>::openssl(builder, acceptor.clone());
                 ErrorLoggerFactory::new(builder)
             })?;
 
