@@ -31,7 +31,9 @@ impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
 
                 // set method to context so it can pass method to response.
-                self.set_method(method.clone());
+                if method == Method::CONNECT {
+                    self.set_connect_method();
+                }
 
                 let uri = req.path.unwrap().parse::<Uri>()?;
 
@@ -106,7 +108,7 @@ impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
                                 }
                             }
                         }
-                        EXPECT if value.as_bytes() == b"100-continue" => self.set_expect(),
+                        EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
                         // Upgrades are only allowed with HTTP/1.1
                         UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
                         _ => {}

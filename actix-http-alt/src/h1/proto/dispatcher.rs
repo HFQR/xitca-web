@@ -358,7 +358,7 @@ where
         mut req: Request<ReqB>,
         body_handle: &mut Option<RequestBodyHandle>,
     ) -> Result<Response<ResponseBody<ResB>>, Error> {
-        if self.ctx.is_expect() {
+        if self.ctx.is_expect_header() {
             match self.flow.expect.call(req).await {
                 Ok(expect_res) => {
                     // encode continue

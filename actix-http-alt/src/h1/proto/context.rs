@@ -1,4 +1,4 @@
-use http::{header::HeaderMap, Method};
+use http::header::HeaderMap;
 
 use crate::util::date::Date;
 
@@ -8,8 +8,6 @@ use crate::util::date::Date;
 pub(super) struct Context<'a, const HEAD_LIMIT: usize> {
     state: ContextState,
     ctype: ConnectionType,
-    /// method cache of current request. Used for generate correct response.
-    pub(super) req_method: Method,
     /// header map reused by next request.
     pub(super) header_cache: Option<HeaderMap>,
     /// smart pointer of cached date with 500 milli second update interval.
@@ -21,25 +19,24 @@ impl<'a, const HEAD_LIMIT: usize> Context<'a, HEAD_LIMIT> {
         Self {
             state: ContextState::new(),
             ctype: ConnectionType::Init,
-            req_method: Method::default(),
             header_cache: None,
             date,
         }
     }
 
     #[inline(always)]
-    pub(super) fn is_expect(&self) -> bool {
+    pub(super) fn is_expect_header(&self) -> bool {
         self.state.contains(ContextState::EXPECT)
+    }
+
+    #[inline(always)]
+    pub(super) fn is_connect_method(&self) -> bool {
+        self.state.contains(ContextState::CONNECT)
     }
 
     #[inline(always)]
     pub(super) fn is_force_close(&self) -> bool {
         self.state.contains(ContextState::FORCE_CLOSE)
-    }
-
-    #[inline(always)]
-    pub(super) fn req_method(&self) -> &Method {
-        &self.req_method
     }
 
     /// Context should be reset when a new request is decoded.
@@ -51,17 +48,16 @@ impl<'a, const HEAD_LIMIT: usize> Context<'a, HEAD_LIMIT> {
         self.state = ContextState::new();
     }
 
-    pub(super) fn set_expect(&mut self) {
+    pub(super) fn set_expect_header(&mut self) {
         self.state.insert(ContextState::EXPECT)
+    }
+
+    pub(super) fn set_connect_method(&mut self) {
+        self.state.insert(ContextState::CONNECT)
     }
 
     pub(super) fn set_force_close(&mut self) {
         self.state.insert(ContextState::FORCE_CLOSE)
-    }
-
-    #[inline(always)]
-    pub(super) fn set_method(&mut self, method: Method) {
-        self.req_method = method;
     }
 
     #[inline(always)]
@@ -75,17 +71,23 @@ impl<'a, const HEAD_LIMIT: usize> Context<'a, HEAD_LIMIT> {
     }
 }
 
+/// A set of state for current request that are used after request's ownership is passed
+/// to service call.
 struct ContextState(u8);
 
 impl ContextState {
     /// Enable when current request has 100-continue header.
     const EXPECT: Self = Self(0b_0001);
+
+    /// Enable when current request is CONNECT method.
+    const CONNECT: Self = Self(0b_0010);
+
     /// Want a force close after current request served.
     ///
     /// This is for situation like partial read of request body. Which could leave artifact
     /// unread data in connection that can interfere with next request(If the connection is kept
     /// alive).
-    const FORCE_CLOSE: Self = Self(0b_0010);
+    const FORCE_CLOSE: Self = Self(0b_0100);
 
     #[inline(always)]
     const fn new() -> Self {

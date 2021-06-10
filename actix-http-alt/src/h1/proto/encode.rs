@@ -4,7 +4,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use http::{
     header::{CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
     response::Parts,
-    Method, StatusCode, Version,
+    StatusCode, Version,
 };
 use log::{debug, warn};
 
@@ -17,7 +17,7 @@ use super::error::{Parse, ProtoError};
 
 impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
     pub(super) fn encode_continue<const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut WriteBuf<WRITE_BUF_LIMIT>) {
-        debug_assert!(self.is_expect());
+        debug_assert!(self.is_expect_header());
         match *buf {
             WriteBuf::Flat(ref mut bytes) => bytes.put_slice(b"HTTP/1.1 100 Continue\r\n\r\n"),
             WriteBuf::List(ref mut list) => {
@@ -61,7 +61,7 @@ impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
             (StatusCode::SWITCHING_PROTOCOLS, _) => false,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
-            (s, _) if self.req_method() == Method::CONNECT && s.is_success() => true,
+            (s, _) if self.is_connect_method() && s.is_success() => true,
             (s, _) if s.is_informational() => {
                 warn!("response with 1xx status code not supported");
                 return Err(ProtoError::Parse(Parse::StatusCode));
