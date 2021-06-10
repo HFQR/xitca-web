@@ -9,7 +9,7 @@ use std::{
 use actix_http_alt::{
     http::{Request, Response},
     util::ErrorLoggerFactory,
-    HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody, DEFAULT_HEAD_LIMIT,
+    HttpServiceBuilder, HttpServiceConfig, RequestBody, ResponseBody,
 };
 use actix_service_alt::fn_service;
 use bytes::Bytes;
@@ -40,10 +40,9 @@ async fn main() -> io::Result<()> {
             // enable pipeline mode for a better micro bench result.
             // in real world this should be left as disabled.(which is by default).
             let config = HttpServiceConfig::new().enable_http1_pipeline();
-            let builder = HttpServiceBuilder::new(fn_service(handler)).config(config);
-
-            let builder =
-                HttpServiceBuilder::<_, RequestBody, _, _, _, DEFAULT_HEAD_LIMIT>::rustls(builder, acceptor.clone());
+            let builder = HttpServiceBuilder::new(fn_service(handler))
+                .config(config)
+                .rustls(acceptor.clone());
 
             ErrorLoggerFactory::new(builder)
         })?

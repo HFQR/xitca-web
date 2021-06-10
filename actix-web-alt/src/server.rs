@@ -164,7 +164,7 @@ where
     pub fn bind_openssl<A: ToSocketAddrs, ResB, E>(
         mut self,
         addr: A,
-        builder: openssl_crate::ssl::SslAcceptorBuilder,
+        mut builder: openssl_crate::ssl::SslAcceptorBuilder,
     ) -> std::io::Result<Self>
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
@@ -179,15 +179,63 @@ where
         let factory = self.factory.clone();
         let config = self.config;
 
-        let acceptor = openssl_acceptor(builder)?;
+        const H11: &[u8] = b"\x08http/1.1";
+        const H2: &[u8] = b"\x02h2";
+
+        builder.set_alpn_select_callback(|_, protocols| {
+            if protocols.windows(3).any(|window| window == H2) {
+                Ok(b"h2")
+            } else if protocols.windows(9).any(|window| window == H11) {
+                Ok(b"http/1.1")
+            } else {
+                Err(openssl_crate::ssl::AlpnError::NOACK)
+            }
+        });
+
+        let protos = H11.iter().chain(H2).cloned().collect::<Vec<_>>();
+        builder.set_alpn_protos(&protos)?;
+
+        let acceptor = builder.build();
 
         self.builder = self
             .builder
             .bind::<_, _, _, ServerStream>("actix-web-alt", addr, move || {
                 let factory = factory();
-                let builder = HttpServiceBuilder::with_config(factory, config);
-                let builder =
-                    HttpServiceBuilder::<_, RequestBody, _, _, _, HEAD_LIMIT>::openssl(builder, acceptor.clone());
+                let builder = HttpServiceBuilder::with_config(factory, config).openssl(acceptor.clone());
+                ErrorLoggerFactory::new(builder)
+            })?;
+
+        Ok(self)
+    }
+
+    #[cfg(feature = "rustls")]
+    pub fn bind_rustls<A: ToSocketAddrs, ResB, E>(
+        mut self,
+        addr: A,
+        mut config: rustls_crate::ServerConfig,
+    ) -> std::io::Result<Self>
+    where
+        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
+        I::Service: 'static,
+        I::Error: ResponseError<I::Response>,
+        I::InitError: From<()>,
+
+        ResB: Stream<Item = Result<Bytes, E>> + 'static,
+        E: 'static,
+        BodyError: From<E>,
+    {
+        let factory = self.factory.clone();
+        let service_config = self.config;
+
+        let protos = vec!["h2".to_string().into(), "http/1.1".to_string().into()];
+        config.set_protocols(&protos);
+        let config = std::sync::Arc::new(config);
+
+        self.builder = self
+            .builder
+            .bind::<_, _, _, ServerStream>("actix-web-alt", addr, move || {
+                let factory = factory();
+                let builder = HttpServiceBuilder::with_config(factory, service_config).rustls(config.clone());
                 ErrorLoggerFactory::new(builder)
             })?;
 
@@ -223,29 +271,4 @@ where
     pub fn run(self) -> ServerFuture {
         self.builder.build()
     }
-}
-
-#[cfg(feature = "openssl")]
-/// Configure `SslAcceptorBuilder` with custom server flags.
-fn openssl_acceptor(
-    mut builder: openssl_crate::ssl::SslAcceptorBuilder,
-) -> std::io::Result<openssl_crate::ssl::SslAcceptor> {
-    const H11: &[u8] = b"\x08http/1.1";
-    const H2: &[u8] = b"\x02h2";
-
-    builder.set_alpn_select_callback(|_, protocols| {
-        if protocols.windows(3).any(|window| window == H2) {
-            Ok(b"h2")
-        } else if protocols.windows(9).any(|window| window == H11) {
-            Ok(b"http/1.1")
-        } else {
-            Err(openssl_crate::ssl::AlpnError::NOACK)
-        }
-    });
-
-    let protos = H11.iter().chain(H2).cloned().collect::<Vec<_>>();
-
-    builder.set_alpn_protos(&protos)?;
-
-    Ok(builder.build())
 }
