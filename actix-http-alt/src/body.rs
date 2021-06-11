@@ -152,7 +152,7 @@ pub enum ResponseBodySize {
 
     /// Known size body.
     ///
-    /// Will write `Content-Length: N` header. `Sized(0)` is treated the same as `Empty`.
+    /// Will write `Content-Length: N` header.
     Sized(usize),
 
     /// Unknown size body.

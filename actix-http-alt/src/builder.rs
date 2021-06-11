@@ -16,7 +16,6 @@ use super::tls::{self, TlsStream};
 
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
-//TODO: use real upgrade service.
 pub struct HttpServiceBuilder<F, ReqB, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     pub(crate) factory: F,
     pub(crate) expect: FE,

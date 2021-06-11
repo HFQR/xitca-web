@@ -18,7 +18,7 @@ async fn main() -> std::io::Result<()> {
     // construct http server
     HttpServer::new(|| fn_service(handler))
         .max_read_buf_size::<1024>()
-        .max_write_buf_size::<1024>()
+        .max_write_buf_size::<8>()
         .bind("127.0.0.1:8080")?
         .run()
         .await

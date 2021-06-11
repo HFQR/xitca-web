@@ -13,7 +13,7 @@ pub const DEFAULT_READ_BUF_LIMIT: usize = 1024 * 1024;
 pub const DEFAULT_WRITE_BUF_LIMIT: usize = 8192 + 4096 * 100;
 
 #[derive(Copy, Clone)]
-pub struct HttpServiceConfig<const DEFAULT_READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+pub struct HttpServiceConfig<const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     pub(crate) http1_pipeline: bool,
     pub(crate) keep_alive_timeout: Duration,
     pub(crate) first_request_timeout: Duration,
