@@ -13,9 +13,9 @@ use super::error::{Parse, ProtoError};
 /// No particular reason. Copied from `actix-http` crate.
 const MAX_HEADERS: usize = 96;
 
-impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
+impl Context<'_> {
     // decode head and generate request and body decoder.
-    pub(super) fn decode_head(
+    pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Request<()>, RequestBodyDecoder)>, ProtoError> {
@@ -133,7 +133,7 @@ impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
             }
 
             Status::Partial => {
-                if buf.remaining() > HEAD_LIMIT {
+                if buf.remaining() >= READ_BUF_LIMIT {
                     Err(ProtoError::Parse(Parse::HeaderTooLarge))
                 } else {
                     Ok(None)

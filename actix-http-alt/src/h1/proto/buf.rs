@@ -7,17 +7,22 @@ use bytes::{Buf, Bytes, BytesMut};
 
 use crate::util::buf_list::BufList;
 
-pub(super) struct ReadBuf {
+pub(super) struct ReadBuf<const READ_BUF_LIMIT: usize> {
     advanced: bool,
     buf: BytesMut,
 }
 
-impl ReadBuf {
+impl<const READ_BUF_LIMIT: usize> ReadBuf<READ_BUF_LIMIT> {
     pub(super) fn new() -> Self {
         Self {
             advanced: false,
             buf: BytesMut::new(),
         }
+    }
+
+    #[inline(always)]
+    pub(super) fn backpressure(&self) -> bool {
+        self.buf.len() >= READ_BUF_LIMIT
     }
 
     #[inline(always)]

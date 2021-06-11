@@ -15,7 +15,7 @@ use super::buf::{EncodedBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
-impl<const HEAD_LIMIT: usize> Context<'_, HEAD_LIMIT> {
+impl Context<'_> {
     pub(super) fn encode_continue<const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut WriteBuf<WRITE_BUF_LIMIT>) {
         debug_assert!(self.is_expect_header());
         match *buf {

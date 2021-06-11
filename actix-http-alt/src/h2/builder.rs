@@ -16,17 +16,17 @@ use super::service::H2Service;
 
 /// Http/1 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
-pub type H2ServiceBuilder<F, FE, FU, FA, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
-    HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEAD_LIMIT, WRITE_BUF_LIMIT>;
+pub type H2ServiceBuilder<F, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
+    HttpServiceBuilder<F, RequestBody, FE, FU, FA, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<F, FE, FU, FA, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEAD_LIMIT, WRITE_BUF_LIMIT>
+impl<F, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServiceBuilder<F, RequestBody, FE, FU, FA, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     #[cfg(feature = "openssl")]
     pub fn openssl(
         self,
         acceptor: crate::tls::openssl::TlsAcceptor,
-    ) -> H2ServiceBuilder<F, FE, FU, crate::tls::openssl::TlsAcceptorService, HEAD_LIMIT, WRITE_BUF_LIMIT> {
+    ) -> H2ServiceBuilder<F, FE, FU, crate::tls::openssl::TlsAcceptorService, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
         H2ServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -41,7 +41,7 @@ impl<F, FE, FU, FA, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     pub fn rustls(
         self,
         config: crate::tls::rustls::RustlsConfig,
-    ) -> H2ServiceBuilder<F, FE, FU, crate::tls::rustls::TlsAcceptorService, HEAD_LIMIT, WRITE_BUF_LIMIT> {
+    ) -> H2ServiceBuilder<F, FE, FU, crate::tls::rustls::TlsAcceptorService, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
         H2ServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -53,8 +53,8 @@ impl<F, FE, FU, FA, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     }
 }
 
-impl<St, F, B, E, FE, FU, FA, TlsSt, const HEAD_LIMIT: usize, const WRITE_BUF_LIMIT: usize> ServiceFactory<St>
-    for H2ServiceBuilder<F, FE, FU, FA, HEAD_LIMIT, WRITE_BUF_LIMIT>
+impl<St, F, B, E, FE, FU, FA, TlsSt, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> ServiceFactory<St>
+    for H2ServiceBuilder<F, FE, FU, FA, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
@@ -77,7 +77,7 @@ where
     type Response = ();
     type Error = HttpServiceError;
     type Config = F::Config;
-    type Service = H2Service<F::Service, FA::Service, HEAD_LIMIT, WRITE_BUF_LIMIT>;
+    type Service = H2Service<F::Service, FA::Service, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 

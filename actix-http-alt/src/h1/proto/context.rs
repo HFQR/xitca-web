@@ -5,7 +5,7 @@ use crate::util::date::Date;
 /// Context is connection specific struct contain states for processing.
 /// It needs manually reset with every new successfully decoded request.
 /// See `Context::reset` method for detail.
-pub(super) struct Context<'a, const HEAD_LIMIT: usize> {
+pub(super) struct Context<'a> {
     state: ContextState,
     ctype: ConnectionType,
     /// header map reused by next request.
@@ -14,7 +14,7 @@ pub(super) struct Context<'a, const HEAD_LIMIT: usize> {
     pub(super) date: &'a Date,
 }
 
-impl<'a, const HEAD_LIMIT: usize> Context<'a, HEAD_LIMIT> {
+impl<'a> Context<'a> {
     pub(super) fn new(date: &'a Date) -> Self {
         Self {
             state: ContextState::new(),
