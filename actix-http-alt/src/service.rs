@@ -15,7 +15,7 @@ use super::body::{RequestBody, ResponseBody};
 use super::config::HttpServiceConfig;
 use super::error::{BodyError, HttpServiceError, TimeoutError};
 use super::flow::HttpFlow;
-use super::protocol::{AsProtocol, Protocol};
+use super::protocol::AsProtocol;
 use super::response::ResponseError;
 use super::tls::TlsStream;
 use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
@@ -95,10 +95,7 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'c>(&'c self, io: ServerStream) -> Self::Future<'c>
-    where
-        ServerStream: 'c,
-    {
+    fn call<'c>(&'c self, io: ServerStream) -> Self::Future<'c> {
         async move {
             // tls accept timer.
             let accept_dur = self.config.tls_accept_timeout;
@@ -118,13 +115,14 @@ where
                 io => select! {
                     biased;
                     res = self.tls_acceptor.call(io) => {
+                        #[allow(unused_mut)]
                         let mut tls_stream = res?;
 
                         let protocol = tls_stream.as_protocol();
 
                         match protocol {
                             #[cfg(feature = "http1")]
-                            Protocol::Http1Tls | Protocol::Http1 => {
+                            super::protocol::Protocol::Http1Tls | super::protocol::Protocol::Http1 => {
                                 // update timer to first request timeout.
                                 let request_dur = self.config.first_request_timeout;
                                 let deadline = self.date.get().get().now() + request_dur;
@@ -138,7 +136,7 @@ where
                                 }
                             }
                             #[cfg(feature = "http2")]
-                            Protocol::Http2 => {
+                            super::protocol::Protocol::Http2 => {
                                 // reset timer to another accept_dur for h2 handshake timeout.
                                 let deadline = self.date.get().get().now() + accept_dur;
                                 timer.as_mut().update(deadline);

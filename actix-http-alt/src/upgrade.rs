@@ -44,10 +44,7 @@ impl<Req> Service<Req> for UpgradeHandler {
         Poll::Ready(Ok(()))
     }
 
-    fn call<'c>(&'c self, _req: Req) -> Self::Future<'c>
-    where
-        Req: 'c,
-    {
+    fn call<'c>(&'c self, _req: Req) -> Self::Future<'c> {
         async { unimplemented!("Default UpgradeHandler must not be used") }
     }
 }

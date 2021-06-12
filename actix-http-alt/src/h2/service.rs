@@ -58,10 +58,7 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'c>(&'c self, io: St) -> Self::Future<'c>
-    where
-        St: 'c,
-    {
+    fn call<'c>(&'c self, io: St) -> Self::Future<'c> {
         async move {
             // tls accept timer.
             let accept_dur = self.config.tls_accept_timeout;

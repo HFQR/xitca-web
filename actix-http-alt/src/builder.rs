@@ -9,10 +9,11 @@ use http::{Request, Response};
 use super::body::{RequestBody, ResponseBody};
 use super::config::{HttpServiceConfig, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT};
 use super::error::{BodyError, HttpServiceError};
-use super::h1::{ExpectHandler, UpgradeHandler};
+use super::expect::ExpectHandler;
 use super::response::ResponseError;
 use super::service::HttpService;
 use super::tls::{self, TlsStream};
+use super::upgrade::UpgradeHandler;
 
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.

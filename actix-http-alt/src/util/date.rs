@@ -32,6 +32,8 @@ impl DateTimeInner {
         date
     }
 
+    // TODO: remove this allow
+    #[allow(dead_code)]
     #[inline(always)]
     pub(crate) fn date(&self) -> &[u8] {
         &self.date[..]

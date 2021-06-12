@@ -94,10 +94,7 @@ impl<St: AsyncReadWrite> Service<St> for TlsAcceptorService {
         Poll::Ready(Ok(()))
     }
 
-    fn call<'c>(&'c self, io: St) -> Self::Future<'c>
-    where
-        St: 'c,
-    {
+    fn call<'c>(&'c self, io: St) -> Self::Future<'c> {
         async move {
             let ctx = self.acceptor.context();
             let ssl = Ssl::new(ctx)?;

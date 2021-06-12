@@ -27,6 +27,7 @@ impl KeepAlive {
         }
     }
 
+    #[cfg(any(feature = "http1", feature = "http2"))]
     #[inline(always)]
     pub(crate) fn update(self: Pin<&mut Self>, deadline: Instant) {
         let this = self.project();

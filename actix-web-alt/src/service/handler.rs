@@ -52,10 +52,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call<'c>(&'c self, req: &'r WebRequest<'_, State>) -> Self::Future<'c>
-    where
-        'r: 'c,
-    {
+    fn call<'c>(&'c self, req: &'r WebRequest<'r, State>) -> Self::Future<'c> {
         async move {
             let extract = T::from_request(req).await?;
             let res = self.hnd.call(extract).await.respond_to(req);

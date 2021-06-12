@@ -50,10 +50,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
-    where
-        Req: 'c,
-    {
+    fn call<'c>(&'c self, req: Req) -> Self::Future<'c> {
         (self.f)(req)
     }
 }

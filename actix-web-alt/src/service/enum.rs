@@ -34,8 +34,6 @@ macro_rules! enum_service ({ $($param:ident),+ } => {
         }
 
         fn call<'c>(&'c self, req: WebRequest<'r, State>) -> Self::Future<'c>
-        where
-            'r: 'c
         {
             async move {
                 match *self {

@@ -101,10 +101,7 @@ impl<St: AsyncReadWrite> Service<St> for TlsAcceptorService {
     }
 
     #[inline]
-    fn call<'c>(&'c self, io: St) -> Self::Future<'c>
-    where
-        St: 'c,
-    {
+    fn call<'c>(&'c self, io: St) -> Self::Future<'c> {
         async move {
             let stream = self.acceptor.accept(io).await?;
             Ok(TlsStream { stream })

@@ -56,10 +56,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call<'c>(&'c self, req: Req) -> Self::Future<'c>
-    where
-        Req: 'c,
-    {
+    fn call<'c>(&'c self, req: Req) -> Self::Future<'c> {
         async move {
             self.service.call(req).await.map_err(|e| {
                 log::error!("{:?}", e);

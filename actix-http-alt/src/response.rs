@@ -53,6 +53,7 @@ fn internal_error<B>(buf: &[u8]) -> Response<ResponseBody<B>> {
         .unwrap()
 }
 
+#[cfg(feature = "http1")]
 pub(super) fn header_too_large<B>() -> Response<ResponseBody<B>> {
     Response::builder()
         .status(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)

@@ -32,14 +32,14 @@ impl Stream for RequestBody {
     type Item = Result<Bytes, BodyError>;
 
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             #[cfg(feature = "http1")]
-            Self::H1(body) => Pin::new(body).poll_next(cx),
+            Self::H1(body) => Pin::new(body).poll_next(_cx),
             #[cfg(feature = "http2")]
-            Self::H2(body) => Pin::new(body).poll_next(cx),
+            Self::H2(body) => Pin::new(body).poll_next(_cx),
             #[cfg(feature = "http3")]
-            Self::H3(body) => Pin::new(body).poll_next(cx),
+            Self::H3(body) => Pin::new(body).poll_next(_cx),
             Self::None => Poll::Ready(None),
         }
     }

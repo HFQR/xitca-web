@@ -112,10 +112,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call<'c>(&'c self, req: Request<RequestBody>) -> Self::Future<'c>
-    where
-        Request<RequestBody>: 'c,
-    {
+    fn call<'c>(&'c self, req: Request<RequestBody>) -> Self::Future<'c> {
         async move {
             let req = WebRequest::new(req, &self.state);
             self.service.call(req).await
@@ -156,10 +153,7 @@ mod test {
             Poll::Ready(Ok(()))
         }
 
-        fn call<'c>(&'c self, req: WebRequest<'r, State>) -> Self::Future<'c>
-        where
-            'r: 'c,
-        {
+        fn call<'c>(&'c self, req: WebRequest<'r, State>) -> Self::Future<'c> {
             async move { Ok(req.state().clone()) }
         }
     }

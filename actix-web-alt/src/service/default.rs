@@ -36,10 +36,7 @@ impl<Req> Service<Req> for NotFoundService {
         Poll::Ready(Ok(()))
     }
 
-    fn call<'c>(&'c self, _: Req) -> Self::Future<'c>
-    where
-        Req: 'c,
-    {
+    fn call<'c>(&'c self, _: Req) -> Self::Future<'c> {
         async {
             let res = Response::builder()
                 .status(StatusCode::NOT_FOUND)
