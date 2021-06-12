@@ -10,6 +10,7 @@ http2 = ["h2"]
 http3 = ["actix-server-alt/http3", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
 openssl = ["futures-task", "openssl-crate", "tokio-openssl", "tokio-util/io"]
 rustls = ["futures-task", "tokio-rustls", "tokio-util/io"]
+native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "tokio-util/io"]
 
 [dependencies]
 actix-server-alt = { version = "0.1", default-features = false }
@@ -35,6 +36,10 @@ tokio-openssl = { version = "0.6.1", optional = true }
 
 # rustls support
 tokio-rustls = { version = "0.22", optional = true }
+
+# native tls support
+native-tls-crate = { package = "native-tls", version = "0.2.7", optional = true }
+tokio-native-tls = { version = "0.3", optional = true }
 
 # http/2 support
 h2 = { version = "0.3", optional = true }

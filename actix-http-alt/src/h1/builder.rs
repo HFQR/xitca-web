@@ -51,6 +51,21 @@ impl<F, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
             _body: std::marker::PhantomData,
         }
     }
+
+    #[cfg(feature = "native-tls")]
+    pub fn native_tls(
+        self,
+        acceptor: crate::tls::native_tls::TlsAcceptor,
+    ) -> H1ServiceBuilder<F, FE, FU, crate::tls::native_tls::TlsAcceptorService, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+        H1ServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            upgrade: self.upgrade,
+            tls_factory: crate::tls::native_tls::TlsAcceptorService::new(acceptor),
+            config: self.config,
+            _body: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<St, F, ResB, E, FE, FU, FA, TlsSt, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> ServiceFactory<St>

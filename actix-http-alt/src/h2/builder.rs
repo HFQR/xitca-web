@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData};
+use std::future::Future;
 
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
@@ -33,7 +33,7 @@ impl<F, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
             upgrade: self.upgrade,
             tls_factory: crate::tls::openssl::TlsAcceptorService::new(acceptor),
             config: self.config,
-            _body: PhantomData,
+            _body: std::marker::PhantomData,
         }
     }
 
@@ -48,7 +48,22 @@ impl<F, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
             upgrade: self.upgrade,
             tls_factory: crate::tls::rustls::TlsAcceptorService::new(config),
             config: self.config,
-            _body: PhantomData,
+            _body: std::marker::PhantomData,
+        }
+    }
+
+    #[cfg(feature = "native-tls")]
+    pub fn native_tls(
+        self,
+        acceptor: crate::tls::native_tls::TlsAcceptor,
+    ) -> H2ServiceBuilder<F, FE, FU, crate::tls::native_tls::TlsAcceptorService, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+        H2ServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            upgrade: self.upgrade,
+            tls_factory: crate::tls::native_tls::TlsAcceptorService::new(acceptor),
+            config: self.config,
+            _body: std::marker::PhantomData,
         }
     }
 }

@@ -19,6 +19,8 @@ pub enum HttpServiceError {
     Openssl(super::tls::openssl::OpensslError),
     #[cfg(feature = "rustls")]
     Rustls(super::tls::rustls::RustlsError),
+    #[cfg(feature = "native-tls")]
+    NativeTls(super::tls::native_tls::NativeTlsError),
     #[cfg(feature = "http1")]
     H1(super::h1::Error),
     // Http/2 error happen in HttpService handle.
@@ -49,6 +51,8 @@ impl Debug for HttpServiceError {
             Self::Openssl(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "rustls")]
             Self::Rustls(ref e) => write!(f, "{:?}", e),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http1")]
             Self::H1(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http2")]

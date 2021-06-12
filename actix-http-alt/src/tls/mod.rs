@@ -4,6 +4,8 @@
 //! For plain Tcp and Unix sockets connection a dummy Tls acceptor and tls stream type
 //! is used.
 
+#[cfg(feature = "native-tls")]
+pub(crate) mod native_tls;
 #[cfg(feature = "openssl")]
 pub(crate) mod openssl;
 #[cfg(feature = "rustls")]
@@ -69,6 +71,8 @@ pub enum TlsAcceptorService {
     OpenSsl(self::openssl::TlsAcceptorService),
     #[cfg(feature = "rustls")]
     Rustls(self::rustls::TlsAcceptorService),
+    #[cfg(feature = "native-tls")]
+    NativeTls(self::native_tls::TlsAcceptorService),
 }
 
 impl TlsAcceptorService {
@@ -113,6 +117,11 @@ impl Service<ServerStream> for TlsAcceptorService {
             #[cfg(feature = "rustls")]
             Self::Rustls(ref tls) => <self::rustls::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
                 .map_err(HttpServiceError::from),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref tls) => {
+                <self::native_tls::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
+                    .map_err(HttpServiceError::from)
+            }
         }
     }
 
@@ -137,6 +146,11 @@ impl Service<ServerStream> for TlsAcceptorService {
                     let stream = tls.call(stream).await?;
                     Ok(TlsStream::Rustls(stream))
                 }
+                #[cfg(feature = "native-tls")]
+                Self::NativeTls(ref tls) => {
+                    let stream = tls.call(stream).await?;
+                    Ok(TlsStream::NativeTls(stream))
+                }
             }
         }
     }
@@ -150,6 +164,8 @@ pub enum TlsStream {
     OpenSsl(self::openssl::TlsStream<ServerStream>),
     #[cfg(feature = "rustls")]
     Rustls(self::rustls::TlsStream<ServerStream>),
+    #[cfg(feature = "native-tls")]
+    NativeTls(self::native_tls::TlsStream<ServerStream>),
 }
 
 impl AsProtocol for TlsStream {
@@ -161,6 +177,8 @@ impl AsProtocol for TlsStream {
             Self::OpenSsl(ref tls) => tls.as_protocol(),
             #[cfg(feature = "rustls")]
             Self::Rustls(ref tls) => tls.as_protocol(),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref tls) => tls.as_protocol(),
         }
     }
 }
@@ -174,6 +192,8 @@ impl AsyncRead for TlsStream {
             Self::OpenSsl(tls) => Pin::new(tls).poll_read(cx, buf),
             #[cfg(feature = "rustls")]
             Self::Rustls(tls) => Pin::new(tls).poll_read(cx, buf),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(tls) => Pin::new(tls).poll_read(cx, buf),
         }
     }
 }
@@ -187,6 +207,9 @@ impl AsyncWrite for TlsStream {
             Self::OpenSsl(tls) => Pin::new(tls).poll_write(cx, buf),
             #[cfg(feature = "rustls")]
             Self::Rustls(tls) => Pin::new(tls).poll_write(cx, buf),
+
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(tls) => Pin::new(tls).poll_write(cx, buf),
         }
     }
 
@@ -198,6 +221,8 @@ impl AsyncWrite for TlsStream {
             Self::OpenSsl(tls) => Pin::new(tls).poll_flush(cx),
             #[cfg(feature = "rustls")]
             Self::Rustls(tls) => Pin::new(tls).poll_flush(cx),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(tls) => Pin::new(tls).poll_flush(cx),
         }
     }
 
@@ -209,6 +234,8 @@ impl AsyncWrite for TlsStream {
             Self::OpenSsl(tls) => Pin::new(tls).poll_shutdown(cx),
             #[cfg(feature = "rustls")]
             Self::Rustls(tls) => Pin::new(tls).poll_shutdown(cx),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(tls) => Pin::new(tls).poll_shutdown(cx),
         }
     }
 
@@ -224,6 +251,8 @@ impl AsyncWrite for TlsStream {
             Self::OpenSsl(tls) => Pin::new(tls).poll_write_vectored(cx, bufs),
             #[cfg(feature = "rustls")]
             Self::Rustls(tls) => Pin::new(tls).poll_write_vectored(cx, bufs),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(tls) => Pin::new(tls).poll_write_vectored(cx, bufs),
         }
     }
 
@@ -235,6 +264,8 @@ impl AsyncWrite for TlsStream {
             Self::OpenSsl(ref tls) => tls.is_write_vectored(),
             #[cfg(feature = "rustls")]
             Self::Rustls(ref tls) => tls.is_write_vectored(),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref tls) => tls.is_write_vectored(),
         }
     }
 }
@@ -251,6 +282,8 @@ impl AsyncReadWrite for TlsStream {
                 Self::OpenSsl(ref mut tls) => tls.ready(interest).await,
                 #[cfg(feature = "rustls")]
                 Self::Rustls(ref mut tls) => tls.ready(interest).await,
+                #[cfg(feature = "native-tls")]
+                Self::NativeTls(ref mut tls) => tls.ready(interest).await,
             }
         }
     }
@@ -263,6 +296,8 @@ impl AsyncReadWrite for TlsStream {
             Self::OpenSsl(ref mut tls) => tls.try_read_buf(buf),
             #[cfg(feature = "rustls")]
             Self::Rustls(ref mut tls) => tls.try_read_buf(buf),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref mut tls) => tls.try_read_buf(buf),
         }
     }
 
@@ -274,6 +309,8 @@ impl AsyncReadWrite for TlsStream {
             Self::OpenSsl(ref mut tls) => tls.try_write(buf),
             #[cfg(feature = "rustls")]
             Self::Rustls(ref mut tls) => tls.try_write(buf),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref mut tls) => tls.try_write(buf),
         }
     }
 
@@ -285,6 +322,8 @@ impl AsyncReadWrite for TlsStream {
             Self::OpenSsl(ref mut tls) => tls.try_write_vectored(bufs),
             #[cfg(feature = "rustls")]
             Self::Rustls(ref mut tls) => tls.try_write_vectored(bufs),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref mut tls) => tls.try_write_vectored(bufs),
         }
     }
 
@@ -296,6 +335,8 @@ impl AsyncReadWrite for TlsStream {
             Self::OpenSsl(ref mut tls) => tls.poll_read_ready(cx),
             #[cfg(feature = "rustls")]
             Self::Rustls(ref mut tls) => tls.poll_read_ready(cx),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref mut tls) => tls.poll_read_ready(cx),
         }
     }
 
@@ -307,6 +348,8 @@ impl AsyncReadWrite for TlsStream {
             Self::OpenSsl(ref mut tls) => tls.poll_write_ready(cx),
             #[cfg(feature = "rustls")]
             Self::Rustls(ref mut tls) => tls.poll_write_ready(cx),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref mut tls) => tls.poll_write_ready(cx),
         }
     }
 }

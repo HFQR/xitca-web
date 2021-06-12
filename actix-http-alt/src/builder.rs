@@ -236,6 +236,21 @@ impl<F, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
             _body: PhantomData,
         }
     }
+
+    #[cfg(feature = "native-tls")]
+    pub fn native_tls(
+        self,
+        acceptor: tls::native_tls::TlsAcceptor,
+    ) -> HttpServiceBuilder<F, RequestBody, FE, FU, tls::TlsAcceptorService, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+        HttpServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            upgrade: self.upgrade,
+            tls_factory: tls::TlsAcceptorService::NativeTls(tls::native_tls::TlsAcceptorService::new(acceptor)),
+            config: self.config,
+            _body: PhantomData,
+        }
+    }
 }
 
 impl<F, ResB, E, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> ServiceFactory<ServerStream>
