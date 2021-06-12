@@ -190,7 +190,7 @@ impl<B> ResponseBody<B> {
             Self::None => TransferEncoding::eof(),
             // Empty bytes would return None on first poll of ResponseBody as Stream.
             // A length encoding would see the remainning length is 0 and return Ok(()).
-            Self::Bytes { ref bytes } => TransferEncoding::length(bytes.len() as u64),
+            Self::Bytes { ref bytes, .. } => TransferEncoding::length(bytes.len() as u64),
             Self::Stream { .. } => {
                 if ctype == ConnectionType::Upgrade {
                     TransferEncoding::plain_chunked()

@@ -54,6 +54,7 @@ pub enum ResponseBody<B = StreamBody> {
     None,
     Bytes {
         bytes: Bytes,
+        chunk_size: usize,
     },
     Stream {
         #[pin]
@@ -68,6 +69,7 @@ where
 {
     // TODO: use std::stream::Stream::next when it's added.
     #[doc(hidden)]
+    #[inline(always)]
     /// Helper for StreamExt::next method.
     pub fn next(self: Pin<&mut Self>) -> Next<'_, B> {
         Next { stream: self }
@@ -76,20 +78,34 @@ where
     pub fn is_eof(&self) -> bool {
         match *self {
             Self::None => true,
-            Self::Bytes { ref bytes } => bytes.is_empty(),
+            Self::Bytes { ref bytes, .. } => bytes.is_empty(),
             Self::Stream { .. } => false,
         }
     }
 
     /// Construct a new Stream variant of ResponseBody
+    #[inline]
     pub fn stream(stream: B) -> Self {
         Self::Stream { stream }
+    }
+
+    /// Construct a new Bytes variant of ResponseBody
+    #[inline]
+    pub fn bytes(bytes: Bytes) -> Self {
+        Self::bytes_with_chunk_size(bytes, usize::MAX)
+    }
+
+    /// Construct a new Bytes variant of ResponseBody with given chunk size.
+    /// Size is used to split bytes and reduce memory overhead for copying eve
+    #[inline]
+    pub fn bytes_with_chunk_size(bytes: Bytes, chunk_size: usize) -> Self {
+        Self::Bytes { bytes, chunk_size }
     }
 
     pub fn size(&self) -> ResponseBodySize {
         match *self {
             Self::None => ResponseBodySize::None,
-            Self::Bytes { ref bytes } => ResponseBodySize::Sized(bytes.len()),
+            Self::Bytes { ref bytes, .. } => ResponseBodySize::Sized(bytes.len()),
             Self::Stream { .. } => ResponseBodySize::Stream,
         }
     }
@@ -121,10 +137,16 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project() {
             ResponseBodyProj::None => Poll::Ready(None),
-            ResponseBodyProj::Bytes { .. } => match self.project_replace(ResponseBody::None) {
-                ResponseBodyProjReplace::Bytes { bytes } => Poll::Ready(Some(Ok(bytes))),
-                _ => unreachable!(),
-            },
+            ResponseBodyProj::Bytes { bytes, chunk_size } => {
+                if *chunk_size < bytes.len() {
+                    Poll::Ready(Some(Ok(bytes.split_to(*chunk_size))))
+                } else {
+                    match self.project_replace(ResponseBody::None) {
+                        ResponseBodyProjReplace::Bytes { bytes, .. } => Poll::Ready(Some(Ok(bytes))),
+                        _ => unreachable!(),
+                    }
+                }
+            }
             ResponseBodyProj::Stream { stream } => stream.poll_next(cx).map_err(From::from),
         }
     }
@@ -132,7 +154,10 @@ where
 
 impl<B> From<Bytes> for ResponseBody<B> {
     fn from(bytes: Bytes) -> Self {
-        Self::Bytes { bytes }
+        Self::Bytes {
+            bytes,
+            chunk_size: usize::MAX,
+        }
     }
 }
 

@@ -62,10 +62,12 @@ where
             match self.io.try_read_buf(read_buf.buf_mut()) {
                 Ok(0) => return Err(Error::Closed),
                 Ok(_) => read_buf.advance(true),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(e) => return Err(e.into()),
             }
         }
+
+        trace!("Read buffer limit reached. Enter backpressure.(No log event for recovery)");
 
         // yield when back pressure.
         Ok(())
@@ -313,7 +315,9 @@ where
                         ResponseHandlerResult::Ok => break 'res,
                         // write buffer grows too big. drain it.
                         ResponseHandlerResult::WriteBackpressure => {
+                            trace!("Write buffer limit reached. Enter backpressure.");
                             self.io.drain_write().await?;
+                            trace!("Write buffer empty. Recover from backpressure.");
                         }
                     }
                 }
@@ -378,7 +382,7 @@ where
 
                     req = expect_res;
                 }
-                Err(e) => return Ok(ResponseError::response_error(e)),
+                Err(ref mut e) => return Ok(ResponseError::response_error(e)),
             }
         };
 
@@ -417,7 +421,7 @@ where
         loop {
             match this.fut.as_mut().poll(cx) {
                 Poll::Ready(res) => {
-                    let res = res.unwrap_or_else(ResponseError::response_error);
+                    let res = res.unwrap_or_else(|ref mut e| ResponseError::response_error(e));
                     return Poll::Ready(Ok(res));
                 }
                 // service call is pending. could be waiting for more read.

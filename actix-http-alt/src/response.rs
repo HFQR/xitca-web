@@ -8,26 +8,35 @@ use super::body::ResponseBody;
 /// Helper trait for convert Service::Error type to Service::Response.
 // TODO: Add method to modify status code.
 pub trait ResponseError<Res> {
-    fn response_error(e: Self) -> Res;
+    fn response_error(&mut self) -> Res;
+}
+
+impl<R, Res> ResponseError<Res> for Box<R>
+where
+    R: ResponseError<Res> + ?Sized,
+{
+    fn response_error(&mut self) -> Res {
+        R::response_error(&mut **self)
+    }
 }
 
 // implement ResponseError for common error types.
 
 impl<B> ResponseError<Response<ResponseBody<B>>> for Box<dyn error::Error> {
-    fn response_error(this: Self) -> Response<ResponseBody<B>> {
-        internal_error(this.to_string().as_bytes())
+    fn response_error(&mut self) -> Response<ResponseBody<B>> {
+        internal_error(self.to_string().as_bytes())
     }
 }
 
 impl<B> ResponseError<Response<ResponseBody<B>>> for Box<dyn error::Error + Send> {
-    fn response_error(this: Self) -> Response<ResponseBody<B>> {
-        internal_error(this.to_string().as_bytes())
+    fn response_error(&mut self) -> Response<ResponseBody<B>> {
+        internal_error(self.to_string().as_bytes())
     }
 }
 
 impl<B> ResponseError<Response<ResponseBody<B>>> for io::Error {
-    fn response_error(this: Self) -> Response<ResponseBody<B>> {
-        internal_error(this.to_string().as_bytes())
+    fn response_error(&mut self) -> Response<ResponseBody<B>> {
+        internal_error(self.to_string().as_bytes())
     }
 }
 
@@ -40,13 +49,13 @@ fn internal_error<B>(buf: &[u8]) -> Response<ResponseBody<B>> {
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("text/plain; charset=utf-8"),
         )
-        .body(ResponseBody::Bytes { bytes })
+        .body(bytes.into())
         .unwrap()
 }
 
 pub(super) fn header_too_large<B>() -> Response<ResponseBody<B>> {
     Response::builder()
         .status(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
-        .body(ResponseBody::Bytes { bytes: Bytes::new() })
+        .body(Bytes::new().into())
         .unwrap()
 }

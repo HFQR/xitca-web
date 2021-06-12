@@ -94,7 +94,7 @@ where
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
-    let res = fut.await.unwrap_or_else(ResponseError::response_error);
+    let res = fut.await.unwrap_or_else(|ref mut e| ResponseError::response_error(e));
 
     let (res, body) = res.into_parts();
     let res = Response::from_parts(res, ());

@@ -79,7 +79,7 @@ where
     BodyError: From<BE>,
 {
     // resolve service call. map error to response.
-    let res = fut.await.unwrap_or_else(ResponseError::response_error);
+    let res = fut.await.unwrap_or_else(|ref mut e| ResponseError::response_error(e));
 
     // split response to header and body.
     let (res, body) = res.into_parts();
