@@ -21,6 +21,11 @@ impl<const READ_BUF_LIMIT: usize> ReadBuf<READ_BUF_LIMIT> {
     }
 
     #[inline(always)]
+    pub(super) fn len(&self) -> usize {
+        self.buf.len()
+    }
+
+    #[inline(always)]
     pub(super) fn backpressure(&self) -> bool {
         self.buf.len() >= READ_BUF_LIMIT
     }

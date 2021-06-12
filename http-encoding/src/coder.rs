@@ -76,8 +76,8 @@ impl<E> fmt::Debug for CoderError<E> {
 impl<E> fmt::Display for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Io(ref e) => write!(f, "{:#?}", e),
-            Self::Runtime(ref e) => write!(f, "{:#?}", e),
+            Self::Io(ref e) => write!(f, "{}", e),
+            Self::Runtime(ref e) => write!(f, "{}", e),
             Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
             Self::Feature(Feature::Gzip) => write!(f, "gz feature is disabled."),
             Self::Feature(Feature::Deflate) => write!(f, "de feature is disabled."),
@@ -117,29 +117,32 @@ where
             }
 
             // only poll stream when coder still alive.
-            if this.coder.is_some() {
-                match ready!(this.body.as_mut().poll_next(cx)) {
-                    Some(Ok(next)) => {
-                        // construct next code in_flight future and continue.
-                        let coder = this.coder.take().unwrap();
-                        let fut = coder.code(next);
-                        this.in_flight.set(Some(fut));
+            match this.coder.take() {
+                Some(coder) => match this.body.as_mut().poll_next(cx) {
+                    Poll::Ready(res) => match res {
+                        Some(Ok(next)) => {
+                            // construct next code in_flight future and continue.
+                            let fut = coder.code(next);
+                            this.in_flight.set(Some(fut));
+                        }
+                        Some(Err(e)) => {
+                            // drop coder and return error.
+                            return Poll::Ready(Some(Err(CoderError::Stream(e))));
+                        }
+                        None => {
+                            // stream is finished. try to code eof and drop it.
+                            return match coder.code_eof()? {
+                                Some(res) => Poll::Ready(Some(Ok(res))),
+                                None => Poll::Ready(None),
+                            };
+                        }
+                    },
+                    Poll::Pending => {
+                        *this.coder = Some(coder);
+                        return Poll::Pending;
                     }
-                    Some(Err(e)) => {
-                        // drop coder and return error.
-                        this.coder.take().unwrap();
-                        return Poll::Ready(Some(Err(CoderError::Stream(e))));
-                    }
-                    None => {
-                        // stream is finished. try to code eof and drop it.
-                        return match this.coder.take().unwrap().code_eof()? {
-                            Some(res) => Poll::Ready(Some(Ok(res))),
-                            None => Poll::Ready(None),
-                        };
-                    }
-                }
-            } else {
-                return Poll::Ready(None);
+                },
+                None => return Poll::Ready(None),
             }
         }
     }

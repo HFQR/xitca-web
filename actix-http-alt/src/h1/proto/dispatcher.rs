@@ -58,19 +58,26 @@ where
         let read_buf = &mut self.read_buf;
         read_buf.advance(false);
 
-        while !read_buf.backpressure() {
-            match self.io.try_read_buf(read_buf.buf_mut()) {
-                Ok(0) => return Err(Error::Closed),
-                Ok(_) => read_buf.advance(true),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e.into()),
+        // yield when backpressure
+        if read_buf.backpressure() {
+            Ok(())
+        } else {
+            loop {
+                match self.io.try_read_buf(read_buf.buf_mut()) {
+                    Ok(0) => return Err(Error::Closed),
+                    Ok(_) => {
+                        read_buf.advance(true);
+
+                        if read_buf.backpressure() {
+                            trace!("Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", read_buf.len());
+                            return Ok(());
+                        }
+                    }
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                    Err(e) => return Err(e.into()),
+                }
             }
         }
-
-        trace!("Read buffer limit reached. Enter backpressure.(No log event for recovery)");
-
-        // yield when back pressure.
-        Ok(())
     }
 
     /// Return true when write is blocked and need wait.
