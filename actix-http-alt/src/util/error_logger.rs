@@ -52,11 +52,13 @@ where
     type Error = S::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
+    #[inline]
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
-    fn call<'c>(&'c self, req: Req) -> Self::Future<'c> {
+    #[inline]
+    fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
             self.service.call(req).await.map_err(|e| {
                 log::error!("{:?}", e);

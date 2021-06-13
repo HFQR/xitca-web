@@ -53,7 +53,7 @@ where
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
-    fn call<'c>(&'c self, stream: UdpStream) -> Self::Future<'c> {
+    fn call(&self, stream: UdpStream) -> Self::Future<'_> {
         async move {
             let dispatcher = Dispatcher::new(stream, &self.flow);
 

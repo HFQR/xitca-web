@@ -131,7 +131,7 @@ mod test {
             Poll::Ready(Ok(()))
         }
 
-        fn call<'c>(&'c self, req: Req) -> Self::Future<'c> {
+        fn call(&self, req: Req) -> Self::Future<'_> {
             self.service.call(req)
         }
     }

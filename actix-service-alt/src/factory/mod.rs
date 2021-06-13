@@ -1,5 +1,6 @@
 mod ext;
 mod function;
+mod then;
 
 pub use self::{ext::ServiceFactoryExt, function::fn_service};
 

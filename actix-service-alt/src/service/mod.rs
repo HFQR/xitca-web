@@ -7,6 +7,8 @@ use core::{
 
 use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
+pub(crate) mod then;
+
 pub trait Service<Req> {
     type Response;
 
@@ -16,7 +18,7 @@ pub trait Service<Req> {
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
 
-    fn call<'c>(&'c self, req: Req) -> Self::Future<'c>;
+    fn call(&self, req: Req) -> Self::Future<'_>;
 }
 
 macro_rules! impl_alloc {
@@ -33,7 +35,7 @@ macro_rules! impl_alloc {
                 (**self).poll_ready(cx)
             }
 
-            fn call<'c>(&'c self, req: Req) -> Self::Future<'c> {
+            fn call(&self, req: Req) -> Self::Future<'_> {
                 (**self).call(req)
             }
         }
@@ -57,7 +59,7 @@ where
         self.as_ref().get_ref().poll_ready(cx)
     }
 
-    fn call<'c>(&'c self, req: Req) -> Self::Future<'c> {
+    fn call(&self, req: Req) -> Self::Future<'_> {
         self.as_ref().get_ref().call(req)
     }
 }
@@ -92,7 +94,7 @@ mod test {
             self.service.poll_ready(cx)
         }
 
-        fn call<'c>(&'c self, req: &'r str) -> Self::Future<'c> {
+        fn call(&self, req: &'r str) -> Self::Future<'_> {
             async move {
                 let req = (req, self.name.as_str());
                 self.service.call(req).await
@@ -114,7 +116,7 @@ mod test {
             self.service.poll_ready(cx)
         }
 
-        fn call<'c>(&'c self, req: (&'r str, &'r str)) -> Self::Future<'c> {
+        fn call(&self, req: (&'r str, &'r str)) -> Self::Future<'_> {
             async move {
                 let req = (req.0, req.1, self.name.as_str());
                 self.service.call(req).await
@@ -133,7 +135,7 @@ mod test {
             Poll::Ready(Ok(()))
         }
 
-        fn call<'c>(&'c self, req: (&'r str, &'r str, &'r str)) -> Self::Future<'c> {
+        fn call(&self, req: (&'r str, &'r str, &'r str)) -> Self::Future<'_> {
             async move {
                 let mut res = String::new();
                 res.push_str(req.0);

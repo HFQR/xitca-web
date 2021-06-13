@@ -168,6 +168,7 @@ impl<F, ReqB, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: us
         }
     }
 
+    #[cfg(feature = "http1")]
     pub fn expect<FE2, ResB>(
         self,
         expect: FE2,
@@ -186,6 +187,7 @@ impl<F, ReqB, FE, FU, FA, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: us
         }
     }
 
+    #[cfg(feature = "http1")]
     pub fn upgrade<FU2, ResB>(
         self,
         upgrade: FU2,

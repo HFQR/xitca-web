@@ -55,7 +55,7 @@ impl<St> Service<St> for NoOpTlsAcceptorService {
     }
 
     #[inline]
-    fn call<'c>(&'c self, io: St) -> Self::Future<'c> {
+    fn call(&self, io: St) -> Self::Future<'_> {
         async move { Ok(io) }
     }
 }
@@ -123,7 +123,7 @@ impl Service<ServerStream> for TlsAcceptorService {
     }
 
     #[inline]
-    fn call<'c>(&'c self, stream: ServerStream) -> Self::Future<'c> {
+    fn call(&self, stream: ServerStream) -> Self::Future<'_> {
         async move {
             match *self {
                 Self::NoOp(ref tls) => {

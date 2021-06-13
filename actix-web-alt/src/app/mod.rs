@@ -112,7 +112,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call<'c>(&'c self, req: Request<RequestBody>) -> Self::Future<'c> {
+    fn call(&self, req: Request<RequestBody>) -> Self::Future<'_> {
         async move {
             let req = WebRequest::new(req, &self.state);
             self.service.call(req).await
@@ -153,7 +153,7 @@ mod test {
             Poll::Ready(Ok(()))
         }
 
-        fn call<'c>(&'c self, req: WebRequest<'r, State>) -> Self::Future<'c> {
+        fn call(&self, req: WebRequest<'r, State>) -> Self::Future<'_> {
             async move { Ok(req.state().clone()) }
         }
     }
@@ -171,4 +171,31 @@ mod test {
 
         assert_eq!(res, "state")
     }
+
+    // #[tokio::test]
+    // async fn test_handler() {
+    //     use crate::extract::State;
+    //     use crate::response::WebResponse;
+    //     use crate::service::HandlerService;
+    //
+    //     use actix_http_alt::ResponseBody;
+    //
+    //     async fn handler(req: &WebRequest<'_, String>, state: State<'_, String>) -> WebResponse {
+    //         let state2 = req.state();
+    //         assert_eq!(state2, &*state);
+    //         assert_eq!("123", state2.as_str());
+    //         WebResponse::new(ResponseBody::None)
+    //     }
+    //
+    //     let state = String::from("state");
+    //     let app = App::with_current_thread_state(state).service(HandlerService::new());
+    //
+    //     let service = app.new_service(()).await.ok().unwrap();
+    //
+    //     let req = Request::default();
+    //
+    //     let res = service.call(req).await.unwrap();
+    //
+    //     assert_eq!(res, "state")
+    // }
 }

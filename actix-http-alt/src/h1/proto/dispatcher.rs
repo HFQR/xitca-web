@@ -274,13 +274,42 @@ where
     pub(crate) async fn run(mut self) -> Result<(), Error> {
         loop {
             'req: while let Some(res) = self.decode_head() {
-                let (res, mut body_handle) = match res {
+                match res {
                     Ok((req, mut body_handle)) => {
                         // have new request. update timer deadline.
                         let now = self.ctx.date.get().now() + self.ka_dur;
                         self.timer.as_mut().update(now);
-                        let res = self.request_handler(req, &mut body_handle).await?;
-                        (res, body_handle)
+
+                        let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
+
+                        self.encode_head(parts, &res_body)?;
+
+                        let encoder = &mut res_body.encoder(self.ctx.ctype());
+
+                        // pin response body beforehand. this way res handler can take a break on write
+                        // backpressure
+                        pin!(res_body);
+
+                        'res: loop {
+                            // borrow every state so it can iter.
+                            let handler = ResponseHandler {
+                                res_body: res_body.as_mut(),
+                                encoder,
+                                body_handle: &mut body_handle,
+                                io: &mut self.io,
+                                ctx: &mut self.ctx,
+                            };
+
+                            match handler.await? {
+                                ResponseHandlerResult::Ok => break 'res,
+                                // write buffer grows too big. drain it.
+                                ResponseHandlerResult::WriteBackpressure => {
+                                    trace!("Write buffer limit reached. Enter backpressure.");
+                                    self.io.drain_write().await?;
+                                    trace!("Write buffer empty. Recover from backpressure.");
+                                }
+                            }
+                        }
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         // Header is too large to be parsed.
@@ -297,37 +326,6 @@ where
                     // TODO: handle error that are meant to be a response.
                     Err(e) => return Err(e.into()),
                 };
-
-                let (parts, res_body) = res.into_parts();
-
-                self.encode_head(parts, &res_body)?;
-
-                let encoder = &mut res_body.encoder(self.ctx.ctype());
-
-                // pin response body beforehand. this way res handler can take a break on write
-                // backpressure
-                pin!(res_body);
-
-                'res: loop {
-                    // borrow every state so it can iter.
-                    let handler = ResponseHandler {
-                        res_body: res_body.as_mut(),
-                        encoder,
-                        body_handle: &mut body_handle,
-                        io: &mut self.io,
-                        ctx: &mut self.ctx,
-                    };
-
-                    match handler.await? {
-                        ResponseHandlerResult::Ok => break 'res,
-                        // write buffer grows too big. drain it.
-                        ResponseHandlerResult::WriteBackpressure => {
-                            trace!("Write buffer limit reached. Enter backpressure.");
-                            self.io.drain_write().await?;
-                            trace!("Write buffer empty. Recover from backpressure.");
-                        }
-                    }
-                }
             }
 
             self.io.drain_write().await?;

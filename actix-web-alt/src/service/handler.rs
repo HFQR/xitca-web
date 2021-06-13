@@ -4,7 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_service_alt::Service;
+use actix_service_alt::{Service, ServiceFactory};
 
 use crate::extract::FromRequest;
 use crate::request::WebRequest;
@@ -36,7 +36,58 @@ where
     _phantom: PhantomData<(State, T, R)>,
 }
 
-impl<'r, State, F, T, R, Err> Service<&'r WebRequest<'r, State>> for HandlerService<State, F, T, R>
+impl<State, F, T, R> Clone for HandlerService<State, F, T, R>
+where
+    State: 'static,
+    F: Handler<State, T, R>,
+    R: Future,
+    R::Output: Responder<State>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            hnd: self.hnd.clone(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+#[cfg(test)]
+impl<State, F, T, R> HandlerService<State, F, T, R>
+where
+    State: 'static,
+    F: Handler<State, T, R>,
+    R: Future,
+    R::Output: Responder<State>,
+{
+    pub(crate) fn new(hnd: F) -> Self {
+        Self {
+            hnd,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'r, State, F, T, R, Err> ServiceFactory<&'r WebRequest<'_, State>> for HandlerService<State, F, T, R>
+where
+    F: Handler<State, T, R>,
+    R: Future,
+    R::Output: Responder<State>,
+    T: FromRequest<'r, State, Error = Err>,
+{
+    type Response = WebResponse;
+    type Error = Err;
+    type Config = ();
+    type Service = Self;
+    type InitError = ();
+    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+
+    fn new_service(&self, _: Self::Config) -> Self::Future {
+        let this = Self::clone(self);
+        async { Ok(this) }
+    }
+}
+
+impl<'r, State, F, T, R, Err> Service<&'r WebRequest<'_, State>> for HandlerService<State, F, T, R>
 where
     F: Handler<State, T, R>,
     R: Future,
@@ -52,7 +103,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call<'c>(&'c self, req: &'r WebRequest<'r, State>) -> Self::Future<'c> {
+    fn call(&self, req: &'r WebRequest<'_, State>) -> Self::Future<'_> {
         async move {
             let extract = T::from_request(req).await?;
             let res = self.hnd.call(extract).await.respond_to(req);
@@ -92,11 +143,14 @@ factory_tuple! { A B C D E F G H I J K }
 
 #[cfg(test)]
 mod test {
-    use super::*;
 
     use crate::extract::State;
+    use crate::request::WebRequest;
+    use crate::response::WebResponse;
+    use crate::service::HandlerService;
 
     use actix_http_alt::ResponseBody;
+    use actix_service_alt::{Service, ServiceFactory};
 
     async fn handler(req: &WebRequest<'_, String>, state: State<'_, String>) -> WebResponse {
         let state2 = req.state();
@@ -107,10 +161,7 @@ mod test {
 
     #[tokio::test]
     async fn handler_service() {
-        let service = HandlerService {
-            hnd: handler,
-            _phantom: PhantomData,
-        };
+        let service = HandlerService::new(handler).new_service(()).await.ok().unwrap();
 
         let data = String::from("123");
 
