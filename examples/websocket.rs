@@ -25,7 +25,7 @@ async fn main() -> std::io::Result<()> {
 }
 
 async fn handler(req: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
-    let (mut decode, res, tx) = ws(req).map_err(|e| format!("{:?}", e))?;
+    let (mut decode, res, tx) = ws(req)?;
 
     tokio::task::spawn_local(async move {
         while let Some(Ok(msg)) = decode.next().await {
@@ -50,7 +50,7 @@ async fn handler(req: Request<RequestBody>) -> Result<Response<ResponseBody>, Bo
     });
 
     let (parts, body) = res.into_parts();
-    let body = body.map_err(|e| BodyError::Std(format!("{:?}", e).into()));
+    let body = body.map_err(|e| BodyError::Std(e.into()));
     let body = Box::pin(body) as _;
     let body = ResponseBody::stream(body);
     let res = Response::from_parts(parts, body);

@@ -19,10 +19,11 @@ use log::{error, info};
 use pin_project_lite::pin_project;
 use tokio::{task::JoinHandle, time::sleep};
 
-use self::limit::Limit;
-use self::shutdown::ShutdownHandle;
-
 use crate::net::{Listener, Stream};
+
+use self::limit::Limit;
+use self::service::WorkerServiceTrait;
+use self::shutdown::ShutdownHandle;
 
 struct WorkerInner {
     listener: Arc<Listener>,
@@ -54,7 +55,7 @@ impl WorkerInner {
     #[inline(always)]
     async fn accept(&self) -> io::Result<Stream> {
         let fut = self.listener.accept();
-        let service = &self.service;
+        let service = &*self.service;
 
         Accept { service, fut }.await
     }
@@ -62,7 +63,7 @@ impl WorkerInner {
 
 pin_project! {
     struct Accept<'a, Fut> {
-        service: &'a RcWorkerService,
+        service: &'a dyn WorkerServiceTrait,
         #[pin]
         fut: Fut
     }

@@ -127,7 +127,7 @@ where
     /// Change max size for request head.
     ///
     /// Request has a bigger head than it would be reject with error.
-    /// Request body has a bigger continuous read would be force to be yield.
+    /// Request body has a bigger continuous read would be force to yield.
     ///
     /// Default to 1mb.
     pub fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(self) -> HttpServer<F, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
@@ -198,11 +198,18 @@ where
         let config = self.config;
 
         const H11: &[u8] = b"\x08http/1.1";
+
+        #[cfg(feature = "http2")]
         const H2: &[u8] = b"\x02h2";
 
         builder.set_alpn_select_callback(|_, protocols| {
             if protocols.windows(3).any(|window| window == H2) {
-                Ok(b"h2")
+                #[cfg(feature = "http2")]
+                {
+                    Ok(b"h2")
+                }
+                #[cfg(not(feature = "http2"))]
+                Err(openssl_crate::ssl::AlpnError::ALERT_FATAL)
             } else if protocols.windows(9).any(|window| window == H11) {
                 Ok(b"http/1.1")
             } else {
@@ -210,7 +217,12 @@ where
             }
         });
 
+        #[cfg(not(feature = "http2"))]
+        let protos = H11.iter().cloned().collect::<Vec<_>>();
+
+        #[cfg(feature = "http2")]
         let protos = H11.iter().chain(H2).cloned().collect::<Vec<_>>();
+
         builder.set_alpn_protos(&protos)?;
 
         let acceptor = builder.build();
@@ -245,8 +257,14 @@ where
         let factory = self.factory.clone();
         let service_config = self.config;
 
-        let protos = vec!["h2".to_string().into(), "http/1.1".to_string().into()];
-        config.set_protocols(&protos);
+        #[cfg(feature = "http2")]
+        let protos = ["h2".as_bytes().into(), "http/1.1".as_bytes().into()];
+
+        #[cfg(not(feature = "http2"))]
+        let protos = ["http/1.1".as_bytes().into()];
+
+        config.set_protocols(protos.as_ref());
+
         let config = std::sync::Arc::new(config);
 
         self.builder = self
