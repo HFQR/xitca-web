@@ -25,7 +25,7 @@ use crate::h1::{
     error::Error,
 };
 use crate::response::{self, ResponseError};
-use crate::util::{date::DateTimeTask, keep_alive::KeepAlive, poll_fn::poll_fn};
+use crate::util::{date::Date, keep_alive::KeepAlive, poll_fn::poll_fn};
 
 use super::buf::{ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
@@ -219,7 +219,7 @@ where
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         flow: &'a HttpFlowInner<S, X, U>,
-        date: &'a DateTimeTask,
+        date: &'a Date,
     ) -> Self {
         let is_vectored = if config.http1_pipeline {
             false
@@ -237,7 +237,7 @@ where
             io,
             timer,
             ka_dur: config.keep_alive_timeout,
-            ctx: Context::new(date.get()),
+            ctx: Context::new(date),
             flow,
             _phantom: PhantomData,
         }

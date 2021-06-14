@@ -71,16 +71,19 @@ where
                 res = self.tls_acceptor.call(io) => {
                     let tls_stream = res?;
 
-                    // reset timer to another accept_dur for h2 handshake timeout.
-                    let deadline = self.date.get().get().now() + accept_dur;
+                    // update timer to first request timeout.
+                    let request_dur = self.config.first_request_timeout;
+                    let deadline = self.date.get().get().now() + request_dur;
                     timer.as_mut().update(deadline);
 
                     select! {
                         biased;
                         res = ::h2::server::handshake(tls_stream) => {
                             let mut conn = res?;
-                            let dispatcher = Dispatcher::new(&mut conn, &self.flow);
+
+                            let dispatcher = Dispatcher::new(&mut conn, timer.as_mut(), self.config.keep_alive_timeout, &self.flow, self.date.get());
                             dispatcher.run().await?;
+
                             Ok(())
                         }
                         _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::H2Handshake))

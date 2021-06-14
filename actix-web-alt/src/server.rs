@@ -107,6 +107,8 @@ where
     /// Change first request timeout for Http/1 connection.
     ///
     /// Connection can not finish it's first request for this duration would be closed.
+    ///
+    /// This timeout is also used on Http/2 connection handshake phrase.
     pub fn first_request_timeout(mut self, dur: Duration) -> Self {
         self.config = self.config.first_request_timeout(dur);
         self
@@ -115,10 +117,6 @@ where
     /// Change tls accept timeout for Http/1 and Http/2 connection.
     ///
     /// Connection can not finish tls handshake for this duration would be closed.
-    ///
-    /// This timeout is also used on Http/2 connection handshake phrase. Which means for a Http/2
-    /// connection the total duration before it can be used to process request/response would be
-    /// 2 times the tls_accept_timeout.
     pub fn tls_accept_timeout(mut self, dur: Duration) -> Self {
         self.config = self.config.tls_accept_timeout(dur);
         self

@@ -120,15 +120,15 @@ where
 
                         let protocol = tls_stream.as_protocol();
 
+                        // update timer to first request timeout.
+                        let request_dur = self.config.first_request_timeout;
+                        let deadline = self.date.get().get().now() + request_dur;
+                        timer.as_mut().update(deadline);
+
                         match protocol {
                             #[cfg(feature = "http1")]
                             super::protocol::Protocol::Http1Tls | super::protocol::Protocol::Http1 => {
-                                // update timer to first request timeout.
-                                let request_dur = self.config.first_request_timeout;
-                                let deadline = self.date.get().get().now() + request_dur;
-                                timer.as_mut().update(deadline);
-
-                                let dispatcher = super::h1::Dispatcher::new(&mut tls_stream, timer.as_mut(), self.config, &*self.flow, &self.date);
+                                let dispatcher = super::h1::Dispatcher::new(&mut tls_stream, timer.as_mut(), self.config, &*self.flow, self.date.get());
 
                                 match dispatcher.run().await {
                                     Ok(_) | Err(super::h1::Error::Closed) => Ok(()),
@@ -137,16 +137,14 @@ where
                             }
                             #[cfg(feature = "http2")]
                             super::protocol::Protocol::Http2 => {
-                                // reset timer to another accept_dur for h2 handshake timeout.
-                                let deadline = self.date.get().get().now() + accept_dur;
-                                timer.as_mut().update(deadline);
-
                                 select! {
                                     biased;
                                     res = ::h2::server::handshake(tls_stream) => {
                                         let mut conn = res?;
-                                        let dispatcher = super::h2::Dispatcher::new(&mut conn, &self.flow);
+
+                                        let dispatcher = super::h2::Dispatcher::new(&mut conn, timer.as_mut(), self.config.keep_alive_timeout, &self.flow, self.date.get());
                                         dispatcher.run().await?;
+
                                         Ok(())
                                     }
                                     _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::H2Handshake))

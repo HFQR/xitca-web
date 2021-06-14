@@ -89,7 +89,7 @@ where
                     let deadline = self.date.get().get().now() + request_dur;
                     timer.as_mut().update(deadline);
 
-                    let dispatcher = Dispatcher::new(&mut io, timer.as_mut(), self.config, &*self.flow, &self.date);
+                    let dispatcher = Dispatcher::new(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get());
 
                     match dispatcher.run().await {
                         Ok(_) | Err(Error::Closed) => Ok(()),

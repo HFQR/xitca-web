@@ -1,13 +1,24 @@
-use std::{cmp, future::Future, marker::PhantomData};
+use std::{
+    cmp,
+    future::Future,
+    marker::PhantomData,
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 
-use ::h2::server::{Connection, SendResponse};
+use ::h2::{
+    server::{Connection, SendResponse},
+    Ping, PingPong,
+};
 use actix_service_alt::Service;
 use bytes::Bytes;
-use futures_core::Stream;
+use futures_core::{ready, Stream};
 use http::{header::CONTENT_LENGTH, HeaderValue, Request, Response, Version};
+use log::trace;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    pin,
+    pin, select,
 };
 
 use crate::body::{ResponseBody, ResponseBodySize};
@@ -15,12 +26,15 @@ use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
 use crate::h2::{body::RequestBody, error::Error};
 use crate::response::ResponseError;
-use crate::util::poll_fn::poll_fn;
+use crate::util::{date::Date, keep_alive::KeepAlive, poll_fn::poll_fn};
 
 /// Http/2 dispatcher
 pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X, U> {
     io: &'a mut Connection<TlsSt, Bytes>,
+    keep_alive: Pin<&'a mut KeepAlive>,
+    ka_dur: Duration,
     flow: &'a HttpFlow<S, X, U>,
+    date: &'a Date,
     _req_body: PhantomData<ReqB>,
 }
 
@@ -40,34 +54,134 @@ where
     TlsSt: AsyncRead + AsyncWrite + Unpin,
     ReqB: From<RequestBody> + 'static,
 {
-    pub(crate) fn new(io: &'a mut Connection<TlsSt, Bytes>, flow: &'a HttpFlow<S, X, U>) -> Self {
+    pub(crate) fn new(
+        io: &'a mut Connection<TlsSt, Bytes>,
+        keep_alive: Pin<&'a mut KeepAlive>,
+        ka_dur: Duration,
+        flow: &'a HttpFlow<S, X, U>,
+        date: &'a Date,
+    ) -> Self {
         Self {
             io,
+            keep_alive,
+            ka_dur,
             flow,
+            date,
             _req_body: PhantomData,
         }
     }
 
     pub(crate) async fn run(self) -> Result<(), Error> {
-        while let Some(res) = self.io.accept().await {
-            let (req, tx) = res?;
-            // Convert http::Request body type to crate::h2::Body
-            // and reconstruct as HttpRequest.
-            let (parts, body) = req.into_parts();
-            let body = ReqB::from(RequestBody::from(body));
-            let req = Request::from_parts(parts, body);
+        let Self {
+            io,
+            mut keep_alive,
+            ka_dur,
+            flow,
+            date,
+            ..
+        } = self;
 
-            let flow = HttpFlow::clone(self.flow);
+        let ping_pong = io.ping_pong().unwrap();
 
-            tokio::task::spawn_local(async move {
-                let fut = flow.service.call(req);
-                if let Err(e) = h2_handler(fut, tx).await {
-                    HttpServiceError::from(e).log();
+        // reset timer to keep alive.
+        let deadline = date.get().now() + ka_dur;
+        keep_alive.as_mut().update(deadline);
+
+        // timer for ping pong interval and keep alive.
+        let mut ping_pong = H2PingPong {
+            on_flight: false,
+            keep_alive: keep_alive.as_mut(),
+            ping_pong,
+            date,
+            ka_dur,
+        };
+
+        loop {
+            select! {
+                opt = io.accept() => match opt {
+                    Some(res) => {
+                        let (req, tx) = res?;
+                        // Convert http::Request body type to crate::h2::Body
+                        // and reconstruct as HttpRequest.
+                        let (parts, body) = req.into_parts();
+                        let body = ReqB::from(RequestBody::from(body));
+                        let req = Request::from_parts(parts, body);
+
+                        let flow = HttpFlow::clone(flow);
+
+                        tokio::task::spawn_local(async move {
+                            let fut = flow.service.call(req);
+                            if let Err(e) = h2_handler(fut, tx).await {
+                                HttpServiceError::from(e).log();
+                            }
+                        });
+                    },
+                    None => return Ok(())
+                },
+                res = &mut ping_pong => {
+                    res?;
+
+                    trace!("Connection keep-alive timeout. Shutting down");
+
+                    io.graceful_shutdown();
+
+                    poll_fn(|cx| io.poll_closed(cx)).await?;
+
+                    return Ok(())
                 }
-            });
+            }
         }
+    }
+}
 
-        Ok(())
+struct H2PingPong<'a> {
+    on_flight: bool,
+    keep_alive: Pin<&'a mut KeepAlive>,
+    ping_pong: PingPong,
+    date: &'a Date,
+    ka_dur: Duration,
+}
+
+impl Future for H2PingPong<'_> {
+    type Output = Result<(), Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        loop {
+            if this.on_flight {
+                // When have on flight ping pong. poll pong and and keep alive timer.
+                // on success pong received update keep alive timer to determine the next timing of
+                // ping pong.
+                match this.ping_pong.poll_pong(cx)? {
+                    Poll::Ready(_) => {
+                        this.on_flight = false;
+
+                        let deadline = this.date.get().now() + this.ka_dur;
+
+                        this.keep_alive.as_mut().update(deadline);
+                        this.keep_alive.as_mut().reset();
+                    }
+                    Poll::Pending => return this.keep_alive.as_mut().poll(cx).map(|_| Ok(())),
+                }
+            } else {
+                // When there is no on flight ping pong. keep alive timer is used to wait for next
+                // timing of ping pong. Therefore at this point it serves as an interval instead.
+
+                ready!(this.keep_alive.as_mut().poll(cx));
+
+                this.ping_pong.send_ping(Ping::opaque())?;
+
+                // Update the keep alive to 10 times the normal keep alive duration.
+                // There is no particular reason for the duration choice here. as h2 connection is
+                // suggested to be kept alive for a relative long time.
+                let deadline = this.date.get().now() + (this.ka_dur * 10);
+
+                this.keep_alive.as_mut().update(deadline);
+
+                this.on_flight = true;
+            }
+        }
     }
 }
 
