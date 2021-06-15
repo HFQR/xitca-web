@@ -7,7 +7,6 @@ use std::{
 };
 
 use actix_http_alt::{
-    config::HttpServiceConfig,
     http::{Request, Response},
     util::ErrorLoggerFactory,
     HttpServiceBuilder, RequestBody, ResponseBody,
@@ -38,12 +37,7 @@ async fn main() -> io::Result<()> {
     actix_server_alt::Builder::new()
         // bind to both tcp and udp addresses where a single service would handle http/1/2/3 traffic.
         .bind_all("hello-world", "127.0.0.1:8080", config, move || {
-            // enable pipeline mode for a better micro bench result.
-            // in real world this should be left as disabled.(which is by default).
-            let config = HttpServiceConfig::new().enable_http1_pipeline();
-            let builder = HttpServiceBuilder::new(fn_service(handler))
-                .config(config)
-                .rustls(acceptor.clone());
+            let builder = HttpServiceBuilder::new(fn_service(handler)).rustls(acceptor.clone());
 
             ErrorLoggerFactory::new(builder)
         })?
@@ -82,7 +76,7 @@ fn rustls_config() -> io::Result<Arc<rustls::ServerConfig>> {
     let mut keys = pkcs8_private_keys(key_file).unwrap();
 
     acceptor.set_single_cert(cert_chain, keys.remove(0)).unwrap();
-    let protos = vec!["h2".to_string().into(), "http/1.1".to_string().into()];
+    let protos = vec!["h2".into(), "http/1.1".into()];
     acceptor.set_protocols(&protos);
 
     Ok(Arc::new(acceptor))

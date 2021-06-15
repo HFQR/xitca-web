@@ -87,11 +87,9 @@ async fn handler_h3(_: Request<h3::RequestBody>) -> Result<Response<ResponseBody
 
 fn h2_config() -> io::Result<SslAcceptor> {
     // set up openssl and alpn protocol.
-    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
-    builder
-        .set_private_key_file("./cert/key.pem", SslFiletype::PEM)
-        .unwrap();
-    builder.set_certificate_chain_file("./cert/cert.pem").unwrap();
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
+    builder.set_private_key_file("./cert/key.pem", SslFiletype::PEM)?;
+    builder.set_certificate_chain_file("./cert/cert.pem")?;
 
     builder.set_alpn_select_callback(|_, protocols| {
         const H2: &[u8] = b"\x02h2";
