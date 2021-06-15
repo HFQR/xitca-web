@@ -2,6 +2,7 @@
 //! aiming to be correct and fast with only safe code.
 
 mod buf;
+mod codec;
 mod context;
 mod decode;
 mod dispatcher;

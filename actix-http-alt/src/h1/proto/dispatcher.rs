@@ -29,7 +29,7 @@ use crate::util::{date::Date, keep_alive::KeepAlive, poll_fn::poll_fn};
 
 use super::buf::{ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
-use super::decode::{RequestBodyDecoder, RequestBodyItem};
+use super::decode::{RequestBodyItem, TransferDecoding};
 use super::encode::TransferEncoding;
 use super::error::{Parse, ProtoError};
 
@@ -499,12 +499,12 @@ where
 type DecodedHead<ReqB> = (Request<ReqB>, Option<RequestBodyHandle>);
 
 struct RequestBodyHandle {
-    decoder: RequestBodyDecoder,
+    decoder: TransferDecoding,
     sender: RequestBodySender,
 }
 
 impl RequestBodyHandle {
-    fn new_pair<ReqB>(decoder: RequestBodyDecoder) -> (Option<Self>, ReqB)
+    fn new_pair<ReqB>(decoder: TransferDecoding) -> (Option<Self>, ReqB)
     where
         ReqB: From<RequestBody>,
     {

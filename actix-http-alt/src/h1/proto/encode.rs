@@ -12,6 +12,7 @@ use crate::body::{ResponseBody, ResponseBodySize};
 use crate::util::date::DATE_VALUE_LENGTH;
 
 use super::buf::{EncodedBuf, WriteBuf};
+use super::codec::Kind;
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
@@ -205,51 +206,33 @@ impl<B> ResponseBody<B> {
 /// Encoders to handle different Transfer-Encodings.
 #[derive(Debug)]
 pub(super) struct TransferEncoding {
-    kind: TransferEncodingKind,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-enum TransferEncodingKind {
-    /// An Encoder for when Transfer-Encoding includes `chunked`.
-    Chunked(bool),
-    /// An Encoder for when Content-Length is set.
-    ///
-    /// Enforces that the body is not longer than the Content-Length header.
-    Length(u64),
-    /// An Encoder for when Content-Length is not known.
-    ///
-    /// Application decides when to stop writing.
-    Eof,
-    /// See `super::decode::Kind::PlainChunked` for reason and usage.
-    PlainChunked,
+    kind: Kind,
 }
 
 impl TransferEncoding {
     #[inline(always)]
     pub(super) fn eof() -> TransferEncoding {
-        TransferEncoding {
-            kind: TransferEncodingKind::Eof,
-        }
+        TransferEncoding { kind: Kind::Eof }
     }
 
     #[inline(always)]
     pub(super) fn chunked() -> TransferEncoding {
         TransferEncoding {
-            kind: TransferEncodingKind::Chunked(false),
+            kind: Kind::EncodeChunked(false),
         }
     }
 
     #[inline(always)]
     pub(super) fn plain_chunked() -> TransferEncoding {
         TransferEncoding {
-            kind: TransferEncodingKind::PlainChunked,
+            kind: Kind::PlainChunked,
         }
     }
 
     #[inline(always)]
     pub(super) fn length(len: u64) -> TransferEncoding {
         TransferEncoding {
-            kind: TransferEncodingKind::Length(len),
+            kind: Kind::Length(len),
         }
     }
 
@@ -261,7 +244,7 @@ impl TransferEncoding {
         buf: &mut WriteBuf<WRITE_BUF_LIMIT>,
     ) -> io::Result<bool> {
         match self.kind {
-            TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => {
+            Kind::Eof | Kind::PlainChunked => {
                 let eof = msg.is_empty();
                 match *buf {
                     WriteBuf::Flat(ref mut bytes) => bytes.put_slice(&msg),
@@ -269,7 +252,7 @@ impl TransferEncoding {
                 }
                 Ok(eof)
             }
-            TransferEncodingKind::Chunked(ref mut eof) => {
+            Kind::EncodeChunked(ref mut eof) => {
                 if *eof {
                     return Ok(true);
                 }
@@ -318,7 +301,7 @@ impl TransferEncoding {
                 }
                 Ok(*eof)
             }
-            TransferEncodingKind::Length(ref mut remaining) => {
+            Kind::Length(ref mut remaining) => {
                 if *remaining > 0 {
                     if msg.is_empty() {
                         return Ok(*remaining == 0);
@@ -340,6 +323,7 @@ impl TransferEncoding {
                     Ok(true)
                 }
             }
+            _ => unreachable!(),
         }
     }
 
@@ -350,15 +334,15 @@ impl TransferEncoding {
         buf: &mut WriteBuf<WRITE_BUF_LIMIT>,
     ) -> io::Result<()> {
         match self.kind {
-            TransferEncodingKind::Eof | TransferEncodingKind::PlainChunked => Ok(()),
-            TransferEncodingKind::Length(rem) => {
+            Kind::Eof | Kind::PlainChunked => Ok(()),
+            Kind::Length(rem) => {
                 if rem != 0 {
                     Err(io::Error::new(io::ErrorKind::UnexpectedEof, ""))
                 } else {
                     Ok(())
                 }
             }
-            TransferEncodingKind::Chunked(ref mut eof) => {
+            Kind::EncodeChunked(ref mut eof) => {
                 if !*eof {
                     *eof = true;
                     match *buf {
@@ -368,6 +352,7 @@ impl TransferEncoding {
                 }
                 Ok(())
             }
+            _ => unreachable!(),
         }
     }
 }

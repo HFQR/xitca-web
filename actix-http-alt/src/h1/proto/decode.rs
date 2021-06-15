@@ -7,6 +7,7 @@ use http::{
 };
 use httparse::{Header, Status, EMPTY_HEADER};
 
+use super::codec::{ChunkedState, Kind};
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
@@ -18,7 +19,7 @@ impl Context<'_> {
     pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
-    ) -> Result<Option<(Request<()>, RequestBodyDecoder)>, ProtoError> {
+    ) -> Result<Option<(Request<()>, TransferDecoding)>, ProtoError> {
         let mut headers = [EMPTY_HEADER; MAX_HEADERS];
 
         let mut req = httparse::Request::new(&mut headers);
@@ -60,7 +61,7 @@ impl Context<'_> {
                 let mut headers = self.header_cache.take().unwrap_or_else(HeaderMap::new);
                 headers.reserve(headers_len);
 
-                let mut decoder = RequestBodyDecoder::eof();
+                let mut decoder = TransferDecoding::eof();
 
                 // write headers to headermap and update request states.
                 for idx in &header_idx[..headers_len] {
@@ -80,7 +81,7 @@ impl Context<'_> {
                                 .eq_ignore_ascii_case("chunked");
 
                             if chunked {
-                                decoder.reset(RequestBodyDecoder::chunked())?;
+                                decoder.reset(TransferDecoding::chunked())?;
                             }
                         }
                         CONTENT_LENGTH => {
@@ -91,7 +92,7 @@ impl Context<'_> {
                                 .map_err(|_| ProtoError::Parse(Parse::Header))?;
 
                             if len != 0 {
-                                decoder.reset(RequestBodyDecoder::length(len))?;
+                                decoder.reset(TransferDecoding::length(len))?;
                             }
                         }
                         CONNECTION => {
@@ -103,7 +104,7 @@ impl Context<'_> {
                                     self.set_ctype(ConnectionType::Close);
                                 } else if value.eq_ignore_ascii_case("upgrade") {
                                     // set decoder to upgrade variant.
-                                    decoder = RequestBodyDecoder::plain_chunked();
+                                    decoder = TransferDecoding::plain_chunked();
                                     self.set_ctype(ConnectionType::Upgrade);
                                 }
                             }
@@ -119,7 +120,7 @@ impl Context<'_> {
 
                 if method == Method::CONNECT {
                     self.set_ctype(ConnectionType::Upgrade);
-                    decoder = RequestBodyDecoder::plain_chunked();
+                    decoder = TransferDecoding::plain_chunked();
                 }
 
                 let mut req = Request::new(());
@@ -175,33 +176,33 @@ impl HeaderIndex {
 /// If a message body does not include a Transfer-Encoding, it *should*
 /// include a Content-Length header.
 #[derive(Debug, Clone, PartialEq)]
-pub struct RequestBodyDecoder {
+pub struct TransferDecoding {
     kind: Kind,
 }
 
-impl RequestBodyDecoder {
+impl TransferDecoding {
     #[inline(always)]
-    pub fn length(x: u64) -> RequestBodyDecoder {
-        RequestBodyDecoder { kind: Kind::Length(x) }
+    pub fn length(x: u64) -> TransferDecoding {
+        TransferDecoding { kind: Kind::Length(x) }
     }
 
     #[inline(always)]
-    pub fn chunked() -> RequestBodyDecoder {
-        RequestBodyDecoder {
-            kind: Kind::Chunked(ChunkedState::Size, 0),
+    pub fn chunked() -> TransferDecoding {
+        TransferDecoding {
+            kind: Kind::DecodeChunked(ChunkedState::Size, 0),
         }
     }
 
     #[inline(always)]
-    pub fn plain_chunked() -> RequestBodyDecoder {
-        RequestBodyDecoder {
+    pub fn plain_chunked() -> TransferDecoding {
+        TransferDecoding {
             kind: Kind::PlainChunked,
         }
     }
 
     #[inline(always)]
-    pub fn eof() -> RequestBodyDecoder {
-        RequestBodyDecoder { kind: Kind::Eof }
+    pub fn eof() -> TransferDecoding {
+        TransferDecoding { kind: Kind::Eof }
     }
 
     #[inline(always)]
@@ -212,7 +213,7 @@ impl RequestBodyDecoder {
     #[inline(always)]
     pub fn reset(&mut self, other: Self) -> Result<(), ProtoError> {
         match (&self.kind, &other.kind) {
-            (Kind::Chunked(..), Kind::Length(..)) | (Kind::Length(..), Kind::Chunked(..)) => {
+            (Kind::DecodeChunked(..), Kind::Length(..)) | (Kind::Length(..), Kind::DecodeChunked(..)) => {
                 Err(ProtoError::Parse(Parse::Header))
             }
             _ => {
@@ -224,55 +225,13 @@ impl RequestBodyDecoder {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum Kind {
-    /// A Reader used when a Content-Length header is passed with a positive
-    /// integer.
-    Length(u64),
-    /// A Reader used when Transfer-Encoding is `chunked`.
-    Chunked(ChunkedState, u64),
-    /// A Reader used for responses that don't indicate a length or chunked.
-    ///
-    /// Note: This should only used for `Response`s. It is illegal for a
-    /// `Request` to be made with both `Content-Length` and
-    /// `Transfer-Encoding: chunked` missing, as explained from the spec:
-    ///
-    /// > If a Transfer-Encoding header field is present in a response and
-    /// > the chunked transfer coding is not the final encoding, the
-    /// > message body length is determined by reading the connection until
-    /// > it is closed by the server.  If a Transfer-Encoding header field
-    /// > is present in a request and the chunked transfer coding is not
-    /// > the final encoding, the message body length cannot be determined
-    /// > reliably; the server MUST respond with the 400 (Bad Request)
-    /// > status code and then close the connection.
-    Eof,
-    /// A Reader function similar to Eof but treated as Chunked variant.
-    /// The chunk is consumed directly as IS without actual decoding.
-    /// This is used for upgrade type connections like websocket.
-    PlainChunked,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-enum ChunkedState {
-    Size,
-    SizeLws,
-    Extension,
-    SizeLf,
-    Body,
-    BodyCr,
-    BodyLf,
-    EndCr,
-    EndLf,
-    End,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 /// Http payload item
 pub enum RequestBodyItem {
     Chunk(Bytes),
     Eof,
 }
 
-impl RequestBodyDecoder {
+impl TransferDecoding {
     pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<RequestBodyItem>> {
         match self.kind {
             Kind::Length(ref mut remaining) => {
@@ -294,7 +253,7 @@ impl RequestBodyDecoder {
                     Ok(Some(RequestBodyItem::Chunk(buf)))
                 }
             }
-            Kind::Chunked(ref mut state, ref mut size) => {
+            Kind::DecodeChunked(ref mut state, ref mut size) => {
                 loop {
                     let mut buf = None;
                     // advances the chunked state
@@ -321,151 +280,7 @@ impl RequestBodyDecoder {
                     Ok(Some(RequestBodyItem::Chunk(src.split().freeze())))
                 }
             }
-        }
-    }
-}
-
-macro_rules! byte (
-    ($rdr:ident) => ({
-        if $rdr.len() > 0 {
-            let b = $rdr[0];
-            $rdr.advance(1);
-            b
-        } else {
-            return Poll::Pending
-        }
-    })
-);
-
-impl ChunkedState {
-    fn step(&self, body: &mut BytesMut, size: &mut u64, buf: &mut Option<Bytes>) -> Poll<io::Result<ChunkedState>> {
-        use self::ChunkedState::*;
-        match *self {
-            Size => ChunkedState::read_size(body, size),
-            SizeLws => ChunkedState::read_size_lws(body),
-            Extension => ChunkedState::read_extension(body),
-            SizeLf => ChunkedState::read_size_lf(body, size),
-            Body => ChunkedState::read_body(body, size, buf),
-            BodyCr => ChunkedState::read_body_cr(body),
-            BodyLf => ChunkedState::read_body_lf(body),
-            EndCr => ChunkedState::read_end_cr(body),
-            EndLf => ChunkedState::read_end_lf(body),
-            End => Poll::Ready(Ok(ChunkedState::End)),
-        }
-    }
-
-    fn read_size(rdr: &mut BytesMut, size: &mut u64) -> Poll<io::Result<ChunkedState>> {
-        let radix = 16;
-        match byte!(rdr) {
-            b @ b'0'..=b'9' => {
-                *size *= radix;
-                *size += u64::from(b - b'0');
-            }
-            b @ b'a'..=b'f' => {
-                *size *= radix;
-                *size += u64::from(b + 10 - b'a');
-            }
-            b @ b'A'..=b'F' => {
-                *size *= radix;
-                *size += u64::from(b + 10 - b'A');
-            }
-            b'\t' | b' ' => return Poll::Ready(Ok(ChunkedState::SizeLws)),
-            b';' => return Poll::Ready(Ok(ChunkedState::Extension)),
-            b'\r' => return Poll::Ready(Ok(ChunkedState::SizeLf)),
-            _ => {
-                return Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Invalid chunk size line: Invalid Size",
-                )));
-            }
-        }
-        Poll::Ready(Ok(ChunkedState::Size))
-    }
-
-    fn read_size_lws(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
-        match byte!(rdr) {
-            // LWS can follow the chunk size, but no more digits can come
-            b'\t' | b' ' => Poll::Ready(Ok(ChunkedState::SizeLws)),
-            b';' => Poll::Ready(Ok(ChunkedState::Extension)),
-            b'\r' => Poll::Ready(Ok(ChunkedState::SizeLf)),
-            _ => Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Invalid chunk size linear white space",
-            ))),
-        }
-    }
-
-    fn read_extension(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
-        match byte!(rdr) {
-            b'\r' => Poll::Ready(Ok(ChunkedState::SizeLf)),
-            _ => Poll::Ready(Ok(ChunkedState::Extension)), // no supported extensions
-        }
-    }
-
-    fn read_size_lf(rdr: &mut BytesMut, size: &mut u64) -> Poll<io::Result<ChunkedState>> {
-        match byte!(rdr) {
-            b'\n' if *size > 0 => Poll::Ready(Ok(ChunkedState::Body)),
-            b'\n' if *size == 0 => Poll::Ready(Ok(ChunkedState::EndCr)),
-            _ => Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Invalid chunk size LF",
-            ))),
-        }
-    }
-
-    fn read_body(rdr: &mut BytesMut, rem: &mut u64, buf: &mut Option<Bytes>) -> Poll<io::Result<ChunkedState>> {
-        let len = rdr.len() as u64;
-        if len == 0 {
-            Poll::Ready(Ok(ChunkedState::Body))
-        } else {
-            let slice;
-            if *rem > len {
-                slice = rdr.split().freeze();
-                *rem -= len;
-            } else {
-                slice = rdr.split_to(*rem as usize).freeze();
-                *rem = 0;
-            }
-            *buf = Some(slice);
-            if *rem > 0 {
-                Poll::Ready(Ok(ChunkedState::Body))
-            } else {
-                Poll::Ready(Ok(ChunkedState::BodyCr))
-            }
-        }
-    }
-
-    fn read_body_cr(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
-        match byte!(rdr) {
-            b'\r' => Poll::Ready(Ok(ChunkedState::BodyLf)),
-            _ => Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Invalid chunk body CR",
-            ))),
-        }
-    }
-
-    fn read_body_lf(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
-        match byte!(rdr) {
-            b'\n' => Poll::Ready(Ok(ChunkedState::Size)),
-            _ => Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Invalid chunk body LF",
-            ))),
-        }
-    }
-
-    fn read_end_cr(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
-        match byte!(rdr) {
-            b'\r' => Poll::Ready(Ok(ChunkedState::EndLf)),
-            _ => Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end CR"))),
-        }
-    }
-
-    fn read_end_lf(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
-        match byte!(rdr) {
-            b'\n' => Poll::Ready(Ok(ChunkedState::End)),
-            _ => Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end LF"))),
+            _ => unreachable!(),
         }
     }
 }
