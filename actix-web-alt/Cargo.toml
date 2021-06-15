@@ -11,7 +11,7 @@ openssl = ["actix-http-alt/openssl", "openssl-crate"]
 rustls = ["actix-http-alt/rustls", "rustls-crate"]
 
 [dependencies]
-actix-http-alt = { version = "0.1", default-features = false }
+actix-http-alt = "0.1"
 actix-server-alt = { version = "0.1" }
 actix-service-alt = "0.1"
 
