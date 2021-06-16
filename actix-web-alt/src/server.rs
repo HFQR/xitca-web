@@ -1,7 +1,7 @@
 use std::{net::ToSocketAddrs, time::Duration};
 
 use actix_http_alt::{
-    config::{HttpServiceConfig, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
+    config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::{Request, Response},
     util::ErrorLoggerFactory,
     BodyError, HttpServiceBuilder, RequestBody, ResponseBody, ResponseError,
@@ -11,13 +11,13 @@ use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
 use futures_core::Stream;
 
-pub struct HttpServer<F, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+pub struct HttpServer<F, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     factory: F,
     builder: Builder,
-    config: HttpServiceConfig<READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+    config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
 }
 
-impl<F, I> HttpServer<F, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT>
+impl<F, I> HttpServer<F, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT>
 where
     F: Fn() -> I + Send + Clone + 'static,
 {
@@ -30,7 +30,8 @@ where
     }
 }
 
-impl<F, I, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> HttpServer<F, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<F, I, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: Fn() -> I + Send + Clone + 'static,
 {
@@ -128,7 +129,9 @@ where
     /// Request body has a bigger continuous read would be force to yield.
     ///
     /// Default to 1mb.
-    pub fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(self) -> HttpServer<F, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
+    pub fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(
+        self,
+    ) -> HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
         HttpServer {
             factory: self.factory,
             builder: self.builder,
@@ -144,11 +147,24 @@ where
     /// Default to 408kb.
     pub fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(
         self,
-    ) -> HttpServer<F, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2> {
+    ) -> HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2> {
         HttpServer {
             factory: self.factory,
             builder: self.builder,
             config: self.config.max_write_buf_size::<WRITE_BUF_LIMIT_2>(),
+        }
+    }
+
+    /// Change max header fields for one request.
+    ///
+    /// Default to 96.
+    pub fn max_request_headers<const HEADER_LIMIT_2: usize>(
+        self,
+    ) -> HttpServer<F, HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+        HttpServer {
+            factory: self.factory,
+            builder: self.builder,
+            config: self.config.max_request_headers::<HEADER_LIMIT_2>(),
         }
     }
 

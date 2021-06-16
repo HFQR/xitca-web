@@ -12,21 +12,26 @@ pub const DEFAULT_READ_BUF_LIMIT: usize = 1024 * 1024;
 /// would happen.
 pub const DEFAULT_WRITE_BUF_LIMIT: usize = 8192 + 4096 * 100;
 
+/// The default maximum request header fields possible for one request.
+///
+/// No particular reason. Copied from `actix-http` crate.
+pub const DEFAULT_HEADER_LIMIT: usize = 96;
+
 #[derive(Copy, Clone)]
-pub struct HttpServiceConfig<const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+pub struct HttpServiceConfig<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     pub(crate) http1_pipeline: bool,
     pub(crate) keep_alive_timeout: Duration,
     pub(crate) first_request_timeout: Duration,
     pub(crate) tls_accept_timeout: Duration,
 }
 
-impl Default for HttpServiceConfig<DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
+impl Default for HttpServiceConfig<DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HttpServiceConfig<DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
+impl HttpServiceConfig<DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
     pub const fn new() -> Self {
         Self {
             http1_pipeline: false,
@@ -37,7 +42,9 @@ impl HttpServiceConfig<DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
     }
 }
 
-impl<const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> HttpServiceConfig<READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+{
     pub fn enable_http1_pipeline(mut self) -> Self {
         self.http1_pipeline = true;
         self
@@ -60,7 +67,7 @@ impl<const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> HttpServiceConfi
 
     pub fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(
         self,
-    ) -> HttpServiceConfig<READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
+    ) -> HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
         HttpServiceConfig {
             http1_pipeline: self.http1_pipeline,
             keep_alive_timeout: self.keep_alive_timeout,
@@ -71,7 +78,18 @@ impl<const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> HttpServiceConfi
 
     pub fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(
         self,
-    ) -> HttpServiceConfig<READ_BUF_LIMIT, WRITE_BUF_LIMIT_2> {
+    ) -> HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2> {
+        HttpServiceConfig {
+            http1_pipeline: self.http1_pipeline,
+            keep_alive_timeout: self.keep_alive_timeout,
+            first_request_timeout: self.first_request_timeout,
+            tls_accept_timeout: self.tls_accept_timeout,
+        }
+    }
+
+    pub fn max_request_headers<const HEADER_LIMIT_2: usize>(
+        self,
+    ) -> HttpServiceConfig<HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
         HttpServiceConfig {
             http1_pipeline: self.http1_pipeline,
             keep_alive_timeout: self.keep_alive_timeout,

@@ -21,11 +21,11 @@ use crate::util::keep_alive::KeepAlive;
 use super::body::RequestBody;
 use super::proto::Dispatcher;
 
-pub type H2Service<S, A, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
-    HttpService<S, RequestBody, (), (), A, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+pub type H2Service<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
+    HttpService<S, RequestBody, (), (), A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<St, S, B, E, A, TlsSt, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<St>
-    for H2Service<S, A, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, S, B, E, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<St> for H2Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     A: Service<St, Response = TlsSt> + 'static,

@@ -19,7 +19,7 @@ use super::codec::Kind;
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
-impl Context<'_> {
+impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
     pub(super) fn encode_continue<const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut WriteBuf<WRITE_BUF_LIMIT>) {
         debug_assert!(self.is_expect_header());
         match *buf {

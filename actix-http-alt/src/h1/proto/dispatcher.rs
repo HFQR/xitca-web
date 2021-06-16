@@ -34,11 +34,21 @@ use super::encode::TransferEncoding;
 use super::error::{Parse, ProtoError};
 
 /// Http/1 dispatcher
-pub(crate) struct Dispatcher<'a, St, S, ReqB, X, U, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+pub(crate) struct Dispatcher<
+    'a,
+    St,
+    S,
+    ReqB,
+    X,
+    U,
+    const HEADER_LIMIT: usize,
+    const READ_BUF_LIMIT: usize,
+    const WRITE_BUF_LIMIT: usize,
+> {
     io: Io<'a, St, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
-    ctx: Context<'a>,
+    ctx: Context<'a, HEADER_LIMIT>,
     flow: &'a HttpFlowInner<S, X, U>,
     _phantom: PhantomData<ReqB>,
 }
@@ -140,10 +150,10 @@ where
     }
 
     /// Return true when new data is decoded.
-    fn poll_read_decode_body(
+    fn poll_read_decode_body<const HEADER_LIMIT: usize>(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
-        ctx: &mut Context<'_>,
+        ctx: &mut Context<'_, HEADER_LIMIT>,
         cx: &mut task::Context<'_>,
     ) -> Result<bool, Error> {
         if let Some(ref mut handle) = *body_handle {
@@ -195,8 +205,19 @@ where
     }
 }
 
-impl<'a, St, S, ReqB, ResB, E, X, U, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Dispatcher<'a, St, S, ReqB, X, U, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<
+        'a,
+        St,
+        S,
+        ReqB,
+        ResB,
+        E,
+        X,
+        U,
+        const HEADER_LIMIT: usize,
+        const READ_BUF_LIMIT: usize,
+        const WRITE_BUF_LIMIT: usize,
+    > Dispatcher<'a, St, S, ReqB, X, U, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -214,7 +235,7 @@ where
     pub(crate) fn new(
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
-        config: HttpServiceConfig<READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+        config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         flow: &'a HttpFlowInner<S, X, U>,
         date: &'a Date,
     ) -> Self {
@@ -399,16 +420,24 @@ where
 }
 
 #[pin_project]
-struct RequestHandler<'a, 'b, St, Fut, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+struct RequestHandler<
+    'a,
+    'b,
+    St,
+    Fut,
+    const HEADER_LIMIT: usize,
+    const READ_BUF_LIMIT: usize,
+    const WRITE_BUF_LIMIT: usize,
+> {
     #[pin]
     fut: Fut,
     body_handle: &'a mut Option<RequestBodyHandle>,
     io: &'a mut Io<'b, St, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    ctx: &'a mut Context<'b>,
+    ctx: &'a mut Context<'b, HEADER_LIMIT>,
 }
 
-impl<St, Fut, E, ResB, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Future
-    for RequestHandler<'_, '_, St, Fut, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, Fut, E, ResB, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Future
+    for RequestHandler<'_, '_, St, Fut, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     Fut: Future<Output = Result<Response<ResponseBody<ResB>>, E>>,
     E: ResponseError<Response<ResponseBody<ResB>>>,
@@ -437,12 +466,20 @@ where
     }
 }
 
-struct ResponseHandler<'a, 'b, St, ResB, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+struct ResponseHandler<
+    'a,
+    'b,
+    St,
+    ResB,
+    const HEADER_LIMIT: usize,
+    const READ_BUF_LIMIT: usize,
+    const WRITE_BUF_LIMIT: usize,
+> {
     res_body: Pin<&'a mut ResponseBody<ResB>>,
     encoder: &'a mut TransferEncoding,
     body_handle: &'a mut Option<RequestBodyHandle>,
     io: &'a mut Io<'b, St, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    ctx: &'a mut Context<'b>,
+    ctx: &'a mut Context<'b, HEADER_LIMIT>,
 }
 
 enum ResponseHandlerResult {
@@ -450,8 +487,8 @@ enum ResponseHandlerResult {
     WriteBackpressure,
 }
 
-impl<St, ResB, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Future
-    for ResponseHandler<'_, '_, St, ResB, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, ResB, E, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Future
+    for ResponseHandler<'_, '_, St, ResB, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,

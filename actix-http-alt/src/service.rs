@@ -21,20 +21,29 @@ use super::tls::TlsStream;
 use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
 
 /// General purpose http service
-pub struct HttpService<S, ReqB, X, U, A, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
-    pub(crate) config: HttpServiceConfig<READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+pub struct HttpService<
+    S,
+    ReqB,
+    X,
+    U,
+    A,
+    const HEADER_LIMIT: usize,
+    const READ_BUF_LIMIT: usize,
+    const WRITE_BUF_LIMIT: usize,
+> {
+    pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     pub(crate) date: DateTimeTask,
     pub(crate) flow: HttpFlow<S, X, U>,
     pub(crate) tls_acceptor: A,
     _body: PhantomData<ReqB>,
 }
 
-impl<S, ReqB, X, U, A, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpService<S, ReqB, X, U, A, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpService<S, ReqB, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     /// Construct new Http Service.
     pub fn new(
-        config: HttpServiceConfig<READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+        config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         service: S,
         expect: X,
         upgrade: Option<U>,
@@ -50,8 +59,8 @@ impl<S, ReqB, X, U, A, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize
     }
 }
 
-impl<S, X, U, B, E, A, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<ServerStream>
-    for HttpService<S, RequestBody, X, U, A, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, X, U, B, E, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<ServerStream> for HttpService<S, RequestBody, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: ResponseError<S::Response>,

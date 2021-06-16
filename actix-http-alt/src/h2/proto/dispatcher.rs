@@ -105,6 +105,7 @@ where
 
         loop {
             select! {
+                biased;
                 opt = io.accept() => match opt {
                     Some(res) => {
                         let (req, tx) = res?;

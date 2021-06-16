@@ -11,10 +11,7 @@ use super::codec::{ChunkedState, Kind};
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
-/// No particular reason. Copied from `actix-http` crate.
-const MAX_HEADERS: usize = 96;
-
-impl Context<'_> {
+impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
     // decode head and generate request and body decoder.
     pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
