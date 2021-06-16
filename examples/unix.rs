@@ -16,7 +16,8 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "actix=trace, info");
     env_logger::init();
 
-    let server = HttpServer::new(|| fn_service(handler));
+    #[allow(unused_mut)]
+    let mut server = HttpServer::new(|| fn_service(handler));
 
     #[cfg(unix)]
     {
