@@ -1,11 +1,12 @@
 use std::{
-    error,
-    fmt::{self, Write},
-    io,
+    error, fmt,
+    io::{self, Write},
 };
 
 use bytes::{Bytes, BytesMut};
 use http::{header, status::StatusCode, Response};
+
+use super::util::writer::Writer;
 
 use super::body::ResponseBody;
 
@@ -34,7 +35,7 @@ macro_rules! internal_impl {
         {
             fn response_error(&mut self) -> Response<ResponseBody<B>> {
                 let mut bytes = BytesMut::new();
-                write!(bytes, "{}", self).unwrap();
+                write!(Writer::new(&mut bytes), "{}", self).unwrap();
                 Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .header(

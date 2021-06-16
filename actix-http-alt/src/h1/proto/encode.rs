@@ -1,4 +1,7 @@
-use std::{cmp, io};
+use std::{
+    cmp,
+    io::{self, Write},
+};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use http::{
@@ -9,7 +12,7 @@ use http::{
 use log::{debug, warn};
 
 use crate::body::{ResponseBody, ResponseBodySize};
-use crate::util::date::DATE_VALUE_LENGTH;
+use crate::util::{date::DATE_VALUE_LENGTH, writer::Writer};
 
 use super::buf::{EncodedBuf, WriteBuf};
 use super::codec::Kind;
@@ -273,25 +276,7 @@ impl TransferEncoding {
                             *eof = true;
                             bytes.put_slice(b"0\r\n\r\n");
                         } else {
-                            use io::Write;
-
-                            struct Writer<'a, B>(pub &'a mut B);
-
-                            impl<'a, B> Write for Writer<'a, B>
-                            where
-                                B: BufMut,
-                            {
-                                fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                                    self.0.put_slice(buf);
-                                    Ok(buf.len())
-                                }
-
-                                fn flush(&mut self) -> io::Result<()> {
-                                    Ok(())
-                                }
-                            }
-
-                            writeln!(Writer(bytes), "{:X}\r", msg.len()).unwrap();
+                            writeln!(Writer::new(bytes), "{:X}\r", msg.len()).unwrap();
 
                             bytes.reserve(msg.len() + 2);
                             bytes.put_slice(&msg);

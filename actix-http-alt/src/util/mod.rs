@@ -2,6 +2,8 @@
 pub(crate) mod buf_list;
 pub(crate) mod date;
 pub(crate) mod keep_alive;
+pub(crate) mod writer;
+
 #[cfg(any(feature = "http1", feature = "http2"))]
 pub(crate) mod poll_fn;
 

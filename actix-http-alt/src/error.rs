@@ -73,6 +73,7 @@ impl HttpServiceError {
 /// Request/Response body layer error.
 pub enum BodyError {
     Std(Box<dyn Error>),
+    StdSendSync(Box<dyn Error + Send + Sync>),
     Io(io::Error),
 }
 
@@ -80,6 +81,7 @@ impl Debug for BodyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Std(ref e) => write!(f, "{:?}", e),
+            Self::StdSendSync(ref e) => write!(f, "{:?}", e),
             Self::Io(ref e) => write!(f, "{:?}", e),
         }
     }
@@ -89,6 +91,7 @@ impl Display for BodyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Std(ref e) => write!(f, "{}", e),
+            Self::StdSendSync(ref e) => write!(f, "{}", e),
             Self::Io(ref e) => write!(f, "{}", e),
         }
     }
@@ -105,6 +108,12 @@ impl From<io::Error> for BodyError {
 impl From<Box<dyn Error>> for BodyError {
     fn from(e: Box<dyn Error>) -> Self {
         Self::Std(e)
+    }
+}
+
+impl From<Box<dyn Error + Send + Sync>> for BodyError {
+    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
+        Self::StdSendSync(e)
     }
 }
 

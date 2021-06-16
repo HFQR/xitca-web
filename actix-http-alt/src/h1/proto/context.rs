@@ -10,7 +10,7 @@ pub(super) struct Context<'a> {
     ctype: ConnectionType,
     /// header map reused by next request.
     pub(super) header_cache: Option<HeaderMap>,
-    /// smart pointer of cached date with 500 milli second update interval.
+    /// smart pointer of cached date with 500-millisecond update interval.
     pub(super) date: &'a Date,
 }
 
@@ -77,17 +77,17 @@ struct ContextState(u8);
 
 impl ContextState {
     /// Enable when current request has 100-continue header.
-    const EXPECT: Self = Self(0b_0001);
+    const EXPECT: u8 = 0b_0001;
 
     /// Enable when current request is CONNECT method.
-    const CONNECT: Self = Self(0b_0010);
+    const CONNECT: u8 = 0b_0010;
 
     /// Want a force close after current request served.
     ///
     /// This is for situation like partial read of request body. Which could leave artifact
     /// unread data in connection that can interfere with next request(If the connection is kept
     /// alive).
-    const FORCE_CLOSE: Self = Self(0b_0100);
+    const FORCE_CLOSE: u8 = 0b_0100;
 
     #[inline(always)]
     const fn new() -> Self {
@@ -95,13 +95,13 @@ impl ContextState {
     }
 
     #[inline(always)]
-    fn insert(&mut self, other: Self) {
-        self.0 |= other.0;
+    fn insert(&mut self, other: u8) {
+        self.0 |= other;
     }
 
     #[inline(always)]
-    const fn contains(&self, other: Self) -> bool {
-        (self.0 & other.0) == other.0
+    const fn contains(&self, other: u8) -> bool {
+        (self.0 & other) == other
     }
 }
 
