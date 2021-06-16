@@ -1,6 +1,10 @@
-use std::{error, io};
+use std::{
+    error,
+    fmt::{self, Write},
+    io,
+};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use http::{header, status::StatusCode, Response};
 
 use super::body::ResponseBody;
@@ -22,36 +26,32 @@ where
 
 // implement ResponseError for common error types.
 
-impl<B> ResponseError<Response<ResponseBody<B>>> for Box<dyn error::Error> {
-    fn response_error(&mut self) -> Response<ResponseBody<B>> {
-        internal_error(self.to_string().as_bytes())
-    }
+macro_rules! internal_impl {
+    ($ty: ty) => {
+        impl<B> ResponseError<Response<ResponseBody<B>>> for $ty
+        where
+            Self: fmt::Debug + fmt::Display,
+        {
+            fn response_error(&mut self) -> Response<ResponseBody<B>> {
+                let mut bytes = BytesMut::new();
+                write!(bytes, "{}", self).unwrap();
+                Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .header(
+                        header::CONTENT_TYPE,
+                        header::HeaderValue::from_static("text/plain; charset=utf-8"),
+                    )
+                    .body(bytes.freeze().into())
+                    .unwrap()
+            }
+        }
+    };
 }
 
-impl<B> ResponseError<Response<ResponseBody<B>>> for Box<dyn error::Error + Send> {
-    fn response_error(&mut self) -> Response<ResponseBody<B>> {
-        internal_error(self.to_string().as_bytes())
-    }
-}
-
-impl<B> ResponseError<Response<ResponseBody<B>>> for io::Error {
-    fn response_error(&mut self) -> Response<ResponseBody<B>> {
-        internal_error(self.to_string().as_bytes())
-    }
-}
-
-fn internal_error<B>(buf: &[u8]) -> Response<ResponseBody<B>> {
-    // TODO: write this to bytes mut directly.
-    let bytes = Bytes::copy_from_slice(buf);
-    Response::builder()
-        .status(StatusCode::INTERNAL_SERVER_ERROR)
-        .header(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("text/plain; charset=utf-8"),
-        )
-        .body(bytes.into())
-        .unwrap()
-}
+internal_impl!(Box<dyn error::Error>);
+internal_impl!(Box<dyn error::Error + Send>);
+internal_impl!(Box<dyn error::Error + Send + Sync>);
+internal_impl!(io::Error);
 
 #[cfg(feature = "http1")]
 pub(super) fn header_too_large<B>() -> Response<ResponseBody<B>> {
