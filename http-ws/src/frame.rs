@@ -116,38 +116,31 @@ impl Parser {
 
         // control frames must have length <= 125
         match opcode {
-            OpCode::Ping | OpCode::Pong if length > 125 => {
-                return Err(ProtocolError::InvalidLength(length));
-            }
+            OpCode::Ping | OpCode::Pong if length > 125 => Err(ProtocolError::InvalidLength(length)),
             OpCode::Close if length > 125 => {
                 debug!("Received close frame with payload length exceeding 125. Morphing to protocol close frame.");
-                return Ok(Some((true, OpCode::Close, None)));
+                Ok(Some((true, OpCode::Close, None)))
             }
-            _ => {}
-        }
+            _ => {
+                // unmask
+                if let Some(mask) = mask {
+                    apply_mask(&mut data, mask);
+                }
 
-        // unmask
-        if let Some(mask) = mask {
-            apply_mask(&mut data, mask);
+                Ok(Some((finished, opcode, Some(data))))
+            }
         }
-
-        Ok(Some((finished, opcode, Some(data))))
     }
 
     /// Parse the payload of a close frame.
     pub fn parse_close_payload(payload: &[u8]) -> Option<CloseReason> {
-        if payload.len() >= 2 {
+        (payload.len() >= 2).then(|| {
             let raw_code = u16::from_be_bytes(TryFrom::try_from(&payload[..2]).unwrap());
             let code = CloseCode::from(raw_code);
-            let description = if payload.len() > 2 {
-                Some(String::from_utf8_lossy(&payload[2..]).into())
-            } else {
-                None
-            };
-            Some(CloseReason { code, description })
-        } else {
-            None
-        }
+            let description = (payload.len() > 2).then(|| String::from_utf8_lossy(&payload[2..]).into());
+
+            CloseReason { code, description }
+        })
     }
 
     /// Generate binary representation

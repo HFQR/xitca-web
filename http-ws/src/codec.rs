@@ -56,23 +56,23 @@ pub struct Codec {
 struct Flags(u8);
 
 impl Flags {
-    const SERVER: Flags = Flags(0b0000_0001);
-    const CONTINUATION: Flags = Flags(0b0000_0010);
-    const W_CONTINUATION: Flags = Flags(0b0000_0100);
+    const SERVER: u8 = 0b0000_0001;
+    const CONTINUATION: u8 = 0b0000_0010;
+    const W_CONTINUATION: u8 = 0b0000_0100;
 
     #[inline(always)]
-    fn remove(&mut self, other: Self) {
-        self.0 &= !other.0;
+    fn remove(&mut self, other: u8) {
+        self.0 &= !other;
     }
 
     #[inline(always)]
-    fn insert(&mut self, other: Self) {
-        self.0 |= other.0;
+    fn insert(&mut self, other: u8) {
+        self.0 |= other;
     }
 
     #[inline(always)]
-    const fn contains(&self, other: Self) -> bool {
-        (self.0 & other.0) == other.0
+    const fn contains(&self, other: u8) -> bool {
+        (self.0 & other) == other
     }
 }
 
@@ -82,7 +82,7 @@ impl Codec {
         Codec {
             max_size: 65_536,
             capacity: 128,
-            flags: Cell::new(Flags::SERVER),
+            flags: Cell::new(Flags(Flags::SERVER)),
         }
     }
 
@@ -292,7 +292,7 @@ mod test {
 
     #[test]
     fn flag() {
-        let mut flags = Flags::SERVER;
+        let mut flags = Flags(Flags::SERVER);
 
         assert!(flags.contains(Flags::SERVER));
         assert!(!flags.contains(Flags::CONTINUATION));

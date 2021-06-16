@@ -16,11 +16,14 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "actix=trace, info");
     env_logger::init();
 
-    HttpServer::new(|| fn_service(handler))
-        .bind_unix("/tmp/actix-web-alt.socket")?
-        .bind("127.0.0.1:8080")?
-        .run()
-        .await
+    let server = HttpServer::new(|| fn_service(handler));
+
+    #[cfg(unix)]
+    {
+        server = server.bind_unix("/tmp/actix-web-alt.socket")?;
+    }
+
+    server.bind("127.0.0.1:8080")?.run().await
 }
 
 async fn handler(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {

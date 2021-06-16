@@ -47,7 +47,7 @@ impl RequestBody {
     }
 
     #[inline]
-    pub fn readany(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
+    pub fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
         self.0.borrow_mut().poll_read(cx)
     }
 }
