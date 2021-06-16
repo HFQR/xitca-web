@@ -15,6 +15,7 @@ use tokio::{
 pub(crate) const DATE_VALUE_LENGTH: usize = 29;
 
 pub(crate) type Date = Cell<DateTimeInner>;
+pub(crate) type SharedDate = Rc<Date>;
 
 #[derive(Copy, Clone)]
 pub(crate) struct DateTimeInner {
@@ -88,5 +89,10 @@ impl DateTimeTask {
     #[inline(always)]
     pub(crate) fn get(&self) -> &Date {
         &*self.current
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_shared(&self) -> &SharedDate {
+        &self.current
     }
 }

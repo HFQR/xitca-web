@@ -14,7 +14,10 @@ use ::h2::{
 use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::{ready, Stream};
-use http::{header::CONTENT_LENGTH, HeaderValue, Request, Response, Version};
+use http::{
+    header::{CONTENT_LENGTH, DATE},
+    HeaderValue, Request, Response, Version,
+};
 use log::trace;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -26,7 +29,11 @@ use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
 use crate::h2::{body::RequestBody, error::Error};
 use crate::response::ResponseError;
-use crate::util::{date::Date, keep_alive::KeepAlive, poll_fn::poll_fn};
+use crate::util::{
+    date::{Date, SharedDate},
+    keep_alive::KeepAlive,
+    poll_fn::poll_fn,
+};
 
 /// Http/2 dispatcher
 pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X, U> {
@@ -34,7 +41,7 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X, U> {
     keep_alive: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     flow: &'a HttpFlow<S, X, U>,
-    date: &'a Date,
+    date: &'a SharedDate,
     _req_body: PhantomData<ReqB>,
 }
 
@@ -59,7 +66,7 @@ where
         keep_alive: Pin<&'a mut KeepAlive>,
         ka_dur: Duration,
         flow: &'a HttpFlow<S, X, U>,
-        date: &'a Date,
+        date: &'a SharedDate,
     ) -> Self {
         Self {
             io,
@@ -92,7 +99,7 @@ where
             on_flight: false,
             keep_alive: keep_alive.as_mut(),
             ping_pong,
-            date,
+            date: &*date,
             ka_dur,
         };
 
@@ -108,10 +115,11 @@ where
                         let req = Request::from_parts(parts, body);
 
                         let flow = HttpFlow::clone(flow);
+                        let date = SharedDate::clone(self.date);
 
                         tokio::task::spawn_local(async move {
                             let fut = flow.service.call(req);
-                            if let Err(e) = h2_handler(fut, tx).await {
+                            if let Err(e) = h2_handler(fut, tx, date).await {
                                 HttpServiceError::from(e).log();
                             }
                         });
@@ -185,7 +193,7 @@ impl Future for H2PingPong<'_> {
     }
 }
 
-async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>) -> Result<(), Error>
+async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>, date: SharedDate) -> Result<(), Error>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
     E: ResponseError<Response<ResponseBody<B>>>,
@@ -207,6 +215,11 @@ where
         if let ResponseBodySize::Sized(n) = body.size() {
             res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(n));
         }
+    }
+
+    if !res.headers().contains_key(DATE) {
+        let date = HeaderValue::from_bytes(date.get().date()).unwrap();
+        res.headers_mut().insert(DATE, date);
     }
 
     // send response and body(if there is one).

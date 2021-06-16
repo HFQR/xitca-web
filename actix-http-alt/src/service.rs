@@ -142,7 +142,7 @@ where
                                     res = ::h2::server::handshake(tls_stream) => {
                                         let mut conn = res?;
 
-                                        let dispatcher = super::h2::Dispatcher::new(&mut conn, timer.as_mut(), self.config.keep_alive_timeout, &self.flow, self.date.get());
+                                        let dispatcher = super::h2::Dispatcher::new(&mut conn, timer.as_mut(), self.config.keep_alive_timeout, &self.flow, self.date.get_shared());
                                         dispatcher.run().await?;
 
                                         Ok(())
