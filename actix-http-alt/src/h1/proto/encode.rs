@@ -142,7 +142,7 @@ impl Context<'_> {
         if !skip_date {
             buf.reserve(DATE_VALUE_LENGTH + 8);
             buf.put_slice(b"date: ");
-            buf.put_slice(self.date.get().date());
+            buf.put_slice(self.date.borrow().date());
             buf.put_slice(b"\r\n\r\n");
         } else {
             buf.put_slice(b"\r\n");

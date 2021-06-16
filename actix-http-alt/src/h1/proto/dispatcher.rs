@@ -274,7 +274,7 @@ where
                 match res {
                     Ok((req, mut body_handle)) => {
                         // have new request. update timer deadline.
-                        let now = self.ctx.date.get().now() + self.ka_dur;
+                        let now = self.ctx.date.borrow().now() + self.ka_dur;
                         self.timer.as_mut().update(now);
 
                         let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();

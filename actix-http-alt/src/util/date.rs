@@ -1,12 +1,11 @@
 use std::{
-    cell::Cell,
+    cell::RefCell,
     fmt::{self, Write},
     rc::Rc,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use httpdate::HttpDate;
-use std::time::SystemTime;
 use tokio::{
     task::JoinHandle,
     time::{interval, Instant},
@@ -14,7 +13,7 @@ use tokio::{
 
 pub(crate) const DATE_VALUE_LENGTH: usize = 29;
 
-pub(crate) type Date = Cell<DateTimeInner>;
+pub(crate) type Date = RefCell<DateTimeInner>;
 pub(crate) type SharedDate = Rc<Date>;
 
 #[derive(Copy, Clone)]
@@ -55,7 +54,7 @@ impl fmt::Write for DateTimeInner {
 
 /// Struct with Date update periodically at 500 milli seconds interval.
 pub(crate) struct DateTimeTask {
-    current: Rc<Cell<DateTimeInner>>,
+    current: Rc<RefCell<DateTimeInner>>,
     handle: JoinHandle<()>,
 }
 
@@ -69,7 +68,7 @@ impl Drop for DateTimeTask {
 impl DateTimeTask {
     pub(crate) fn new() -> Self {
         // shared date and timer for Date and update async task.
-        let current = Rc::new(Cell::new(DateTimeInner::new()));
+        let current = Rc::new(RefCell::new(DateTimeInner::new()));
         let current_clone = Rc::clone(&current);
         // spawn an async task sleep for 1 sec and update date in a loop.
         // handle is used to stop the task on Date drop.
@@ -78,8 +77,7 @@ impl DateTimeTask {
 
             loop {
                 let _ = interval.tick().await;
-                let date = DateTimeInner::new();
-                current_clone.set(date);
+                *(*current_clone).borrow_mut() = DateTimeInner::new();
             }
         });
 

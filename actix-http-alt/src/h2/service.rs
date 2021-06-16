@@ -62,7 +62,7 @@ where
         async move {
             // tls accept timer.
             let accept_dur = self.config.tls_accept_timeout;
-            let deadline = self.date.get().get().now() + accept_dur;
+            let deadline = self.date.get().borrow().now() + accept_dur;
             let timer = KeepAlive::new(deadline);
             pin!(timer);
 
@@ -73,7 +73,7 @@ where
 
                     // update timer to first request timeout.
                     let request_dur = self.config.first_request_timeout;
-                    let deadline = self.date.get().get().now() + request_dur;
+                    let deadline = self.date.get().borrow().now() + request_dur;
                     timer.as_mut().update(deadline);
 
                     select! {

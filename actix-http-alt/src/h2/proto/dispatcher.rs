@@ -91,7 +91,7 @@ where
         let ping_pong = io.ping_pong().unwrap();
 
         // reset timer to keep alive.
-        let deadline = date.get().now() + ka_dur;
+        let deadline = date.borrow().now() + ka_dur;
         keep_alive.as_mut().update(deadline);
 
         // timer for ping pong interval and keep alive.
@@ -165,7 +165,7 @@ impl Future for H2PingPong<'_> {
                     Poll::Ready(_) => {
                         this.on_flight = false;
 
-                        let deadline = this.date.get().now() + this.ka_dur;
+                        let deadline = this.date.borrow().now() + this.ka_dur;
 
                         this.keep_alive.as_mut().update(deadline);
                         this.keep_alive.as_mut().reset();
@@ -183,7 +183,7 @@ impl Future for H2PingPong<'_> {
                 // Update the keep alive to 10 times the normal keep alive duration.
                 // There is no particular reason for the duration choice here. as h2 connection is
                 // suggested to be kept alive for a relative long time.
-                let deadline = this.date.get().now() + (this.ka_dur * 10);
+                let deadline = this.date.borrow().now() + (this.ka_dur * 10);
 
                 this.keep_alive.as_mut().update(deadline);
 
@@ -218,7 +218,7 @@ where
     }
 
     if !res.headers().contains_key(DATE) {
-        let date = HeaderValue::from_bytes(date.get().date()).unwrap();
+        let date = HeaderValue::from_bytes(date.borrow().date()).unwrap();
         res.headers_mut().insert(DATE, date);
     }
 
