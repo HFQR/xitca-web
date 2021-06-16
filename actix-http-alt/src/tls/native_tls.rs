@@ -18,7 +18,7 @@ use crate::protocol::{AsProtocol, Protocol};
 
 pub(crate) use tokio_native_tls::native_tls::{Error as NativeTlsError, TlsAcceptor};
 
-/// A wrapper type for [TlsStream](tokio_rustls::TlsStream).
+/// A wrapper type for [TlsStream](tokio_native_tls::TlsStream).
 ///
 /// This is to impl new trait for it.
 pub struct TlsStream<S> {
@@ -34,13 +34,7 @@ where
             .negotiated_alpn()
             .ok()
             .and_then(|proto| proto)
-            .map(|proto| {
-                if proto.windows(2).any(|window| window == b"h2") {
-                    Protocol::Http2
-                } else {
-                    Protocol::Http1Tls
-                }
-            })
+            .map(Self::from_alpn)
             .unwrap_or(Protocol::Http1Tls)
     }
 }

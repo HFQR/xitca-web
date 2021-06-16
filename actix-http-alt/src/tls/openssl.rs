@@ -32,13 +32,7 @@ impl<S> AsProtocol for TlsStream<S> {
     fn as_protocol(&self) -> Protocol {
         self.ssl()
             .selected_alpn_protocol()
-            .map(|proto| {
-                if proto.windows(2).any(|window| window == b"h2") {
-                    Protocol::Http2
-                } else {
-                    Protocol::Http1Tls
-                }
-            })
+            .map(Self::from_alpn)
             .unwrap_or(Protocol::Http1Tls)
     }
 }

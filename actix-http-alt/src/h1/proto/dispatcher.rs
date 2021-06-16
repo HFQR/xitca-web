@@ -146,54 +146,51 @@ where
         ctx: &mut Context<'_>,
         cx: &mut task::Context<'_>,
     ) -> Result<bool, Error> {
-        match *body_handle {
-            Some(ref mut handle) => match handle.sender.poll_ready(cx) {
-                Poll::Ready(Ok(_)) => {
-                    let mut new = false;
-                    let mut done = false;
+        if let Some(ref mut handle) = *body_handle {
+            let mut new = false;
 
+            // only read when sender is ready(not in backpressure)
+            'read: while let Poll::Ready(res) = handle.sender.poll_ready(cx) {
+                match res {
                     // TODO: read error here should be treated as partial close.
                     // Which means body_handle should treat error as finished read.
                     // pass the partial buffer to service call and let it decide what to do.
-                    'read: while self.io.poll_read_ready(cx)?.is_ready() {
-                        let _ = self.try_read()?;
+                    Ok(_) => match self.io.poll_read_ready(cx)? {
+                        Poll::Ready(_) => {
+                            let _ = self.try_read()?;
 
-                        let buf = &mut self.read_buf;
+                            let buf = &mut self.read_buf;
 
-                        if buf.advanced() {
-                            while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
-                                new = true;
-                                match item {
-                                    RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
-                                    RequestBodyItem::Eof => {
-                                        handle.sender.feed_eof();
-                                        done = true;
-                                        break 'read;
+                            if buf.advanced() {
+                                while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
+                                    new = true;
+                                    match item {
+                                        RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
+                                        RequestBodyItem::Eof => {
+                                            handle.sender.feed_eof();
+                                            *body_handle = None;
+                                            break 'read;
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-
-                    // remove body handle when client sent eof chunk.
-                    // No more read is needed.
-                    if done {
+                        Poll::Pending => break 'read,
+                    },
+                    Err(_) => {
+                        // When service call dropped payload there is no tell how many bytes
+                        // still remain readable in the connection.
+                        // close the connection would be a safe bet than draining it.
+                        ctx.set_force_close();
                         *body_handle = None;
+                        break 'read;
                     }
+                }
+            }
 
-                    Ok(new)
-                }
-                Poll::Pending => Ok(false),
-                Poll::Ready(Err(_)) => {
-                    *body_handle = None;
-                    // When service call dropped payload there is no tell how many bytes still
-                    // remain readable in the connection.
-                    // close the connection would be a safe bet than draining it.
-                    ctx.set_force_close();
-                    Ok(false)
-                }
-            },
-            None => Ok(false),
+            Ok(new)
+        } else {
+            Ok(false)
         }
     }
 }

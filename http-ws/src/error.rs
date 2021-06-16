@@ -63,7 +63,7 @@ impl fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::GetMethodRequired => write!(f, "Only get method is allowed."),
-            Self::NoWebsocketUpgrade => write!(f, "grade header if not set to WebSocket."),
+            Self::NoWebsocketUpgrade => write!(f, "Upgrade header is not set to websocket."),
             Self::NoConnectionUpgrade => write!(f, "Connection header is not set to upgrade."),
             Self::NoVersionHeader => write!(f, " WebSocket version header is not set."),
             Self::UnsupportedVersion => write!(f, "Unsupported WebSocket version."),

@@ -46,21 +46,9 @@ impl RequestBody {
         Self(Rc::new(RefCell::new(Inner::new(true))))
     }
 
-    /// Length of the data in this payload
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.0.borrow().len()
-    }
-
-    /// Is payload empty
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     #[inline]
     pub fn readany(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
-        self.0.borrow_mut().readany(cx)
+        self.0.borrow_mut().poll_read(cx)
     }
 }
 
@@ -68,7 +56,7 @@ impl Stream for RequestBody {
     type Item = Result<Bytes, BodyError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
-        self.0.borrow_mut().readany(cx)
+        self.0.borrow_mut().poll_read(cx)
     }
 }
 
@@ -105,17 +93,18 @@ impl RequestBodySender {
 
     #[inline]
     pub fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // we check need_read only if Payload (other side) is alive,
+        // we check backpressure only if Payload (other side) is alive,
         // otherwise always return io error.
         self.0
             .upgrade()
             .map(|shared| {
                 let mut borrow = shared.borrow_mut();
-                if borrow.need_read {
-                    Poll::Ready(Ok(()))
-                } else {
+                // when payload is backpressure register current task waker and wait.
+                if borrow.backpressure() {
                     borrow.register_io(cx);
                     Poll::Pending
+                } else {
+                    Poll::Ready(Ok(()))
                 }
             })
             .unwrap_or_else(|| Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof))))
@@ -184,37 +173,30 @@ impl Inner {
     #[inline]
     fn feed_eof(&mut self) {
         self.eof = true;
+        self.wake();
     }
 
     #[inline]
     fn feed_data(&mut self, data: Bytes) {
         self.len += data.len();
         self.items.push_back(data);
-        self.need_read = self.len < MAX_BUFFER_SIZE;
         self.wake();
     }
 
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.len
+    #[inline(always)]
+    fn backpressure(&self) -> bool {
+        self.len >= MAX_BUFFER_SIZE
     }
 
-    fn readany(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
+    fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
         if let Some(data) = self.items.pop_front() {
             self.len -= data.len();
-            self.need_read = self.len < MAX_BUFFER_SIZE;
-
-            if self.need_read && !self.eof {
-                self.register(cx);
-            }
-            self.wake_io();
             Poll::Ready(Some(Ok(data)))
         } else if let Some(err) = self.err.take() {
             Poll::Ready(Some(Err(err)))
         } else if self.eof {
             Poll::Ready(None)
         } else {
-            self.need_read = true;
             self.register(cx);
             self.wake_io();
             Poll::Pending

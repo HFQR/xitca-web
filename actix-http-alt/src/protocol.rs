@@ -14,6 +14,14 @@ pub enum Protocol {
 /// A helper trait for get a protocol from certain types.
 pub trait AsProtocol {
     fn as_protocol(&self) -> Protocol;
+
+    fn from_alpn<B: AsRef<[u8]>>(proto: B) -> Protocol {
+        if proto.as_ref().windows(2).any(|window| window == b"h2") {
+            Protocol::Http2
+        } else {
+            Protocol::Http1Tls
+        }
+    }
 }
 
 impl AsProtocol for Stream {
