@@ -48,12 +48,12 @@ impl<F>
     >
 {
     /// Construct a new Service Builder with given service factory and default configuration.
-    pub fn new(factory: F) -> Self {
-        Self::with_config(factory, HttpServiceConfig::default())
+    pub const fn new(factory: F) -> Self {
+        Self::with_config(factory, HttpServiceConfig::new())
     }
 
     /// Construct a new Service Builder with given service factory and configuration
-    pub fn with_config<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>(
+    pub const fn with_config<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>(
         factory: F,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     ) -> HttpServiceBuilder<
@@ -70,7 +70,7 @@ impl<F>
             factory,
             expect: ExpectHandler::new(),
             upgrade: None,
-            tls_factory: tls::TlsAcceptorService::default(),
+            tls_factory: tls::TlsAcceptorService::new(),
             config,
             _body: PhantomData,
         }

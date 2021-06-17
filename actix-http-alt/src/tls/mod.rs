@@ -73,7 +73,7 @@ pub enum TlsAcceptorService {
 }
 
 impl TlsAcceptorService {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self::NoOp(NoOpTlsAcceptorService)
     }
 }

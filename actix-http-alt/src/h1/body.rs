@@ -18,7 +18,7 @@ pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;
 /// Buffered stream of bytes chunks
 ///
 /// Payload stores chunks in a vector. First chunk can be received with
-/// `.readany()` method. Payload stream is not thread safe. Payload does not
+/// `.poll_read()` method. Payload stream is not thread safe. Payload does not
 /// notify current task when new data is available.
 ///
 /// Payload stream can be used as `Response` body stream.
