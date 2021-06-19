@@ -15,7 +15,7 @@ pub(super) struct Context<'a, const HEADER_LIMIT: usize> {
 }
 
 impl<'a, const HEADER_LIMIT: usize> Context<'a, HEADER_LIMIT> {
-    pub(super) fn new(date: &'a Date) -> Self {
+    pub(super) const fn new(date: &'a Date) -> Self {
         Self {
             state: ContextState::new(),
             ctype: ConnectionType::Init,

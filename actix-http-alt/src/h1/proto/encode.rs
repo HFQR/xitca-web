@@ -214,26 +214,26 @@ pub(super) struct TransferEncoding {
 
 impl TransferEncoding {
     #[inline(always)]
-    pub(super) fn eof() -> TransferEncoding {
+    pub(super) const fn eof() -> TransferEncoding {
         TransferEncoding { kind: Kind::Eof }
     }
 
     #[inline(always)]
-    pub(super) fn chunked() -> TransferEncoding {
+    pub(super) const fn chunked() -> TransferEncoding {
         TransferEncoding {
             kind: Kind::EncodeChunked(false),
         }
     }
 
     #[inline(always)]
-    pub(super) fn plain_chunked() -> TransferEncoding {
+    pub(super) const fn plain_chunked() -> TransferEncoding {
         TransferEncoding {
             kind: Kind::PlainChunked,
         }
     }
 
     #[inline(always)]
-    pub(super) fn length(len: u64) -> TransferEncoding {
+    pub(super) const fn length(len: u64) -> TransferEncoding {
         TransferEncoding {
             kind: Kind::Length(len),
         }

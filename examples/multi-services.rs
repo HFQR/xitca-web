@@ -9,7 +9,7 @@ use std::io;
 
 use actix_http_alt::{
     h1, h2, h3,
-    http::{Request, Response},
+    http::{header, Request, Response},
     util::ErrorLoggerFactory,
     HttpServiceBuilder, ResponseBody,
 };
@@ -61,8 +61,10 @@ async fn main() -> io::Result<()> {
 async fn handler_h1(_: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
     let res = Response::builder()
         .status(200)
-        .version(Version::HTTP_11)
-        .header("Content-Type", "text/plain; charset=utf-8")
+        .header(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("text/plain; charset=utf-8"),
+        )
         .body(Bytes::from_static(b"Hello World from Http/1!").into())?;
     Ok(res)
 }
@@ -70,7 +72,6 @@ async fn handler_h1(_: Request<h1::RequestBody>) -> Result<Response<ResponseBody
 async fn handler_h2(_: Request<h2::RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
     let res = Response::builder()
         .status(200)
-        .version(Version::HTTP_2)
         .header("Content-Type", "text/plain; charset=utf-8")
         .body(Bytes::from_static(b"Hello World from Http/2!").into())?;
     Ok(res)

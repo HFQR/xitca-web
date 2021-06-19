@@ -10,10 +10,7 @@ impl<'a, B> Writer<'a, B> {
     }
 }
 
-impl<B> Write for Writer<'_, B>
-where
-    B: BufMut,
-{
+impl<B: BufMut> Write for Writer<'_, B> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0.put_slice(buf);
         Ok(buf.len())

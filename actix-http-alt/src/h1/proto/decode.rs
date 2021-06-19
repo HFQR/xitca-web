@@ -179,26 +179,26 @@ pub struct TransferDecoding {
 
 impl TransferDecoding {
     #[inline(always)]
-    pub fn length(x: u64) -> TransferDecoding {
+    pub const fn length(x: u64) -> TransferDecoding {
         TransferDecoding { kind: Kind::Length(x) }
     }
 
     #[inline(always)]
-    pub fn chunked() -> TransferDecoding {
+    pub const fn chunked() -> TransferDecoding {
         TransferDecoding {
             kind: Kind::DecodeChunked(ChunkedState::Size, 0),
         }
     }
 
     #[inline(always)]
-    pub fn plain_chunked() -> TransferDecoding {
+    pub const fn plain_chunked() -> TransferDecoding {
         TransferDecoding {
             kind: Kind::PlainChunked,
         }
     }
 
     #[inline(always)]
-    pub fn eof() -> TransferDecoding {
+    pub const fn eof() -> TransferDecoding {
         TransferDecoding { kind: Kind::Eof }
     }
 
