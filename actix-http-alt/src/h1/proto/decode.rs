@@ -28,11 +28,6 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
 
-                // set method to context so it can pass method to response.
-                if method == Method::CONNECT {
-                    self.set_connect_method();
-                }
-
                 let uri = req.path.unwrap().parse::<Uri>()?;
 
                 // Set connection type when doing version match.
@@ -117,6 +112,8 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
                 if method == Method::CONNECT {
                     self.set_ctype(ConnectionType::Upgrade);
+                    // set method to context so it can pass method to response.
+                    self.set_connect_method();
                     decoder = TransferDecoding::plain_chunked();
                 }
 
