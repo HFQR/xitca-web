@@ -83,6 +83,15 @@ where
         self
     }
 
+    /// Disable signal listening.
+    ///
+    /// `tokio::signal` is used for listening and it only functions in tokio runtime 1.x.
+    /// Disabling it would enable server runs in other async runtimes.
+    pub fn disable_signal(mut self) -> Self {
+        self.builder = self.builder.disable_signal();
+        self
+    }
+
     pub fn tcp_backlog(mut self, num: u32) -> Self {
         self.builder = self.builder.tcp_backlog(num);
         self

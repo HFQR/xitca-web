@@ -7,7 +7,6 @@ edition = "2018"
 name = "hello-world"
 path = "hello-world.rs"
 
-
 [[example]]
 name = "unix"
 path = "unix.rs"
