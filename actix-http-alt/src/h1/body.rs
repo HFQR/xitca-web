@@ -71,9 +71,9 @@ pub struct RequestBodySender(Weak<RefCell<Inner>>);
 
 impl RequestBodySender {
     #[inline]
-    pub fn set_error(&mut self, err: BodyError) {
+    pub fn feed_error(&mut self, err: BodyError) {
         if let Some(shared) = self.0.upgrade() {
-            shared.borrow_mut().set_error(err)
+            shared.borrow_mut().feed_error(err)
         }
     }
 
@@ -166,7 +166,7 @@ impl Inner {
     }
 
     #[inline]
-    fn set_error(&mut self, err: BodyError) {
+    fn feed_error(&mut self, err: BodyError) {
         self.err = Some(err);
     }
 

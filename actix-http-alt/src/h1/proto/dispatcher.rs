@@ -13,7 +13,6 @@ use bytes::{Buf, Bytes};
 use futures_core::{ready, stream::Stream};
 use http::{response::Parts, Request, Response};
 use log::trace;
-use pin_project::pin_project;
 use tokio::{io::Interest, pin, select};
 
 use crate::body::ResponseBody;
@@ -149,7 +148,7 @@ where
         Ok(())
     }
 
-    /// Return true when new data is decoded.
+    /// Return Ok when new data is decoded.
     fn poll_request_body<const HEADER_LIMIT: usize>(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
@@ -162,11 +161,12 @@ where
             // only read when sender is ready(not in backpressure)
             'read: while let Poll::Ready(ready) = handle.sender.poll_ready(cx) {
                 match ready {
-                    // TODO: read error here should be treated as partial close.
-                    // Which means body_handle should treat error as finished read.
-                    // pass the partial buffer to service call and let it decide what to do.
                     Ok(_) => match self.io.poll_read_ready(cx)? {
                         Poll::Ready(_) => {
+                            // TODO: read error here should be treated as partial close.
+                            // Which means body_handle should treat error as finished read.
+                            // pass the partial buffer to service call and let it decide what to do.
+
                             let _ = self.try_read()?;
 
                             let buf = &mut self.read_buf;
@@ -202,6 +202,40 @@ where
         } else {
             Poll::Pending
         }
+    }
+
+    // TODO: this is an async version of Io::poll_request_body method which has duplicate code.
+    /// Return Ok when read is done or body handle is dropped by service call.
+    async fn handle_request_body<const HEADER_LIMIT: usize>(
+        &mut self,
+        handle: &mut RequestBodyHandle,
+        ctx: &mut Context<'_, HEADER_LIMIT>,
+    ) -> Result<(), Error> {
+        while poll_fn(|cx| handle.sender.poll_ready(cx)).await.is_ok() {
+            self.io.ready(Interest::READABLE).await?;
+            let _ = self.try_read()?;
+
+            let buf = &mut self.read_buf;
+
+            if buf.advanced() {
+                while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
+                    match item {
+                        RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
+                        RequestBodyItem::Eof => {
+                            handle.sender.feed_eof();
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
+        // When service call dropped payload there is no tell how many bytes
+        // still remain readable in the connection.
+        // close the connection would be a safe bet than draining it.
+        ctx.set_force_close();
+
+        Ok(())
     }
 }
 
@@ -261,34 +295,6 @@ where
         }
     }
 
-    fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
-        // Do not try when nothing new read.
-        if self.io.read_buf.advanced() {
-            let buf = self.io.read_buf.buf_mut();
-
-            match self.ctx.decode_head::<READ_BUF_LIMIT>(buf) {
-                Ok(Some((req, decoder))) => {
-                    let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
-
-                    let (parts, _) = req.into_parts();
-                    let req = Request::from_parts(parts, body);
-
-                    return Some(Ok((req, body_handle)));
-                }
-                Err(e) => return Some(Err(e)),
-                _ => {}
-            }
-        }
-
-        None
-    }
-
-    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error> {
-        let size = body.size();
-        self.ctx.encode_head(parts, size, &mut self.io.write_buf)?;
-        Ok(())
-    }
-
     pub(crate) async fn run(mut self) -> Result<(), Error> {
         loop {
             'req: while let Some(res) = self.decode_head() {
@@ -298,7 +304,11 @@ where
                         let now = self.ctx.date.borrow().now() + self.ka_dur;
                         self.timer.as_mut().update(now);
 
-                        let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
+                        let (parts, res_body) = self
+                            .request_handler(req, &mut body_handle)
+                            .await?
+                            .unwrap_or_else(|ref mut e| ResponseError::response_error(e))
+                            .into_parts();
 
                         self.encode_head(parts, &res_body)?;
 
@@ -388,11 +398,39 @@ where
         }
     }
 
+    fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
+        // Do not try when nothing new read.
+        if self.io.read_buf.advanced() {
+            let buf = self.io.read_buf.buf_mut();
+
+            match self.ctx.decode_head::<READ_BUF_LIMIT>(buf) {
+                Ok(Some((req, decoder))) => {
+                    let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
+
+                    let (parts, _) = req.into_parts();
+                    let req = Request::from_parts(parts, body);
+
+                    return Some(Ok((req, body_handle)));
+                }
+                Err(e) => return Some(Err(e)),
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error> {
+        let size = body.size();
+        self.ctx.encode_head(parts, size, &mut self.io.write_buf)?;
+        Ok(())
+    }
+
     async fn request_handler(
         &mut self,
         mut req: Request<ReqB>,
         body_handle: &mut Option<RequestBodyHandle>,
-    ) -> Result<Response<ResponseBody<ResB>>, Error> {
+    ) -> Result<Result<S::Response, S::Error>, Error> {
         if self.ctx.is_expect_header() {
             match self.flow.expect.call(req).await {
                 Ok(expect_res) => {
@@ -405,62 +443,29 @@ where
 
                     req = expect_res;
                 }
-                Err(ref mut e) => return Ok(ResponseError::response_error(e)),
+                Err(ref mut e) => return Ok(Ok(ResponseError::response_error(e))),
             }
         };
 
-        RequestHandler {
-            fut: self.flow.service.call(req),
-            body_handle,
-            io: &mut self.io,
-            ctx: &mut self.ctx,
-        }
-        .await
-    }
-}
+        let fut = self.flow.service.call(req);
 
-#[pin_project]
-struct RequestHandler<
-    'a,
-    'b,
-    St,
-    Fut,
-    const HEADER_LIMIT: usize,
-    const READ_BUF_LIMIT: usize,
-    const WRITE_BUF_LIMIT: usize,
-> {
-    #[pin]
-    fut: Fut,
-    body_handle: &'a mut Option<RequestBodyHandle>,
-    io: &'a mut Io<'b, St, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    ctx: &'a mut Context<'b, HEADER_LIMIT>,
-}
+        pin!(fut);
 
-impl<St, Fut, E, ResB, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Future
-    for RequestHandler<'_, '_, St, Fut, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
-where
-    Fut: Future<Output = Result<Response<ResponseBody<ResB>>, E>>,
-    E: ResponseError<Response<ResponseBody<ResB>>>,
-
-    St: AsyncReadWrite,
-{
-    type Output = Result<Response<ResponseBody<ResB>>, Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
-
-        loop {
-            match this.fut.as_mut().poll(cx) {
-                Poll::Ready(res) => {
-                    let res = res.unwrap_or_else(|ref mut e| ResponseError::response_error(e));
-                    return Poll::Ready(Ok(res));
-                }
-                // service call is pending. could be waiting for more read.
-                Poll::Pending => {
-                    ready!(this.io.poll_request_body(this.body_handle, this.ctx, cx))?;
+        while let Some(handle) = body_handle {
+            select! {
+                biased;
+                res = fut.as_mut() => return Ok(res),
+                res = self.io.handle_request_body(handle, &mut self.ctx) => {
+                    // request body read is done or dropped. remove body_handle.
+                    res?;
+                    *body_handle = None;
                 }
             }
         }
+
+        let res = fut.await;
+
+        Ok(res)
     }
 }
 
