@@ -10,7 +10,7 @@ use std::{
 use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::Service;
 use bytes::{Buf, Bytes};
-use futures_core::Stream;
+use futures_core::{ready, stream::Stream};
 use http::{response::Parts, Request, Response};
 use log::trace;
 use pin_project::pin_project;
@@ -150,18 +150,18 @@ where
     }
 
     /// Return true when new data is decoded.
-    fn poll_read_decode_body<const HEADER_LIMIT: usize>(
+    fn poll_request_body<const HEADER_LIMIT: usize>(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
         ctx: &mut Context<'_, HEADER_LIMIT>,
         cx: &mut task::Context<'_>,
-    ) -> Result<bool, Error> {
+    ) -> Poll<Result<(), Error>> {
         if let Some(ref mut handle) = *body_handle {
-            let mut new = false;
+            let mut res = Poll::Pending;
 
             // only read when sender is ready(not in backpressure)
-            'read: while let Poll::Ready(res) = handle.sender.poll_ready(cx) {
-                match res {
+            'read: while let Poll::Ready(ready) = handle.sender.poll_ready(cx) {
+                match ready {
                     // TODO: read error here should be treated as partial close.
                     // Which means body_handle should treat error as finished read.
                     // pass the partial buffer to service call and let it decide what to do.
@@ -173,7 +173,7 @@ where
 
                             if buf.advanced() {
                                 while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
-                                    new = true;
+                                    res = Poll::Ready(Ok(()));
                                     match item {
                                         RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
                                         RequestBodyItem::Eof => {
@@ -198,9 +198,9 @@ where
                 }
             }
 
-            Ok(new)
+            res
         } else {
-            Ok(false)
+            Poll::Pending
         }
     }
 }
@@ -457,9 +457,7 @@ where
                 }
                 // service call is pending. could be waiting for more read.
                 Poll::Pending => {
-                    if !this.io.poll_read_decode_body(this.body_handle, this.ctx, cx)? {
-                        return Poll::Pending;
-                    }
+                    ready!(this.io.poll_request_body(this.body_handle, this.ctx, cx))?;
                 }
             }
         }
@@ -518,10 +516,7 @@ where
                     if this.io.io.poll_write_ready(cx)?.is_ready() {
                         let _ = this.io.try_write()?;
                     }
-
-                    if !this.io.poll_read_decode_body(this.body_handle, this.ctx, cx)? {
-                        return Poll::Pending;
-                    }
+                    ready!(this.io.poll_request_body(this.body_handle, this.ctx, cx))?;
                 }
             }
         }
