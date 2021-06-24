@@ -3,7 +3,7 @@ use std::{
     io::{self, Write},
 };
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use http::{header, status::StatusCode, Response};
 
 use super::util::writer::Writer;
@@ -58,6 +58,6 @@ internal_impl!(io::Error);
 pub(super) fn header_too_large<B>() -> Response<ResponseBody<B>> {
     Response::builder()
         .status(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
-        .body(Bytes::new().into())
+        .body(bytes::Bytes::new().into())
         .unwrap()
 }

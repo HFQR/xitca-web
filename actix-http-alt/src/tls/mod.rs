@@ -268,16 +268,16 @@ impl AsyncReadWrite for TlsStream {
     type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>>;
 
     #[inline]
-    fn ready(&mut self, interest: Interest) -> Self::ReadyFuture<'_> {
+    fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
         async move {
             match *self {
-                Self::NoOp(ref mut tls) => tls.ready(interest).await,
+                Self::NoOp(ref tls) => tls.ready(interest).await,
                 #[cfg(feature = "openssl")]
-                Self::OpenSsl(ref mut tls) => tls.ready(interest).await,
+                Self::OpenSsl(ref tls) => tls.ready(interest).await,
                 #[cfg(feature = "rustls")]
-                Self::Rustls(ref mut tls) => tls.ready(interest).await,
+                Self::Rustls(ref tls) => tls.ready(interest).await,
                 #[cfg(feature = "native-tls")]
-                Self::NativeTls(ref mut tls) => tls.ready(interest).await,
+                Self::NativeTls(ref tls) => tls.ready(interest).await,
             }
         }
     }
@@ -318,32 +318,6 @@ impl AsyncReadWrite for TlsStream {
             Self::Rustls(ref mut tls) => tls.try_write_vectored(bufs),
             #[cfg(feature = "native-tls")]
             Self::NativeTls(ref mut tls) => tls.try_write_vectored(bufs),
-        }
-    }
-
-    #[inline]
-    fn poll_read_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match *self {
-            Self::NoOp(ref mut tls) => tls.poll_read_ready(cx),
-            #[cfg(feature = "openssl")]
-            Self::OpenSsl(ref mut tls) => tls.poll_read_ready(cx),
-            #[cfg(feature = "rustls")]
-            Self::Rustls(ref mut tls) => tls.poll_read_ready(cx),
-            #[cfg(feature = "native-tls")]
-            Self::NativeTls(ref mut tls) => tls.poll_read_ready(cx),
-        }
-    }
-
-    #[inline]
-    fn poll_write_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match *self {
-            Self::NoOp(ref mut tls) => tls.poll_write_ready(cx),
-            #[cfg(feature = "openssl")]
-            Self::OpenSsl(ref mut tls) => tls.poll_write_ready(cx),
-            #[cfg(feature = "rustls")]
-            Self::Rustls(ref mut tls) => tls.poll_write_ready(cx),
-            #[cfg(feature = "native-tls")]
-            Self::NativeTls(ref mut tls) => tls.poll_write_ready(cx),
         }
     }
 }

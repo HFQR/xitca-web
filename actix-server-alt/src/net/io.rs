@@ -12,17 +12,13 @@ use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin {
     type ReadyFuture<'f>: Future<Output = io::Result<Ready>>;
 
-    fn ready(&mut self, interest: Interest) -> Self::ReadyFuture<'_>;
+    fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_>;
 
     fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize>;
 
     fn try_write(&mut self, buf: &[u8]) -> io::Result<usize>;
 
     fn try_write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize>;
-
-    fn poll_read_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
-
-    fn poll_write_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
 }
 
 macro_rules! basic_impl {
@@ -31,7 +27,7 @@ macro_rules! basic_impl {
             type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>>;
 
             #[inline]
-            fn ready(&mut self, interest: Interest) -> Self::ReadyFuture<'_> {
+            fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
                 Self::ready(self, interest)
             }
 
@@ -48,16 +44,6 @@ macro_rules! basic_impl {
             #[inline]
             fn try_write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
                 Self::try_write_vectored(self, bufs)
-            }
-
-            #[inline]
-            fn poll_read_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-                Self::poll_read_ready(self, cx)
-            }
-
-            #[inline]
-            fn poll_write_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-                Self::poll_write_ready(self, cx)
             }
         }
     };
@@ -146,12 +132,12 @@ impl AsyncReadWrite for super::Stream {
     type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>>;
 
     #[inline]
-    fn ready(&mut self, interest: Interest) -> Self::ReadyFuture<'_> {
+    fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
         async move {
             match *self {
-                Self::Tcp(ref mut tcp) => tcp.ready(interest).await,
+                Self::Tcp(ref tcp) => tcp.ready(interest).await,
                 #[cfg(unix)]
-                Self::Unix(ref mut unix) => unix.ready(interest).await,
+                Self::Unix(ref unix) => unix.ready(interest).await,
                 #[cfg(feature = "http3")]
                 Self::Udp(..) => unreachable!("UdpStream can not implement AsyncRead/Write traits"),
             }
@@ -186,28 +172,6 @@ impl AsyncReadWrite for super::Stream {
             Self::Tcp(ref mut tcp) => tcp.try_write_vectored(bufs),
             #[cfg(unix)]
             Self::Unix(ref mut unix) => unix.try_write_vectored(bufs),
-            #[cfg(feature = "http3")]
-            Self::Udp(..) => unreachable!("UdpStream can not implement AsyncRead/Write traits"),
-        }
-    }
-
-    #[inline]
-    fn poll_read_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match *self {
-            Self::Tcp(ref mut tcp) => tcp.poll_read_ready(cx),
-            #[cfg(unix)]
-            Self::Unix(ref mut unix) => unix.poll_read_ready(cx),
-            #[cfg(feature = "http3")]
-            Self::Udp(..) => unreachable!("UdpStream can not implement AsyncRead/Write traits"),
-        }
-    }
-
-    #[inline]
-    fn poll_write_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match *self {
-            Self::Tcp(ref mut tcp) => tcp.poll_write_ready(cx),
-            #[cfg(unix)]
-            Self::Unix(ref mut unix) => unix.poll_write_ready(cx),
             #[cfg(feature = "http3")]
             Self::Udp(..) => unreachable!("UdpStream can not implement AsyncRead/Write traits"),
         }

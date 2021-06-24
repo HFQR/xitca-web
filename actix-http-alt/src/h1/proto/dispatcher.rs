@@ -1,16 +1,9 @@
-use std::{
-    future::Future,
-    io,
-    marker::PhantomData,
-    pin::Pin,
-    task::{self, Poll},
-    time::Duration,
-};
+use std::{io, marker::PhantomData, pin::Pin, time::Duration};
 
 use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::Service;
 use bytes::{Buf, Bytes};
-use futures_core::{ready, stream::Stream};
+use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use log::trace;
 use tokio::{io::Interest, pin, select};
@@ -24,7 +17,7 @@ use crate::h1::{
     error::Error,
 };
 use crate::response::{self, ResponseError};
-use crate::util::{date::Date, keep_alive::KeepAlive, poll_fn::poll_fn};
+use crate::util::{date::Date, keep_alive::KeepAlive, never::never, poll_fn::poll_fn};
 
 use super::buf::{ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
@@ -148,63 +141,17 @@ where
         Ok(())
     }
 
-    /// Return Ok when new data is decoded.
-    fn poll_request_body<const HEADER_LIMIT: usize>(
-        &mut self,
-        body_handle: &mut Option<RequestBodyHandle>,
-        ctx: &mut Context<'_, HEADER_LIMIT>,
-        cx: &mut task::Context<'_>,
-    ) -> Poll<Result<(), Error>> {
-        if let Some(ref mut handle) = *body_handle {
-            let mut res = Poll::Pending;
-
-            // only read when sender is ready(not in backpressure)
-            'read: while let Poll::Ready(ready) = handle.sender.poll_ready(cx) {
-                match ready {
-                    Ok(_) => match self.io.poll_read_ready(cx)? {
-                        Poll::Ready(_) => {
-                            // TODO: read error here should be treated as partial close.
-                            // Which means body_handle should treat error as finished read.
-                            // pass the partial buffer to service call and let it decide what to do.
-
-                            let _ = self.try_read()?;
-
-                            let buf = &mut self.read_buf;
-
-                            if buf.advanced() {
-                                while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
-                                    res = Poll::Ready(Ok(()));
-                                    match item {
-                                        RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
-                                        RequestBodyItem::Eof => {
-                                            handle.sender.feed_eof();
-                                            *body_handle = None;
-                                            break 'read;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Poll::Pending => break 'read,
-                    },
-                    Err(_) => {
-                        // When service call dropped payload there is no tell how many bytes
-                        // still remain readable in the connection.
-                        // close the connection would be a safe bet than draining it.
-                        ctx.set_force_close();
-                        *body_handle = None;
-                        break 'read;
-                    }
-                }
-            }
-
-            res
+    /// A specialized writable check that always pending when write buffer is empty.
+    /// This is a hack for tokio::select macro.
+    async fn writable(&self) -> Result<(), Error> {
+        if self.write_buf.empty() {
+            never().await
         } else {
-            Poll::Pending
+            self.io.ready(Interest::WRITABLE).await?;
+            Ok(())
         }
     }
 
-    // TODO: this is an async version of Io::poll_request_body method which has duplicate code.
     /// Return Ok when read is done or body handle is dropped by service call.
     async fn handle_request_body<const HEADER_LIMIT: usize>(
         &mut self,
@@ -236,6 +183,34 @@ where
         ctx.set_force_close();
 
         Ok(())
+    }
+
+    /// A ready check version of `Io::handle_request_body`.
+    /// This is to avoid borrow self as mut to co-op well with `tokio::select` macro.
+    async fn request_body_ready<const HEADER_LIMIT: usize>(
+        &self,
+        body_handle: &mut Option<RequestBodyHandle>,
+        ctx: &mut Context<'_, HEADER_LIMIT>,
+    ) -> Result<RequestBodyHandle, Error> {
+        if let Some(handle) = body_handle.as_mut() {
+            match poll_fn(|cx| handle.sender.poll_ready(cx)).await {
+                Ok(_) => {
+                    self.io.ready(Interest::READABLE).await?;
+                    // TODO: This is an unwrap happen with every successful check. get rid of it.
+                    return Ok(body_handle.take().unwrap());
+                }
+                Err(_) => {
+                    // When service call dropped payload there is no tell how many bytes
+                    // still remain readable in the connection.
+                    // close the connection would be a safe bet than draining it.
+                    ctx.set_force_close();
+                    *body_handle = None;
+                }
+            }
+        }
+
+        // A future that would never resolve. This is a hack to work with tokio::select macro.
+        never().await
     }
 }
 
@@ -314,30 +289,7 @@ where
 
                         let encoder = &mut res_body.encoder(self.ctx.ctype());
 
-                        // pin response body beforehand. this way res handler can take a break on write
-                        // backpressure
-                        pin!(res_body);
-
-                        'res: loop {
-                            // borrow every state so it can iter.
-                            let handler = ResponseHandler {
-                                res_body: res_body.as_mut(),
-                                encoder,
-                                body_handle: &mut body_handle,
-                                io: &mut self.io,
-                                ctx: &mut self.ctx,
-                            };
-
-                            match handler.await? {
-                                ResponseHandlerResult::Ok => break 'res,
-                                // write buffer grows too big. drain it.
-                                ResponseHandlerResult::WriteBackpressure => {
-                                    trace!("Write buffer limit reached. Enter backpressure.");
-                                    self.io.drain_write().await?;
-                                    trace!("Write buffer empty. Recover from backpressure.");
-                                }
-                            }
-                        }
+                        self.response_handler(res_body, encoder, body_handle).await?;
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         // Header is too large to be parsed.
@@ -451,14 +403,17 @@ where
 
         pin!(fut);
 
-        while let Some(handle) = body_handle {
-            select! {
-                biased;
-                res = fut.as_mut() => return Ok(res),
-                res = self.io.handle_request_body(handle, &mut self.ctx) => {
-                    // request body read is done or dropped. remove body_handle.
-                    res?;
-                    *body_handle = None;
+        if let Some(handle) = body_handle {
+            loop {
+                select! {
+                    biased;
+                    res = fut.as_mut() => return Ok(res),
+                    res = self.io.handle_request_body(handle, &mut self.ctx) => {
+                        // request body read is done or dropped. remove body_handle.
+                        res?;
+                        *body_handle = None;
+                        break;
+                    }
                 }
             }
         }
@@ -467,66 +422,60 @@ where
 
         Ok(res)
     }
-}
 
-struct ResponseHandler<
-    'a,
-    'b,
-    St,
-    ResB,
-    const HEADER_LIMIT: usize,
-    const READ_BUF_LIMIT: usize,
-    const WRITE_BUF_LIMIT: usize,
-> {
-    res_body: Pin<&'a mut ResponseBody<ResB>>,
-    encoder: &'a mut TransferEncoding,
-    body_handle: &'a mut Option<RequestBodyHandle>,
-    io: &'a mut Io<'b, St, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    ctx: &'a mut Context<'b, HEADER_LIMIT>,
-}
+    async fn response_handler(
+        &mut self,
+        body: ResponseBody<ResB>,
+        encoder: &mut TransferEncoding,
+        mut body_handle: Option<RequestBodyHandle>,
+    ) -> Result<(), Error> {
+        pin!(body);
 
-enum ResponseHandlerResult {
-    Ok,
-    WriteBackpressure,
-}
+        'res: loop {
+            if self.io.write_buf.backpressure() {
+                trace!("Write buffer limit reached. Enter backpressure.");
+                self.io.drain_write().await?;
+                trace!("Write buffer empty. Recover from backpressure.");
+            } else {
+                select! {
+                    biased;
+                    res = body.as_mut().next() => match res {
+                        Some(bytes) => {
+                            let bytes = bytes?;
+                            encoder.encode(bytes, &mut self.io.write_buf)?;
+                        },
+                        None => {
+                            encoder.encode_eof(&mut self.io.write_buf)?;
+                            return Ok(())
+                        }
+                    },
+                    res = self.io.writable() => {
+                        res?;
+                        let _ = self.io.try_write()?;
+                    },
+                    res = self.io.request_body_ready(&mut body_handle, &mut self.ctx) => {
+                        let mut handle = res?;
+                        let _ = self.io.try_read()?;
 
-impl<St, ResB, E, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Future
-    for ResponseHandler<'_, '_, St, ResB, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
-where
-    ResB: Stream<Item = Result<Bytes, E>>,
-    BodyError: From<E>,
+                        let buf = &mut self.io.read_buf;
 
-    St: AsyncReadWrite,
-{
-    type Output = Result<ResponseHandlerResult, Error>;
+                        if buf.advanced() {
+                            while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
+                                match item {
+                                    RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
+                                    RequestBodyItem::Eof => {
+                                        handle.sender.feed_eof();
+                                        continue 'res;
+                                    }
+                                }
+                            }
+                        }
 
-    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-
-        while !this.io.write_buf.backpressure() {
-            match this.res_body.as_mut().poll_next(cx) {
-                Poll::Ready(Some(bytes)) => {
-                    let bytes = bytes?;
-                    this.encoder.encode(bytes, &mut this.io.write_buf)?;
-                }
-                Poll::Ready(None) => {
-                    this.encoder.encode_eof(&mut this.io.write_buf)?;
-                    return Poll::Ready(Ok(ResponseHandlerResult::Ok));
-                }
-                // payload sending is pending.
-                // it could be waiting for more read from client.
-                Poll::Pending => {
-                    // write buffer to client so it can feed us new
-                    // chunked requests if there is any.
-                    if this.io.io.poll_write_ready(cx)?.is_ready() {
-                        let _ = this.io.try_write()?;
+                        body_handle = Some(handle);
                     }
-                    ready!(this.io.poll_request_body(this.body_handle, this.ctx, cx))?;
                 }
             }
         }
-
-        Poll::Ready(Ok(ResponseHandlerResult::WriteBackpressure))
     }
 }
 

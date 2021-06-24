@@ -73,6 +73,19 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> {
             }
         }
     }
+
+    #[inline(always)]
+    pub(super) fn empty(&self) -> bool {
+        match *self {
+            Self::Flat(ref buf) => buf.is_empty(),
+            Self::List(ref list) => {
+                // When buffering buf must be empty.
+                // (Whoever write into it must split it afterwards)
+                debug_assert!(!list.buf.has_remaining());
+                list.list.remaining() == 0
+            }
+        }
+    }
 }
 
 // an internal buffer to collect writes before flushes

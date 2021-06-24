@@ -143,8 +143,8 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
     type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>>;
 
     #[inline]
-    fn ready(&mut self, interest: Interest) -> Self::ReadyFuture<'_> {
-        self.get_mut().get_mut().get_mut().ready(interest)
+    fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
+        self.get_ref().get_ref().get_ref().ready(interest)
     }
 
     fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
@@ -175,16 +175,6 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
             Poll::Ready(r) => r,
             Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
         }
-    }
-
-    #[inline]
-    fn poll_read_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.get_mut().get_mut().get_mut().poll_read_ready(cx)
-    }
-
-    #[inline]
-    fn poll_write_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.get_mut().get_mut().get_mut().poll_write_ready(cx)
     }
 }
 

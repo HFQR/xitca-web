@@ -14,6 +14,8 @@ use tokio::{
 pub(crate) const DATE_VALUE_LENGTH: usize = 29;
 
 pub(crate) type Date = RefCell<DateTimeInner>;
+
+#[cfg(feature = "http2")]
 pub(crate) type SharedDate = Rc<Date>;
 
 #[derive(Copy, Clone)]
@@ -89,6 +91,7 @@ impl DateTimeTask {
         &*self.current
     }
 
+    #[cfg(feature = "http2")]
     #[inline(always)]
     pub(crate) fn get_shared(&self) -> &SharedDate {
         &self.current
