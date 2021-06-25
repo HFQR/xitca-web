@@ -5,7 +5,8 @@ use std::{
     task::{Context, Poll},
 };
 
-pub fn poll_fn<T, F>(f: F) -> PollFn<F>
+#[inline]
+pub(crate) fn poll_fn<T, F>(f: F) -> PollFn<F>
 where
     F: FnMut(&mut Context<'_>) -> Poll<T>,
 {
@@ -34,4 +35,10 @@ where
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
         (&mut self.f)(cx)
     }
+}
+
+/// An async function that never resolve to the output.
+#[inline(always)]
+pub(crate) async fn never<T>() -> T {
+    poll_fn(|_| Poll::Pending).await
 }

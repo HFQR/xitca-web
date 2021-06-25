@@ -31,8 +31,8 @@ use crate::h2::{body::RequestBody, error::Error};
 use crate::response::ResponseError;
 use crate::util::{
     date::{Date, SharedDate},
+    futures::poll_fn,
     keep_alive::KeepAlive,
-    poll_fn::poll_fn,
 };
 
 /// Http/2 dispatcher

@@ -17,7 +17,11 @@ use crate::h1::{
     error::Error,
 };
 use crate::response::{self, ResponseError};
-use crate::util::{date::Date, keep_alive::KeepAlive, never::never, poll_fn::poll_fn};
+use crate::util::{
+    date::Date,
+    futures::{never, poll_fn},
+    keep_alive::KeepAlive,
+};
 
 use super::buf::{ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
