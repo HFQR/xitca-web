@@ -60,24 +60,19 @@ where
         let read_buf = &mut self.read_buf;
         read_buf.advance(false);
 
-        // yield when backpressure
-        if read_buf.backpressure() {
-            Ok(())
-        } else {
-            loop {
-                match self.io.try_read_buf(read_buf.buf_mut()) {
-                    Ok(0) => return Err(Error::Closed),
-                    Ok(_) => {
-                        read_buf.advance(true);
+        loop {
+            match self.io.try_read_buf(read_buf.buf_mut()) {
+                Ok(0) => return Err(Error::Closed),
+                Ok(_) => {
+                    read_buf.advance(true);
 
-                        if read_buf.backpressure() {
-                            trace!("Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", read_buf.len());
-                            return Ok(());
-                        }
+                    if read_buf.backpressure() {
+                        trace!("Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", read_buf.len());
+                        return Ok(());
                     }
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                    Err(e) => return Err(e.into()),
                 }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(e.into()),
             }
         }
     }
@@ -132,7 +127,6 @@ where
     }
 
     /// drain write buffer and flush the io.
-    #[inline(always)]
     async fn drain_write(&mut self) -> Result<(), Error> {
         while self.try_write()? {
             let _ = self.io.ready(Interest::WRITABLE).await?;
@@ -141,8 +135,21 @@ where
         Ok(())
     }
 
+    /// A specialized readable check that always pending when read buffer is full.
+    /// This is a hack for tokio::select macro.
+    #[inline(always)]
+    async fn readable(&self) -> Result<(), Error> {
+        if self.read_buf.backpressure() {
+            never().await
+        } else {
+            let _ = self.io.ready(Interest::READABLE).await?;
+            Ok(())
+        }
+    }
+
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for tokio::select macro.
+    #[inline(always)]
     async fn writable(&self) -> Result<(), Error> {
         if self.write_buf.empty() {
             never().await
@@ -159,8 +166,8 @@ where
         ctx: &mut Context<'_, HEADER_LIMIT>,
     ) -> Result<(), Error> {
         while poll_fn(|cx| handle.sender.poll_ready(cx)).await.is_ok() {
-            self.io.ready(Interest::READABLE).await?;
-            let _ = self.try_read()?;
+            self.readable().await?;
+            self.try_read()?;
 
             let buf = &mut self.read_buf;
 
@@ -195,7 +202,7 @@ where
         if let Some(handle) = body_handle.as_mut() {
             match poll_fn(|cx| handle.sender.poll_ready(cx)).await {
                 Ok(_) => {
-                    self.io.ready(Interest::READABLE).await?;
+                    self.readable().await?;
                     // TODO: This is an unwrap happen with every successful check. get rid of it.
                     return Ok(body_handle.take().unwrap());
                 }
@@ -452,10 +459,11 @@ where
                     res = self.io.writable() => {
                         res?;
                         let _ = self.io.try_write()?;
+                        // TODO: add flush?
                     },
                     res = self.io.request_body_ready(&mut body_handle, &mut self.ctx) => {
                         let mut handle = res?;
-                        let _ = self.io.try_read()?;
+                        self.io.try_read()?;
 
                         let buf = &mut self.io.read_buf;
 
