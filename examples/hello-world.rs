@@ -8,7 +8,7 @@ use std::{
 
 use actix_http_alt::{
     http::{Request, Response},
-    util::ErrorLoggerFactory,
+    util::LoggerFactory,
     HttpServiceBuilder, RequestBody, ResponseBody,
 };
 use actix_service_alt::fn_service;
@@ -38,7 +38,7 @@ async fn main() -> io::Result<()> {
         .bind_all("hello-world", "127.0.0.1:8080", config, move || {
             let builder = HttpServiceBuilder::new(fn_service(handler)).rustls(acceptor.clone());
 
-            ErrorLoggerFactory::new(builder)
+            LoggerFactory::new(builder)
         })?
         .build()
         .await

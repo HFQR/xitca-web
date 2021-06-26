@@ -67,7 +67,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
             // to CONNECT is forbidden in RFC 7231.
             (s, _) if self.is_connect_method() && s.is_success() => true,
             (s, _) if s.is_informational() => {
-                warn!("response with 1xx status code not supported");
+                warn!(target: "h1_encode", "response with 1xx status code not supported");
                 return Err(ProtoError::Parse(Parse::StatusCode));
             }
             _ => false,
@@ -170,7 +170,7 @@ fn encode_version_status_reason<B: BufMut>(buf: &mut B, version: Version, status
             buf.put_slice(b"HTTP/1.1 ");
         }
         _ => {
-            debug!("response with unexpected response version");
+            debug!(target: "h1_encode", "response with unexpected response version");
             buf.put_slice(b"HTTP/1.1 ");
         }
     }

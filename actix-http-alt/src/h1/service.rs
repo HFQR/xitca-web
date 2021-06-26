@@ -9,7 +9,6 @@ use bytes::Bytes;
 use futures_core::{ready, Stream};
 use http::{Request, Response};
 use tokio::{pin, select};
-use tracing::{trace_span, Instrument};
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError, TimeoutError};
@@ -103,7 +102,7 @@ where
 
                     let dispatcher = Dispatcher::new(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get());
 
-                    match dispatcher.run().instrument(trace_span!("h1_dispatcher")).await {
+                    match dispatcher.run().await {
                         Ok(_) | Err(Error::Closed) => Ok(()),
                         Err(e) => Err(e.into()),
                     }

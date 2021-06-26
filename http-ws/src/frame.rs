@@ -3,7 +3,7 @@
 use std::convert::TryFrom;
 
 use bytes::{Buf, BufMut, BytesMut};
-use log::debug;
+use tracing::debug;
 
 use super::error::ProtocolError;
 use super::mask::apply_mask;

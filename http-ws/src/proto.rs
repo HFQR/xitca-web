@@ -5,6 +5,8 @@ use std::{
     fmt,
 };
 
+use tracing::error;
+
 /// Operation codes as part of RFC6455.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum OpCode {
@@ -58,7 +60,7 @@ impl From<OpCode> for u8 {
             Ping => 9,
             Pong => 10,
             Bad => {
-                log::error!("Attempted to convert invalid opcode to u8. This is a bug.");
+                error!("Attempted to convert invalid opcode to u8. This is a bug.");
                 8 // if this somehow happens, a close frame will help us tear down quickly
             }
         }

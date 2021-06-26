@@ -7,7 +7,7 @@ use std::io;
 use actix_http_alt::{
     h1, h2, h3,
     http::{header, Request, Response},
-    util::ErrorLoggerFactory,
+    util::LoggerFactory,
     HttpServiceBuilder, ResponseBody,
 };
 use actix_server_alt::net::TcpStream;
@@ -20,7 +20,7 @@ use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    tracing_subscriber::fmt().with_env_filter("actix=trace").init();
+    tracing_subscriber::fmt().with_env_filter("actix=info").init();
 
     // construct http2 openssl config.
     let acceptor = h2_config()?;
@@ -33,13 +33,13 @@ async fn main() -> io::Result<()> {
         // bind to a http/1 service.
         .bind::<_, _, _, TcpStream>("http/1", "127.0.0.1:8080", move || {
             let builder = HttpServiceBuilder::h1(fn_service(handler_h1));
-            ErrorLoggerFactory::new(builder)
+            LoggerFactory::new(builder)
         })?
         // bind to a http/2 service.
         // *. http/1 and http/2 both use tcp listener so it should be using a separate port.
         .bind::<_, _, _, TcpStream>("http/2", "127.0.0.1:8081", move || {
             let builder = HttpServiceBuilder::h2(fn_service(handler_h2)).openssl(acceptor.clone());
-            ErrorLoggerFactory::new(builder)
+            LoggerFactory::new(builder)
         })?
         // bind to a http/3 service.
         // *. note the service name must be unique.
@@ -48,7 +48,7 @@ async fn main() -> io::Result<()> {
         // on multiple socket addresses and protocols.
         .bind_h3("http/3", "127.0.0.1:8080", config, move || {
             let builder = HttpServiceBuilder::h3(fn_service(handler_h3));
-            ErrorLoggerFactory::new(builder)
+            LoggerFactory::new(builder)
         })?
         .build()
         .await
@@ -56,7 +56,6 @@ async fn main() -> io::Result<()> {
 
 async fn handler_h1(_: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
     let res = Response::builder()
-        .status(200)
         .header(
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("text/plain; charset=utf-8"),

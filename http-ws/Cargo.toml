@@ -12,9 +12,9 @@ base64 = "0.13"
 bytes = "1"
 futures-core = "0.3"
 http = "0.2"
-log = "0.4"
 rand = "0.8"
 sha-1 = "0.9"
+tracing = { version = "0.1.26", default-features = false, features = ["std"] }
 
 # stream feature
 pin-project-lite = { version = "0.2.6", optional = true }

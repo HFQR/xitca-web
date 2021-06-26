@@ -3,7 +3,7 @@ use std::{net::ToSocketAddrs, time::Duration};
 use actix_http_alt::{
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::{Request, Response},
-    util::ErrorLoggerFactory,
+    util::LoggerFactory,
     BodyError, HttpServiceBuilder, RequestBody, ResponseBody, ResponseError,
 };
 use actix_server_alt::{net::Stream as ServerStream, Builder, ServerFuture};
@@ -195,7 +195,7 @@ where
             .bind::<_, _, _, ServerStream>("actix-web-alt", addr, move || {
                 let factory = factory();
                 let builder = HttpServiceBuilder::with_config(factory, config);
-                ErrorLoggerFactory::new(builder)
+                LoggerFactory::new(builder)
             })?;
 
         Ok(self)
@@ -255,7 +255,7 @@ where
             .bind::<_, _, _, ServerStream>("actix-web-alt", addr, move || {
                 let factory = factory();
                 let builder = HttpServiceBuilder::with_config(factory, config).openssl(acceptor.clone());
-                ErrorLoggerFactory::new(builder)
+                LoggerFactory::new(builder)
             })?;
 
         Ok(self)
@@ -295,7 +295,7 @@ where
             .bind::<_, _, _, ServerStream>("actix-web-alt", addr, move || {
                 let factory = factory();
                 let builder = HttpServiceBuilder::with_config(factory, service_config).rustls(config.clone());
-                ErrorLoggerFactory::new(builder)
+                LoggerFactory::new(builder)
             })?;
 
         Ok(self)
@@ -321,7 +321,7 @@ where
             .bind_unix::<_, _, _, ServerStream>("actix-web-alt", path, move || {
                 let factory = factory();
                 let builder = HttpServiceBuilder::with_config(factory, config);
-                ErrorLoggerFactory::new(builder)
+                LoggerFactory::new(builder)
             })?;
 
         Ok(self)

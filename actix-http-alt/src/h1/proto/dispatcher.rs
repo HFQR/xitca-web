@@ -71,7 +71,7 @@ where
                     read_buf.advance(true);
 
                     if read_buf.backpressure() {
-                        trace!(target: "h1_event", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", read_buf.len());
+                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", read_buf.len());
                         return Ok(());
                     }
                 }
@@ -324,7 +324,7 @@ where
             match self.ctx.ctype() {
                 ConnectionType::Init => {
                     if self.ctx.is_force_close() {
-                        trace!(target: "h1_event", "Connection error. Shutting down");
+                        trace!(target: "h1_dispatcher", "Connection error. Shutting down");
                         return Ok(());
                     } else {
                         // use timer to detect slow connection.
@@ -332,7 +332,7 @@ where
                             biased;
                             res = self.io.read() => res?,
                             _ = self.timer.as_mut() => {
-                                trace!(target: "h1_event", "Slow Connection detected. Shutting down");
+                                trace!(target: "h1_dispatcher", "Slow Connection detected. Shutting down");
                                 return Ok(())
                             }
                         }
@@ -340,21 +340,21 @@ where
                 }
                 ConnectionType::KeepAlive => {
                     if self.ctx.is_force_close() {
-                        trace!(target: "h1_event", "Connection is keep-alive but meet a force close condition. Shutting down");
+                        trace!(target: "h1_dispatcher", "Connection is keep-alive but meet a force close condition. Shutting down");
                         return Ok(());
                     } else {
                         select! {
                             biased;
                             res = self.io.read() => res?,
                             _ = self.timer.as_mut() => {
-                                trace!(target: "h1_event", "Connection keep-alive timeout. Shutting down");
+                                trace!(target: "h1_dispatcher", "Connection keep-alive timeout. Shutting down");
                                 return Ok(());
                             }
                         }
                     }
                 }
                 ConnectionType::Upgrade | ConnectionType::Close => {
-                    trace!(target: "h1_event", "Connection not keep-alive. Shutting down");
+                    trace!(target: "h1_dispatcher", "Connection not keep-alive. Shutting down");
                     return Ok(());
                 }
             }
@@ -441,9 +441,9 @@ where
 
         'res: loop {
             if self.io.write_buf.backpressure() {
-                trace!(target: "h1_event", "Write buffer limit reached. Enter backpressure.");
+                trace!(target: "h1_dispatcher", "Write buffer limit reached. Enter backpressure.");
                 self.io.drain_write().await?;
-                trace!(target: "h1_event", "Write buffer empty. Recover from backpressure.");
+                trace!(target: "h1_dispatcher", "Write buffer empty. Recover from backpressure.");
             } else {
                 select! {
                     biased;

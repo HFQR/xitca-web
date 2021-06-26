@@ -7,6 +7,6 @@ pub(crate) mod writer;
 #[cfg(any(feature = "http1", feature = "http2"))]
 pub(crate) mod futures;
 
-mod error_logger;
+mod logger;
 
-pub use self::error_logger::ErrorLoggerFactory;
+pub use self::logger::LoggerFactory;

@@ -3,7 +3,7 @@
 use std::cell::Cell;
 
 use bytes::{Bytes, BytesMut};
-use log::error;
+use tracing::error;
 
 use super::error::ProtocolError;
 use super::frame::Parser;

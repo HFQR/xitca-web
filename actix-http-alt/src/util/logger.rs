@@ -5,20 +5,20 @@ use std::{
 };
 
 use actix_service_alt::{Service, ServiceFactory};
-use tracing::error;
+use tracing::{error, span, Level, Span};
 
-/// A factory that log and print error with Debug impl
-pub struct ErrorLoggerFactory<F> {
+/// A factory for logger service.
+pub struct LoggerFactory<F> {
     factory: F,
 }
 
-impl<F> ErrorLoggerFactory<F> {
+impl<F> LoggerFactory<F> {
     pub fn new(factory: F) -> Self {
         Self { factory }
     }
 }
 
-impl<F, Req> ServiceFactory<Req> for ErrorLoggerFactory<F>
+impl<F, Req> ServiceFactory<Req> for LoggerFactory<F>
 where
     F: ServiceFactory<Req>,
     F::Service: 'static,
@@ -37,13 +37,19 @@ where
         async move {
             let service = service.await?;
 
-            Ok(LoggerService { service })
+            Ok(LoggerService {
+                service,
+                span: span!(Level::TRACE, "actix_http_alt_logger"),
+            })
         }
     }
 }
 
+/// Logger service uses a tracking span called `actix_http_alt_logger` and would collect
+/// log from all levels(from trace to info)
 pub struct LoggerService<S> {
     service: S,
+    span: Span,
 }
 
 impl<S, Req> Service<Req> for LoggerService<S>
@@ -63,8 +69,9 @@ where
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
+            let _enter = self.span.enter();
             self.service.call(req).await.map_err(|e| {
-                error!("{:?}", e);
+                error!(target: "actix_http_alt_error", "{:?}", e);
                 e
             })
         }
