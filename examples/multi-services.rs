@@ -1,9 +1,4 @@
 //! A Http server returns Hello World String as Response from multiple services.
-//!
-//! Every service use a
-
-#![allow(incomplete_features)]
-#![feature(generic_associated_types, min_type_alias_impl_trait)]
 
 use std::io;
 
