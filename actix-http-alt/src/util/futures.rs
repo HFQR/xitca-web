@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-#[inline]
+#[inline(always)]
 pub(crate) fn poll_fn<T, F>(f: F) -> PollFn<F>
 where
     F: FnMut(&mut Context<'_>) -> Poll<T>,

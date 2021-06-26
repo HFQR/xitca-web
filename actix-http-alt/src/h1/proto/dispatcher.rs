@@ -415,16 +415,13 @@ where
         pin!(fut);
 
         if let Some(handle) = body_handle {
-            loop {
-                select! {
-                    biased;
-                    res = fut.as_mut() => return Ok(res),
-                    res = self.io.handle_request_body(handle, &mut self.ctx) => {
-                        // request body read is done or dropped. remove body_handle.
-                        res?;
-                        *body_handle = None;
-                        break;
-                    }
+            select! {
+                biased;
+                res = fut.as_mut() => return Ok(res),
+                res = self.io.handle_request_body(handle, &mut self.ctx) => {
+                    // request body read is done or dropped. remove body_handle.
+                    res?;
+                    *body_handle = None;
                 }
             }
         }
