@@ -24,8 +24,7 @@ use rustls::{
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix=trace, info");
-    env_logger::init();
+    tracing_subscriber::fmt().with_env_filter("actix=trace").init();
 
     // set up rustls and alpn protocol.
     let acceptor = rustls_config()?;

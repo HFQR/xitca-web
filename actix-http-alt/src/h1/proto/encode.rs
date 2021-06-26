@@ -9,7 +9,7 @@ use http::{
     response::Parts,
     StatusCode, Version,
 };
-use log::{debug, warn};
+use tracing::{debug, warn};
 
 use crate::body::{ResponseBody, ResponseBodySize};
 use crate::util::{date::DATE_VALUE_LENGTH, writer::Writer};

@@ -23,11 +23,6 @@ impl<B: Buf> BufList<B> {
         self.remaining += buf.remaining();
         self.bufs.push_back(buf);
     }
-
-    // #[inline]
-    // pub(crate) fn bufs_cnt(&self) -> usize {
-    //     self.bufs.len()
-    // }
 }
 
 impl<B: Buf> Buf for BufList<B> {
@@ -58,6 +53,7 @@ impl<B: Buf> Buf for BufList<B> {
 
     #[inline]
     fn advance(&mut self, mut cnt: usize) {
+        debug_assert!(self.remaining >= cnt);
         self.remaining -= cnt;
         while cnt > 0 {
             {

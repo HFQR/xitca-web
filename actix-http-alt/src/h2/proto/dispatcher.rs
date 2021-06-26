@@ -18,11 +18,11 @@ use http::{
     header::{CONTENT_LENGTH, DATE},
     HeaderValue, Request, Response, Version,
 };
-use log::trace;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     pin, select,
 };
+use tracing::trace;
 
 use crate::body::{ResponseBody, ResponseBodySize};
 use crate::error::{BodyError, HttpServiceError};

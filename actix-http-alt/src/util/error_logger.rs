@@ -1,8 +1,11 @@
-use std::fmt::Debug;
+use std::{
+    fmt::Debug,
+    future::Future,
+    task::{Context, Poll},
+};
 
 use actix_service_alt::{Service, ServiceFactory};
-use std::future::Future;
-use std::task::{Context, Poll};
+use tracing::error;
 
 /// A factory that log and print error with Debug impl
 pub struct ErrorLoggerFactory<F> {
@@ -61,7 +64,7 @@ where
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
             self.service.call(req).await.map_err(|e| {
-                log::error!("{:?}", e);
+                error!("{:?}", e);
                 e
             })
         }

@@ -22,9 +22,9 @@ http = "0.2"
 httpdate = "1.0"
 httparse = "1.4"
 itoa = "0.4.7"
-log = "0.4"
 pin-project-lite = "0.2.6"
 tokio = { version = "1.6", features = ["io-util", "macros"] }
+tracing = { version = "0.1.26", default-features = false, features = ["std"] }
 
 # tls support shared
 futures-task = { version = "0.3", default-features = false, optional = true }

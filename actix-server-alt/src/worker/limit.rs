@@ -1,8 +1,10 @@
-use std::cell::Cell;
-use std::future::Future;
-use std::pin::Pin;
-use std::rc::Rc;
-use std::task::{Context, Poll, Waker};
+use std::{
+    cell::Cell,
+    future::Future,
+    pin::Pin,
+    rc::Rc,
+    task::{Context, Poll, Waker},
+};
 
 #[derive(Clone)]
 pub(super) struct Limit {

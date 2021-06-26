@@ -8,12 +8,12 @@ use std::{
 
 use async_channel::{Receiver, Recv};
 use futures_core::ready;
-use log::info;
 use quinn::{
     crypto::{rustls::TlsSession, Session},
     generic::{Connecting, Endpoint, Incoming, ServerConfig},
     EndpointError,
 };
+use tracing::info;
 
 use super::{AsListener, FromStream, Listener, Stream};
 

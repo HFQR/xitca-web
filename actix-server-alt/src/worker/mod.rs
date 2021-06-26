@@ -15,9 +15,9 @@ use std::{
 };
 
 use futures_core::ready;
-use log::{error, info};
 use pin_project_lite::pin_project;
 use tokio::{task::JoinHandle, time::sleep};
+use tracing::{error, info};
 
 use crate::net::{Listener, Stream};
 

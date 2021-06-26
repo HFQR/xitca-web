@@ -76,7 +76,7 @@ impl ServerFutureInner {
         use crate::signals::Signal;
         if let Some(signals) = self.signals.as_mut() {
             if let Poll::Ready(sig) = Pin::new(signals).poll(cx) {
-                log::info!("Signal {:?} received.", sig);
+                tracing::info!("Signal {:?} received.", sig);
                 let cmd = match sig {
                     Signal::Int | Signal::Quit => Command::ForceStop,
                     Signal::Term => Command::GracefulStop,

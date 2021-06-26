@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::info;
+use tracing::info;
 
 use super::limit::Limit;
 use super::worker_name;

@@ -1,4 +1,6 @@
 //! A Http server returns Hello World String as Response from multiple services.
+//!
+//! Every service use a
 
 use std::io;
 
@@ -18,8 +20,7 @@ use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix=trace, info");
-    env_logger::init();
+    tracing_subscriber::fmt().with_env_filter("actix=trace").init();
 
     // construct http2 openssl config.
     let acceptor = h2_config()?;

@@ -10,8 +10,7 @@ use bytes::Bytes;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix=trace, info");
-    env_logger::init();
+    tracing_subscriber::fmt().with_env_filter("actix=trace").init();
 
     #[allow(unused_mut)]
     let mut server = HttpServer::new(|| fn_service(handler));

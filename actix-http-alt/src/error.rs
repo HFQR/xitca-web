@@ -4,7 +4,7 @@ use std::{
     io,
 };
 
-use log::error;
+use tracing::error;
 
 use super::protocol::Protocol;
 

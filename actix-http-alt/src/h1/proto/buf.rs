@@ -62,27 +62,23 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> {
 
     #[inline(always)]
     pub(super) fn backpressure(&self) -> bool {
-        match *self {
-            Self::Flat(ref buf) => buf.len() >= WRITE_BUF_LIMIT,
-            Self::List(ref list) => {
-                // When buffering buf must be empty.
-                // (Whoever write into it must split it afterwards)
-                debug_assert!(!list.buf.has_remaining());
-                // TODO: figure out a suitable backpressure point for list length.
-                list.list.remaining() >= WRITE_BUF_LIMIT
-            }
-        }
+        self.len() >= WRITE_BUF_LIMIT
     }
 
     #[inline(always)]
     pub(super) fn empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline(always)]
+    fn len(&self) -> usize {
         match *self {
-            Self::Flat(ref buf) => buf.is_empty(),
+            Self::Flat(ref buf) => buf.remaining(),
             Self::List(ref list) => {
                 // When buffering buf must be empty.
                 // (Whoever write into it must split it afterwards)
                 debug_assert!(!list.buf.has_remaining());
-                list.list.remaining() == 0
+                list.list.remaining()
             }
         }
     }

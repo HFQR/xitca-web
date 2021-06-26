@@ -16,7 +16,6 @@ use std::{
     thread,
 };
 
-use log::{error, info};
 use tokio::{
     runtime,
     sync::{
@@ -25,6 +24,7 @@ use tokio::{
     },
     task::LocalSet,
 };
+use tracing::{error, info};
 
 use crate::builder::Builder;
 

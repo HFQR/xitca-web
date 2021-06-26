@@ -13,7 +13,7 @@ pub use tokio::net::{UnixListener, UnixStream};
 
 use std::net;
 
-use log::info;
+use tracing::info;
 
 #[derive(Debug)]
 pub(crate) enum Listener {

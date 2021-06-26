@@ -8,12 +8,13 @@ use actix_service_alt::fn_service;
 use actix_web_alt::HttpServer;
 use futures_util::TryStreamExt;
 use http_ws::{ws, Message};
-use log::info;
+use tracing::info;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix=trace, info");
-    env_logger::init();
+    tracing_subscriber::fmt()
+        .with_env_filter("actix=trace,websocket=info")
+        .init();
 
     // construct http server
     HttpServer::new(|| fn_service(handler))
