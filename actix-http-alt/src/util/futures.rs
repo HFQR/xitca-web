@@ -37,6 +37,7 @@ where
     }
 }
 
+#[cfg(feature = "http1")]
 /// An async function that never resolve to the output.
 #[inline(always)]
 pub(crate) async fn never<T>() -> T {

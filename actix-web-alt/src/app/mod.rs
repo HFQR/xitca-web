@@ -2,6 +2,7 @@ mod entry;
 
 use std::{
     future::Future,
+    pin::Pin,
     task::{Context, Poll},
 };
 
@@ -12,8 +13,10 @@ use crate::request::WebRequest;
 
 // App keeps a similar API to actix-web::App. But in real it can be much simpler.
 
-pub struct App<State = (), F = ()> {
-    state: State,
+type StateFactory<State> = Box<dyn Fn() -> Pin<Box<dyn Future<Output = State>>>>;
+
+pub struct App<SF = StateFactory<()>, F = ()> {
+    state_factory: SF,
     pub factory: F,
 }
 
@@ -24,8 +27,11 @@ impl Default for App {
 }
 
 impl App {
-    pub fn new() -> Self {
-        Self { state: (), factory: () }
+    pub fn new() -> App {
+        Self {
+            state_factory: Box::new(|| Box::pin(async {})),
+            factory: (),
+        }
     }
 }
 
@@ -33,60 +39,78 @@ impl App {
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<State>(state: State) -> App<State>
+    pub fn with_current_thread_state<State>(state: State) -> App<StateFactory<State>>
     where
         State: Clone + 'static,
     {
-        App { state, factory: () }
+        Self::with_async_state(Box::new(move || {
+            let state = state.clone();
+            Box::pin(async move { state })
+        }))
     }
 
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<State>(state: State) -> App<State>
+    pub fn with_multi_thread_state<State>(state: State) -> App<Box<dyn Fn() -> Pin<Box<dyn Future<Output = State>>>>>
     where
         State: Send + Sync + Clone + 'static,
     {
-        App { state, factory: () }
+        Self::with_async_state(Box::new(move || {
+            let state = state.clone();
+            Box::pin(async move { state })
+        }))
+    }
+
+    #[doc(hidden)]
+    /// Construct App with async closure which it's output would be used as state.
+    pub fn with_async_state<SF, Fut>(state_factory: SF) -> App<SF>
+    where
+        SF: Fn() -> Fut,
+        Fut: Future,
+    {
+        App {
+            state_factory,
+            factory: (),
+        }
     }
 }
 
-impl<State> App<State>
-where
-    State: Clone,
-{
-    pub fn service<F>(self, factory: F) -> App<State, F> {
+impl<SF> App<SF> {
+    pub fn service<F>(self, factory: F) -> App<SF, F> {
         App {
-            state: self.state,
+            state_factory: self.state_factory,
             factory,
         }
     }
 }
 
-impl<State, F, S, Res, Err, Cfg, IntErr> ServiceFactory<Request<RequestBody>> for App<State, F>
+impl<SF, Fut, F, S, Res, Err, Cfg, IntErr> ServiceFactory<Request<RequestBody>> for App<SF, F>
 where
-    State: Clone + 'static,
+    SF: Fn() -> Fut,
+    Fut: Future + 'static,
     F: for<'r> ServiceFactory<
-        WebRequest<'r, State>,
+        WebRequest<'r, Fut::Output>,
         Service = S,
         Response = Res,
         Error = Err,
         Config = Cfg,
         InitError = IntErr,
     >,
-    S: for<'r> Service<WebRequest<'r, State>, Response = Res, Error = Err> + 'static,
+    S: for<'r> Service<WebRequest<'r, Fut::Output>, Response = Res, Error = Err> + 'static,
 {
     type Response = Res;
     type Error = Err;
     type Config = Cfg;
-    type Service = AppService<State, S>;
+    type Service = AppService<Fut::Output, S>;
     type InitError = IntErr;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
-        let state = self.state.clone();
+        let state = (&self.state_factory)();
         let service = self.factory.new_service(cfg);
         async {
+            let state = state.await;
             let service = service.await?;
             Ok(AppService { service, state })
         }
