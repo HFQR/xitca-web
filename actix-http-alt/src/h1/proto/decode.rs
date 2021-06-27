@@ -218,33 +218,26 @@ impl TransferDecoding {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-/// Http payload item
-pub enum RequestBodyItem {
-    Chunk(Bytes),
-    Eof,
-}
-
 impl TransferDecoding {
-    pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<RequestBodyItem>> {
+    pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
         match self.kind {
             Kind::Length(ref mut remaining) => {
                 if *remaining == 0 {
-                    Ok(Some(RequestBodyItem::Eof))
+                    Ok(Some(Bytes::new()))
                 } else {
                     if src.is_empty() {
                         return Ok(None);
                     }
                     let len = src.len() as u64;
-                    let buf;
-                    if *remaining > len {
-                        buf = src.split().freeze();
+                    let buf = if *remaining > len {
                         *remaining -= len;
+                        src.split().freeze()
                     } else {
-                        buf = src.split_to(*remaining as usize).freeze();
-                        *remaining = 0;
+                        let mut split = 0;
+                        std::mem::swap(remaining, &mut split);
+                        src.split_to(split as usize).freeze()
                     };
-                    Ok(Some(RequestBodyItem::Chunk(buf)))
+                    Ok(Some(buf))
                 }
             }
             Kind::DecodeChunked(ref mut state, ref mut size) => {
@@ -257,10 +250,10 @@ impl TransferDecoding {
                         Poll::Ready(Err(e)) => return Err(e),
                     };
                     if *state == ChunkedState::End {
-                        return Ok(Some(RequestBodyItem::Eof));
+                        return Ok(Some(Bytes::new()));
                     }
                     if let Some(buf) = buf {
-                        return Ok(Some(RequestBodyItem::Chunk(buf)));
+                        return Ok(Some(buf));
                     }
                     if src.is_empty() {
                         return Ok(None);
@@ -271,7 +264,8 @@ impl TransferDecoding {
                 if src.is_empty() {
                     Ok(None)
                 } else {
-                    Ok(Some(RequestBodyItem::Chunk(src.split().freeze())))
+                    // TODO: hyper split 8kb here instead of take all.
+                    Ok(Some(src.split().freeze()))
                 }
             }
             _ => unreachable!(),

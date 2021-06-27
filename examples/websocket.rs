@@ -1,33 +1,46 @@
 //! A Http/1 server echos back websocket text message and respond to ping message.
 
-use actix_http_alt::{
-    http::{Request, Response},
-    BodyError, RequestBody, ResponseBody,
-};
+use actix_http_alt::{BodyError, ResponseBody};
 use actix_service_alt::fn_service;
-use actix_web_alt::HttpServer;
+use actix_web_alt::{App, HttpServer, WebRequest, WebResponse};
 use futures_util::TryStreamExt;
 use http_ws::{ws, Message};
 use tracing::info;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {
+    // use tokio tracing for log.
     tracing_subscriber::fmt()
-        .with_env_filter("actix=trace,websocket=info")
+        .with_env_filter("actix=trace,[actix_http_alt_logger]=trace,websocket=info")
         .init();
 
+    // some state shared in http server.
+    let shared_state = "app_state";
+
     // construct http server
-    HttpServer::new(|| fn_service(handler))
-        .max_read_buf_size::<1024>()
-        .max_write_buf_size::<8>()
-        .bind("127.0.0.1:8080")?
-        .run()
-        .await
+    HttpServer::new(move || {
+        // a simple async function that handle request.
+        let factory = fn_service(handler);
+        // construct an app with state and handler.
+        App::with_multi_thread_state(shared_state).service(factory)
+    })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .await
 }
 
-async fn handler(req: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
+async fn handler(mut req: WebRequest<'_, &'static str>) -> Result<WebResponse, Box<dyn std::error::Error>> {
+    // borrow shared state of App.
+    let state = req.state();
+    assert_eq!(*state, "app_state");
+
+    // take ownership of request.
+    let req = std::mem::take(req.request_mut());
+
+    // construct websocket handler types.
     let (mut decode, res, tx) = ws(req)?;
 
+    // spawn websocket message handling logic task.
     tokio::task::spawn_local(async move {
         while let Some(Ok(msg)) = decode.next().await {
             match msg {
@@ -50,11 +63,12 @@ async fn handler(req: Request<RequestBody>) -> Result<Response<ResponseBody>, Bo
         }
     });
 
+    // construct response types.
     let (parts, body) = res.into_parts();
     let body = body.map_err(|e| BodyError::Std(e.into()));
     let body = Box::pin(body) as _;
     let body = ResponseBody::stream(body);
-    let res = Response::from_parts(parts, body);
+    let res = WebResponse::from_parts(parts, body);
 
     Ok(res)
 }

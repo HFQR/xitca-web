@@ -8,16 +8,12 @@ use bytes::{Buf, Bytes, BytesMut};
 use crate::util::buf_list::BufList;
 
 pub(super) struct ReadBuf<const READ_BUF_LIMIT: usize> {
-    advanced: bool,
     buf: BytesMut,
 }
 
 impl<const READ_BUF_LIMIT: usize> ReadBuf<READ_BUF_LIMIT> {
     pub(super) fn new() -> Self {
-        Self {
-            advanced: false,
-            buf: BytesMut::new(),
-        }
+        Self { buf: BytesMut::new() }
     }
 
     #[inline(always)]
@@ -33,16 +29,6 @@ impl<const READ_BUF_LIMIT: usize> ReadBuf<READ_BUF_LIMIT> {
     #[inline(always)]
     pub(super) fn buf_mut(&mut self) -> &mut BytesMut {
         &mut self.buf
-    }
-
-    #[inline(always)]
-    pub(super) fn advanced(&self) -> bool {
-        self.advanced
-    }
-
-    #[inline(always)]
-    pub(super) fn advance(&mut self, advanced: bool) {
-        self.advanced = advanced;
     }
 }
 

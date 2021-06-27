@@ -1,6 +1,7 @@
 use std::{io, task::Poll};
 
 use bytes::{Buf, Bytes, BytesMut};
+use tracing::trace;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Kind {
@@ -44,6 +45,8 @@ pub(super) enum ChunkedState {
     Body,
     BodyCr,
     BodyLf,
+    Trailer,
+    TrailerLf,
     EndCr,
     EndLf,
     End,
@@ -77,6 +80,8 @@ impl ChunkedState {
             Body => ChunkedState::read_body(body, size, buf),
             BodyCr => ChunkedState::read_body_cr(body),
             BodyLf => ChunkedState::read_body_lf(body),
+            Trailer => ChunkedState::read_trailer(body),
+            TrailerLf => ChunkedState::read_trailer_lf(body),
             EndCr => ChunkedState::read_end_cr(body),
             EndLf => ChunkedState::read_end_lf(body),
             End => Poll::Ready(Ok(ChunkedState::End)),
@@ -184,10 +189,27 @@ impl ChunkedState {
         }
     }
 
+    fn read_trailer(rdr: &mut BytesMut) -> Poll<Result<ChunkedState, io::Error>> {
+        trace!(target: "h1_decode", "read_trailer");
+        match byte!(rdr) {
+            b'\r' => Poll::Ready(Ok(ChunkedState::TrailerLf)),
+            _ => Poll::Ready(Ok(ChunkedState::Trailer)),
+        }
+    }
+    fn read_trailer_lf(rdr: &mut BytesMut) -> Poll<Result<ChunkedState, io::Error>> {
+        match byte!(rdr) {
+            b'\n' => Poll::Ready(Ok(ChunkedState::EndCr)),
+            _ => Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid trailer end LF",
+            ))),
+        }
+    }
+
     fn read_end_cr(rdr: &mut BytesMut) -> Poll<io::Result<ChunkedState>> {
         match byte!(rdr) {
             b'\r' => Poll::Ready(Ok(ChunkedState::EndLf)),
-            _ => Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end CR"))),
+            _ => Poll::Ready(Ok(ChunkedState::Trailer)),
         }
     }
 

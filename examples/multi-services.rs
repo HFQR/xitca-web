@@ -20,7 +20,9 @@ use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    tracing_subscriber::fmt().with_env_filter("actix=info").init();
+    tracing_subscriber::fmt()
+        .with_env_filter("actix=info,[actix_http_alt_logger]=trace")
+        .init();
 
     // construct http2 openssl config.
     let acceptor = h2_config()?;

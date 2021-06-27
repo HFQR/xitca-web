@@ -25,7 +25,7 @@ use crate::util::{
 
 use super::buf::{ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
-use super::decode::{RequestBodyItem, TransferDecoding};
+use super::decode::TransferDecoding;
 use super::encode::TransferEncoding;
 use super::error::{Parse, ProtoError};
 
@@ -61,17 +61,14 @@ where
 {
     /// read until blocked/read backpressure and advance readbuf.
     fn try_read(&mut self) -> Result<(), Error> {
-        let read_buf = &mut self.read_buf;
-        read_buf.advance(false);
+        let buf = &mut self.read_buf;
 
         loop {
-            match self.io.try_read_buf(read_buf.buf_mut()) {
+            match self.io.try_read_buf(buf.buf_mut()) {
                 Ok(0) => return Err(Error::Closed),
                 Ok(_) => {
-                    read_buf.advance(true);
-
-                    if read_buf.backpressure() {
-                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", read_buf.len());
+                    if buf.backpressure() {
+                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", buf.len());
                         return Ok(());
                     }
                 }
@@ -175,15 +172,12 @@ where
 
             let buf = &mut self.read_buf;
 
-            if buf.advanced() {
-                while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
-                    match item {
-                        RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
-                        RequestBodyItem::Eof => {
-                            handle.sender.feed_eof();
-                            return Ok(());
-                        }
-                    }
+            while let Some(bytes) = handle.decoder.decode(buf.buf_mut())? {
+                if bytes.is_empty() {
+                    handle.sender.feed_eof();
+                    return Ok(());
+                } else {
+                    handle.sender.feed_data(bytes)
                 }
             }
         }
@@ -362,31 +356,28 @@ where
     }
 
     fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
-        // Do not try when nothing new read.
-        if self.io.read_buf.advanced() {
-            let buf = self.io.read_buf.buf_mut();
+        let buf = self.io.read_buf.buf_mut();
 
-            match self.ctx.decode_head::<READ_BUF_LIMIT>(buf) {
-                Ok(Some((req, decoder))) => {
-                    let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
+        match self.ctx.decode_head::<READ_BUF_LIMIT>(buf) {
+            Ok(Some((req, decoder))) => {
+                let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
-                    let (parts, _) = req.into_parts();
-                    let req = Request::from_parts(parts, body);
+                let (parts, _) = req.into_parts();
+                let req = Request::from_parts(parts, body);
 
-                    return Some(Ok((req, body_handle)));
-                }
-                Err(e) => return Some(Err(e)),
-                _ => {}
+                return Some(Ok((req, body_handle)));
             }
+            Err(e) => return Some(Err(e)),
+            _ => {}
         }
 
         None
     }
 
     fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error> {
-        let size = body.size();
-        self.ctx.encode_head(parts, size, &mut self.io.write_buf)?;
-        Ok(())
+        self.ctx
+            .encode_head(parts, body.size(), &mut self.io.write_buf)
+            .map_err(Error::from)
     }
 
     async fn request_handler(
@@ -468,15 +459,12 @@ where
 
                         let buf = &mut self.io.read_buf;
 
-                        if buf.advanced() {
-                            while let Some(item) = handle.decoder.decode(buf.buf_mut())? {
-                                match item {
-                                    RequestBodyItem::Chunk(bytes) => handle.sender.feed_data(bytes),
-                                    RequestBodyItem::Eof => {
-                                        handle.sender.feed_eof();
-                                        continue 'res;
-                                    }
-                                }
+                        while let Some(bytes) = handle.decoder.decode(buf.buf_mut())? {
+                            if bytes.is_empty() {
+                                handle.sender.feed_eof();
+                                continue 'res;
+                            } else {
+                                handle.sender.feed_data(bytes);
                             }
                         }
 
