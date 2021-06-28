@@ -1,4 +1,5 @@
 use std::{
+    convert::Infallible,
     error::Error,
     fmt::{self, Debug, Display, Formatter},
     io,
@@ -64,9 +65,9 @@ impl Debug for HttpServiceError {
 }
 
 impl HttpServiceError {
-    pub fn log(self) {
+    pub fn log(self, target: &str) {
         // TODO: add logging for different error types.
-        error!("HttpService Error: {:?}", self);
+        error!(target = target, "{:?}", self);
     }
 }
 
@@ -117,6 +118,12 @@ impl From<Box<dyn Error + Send + Sync>> for BodyError {
     }
 }
 
+impl From<Infallible> for BodyError {
+    fn from(_: Infallible) -> BodyError {
+        unreachable!("Infallible error should never happen")
+    }
+}
+
 impl From<BodyError> for HttpServiceError {
     fn from(e: BodyError) -> Self {
         Self::Body(e)
@@ -126,5 +133,11 @@ impl From<BodyError> for HttpServiceError {
 impl From<()> for HttpServiceError {
     fn from(_: ()) -> Self {
         Self::Ignored
+    }
+}
+
+impl From<Infallible> for HttpServiceError {
+    fn from(_: Infallible) -> Self {
+        unreachable!("Infallible error should never happen")
     }
 }

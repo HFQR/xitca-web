@@ -2,18 +2,18 @@ mod entry;
 
 use std::{
     future::Future,
-    pin::Pin,
     task::{Context, Poll},
 };
 
 use actix_http_alt::{http::Request, RequestBody};
 use actix_service_alt::{Service, ServiceFactory};
+use futures_core::future::LocalBoxFuture;
 
 use crate::request::WebRequest;
 
 // App keeps a similar API to actix-web::App. But in real it can be much simpler.
 
-type StateFactory<State> = Box<dyn Fn() -> Pin<Box<dyn Future<Output = State>>>>;
+type StateFactory<State> = Box<dyn Fn() -> LocalBoxFuture<'static, State>>;
 
 pub struct App<SF = StateFactory<()>, F = ()> {
     state_factory: SF,
@@ -52,7 +52,7 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<State>(state: State) -> App<Box<dyn Fn() -> Pin<Box<dyn Future<Output = State>>>>>
+    pub fn with_multi_thread_state<State>(state: State) -> App<StateFactory<State>>
     where
         State: Send + Sync + Clone + 'static,
     {

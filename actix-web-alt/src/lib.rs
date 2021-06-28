@@ -17,7 +17,7 @@ pub use response::{Responder, WebResponse};
 pub use server::HttpServer;
 
 pub mod dev {
-    pub use actix_service_alt::{Service, ServiceFactory, ServiceFactoryExt, Transform};
+    pub use actix_service_alt::{fn_service, Service, ServiceFactory, ServiceFactoryExt, Transform};
 
     pub use crate::service::EnumService;
 }

@@ -1,4 +1,6 @@
-use actix_http_alt::{http::Response, ResponseBody};
+pub use actix_http_alt::{http::response::Builder as WebResponseBuilder, ResponseBody};
+
+use actix_http_alt::http::Response;
 
 use super::request::WebRequest;
 
