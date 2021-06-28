@@ -2,7 +2,7 @@
 
 use actix_http_alt::{BodyError, ResponseBody};
 use actix_service_alt::fn_service;
-use actix_web_alt::{App, HttpServer, WebRequest, WebResponse};
+use actix_web_alt::{request::WebRequest, response::WebResponse, App, HttpServer};
 use futures_util::TryStreamExt;
 use http_ws::{ws, Message};
 use tracing::info;

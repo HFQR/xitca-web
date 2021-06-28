@@ -6,14 +6,13 @@ mod app;
 mod error;
 mod extract;
 mod guard;
-mod request;
-mod response;
 mod server;
 mod service;
 
+pub mod request;
+pub mod response;
+
 pub use app::App;
-pub use request::WebRequest;
-pub use response::{Responder, WebResponse};
 pub use server::HttpServer;
 
 pub mod dev {
