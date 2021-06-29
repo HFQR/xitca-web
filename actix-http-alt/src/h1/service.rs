@@ -17,8 +17,7 @@ use crate::service::HttpService;
 use crate::util::keep_alive::KeepAlive;
 
 use super::body::RequestBody;
-use super::error::Error;
-use super::proto::Dispatcher;
+use super::proto;
 
 pub type H1Service<S, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
     HttpService<S, RequestBody, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
@@ -100,12 +99,9 @@ where
                     let deadline = self.date.get().borrow().now() + request_dur;
                     timer.as_mut().update(deadline);
 
-                    let dispatcher = Dispatcher::new(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get());
-
-                    match dispatcher.run().await {
-                        Ok(_) | Err(Error::Closed) => Ok(()),
-                        Err(e) => Err(e.into()),
-                    }
+                    proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
+                        .await
+                        .map_err(HttpServiceError::from)
                 }
                 _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::TlsAccept)),
             }

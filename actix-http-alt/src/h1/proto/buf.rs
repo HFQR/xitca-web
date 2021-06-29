@@ -1,11 +1,17 @@
 //! Copied from `hyper::proto::h1::io`.
 //! A write buffer that use vectored buf list.
 
-use std::{fmt, io};
+use std::{
+    fmt,
+    io::{self, Write},
+    ops::{Deref, DerefMut},
+};
 
-use bytes::{Buf, Bytes, BytesMut};
+use actix_server_alt::net::AsyncReadWrite;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use crate::util::buf_list::BufList;
+use crate::h1::error::Error;
+use crate::util::{buf_list::BufList, writer::Writer};
 
 pub(super) struct ReadBuf<const READ_BUF_LIMIT: usize> {
     buf: BytesMut,
@@ -32,46 +38,107 @@ impl<const READ_BUF_LIMIT: usize> ReadBuf<READ_BUF_LIMIT> {
     }
 }
 
-pub(super) enum WriteBuf<const WRITE_BUF_LIMIT: usize> {
-    Flat(BytesMut),
-    List(WriteListBuf<EncodedBuf<Bytes>>),
-}
-
-impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> {
-    pub(super) fn new(is_vectored: bool) -> Self {
-        if is_vectored {
-            Self::List(WriteListBuf::new())
-        } else {
-            Self::Flat(BytesMut::new())
-        }
-    }
-
+/// Trait to generic over different types of write buffer strategy.
+pub(super) trait WriteBuf<const WRITE_BUF_LIMIT: usize> {
     #[inline(always)]
-    pub(super) fn backpressure(&self) -> bool {
+    fn backpressure(&self) -> bool {
         self.len() >= WRITE_BUF_LIMIT
     }
 
     #[inline(always)]
-    pub(super) fn empty(&self) -> bool {
+    fn empty(&self) -> bool {
         self.len() == 0
     }
 
-    #[inline(always)]
+    fn len(&self) -> usize;
+
+    fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>;
+
+    fn write_static(&mut self, bytes: &'static [u8]);
+
+    fn write_buf(&mut self, bytes: Bytes);
+
+    fn write_eof(&mut self, bytes: Bytes);
+
+    fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error>;
+}
+
+pub(super) struct FlatWriteBuf(BytesMut);
+
+impl Default for FlatWriteBuf {
+    fn default() -> Self {
+        Self(BytesMut::new())
+    }
+}
+
+impl Deref for FlatWriteBuf {
+    type Target = BytesMut;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for FlatWriteBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
     fn len(&self) -> usize {
-        match *self {
-            Self::Flat(ref buf) => buf.remaining(),
-            Self::List(ref list) => {
-                // When buffering buf must be empty.
-                // (Whoever write into it must split it afterwards)
-                debug_assert!(!list.buf.has_remaining());
-                list.list.remaining()
+        self.remaining()
+    }
+
+    fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>,
+    {
+        func(&mut *self)
+    }
+
+    fn write_static(&mut self, bytes: &'static [u8]) {
+        self.put_slice(bytes);
+    }
+
+    fn write_buf(&mut self, bytes: Bytes) {
+        self.put_slice(bytes.as_ref());
+    }
+
+    fn write_eof(&mut self, bytes: Bytes) {
+        write!(Writer::new(&mut **self), "{:X}\r\n", bytes.len()).unwrap();
+
+        self.reserve(bytes.len() + 2);
+        self.put_slice(bytes.as_ref());
+        self.put_slice(b"\r\n");
+    }
+
+    fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error> {
+        let mut written = 0;
+        let len = self.remaining();
+
+        while written < len {
+            match io.try_write(&self[written..]) {
+                Ok(0) => return Err(Error::Closed),
+                Ok(n) => written += n,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    self.advance(written);
+                    return Ok(true);
+                }
+                Err(e) => return Err(e.into()),
             }
         }
+
+        self.clear();
+
+        Ok(false)
     }
 }
 
 // an internal buffer to collect writes before flushes
-pub(super) struct WriteListBuf<B> {
+pub(super) struct ListWriteBuf<B> {
     /// Re-usable buffer that holds response head.
     /// After head writing finished it's split and pushed to list.
     buf: BytesMut,
@@ -79,8 +146,8 @@ pub(super) struct WriteListBuf<B> {
     list: BufList<B>,
 }
 
-impl<B: Buf> WriteListBuf<B> {
-    fn new() -> Self {
+impl<B: Buf> Default for ListWriteBuf<B> {
+    fn default() -> Self {
         Self {
             buf: BytesMut::new(),
             list: BufList::new(),
@@ -88,24 +155,14 @@ impl<B: Buf> WriteListBuf<B> {
     }
 }
 
-impl<B: Buf> WriteListBuf<B> {
+impl<B: Buf> ListWriteBuf<B> {
     pub(super) fn buffer<BB: Buf + Into<B>>(&mut self, buf: BB) {
         debug_assert!(buf.has_remaining());
         self.list.push(buf.into());
     }
-
-    #[inline(always)]
-    pub(super) fn buf_mut(&mut self) -> &mut BytesMut {
-        &mut self.buf
-    }
-
-    #[inline(always)]
-    pub(super) fn list_mut(&mut self) -> &mut BufList<B> {
-        &mut self.list
-    }
 }
 
-impl<B: Buf> fmt::Debug for WriteListBuf<B> {
+impl<B: Buf> fmt::Debug for ListWriteBuf<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteBuf")
             .field("remaining", &self.list.remaining())
@@ -149,5 +206,63 @@ impl<B: Buf> Buf for EncodedBuf<B> {
             Self::Buf(ref mut buf) => buf.advance(cnt),
             Self::Static(ref mut buf) => buf.advance(cnt),
         }
+    }
+}
+
+impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<EncodedBuf<Bytes>> {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        // When buffering buf must be empty.
+        // (Whoever write into it must split it afterwards)
+        debug_assert!(!self.buf.has_remaining());
+        self.list.remaining()
+    }
+
+    #[inline(always)]
+    fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>,
+    {
+        let buf = &mut self.buf;
+        let res = func(buf)?;
+        let bytes = buf.split().freeze();
+        self.buffer(EncodedBuf::Buf(bytes));
+        Ok(res)
+    }
+
+    #[inline(always)]
+    fn write_static(&mut self, bytes: &'static [u8]) {
+        self.buffer(EncodedBuf::Static(bytes));
+    }
+
+    #[inline(always)]
+    fn write_buf(&mut self, bytes: Bytes) {
+        self.buffer(EncodedBuf::Buf(bytes));
+    }
+
+    #[inline(always)]
+    fn write_eof(&mut self, bytes: Bytes) {
+        self.buffer(EncodedBuf::Buf(Bytes::from(format!("{:X}\r\n", bytes.len()))));
+        self.buffer(EncodedBuf::Buf(bytes));
+        self.buffer(EncodedBuf::Static(b"\r\n"));
+    }
+
+    #[inline(always)]
+    fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error> {
+        let queue = &mut self.list;
+        while queue.remaining() > 0 {
+            let mut iovs = [io::IoSlice::new(&[]); 64];
+            let len = queue.chunks_vectored(&mut iovs);
+            match io.try_write_vectored(&iovs[..len]) {
+                Ok(0) => return Err(Error::Closed),
+                Ok(n) => queue.advance(n),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    return Ok(true);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        Ok(false)
     }
 }

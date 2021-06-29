@@ -1,10 +1,9 @@
 mod body;
 mod builder;
 mod error;
-mod proto;
 mod service;
 
-pub(crate) use self::proto::Dispatcher;
+pub(crate) mod proto;
 
 pub use self::body::RequestBody;
 pub use self::builder::H1ServiceBuilder;

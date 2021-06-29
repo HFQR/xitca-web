@@ -2,7 +2,7 @@ use std::{io, marker::PhantomData, pin::Pin, time::Duration};
 
 use actix_server_alt::net::AsyncReadWrite;
 use actix_service_alt::Service;
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use tokio::{io::Interest, pin, select};
@@ -23,25 +23,80 @@ use crate::util::{
     keep_alive::KeepAlive,
 };
 
-use super::buf::{ReadBuf, WriteBuf};
+use super::buf::{FlatWriteBuf, ListWriteBuf, ReadBuf, WriteBuf};
 use super::context::{ConnectionType, Context};
 use super::decode::TransferDecoding;
 use super::encode::TransferEncoding;
 use super::error::{Parse, ProtoError};
 
+/// function to generic over different writer buffer types dispatcher.
+pub(crate) async fn run<
+    'a,
+    St,
+    S,
+    ReqB,
+    ResB,
+    E,
+    X,
+    U,
+    const HEADER_LIMIT: usize,
+    const READ_BUF_LIMIT: usize,
+    const WRITE_BUF_LIMIT: usize,
+>(
+    io: &'a mut St,
+    timer: Pin<&'a mut KeepAlive>,
+    config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+    flow: &'a HttpFlowInner<S, X, U>,
+    date: &'a Date,
+) -> Result<(), Error>
+where
+    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S::Error: ResponseError<S::Response>,
+
+    X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
+    X::Error: ResponseError<S::Response>,
+
+    ReqB: From<RequestBody>,
+
+    ResB: Stream<Item = Result<Bytes, E>>,
+    BodyError: From<E>,
+
+    St: AsyncReadWrite,
+{
+    let is_vectored = if config.http1_pipeline {
+        false
+    } else {
+        io.is_write_vectored()
+    };
+
+    let res = if is_vectored {
+        let write_buf = ListWriteBuf::default();
+        Dispatcher::new(io, timer, config, flow, date, write_buf).run().await
+    } else {
+        let write_buf = FlatWriteBuf::default();
+        Dispatcher::new(io, timer, config, flow, date, write_buf).run().await
+    };
+
+    match res {
+        Ok(_) | Err(Error::Closed) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Http/1 dispatcher
-pub(crate) struct Dispatcher<
+struct Dispatcher<
     'a,
     St,
     S,
     ReqB,
     X,
     U,
+    W,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
 > {
-    io: Io<'a, St, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+    io: Io<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, HEADER_LIMIT>,
@@ -49,15 +104,16 @@ pub(crate) struct Dispatcher<
     _phantom: PhantomData<ReqB>,
 }
 
-struct Io<'a, St, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+struct Io<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     io: &'a mut St,
     read_buf: ReadBuf<READ_BUF_LIMIT>,
-    write_buf: WriteBuf<WRITE_BUF_LIMIT>,
+    write_buf: W,
 }
 
-impl<St, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Io<'_, St, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Io<'_, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     St: AsyncReadWrite,
+    W: WriteBuf<WRITE_BUF_LIMIT>,
 {
     /// read until blocked/read backpressure and advance readbuf.
     fn try_read(&mut self) -> Result<(), Error> {
@@ -81,43 +137,7 @@ where
     /// Return true when write is blocked and need wait.
     /// Return false when write is finished.(Did not blocked)
     fn try_write(&mut self) -> Result<bool, Error> {
-        match self.write_buf {
-            WriteBuf::List(ref mut list) => {
-                let queue = list.list_mut();
-                while queue.remaining() > 0 {
-                    let mut iovs = [io::IoSlice::new(&[]); 64];
-                    let len = queue.chunks_vectored(&mut iovs);
-                    match self.io.try_write_vectored(&iovs[..len]) {
-                        Ok(0) => return Err(Error::Closed),
-                        Ok(n) => queue.advance(n),
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                            return Ok(true);
-                        }
-                        Err(e) => return Err(e.into()),
-                    }
-                }
-            }
-            WriteBuf::Flat(ref mut buf) => {
-                let mut written = 0;
-                let len = buf.len();
-
-                while written < len {
-                    match self.io.try_write(&buf[written..]) {
-                        Ok(0) => return Err(Error::Closed),
-                        Ok(n) => written += n,
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                            buf.advance(written);
-                            return Ok(true);
-                        }
-                        Err(e) => return Err(e.into()),
-                    }
-                }
-
-                buf.clear();
-            }
-        }
-
-        Ok(false)
+        self.write_buf.try_write_io(self.io)
     }
 
     /// Block task and read.
@@ -228,10 +248,11 @@ impl<
         E,
         X,
         U,
+        W,
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, X, U, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Dispatcher<'a, St, S, ReqB, X, U, W, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: ResponseError<S::Response>,
@@ -245,24 +266,20 @@ where
     BodyError: From<E>,
 
     St: AsyncReadWrite,
+    W: WriteBuf<WRITE_BUF_LIMIT>,
 {
-    pub(crate) fn new(
+    fn new(
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         flow: &'a HttpFlowInner<S, X, U>,
         date: &'a Date,
+        write_buf: W,
     ) -> Self {
-        let is_vectored = if config.http1_pipeline {
-            false
-        } else {
-            io.is_write_vectored()
-        };
-
         let io = Io {
             io,
             read_buf: ReadBuf::new(),
-            write_buf: WriteBuf::new(is_vectored),
+            write_buf,
         };
 
         Self {
@@ -275,7 +292,7 @@ where
         }
     }
 
-    pub(crate) async fn run(mut self) -> Result<(), Error> {
+    async fn run(mut self) -> Result<(), Error> {
         loop {
             'req: while let Some(res) = self.decode_head() {
                 match res {

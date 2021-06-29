@@ -24,6 +24,7 @@ async fn main() -> std::io::Result<()> {
         // construct an app with state and handler.
         App::with_multi_thread_state(shared_state).service(factory)
     })
+    .max_write_buf_size::<16>()
     .bind("127.0.0.1:8080")?
     .run()
     .await

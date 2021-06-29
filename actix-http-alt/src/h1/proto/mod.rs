@@ -9,5 +9,5 @@ mod dispatcher;
 mod encode;
 mod error;
 
-pub(crate) use dispatcher::Dispatcher;
+pub(crate) use dispatcher::run;
 pub(crate) use error::ProtoError;

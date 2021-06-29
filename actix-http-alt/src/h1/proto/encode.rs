@@ -1,6 +1,6 @@
 use std::{
     cmp,
-    io::{self, Write},
+    io::{self},
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
@@ -12,43 +12,32 @@ use http::{
 use tracing::{debug, warn};
 
 use crate::body::{ResponseBody, ResponseBodySize};
-use crate::util::{date::DATE_VALUE_LENGTH, writer::Writer};
+use crate::util::date::DATE_VALUE_LENGTH;
 
-use super::buf::{EncodedBuf, WriteBuf};
+use super::buf::WriteBuf;
 use super::codec::Kind;
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
 impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
-    pub(super) fn encode_continue<const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut WriteBuf<WRITE_BUF_LIMIT>) {
+    pub(super) fn encode_continue<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W)
+    where
+        W: WriteBuf<WRITE_BUF_LIMIT>,
+    {
         debug_assert!(self.is_expect_header());
-        match *buf {
-            WriteBuf::Flat(ref mut bytes) => bytes.put_slice(b"HTTP/1.1 100 Continue\r\n\r\n"),
-            WriteBuf::List(ref mut list) => {
-                list.buffer(EncodedBuf::Static(b"HTTP/1.1 100 Continue\r\n\r\n"));
-            }
-        }
+        buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
 
-    pub(super) fn encode_head<const WRITE_BUF_LIMIT: usize>(
+    pub(super) fn encode_head<W, const WRITE_BUF_LIMIT: usize>(
         &mut self,
         parts: Parts,
         size: ResponseBodySize,
-        buf: &mut WriteBuf<WRITE_BUF_LIMIT>,
-    ) -> Result<(), ProtoError> {
-        match *buf {
-            WriteBuf::List(ref mut list) => {
-                let buf = list.buf_mut();
-
-                self.encode_head_inner(parts, size, buf)?;
-
-                let bytes = buf.split().freeze();
-                list.list_mut().push(EncodedBuf::Buf(bytes));
-
-                Ok(())
-            }
-            WriteBuf::Flat(ref mut buf) => self.encode_head_inner(parts, size, buf),
-        }
+        buf: &mut W,
+    ) -> Result<(), ProtoError>
+    where
+        W: WriteBuf<WRITE_BUF_LIMIT>,
+    {
+        buf.write_head(|buf| self.encode_head_inner(parts, size, buf))
     }
 
     fn encode_head_inner(
@@ -241,18 +230,14 @@ impl TransferEncoding {
 
     /// Encode message. Return `EOF` state of encoder
     #[inline(always)]
-    pub(super) fn encode<const WRITE_BUF_LIMIT: usize>(
-        &mut self,
-        mut msg: Bytes,
-        buf: &mut WriteBuf<WRITE_BUF_LIMIT>,
-    ) -> io::Result<bool> {
+    pub(super) fn encode<W, const WRITE_BUF_LIMIT: usize>(&mut self, mut bytes: Bytes, buf: &mut W) -> io::Result<bool>
+    where
+        W: WriteBuf<WRITE_BUF_LIMIT>,
+    {
         match self.kind {
             Kind::Eof | Kind::PlainChunked => {
-                let eof = msg.is_empty();
-                match *buf {
-                    WriteBuf::Flat(ref mut bytes) => bytes.put_slice(&msg),
-                    WriteBuf::List(ref mut list) => list.buffer(EncodedBuf::Buf(msg)),
-                }
+                let eof = bytes.is_empty();
+                buf.write_buf(bytes);
                 Ok(eof)
             }
             Kind::EncodeChunked(ref mut eof) => {
@@ -260,47 +245,23 @@ impl TransferEncoding {
                     return Ok(true);
                 }
 
-                match *buf {
-                    WriteBuf::List(ref mut list) => {
-                        if msg.is_empty() {
-                            *eof = true;
-                            list.buffer(EncodedBuf::Static(b"0\r\n\r\n"));
-                        } else {
-                            list.buffer(EncodedBuf::Buf(Bytes::from(format!("{:X}\r\n", msg.len()))));
-                            list.buffer(EncodedBuf::Buf(msg));
-                            list.buffer(EncodedBuf::Static(b"\r\n"));
-                        }
-                    }
-                    WriteBuf::Flat(ref mut bytes) => {
-                        if msg.is_empty() {
-                            *eof = true;
-                            bytes.put_slice(b"0\r\n\r\n");
-                        } else {
-                            writeln!(Writer::new(bytes), "{:X}\r", msg.len()).unwrap();
-
-                            bytes.reserve(msg.len() + 2);
-                            bytes.put_slice(&msg);
-                            bytes.put_slice(b"\r\n");
-                        }
-                    }
+                if bytes.is_empty() {
+                    *eof = true;
+                    buf.write_static(b"0\r\n\r\n");
+                } else {
+                    buf.write_eof(bytes);
                 }
+
                 Ok(*eof)
             }
             Kind::Length(ref mut remaining) => {
                 if *remaining > 0 {
-                    if msg.is_empty() {
+                    if bytes.is_empty() {
                         return Ok(*remaining == 0);
                     }
-                    let len = cmp::min(*remaining, msg.len() as u64);
+                    let len = cmp::min(*remaining, bytes.len() as u64);
 
-                    match buf {
-                        WriteBuf::Flat(ref mut bytes) => {
-                            bytes.put_slice(&msg.split_to(len as usize));
-                        }
-                        WriteBuf::List(ref mut list) => {
-                            list.buffer(EncodedBuf::Buf(msg.split_to(len as usize)));
-                        }
-                    }
+                    buf.write_buf(bytes.split_to(len as usize));
 
                     *remaining -= len as u64;
                     Ok(*remaining == 0)
@@ -314,10 +275,10 @@ impl TransferEncoding {
 
     /// Encode eof. Return `EOF` state of encoder
     #[inline(always)]
-    pub(super) fn encode_eof<const WRITE_BUF_LIMIT: usize>(
-        &mut self,
-        buf: &mut WriteBuf<WRITE_BUF_LIMIT>,
-    ) -> io::Result<()> {
+    pub(super) fn encode_eof<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W) -> io::Result<()>
+    where
+        W: WriteBuf<WRITE_BUF_LIMIT>,
+    {
         match self.kind {
             Kind::Eof | Kind::PlainChunked => Ok(()),
             Kind::Length(rem) => {
@@ -330,10 +291,7 @@ impl TransferEncoding {
             Kind::EncodeChunked(ref mut eof) => {
                 if !*eof {
                     *eof = true;
-                    match *buf {
-                        WriteBuf::Flat(ref mut bytes) => bytes.put_slice(b"0\r\n\r\n"),
-                        WriteBuf::List(ref mut list) => list.buffer(EncodedBuf::Static(b"0\r\n\r\n")),
-                    }
+                    buf.write_static(b"0\r\n\r\n");
                 }
                 Ok(())
             }

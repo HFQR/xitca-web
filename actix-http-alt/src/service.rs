@@ -137,12 +137,9 @@ where
                         match protocol {
                             #[cfg(feature = "http1")]
                             super::protocol::Protocol::Http1Tls | super::protocol::Protocol::Http1 => {
-                                let dispatcher = super::h1::Dispatcher::new(&mut tls_stream, timer.as_mut(), self.config, &*self.flow, self.date.get());
-
-                                match dispatcher.run().await {
-                                    Ok(_) | Err(super::h1::Error::Closed) => Ok(()),
-                                    Err(e) => Err(e.into()),
-                                }
+                                super::h1::proto::run(&mut tls_stream, timer.as_mut(), self.config, &*self.flow, self.date.get())
+                                    .await
+                                    .map_err(HttpServiceError::from)
                             }
                             #[cfg(feature = "http2")]
                             super::protocol::Protocol::Http2 => {
