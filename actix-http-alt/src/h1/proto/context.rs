@@ -24,17 +24,17 @@ impl<'a, const HEADER_LIMIT: usize> Context<'a, HEADER_LIMIT> {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) fn is_expect_header(&self) -> bool {
         self.state.contains(ContextState::EXPECT)
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) fn is_connect_method(&self) -> bool {
         self.state.contains(ContextState::CONNECT)
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) fn is_force_close(&self) -> bool {
         self.state.contains(ContextState::FORCE_CLOSE)
     }
@@ -42,7 +42,7 @@ impl<'a, const HEADER_LIMIT: usize> Context<'a, HEADER_LIMIT> {
     /// Context should be reset when a new request is decoded.
     ///
     /// A reset of context only happen on a keep alive connection type.
-    #[inline(always)]
+    #[inline]
     pub(super) fn reset(&mut self) {
         self.ctype = ConnectionType::KeepAlive;
         self.state = ContextState::new();
@@ -60,12 +60,12 @@ impl<'a, const HEADER_LIMIT: usize> Context<'a, HEADER_LIMIT> {
         self.state.insert(ContextState::FORCE_CLOSE)
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) fn set_ctype(&mut self, ctype: ConnectionType) {
         self.ctype = ctype;
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) fn ctype(&self) -> ConnectionType {
         self.ctype
     }
@@ -89,17 +89,17 @@ impl ContextState {
     /// alive).
     const FORCE_CLOSE: u8 = 0b_0100;
 
-    #[inline(always)]
+    #[inline]
     const fn new() -> Self {
         Self(0)
     }
 
-    #[inline(always)]
+    #[inline]
     fn insert(&mut self, other: u8) {
         self.0 |= other;
     }
 
-    #[inline(always)]
+    #[inline]
     const fn contains(&self, other: u8) -> bool {
         (self.0 & other) == other
     }

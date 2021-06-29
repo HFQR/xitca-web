@@ -136,12 +136,12 @@ where
 
     /// Return true when write is blocked and need wait.
     /// Return false when write is finished.(Did not blocked)
+    #[inline]
     fn try_write(&mut self) -> Result<bool, Error> {
         self.write_buf.try_write_io(self.io)
     }
 
     /// Block task and read.
-    #[inline(always)]
     async fn read(&mut self) -> Result<(), Error> {
         let _ = self.io.ready(Interest::READABLE).await?;
         self.try_read()
@@ -158,7 +158,6 @@ where
 
     /// A specialized readable check that always pending when read buffer is full.
     /// This is a hack for tokio::select macro.
-    #[inline(always)]
     async fn readable(&self) -> Result<(), Error> {
         if self.read_buf.backpressure() {
             never().await
@@ -170,7 +169,6 @@ where
 
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for tokio::select macro.
-    #[inline(always)]
     async fn writable(&self) -> Result<(), Error> {
         if self.write_buf.empty() {
             never().await

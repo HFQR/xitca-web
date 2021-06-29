@@ -175,36 +175,35 @@ pub struct TransferDecoding {
 }
 
 impl TransferDecoding {
-    #[inline(always)]
+    #[inline]
     pub const fn length(x: u64) -> TransferDecoding {
         TransferDecoding { kind: Kind::Length(x) }
     }
 
-    #[inline(always)]
+    #[inline]
     pub const fn chunked() -> TransferDecoding {
         TransferDecoding {
             kind: Kind::DecodeChunked(ChunkedState::Size, 0),
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub const fn plain_chunked() -> TransferDecoding {
         TransferDecoding {
             kind: Kind::PlainChunked,
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub const fn eof() -> TransferDecoding {
         TransferDecoding { kind: Kind::Eof }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn is_eof(&self) -> bool {
         matches!(self.kind, Kind::Eof)
     }
 
-    #[inline(always)]
     pub fn reset(&mut self, other: Self) -> Result<(), ProtoError> {
         match (&self.kind, &other.kind) {
             (Kind::DecodeChunked(..), Kind::Length(..)) | (Kind::Length(..), Kind::DecodeChunked(..)) => {

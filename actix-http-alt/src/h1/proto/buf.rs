@@ -1,6 +1,3 @@
-//! Copied from `hyper::proto::h1::io`.
-//! A write buffer that use vectored buf list.
-
 use std::{
     fmt,
     io::{self, Write},
@@ -22,17 +19,17 @@ impl<const READ_BUF_LIMIT: usize> ReadBuf<READ_BUF_LIMIT> {
         Self { buf: BytesMut::new() }
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) fn len(&self) -> usize {
         self.buf.len()
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) fn backpressure(&self) -> bool {
         self.buf.len() >= READ_BUF_LIMIT
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) fn buf_mut(&mut self) -> &mut BytesMut {
         &mut self.buf
     }
@@ -40,12 +37,12 @@ impl<const READ_BUF_LIMIT: usize> ReadBuf<READ_BUF_LIMIT> {
 
 /// Trait to generic over different types of write buffer strategy.
 pub(super) trait WriteBuf<const WRITE_BUF_LIMIT: usize> {
-    #[inline(always)]
+    #[inline]
     fn backpressure(&self) -> bool {
         self.len() >= WRITE_BUF_LIMIT
     }
 
-    #[inline(always)]
+    #[inline]
     fn empty(&self) -> bool {
         self.len() == 0
     }
@@ -88,10 +85,12 @@ impl DerefMut for FlatWriteBuf {
 }
 
 impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
+    #[inline]
     fn len(&self) -> usize {
         self.remaining()
     }
 
+    #[inline]
     fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
@@ -99,10 +98,12 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
         func(&mut *self)
     }
 
+    #[inline]
     fn write_static(&mut self, bytes: &'static [u8]) {
         self.put_slice(bytes);
     }
 
+    #[inline]
     fn write_buf(&mut self, bytes: Bytes) {
         self.put_slice(bytes.as_ref());
     }
@@ -210,7 +211,6 @@ impl<B: Buf> Buf for EncodedBuf<B> {
 }
 
 impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<EncodedBuf<Bytes>> {
-    #[inline(always)]
     fn len(&self) -> usize {
         // When buffering buf must be empty.
         // (Whoever write into it must split it afterwards)
@@ -218,7 +218,6 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
         self.list.remaining()
     }
 
-    #[inline(always)]
     fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
@@ -230,24 +229,22 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
         Ok(res)
     }
 
-    #[inline(always)]
+    #[inline]
     fn write_static(&mut self, bytes: &'static [u8]) {
         self.buffer(EncodedBuf::Static(bytes));
     }
 
-    #[inline(always)]
+    #[inline]
     fn write_buf(&mut self, bytes: Bytes) {
         self.buffer(EncodedBuf::Buf(bytes));
     }
 
-    #[inline(always)]
     fn write_eof(&mut self, bytes: Bytes) {
         self.buffer(EncodedBuf::Buf(Bytes::from(format!("{:X}\r\n", bytes.len()))));
         self.buffer(EncodedBuf::Buf(bytes));
         self.buffer(EncodedBuf::Static(b"\r\n"));
     }
 
-    #[inline(always)]
     fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error> {
         let queue = &mut self.list;
         while queue.remaining() > 0 {

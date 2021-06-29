@@ -20,6 +20,7 @@ use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
 impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
+    #[inline]
     pub(super) fn encode_continue<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W)
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
@@ -28,6 +29,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
 
+    #[inline]
     pub(super) fn encode_head<W, const WRITE_BUF_LIMIT: usize>(
         &mut self,
         parts: Parts,
@@ -202,26 +204,26 @@ pub(super) struct TransferEncoding {
 }
 
 impl TransferEncoding {
-    #[inline(always)]
+    #[inline]
     pub(super) const fn eof() -> TransferEncoding {
         TransferEncoding { kind: Kind::Eof }
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) const fn chunked() -> TransferEncoding {
         TransferEncoding {
             kind: Kind::EncodeChunked(false),
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) const fn plain_chunked() -> TransferEncoding {
         TransferEncoding {
             kind: Kind::PlainChunked,
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub(super) const fn length(len: u64) -> TransferEncoding {
         TransferEncoding {
             kind: Kind::Length(len),
@@ -229,7 +231,6 @@ impl TransferEncoding {
     }
 
     /// Encode message. Return `EOF` state of encoder
-    #[inline(always)]
     pub(super) fn encode<W, const WRITE_BUF_LIMIT: usize>(&mut self, mut bytes: Bytes, buf: &mut W) -> io::Result<bool>
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
@@ -274,7 +275,6 @@ impl TransferEncoding {
     }
 
     /// Encode eof. Return `EOF` state of encoder
-    #[inline(always)]
     pub(super) fn encode_eof<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W) -> io::Result<()>
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
