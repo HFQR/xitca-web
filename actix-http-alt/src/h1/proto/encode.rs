@@ -42,6 +42,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         buf.write_head(|buf| self.encode_head_inner(parts, size, buf))
     }
 
+    #[inline]
     fn encode_head_inner(
         &mut self,
         mut parts: Parts,
@@ -146,6 +147,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
     }
 }
 
+#[inline]
 fn encode_version_status_reason<B: BufMut>(buf: &mut B, version: Version, status: StatusCode) {
     // encode version, status code and reason
     match (version, status) {
@@ -178,6 +180,7 @@ impl<B> ResponseBody<B> {
     /// Which means when `Stream::poll_next` returns Some(`Stream::Item`) the encoding
     /// must be able to encode data. And when it returns `None` it must valid to encode
     /// eof which would finish the encoding.
+    #[inline]
     pub(super) fn encoder(&self, ctype: ConnectionType) -> TransferEncoding {
         match *self {
             // None body would return None on first poll of ResponseBody as Stream.
@@ -231,6 +234,7 @@ impl TransferEncoding {
     }
 
     /// Encode message. Return `EOF` state of encoder
+    #[inline]
     pub(super) fn encode<W, const WRITE_BUF_LIMIT: usize>(&mut self, mut bytes: Bytes, buf: &mut W) -> io::Result<bool>
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,

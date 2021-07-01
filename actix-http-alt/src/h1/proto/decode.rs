@@ -13,6 +13,7 @@ use super::error::{Parse, ProtoError};
 
 impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
     // decode head and generate request and body decoder.
+    #[inline]
     pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
@@ -145,6 +146,7 @@ struct HeaderIndex {
 }
 
 impl HeaderIndex {
+    #[inline]
     fn new() -> Self {
         Self {
             name: (0, 0),
@@ -152,6 +154,7 @@ impl HeaderIndex {
         }
     }
 
+    #[inline]
     fn record(bytes: &[u8], headers: &[Header<'_>], indices: &mut [Self]) {
         let bytes_ptr = bytes.as_ptr() as usize;
         for (header, indices) in headers.iter().zip(indices.iter_mut()) {
@@ -218,6 +221,7 @@ impl TransferDecoding {
 }
 
 impl TransferDecoding {
+    #[inline]
     pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
         match self.kind {
             Kind::Length(ref mut remaining) => {

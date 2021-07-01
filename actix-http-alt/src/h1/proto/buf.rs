@@ -116,6 +116,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
         self.put_slice(b"\r\n");
     }
 
+    #[inline]
     fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error> {
         let mut written = 0;
         let len = self.remaining();
@@ -157,6 +158,7 @@ impl<B: Buf> Default for ListWriteBuf<B> {
 }
 
 impl<B: Buf> ListWriteBuf<B> {
+    #[inline]
     pub(super) fn buffer<BB: Buf + Into<B>>(&mut self, buf: BB) {
         debug_assert!(buf.has_remaining());
         self.list.push(buf.into());
@@ -211,6 +213,7 @@ impl<B: Buf> Buf for EncodedBuf<B> {
 }
 
 impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<EncodedBuf<Bytes>> {
+    #[inline]
     fn len(&self) -> usize {
         // When buffering buf must be empty.
         // (Whoever write into it must split it afterwards)
@@ -218,6 +221,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
         self.list.remaining()
     }
 
+    #[inline]
     fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
@@ -245,6 +249,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
         self.buffer(EncodedBuf::Static(b"\r\n"));
     }
 
+    #[inline]
     fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error> {
         let queue = &mut self.list;
         while queue.remaining() > 0 {

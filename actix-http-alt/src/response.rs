@@ -1,4 +1,5 @@
 use std::{
+    convert::Infallible,
     error, fmt,
     io::{self, Write},
 };
@@ -53,8 +54,10 @@ internal_impl!(Box<dyn error::Error>);
 internal_impl!(Box<dyn error::Error + Send>);
 internal_impl!(Box<dyn error::Error + Send + Sync>);
 internal_impl!(io::Error);
+internal_impl!(Infallible);
 
 #[cfg(feature = "http1")]
+#[cold]
 pub(super) fn header_too_large<B>() -> Response<ResponseBody<B>> {
     Response::builder()
         .status(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)

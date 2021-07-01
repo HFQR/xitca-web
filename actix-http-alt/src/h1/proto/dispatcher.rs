@@ -169,6 +169,7 @@ where
 
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for tokio::select macro.
+    #[inline]
     async fn writable(&self) -> Result<(), Error> {
         if self.write_buf.empty() {
             never().await
@@ -312,15 +313,7 @@ where
                         self.response_handler(res_body, encoder, body_handle).await?;
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
-                        // Header is too large to be parsed.
-                        // Close the connection after sending error response as it's pointless
-                        // to read the remaining bytes inside connection.
-                        self.ctx.set_force_close();
-
-                        let (parts, res_body) = response::header_too_large().into_parts();
-
-                        self.encode_head(parts, &res_body)?;
-
+                        self.header_too_large()?;
                         break 'req;
                     }
                     // TODO: handle error that are meant to be a response.
@@ -489,6 +482,18 @@ where
             }
         }
     }
+
+    #[inline(never)]
+    fn header_too_large(&mut self) -> Result<(), Error> {
+        // Header is too large to be parsed.
+        // Close the connection after sending error response as it's pointless
+        // to read the remaining bytes inside connection.
+        self.ctx.set_force_close();
+
+        let (parts, res_body) = response::header_too_large().into_parts();
+
+        self.encode_head(parts, &res_body)
+    }
 }
 
 type DecodedHead<ReqB> = (Request<ReqB>, Option<RequestBodyHandle>);
@@ -499,6 +504,7 @@ struct RequestBodyHandle {
 }
 
 impl RequestBodyHandle {
+    #[inline]
     fn new_pair<ReqB>(decoder: TransferDecoding) -> (Option<Self>, ReqB)
     where
         ReqB: From<RequestBody>,
