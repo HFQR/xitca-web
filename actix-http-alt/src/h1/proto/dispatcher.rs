@@ -5,7 +5,10 @@ use actix_service_alt::Service;
 use bytes::Bytes;
 use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
-use tokio::{io::Interest, pin, select};
+use tokio::{
+    io::{AsyncWrite, Interest},
+    pin, select,
+};
 use tracing::trace;
 
 use crate::body::ResponseBody;
@@ -147,13 +150,19 @@ where
         self.try_read()
     }
 
+    /// Flush io
+    async fn flush(&mut self) -> Result<(), Error> {
+        poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx))
+            .await
+            .map_err(Error::from)
+    }
+
     /// drain write buffer and flush the io.
     async fn drain_write(&mut self) -> Result<(), Error> {
         while self.try_write()? {
             let _ = self.io.ready(Interest::WRITABLE).await?;
         }
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await?;
-        Ok(())
+        self.flush().await
     }
 
     /// A specialized readable check that always pending when read buffer is full.
@@ -174,7 +183,7 @@ where
         if self.write_buf.empty() {
             never().await
         } else {
-            self.io.ready(Interest::WRITABLE).await?;
+            let _ = self.io.ready(Interest::WRITABLE).await?;
             Ok(())
         }
     }
@@ -237,6 +246,12 @@ where
 
         // A future that would never resolve. This is a hack to work with tokio::select macro.
         never().await
+    }
+
+    #[inline(never)]
+    async fn shutdown(&mut self) -> Result<(), Error> {
+        self.drain_write().await?;
+        self.flush().await
     }
 }
 
@@ -315,21 +330,21 @@ where
                 ConnectionType::KeepAlive => {
                     if self.ctx.is_force_close() {
                         trace!(target: "h1_dispatcher", "Connection is keep-alive but meet a force close condition. Shutting down");
-                        return Ok(());
+                        return self.io.shutdown().await;
                     } else {
                         select! {
                             biased;
                             res = self.io.read() => res?,
                             _ = self.timer.as_mut() => {
                                 trace!(target: "h1_dispatcher", "Connection keep-alive timeout. Shutting down");
-                                return Ok(());
+                                return self.io.shutdown().await
                             }
                         }
                     }
                 }
                 ConnectionType::Upgrade | ConnectionType::Close => {
                     trace!(target: "h1_dispatcher", "Connection not keep-alive. Shutting down");
-                    return Ok(());
+                    return self.io.shutdown().await;
                 }
             }
 
@@ -485,6 +500,7 @@ where
         }
     }
 
+    #[cold]
     #[inline(never)]
     fn header_too_large(&mut self) -> Result<(), Error> {
         // Header is too large to be parsed.
