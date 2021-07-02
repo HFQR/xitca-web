@@ -1,4 +1,4 @@
-use http::header::HeaderMap;
+use http::{header::HeaderMap, Extensions};
 
 use crate::util::date::Date;
 
@@ -10,6 +10,7 @@ pub(super) struct Context<'a, const HEADER_LIMIT: usize> {
     ctype: ConnectionType,
     /// header map reused by next request.
     pub(super) header_cache: Option<HeaderMap>,
+    pub(super) extensions: Option<Extensions>,
     /// smart pointer of cached date with 500-millisecond update interval.
     pub(super) date: &'a Date,
 }
@@ -20,6 +21,7 @@ impl<'a, const HEADER_LIMIT: usize> Context<'a, HEADER_LIMIT> {
             state: ContextState::new(),
             ctype: ConnectionType::Init,
             header_cache: None,
+            extensions: None,
             date,
         }
     }

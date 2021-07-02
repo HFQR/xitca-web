@@ -3,7 +3,7 @@ use std::{io, task::Poll};
 use bytes::{Buf, Bytes, BytesMut};
 use http::{
     header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
-    Method, Request, Uri, Version,
+    Extensions, Method, Request, Uri, Version,
 };
 use httparse::{Header, Status, EMPTY_HEADER};
 
@@ -120,10 +120,13 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
                 let mut req = Request::new(());
 
+                let extensions = self.extensions.take().unwrap_or_else(Extensions::new);
+
                 *req.method_mut() = method;
                 *req.version_mut() = version;
                 *req.uri_mut() = uri;
                 *req.headers_mut() = headers;
+                *req.extensions_mut() = extensions;
 
                 Ok(Some((req, decoder)))
             }

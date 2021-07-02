@@ -143,6 +143,10 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         // put header map back to cache.
         self.header_cache = Some(parts.headers);
 
+        // put extension back to cache;
+        parts.extensions.clear();
+        self.extensions = Some(parts.extensions);
+
         Ok(())
     }
 }

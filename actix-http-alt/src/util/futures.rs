@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-#[inline(always)]
+#[inline]
 pub(crate) fn poll_fn<T, F>(f: F) -> PollFn<F>
 where
     F: FnMut(&mut Context<'_>) -> Poll<T>,
@@ -39,7 +39,7 @@ where
 
 #[cfg(feature = "http1")]
 /// An async function that never resolve to the output.
-#[inline(always)]
+#[inline]
 pub(crate) async fn never<T>() -> T {
     poll_fn(|_| Poll::Pending).await
 }

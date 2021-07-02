@@ -180,6 +180,7 @@ where
     }
 
     /// Return Ok when read is done or body handle is dropped by service call.
+    #[inline]
     async fn handle_request_body<const HEADER_LIMIT: usize>(
         &mut self,
         handle: &mut RequestBodyHandle,
@@ -211,6 +212,7 @@ where
 
     /// A ready check version of `Io::handle_request_body`.
     /// This is to avoid borrow self as mut to co-op well with `tokio::select` macro.
+    #[inline]
     async fn request_body_ready<const HEADER_LIMIT: usize>(
         &self,
         body_handle: &mut Option<RequestBodyHandle>,
@@ -293,36 +295,6 @@ where
 
     async fn run(mut self) -> Result<(), Error> {
         loop {
-            'req: while let Some(res) = self.decode_head() {
-                match res {
-                    Ok((req, mut body_handle)) => {
-                        // have new request. update timer deadline.
-                        let now = self.ctx.date.borrow().now() + self.ka_dur;
-                        self.timer.as_mut().update(now);
-
-                        let (parts, res_body) = self
-                            .request_handler(req, &mut body_handle)
-                            .await?
-                            .unwrap_or_else(|ref mut e| ResponseError::response_error(e))
-                            .into_parts();
-
-                        self.encode_head(parts, &res_body)?;
-
-                        let encoder = &mut res_body.encoder(self.ctx.ctype());
-
-                        self.response_handler(res_body, encoder, body_handle).await?;
-                    }
-                    Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
-                        self.header_too_large()?;
-                        break 'req;
-                    }
-                    // TODO: handle error that are meant to be a response.
-                    Err(e) => return Err(e.into()),
-                };
-            }
-
-            self.io.drain_write().await?;
-
             match self.ctx.ctype() {
                 ConnectionType::Init => {
                     if self.ctx.is_force_close() {
@@ -360,6 +332,36 @@ where
                     return Ok(());
                 }
             }
+
+            'req: while let Some(res) = self.decode_head() {
+                match res {
+                    Ok((req, mut body_handle)) => {
+                        // have new request. update timer deadline.
+                        let now = self.ctx.date.borrow().now() + self.ka_dur;
+                        self.timer.as_mut().update(now);
+
+                        let (parts, res_body) = self
+                            .request_handler(req, &mut body_handle)
+                            .await?
+                            .unwrap_or_else(|ref mut e| ResponseError::response_error(e))
+                            .into_parts();
+
+                        self.encode_head(parts, &res_body)?;
+
+                        let encoder = &mut res_body.encoder(self.ctx.ctype());
+
+                        self.response_handler(res_body, encoder, body_handle).await?;
+                    }
+                    Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
+                        self.header_too_large()?;
+                        break 'req;
+                    }
+                    // TODO: handle error that are meant to be a response.
+                    Err(e) => return Err(e.into()),
+                };
+            }
+
+            self.io.drain_write().await?;
         }
     }
 

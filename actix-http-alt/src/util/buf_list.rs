@@ -23,6 +23,11 @@ impl<B: Buf> BufList<B> {
         self.remaining += buf.remaining();
         self.bufs.push_back(buf);
     }
+
+    #[inline]
+    pub(crate) fn cnt(&self) -> usize {
+        self.bufs.len()
+    }
 }
 
 impl<B: Buf> Buf for BufList<B> {
