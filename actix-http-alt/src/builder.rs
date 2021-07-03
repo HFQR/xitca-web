@@ -317,14 +317,14 @@ where
     FA: ServiceFactory<ServerStream, Response = TlsStream, Config = ()>,
     FA::Service: 'static,
 
-    HttpServiceError: From<FU::Error> + From<FA::Error>,
+    HttpServiceError<F::Error>: From<FU::Error> + From<FA::Error>,
 
     ResB: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
 {
     type Response = ();
-    type Error = HttpServiceError;
+    type Error = HttpServiceError<F::Error>;
     type Config = F::Config;
     type Service = HttpService<
         F::Service,

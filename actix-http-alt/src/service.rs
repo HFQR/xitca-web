@@ -72,14 +72,14 @@ where
 
     A: Service<ServerStream, Response = TlsStream> + 'static,
 
-    HttpServiceError: From<U::Error> + From<A::Error>,
+    HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
 {
     type Response = ();
-    type Error = HttpServiceError;
+    type Error = HttpServiceError<S::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

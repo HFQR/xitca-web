@@ -8,20 +8,17 @@ use std::{
 use tracing::error;
 
 use super::protocol::Protocol;
+use super::tls::TlsError;
 
 /// HttpService layer error.
-pub enum HttpServiceError {
+pub enum HttpServiceError<E> {
     Ignored,
     ServiceReady,
+    Service(E),
     Timeout(TimeoutError),
     UnknownProtocol(Protocol),
     Body(BodyError),
-    #[cfg(feature = "openssl")]
-    Openssl(super::tls::openssl::OpensslError),
-    #[cfg(feature = "rustls")]
-    Rustls(super::tls::rustls::RustlsError),
-    #[cfg(feature = "native-tls")]
-    NativeTls(super::tls::native_tls::NativeTlsError),
+    Tls(TlsError),
     #[cfg(feature = "http1")]
     H1(super::h1::Error),
     // Http/2 error happen in HttpService handle.
@@ -32,28 +29,16 @@ pub enum HttpServiceError {
     H3(super::h3::Error),
 }
 
-/// time out error from async task that run for too long.
-#[derive(Debug)]
-pub enum TimeoutError {
-    TlsAccept,
-    #[cfg(feature = "http2")]
-    H2Handshake,
-}
-
-impl Debug for HttpServiceError {
+impl<E: Debug> Debug for HttpServiceError<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Ignored => write!(f, "Error detail is ignored."),
             Self::ServiceReady => write!(f, "Service is not ready"),
+            Self::Service(ref e) => write!(f, "{:?}", e),
             Self::Timeout(ref timeout) => write!(f, "{:?} is timed out", timeout),
             Self::UnknownProtocol(ref protocol) => write!(f, "Protocol: {:?} is not supported", protocol),
             Self::Body(ref e) => write!(f, "{:?}", e),
-            #[cfg(feature = "openssl")]
-            Self::Openssl(ref e) => write!(f, "{:?}", e),
-            #[cfg(feature = "rustls")]
-            Self::Rustls(ref e) => write!(f, "{:?}", e),
-            #[cfg(feature = "native-tls")]
-            Self::NativeTls(ref e) => write!(f, "{:?}", e),
+            Self::Tls(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http1")]
             Self::H1(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http2")]
@@ -64,17 +49,70 @@ impl Debug for HttpServiceError {
     }
 }
 
-impl HttpServiceError {
+impl<E: Debug> HttpServiceError<E> {
     pub fn log(self, target: &str) {
         // TODO: add logging for different error types.
         error!(target = target, ?self);
     }
 }
 
+/// A collection of std error types. Due to actix-http-alt's single thread nature it support
+/// a wider range of [`Error`](std::error::Error) trait object with different bounds.
+pub enum StdError {
+    Std(Box<dyn Error>),
+    StdSend(Box<dyn Error + Send>),
+    StdSendSync(Box<dyn Error + Send + Sync>),
+}
+
+impl From<Box<dyn Error>> for StdError {
+    fn from(e: Box<dyn Error>) -> Self {
+        Self::Std(e)
+    }
+}
+
+impl From<Box<dyn Error + Send>> for StdError {
+    fn from(e: Box<dyn Error + Send>) -> Self {
+        Self::StdSend(e)
+    }
+}
+
+impl From<Box<dyn Error + Send + Sync>> for StdError {
+    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
+        Self::StdSendSync(e)
+    }
+}
+
+impl Debug for StdError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Std(ref e) => write!(f, "{:?}", *e),
+            Self::StdSend(ref e) => write!(f, "{:?}", *e),
+            Self::StdSendSync(ref e) => write!(f, "{:?}", *e),
+        }
+    }
+}
+
+impl Display for StdError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Std(ref e) => write!(f, "{}", *e),
+            Self::StdSend(ref e) => write!(f, "{}", *e),
+            Self::StdSendSync(ref e) => write!(f, "{}", *e),
+        }
+    }
+}
+
+/// time out error from async task that run for too long.
+#[derive(Debug)]
+pub enum TimeoutError {
+    TlsAccept,
+    #[cfg(feature = "http2")]
+    H2Handshake,
+}
+
 /// Request/Response body layer error.
 pub enum BodyError {
-    Std(Box<dyn Error>),
-    StdSendSync(Box<dyn Error + Send + Sync>),
+    Std(StdError),
     Io(io::Error),
 }
 
@@ -82,7 +120,6 @@ impl Debug for BodyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Std(ref e) => write!(f, "{:?}", e),
-            Self::StdSendSync(ref e) => write!(f, "{:?}", e),
             Self::Io(ref e) => write!(f, "{:?}", e),
         }
     }
@@ -92,7 +129,6 @@ impl Display for BodyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Std(ref e) => write!(f, "{}", e),
-            Self::StdSendSync(ref e) => write!(f, "{}", e),
             Self::Io(ref e) => write!(f, "{}", e),
         }
     }
@@ -106,15 +142,12 @@ impl From<io::Error> for BodyError {
     }
 }
 
-impl From<Box<dyn Error>> for BodyError {
-    fn from(e: Box<dyn Error>) -> Self {
-        Self::Std(e)
-    }
-}
-
-impl From<Box<dyn Error + Send + Sync>> for BodyError {
-    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
-        Self::StdSendSync(e)
+impl<E> From<E> for BodyError
+where
+    E: Into<StdError>,
+{
+    fn from(e: E) -> Self {
+        Self::Std(e.into())
     }
 }
 
@@ -124,19 +157,19 @@ impl From<Infallible> for BodyError {
     }
 }
 
-impl From<BodyError> for HttpServiceError {
+impl<E> From<BodyError> for HttpServiceError<E> {
     fn from(e: BodyError) -> Self {
         Self::Body(e)
     }
 }
 
-impl From<()> for HttpServiceError {
+impl<E> From<()> for HttpServiceError<E> {
     fn from(_: ()) -> Self {
         Self::Ignored
     }
 }
 
-impl From<Infallible> for HttpServiceError {
+impl<E> From<Infallible> for HttpServiceError<E> {
     fn from(_: Infallible) -> Self {
         unreachable!("Infallible error should never happen")
     }

@@ -35,7 +35,7 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<Error> for HttpServiceError {
+impl<E> From<Error> for HttpServiceError<E> {
     fn from(e: Error) -> Self {
         Self::H1(e)
     }

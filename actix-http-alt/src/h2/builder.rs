@@ -74,29 +74,6 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
             _body: std::marker::PhantomData,
         }
     }
-
-    #[cfg(feature = "native-tls")]
-    pub fn native_tls(
-        self,
-        acceptor: crate::tls::native_tls::TlsAcceptor,
-    ) -> H2ServiceBuilder<
-        F,
-        FE,
-        FU,
-        crate::tls::native_tls::TlsAcceptorService,
-        HEADER_LIMIT,
-        READ_BUF_LIMIT,
-        WRITE_BUF_LIMIT,
-    > {
-        H2ServiceBuilder {
-            factory: self.factory,
-            expect: self.expect,
-            upgrade: self.upgrade,
-            tls_factory: crate::tls::native_tls::TlsAcceptorService::new(acceptor),
-            config: self.config,
-            _body: std::marker::PhantomData,
-        }
-    }
 }
 
 impl<
@@ -122,7 +99,7 @@ where
 
     FA: ServiceFactory<St, Response = TlsSt, Config = ()>,
     FA::Service: 'static,
-    HttpServiceError: From<FA::Error>,
+    HttpServiceError<F::Error>: From<FA::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -132,7 +109,7 @@ where
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 {
     type Response = ();
-    type Error = HttpServiceError;
+    type Error = HttpServiceError<F::Error>;
     type Config = F::Config;
     type Service = H2Service<F::Service, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type InitError = F::InitError;

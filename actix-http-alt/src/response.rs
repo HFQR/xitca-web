@@ -13,7 +13,7 @@ use super::body::ResponseBody;
 
 /// Helper trait for convert Service::Error type to Service::Response.
 // TODO: Add method to modify status code.
-pub trait ResponseError<Res> {
+pub trait ResponseError<Res>: fmt::Debug {
     fn response_error(&mut self) -> Res;
 }
 

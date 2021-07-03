@@ -39,10 +39,10 @@ where
     St: AsyncRead + AsyncWrite + Unpin,
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 
-    HttpServiceError: From<A::Error>,
+    HttpServiceError<S::Error>: From<A::Error>,
 {
     type Response = ();
-    type Error = HttpServiceError;
+    type Error = HttpServiceError<S::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]

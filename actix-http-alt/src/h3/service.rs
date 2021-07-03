@@ -42,7 +42,7 @@ where
     BodyError: From<E>,
 {
     type Response = ();
-    type Error = HttpServiceError;
+    type Error = HttpServiceError<S::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]

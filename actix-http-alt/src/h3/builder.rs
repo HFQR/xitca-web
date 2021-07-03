@@ -46,7 +46,7 @@ where
     BodyError: From<E>,
 {
     type Response = ();
-    type Error = HttpServiceError;
+    type Error = HttpServiceError<F::Error>;
     type Config = F::Config;
     type Service = H3Service<F::Service>;
     type InitError = F::InitError;

@@ -1,3 +1,5 @@
+pub(crate) use tokio_native_tls::native_tls::{Error as NativeTlsError, TlsAcceptor};
+
 use std::{
     future::Future,
     io,
@@ -13,10 +15,9 @@ use futures_task::noop_waker;
 use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use tokio_util::io::poll_read_buf;
 
-use crate::error::HttpServiceError;
 use crate::protocol::{AsProtocol, Protocol};
 
-pub(crate) use tokio_native_tls::native_tls::{Error as NativeTlsError, TlsAcceptor};
+use super::error::TlsError;
 
 /// A wrapper type for [TlsStream](tokio_native_tls::TlsStream).
 ///
@@ -178,7 +179,7 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
     }
 }
 
-impl From<NativeTlsError> for HttpServiceError {
+impl From<NativeTlsError> for TlsError {
     fn from(e: NativeTlsError) -> Self {
         Self::NativeTls(e)
     }

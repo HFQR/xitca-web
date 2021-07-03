@@ -66,7 +66,7 @@ async fn handler(mut req: WebRequest<'_, &'static str>) -> Result<WebResponse, B
 
     // construct response types.
     let (parts, body) = res.into_parts();
-    let body = body.map_err(|e| BodyError::Std(e.into()));
+    let body = body.map_err(|e| BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
     let body = Box::pin(body) as _;
     let body = ResponseBody::stream(body);
     let res = WebResponse::from_parts(parts, body);

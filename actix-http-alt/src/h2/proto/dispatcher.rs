@@ -121,7 +121,7 @@ where
                         tokio::task::spawn_local(async move {
                             let fut = flow.service.call(req);
                             if let Err(e) = h2_handler(fut, tx, date).await {
-                                HttpServiceError::from(e).log("h2_dispatcher");
+                                HttpServiceError::<()>::from(e).log("h2_dispatcher");
                             }
                         });
                     },

@@ -19,13 +19,13 @@ impl From<BodyError> for Error {
     }
 }
 
-impl From<Error> for HttpServiceError {
+impl<E> From<Error> for HttpServiceError<E> {
     fn from(e: Error) -> Self {
         Self::H2(e)
     }
 }
 
-impl From<::h2::Error> for HttpServiceError {
+impl<E> From<::h2::Error> for HttpServiceError<E> {
     fn from(e: ::h2::Error) -> Self {
         Self::H2(Error::H2(e))
     }
@@ -36,7 +36,7 @@ impl From<::h2::Error> for BodyError {
         if e.is_io() {
             Self::Io(e.into_io().unwrap())
         } else {
-            Self::Std(Box::new(e))
+            BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
         }
     }
 }

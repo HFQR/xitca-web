@@ -28,7 +28,7 @@ impl From<BodyError> for Error {
     }
 }
 
-impl From<Error> for HttpServiceError {
+impl<E> From<Error> for HttpServiceError<E> {
     fn from(e: Error) -> Self {
         Self::H3(e)
     }
@@ -36,6 +36,6 @@ impl From<Error> for HttpServiceError {
 
 impl From<::h3::Error> for BodyError {
     fn from(e: ::h3::Error) -> Self {
-        Self::Std(Box::new(e))
+        BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 }

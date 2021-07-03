@@ -1,3 +1,5 @@
+pub(crate) use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
+
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
@@ -12,14 +14,13 @@ use actix_service_alt::{Service, ServiceFactory};
 use bytes::BufMut;
 use futures_task::noop_waker;
 use openssl_crate::error::{Error, ErrorStack};
-use openssl_crate::ssl::{Error as TlsError, Ssl};
+use openssl_crate::ssl::{self, Ssl};
 use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use tokio_util::io::poll_read_buf;
 
-use crate::error::HttpServiceError;
 use crate::protocol::{AsProtocol, Protocol};
 
-pub(crate) use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
+use super::error::TlsError;
 
 /// A wrapper type for [SslStream](tokio_openssl::SslStream).
 ///
@@ -101,7 +102,7 @@ impl<St: AsyncReadWrite> Service<St> for TlsAcceptorService {
 
 /// Collection of 'openssl' error types.
 pub enum OpensslError {
-    Ssl(TlsError),
+    Tls(ssl::Error),
     Single(Error),
     Stack(ErrorStack),
 }
@@ -109,7 +110,7 @@ pub enum OpensslError {
 impl Debug for OpensslError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Ssl(ref e) => write!(f, "{:?}", e),
+            Self::Tls(ref e) => write!(f, "{:?}", e),
             Self::Single(ref e) => write!(f, "{:?}", e),
             Self::Stack(ref e) => write!(f, "{:?}", e),
         }
@@ -128,9 +129,9 @@ impl From<ErrorStack> for OpensslError {
     }
 }
 
-impl From<TlsError> for OpensslError {
-    fn from(e: TlsError) -> Self {
-        Self::Ssl(e)
+impl From<ssl::Error> for OpensslError {
+    fn from(e: ssl::Error) -> Self {
+        Self::Tls(e)
     }
 }
 
@@ -211,7 +212,7 @@ impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
     }
 }
 
-impl From<OpensslError> for HttpServiceError {
+impl From<OpensslError> for TlsError {
     fn from(e: OpensslError) -> Self {
         Self::Openssl(e)
     }

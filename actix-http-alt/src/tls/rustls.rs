@@ -1,3 +1,5 @@
+pub(crate) type RustlsConfig = Arc<ServerConfig>;
+
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
@@ -19,10 +21,9 @@ use tokio_rustls::{
 };
 use tokio_util::io::poll_read_buf;
 
-use crate::error::HttpServiceError;
 use crate::protocol::{AsProtocol, Protocol};
 
-pub(crate) type RustlsConfig = Arc<ServerConfig>;
+use super::error::TlsError;
 
 /// A wrapper type for [TlsStream](tokio_rustls::TlsStream).
 ///
@@ -201,7 +202,7 @@ impl From<io::Error> for RustlsError {
     }
 }
 
-impl From<RustlsError> for HttpServiceError {
+impl From<RustlsError> for TlsError {
     fn from(e: RustlsError) -> Self {
         Self::Rustls(e)
     }

@@ -130,7 +130,7 @@ where
     FA: ServiceFactory<St, Response = TlsSt, Config = ()>,
     FA::Service: 'static,
 
-    HttpServiceError: From<FU::Error> + From<FA::Error>,
+    HttpServiceError<F::Error>: From<FU::Error> + From<FA::Error>,
 
     ResB: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -140,7 +140,7 @@ where
     TlsSt: AsyncReadWrite,
 {
     type Response = ();
-    type Error = HttpServiceError;
+    type Error = HttpServiceError<F::Error>;
     type Config = F::Config;
     type Service =
         H1Service<F::Service, FE::Service, FU::Service, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;

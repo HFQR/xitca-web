@@ -46,7 +46,7 @@ where
 
     A: Service<St, Response = TlsSt> + 'static,
 
-    HttpServiceError: From<U::Error> + From<A::Error>,
+    HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -56,7 +56,7 @@ where
     TlsSt: AsyncReadWrite,
 {
     type Response = ();
-    type Error = HttpServiceError;
+    type Error = HttpServiceError<S::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

@@ -11,6 +11,10 @@ pub(crate) mod openssl;
 #[cfg(feature = "rustls")]
 pub(crate) mod rustls;
 
+mod error;
+
+pub(crate) use error::TlsError;
+
 use std::{
     future::Future,
     io,
@@ -23,7 +27,6 @@ use actix_service_alt::{Service, ServiceFactory};
 use bytes::BufMut;
 use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 
-use super::error::HttpServiceError;
 use super::protocol::{AsProtocol, Protocol};
 
 /// A NoOp Tls Acceptor pass through input Stream type.
@@ -32,7 +35,7 @@ pub struct NoOpTlsAcceptorService;
 
 impl<St> ServiceFactory<St> for NoOpTlsAcceptorService {
     type Response = St;
-    type Error = HttpServiceError;
+    type Error = TlsError;
     type Config = ();
     type Service = Self;
     type InitError = ();
@@ -45,7 +48,7 @@ impl<St> ServiceFactory<St> for NoOpTlsAcceptorService {
 
 impl<St> Service<St> for NoOpTlsAcceptorService {
     type Response = St;
-    type Error = HttpServiceError;
+    type Error = TlsError;
 
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
@@ -86,7 +89,7 @@ impl Default for TlsAcceptorService {
 
 impl ServiceFactory<ServerStream> for TlsAcceptorService {
     type Response = TlsStream;
-    type Error = HttpServiceError;
+    type Error = TlsError;
     type Config = ();
     type Service = Self;
     type InitError = ();
@@ -100,7 +103,7 @@ impl ServiceFactory<ServerStream> for TlsAcceptorService {
 
 impl Service<ServerStream> for TlsAcceptorService {
     type Response = TlsStream;
-    type Error = HttpServiceError;
+    type Error = TlsError;
 
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
@@ -110,14 +113,15 @@ impl Service<ServerStream> for TlsAcceptorService {
             Self::NoOp(ref tls) => <NoOpTlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx),
             #[cfg(feature = "openssl")]
             Self::OpenSsl(ref tls) => <self::openssl::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
-                .map_err(HttpServiceError::from),
+                .map_err(TlsError::from),
             #[cfg(feature = "rustls")]
-            Self::Rustls(ref tls) => <self::rustls::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
-                .map_err(HttpServiceError::from),
+            Self::Rustls(ref tls) => {
+                <self::rustls::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx).map_err(TlsError::from)
+            }
             #[cfg(feature = "native-tls")]
             Self::NativeTls(ref tls) => {
                 <self::native_tls::TlsAcceptorService as Service<ServerStream>>::poll_ready(tls, cx)
-                    .map_err(HttpServiceError::from)
+                    .map_err(TlsError::from)
             }
         }
     }
