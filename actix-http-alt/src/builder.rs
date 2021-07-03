@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData};
+use std::{fmt, future::Future, marker::PhantomData};
 
 use actix_server_alt::net::Stream as ServerStream;
 use actix_service_alt::ServiceFactory;
@@ -10,7 +10,6 @@ use super::body::{RequestBody, ResponseBody};
 use super::config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT};
 use super::error::{BodyError, HttpServiceError};
 use super::expect::ExpectHandler;
-use super::response::ResponseError;
 use super::service::HttpService;
 use super::tls::{self, TlsStream};
 use super::upgrade::UpgradeHandler;
@@ -302,13 +301,12 @@ impl<F, ResB, E, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: us
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
-    F::Error: ResponseError<F::Response>,
+    F::Error: fmt::Debug,
     F::InitError: From<FE::InitError> + From<FU::InitError> + From<FA::InitError>,
 
     // TODO: use a meaningful config.
     FE: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>, Config = ()>,
     FE::Service: 'static,
-    FE::Error: ResponseError<F::Response>,
 
     // TODO: use a meaningful config.
     FU: ServiceFactory<Request<RequestBody>, Response = (), Config = ()>,
@@ -318,6 +316,7 @@ where
     FA::Service: 'static,
 
     HttpServiceError<F::Error>: From<FU::Error> + From<FA::Error>,
+    F::Error: From<FE::Error>,
 
     ResB: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,

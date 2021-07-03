@@ -19,7 +19,7 @@ use crate::h1::{
     body::{RequestBody, RequestBodySender},
     error::Error,
 };
-use crate::response::{self, ResponseError};
+use crate::response;
 use crate::util::{
     date::Date,
     futures::{never, poll_fn},
@@ -51,18 +51,18 @@ pub(crate) async fn run<
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     flow: &'a HttpFlowInner<S, X, U>,
     date: &'a Date,
-) -> Result<(), Error>
+) -> Result<(), Error<S::Error>>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
-    S::Error: ResponseError<S::Response>,
 
     X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
-    X::Error: ResponseError<S::Response>,
 
     ReqB: From<RequestBody>,
 
     ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
+
+    S::Error: From<X::Error>,
 
     St: AsyncReadWrite,
 {
@@ -119,7 +119,7 @@ where
     W: WriteBuf<WRITE_BUF_LIMIT>,
 {
     /// read until blocked/read backpressure and advance readbuf.
-    fn try_read(&mut self) -> Result<(), Error> {
+    fn try_read<E>(&mut self) -> Result<(), Error<E>> {
         let buf = &mut self.read_buf;
 
         loop {
@@ -140,25 +140,25 @@ where
     /// Return true when write is blocked and need wait.
     /// Return false when write is finished.(Did not blocked)
     #[inline]
-    fn try_write(&mut self) -> Result<bool, Error> {
+    fn try_write<E>(&mut self) -> Result<bool, Error<E>> {
         self.write_buf.try_write_io(self.io)
     }
 
     /// Block task and read.
-    async fn read(&mut self) -> Result<(), Error> {
+    async fn read<E>(&mut self) -> Result<(), Error<E>> {
         let _ = self.io.ready(Interest::READABLE).await?;
         self.try_read()
     }
 
     /// Flush io
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn flush<E>(&mut self) -> Result<(), Error<E>> {
         poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx))
             .await
             .map_err(Error::from)
     }
 
     /// drain write buffer and flush the io.
-    async fn drain_write(&mut self) -> Result<(), Error> {
+    async fn drain_write<E>(&mut self) -> Result<(), Error<E>> {
         while self.try_write()? {
             let _ = self.io.ready(Interest::WRITABLE).await?;
         }
@@ -167,7 +167,7 @@ where
 
     /// A specialized readable check that always pending when read buffer is full.
     /// This is a hack for tokio::select macro.
-    async fn readable(&self) -> Result<(), Error> {
+    async fn readable<E>(&self) -> Result<(), Error<E>> {
         if self.read_buf.backpressure() {
             never().await
         } else {
@@ -179,7 +179,7 @@ where
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for tokio::select macro.
     #[inline]
-    async fn writable(&self) -> Result<(), Error> {
+    async fn writable<E>(&self) -> Result<(), Error<E>> {
         if self.write_buf.empty() {
             never().await
         } else {
@@ -190,11 +190,11 @@ where
 
     /// Return Ok when read is done or body handle is dropped by service call.
     #[inline]
-    async fn handle_request_body<const HEADER_LIMIT: usize>(
+    async fn handle_request_body<E, const HEADER_LIMIT: usize>(
         &mut self,
         handle: &mut RequestBodyHandle,
         ctx: &mut Context<'_, HEADER_LIMIT>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error<E>> {
         while poll_fn(|cx| handle.sender.poll_ready(cx)).await.is_ok() {
             self.readable().await?;
             self.try_read()?;
@@ -222,11 +222,11 @@ where
     /// A ready check version of `Io::handle_request_body`.
     /// This is to avoid borrow self as mut to co-op well with `tokio::select` macro.
     #[inline]
-    async fn request_body_ready<const HEADER_LIMIT: usize>(
+    async fn request_body_ready<E, const HEADER_LIMIT: usize>(
         &self,
         body_handle: &mut Option<RequestBodyHandle>,
         ctx: &mut Context<'_, HEADER_LIMIT>,
-    ) -> Result<RequestBodyHandle, Error> {
+    ) -> Result<RequestBodyHandle, Error<E>> {
         if let Some(handle) = body_handle.as_mut() {
             match poll_fn(|cx| handle.sender.poll_ready(cx)).await {
                 Ok(_) => {
@@ -249,7 +249,7 @@ where
     }
 
     #[inline(never)]
-    async fn shutdown(&mut self) -> Result<(), Error> {
+    async fn shutdown<E>(&mut self) -> Result<(), Error<E>> {
         self.drain_write().await?;
         self.flush().await
     }
@@ -271,15 +271,15 @@ impl<
     > Dispatcher<'a, St, S, ReqB, X, U, W, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
-    S::Error: ResponseError<S::Response>,
 
     X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
-    X::Error: ResponseError<S::Response>,
 
     ReqB: From<RequestBody>,
 
     ResB: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
+
+    S::Error: From<X::Error>,
 
     St: AsyncReadWrite,
     W: WriteBuf<WRITE_BUF_LIMIT>,
@@ -308,7 +308,7 @@ where
         }
     }
 
-    async fn run(mut self) -> Result<(), Error> {
+    async fn run(mut self) -> Result<(), Error<S::Error>> {
         loop {
             match self.ctx.ctype() {
                 ConnectionType::Init => {
@@ -355,11 +355,7 @@ where
                         let now = self.ctx.date.borrow().now() + self.ka_dur;
                         self.timer.as_mut().update(now);
 
-                        let (parts, res_body) = self
-                            .request_handler(req, &mut body_handle)
-                            .await?
-                            .unwrap_or_else(|ref mut e| ResponseError::response_error(e))
-                            .into_parts();
+                        let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
 
                         self.encode_head(parts, &res_body)?;
 
@@ -399,7 +395,7 @@ where
         None
     }
 
-    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error> {
+    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error<S::Error>> {
         self.ctx
             .encode_head(parts, body.size(), &mut self.io.write_buf)
             .map_err(Error::from)
@@ -409,7 +405,7 @@ where
         &mut self,
         mut req: Request<ReqB>,
         body_handle: &mut Option<RequestBodyHandle>,
-    ) -> Result<Result<S::Response, S::Error>, Error> {
+    ) -> Result<S::Response, Error<S::Error>> {
         if self.ctx.is_expect_header() {
             match self.flow.expect.call(req).await {
                 Ok(expect_res) => {
@@ -422,7 +418,7 @@ where
 
                     req = expect_res;
                 }
-                Err(ref mut e) => return Ok(Ok(ResponseError::response_error(e))),
+                Err(e) => return Err(Error::Service(e.into())),
             }
         };
 
@@ -433,7 +429,7 @@ where
         if let Some(handle) = body_handle {
             select! {
                 biased;
-                res = fut.as_mut() => return Ok(res),
+                res = fut.as_mut() => return res.map_err(Error::Service),
                 res = self.io.handle_request_body(handle, &mut self.ctx) => {
                     // request body read is done or dropped. remove body_handle.
                     res?;
@@ -442,9 +438,7 @@ where
             }
         }
 
-        let res = fut.await;
-
-        Ok(res)
+        fut.await.map_err(Error::Service)
     }
 
     async fn response_handler(
@@ -452,7 +446,7 @@ where
         body: ResponseBody<ResB>,
         encoder: &mut TransferEncoding,
         mut body_handle: Option<RequestBodyHandle>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error<S::Error>> {
         pin!(body);
 
         'res: loop {
@@ -502,7 +496,7 @@ where
 
     #[cold]
     #[inline(never)]
-    fn header_too_large(&mut self) -> Result<(), Error> {
+    fn header_too_large(&mut self) -> Result<(), Error<S::Error>> {
         // Header is too large to be parsed.
         // Close the connection after sending error response as it's pointless
         // to read the remaining bytes inside connection.

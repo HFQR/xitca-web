@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     future::Future,
     marker::PhantomData,
     task::{Context, Poll},
@@ -16,7 +17,6 @@ use super::config::HttpServiceConfig;
 use super::error::{BodyError, HttpServiceError, TimeoutError};
 use super::flow::HttpFlow;
 use super::protocol::AsProtocol;
-use super::response::ResponseError;
 use super::tls::TlsStream;
 use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
 
@@ -63,16 +63,13 @@ impl<S, X, U, B, E, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
     Service<ServerStream> for HttpService<S, RequestBody, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
-    S::Error: ResponseError<S::Response>,
-
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
-    X::Error: ResponseError<S::Response>,
-
     U: Service<Request<RequestBody>, Response = ()> + 'static,
-
     A: Service<ServerStream, Response = TlsStream> + 'static,
 
     HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
+
+    S::Error: fmt::Debug + From<X::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,

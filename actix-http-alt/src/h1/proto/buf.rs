@@ -55,7 +55,7 @@ pub(super) trait WriteBuf<const WRITE_BUF_LIMIT: usize> {
 
     fn write_eof(&mut self, bytes: Bytes);
 
-    fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error>;
+    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<bool, Error<E>>;
 }
 
 pub(super) struct FlatWriteBuf(BytesMut);
@@ -118,7 +118,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
     }
 
     #[inline]
-    fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error> {
+    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<bool, Error<E>> {
         let mut written = 0;
         let len = self.remaining();
 
@@ -263,7 +263,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
     }
 
     #[inline]
-    fn try_write_io<Io: AsyncReadWrite>(&mut self, io: &mut Io) -> Result<bool, Error> {
+    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<bool, Error<E>> {
         let queue = &mut self.list;
         while queue.remaining() > 0 {
             let mut iovs = [io::IoSlice::new(&[]); BUF_LIST_CNT];

@@ -12,7 +12,6 @@ use tokio::{pin, select};
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError, TimeoutError};
-use crate::response::ResponseError;
 use crate::service::HttpService;
 use crate::util::keep_alive::KeepAlive;
 
@@ -37,15 +36,11 @@ impl<
     > Service<St> for H1Service<S, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
-    S::Error: ResponseError<S::Response>,
-
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
-    X::Error: ResponseError<S::Response>,
-
     U: Service<Request<RequestBody>, Response = ()> + 'static,
-
     A: Service<St, Response = TlsSt> + 'static,
 
+    S::Error: From<X::Error>,
     HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,

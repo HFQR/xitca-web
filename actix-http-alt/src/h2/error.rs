@@ -1,27 +1,31 @@
 use crate::error::{BodyError, HttpServiceError};
 
 #[derive(Debug)]
-pub enum Error {
+pub enum Error<E> {
+    Service(E),
     // error from h2 crate.
     H2(::h2::Error),
     Body(BodyError),
 }
 
-impl From<::h2::Error> for Error {
+impl<E> From<::h2::Error> for Error<E> {
     fn from(e: ::h2::Error) -> Self {
         Self::H2(e)
     }
 }
 
-impl From<BodyError> for Error {
+impl<E> From<BodyError> for Error<E> {
     fn from(e: BodyError) -> Self {
         Self::Body(e)
     }
 }
 
-impl<E> From<Error> for HttpServiceError<E> {
-    fn from(e: Error) -> Self {
-        Self::H2(e)
+impl<E> From<Error<E>> for HttpServiceError<E> {
+    fn from(e: Error<E>) -> Self {
+        match e {
+            Error::Service(e) => Self::Service(e),
+            e => Self::H2(e),
+        }
     }
 }
 

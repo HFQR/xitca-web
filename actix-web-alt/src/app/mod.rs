@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use actix_http_alt::{http::Request, RequestBody};
+use actix_http_alt::{http::Request, RequestBody, ResponseError};
 use actix_service_alt::{Service, ServiceFactory};
 use futures_core::future::LocalBoxFuture;
 
@@ -98,6 +98,7 @@ where
         InitError = IntErr,
     >,
     S: for<'r> Service<WebRequest<'r, Fut::Output>, Response = Res, Error = Err> + 'static,
+    Err: ResponseError<Res>,
 {
     type Response = Res;
     type Error = Err;
@@ -126,6 +127,7 @@ impl<State, S, Res, Err> Service<Request<RequestBody>> for AppService<State, S>
 where
     State: 'static,
     S: for<'s> Service<WebRequest<'s, State>, Response = Res, Error = Err> + 'static,
+    Err: ResponseError<Res>,
 {
     type Response = Res;
     type Error = Err;
@@ -139,7 +141,13 @@ where
     fn call(&self, req: Request<RequestBody>) -> Self::Future<'_> {
         async move {
             let req = WebRequest::new(req, &self.state);
-            self.service.call(req).await
+            let res = self
+                .service
+                .call(req)
+                .await
+                .unwrap_or_else(|ref mut e| ResponseError::response_error(e));
+
+            Ok(res)
         }
     }
 }
@@ -148,10 +156,12 @@ where
 mod test {
     use super::*;
 
+    use crate::response::{ResponseBody, WebResponse};
+
     struct TestFactory;
 
-    impl<State: Clone> ServiceFactory<WebRequest<'_, State>> for TestFactory {
-        type Response = State;
+    impl ServiceFactory<WebRequest<'_, String>> for TestFactory {
+        type Response = WebResponse;
         type Error = ();
         type Config = ();
         type Service = TestService;
@@ -165,11 +175,8 @@ mod test {
 
     struct TestService;
 
-    impl<'r, State> Service<WebRequest<'r, State>> for TestService
-    where
-        State: Clone,
-    {
-        type Response = State;
+    impl<'r> Service<WebRequest<'r, String>> for TestService {
+        type Response = WebResponse;
         type Error = ();
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
@@ -177,8 +184,12 @@ mod test {
             Poll::Ready(Ok(()))
         }
 
-        fn call(&self, req: WebRequest<'r, State>) -> Self::Future<'_> {
-            async move { Ok(req.state().clone()) }
+        fn call(&self, req: WebRequest<'r, String>) -> Self::Future<'_> {
+            async move {
+                assert_eq!(req.state(), "state");
+
+                Ok(WebResponse::new(ResponseBody::None))
+            }
         }
     }
 
@@ -191,9 +202,7 @@ mod test {
 
         let req = Request::default();
 
-        let res = service.call(req).await.unwrap();
-
-        assert_eq!(res, "state")
+        let _ = service.call(req).await.unwrap();
     }
 
     // #[tokio::test]

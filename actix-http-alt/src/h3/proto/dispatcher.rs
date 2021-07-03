@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData, rc::Rc};
+use std::{fmt, future::Future, marker::PhantomData, rc::Rc};
 
 use actix_server_alt::net::UdpStream;
 use actix_service_alt::Service;
@@ -15,7 +15,6 @@ use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
 use crate::h3::{body::RequestBody, error::Error};
-use crate::response::ResponseError;
 
 /// Http/3 dispatcher
 pub(crate) struct Dispatcher<'a, S, ReqB, X, U> {
@@ -27,7 +26,7 @@ pub(crate) struct Dispatcher<'a, S, ReqB, X, U> {
 impl<'a, S, ReqB, X, U, B, E> Dispatcher<'a, S, ReqB, X, U>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<B>>> + 'static,
-    S::Error: ResponseError<S::Response>,
+    S::Error: fmt::Debug,
 
     X: 'static,
 
@@ -47,7 +46,7 @@ where
         }
     }
 
-    pub(crate) async fn run(self) -> Result<(), Error> {
+    pub(crate) async fn run(self) -> Result<(), Error<S::Error>> {
         // wait for connecting.
         let conn = self.io.connecting().await?;
 
@@ -77,7 +76,7 @@ where
             tokio::task::spawn_local(async move {
                 let fut = flow.service.call(req);
                 if let Err(e) = h3_handler(fut, stream).await {
-                    HttpServiceError::<()>::from(e).log("h3_dispatcher");
+                    HttpServiceError::from(e).log("h3_dispatcher");
                 }
             });
         }
@@ -86,17 +85,14 @@ where
     }
 }
 
-async fn h3_handler<Fut, C, B, BE, E>(fut: Fut, stream: Rc<LocalMutex<RequestStream<C>>>) -> Result<(), Error>
+async fn h3_handler<Fut, C, B, BE, E>(fut: Fut, stream: Rc<LocalMutex<RequestStream<C>>>) -> Result<(), Error<E>>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
     C: SendStream<Bytes>,
-    E: ResponseError<Response<ResponseBody<B>>>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
-    let res = fut.await.unwrap_or_else(|ref mut e| ResponseError::response_error(e));
-
-    let (res, body) = res.into_parts();
+    let (res, body) = fut.await.map_err(Error::Service)?.into_parts();
     let res = Response::from_parts(res, ());
 
     stream.lock().await.send_response(res).await?;

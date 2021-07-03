@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     future::Future,
     task::{Context, Poll},
 };
@@ -13,7 +14,6 @@ use super::proto::Dispatcher;
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
-use crate::response::ResponseError;
 
 use super::body::RequestBody;
 
@@ -34,8 +34,7 @@ impl<S> H3Service<S> {
 impl<S, B, E> Service<UdpStream> for H3Service<S>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
-
-    S::Error: ResponseError<S::Response>,
+    S::Error: fmt::Debug,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,

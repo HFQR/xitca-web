@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     future::Future,
     task::{Context, Poll},
 };
@@ -14,7 +15,6 @@ use tokio::{
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError, TimeoutError};
-use crate::response::ResponseError;
 use crate::service::HttpService;
 use crate::util::keep_alive::KeepAlive;
 
@@ -28,9 +28,9 @@ impl<St, S, B, E, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usi
     Service<St> for H2Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
-    A: Service<St, Response = TlsSt> + 'static,
+    S::Error: fmt::Debug,
 
-    S::Error: ResponseError<S::Response>,
+    A: Service<St, Response = TlsSt> + 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,

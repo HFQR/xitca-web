@@ -1,6 +1,4 @@
 //! A Http server returns Hello World String as Response from multiple services.
-//!
-//! Every service use a
 
 use std::{convert::Infallible, io};
 

@@ -1,5 +1,5 @@
 use std::{
-    cmp,
+    cmp, fmt,
     future::Future,
     marker::PhantomData,
     pin::Pin,
@@ -28,7 +28,6 @@ use crate::body::{ResponseBody, ResponseBodySize};
 use crate::error::{BodyError, HttpServiceError};
 use crate::flow::HttpFlow;
 use crate::h2::{body::RequestBody, error::Error};
-use crate::response::ResponseError;
 use crate::util::{
     date::{Date, SharedDate},
     futures::poll_fn,
@@ -48,7 +47,7 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X, U> {
 impl<'a, TlsSt, S, ReqB, X, U, B, E> Dispatcher<'a, TlsSt, S, ReqB, X, U>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<B>>> + 'static,
-    S::Error: ResponseError<S::Response>,
+    S::Error: fmt::Debug,
 
     X: 'static,
 
@@ -78,7 +77,7 @@ where
         }
     }
 
-    pub(crate) async fn run(self) -> Result<(), Error> {
+    pub(crate) async fn run(self) -> Result<(), Error<S::Error>> {
         let Self {
             io,
             mut keep_alive,
@@ -121,7 +120,7 @@ where
                         tokio::task::spawn_local(async move {
                             let fut = flow.service.call(req);
                             if let Err(e) = h2_handler(fut, tx, date).await {
-                                HttpServiceError::<()>::from(e).log("h2_dispatcher");
+                                HttpServiceError::from(e).log("h2_dispatcher");
                             }
                         });
                     },
@@ -152,7 +151,7 @@ struct H2PingPong<'a> {
 }
 
 impl Future for H2PingPong<'_> {
-    type Output = Result<(), Error>;
+    type Output = Result<(), ::h2::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -194,18 +193,14 @@ impl Future for H2PingPong<'_> {
     }
 }
 
-async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>, date: SharedDate) -> Result<(), Error>
+async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>, date: SharedDate) -> Result<(), Error<E>>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
-    E: ResponseError<Response<ResponseBody<B>>>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
-    // resolve service call. map error to response.
-    let res = fut.await.unwrap_or_else(|ref mut e| ResponseError::response_error(e));
-
     // split response to header and body.
-    let (res, body) = res.into_parts();
+    let (res, body) = fut.await.map_err(Error::Service)?.into_parts();
     let mut res = Response::from_parts(res, ());
 
     // set response version.

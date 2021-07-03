@@ -4,7 +4,7 @@ use std::{
     io::{self, Write},
 };
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use http::{header, status::StatusCode, Response};
 
 use super::util::writer::Writer;
@@ -27,6 +27,18 @@ where
 }
 
 // implement ResponseError for common error types.
+impl<B> ResponseError<Response<ResponseBody<B>>> for () {
+    fn response_error(&mut self) -> Response<ResponseBody<B>> {
+        Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .header(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("text/plain; charset=utf-8"),
+            )
+            .body(Bytes::new().into())
+            .unwrap()
+    }
+}
 
 macro_rules! internal_impl {
     ($ty: ty) => {

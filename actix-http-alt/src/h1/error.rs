@@ -1,31 +1,43 @@
-use std::io;
+use std::{fmt, io};
 
 use super::proto::ProtoError;
 
 use crate::error::{BodyError, HttpServiceError};
 
-#[derive(Debug)]
-pub enum Error {
+pub enum Error<E> {
     /// Closed error should be treated as success and transform to Ok(())
     Closed,
+    Service(E),
     Body(BodyError),
     Io(io::Error),
     Proto(ProtoError),
 }
 
-impl From<BodyError> for Error {
+impl<E: fmt::Debug> fmt::Debug for Error<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Closed => write!(f, "Closed"),
+            Self::Service(ref e) => write!(f, "{:?}", e),
+            Self::Body(ref e) => write!(f, "{:?}", e),
+            Self::Io(ref e) => write!(f, "{:?}", e),
+            Self::Proto(ref e) => write!(f, "{:?}", e),
+        }
+    }
+}
+
+impl<E> From<BodyError> for Error<E> {
     fn from(e: BodyError) -> Self {
         Self::Body(e)
     }
 }
 
-impl From<ProtoError> for Error {
+impl<E> From<ProtoError> for Error<E> {
     fn from(e: ProtoError) -> Self {
         Self::Proto(e)
     }
 }
 
-impl From<io::Error> for Error {
+impl<E> From<io::Error> for Error<E> {
     fn from(e: io::Error) -> Self {
         match e.kind() {
             io::ErrorKind::ConnectionReset => Self::Closed,
@@ -35,8 +47,11 @@ impl From<io::Error> for Error {
     }
 }
 
-impl<E> From<Error> for HttpServiceError<E> {
-    fn from(e: Error) -> Self {
-        Self::H1(e)
+impl<E> From<Error<E>> for HttpServiceError<E> {
+    fn from(e: Error<E>) -> Self {
+        match e {
+            Error::Service(e) => HttpServiceError::Service(e),
+            e => Self::H1(e),
+        }
     }
 }

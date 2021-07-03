@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{fmt, future::Future};
 
 use actix_service_alt::ServiceFactory;
 use bytes::Bytes;
@@ -9,7 +9,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::body::ResponseBody;
 use crate::builder::HttpServiceBuilder;
 use crate::error::{BodyError, HttpServiceError};
-use crate::response::ResponseError;
 
 use super::body::RequestBody;
 use super::service::H2Service;
@@ -92,9 +91,7 @@ impl<
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
-
-    F::Error: ResponseError<F::Response>,
-
+    F::Error: fmt::Debug,
     F::InitError: From<FA::InitError>,
 
     FA: ServiceFactory<St, Response = TlsSt, Config = ()>,

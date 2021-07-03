@@ -20,13 +20,13 @@ pub enum HttpServiceError<E> {
     Body(BodyError),
     Tls(TlsError),
     #[cfg(feature = "http1")]
-    H1(super::h1::Error),
+    H1(super::h1::Error<E>),
     // Http/2 error happen in HttpService handle.
     #[cfg(feature = "http2")]
-    H2(super::h2::Error),
+    H2(super::h2::Error<E>),
     // Http/3 error happen in HttpService handle.
     #[cfg(feature = "http3")]
-    H3(super::h3::Error),
+    H3(super::h3::Error<E>),
 }
 
 impl<E: Debug> Debug for HttpServiceError<E> {

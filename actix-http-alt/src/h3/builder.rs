@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{fmt, future::Future};
 
 use actix_server_alt::net::UdpStream;
 use actix_service_alt::ServiceFactory;
@@ -8,7 +8,6 @@ use http::{Request, Response};
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError};
-use crate::response::ResponseError;
 
 use super::body::RequestBody;
 use super::service::H3Service;
@@ -38,8 +37,7 @@ impl<F, B, E> ServiceFactory<UdpStream> for H3ServiceBuilder<F>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
-
-    F::Error: ResponseError<F::Response>,
+    F::Error: fmt::Debug,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,

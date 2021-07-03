@@ -9,7 +9,6 @@ use http::{Request, Response};
 use crate::body::ResponseBody;
 use crate::builder::HttpServiceBuilder;
 use crate::error::{BodyError, HttpServiceError};
-use crate::response::ResponseError;
 
 use super::body::RequestBody;
 use super::service::H1Service;
@@ -115,13 +114,11 @@ impl<
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
-    F::Error: ResponseError<F::Response>,
     F::InitError: From<FE::InitError> + From<FU::InitError> + From<FA::InitError>,
 
     // TODO: use a meaningful config.
     FE: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>, Config = ()>,
     FE::Service: 'static,
-    FE::Error: ResponseError<F::Response>,
 
     // TODO: use a meaningful config.
     FU: ServiceFactory<Request<RequestBody>, Response = (), Config = ()>,
@@ -131,6 +128,7 @@ where
     FA::Service: 'static,
 
     HttpServiceError<F::Error>: From<FU::Error> + From<FA::Error>,
+    F::Error: From<FE::Error>,
 
     ResB: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
