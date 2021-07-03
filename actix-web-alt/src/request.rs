@@ -1,6 +1,14 @@
-use std::cell::{Ref, RefCell, RefMut};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    mem,
+};
 
-use actix_http_alt::{http::Request, RequestBody};
+use actix_http_alt::{
+    http::{request::Parts, Request},
+    RequestBody, ResponseBody,
+};
+
+use super::response::WebResponse;
 
 pub struct WebRequest<'a, D> {
     pub(crate) http: RefCell<Request<RequestBody>>,
@@ -48,5 +56,25 @@ impl<'a, D> WebRequest<'a, D> {
     #[inline]
     pub fn state(&self) -> &D {
         self.state
+    }
+
+    /// Transform self to a WebResponse with given body type.
+    ///
+    /// The heap allocation of request would be re-used.
+    pub fn into_response<B: Into<ResponseBody>>(mut self, body: B) -> WebResponse {
+        let Parts {
+            mut headers,
+            mut extensions,
+            ..
+        } = mem::take(self.request_mut()).into_parts().0;
+
+        headers.clear();
+        extensions.clear();
+
+        let mut res = WebResponse::new(body.into());
+        *res.headers_mut() = headers;
+        *res.extensions_mut() = extensions;
+
+        res
     }
 }

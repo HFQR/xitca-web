@@ -67,7 +67,7 @@ impl Debug for HttpServiceError {
 impl HttpServiceError {
     pub fn log(self, target: &str) {
         // TODO: add logging for different error types.
-        error!(target = target, "{:?}", self);
+        error!(target = target, ?self);
     }
 }
 

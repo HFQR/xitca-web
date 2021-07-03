@@ -4,6 +4,7 @@ use actix_http_alt::http::Response;
 
 use super::request::WebRequest;
 
+// TODO: add app state to response type.
 pub type WebResponse = Response<ResponseBody>;
 
 pub trait Responder<D>: Sized {

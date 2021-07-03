@@ -2,7 +2,7 @@
 //!
 //! Every service use a
 
-use std::io;
+use std::{convert::Infallible, io};
 
 use actix_http_alt::{
     h1, h2, h3,
@@ -56,14 +56,14 @@ async fn main() -> io::Result<()> {
         .await
 }
 
-async fn handler_h1(_: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
-    let res = Response::builder()
+async fn handler_h1(_: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Infallible> {
+    Ok(Response::builder()
         .header(
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("text/plain; charset=utf-8"),
         )
-        .body(Bytes::from_static(b"Hello World from Http/1!").into())?;
-    Ok(res)
+        .body(Bytes::from_static(b"Hello World from Http/1!").into())
+        .unwrap())
 }
 
 async fn handler_h2(_: Request<h2::RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
