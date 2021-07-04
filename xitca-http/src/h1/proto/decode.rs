@@ -51,7 +51,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                 let slice = buf.split_to(len).freeze();
 
                 // pop a cached headermap or construct a new one.
-                let mut headers = self.header_cache.take().unwrap_or_else(HeaderMap::new);
+                let mut headers = self.header.take().unwrap_or_else(HeaderMap::new);
                 headers.reserve(headers_len);
 
                 let mut decoder = TransferDecoding::eof();
@@ -64,12 +64,12 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                     match name {
                         TRANSFER_ENCODING => {
                             if version != Version::HTTP_11 {
-                                return Err(ProtoError::Parse(Parse::Header));
+                                return Err(ProtoError::Parse(Parse::HeaderName));
                             }
 
                             let chunked = value
                                 .to_str()
-                                .map_err(|_| ProtoError::Parse(Parse::Header))?
+                                .map_err(|_| ProtoError::Parse(Parse::HeaderName))?
                                 .trim()
                                 .eq_ignore_ascii_case("chunked");
 
@@ -80,9 +80,9 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                         CONTENT_LENGTH => {
                             let len = value
                                 .to_str()
-                                .map_err(|_| ProtoError::Parse(Parse::Header))?
+                                .map_err(|_| ProtoError::Parse(Parse::HeaderName))?
                                 .parse::<u64>()
-                                .map_err(|_| ProtoError::Parse(Parse::Header))?;
+                                .map_err(|_| ProtoError::Parse(Parse::HeaderName))?;
 
                             if len != 0 {
                                 decoder.reset(TransferDecoding::length(len))?;
@@ -213,7 +213,7 @@ impl TransferDecoding {
     pub fn reset(&mut self, other: Self) -> Result<(), ProtoError> {
         match (&self.kind, &other.kind) {
             (Kind::DecodeChunked(..), Kind::Length(..)) | (Kind::Length(..), Kind::DecodeChunked(..)) => {
-                Err(ProtoError::Parse(Parse::Header))
+                Err(ProtoError::Parse(Parse::HeaderName))
             }
             _ => {
                 *self = other;

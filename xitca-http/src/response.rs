@@ -55,7 +55,7 @@ macro_rules! internal_impl {
                         header::CONTENT_TYPE,
                         header::HeaderValue::from_static("text/plain; charset=utf-8"),
                     )
-                    .body(bytes.freeze().into())
+                    .body(bytes.into())
                     .unwrap()
             }
         }
@@ -84,9 +84,6 @@ mod h1_impl {
     }
 
     fn status_only<B>(status: StatusCode) -> Response<ResponseBody<B>> {
-        Response::builder()
-            .status(status)
-            .body(bytes::Bytes::new().into())
-            .unwrap()
+        Response::builder().status(status).body(Bytes::new().into()).unwrap()
     }
 }
