@@ -1,3 +1,5 @@
+use httparse::Error as HttparseError;
+
 #[derive(Debug)]
 pub enum ProtoError {
     // crate level parse error.
@@ -11,15 +13,23 @@ pub enum ProtoError {
 /// Failure on parsing.
 #[derive(Debug)]
 pub enum Parse {
-    Header,
+    HeaderName,
+    HeaderValue,
     HeaderTooLarge,
     StatusCode,
-    HeaderValue,
 }
 
-impl From<httparse::Error> for ProtoError {
-    fn from(e: httparse::Error) -> Self {
-        Self::HttpParse(e)
+impl From<HttparseError> for ProtoError {
+    fn from(e: HttparseError) -> Self {
+        match e {
+            // Too many headers would be treated the same as header too large to handle.
+            // This is caused by overflow of HttpServiceConfig's MAX_HEADERS const generic
+            // usize.
+            HttparseError::TooManyHeaders => Self::Parse(Parse::HeaderTooLarge),
+            HttparseError::HeaderName => Self::Parse(Parse::HeaderName),
+            HttparseError::HeaderValue => Self::Parse(Parse::HeaderValue),
+            e => Self::HttpParse(e),
+        }
     }
 }
 

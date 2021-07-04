@@ -9,7 +9,8 @@ pub(super) struct Context<'a, const HEADER_LIMIT: usize> {
     state: ContextState,
     ctype: ConnectionType,
     /// header map reused by next request.
-    pub(super) header_cache: Option<HeaderMap>,
+    pub(super) header: Option<HeaderMap>,
+    /// extension reused by next request.
     pub(super) extensions: Option<Extensions>,
     /// smart pointer of cached date with 500-millisecond update interval.
     pub(super) date: &'a Date,
@@ -20,7 +21,7 @@ impl<'a, const HEADER_LIMIT: usize> Context<'a, HEADER_LIMIT> {
         Self {
             state: ContextState::new(),
             ctype: ConnectionType::Init,
-            header_cache: None,
+            header: None,
             extensions: None,
             date,
         }
