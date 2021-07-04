@@ -66,7 +66,7 @@ where
 
     St: AsyncReadWrite,
 {
-    let is_vectored = if config.http1_pipeline {
+    let is_vectored = if config.force_flat_buf {
         false
     } else {
         io.is_write_vectored()
@@ -364,7 +364,11 @@ where
                         self.response_handler(res_body, encoder, body_handle).await?;
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
-                        self.header_too_large()?;
+                        self.request_error(response::header_too_large)?;
+                        break 'req;
+                    }
+                    Err(ProtoError::Parse(_)) => {
+                        self.request_error(response::bad_request)?;
                         break 'req;
                     }
                     // TODO: handle error that are meant to be a response.
@@ -496,13 +500,16 @@ where
 
     #[cold]
     #[inline(never)]
-    fn header_too_large(&mut self) -> Result<(), Error<S::Error>> {
+    fn request_error<F>(&mut self, func: F) -> Result<(), Error<S::Error>>
+    where
+        F: Fn() -> Response<ResponseBody<ResB>>,
+    {
         // Header is too large to be parsed.
         // Close the connection after sending error response as it's pointless
         // to read the remaining bytes inside connection.
         self.ctx.set_force_close();
 
-        let (parts, res_body) = response::header_too_large().into_parts();
+        let (parts, res_body) = func().into_parts();
 
         self.encode_head(parts, &res_body)
     }

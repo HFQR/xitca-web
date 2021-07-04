@@ -69,10 +69,24 @@ internal_impl!(io::Error);
 internal_impl!(Infallible);
 
 #[cfg(feature = "http1")]
-#[cold]
-pub(super) fn header_too_large<B>() -> Response<ResponseBody<B>> {
-    Response::builder()
-        .status(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
-        .body(bytes::Bytes::new().into())
-        .unwrap()
+pub(super) use h1_impl::*;
+
+#[cfg(feature = "http1")]
+mod h1_impl {
+    use super::*;
+
+    pub fn header_too_large<B>() -> Response<ResponseBody<B>> {
+        status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
+    }
+
+    pub fn bad_request<B>() -> Response<ResponseBody<B>> {
+        status_only(StatusCode::BAD_REQUEST)
+    }
+
+    fn status_only<B>(status: StatusCode) -> Response<ResponseBody<B>> {
+        Response::builder()
+            .status(status)
+            .body(bytes::Bytes::new().into())
+            .unwrap()
+    }
 }

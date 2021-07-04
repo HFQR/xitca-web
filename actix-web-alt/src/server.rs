@@ -97,12 +97,12 @@ where
         self
     }
 
-    /// Enable Http/1 pipeline optimization.
+    /// Enable optimization for small sized http request/response.
     ///
-    /// This is useful when doing benchmark and/or serving large amount of small responses.
-    /// In real world it's recommended to avoid using this API.
-    pub fn enable_http1_pipeline(mut self) -> Self {
-        self.config = self.config.enable_http1_pipeline();
+    /// This would false server to use a flat buffer for read/write.
+    /// It would result in more memory copy.
+    pub fn force_flat_buf(mut self) -> Self {
+        self.config = self.config.force_flat_buf();
         self
     }
 
