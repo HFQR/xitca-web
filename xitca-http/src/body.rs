@@ -4,7 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use futures_core::stream::{LocalBoxStream, Stream};
 use pin_project_lite::pin_project;
 
@@ -141,17 +141,40 @@ where
     }
 }
 
+impl From<StreamBody> for ResponseBody {
+    fn from(stream: StreamBody) -> Self {
+        Self::Stream { stream }
+    }
+}
+
 impl<B> From<Bytes> for ResponseBody<B> {
     fn from(bytes: Bytes) -> Self {
         Self::Bytes { bytes }
     }
 }
 
-impl From<StreamBody> for ResponseBody {
-    fn from(stream: StreamBody) -> Self {
-        Self::Stream { stream }
+impl<B> From<BytesMut> for ResponseBody<B> {
+    fn from(bytes: BytesMut) -> Self {
+        Self::Bytes { bytes: bytes.freeze() }
     }
 }
+
+macro_rules! from_impl {
+    ($ty: ty) => {
+        impl<B> From<$ty> for ResponseBody<B> {
+            fn from(item: $ty) -> Self {
+                Self::Bytes {
+                    bytes: Bytes::from(item),
+                }
+            }
+        }
+    };
+}
+
+from_impl!(&'static [u8]);
+from_impl!(&'static str);
+from_impl!(Vec<u8>);
+from_impl!(String);
 
 /// Body size hint.
 #[derive(Debug, Clone, Copy, PartialEq)]
