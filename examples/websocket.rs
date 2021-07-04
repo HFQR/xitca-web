@@ -1,17 +1,17 @@
 //! A Http/1 server echos back websocket text message and respond to ping message.
 
-use actix_http_alt::{BodyError, ResponseBody};
-use actix_service_alt::fn_service;
-use actix_web_alt::{request::WebRequest, response::WebResponse, App, HttpServer};
 use futures_util::TryStreamExt;
 use http_ws::{ws, Message};
 use tracing::info;
+use xitca_http::{BodyError, ResponseBody};
+use xitca_service::fn_service;
+use xitca_web::{request::WebRequest, response::WebResponse, App, HttpServer};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {
     // use tokio tracing for log.
     tracing_subscriber::fmt()
-        .with_env_filter("actix=trace,[actix_http_alt_logger]=trace,websocket=info")
+        .with_env_filter("xitca=trace,[xitca_http_logger]=trace,websocket=info")
         .init();
 
     // some state shared in http server.

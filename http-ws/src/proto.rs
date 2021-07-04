@@ -313,8 +313,8 @@ mod test {
 
     #[test]
     fn test_hash_key() {
-        let hash = hash_key(b"hello actix-web");
-        assert_eq!(&hash, b"cR1dlyUUJKp0s/Bel25u5TgvC3E=");
+        let hash = hash_key(b"hello xitca-web");
+        assert_eq!(&hash, b"z1coNb4wFSWTJ6aS4TQIOo6b9DA=");
     }
 
     #[test]

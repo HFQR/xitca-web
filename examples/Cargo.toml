@@ -20,10 +20,10 @@ name = "websocket"
 path = "websocket.rs"
 
 [dependencies]
-actix-http-alt = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
-actix-server-alt = { version = "0.1", features = ["http3"] }
-actix-service-alt = "0.1"
-actix-web-alt = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
+xitca-http = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
+xitca-server= { version = "0.1", features = ["http3"] }
+xitca-service = "0.1"
+xitca-web = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
 http-ws = "0.1"
 
 bytes = "1"

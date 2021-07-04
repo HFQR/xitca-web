@@ -2,24 +2,24 @@
 
 use std::{convert::Infallible, io};
 
-use actix_http_alt::{
-    h1, h2, h3,
-    http::{header, Request, Response},
-    util::LoggerFactory,
-    HttpServiceBuilder, ResponseBody,
-};
-use actix_server_alt::net::TcpStream;
-use actix_service_alt::fn_service;
 use bytes::Bytes;
 use h3_quinn::quinn::generic::ServerConfig;
 use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, PrivateKey, ServerConfigBuilder};
 use http::Version;
 use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
+use xitca_http::{
+    h1, h2, h3,
+    http::{header, Request, Response},
+    util::LoggerFactory,
+    HttpServiceBuilder, ResponseBody,
+};
+use xitca_server::net::TcpStream;
+use xitca_service::fn_service;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("actix=info,[actix_http_alt_logger]=trace")
+        .with_env_filter("xitca=info,[xitca_http_logger]=trace")
         .init();
 
     // construct http2 openssl config.
@@ -29,7 +29,7 @@ async fn main() -> io::Result<()> {
     let config = h3_config()?;
 
     // construct server
-    actix_server_alt::Builder::new()
+    xitca_server::Builder::new()
         // bind to a http/1 service.
         .bind::<_, _, _, TcpStream>("http/1", "127.0.0.1:8080", move || {
             let builder = HttpServiceBuilder::h1(fn_service(handler_h1));

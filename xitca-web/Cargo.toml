@@ -1,0 +1,29 @@
+[package]
+name = "xitca-web"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = []
+http2 = ["xitca-http/http2"]
+http3 = ["xitca-http/http3", "xitca-server/http3"]
+openssl = ["xitca-http/openssl", "openssl-crate"]
+rustls = ["xitca-http/rustls", "rustls-crate"]
+
+[dependencies]
+xitca-http = "0.1"
+xitca-server = { version = "0.1" }
+xitca-service = "0.1"
+
+bytes = "1"
+futures-core = "0.3"
+log = "0.4"
+
+# openssl feature
+openssl-crate = { package = "openssl", version = "0.10", optional = true }
+
+# rustls feature
+rustls-crate = { package = "rustls", version = "0.19", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.6", features = ["rt", "macros"] }

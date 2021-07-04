@@ -6,15 +6,15 @@ use std::{
     sync::Arc,
 };
 
-use actix_http_alt::{
+use bytes::Bytes;
+use h3_quinn::quinn::generic::ServerConfig;
+use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, PrivateKey, ServerConfigBuilder};
+use xitca_http::{
     http::{Request, Response},
     util::LoggerFactory,
     HttpServiceBuilder, RequestBody, ResponseBody,
 };
-use actix_service_alt::fn_service;
-use bytes::Bytes;
-use h3_quinn::quinn::generic::ServerConfig;
-use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, PrivateKey, ServerConfigBuilder};
+use xitca_service::fn_service;
 
 use rustls::{
     self,
@@ -24,7 +24,7 @@ use rustls::{
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    tracing_subscriber::fmt().with_env_filter("actix=trace").init();
+    tracing_subscriber::fmt().with_env_filter("xitca=trace").init();
 
     // set up rustls and alpn protocol.
     let acceptor = rustls_config()?;
@@ -33,7 +33,7 @@ async fn main() -> io::Result<()> {
     let config = h3_config()?;
 
     // construct server
-    actix_server_alt::Builder::new()
+    xitca_server::Builder::new()
         // bind to both tcp and udp addresses where a single service would handle http/1/2/3 traffic.
         .bind_all("hello-world", "127.0.0.1:8080", config, move || {
             let builder = HttpServiceBuilder::new(fn_service(handler)).rustls(acceptor.clone());

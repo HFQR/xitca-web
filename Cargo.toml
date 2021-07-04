@@ -1,19 +1,19 @@
 [workspace]
 members = [
-    "actix-http-alt",
-    "actix-server-alt",
-    "actix-service-alt",
-    "actix-web-alt",
+    "xitca-http",
+    "xitca-server",
+    "xitca-service",
+    "xitca-web",
     "examples",
     "http-encoding",
     "http-ws",
 ]
 
 [patch.crates-io]
-actix-http-alt = { path = "./actix-http-alt" }
-actix-server-alt = { path = "./actix-server-alt" }
-actix-service-alt = { path = "./actix-service-alt" }
-actix-web-alt = { path = "./actix-web-alt" }
+xitca-http = { path = "./xitca-http" }
+xitca-server = { path = "./xitca-server" }
+xitca-service = { path = "./xitca-service" }
+xitca-web = { path = "./xitca-web" }
 http-encoding = { path = "./http-encoding" }
 http-ws = { path = "./http-ws" }
 

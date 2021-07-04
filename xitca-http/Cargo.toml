@@ -1,0 +1,56 @@
+[package]
+name = "xitca-http"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = ["http1"]
+http1 = ["httparse", "itoa"]
+http2 = ["h2"]
+http3 = ["xitca-server/http3", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
+openssl = ["futures-task", "openssl-crate", "tokio-openssl", "tokio-util/io"]
+rustls = ["futures-task", "tokio-rustls", "tokio-util/io"]
+native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "tokio-util/io"]
+
+[dependencies]
+xitca-server = { version = "0.1", default-features = false }
+xitca-service = "0.1"
+
+bytes = "1"
+futures-core = "0.3"
+http = "0.2"
+httpdate = "1.0"
+pin-project-lite = "0.2.6"
+tokio = { version = "1.6", features = ["io-util", "macros"] }
+tracing = { version = "0.1.26", default-features = false, features = ["std"] }
+
+# tls support shared
+futures-task = { version = "0.3", default-features = false, optional = true }
+tokio-util = { version = "0.6", optional = true }
+
+# openssl support
+openssl-crate = { package = "openssl", version = "0.10", optional = true }
+tokio-openssl = { version = "0.6.1", optional = true }
+
+# rustls support
+tokio-rustls = { version = "0.22", optional = true }
+
+# native tls support
+native-tls-crate = { package = "native-tls", version = "0.2.7", optional = true }
+tokio-native-tls = { version = "0.3", optional = true }
+
+# http/1 support
+httparse = { version = "1.4", optional = true }
+itoa = { version = "0.4.7", optional = true }
+
+# http/2 support
+h2 = { version = "0.3", optional = true }
+
+# http/3 support
+async-stream = { version = "0.3", optional = true }
+futures-intrusive = { version = "0.4", optional = true }
+h3 = { git = "https://github.com/hyperium/h3.git", optional = true }
+h3-quinn = { git = "https://github.com/hyperium/h3.git", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.6", features = ["macros", "rt"] }
