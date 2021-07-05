@@ -1,9 +1,9 @@
-use std::{io, task::Poll};
+use std::{io, mem, task::Poll};
 
 use bytes::{Buf, Bytes, BytesMut};
 use http::{
     header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
-    Extensions, Method, Request, Uri, Version,
+    Method, Request, Uri, Version,
 };
 use httparse::{Header, Status, EMPTY_HEADER};
 
@@ -120,7 +120,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
                 let mut req = Request::new(());
 
-                let extensions = self.extensions.take().unwrap_or_else(Extensions::new);
+                let extensions = mem::take(&mut self.extensions);
 
                 *req.method_mut() = method;
                 *req.version_mut() = version;

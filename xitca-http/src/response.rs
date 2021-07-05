@@ -42,10 +42,7 @@ impl<B> ResponseError<Response<ResponseBody<B>>> for () {
 
 macro_rules! internal_impl {
     ($ty: ty) => {
-        impl<B> ResponseError<Response<ResponseBody<B>>> for $ty
-        where
-            Self: fmt::Debug + fmt::Display,
-        {
+        impl<B> ResponseError<Response<ResponseBody<B>>> for $ty {
             fn response_error(&mut self) -> Response<ResponseBody<B>> {
                 let mut bytes = BytesMut::new();
                 write!(Writer::new(&mut bytes), "{}", self).unwrap();

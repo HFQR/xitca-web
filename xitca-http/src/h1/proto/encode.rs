@@ -146,7 +146,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
         // put extension back to cache;
         parts.extensions.clear();
-        self.extensions = Some(parts.extensions);
+        self.extensions = parts.extensions;
 
         Ok(())
     }

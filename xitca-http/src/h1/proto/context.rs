@@ -11,18 +11,18 @@ pub(super) struct Context<'a, const HEADER_LIMIT: usize> {
     /// header map reused by next request.
     pub(super) header: Option<HeaderMap>,
     /// extension reused by next request.
-    pub(super) extensions: Option<Extensions>,
+    pub(super) extensions: Extensions,
     /// smart pointer of cached date with 500-millisecond update interval.
     pub(super) date: &'a Date,
 }
 
 impl<'a, const HEADER_LIMIT: usize> Context<'a, HEADER_LIMIT> {
-    pub(super) const fn new(date: &'a Date) -> Self {
+    pub(super) fn new(date: &'a Date) -> Self {
         Self {
             state: ContextState::new(),
             ctype: ConnectionType::Init,
             header: None,
-            extensions: None,
+            extensions: Extensions::default(),
             date,
         }
     }
