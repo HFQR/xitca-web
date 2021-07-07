@@ -32,14 +32,14 @@ async fn main() -> io::Result<()> {
     xitca_server::Builder::new()
         // bind to a http/1 service.
         .bind::<_, _, _, TcpStream>("http/1", "127.0.0.1:8080", move || {
-            let builder = HttpServiceBuilder::h1(fn_service(handler_h1));
-            LoggerFactory::new(builder)
+            HttpServiceBuilder::h1(fn_service(handler_h1)).with_logger()
         })?
         // bind to a http/2 service.
         // *. http/1 and http/2 both use tcp listener so it should be using a separate port.
         .bind::<_, _, _, TcpStream>("http/2", "127.0.0.1:8081", move || {
-            let builder = HttpServiceBuilder::h2(fn_service(handler_h2)).openssl(acceptor.clone());
-            LoggerFactory::new(builder)
+            HttpServiceBuilder::h2(fn_service(handler_h2))
+                .openssl(acceptor.clone())
+                .with_logger()
         })?
         // bind to a http/3 service.
         // *. note the service name must be unique.

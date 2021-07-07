@@ -5,7 +5,6 @@ use futures_core::Stream;
 use xitca_http::{
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::{Request, Response},
-    util::LoggerFactory,
     BodyError, HttpServiceBuilder, RequestBody, ResponseBody, ResponseError,
 };
 use xitca_server::{net::Stream as ServerStream, Builder, ServerFuture};
@@ -192,8 +191,7 @@ where
         let config = self.config;
         self.builder = self.builder.bind::<_, _, _, ServerStream>("xitca-web", addr, move || {
             let factory = factory();
-            let builder = HttpServiceBuilder::with_config(factory, config);
-            LoggerFactory::new(builder)
+            HttpServiceBuilder::with_config(factory, config).with_logger()
         })?;
 
         Ok(self)
@@ -250,8 +248,9 @@ where
 
         self.builder = self.builder.bind::<_, _, _, ServerStream>("xitca-web", addr, move || {
             let factory = factory();
-            let builder = HttpServiceBuilder::with_config(factory, config).openssl(acceptor.clone());
-            LoggerFactory::new(builder)
+            HttpServiceBuilder::with_config(factory, config)
+                .openssl(acceptor.clone())
+                .with_logger()
         })?;
 
         Ok(self)
@@ -288,8 +287,9 @@ where
 
         self.builder = self.builder.bind::<_, _, _, ServerStream>("xitca-web", addr, move || {
             let factory = factory();
-            let builder = HttpServiceBuilder::with_config(factory, service_config).rustls(config.clone());
-            LoggerFactory::new(builder)
+            HttpServiceBuilder::with_config(factory, service_config)
+                .rustls(config.clone())
+                .with_logger()
         })?;
 
         Ok(self)
@@ -314,8 +314,7 @@ where
             .builder
             .bind_unix::<_, _, _, ServerStream>("xitca-web", path, move || {
                 let factory = factory();
-                let builder = HttpServiceBuilder::with_config(factory, config);
-                LoggerFactory::new(builder)
+                HttpServiceBuilder::with_config(factory, config).with_logger()
             })?;
 
         Ok(self)

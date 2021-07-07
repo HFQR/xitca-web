@@ -13,6 +13,7 @@ use super::expect::ExpectHandler;
 use super::service::HttpService;
 use super::tls::{self, TlsStream};
 use super::upgrade::UpgradeHandler;
+use super::util::LoggerFactory;
 
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
@@ -216,6 +217,10 @@ impl<F, ReqB, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize
             config: self.config,
             _body: PhantomData,
         }
+    }
+
+    pub fn with_logger(self) -> LoggerFactory<Self> {
+        LoggerFactory::new(self)
     }
 }
 
