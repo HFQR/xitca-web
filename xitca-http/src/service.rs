@@ -8,7 +8,7 @@ use std::{
 use bytes::Bytes;
 use futures_core::{ready, Stream};
 use http::{Request, Response};
-use tokio::{pin, select};
+use tokio::pin;
 use xitca_server::net::Stream as ServerStream;
 use xitca_service::Service;
 
@@ -18,7 +18,7 @@ use super::error::{BodyError, HttpServiceError, TimeoutError};
 use super::flow::HttpFlow;
 use super::protocol::AsProtocol;
 use super::tls::TlsStream;
-use super::util::{date::DateTimeTask, keep_alive::KeepAlive};
+use super::util::{date::DateTimeTask, futures::Timeout, keep_alive::KeepAlive};
 
 /// General purpose http service
 pub struct HttpService<
@@ -114,50 +114,57 @@ where
                 ServerStream::Udp(udp) => {
                     let dispatcher = super::h3::Dispatcher::new(udp, &self.flow);
 
-                    dispatcher.run().await?;
-
-                    Ok(())
+                    dispatcher.run().await.map_err(HttpServiceError::from)
                 }
-                io => select! {
-                    biased;
-                    res = self.tls_acceptor.call(io) => {
-                        #[allow(unused_mut)]
-                        let mut tls_stream = res?;
+                io => {
+                    #[allow(unused_mut)]
+                    let mut tls_stream = self
+                        .tls_acceptor
+                        .call(io)
+                        .timeout(timer.as_mut())
+                        .await
+                        .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-                        let protocol = tls_stream.as_protocol();
+                    let protocol = tls_stream.as_protocol();
 
-                        // update timer to first request timeout.
-                        let request_dur = self.config.first_request_timeout;
-                        let deadline = self.date.get().borrow().now() + request_dur;
-                        timer.as_mut().update(deadline);
+                    // update timer to first request timeout.
+                    let request_dur = self.config.first_request_timeout;
+                    let deadline = self.date.get().borrow().now() + request_dur;
+                    timer.as_mut().update(deadline);
 
-                        match protocol {
-                            #[cfg(feature = "http1")]
-                            super::protocol::Protocol::Http1Tls | super::protocol::Protocol::Http1 => {
-                                super::h1::proto::run(&mut tls_stream, timer.as_mut(), self.config, &*self.flow, self.date.get())
-                                    .await
-                                    .map_err(HttpServiceError::from)
-                            }
-                            #[cfg(feature = "http2")]
-                            super::protocol::Protocol::Http2 => {
-                                select! {
-                                    biased;
-                                    res = ::h2::server::handshake(tls_stream) => {
-                                        let mut conn = res?;
-
-                                        let dispatcher = super::h2::Dispatcher::new(&mut conn, timer.as_mut(), self.config.keep_alive_timeout, &self.flow, self.date.get_shared());
-                                        dispatcher.run().await?;
-
-                                        Ok(())
-                                    }
-                                    _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::H2Handshake))
-                                }
-                            }
-                            protocol => Err(HttpServiceError::UnknownProtocol(protocol))
+                    match protocol {
+                        #[cfg(feature = "http1")]
+                        super::protocol::Protocol::Http1Tls | super::protocol::Protocol::Http1 => {
+                            super::h1::proto::run(
+                                &mut tls_stream,
+                                timer.as_mut(),
+                                self.config,
+                                &*self.flow,
+                                self.date.get(),
+                            )
+                            .await
+                            .map_err(HttpServiceError::from)
                         }
+                        #[cfg(feature = "http2")]
+                        super::protocol::Protocol::Http2 => {
+                            let mut conn = ::h2::server::handshake(tls_stream)
+                                .timeout(timer.as_mut())
+                                .await
+                                .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
+
+                            let dispatcher = super::h2::Dispatcher::new(
+                                &mut conn,
+                                timer.as_mut(),
+                                self.config.keep_alive_timeout,
+                                &self.flow,
+                                self.date.get_shared(),
+                            );
+
+                            dispatcher.run().await.map_err(HttpServiceError::from)
+                        }
+                        protocol => Err(HttpServiceError::UnknownProtocol(protocol)),
                     }
-                    _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::TlsAccept)),
-                },
+                }
             }
         }
     }

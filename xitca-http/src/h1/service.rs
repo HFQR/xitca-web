@@ -6,14 +6,14 @@ use std::{
 use bytes::Bytes;
 use futures_core::{ready, Stream};
 use http::{Request, Response};
-use tokio::{pin, select};
+use tokio::pin;
 use xitca_server::net::AsyncReadWrite;
 use xitca_service::Service;
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError, TimeoutError};
 use crate::service::HttpService;
-use crate::util::keep_alive::KeepAlive;
+use crate::util::{futures::Timeout, keep_alive::KeepAlive};
 
 use super::body::RequestBody;
 use super::proto;
@@ -84,22 +84,21 @@ where
             let timer = KeepAlive::new(deadline);
             pin!(timer);
 
-            select! {
-                biased;
-                res = self.tls_acceptor.call(io) => {
-                    let mut io = res?;
+            let mut io = self
+                .tls_acceptor
+                .call(io)
+                .timeout(timer.as_mut())
+                .await
+                .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-                    // update timer to first request duration.
-                    let request_dur = self.config.first_request_timeout;
-                    let deadline = self.date.get().borrow().now() + request_dur;
-                    timer.as_mut().update(deadline);
+            // update timer to first request duration.
+            let request_dur = self.config.first_request_timeout;
+            let deadline = self.date.get().borrow().now() + request_dur;
+            timer.as_mut().update(deadline);
 
-                    proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
-                        .await
-                        .map_err(HttpServiceError::from)
-                }
-                _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::TlsAccept)),
-            }
+            proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
+                .await
+                .map_err(HttpServiceError::from)
         }
     }
 }

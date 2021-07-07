@@ -9,14 +9,14 @@ use futures_core::{ready, Stream};
 use http::{Request, Response};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    pin, select,
+    pin,
 };
 use xitca_service::Service;
 
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError, TimeoutError};
 use crate::service::HttpService;
-use crate::util::keep_alive::KeepAlive;
+use crate::util::{futures::Timeout, keep_alive::KeepAlive};
 
 use super::body::RequestBody;
 use super::proto::Dispatcher;
@@ -66,31 +66,34 @@ where
             let timer = KeepAlive::new(deadline);
             pin!(timer);
 
-            select! {
-                biased;
-                res = self.tls_acceptor.call(io) => {
-                    let tls_stream = res?;
+            let tls_stream = self
+                .tls_acceptor
+                .call(io)
+                .timeout(timer.as_mut())
+                .await
+                .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-                    // update timer to first request timeout.
-                    let request_dur = self.config.first_request_timeout;
-                    let deadline = self.date.get().borrow().now() + request_dur;
-                    timer.as_mut().update(deadline);
+            // update timer to first request timeout.
+            let request_dur = self.config.first_request_timeout;
+            let deadline = self.date.get().borrow().now() + request_dur;
+            timer.as_mut().update(deadline);
 
-                    select! {
-                        biased;
-                        res = ::h2::server::handshake(tls_stream) => {
-                            let mut conn = res?;
+            let mut conn = ::h2::server::handshake(tls_stream)
+                .timeout(timer.as_mut())
+                .await
+                .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
 
-                            let dispatcher = Dispatcher::new(&mut conn, timer.as_mut(), self.config.keep_alive_timeout, &self.flow, self.date.get_shared());
-                            dispatcher.run().await?;
+            let dispatcher = Dispatcher::new(
+                &mut conn,
+                timer.as_mut(),
+                self.config.keep_alive_timeout,
+                &self.flow,
+                self.date.get_shared(),
+            );
 
-                            Ok(())
-                        }
-                        _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::H2Handshake))
-                    }
-                }
-                _ = timer.as_mut() => Err(HttpServiceError::Timeout(TimeoutError::TlsAccept)),
-            }
+            dispatcher.run().await?;
+
+            Ok(())
         }
     }
 }

@@ -22,7 +22,7 @@ use crate::h1::{
 use crate::response;
 use crate::util::{
     date::Date,
-    futures::{never, poll_fn},
+    futures::{never, poll_fn, select2, Select2, Timeout},
     keep_alive::KeepAlive,
 };
 
@@ -317,12 +317,11 @@ where
                         return Ok(());
                     } else {
                         // use timer to detect slow connection.
-                        select! {
-                            biased;
-                            res = self.io.read() => res?,
-                            _ = self.timer.as_mut() => {
+                        match self.io.read().timeout(self.timer.as_mut()).await {
+                            Ok(res) => res?,
+                            Err(_) => {
                                 trace!(target: "h1_dispatcher", "Slow Connection detected. Shutting down");
-                                return Ok(())
+                                return Ok(());
                             }
                         }
                     }
@@ -332,12 +331,11 @@ where
                         trace!(target: "h1_dispatcher", "Connection is keep-alive but meet a force close condition. Shutting down");
                         return self.io.shutdown().await;
                     } else {
-                        select! {
-                            biased;
-                            res = self.io.read() => res?,
-                            _ = self.timer.as_mut() => {
+                        match self.io.read().timeout(self.timer.as_mut()).await {
+                            Ok(res) => res?,
+                            Err(_) => {
                                 trace!(target: "h1_dispatcher", "Connection keep-alive timeout. Shutting down");
-                                return self.io.shutdown().await
+                                return self.io.shutdown().await;
                             }
                         }
                     }
@@ -431,10 +429,9 @@ where
         pin!(fut);
 
         if let Some(handle) = body_handle {
-            select! {
-                biased;
-                res = fut.as_mut() => return res.map_err(Error::Service),
-                res = self.io.handle_request_body(handle, &mut self.ctx) => {
+            match select2(fut.as_mut(), self.io.handle_request_body(handle, &mut self.ctx)).await {
+                Select2::A(res) => return res.map_err(Error::Service),
+                Select2::B(res) => {
                     // request body read is done or dropped. remove body_handle.
                     res?;
                     *body_handle = None;
