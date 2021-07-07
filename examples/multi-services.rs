@@ -1,5 +1,8 @@
 //! A Http server returns Hello World String as Response from multiple services.
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::{convert::Infallible, io};
 
 use bytes::Bytes;

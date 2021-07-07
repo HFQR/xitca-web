@@ -219,6 +219,9 @@ impl<F, ReqB, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize
         }
     }
 
+    /// Finish builder with default logger.
+    ///
+    /// Would consume input.
     pub fn with_logger(self) -> LoggerFactory<Self> {
         LoggerFactory::new(self)
     }

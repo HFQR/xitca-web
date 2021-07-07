@@ -49,14 +49,31 @@ pub(crate) async fn never<T>() -> T {
 }
 
 #[cfg(feature = "http1")]
-#[inline]
-pub(crate) async fn select2<Fut1, Fut2>(fut1: Fut1, fut2: Fut2) -> Select2<Fut1::Output, Fut2::Output>
-where
-    Fut1: Future,
-    Fut2: Future,
-{
+pub(crate) use select::*;
+
+#[cfg(feature = "http1")]
+mod select {
+    use super::*;
+
+    pub(crate) trait Select: Sized {
+        fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>;
+    }
+
+    impl<F> Select for F
+    where
+        F: Future,
+    {
+        #[inline]
+        fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut> {
+            SelectFuture {
+                fut1: self,
+                fut2: other,
+            }
+        }
+    }
+
     pin_project! {
-        struct _Select2<Fut1, Fut2> {
+        pub(crate) struct SelectFuture<Fut1, Fut2> {
             #[pin]
             fut1: Fut1,
             #[pin]
@@ -64,31 +81,28 @@ where
         }
     }
 
-    impl<Fut1, Fut2> Future for _Select2<Fut1, Fut2>
+    impl<Fut1, Fut2> Future for SelectFuture<Fut1, Fut2>
     where
         Fut1: Future,
         Fut2: Future,
     {
-        type Output = Select2<Fut1::Output, Fut2::Output>;
+        type Output = SelectOutput<Fut1::Output, Fut2::Output>;
 
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
             let this = self.project();
 
             if let Poll::Ready(a) = this.fut1.poll(cx) {
-                return Poll::Ready(Select2::A(a));
+                return Poll::Ready(SelectOutput::A(a));
             }
 
-            this.fut2.poll(cx).map(Select2::B)
+            this.fut2.poll(cx).map(SelectOutput::B)
         }
     }
 
-    _Select2 { fut1, fut2 }.await
-}
-
-#[cfg(feature = "http1")]
-pub(crate) enum Select2<A, B> {
-    A(A),
-    B(B),
+    pub(crate) enum SelectOutput<A, B> {
+        A(A),
+        B(B),
+    }
 }
 
 pub(crate) trait Timeout: Sized {

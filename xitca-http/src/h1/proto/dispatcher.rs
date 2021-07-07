@@ -5,7 +5,7 @@ use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use tokio::{
     io::{AsyncWrite, Interest},
-    pin, select,
+    pin,
 };
 use tracing::trace;
 use xitca_server::net::AsyncReadWrite;
@@ -22,7 +22,7 @@ use crate::h1::{
 use crate::response;
 use crate::util::{
     date::Date,
-    futures::{never, poll_fn, select2, Select2, Timeout},
+    futures::{never, poll_fn, Select, SelectOutput, Timeout},
     keep_alive::KeepAlive,
 };
 
@@ -98,8 +98,10 @@ struct Dispatcher<
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
-> {
-    io: Io<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+> where
+    S: Service<Request<ReqB>>,
+{
+    io: Io<'a, St, W, S::Error, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, HEADER_LIMIT>,
@@ -107,19 +109,31 @@ struct Dispatcher<
     _phantom: PhantomData<ReqB>,
 }
 
-struct Io<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+struct Io<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     io: &'a mut St,
     read_buf: ReadBuf<READ_BUF_LIMIT>,
     write_buf: W,
+    _err: PhantomData<E>,
 }
 
-impl<St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Io<'_, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Io<'a, St, W, E, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     St: AsyncReadWrite,
     W: WriteBuf<WRITE_BUF_LIMIT>,
 {
+    #[inline]
+    fn new(io: &'a mut St, write_buf: W) -> Self {
+        Self {
+            io,
+            read_buf: ReadBuf::new(),
+            write_buf,
+            _err: PhantomData,
+        }
+    }
+
     /// read until blocked/read backpressure and advance readbuf.
-    fn try_read<E>(&mut self) -> Result<(), Error<E>> {
+    fn try_read(&mut self) -> Result<(), Error<E>> {
         let buf = &mut self.read_buf;
 
         loop {
@@ -140,25 +154,25 @@ where
     /// Return true when write is blocked and need wait.
     /// Return false when write is finished.(Did not blocked)
     #[inline]
-    fn try_write<E>(&mut self) -> Result<bool, Error<E>> {
+    fn try_write(&mut self) -> Result<bool, Error<E>> {
         self.write_buf.try_write_io(self.io)
     }
 
     /// Block task and read.
-    async fn read<E>(&mut self) -> Result<(), Error<E>> {
+    async fn read(&mut self) -> Result<(), Error<E>> {
         let _ = self.io.ready(Interest::READABLE).await?;
         self.try_read()
     }
 
     /// Flush io
-    async fn flush<E>(&mut self) -> Result<(), Error<E>> {
+    async fn flush(&mut self) -> Result<(), Error<E>> {
         poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx))
             .await
             .map_err(Error::from)
     }
 
     /// drain write buffer and flush the io.
-    async fn drain_write<E>(&mut self) -> Result<(), Error<E>> {
+    async fn drain_write(&mut self) -> Result<(), Error<E>> {
         while self.try_write()? {
             let _ = self.io.ready(Interest::WRITABLE).await?;
         }
@@ -167,7 +181,7 @@ where
 
     /// A specialized readable check that always pending when read buffer is full.
     /// This is a hack for tokio::select macro.
-    async fn readable<E>(&self) -> Result<(), Error<E>> {
+    async fn readable(&self) -> Result<(), Error<E>> {
         if self.read_buf.backpressure() {
             never().await
         } else {
@@ -179,7 +193,7 @@ where
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for tokio::select macro.
     #[inline]
-    async fn writable<E>(&self) -> Result<(), Error<E>> {
+    async fn writable(&self) -> Result<(), Error<E>> {
         if self.write_buf.empty() {
             never().await
         } else {
@@ -190,7 +204,7 @@ where
 
     /// Return Ok when read is done or body handle is dropped by service call.
     #[inline]
-    async fn handle_request_body<E, const HEADER_LIMIT: usize>(
+    async fn handle_request_body<const HEADER_LIMIT: usize>(
         &mut self,
         handle: &mut RequestBodyHandle,
         ctx: &mut Context<'_, HEADER_LIMIT>,
@@ -222,7 +236,7 @@ where
     /// A ready check version of `Io::handle_request_body`.
     /// This is to avoid borrow self as mut to co-op well with `tokio::select` macro.
     #[inline]
-    async fn request_body_ready<E, const HEADER_LIMIT: usize>(
+    async fn request_body_ready<const HEADER_LIMIT: usize>(
         &self,
         body_handle: &mut Option<RequestBodyHandle>,
         ctx: &mut Context<'_, HEADER_LIMIT>,
@@ -249,7 +263,7 @@ where
     }
 
     #[inline(never)]
-    async fn shutdown<E>(&mut self) -> Result<(), Error<E>> {
+    async fn shutdown(&mut self) -> Result<(), Error<E>> {
         self.drain_write().await?;
         self.flush().await
     }
@@ -292,14 +306,8 @@ where
         date: &'a Date,
         write_buf: W,
     ) -> Self {
-        let io = Io {
-            io,
-            read_buf: ReadBuf::new(),
-            write_buf,
-        };
-
         Self {
-            io,
+            io: Io::new(io, write_buf),
             timer,
             ka_dur: config.keep_alive_timeout,
             ctx: Context::new(date),
@@ -429,9 +437,13 @@ where
         pin!(fut);
 
         if let Some(handle) = body_handle {
-            match select2(fut.as_mut(), self.io.handle_request_body(handle, &mut self.ctx)).await {
-                Select2::A(res) => return res.map_err(Error::Service),
-                Select2::B(res) => {
+            match fut
+                .as_mut()
+                .select(self.io.handle_request_body(handle, &mut self.ctx))
+                .await
+            {
+                SelectOutput::A(res) => return res.map_err(Error::Service),
+                SelectOutput::B(res) => {
                     // request body read is done or dropped. remove body_handle.
                     res?;
                     *body_handle = None;
@@ -456,24 +468,27 @@ where
                 self.io.drain_write().await?;
                 trace!(target: "h1_dispatcher", "Write buffer empty. Recover from backpressure.");
             } else {
-                select! {
-                    biased;
-                    res = body.as_mut().next() => match res {
-                        Some(bytes) => {
-                            let bytes = bytes?;
-                            encoder.encode(bytes, &mut self.io.write_buf)?;
-                        },
-                        None => {
-                            encoder.encode_eof(&mut self.io.write_buf)?;
-                            return Ok(())
-                        }
-                    },
-                    res = self.io.writable() => {
+                match body
+                    .as_mut()
+                    .next()
+                    .select(self.io.writable())
+                    .select(self.io.request_body_ready(&mut body_handle, &mut self.ctx))
+                    .await
+                {
+                    SelectOutput::A(SelectOutput::A(Some(bytes))) => {
+                        let bytes = bytes?;
+                        encoder.encode(bytes, &mut self.io.write_buf)?;
+                    }
+                    SelectOutput::A(SelectOutput::A(None)) => {
+                        encoder.encode_eof(&mut self.io.write_buf)?;
+                        return Ok(());
+                    }
+                    SelectOutput::A(SelectOutput::B(res)) => {
                         res?;
                         let _ = self.io.try_write()?;
                         // TODO: add flush?
-                    },
-                    res = self.io.request_body_ready(&mut body_handle, &mut self.ctx) => {
+                    }
+                    SelectOutput::B(res) => {
                         let mut handle = res?;
                         self.io.try_read()?;
 
