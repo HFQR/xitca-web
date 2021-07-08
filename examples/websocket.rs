@@ -30,7 +30,7 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-async fn handler(mut req: WebRequest<'_, &'static str>) -> Result<WebResponse, Box<dyn std::error::Error>> {
+async fn handler(req: &mut WebRequest<'_, &'static str>) -> Result<WebResponse, Box<dyn std::error::Error>> {
     // borrow shared state of App.
     let state = req.state();
     assert_eq!(*state, "app_state");

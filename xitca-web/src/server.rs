@@ -1,11 +1,11 @@
-use std::{net::ToSocketAddrs, time::Duration};
+use std::{fmt, net::ToSocketAddrs, time::Duration};
 
 use bytes::Bytes;
 use futures_core::Stream;
 use xitca_http::{
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::{Request, Response},
-    BodyError, HttpServiceBuilder, RequestBody, ResponseBody, ResponseError,
+    BodyError, HttpServiceBuilder, RequestBody, ResponseBody,
 };
 use xitca_server::{net::Stream as ServerStream, Builder, ServerFuture};
 use xitca_service::ServiceFactory;
@@ -180,7 +180,7 @@ where
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
         I::Service: 'static,
-        I::Error: ResponseError<I::Response>,
+        I::Error: fmt::Debug,
         I::InitError: From<()>,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
@@ -206,7 +206,7 @@ where
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
         I::Service: 'static,
-        I::Error: ResponseError<I::Response>,
+        I::Error: fmt::Debug,
         I::InitError: From<()>,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
@@ -265,7 +265,7 @@ where
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
         I::Service: 'static,
-        I::Error: ResponseError<I::Response>,
+        I::Error: fmt::Debug,
         I::InitError: From<()>,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
@@ -300,7 +300,7 @@ where
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
         I::Service: 'static,
-        I::Error: ResponseError<I::Response>,
+        I::Error: fmt::Debug,
         I::InitError: From<()>,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,

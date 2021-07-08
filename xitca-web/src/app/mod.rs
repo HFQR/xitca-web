@@ -89,16 +89,16 @@ impl<SF, Fut, F, S, Res, Err, Cfg, IntErr> ServiceFactory<Request<RequestBody>> 
 where
     SF: Fn() -> Fut,
     Fut: Future + 'static,
-    F: for<'r> ServiceFactory<
-        WebRequest<'r, Fut::Output>,
+    F: for<'rb, 'r> ServiceFactory<
+        &'rb mut WebRequest<'r, Fut::Output>,
         Service = S,
         Response = Res,
         Error = Err,
         Config = Cfg,
         InitError = IntErr,
     >,
-    S: for<'r> Service<WebRequest<'r, Fut::Output>, Response = Res, Error = Err> + 'static,
-    Err: ResponseError<Res>,
+    S: for<'rb, 'r> Service<&'rb mut WebRequest<'r, Fut::Output>, Response = Res, Error = Err> + 'static,
+    Err: for<'r> ResponseError<WebRequest<'r, Fut::Output>, Res>,
 {
     type Response = Res;
     type Error = Err;
@@ -126,8 +126,8 @@ pub struct AppService<State, S> {
 impl<State, S, Res, Err> Service<Request<RequestBody>> for AppService<State, S>
 where
     State: 'static,
-    S: for<'s> Service<WebRequest<'s, State>, Response = Res, Error = Err> + 'static,
-    Err: ResponseError<Res>,
+    S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err> + 'static,
+    Err: for<'r> ResponseError<WebRequest<'r, State>, Res>,
 {
     type Response = Res;
     type Error = Err;
@@ -140,12 +140,12 @@ where
 
     fn call(&self, req: Request<RequestBody>) -> Self::Future<'_> {
         async move {
-            let req = WebRequest::new(req, &self.state);
+            let mut req = WebRequest::new(req, &self.state);
             let res = self
                 .service
-                .call(req)
+                .call(&mut req)
                 .await
-                .unwrap_or_else(|ref mut e| ResponseError::response_error(e));
+                .unwrap_or_else(|ref mut e| ResponseError::response_error(e, &mut req));
 
             Ok(res)
         }
@@ -160,7 +160,7 @@ mod test {
 
     struct TestFactory;
 
-    impl ServiceFactory<WebRequest<'_, String>> for TestFactory {
+    impl ServiceFactory<&'_ mut WebRequest<'_, String>> for TestFactory {
         type Response = WebResponse;
         type Error = ();
         type Config = ();
@@ -175,7 +175,7 @@ mod test {
 
     struct TestService;
 
-    impl<'r> Service<WebRequest<'r, String>> for TestService {
+    impl<'rb, 'r> Service<&'rb mut WebRequest<'r, String>> for TestService {
         type Response = WebResponse;
         type Error = ();
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
@@ -184,7 +184,7 @@ mod test {
             Poll::Ready(Ok(()))
         }
 
-        fn call(&self, req: WebRequest<'r, String>) -> Self::Future<'_> {
+        fn call(&self, req: &'rb mut WebRequest<'r, String>) -> Self::Future<'_> {
             async move {
                 assert_eq!(req.state(), "state");
 

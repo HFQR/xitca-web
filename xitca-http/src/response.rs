@@ -7,30 +7,24 @@ use std::{
 use bytes::{Bytes, BytesMut};
 use http::{header, status::StatusCode, Response};
 
-use super::util::writer::Writer;
-
 use super::body::ResponseBody;
+use super::util::writer::Writer;
 
 /// Helper trait for convert Service::Error type to Service::Response.
 // TODO: Add method to modify status code.
-pub trait ResponseError<Res>: fmt::Debug {
-    fn response_error(&mut self) -> Res;
-}
-
-impl<R, Res> ResponseError<Res> for Box<R>
-where
-    R: ResponseError<Res> + ?Sized,
-{
-    fn response_error(&mut self) -> Res {
-        R::response_error(&mut **self)
+pub trait ResponseError<Req, Res>: fmt::Debug {
+    fn status_code() -> StatusCode {
+        StatusCode::INTERNAL_SERVER_ERROR
     }
+
+    fn response_error(&mut self, req: &mut Req) -> Res;
 }
 
 // implement ResponseError for common error types.
-impl<B> ResponseError<Response<ResponseBody<B>>> for () {
-    fn response_error(&mut self) -> Response<ResponseBody<B>> {
+impl<B, Req> ResponseError<Req, Response<ResponseBody<B>>> for () {
+    fn response_error(&mut self, _: &mut Req) -> Response<ResponseBody<B>> {
         Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .status(<Self as ResponseError<Req, Response<ResponseBody<B>>>>::status_code())
             .header(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("text/plain; charset=utf-8"),
@@ -42,12 +36,12 @@ impl<B> ResponseError<Response<ResponseBody<B>>> for () {
 
 macro_rules! internal_impl {
     ($ty: ty) => {
-        impl<B> ResponseError<Response<ResponseBody<B>>> for $ty {
-            fn response_error(&mut self) -> Response<ResponseBody<B>> {
+        impl<B, Req> ResponseError<Req, Response<ResponseBody<B>>> for $ty {
+            fn response_error(&mut self, _: &mut Req) -> Response<ResponseBody<B>> {
                 let mut bytes = BytesMut::new();
                 write!(Writer::new(&mut bytes), "{}", self).unwrap();
                 Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .status(<Self as ResponseError<Req, Response<ResponseBody<B>>>>::status_code())
                     .header(
                         header::CONTENT_TYPE,
                         header::HeaderValue::from_static("text/plain; charset=utf-8"),

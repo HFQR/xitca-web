@@ -61,7 +61,15 @@ impl<'a, D> WebRequest<'a, D> {
     /// Transform self to a WebResponse with given body type.
     ///
     /// The heap allocation of request would be re-used.
+    #[inline(always)]
     pub fn into_response<B: Into<ResponseBody>>(mut self, body: B) -> WebResponse {
+        self.as_response(body)
+    }
+
+    /// Transform &mut self to a WebResponse with given body type.
+    ///
+    /// The heap allocation of request would be re-used.
+    pub fn as_response<B: Into<ResponseBody>>(&mut self, body: B) -> WebResponse {
         let Parts {
             mut headers,
             mut extensions,
