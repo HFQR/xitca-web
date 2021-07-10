@@ -10,7 +10,7 @@ use crate::extract::FromRequest;
 use crate::request::WebRequest;
 use crate::response::Responder;
 
-pub trait Handler<State, T, R>: Clone + 'static
+pub trait Handler<T, R>: Clone + 'static
 where
     R: Future,
 {
@@ -22,7 +22,7 @@ where
 pub struct HandlerService<State, F, T, R>
 where
     State: 'static,
-    F: Handler<State, T, R>,
+    F: Handler<T, R>,
     R: Future,
     R::Output: Responder<State>,
 {
@@ -33,7 +33,7 @@ where
 impl<State, F, T, R> Clone for HandlerService<State, F, T, R>
 where
     State: 'static,
-    F: Handler<State, T, R>,
+    F: Handler<T, R>,
     R: Future,
     R::Output: Responder<State>,
 {
@@ -49,7 +49,7 @@ where
 impl<State, F, T, R> HandlerService<State, F, T, R>
 where
     State: 'static,
-    F: Handler<State, T, R>,
+    F: Handler<T, R>,
     R: Future,
     R::Output: Responder<State>,
 {
@@ -61,12 +61,12 @@ where
     }
 }
 
-impl<'rb, 'r, State, F, T, R, Err> ServiceFactory<&'rb mut WebRequest<'r, State>> for HandlerService<State, F, T, R>
+impl<'r, State, F, T, R, Err> ServiceFactory<&'r mut WebRequest<'_, State>> for HandlerService<State, F, T, R>
 where
-    F: Handler<State, T, R>,
+    F: Handler<T, R>,
     R: Future,
     R::Output: Responder<State>,
-    T: FromRequest<'rb, State, Error = Err>,
+    T: FromRequest<'r, State, Error = Err>,
 {
     type Response = R::Output;
     type Error = Err;
@@ -81,12 +81,12 @@ where
     }
 }
 
-impl<'rb, 'r, State, F, T, R, Err> Service<&'rb mut WebRequest<'r, State>> for HandlerService<State, F, T, R>
+impl<'r, 'rb, State, F, T, R, Err> Service<&'r mut WebRequest<'rb, State>> for HandlerService<State, F, T, R>
 where
-    F: Handler<State, T, R>,
+    F: Handler<T, R>,
     R: Future,
     R::Output: Responder<State>,
-    T: FromRequest<'rb, State, Error = Err>,
+    T: FromRequest<'r, State, Error = Err>,
 {
     type Response = R::Output;
     type Error = Err;
@@ -97,7 +97,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&self, req: &'rb mut WebRequest<'r, State>) -> Self::Future<'_> {
+    fn call(&self, req: &'r mut WebRequest<'rb, State>) -> Self::Future<'_> {
         async move {
             let extract = T::from_request(req).await?;
             Ok(self.hnd.call(extract).await)
@@ -107,15 +107,13 @@ where
 
 /// FromRequest trait impl for tuples
 macro_rules! factory_tuple ({ $($param:ident)* } => {
-    impl<State, Func, $($param,)* Res> Handler<State, ($($param,)*), Res> for Func
+    impl<Func, $($param,)* R> Handler<($($param,)*), R> for Func
     where
-        State: 'static,
-        Func: Fn($($param),*) -> Res + Clone + 'static,
-        Res: Future,
-        Res::Output: Responder<State>,
+        Func: Fn($($param),*) -> R + Clone + 'static,
+        R: Future,
     {
         #[allow(non_snake_case)]
-        fn call(&self, ($($param,)*): ($($param,)*)) -> Res {
+        fn call(&self, ($($param,)*): ($($param,)*)) -> R {
             (self)($($param,)*)
         }
     }
