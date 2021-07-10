@@ -13,7 +13,6 @@ use super::error::{Parse, ProtoError};
 
 impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
     // decode head and generate request and body decoder.
-    #[inline]
     pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
@@ -149,7 +148,6 @@ struct HeaderIndex {
 }
 
 impl HeaderIndex {
-    #[inline]
     fn new() -> Self {
         Self {
             name: (0, 0),
@@ -157,7 +155,6 @@ impl HeaderIndex {
         }
     }
 
-    #[inline]
     fn record(bytes: &[u8], headers: &[Header<'_>], indices: &mut [Self]) {
         let bytes_ptr = bytes.as_ptr() as usize;
         for (header, indices) in headers.iter().zip(indices.iter_mut()) {
@@ -181,31 +178,26 @@ pub struct TransferDecoding {
 }
 
 impl TransferDecoding {
-    #[inline]
     pub const fn length(x: u64) -> TransferDecoding {
         TransferDecoding { kind: Kind::Length(x) }
     }
 
-    #[inline]
     pub const fn chunked() -> TransferDecoding {
         TransferDecoding {
             kind: Kind::DecodeChunked(ChunkedState::Size, 0),
         }
     }
 
-    #[inline]
     pub const fn plain_chunked() -> TransferDecoding {
         TransferDecoding {
             kind: Kind::PlainChunked,
         }
     }
 
-    #[inline]
     pub const fn eof() -> TransferDecoding {
         TransferDecoding { kind: Kind::Eof }
     }
 
-    #[inline]
     pub fn is_eof(&self) -> bool {
         matches!(self.kind, Kind::Eof)
     }
@@ -224,7 +216,6 @@ impl TransferDecoding {
 }
 
 impl TransferDecoding {
-    #[inline]
     pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
         match self.kind {
             Kind::Length(ref mut remaining) => {

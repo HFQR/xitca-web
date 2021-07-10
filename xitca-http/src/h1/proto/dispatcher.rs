@@ -122,7 +122,6 @@ where
     St: AsyncReadWrite,
     W: WriteBuf<WRITE_BUF_LIMIT>,
 {
-    #[inline]
     fn new(io: &'a mut St, write_buf: W) -> Self {
         Self {
             io,
@@ -153,7 +152,6 @@ where
 
     /// Return true when write is blocked and need wait.
     /// Return false when write is finished.(Did not blocked)
-    #[inline]
     fn try_write(&mut self) -> Result<bool, Error<E>> {
         self.write_buf.try_write_io(self.io)
     }
@@ -192,7 +190,6 @@ where
 
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for tokio::select macro.
-    #[inline]
     async fn writable(&self) -> Result<(), Error<E>> {
         if self.write_buf.empty() {
             never().await
@@ -203,7 +200,6 @@ where
     }
 
     /// Return Ok when read is done or body handle is dropped by service call.
-    #[inline]
     async fn handle_request_body<const HEADER_LIMIT: usize>(
         &mut self,
         handle: &mut RequestBodyHandle,
@@ -213,9 +209,7 @@ where
             self.readable().await?;
             self.try_read()?;
 
-            let buf = &mut self.read_buf;
-
-            while let Some(bytes) = handle.decoder.decode(buf.buf_mut())? {
+            while let Some(bytes) = handle.decoder.decode(self.read_buf.buf_mut())? {
                 if bytes.is_empty() {
                     handle.sender.feed_eof();
                     return Ok(());
@@ -235,7 +229,6 @@ where
 
     /// A ready check version of `Io::handle_request_body`.
     /// This is to avoid borrow self as mut to co-op well with `tokio::select` macro.
-    #[inline]
     async fn request_body_ready<const HEADER_LIMIT: usize>(
         &self,
         body_handle: &mut Option<RequestBodyHandle>,
@@ -387,22 +380,18 @@ where
     }
 
     fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
-        let buf = self.io.read_buf.buf_mut();
-
-        match self.ctx.decode_head::<READ_BUF_LIMIT>(buf) {
+        match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.buf_mut()) {
             Ok(Some((req, decoder))) => {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
                 let (parts, _) = req.into_parts();
                 let req = Request::from_parts(parts, body);
 
-                return Some(Ok((req, body_handle)));
+                Some(Ok((req, body_handle)))
             }
-            Err(e) => return Some(Err(e)),
-            _ => {}
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
         }
-
-        None
     }
 
     fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error<S::Error>> {
@@ -486,15 +475,13 @@ where
                     SelectOutput::A(SelectOutput::B(res)) => {
                         res?;
                         let _ = self.io.try_write()?;
-                        // TODO: add flush?
+                        self.io.flush().await?;
                     }
                     SelectOutput::B(res) => {
                         let mut handle = res?;
                         self.io.try_read()?;
 
-                        let buf = &mut self.io.read_buf;
-
-                        while let Some(bytes) = handle.decoder.decode(buf.buf_mut())? {
+                        while let Some(bytes) = handle.decoder.decode(self.io.read_buf.buf_mut())? {
                             if bytes.is_empty() {
                                 handle.sender.feed_eof();
                                 continue 'res;

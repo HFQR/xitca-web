@@ -221,7 +221,7 @@ mod test {
     //     }
     //
     //     let state = String::from("state");
-    //     let app = App::with_current_thread_state(state).service(HandlerService::new());
+    //     let app = App::with_current_thread_state(state).service(HandlerService::new(handler));
     //
     //     let service = app.new_service(()).await.ok().unwrap();
     //
@@ -229,6 +229,6 @@ mod test {
     //
     //     let res = service.call(req).await.unwrap();
     //
-    //     assert_eq!(res, "state")
+    //     // assert_eq!(res, "state")
     // }
 }

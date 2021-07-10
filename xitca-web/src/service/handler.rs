@@ -8,7 +8,7 @@ use xitca_service::{Service, ServiceFactory};
 
 use crate::extract::FromRequest;
 use crate::request::WebRequest;
-use crate::response::{Responder, WebResponse};
+use crate::response::Responder;
 
 pub trait Handler<State, T, R>: Clone + 'static
 where
@@ -61,14 +61,14 @@ where
     }
 }
 
-impl<'r, State, F, T, R, Err> ServiceFactory<&'r WebRequest<'_, State>> for HandlerService<State, F, T, R>
+impl<'rb, 'r, State, F, T, R, Err> ServiceFactory<&'rb mut WebRequest<'r, State>> for HandlerService<State, F, T, R>
 where
     F: Handler<State, T, R>,
     R: Future,
     R::Output: Responder<State>,
-    T: FromRequest<'r, State, Error = Err>,
+    T: FromRequest<'rb, State, Error = Err>,
 {
-    type Response = WebResponse;
+    type Response = R::Output;
     type Error = Err;
     type Config = ();
     type Service = Self;
@@ -81,14 +81,14 @@ where
     }
 }
 
-impl<'r, State, F, T, R, Err> Service<&'r WebRequest<'_, State>> for HandlerService<State, F, T, R>
+impl<'rb, 'r, State, F, T, R, Err> Service<&'rb mut WebRequest<'r, State>> for HandlerService<State, F, T, R>
 where
     F: Handler<State, T, R>,
     R: Future,
     R::Output: Responder<State>,
-    T: FromRequest<'r, State, Error = Err>,
+    T: FromRequest<'rb, State, Error = Err>,
 {
-    type Response = WebResponse;
+    type Response = R::Output;
     type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
@@ -97,11 +97,10 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&self, req: &'r WebRequest<'_, State>) -> Self::Future<'_> {
+    fn call(&self, req: &'rb mut WebRequest<'r, State>) -> Self::Future<'_> {
         async move {
             let extract = T::from_request(req).await?;
-            let res = self.hnd.call(extract).await.respond_to(req);
-            Ok(res)
+            Ok(self.hnd.call(extract).await)
         }
     }
 }
@@ -140,7 +139,7 @@ mod test {
 
     use crate::extract::State;
     use crate::request::WebRequest;
-    use crate::response::WebResponse;
+    use crate::response::{Responder, WebResponse};
     use crate::service::HandlerService;
 
     use xitca_http::ResponseBody;
@@ -159,10 +158,8 @@ mod test {
 
         let data = String::from("123");
 
-        let req = WebRequest::with_state(&data);
+        let mut req = WebRequest::with_state(&data);
 
-        let res = service.call(&req).await;
-
-        assert!(res.is_ok());
+        let _ = service.call(&mut req).await.ok().unwrap().respond_to(&mut req);
     }
 }

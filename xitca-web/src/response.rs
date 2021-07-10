@@ -8,11 +8,11 @@ use super::request::WebRequest;
 pub type WebResponse = Response<ResponseBody>;
 
 pub trait Responder<D>: Sized {
-    fn respond_to(self, req: &WebRequest<'_, D>) -> WebResponse;
+    fn respond_to(self, req: &mut WebRequest<'_, D>) -> WebResponse;
 }
 
 impl<D> Responder<D> for WebResponse {
-    fn respond_to(self, _: &WebRequest<'_, D>) -> WebResponse {
+    fn respond_to(self, _: &mut WebRequest<'_, D>) -> WebResponse {
         self
     }
 }
