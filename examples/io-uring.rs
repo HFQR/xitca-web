@@ -46,6 +46,8 @@ async fn handler(req: &mut WebRequest<'_, Rc<NamedTempFile>>) -> Result<WebRespo
         }
     }
 
+    file.close().await?;
+
     let mut res = req.as_response(buf);
     res.headers_mut()
         .append("Content-Type", HeaderValue::from_static("text/plain; charset=utf-8"));
