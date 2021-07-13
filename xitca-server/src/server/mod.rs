@@ -111,12 +111,50 @@ impl Server {
                     .name(format!("xitca-server-worker-{}", idx))
                     .spawn(move || {
                         #[cfg(not(feature = "io-uring"))]
-                        tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .max_blocking_threads(worker_max_blocking_threads)
-                            .build()
-                            .unwrap()
-                            .block_on(tokio::task::LocalSet::new().run_until(async {
+                        {
+                            tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .max_blocking_threads(worker_max_blocking_threads)
+                                .build()
+                                .unwrap()
+                                .block_on(tokio::task::LocalSet::new().run_until(async {
+                                    let fut = async {
+                                        let mut services = Vec::new();
+
+                                        for (name, factory) in factories {
+                                            let service = factory.new_service().await?;
+                                            services.push((name, service));
+                                        }
+
+                                        Ok::<_, ()>(services)
+                                    };
+
+                                    match fut.await {
+                                        Ok(services) => {
+                                            tx.send(Ok(())).unwrap();
+                                            crate::worker::run(
+                                                listeners,
+                                                services,
+                                                connection_limit,
+                                                shutdown_timeout,
+                                                is_graceful_shutdown,
+                                            )
+                                            .await;
+                                        }
+                                        Err(_) => tx
+                                            .send(Err(io::Error::new(
+                                                io::ErrorKind::Other,
+                                                "Worker Services fail to start",
+                                            )))
+                                            .unwrap(),
+                                    }
+                                }))
+                        }
+                        #[cfg(feature = "io-uring")]
+                        {
+                            tokio_uring::start(async {
+                                // TODO: max blocking thread configure is needed.
+                                let _ = worker_max_blocking_threads;
                                 let fut = async {
                                     let mut services = Vec::new();
 
@@ -147,7 +185,8 @@ impl Server {
                                         )))
                                         .unwrap(),
                                 }
-                            }))
+                            })
+                        }
                     })?;
 
                 rx.recv().unwrap()?;

@@ -19,9 +19,13 @@ path = "multi-services.rs"
 name = "websocket"
 path = "websocket.rs"
 
+[[example]]
+name = "io-uring"
+path = "io-uring.rs"
+
 [dependencies]
 xitca-http = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
-xitca-server= { version = "0.1", features = ["http3"] }
+xitca-server= { version = "0.1", features = ["http3", "io-uring"] }
 xitca-service = "0.1"
 xitca-web = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
 http-ws = "0.1"
@@ -31,7 +35,9 @@ futures-util = "0.3"
 http = "0.2"
 mimalloc = { version = "0.1.26", default-features = false }
 rustls = "0.19"
-tokio = { version = "1.5", features = ["macros", "rt"] }
+tempfile = "3"
+tokio = { version = "1.5", features = ["fs", "macros", "rt"] }
+tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring" }
 tracing = "0.1.26"
 tracing-subscriber = "0.2"
 openssl = "0.10"
