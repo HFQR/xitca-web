@@ -6,6 +6,7 @@ edition = "2018"
 [features]
 default = ["signal"]
 http3 = ["async-channel", "quinn"]
+io-uring = ["tokio-uring"]
 signal = ["tokio/signal"]
 
 [dependencies]
@@ -21,6 +22,9 @@ tracing = { version = "0.1.26", default-features = false, features = ["std"] }
 # http/3 support
 async-channel = { version = "1.6.1", optional = true }
 quinn = { version = "0.7.2", optional = true }
+
+# io-uring support
+tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring", optional = true }
 
 [dev-dependencies]
 bytes = "1"
