@@ -469,8 +469,7 @@ where
                         encoder.encode(bytes, &mut self.io.write_buf)?;
                     }
                     SelectOutput::A(SelectOutput::A(None)) => {
-                        encoder.encode_eof(&mut self.io.write_buf)?;
-                        return Ok(());
+                        return encoder.encode_eof(&mut self.io.write_buf).map_err(Error::from);
                     }
                     SelectOutput::A(SelectOutput::B(res)) => {
                         res?;
@@ -522,7 +521,6 @@ struct RequestBodyHandle {
 }
 
 impl RequestBodyHandle {
-    #[inline]
     fn new_pair<ReqB>(decoder: TransferDecoding) -> (Option<Self>, ReqB)
     where
         ReqB: From<RequestBody>,

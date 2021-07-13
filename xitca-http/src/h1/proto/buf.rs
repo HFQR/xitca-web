@@ -50,7 +50,7 @@ pub(super) trait WriteBuf<const WRITE_BUF_LIMIT: usize> {
 
     fn write_buf(&mut self, bytes: Bytes);
 
-    fn write_eof(&mut self, bytes: Bytes);
+    fn write_chunk(&mut self, bytes: Bytes);
 
     fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<bool, Error<E>>;
 }
@@ -101,7 +101,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
         self.put_slice(bytes.as_ref());
     }
 
-    fn write_eof(&mut self, bytes: Bytes) {
+    fn write_chunk(&mut self, bytes: Bytes) {
         write!(Writer::new(&mut **self), "{:X}\r\n", bytes.len()).unwrap();
 
         self.reserve(bytes.len() + 2);
@@ -166,7 +166,7 @@ impl<B: Buf> fmt::Debug for ListWriteBuf<B> {
 
 pub(super) enum EncodedBuf<B, BB> {
     Buf(B),
-    Eof(BB),
+    Chunk(BB),
     Static(&'static [u8]),
 }
 
@@ -174,7 +174,7 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
     fn remaining(&self) -> usize {
         match *self {
             Self::Buf(ref buf) => buf.remaining(),
-            Self::Eof(ref buf) => buf.remaining(),
+            Self::Chunk(ref buf) => buf.remaining(),
             Self::Static(ref buf) => buf.remaining(),
         }
     }
@@ -182,7 +182,7 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
     fn chunk(&self) -> &[u8] {
         match *self {
             Self::Buf(ref buf) => buf.chunk(),
-            Self::Eof(ref buf) => buf.chunk(),
+            Self::Chunk(ref buf) => buf.chunk(),
             Self::Static(ref buf) => buf.chunk(),
         }
     }
@@ -190,7 +190,7 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
     fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
         match *self {
             Self::Buf(ref buf) => buf.chunks_vectored(dst),
-            Self::Eof(ref buf) => buf.chunks_vectored(dst),
+            Self::Chunk(ref buf) => buf.chunks_vectored(dst),
             Self::Static(ref buf) => buf.chunks_vectored(dst),
         }
     }
@@ -198,7 +198,7 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
     fn advance(&mut self, cnt: usize) {
         match *self {
             Self::Buf(ref mut buf) => buf.advance(cnt),
-            Self::Eof(ref mut buf) => buf.advance(cnt),
+            Self::Chunk(ref mut buf) => buf.advance(cnt),
             Self::Static(ref mut buf) => buf.advance(cnt),
         }
     }
@@ -235,12 +235,12 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
         self.buffer(EncodedBuf::Buf(bytes));
     }
 
-    fn write_eof(&mut self, bytes: Bytes) {
+    fn write_chunk(&mut self, bytes: Bytes) {
         let eof = Bytes::from(format!("{:X}\r\n", bytes.len()))
             .chain(bytes)
             .chain(b"\r\n" as &'static [u8]);
 
-        self.buffer(EncodedBuf::Eof(eof));
+        self.buffer(EncodedBuf::Chunk(eof));
     }
 
     fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<bool, Error<E>> {

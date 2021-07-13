@@ -214,7 +214,7 @@ impl TransferEncoding {
 
     pub(super) const fn chunked() -> TransferEncoding {
         TransferEncoding {
-            kind: Kind::EncodeChunked(false),
+            kind: Kind::EncodeChunked,
         }
     }
 
@@ -231,46 +231,36 @@ impl TransferEncoding {
     }
 
     /// Encode message. Return `EOF` state of encoder
-    pub(super) fn encode<W, const WRITE_BUF_LIMIT: usize>(&mut self, mut bytes: Bytes, buf: &mut W) -> io::Result<bool>
+    pub(super) fn encode<W, const WRITE_BUF_LIMIT: usize>(&mut self, mut bytes: Bytes, buf: &mut W) -> io::Result<()>
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
     {
-        match self.kind {
-            Kind::Eof | Kind::PlainChunked => {
-                let eof = bytes.is_empty();
-                buf.write_buf(bytes);
-                Ok(eof)
-            }
-            Kind::EncodeChunked(ref mut eof) => {
-                if *eof {
-                    return Ok(true);
+        // Skip encode empty bytes.
+        // This is to avoid unnecessary extending on h1::proto::buf::ListWriteBuf when user
+        // provided empty bytes by accident.
+        if bytes.is_empty() {
+            Ok(())
+        } else {
+            match self.kind {
+                Kind::Eof | Kind::PlainChunked => {
+                    buf.write_buf(bytes);
+                    Ok(())
                 }
-
-                if bytes.is_empty() {
-                    *eof = true;
-                    buf.write_static(b"0\r\n\r\n");
-                } else {
-                    buf.write_eof(bytes);
+                Kind::EncodeChunked => {
+                    buf.write_chunk(bytes);
+                    Ok(())
                 }
-
-                Ok(*eof)
-            }
-            Kind::Length(ref mut remaining) => {
-                if *remaining > 0 {
-                    if bytes.is_empty() {
-                        return Ok(*remaining == 0);
+                Kind::Length(ref mut remaining) => {
+                    if *remaining > 0 {
+                        let len = cmp::min(*remaining, bytes.len() as u64);
+                        buf.write_buf(bytes.split_to(len as usize));
+                        *remaining -= len as u64;
                     }
-                    let len = cmp::min(*remaining, bytes.len() as u64);
 
-                    buf.write_buf(bytes.split_to(len as usize));
-
-                    *remaining -= len as u64;
-                    Ok(*remaining == 0)
-                } else {
-                    Ok(true)
+                    Ok(())
                 }
+                _ => unreachable!(),
             }
-            _ => unreachable!(),
         }
     }
 
@@ -280,19 +270,10 @@ impl TransferEncoding {
         W: WriteBuf<WRITE_BUF_LIMIT>,
     {
         match self.kind {
-            Kind::Eof | Kind::PlainChunked => Ok(()),
-            Kind::Length(rem) => {
-                if rem != 0 {
-                    Err(io::Error::new(io::ErrorKind::UnexpectedEof, ""))
-                } else {
-                    Ok(())
-                }
-            }
-            Kind::EncodeChunked(ref mut eof) => {
-                if !*eof {
-                    *eof = true;
-                    buf.write_static(b"0\r\n\r\n");
-                }
+            Kind::Eof | Kind::PlainChunked | Kind::Length(0) => Ok(()),
+            Kind::Length(_) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "")),
+            Kind::EncodeChunked => {
+                buf.write_static(b"0\r\n\r\n");
                 Ok(())
             }
             _ => unreachable!(),

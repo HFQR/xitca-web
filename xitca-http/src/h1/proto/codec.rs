@@ -12,7 +12,7 @@ pub(super) enum Kind {
     DecodeChunked(ChunkedState, u64),
 
     /// Encoder for when Transfer-Encoding includes `chunked`.
-    EncodeChunked(bool),
+    EncodeChunked,
 
     /// Coder used when coder that don't indicate a length or chunked.
     ///
