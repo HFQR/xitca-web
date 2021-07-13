@@ -1,6 +1,9 @@
 //! A Http/1 server read a temporary file filled with dummy string
 //! and return it's content as response.
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::io::Write;
 use std::rc::Rc;
 
@@ -30,27 +33,29 @@ fn main() -> std::io::Result<()> {
 
 async fn handler(req: &mut WebRequest<'_, Rc<NamedTempFile>>) -> Result<WebResponse, Box<dyn std::error::Error>> {
     let file = File::open(req.state().path()).await?;
-
-    let mut buf = Vec::with_capacity(64 * HELLO.len());
-    let mut current = 0;
-
-    loop {
-        let (res, b) = file.read_at(buf, current).await;
-        let n = res?;
-        buf = b;
-
-        if n == 0 {
-            break;
-        } else {
-            current += n as u64;
-        }
-    }
-
+    let res = read(&file).await;
     file.close().await?;
+    let buf = res?;
 
     let mut res = req.as_response(buf);
     res.headers_mut()
         .append("Content-Type", HeaderValue::from_static("text/plain; charset=utf-8"));
 
     Ok(res)
+}
+
+async fn read(file: &File) -> std::io::Result<Vec<u8>> {
+    let cap = 64 * HELLO.len();
+    let mut buf = Vec::with_capacity(cap);
+    let mut current = 0;
+
+    while current < cap {
+        let (res, b) = file.read_at(buf, current as u64).await;
+        let n = res?;
+        buf = b;
+
+        current += n;
+    }
+
+    Ok(buf)
 }
