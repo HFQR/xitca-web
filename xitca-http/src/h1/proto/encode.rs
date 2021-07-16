@@ -11,7 +11,7 @@ use http::{
 };
 use tracing::{debug, warn};
 
-use crate::body::{ResponseBody, ResponseBodySize};
+use crate::body::ResponseBodySize;
 use crate::util::date::DATE_VALUE_LENGTH;
 
 use super::buf::WriteBuf;
@@ -33,7 +33,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         parts: Parts,
         size: ResponseBodySize,
         buf: &mut W,
-    ) -> Result<(), ProtoError>
+    ) -> Result<TransferEncoding, ProtoError>
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
     {
@@ -45,7 +45,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         mut parts: Parts,
         size: ResponseBodySize,
         buf: &mut BytesMut,
-    ) -> Result<(), ProtoError> {
+    ) -> Result<TransferEncoding, ProtoError> {
         let version = parts.version;
         let status = parts.status;
 
@@ -72,6 +72,8 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
         let mut skip_date = false;
 
+        let mut encoding = TransferEncoding::eof();
+
         for (name, value) in parts.headers.drain() {
             let name = name.expect("Handling optional header name is not implemented");
 
@@ -79,10 +81,17 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
             match name {
                 CONTENT_LENGTH => {
                     debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
+                    let value = value
+                        .to_str()
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .ok_or(Parse::HeaderValue)?;
+                    encoding = TransferEncoding::length(value);
                     skip_len = true;
                 }
                 TRANSFER_ENCODING => {
                     debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
+                    encoding = TransferEncoding::chunked_from(self.ctype());
                     skip_len = true;
                 }
                 CONNECTION if self.is_force_close() => continue,
@@ -116,13 +125,19 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         // encode transfer-encoding or content-length
         if !skip_len {
             match size {
-                ResponseBodySize::None => {}
-                ResponseBodySize::Stream => buf.put_slice(b"transfer-encoding: chunked\r\n"),
+                ResponseBodySize::None => {
+                    encoding = TransferEncoding::eof();
+                }
+                ResponseBodySize::Stream => {
+                    buf.put_slice(b"transfer-encoding: chunked\r\n");
+                    encoding = TransferEncoding::chunked_from(self.ctype());
+                }
                 ResponseBodySize::Sized(size) => {
                     let mut buffer = itoa::Buffer::new();
                     buf.put_slice(b"content-length: ");
                     buf.put_slice(buffer.format(size).as_bytes());
                     buf.put_slice(b"\r\n");
+                    encoding = TransferEncoding::length(size as u64);
                 }
             }
         }
@@ -145,7 +160,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         parts.extensions.clear();
         self.extensions = parts.extensions;
 
-        Ok(())
+        Ok(encoding)
     }
 }
 
@@ -177,30 +192,6 @@ fn encode_version_status_reason<B: BufMut>(buf: &mut B, version: Version, status
     buf.put_slice(b"\r\n");
 }
 
-impl<B> ResponseBody<B> {
-    /// `TransferEncoding` must match the behavior of `Stream` impl of `ResponseBody`.
-    /// Which means when `Stream::poll_next` returns Some(`Stream::Item`) the encoding
-    /// must be able to encode data. And when it returns `None` it must valid to encode
-    /// eof which would finish the encoding.
-    pub(super) fn encoder(&self, ctype: ConnectionType) -> TransferEncoding {
-        match *self {
-            // None body would return None on first poll of ResponseBody as Stream.
-            // an eof encoding would return Ok(()) afterward.
-            Self::None => TransferEncoding::eof(),
-            // Empty bytes would return None on first poll of ResponseBody as Stream.
-            // A length encoding would see the remainning length is 0 and return Ok(()).
-            Self::Bytes { ref bytes, .. } => TransferEncoding::length(bytes.len() as u64),
-            Self::Stream { .. } => {
-                if ctype == ConnectionType::Upgrade {
-                    TransferEncoding::plain_chunked()
-                } else {
-                    TransferEncoding::chunked()
-                }
-            }
-        }
-    }
-}
-
 /// Encoders to handle different Transfer-Encodings.
 #[derive(Debug)]
 pub(super) struct TransferEncoding {
@@ -208,25 +199,33 @@ pub(super) struct TransferEncoding {
 }
 
 impl TransferEncoding {
-    pub(super) const fn eof() -> TransferEncoding {
-        TransferEncoding { kind: Kind::Eof }
+    pub(super) const fn eof() -> Self {
+        Self { kind: Kind::Eof }
     }
 
-    pub(super) const fn chunked() -> TransferEncoding {
-        TransferEncoding {
+    pub(super) const fn chunked() -> Self {
+        Self {
             kind: Kind::EncodeChunked,
         }
     }
 
-    pub(super) const fn plain_chunked() -> TransferEncoding {
-        TransferEncoding {
+    pub(super) const fn plain_chunked() -> Self {
+        Self {
             kind: Kind::PlainChunked,
         }
     }
 
-    pub(super) const fn length(len: u64) -> TransferEncoding {
-        TransferEncoding {
+    pub(super) const fn length(len: u64) -> Self {
+        Self {
             kind: Kind::Length(len),
+        }
+    }
+
+    pub(super) fn chunked_from(ctype: ConnectionType) -> Self {
+        if ctype == ConnectionType::Upgrade {
+            Self::plain_chunked()
+        } else {
+            Self::chunked()
         }
     }
 

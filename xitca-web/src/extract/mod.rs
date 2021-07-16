@@ -37,7 +37,7 @@ where
     }
 }
 
-macro_rules! tuple_from_req ({$($T:ident),+} => {
+macro_rules! tuple_from_req ({ $($T:ident)* } => {
     impl<'a, State, Err, $($T),+> FromRequest<'a, State> for ($($T,)+)
     where
         State: 'static,
@@ -56,12 +56,12 @@ macro_rules! tuple_from_req ({$($T:ident),+} => {
     }
 });
 
-tuple_from_req!(A);
-tuple_from_req!(A, B);
-tuple_from_req!(A, B, C);
-tuple_from_req!(A, B, C, D);
-tuple_from_req!(A, B, C, D, E);
-tuple_from_req!(A, B, C, D, E, F);
-tuple_from_req!(A, B, C, D, E, F, G);
-tuple_from_req!(A, B, C, D, E, F, G, H);
-tuple_from_req!(A, B, C, D, E, F, G, H, I);
+tuple_from_req! { A }
+tuple_from_req! { A B }
+tuple_from_req! { A B C }
+tuple_from_req! { A B C D }
+tuple_from_req! { A B C D E }
+tuple_from_req! { A B C D E F }
+tuple_from_req! { A B C D E F G }
+tuple_from_req! { A B C D E F G H }
+tuple_from_req! { A B C D E F G H I }

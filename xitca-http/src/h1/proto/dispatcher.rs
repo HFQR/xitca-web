@@ -359,9 +359,7 @@ where
 
                         let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
 
-                        self.encode_head(parts, &res_body)?;
-
-                        let encoder = &mut res_body.encoder(self.ctx.ctype());
+                        let encoder = &mut self.encode_head(parts, &res_body)?;
 
                         self.response_handler(res_body, encoder, body_handle).await?;
                     }
@@ -397,7 +395,7 @@ where
         }
     }
 
-    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<(), Error<S::Error>> {
+    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<TransferEncoding, Error<S::Error>> {
         self.ctx
             .encode_head(parts, body.size(), &mut self.io.write_buf)
             .map_err(Error::from)
@@ -512,7 +510,7 @@ where
 
         let (parts, res_body) = func().into_parts();
 
-        self.encode_head(parts, &res_body)
+        self.encode_head(parts, &res_body).map(|_| ())
     }
 }
 
