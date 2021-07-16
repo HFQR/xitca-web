@@ -7,6 +7,7 @@ edition = "2018"
 default = []
 http2 = ["xitca-http/http2"]
 http3 = ["xitca-http/http3", "xitca-server/http3"]
+io-uring = ["xitca-server/io-uring"]
 openssl = ["xitca-http/openssl", "openssl-crate"]
 rustls = ["xitca-http/rustls", "rustls-crate"]
 

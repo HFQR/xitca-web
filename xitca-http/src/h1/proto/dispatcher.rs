@@ -23,6 +23,7 @@ use crate::response;
 use crate::util::{
     date::Date,
     futures::{never, poll_fn, Select, SelectOutput, Timeout},
+    hint::unlikely,
     keep_alive::KeepAlive,
 };
 
@@ -314,6 +315,7 @@ where
             match self.ctx.ctype() {
                 ConnectionType::Init => {
                     if self.ctx.is_force_close() {
+                        unlikely();
                         trace!(target: "h1_dispatcher", "Connection error. Shutting down");
                         return Ok(());
                     } else {
@@ -329,6 +331,7 @@ where
                 }
                 ConnectionType::KeepAlive => {
                     if self.ctx.is_force_close() {
+                        unlikely();
                         trace!(target: "h1_dispatcher", "Connection is keep-alive but meet a force close condition. Shutting down");
                         return self.io.shutdown().await;
                     } else {

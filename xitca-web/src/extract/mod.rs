@@ -37,37 +37,31 @@ where
     }
 }
 
-macro_rules! tuple_from_req ({$(($n:tt, $T:ident)),+} => {
-    impl<'a, State, $($T),+> FromRequest<'a, State> for ($($T,)+)
+macro_rules! tuple_from_req ({$($T:ident),+} => {
+    impl<'a, State, Err, $($T),+> FromRequest<'a, State> for ($($T,)+)
     where
         State: 'static,
-        $($T: FromRequest<'a, State> + 'a),+
+        Err: 'static,
+        $($T: FromRequest<'a, State, Error = Err> + 'a),+
     {
         type Config = ();
-        type Error = ();
+        type Error = Err;
         type Future = impl Future<Output = Result<Self, Self::Error>> + 'a;
 
         fn from_request(req: &'a WebRequest<'_, State>) -> Self::Future {
-            let mut items = <($(Option<$T>,)+)>::default();
-
             async move {
-                 $(
-                    let res = $T::from_request(req).await.map_err(|_| ())?;
-                    items.$n = Some(res);
-                )+
-
-                Ok(($(items.$n.take().unwrap(),)+))
+                Ok(($($T::from_request(req).await?,)+))
             }
         }
     }
 });
 
-tuple_from_req!((0, A));
-tuple_from_req!((0, A), (1, B));
-tuple_from_req!((0, A), (1, B), (2, C));
-tuple_from_req!((0, A), (1, B), (2, C), (3, D));
-tuple_from_req!((0, A), (1, B), (2, C), (3, D), (4, E));
-tuple_from_req!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F));
-tuple_from_req!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G));
-tuple_from_req!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H));
-tuple_from_req!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H), (8, I));
+tuple_from_req!(A);
+tuple_from_req!(A, B);
+tuple_from_req!(A, B, C);
+tuple_from_req!(A, B, C, D);
+tuple_from_req!(A, B, C, D, E);
+tuple_from_req!(A, B, C, D, E, F);
+tuple_from_req!(A, B, C, D, E, F, G);
+tuple_from_req!(A, B, C, D, E, F, G, H);
+tuple_from_req!(A, B, C, D, E, F, G, H, I);
