@@ -18,5 +18,5 @@ pub use server::HttpServer;
 pub mod dev {
     pub use xitca_service::{fn_service, Service, ServiceFactory, ServiceFactoryExt, Transform};
 
-    pub use crate::service::EnumService;
+    // pub use crate::service::EnumService;
 }
