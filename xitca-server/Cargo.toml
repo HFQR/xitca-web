@@ -24,7 +24,7 @@ async-channel = { version = "1.6.1", optional = true }
 quinn = { version = "0.7.2", optional = true }
 
 # io-uring support
-tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring", optional = true }
+tokio-uring = { version = "0.1", optional = true }
 
 [dev-dependencies]
 bytes = "1"

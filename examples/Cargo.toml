@@ -37,7 +37,7 @@ mimalloc = { version = "0.1.26", default-features = false }
 rustls = "0.19"
 tempfile = "3"
 tokio = { version = "1.5", features = ["fs", "macros", "rt"] }
-tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring" }
+tokio-uring = "0.1"
 tracing = "0.1.26"
 tracing-subscriber = "0.2"
 openssl = "0.10"
