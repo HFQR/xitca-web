@@ -18,7 +18,6 @@ xitca-service = "0.1"
 
 bytes = "1"
 futures-core = "0.3"
-log = "0.4"
 
 # openssl feature
 openssl-crate = { package = "openssl", version = "0.10", optional = true }
