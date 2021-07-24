@@ -1,6 +1,11 @@
 //! A Http/1 server read a temporary file filled with dummy string
 //! and return it's content as response.
 
+/*
+   Need io-uring feature flag to start. e.g:
+   cargo run --example io-uring --features io-uring
+*/
+
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
