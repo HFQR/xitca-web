@@ -19,7 +19,7 @@ use http::{
 };
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    pin, select,
+    pin,
 };
 use tracing::trace;
 use xitca_service::Service;
@@ -30,7 +30,7 @@ use crate::flow::HttpFlow;
 use crate::h2::{body::RequestBody, error::Error};
 use crate::util::{
     date::{Date, SharedDate},
-    futures::poll_fn,
+    futures::{poll_fn, Select, SelectOutput},
     keep_alive::KeepAlive,
 };
 
@@ -103,42 +103,39 @@ where
         };
 
         loop {
-            select! {
-                biased;
-                opt = io.accept() => match opt {
-                    Some(res) => {
-                        let (req, tx) = res?;
-                        // Convert http::Request body type to crate::h2::Body
-                        // and reconstruct as HttpRequest.
-                        let (parts, body) = req.into_parts();
-                        let body = ReqB::from(RequestBody::from(body));
-                        let req = Request::from_parts(parts, body);
+            match io.accept().select(&mut ping_pong).await {
+                SelectOutput::A(Some(Ok((req, tx)))) => {
+                    // Convert http::Request body type to crate::h2::Body
+                    // and reconstruct as HttpRequest.
+                    let (parts, body) = req.into_parts();
+                    let body = ReqB::from(RequestBody::from(body));
+                    let req = Request::from_parts(parts, body);
 
-                        let flow = HttpFlow::clone(flow);
-                        let date = SharedDate::clone(self.date);
+                    let flow = HttpFlow::clone(flow);
+                    let date = SharedDate::clone(self.date);
 
-                        tokio::task::spawn_local(async move {
-                            let fut = flow.service.call(req);
-                            if let Err(e) = h2_handler(fut, tx, date).await {
-                                HttpServiceError::from(e).log("h2_dispatcher");
-                            }
-                        });
-                    },
-                    None => return Ok(())
-                },
-                res = &mut ping_pong => {
-                    res?;
-
-                    trace!("Connection keep-alive timeout. Shutting down");
-
-                    io.graceful_shutdown();
-
-                    poll_fn(|cx| io.poll_closed(cx)).await?;
-
-                    return Ok(())
+                    tokio::task::spawn_local(async move {
+                        let fut = flow.service.call(req);
+                        if let Err(e) = h2_handler(fut, tx, date).await {
+                            HttpServiceError::from(e).log("h2_dispatcher");
+                        }
+                    });
                 }
+                SelectOutput::B(Ok(_)) => {
+                    trace!("Connection keep-alive timeout. Shutting down");
+                    break;
+                }
+                SelectOutput::A(None) => {
+                    trace!("Connection closed by remote. Shutting down");
+                    break;
+                }
+                SelectOutput::A(Some(Err(e))) | SelectOutput::B(Err(e)) => return Err(From::from(e)),
             }
         }
+
+        io.graceful_shutdown();
+
+        poll_fn(|cx| io.poll_closed(cx)).await.map_err(From::from)
     }
 }
 
