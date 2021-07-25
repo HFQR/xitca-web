@@ -206,10 +206,7 @@ where
         handle: &mut RequestBodyHandle,
         ctx: &mut Context<'_, HEADER_LIMIT>,
     ) -> Result<(), Error<E>> {
-        while poll_fn(|cx| handle.sender.poll_ready(cx)).await.is_ok() {
-            self.readable().await?;
-            self.try_read()?;
-
+        loop {
             while let Some(bytes) = handle.decoder.decode(self.read_buf.buf_mut())? {
                 if bytes.is_empty() {
                     handle.sender.feed_eof();
@@ -218,14 +215,21 @@ where
                     handle.sender.feed_data(bytes)
                 }
             }
+
+            match poll_fn(|cx| handle.sender.poll_ready(cx)).await {
+                Ok(_) => {
+                    self.readable().await?;
+                    self.try_read()?;
+                }
+                // When service call dropped payload there is no tell how many bytes
+                // still remain readable in the connection.
+                // close the connection would be a safe bet than draining it.
+                Err(_) => {
+                    ctx.set_force_close();
+                    return Ok(());
+                }
+            }
         }
-
-        // When service call dropped payload there is no tell how many bytes
-        // still remain readable in the connection.
-        // close the connection would be a safe bet than draining it.
-        ctx.set_force_close();
-
-        Ok(())
     }
 
     /// A ready check version of `Io::handle_request_body`.
@@ -362,6 +366,10 @@ where
                         let encoder = &mut self.encode_head(parts, &res_body)?;
 
                         self.response_handler(res_body, encoder, body_handle).await?;
+
+                        if self.ctx.is_force_close() {
+                            break 'req;
+                        }
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         self.request_error(response::header_too_large)?;
@@ -432,7 +440,14 @@ where
                 .select(self.io.handle_request_body(handle, &mut self.ctx))
                 .await
             {
-                SelectOutput::A(res) => return res.map_err(Error::Service),
+                SelectOutput::A(res) => {
+                    // Body is not consumed completely and artifact could remain in socket.
+                    // Close connection just in case.
+                    if !handle.sender.is_eof() {
+                        self.ctx.set_force_close();
+                    }
+                    return res.map_err(Error::Service);
+                }
                 SelectOutput::B(res) => {
                     // request body read is done or dropped. remove body_handle.
                     res?;

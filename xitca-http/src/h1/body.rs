@@ -3,7 +3,7 @@ use std::{
     collections::VecDeque,
     io,
     pin::Pin,
-    rc::{Rc, Weak},
+    rc::Rc,
     task::{Context, Poll, Waker},
 };
 
@@ -37,7 +37,7 @@ impl RequestBody {
     pub fn create(eof: bool) -> (RequestBodySender, Self) {
         let shared = Rc::new(RefCell::new(Inner::new(eof)));
 
-        (RequestBodySender(Rc::downgrade(&shared)), Self(shared))
+        (RequestBodySender(shared.clone()), Self(shared))
     }
 
     #[doc(hidden)]
@@ -67,27 +67,32 @@ impl From<RequestBody> for crate::body::RequestBody {
 }
 
 /// Sender part of the payload stream
-pub struct RequestBodySender(Weak<RefCell<Inner>>);
+pub struct RequestBodySender(Rc<RefCell<Inner>>);
 
 impl RequestBodySender {
     #[inline]
+    pub fn is_eof(&self) -> bool {
+        self.0.borrow_mut().eof
+    }
+
+    #[inline]
     pub fn feed_error(&mut self, err: BodyError) {
-        if let Some(shared) = self.0.upgrade() {
-            shared.borrow_mut().feed_error(err)
+        if Rc::strong_count(&self.0) != 1 {
+            self.0.borrow_mut().feed_error(err)
         }
     }
 
     #[inline]
     pub fn feed_eof(&mut self) {
-        if let Some(shared) = self.0.upgrade() {
-            shared.borrow_mut().feed_eof()
+        if Rc::strong_count(&self.0) != 1 {
+            self.0.borrow_mut().feed_eof()
         }
     }
 
     #[inline]
     pub fn feed_data(&mut self, data: Bytes) {
-        if let Some(shared) = self.0.upgrade() {
-            shared.borrow_mut().feed_data(data)
+        if Rc::strong_count(&self.0) != 1 {
+            self.0.borrow_mut().feed_data(data)
         }
     }
 
@@ -95,19 +100,18 @@ impl RequestBodySender {
     pub fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // we check backpressure only if Payload (other side) is alive,
         // otherwise always return io error.
-        self.0
-            .upgrade()
-            .map(|shared| {
-                let mut borrow = shared.borrow_mut();
-                // when payload is backpressure register current task waker and wait.
-                if borrow.backpressure() {
-                    borrow.register_io(cx);
-                    Poll::Pending
-                } else {
-                    Poll::Ready(Ok(()))
-                }
-            })
-            .unwrap_or_else(|| Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof))))
+        if Rc::strong_count(&self.0) != 1 {
+            let mut borrow = self.0.borrow_mut();
+            // when payload is backpressure register current task waker and wait.
+            if borrow.backpressure() {
+                borrow.register_io(cx);
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(()))
+            }
+        } else {
+            Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)))
+        }
     }
 }
 
