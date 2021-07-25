@@ -440,14 +440,7 @@ where
                 .select(self.io.handle_request_body(handle, &mut self.ctx))
                 .await
             {
-                SelectOutput::A(res) => {
-                    // Body is not consumed completely and artifact could remain in socket.
-                    // Close connection just in case.
-                    if !handle.sender.is_eof() {
-                        self.ctx.set_force_close();
-                    }
-                    return res.map_err(Error::Service);
-                }
+                SelectOutput::A(res) => return res.map_err(Error::Service),
                 SelectOutput::B(res) => {
                     // request body read is done or dropped. remove body_handle.
                     res?;
@@ -485,6 +478,12 @@ where
                         encoder.encode(bytes, &mut self.io.write_buf)?;
                     }
                     SelectOutput::A(SelectOutput::A(None)) => {
+                        // Request body is partial consumed.
+                        // Close connection in case there are bytes remain in socket.
+                        if body_handle.map(|handle| !handle.sender.is_eof()).unwrap_or(false) {
+                            self.ctx.set_force_close();
+                        };
+
                         return encoder.encode_eof(&mut self.io.write_buf).map_err(Error::from);
                     }
                     SelectOutput::A(SelectOutput::B(res)) => {
