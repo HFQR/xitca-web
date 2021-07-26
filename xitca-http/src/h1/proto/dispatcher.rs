@@ -216,7 +216,7 @@ where
                 }
             }
 
-            match poll_fn(|cx| handle.sender.poll_ready(cx)).await {
+            match handle.sender.ready().await {
                 Ok(_) => {
                     self.readable().await?;
                     self.try_read()?;
@@ -240,7 +240,7 @@ where
         ctx: &mut Context<'_, HEADER_LIMIT>,
     ) -> Result<RequestBodyHandle, Error<E>> {
         if let Some(handle) = body_handle.as_mut() {
-            match poll_fn(|cx| handle.sender.poll_ready(cx)).await {
+            match handle.sender.ready().await {
                 Ok(_) => {
                     self.readable().await?;
                     // TODO: This is an unwrap happen with every successful check. get rid of it.

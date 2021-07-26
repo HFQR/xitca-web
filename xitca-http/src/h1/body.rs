@@ -11,6 +11,7 @@ use bytes::Bytes;
 use futures_core::Stream;
 
 use crate::error::BodyError;
+use crate::util::futures::poll_fn;
 
 /// max buffer size 32k
 pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;
@@ -71,33 +72,37 @@ pub struct RequestBodySender(Rc<RefCell<Inner>>);
 
 impl RequestBodySender {
     #[inline]
-    pub fn is_eof(&self) -> bool {
+    pub(super) fn is_eof(&self) -> bool {
         self.0.borrow_mut().eof
     }
 
-    #[inline]
-    pub fn feed_error(&mut self, err: BodyError) {
-        if Rc::strong_count(&self.0) != 1 {
-            self.0.borrow_mut().feed_error(err)
-        }
-    }
+    // #[inline]
+    // pub(super) fn feed_error(&mut self, err: BodyError) {
+    //     if Rc::strong_count(&self.0) != 1 {
+    //         self.0.borrow_mut().feed_error(err)
+    //     }
+    // }
 
     #[inline]
-    pub fn feed_eof(&mut self) {
+    pub(super) fn feed_eof(&mut self) {
         if Rc::strong_count(&self.0) != 1 {
             self.0.borrow_mut().feed_eof()
         }
     }
 
     #[inline]
-    pub fn feed_data(&mut self, data: Bytes) {
+    pub(super) fn feed_data(&mut self, data: Bytes) {
         if Rc::strong_count(&self.0) != 1 {
             self.0.borrow_mut().feed_data(data)
         }
     }
 
     #[inline]
-    pub fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    pub(super) async fn ready(&self) -> io::Result<()> {
+        poll_fn(|cx| self.poll_ready(cx)).await
+    }
+
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // we check backpressure only if Payload (other side) is alive,
         // otherwise always return io error.
         if Rc::strong_count(&self.0) != 1 {
@@ -119,7 +124,7 @@ impl RequestBodySender {
 struct Inner {
     len: usize,
     eof: bool,
-    err: Option<BodyError>,
+    // err: Option<BodyError>,
     need_read: bool,
     items: VecDeque<Bytes>,
     task: Option<Waker>,
@@ -131,7 +136,7 @@ impl Inner {
         Inner {
             eof,
             len: 0,
-            err: None,
+            // err: None,
             items: VecDeque::new(),
             need_read: true,
             task: None,
@@ -169,10 +174,10 @@ impl Inner {
         }
     }
 
-    #[inline]
-    fn feed_error(&mut self, err: BodyError) {
-        self.err = Some(err);
-    }
+    // #[inline]
+    // fn feed_error(&mut self, err: BodyError) {
+    //     self.err = Some(err);
+    // }
 
     #[inline]
     fn feed_eof(&mut self) {
@@ -196,8 +201,10 @@ impl Inner {
         if let Some(data) = self.items.pop_front() {
             self.len -= data.len();
             Poll::Ready(Some(Ok(data)))
-        } else if let Some(err) = self.err.take() {
-            Poll::Ready(Some(Err(err)))
+            // }
+            // else if let Some(err) = self.err.take() {
+            //     Poll::Ready(Some(Err(err)))
+            // }
         } else if self.eof {
             Poll::Ready(None)
         } else {
