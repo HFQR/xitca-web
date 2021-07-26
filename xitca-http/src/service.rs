@@ -57,6 +57,38 @@ impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
             _body: PhantomData,
         }
     }
+
+    /// Service readiness check
+    pub(super) fn _poll_ready<ReqS, ReqX, ReqU, ReqA, E>(
+        &self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), HttpServiceError<E>>>
+    where
+        S: Service<ReqS>,
+        X: Service<ReqX>,
+        U: Service<ReqU>,
+        A: Service<ReqA>,
+    {
+        if let Some(upgrade) = self.flow.upgrade.as_ref() {
+            ready!(upgrade.poll_ready(cx).map_err(|_| HttpServiceError::ServiceReady))?;
+        }
+
+        ready!(self
+            .flow
+            .expect
+            .poll_ready(cx)
+            .map_err(|_| HttpServiceError::ServiceReady))?;
+
+        ready!(self
+            .tls_acceptor
+            .poll_ready(cx)
+            .map_err(|_| HttpServiceError::ServiceReady))?;
+
+        self.flow
+            .service
+            .poll_ready(cx)
+            .map_err(|_| HttpServiceError::ServiceReady)
+    }
 }
 
 impl<S, X, U, B, E, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
@@ -79,26 +111,9 @@ where
     type Error = HttpServiceError<S::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
+    #[inline]
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if let Some(upgrade) = self.flow.upgrade.as_ref() {
-            ready!(upgrade.poll_ready(cx).map_err(|_| HttpServiceError::ServiceReady))?;
-        }
-
-        ready!(self
-            .flow
-            .expect
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
-
-        ready!(self
-            .tls_acceptor
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
-
-        self.flow
-            .service
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady)
+        self._poll_ready(cx)
     }
 
     fn call(&self, io: ServerStream) -> Self::Future<'_> {

@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures_core::{ready, Stream};
+use futures_core::Stream;
 use http::{Request, Response};
 use tokio::pin;
 use xitca_server::net::AsyncReadWrite;
@@ -54,26 +54,9 @@ where
     type Error = HttpServiceError<S::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
+    #[inline]
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if let Some(upgrade) = self.flow.upgrade.as_ref() {
-            ready!(upgrade.poll_ready(cx).map_err(|_| HttpServiceError::ServiceReady))?;
-        }
-
-        ready!(self
-            .flow
-            .expect
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
-
-        ready!(self
-            .tls_acceptor
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
-
-        self.flow
-            .service
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady)
+        self._poll_ready(cx)
     }
 
     fn call(&self, io: St) -> Self::Future<'_> {
