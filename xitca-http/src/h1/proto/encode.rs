@@ -1,7 +1,4 @@
-use std::{
-    cmp,
-    io::{self},
-};
+use std::cmp;
 
 use bytes::{BufMut, Bytes, BytesMut};
 use http::{
@@ -24,7 +21,6 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
     {
-        debug_assert!(self.is_expect_header());
         buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
 
@@ -230,7 +226,7 @@ impl TransferEncoding {
     }
 
     /// Encode message. Return `EOF` state of encoder
-    pub(super) fn encode<W, const WRITE_BUF_LIMIT: usize>(&mut self, mut bytes: Bytes, buf: &mut W) -> io::Result<()>
+    pub(super) fn encode<W, const WRITE_BUF_LIMIT: usize>(&mut self, mut bytes: Bytes, buf: &mut W)
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
     {
@@ -238,43 +234,32 @@ impl TransferEncoding {
         // This is to avoid unnecessary extending on h1::proto::buf::ListWriteBuf when user
         // provided empty bytes by accident.
         if bytes.is_empty() {
-            Ok(())
-        } else {
-            match self.kind {
-                Kind::Eof | Kind::PlainChunked => {
-                    buf.write_buf(bytes);
-                    Ok(())
-                }
-                Kind::EncodeChunked => {
-                    buf.write_chunk(bytes);
-                    Ok(())
-                }
-                Kind::Length(ref mut remaining) => {
-                    if *remaining > 0 {
-                        let len = cmp::min(*remaining, bytes.len() as u64);
-                        buf.write_buf(bytes.split_to(len as usize));
-                        *remaining -= len as u64;
-                    }
+            return;
+        }
 
-                    Ok(())
+        match self.kind {
+            Kind::Eof | Kind::PlainChunked => buf.write_buf(bytes),
+            Kind::EncodeChunked => buf.write_chunk(bytes),
+            Kind::Length(ref mut remaining) => {
+                if *remaining > 0 {
+                    let len = cmp::min(*remaining, bytes.len() as u64);
+                    buf.write_buf(bytes.split_to(len as usize));
+                    *remaining -= len as u64;
                 }
-                _ => unreachable!(),
             }
+            _ => unreachable!(),
         }
     }
 
     /// Encode eof. Return `EOF` state of encoder
-    pub(super) fn encode_eof<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W) -> io::Result<()>
+    pub(super) fn encode_eof<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W)
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
     {
         match self.kind {
-            Kind::Eof | Kind::PlainChunked | Kind::Length(0) => Ok(()),
-            Kind::Length(_) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "")),
-            Kind::EncodeChunked => {
-                buf.write_static(b"0\r\n\r\n");
-                Ok(())
-            }
+            Kind::Eof | Kind::PlainChunked | Kind::Length(0) => {}
+            Kind::EncodeChunked => buf.write_static(b"0\r\n\r\n"),
+            Kind::Length(n) => unreachable!("UnexpectedEof for Length Body with {} remaining", n),
             _ => unreachable!(),
         }
     }

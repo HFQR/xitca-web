@@ -207,7 +207,7 @@ where
         ctx: &mut Context<'_, HEADER_LIMIT>,
     ) -> Result<(), Error<E>> {
         loop {
-            while let Some(bytes) = handle.decoder.decode(self.read_buf.buf_mut())? {
+            if let Some(bytes) = handle.decoder.decode(self.read_buf.buf_mut())? {
                 if bytes.is_empty() {
                     handle.sender.feed_eof();
                     return Ok(());
@@ -475,7 +475,7 @@ where
                 {
                     SelectOutput::A(SelectOutput::A(Some(bytes))) => {
                         let bytes = bytes?;
-                        encoder.encode(bytes, &mut self.io.write_buf)?;
+                        encoder.encode(bytes, &mut self.io.write_buf);
                     }
                     SelectOutput::A(SelectOutput::A(None)) => {
                         // Request body is partial consumed.
@@ -484,7 +484,9 @@ where
                             self.ctx.set_force_close();
                         };
 
-                        return encoder.encode_eof(&mut self.io.write_buf).map_err(Error::from);
+                        encoder.encode_eof(&mut self.io.write_buf);
+
+                        return Ok(());
                     }
                     SelectOutput::A(SelectOutput::B(res)) => {
                         res?;
@@ -495,7 +497,7 @@ where
                         let mut handle = res?;
                         self.io.try_read()?;
 
-                        while let Some(bytes) = handle.decoder.decode(self.io.read_buf.buf_mut())? {
+                        if let Some(bytes) = handle.decoder.decode(self.io.read_buf.buf_mut())? {
                             if bytes.is_empty() {
                                 handle.sender.feed_eof();
                                 continue 'res;
