@@ -35,21 +35,15 @@ impl RequestBody {
     /// * `PayloadSender` - *Sender* side of the stream
     ///
     /// * `Payload` - *Receiver* side of the stream
-    pub fn create(eof: bool) -> (RequestBodySender, Self) {
+    pub(super) fn create(eof: bool) -> (RequestBodySender, Self) {
         let shared = Rc::new(RefCell::new(Inner::new(eof)));
 
         (RequestBodySender(shared.clone()), Self(shared))
     }
 
-    #[doc(hidden)]
     /// Create empty payload
-    pub fn empty() -> Self {
+    pub(super) fn empty() -> Self {
         Self(Rc::new(RefCell::new(Inner::new(true))))
-    }
-
-    #[inline]
-    pub fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
-        self.0.borrow_mut().poll_read(cx)
     }
 }
 
@@ -71,33 +65,26 @@ impl From<RequestBody> for crate::body::RequestBody {
 pub struct RequestBodySender(Rc<RefCell<Inner>>);
 
 impl RequestBodySender {
-    #[inline]
     pub(super) fn is_eof(&self) -> bool {
         self.0.borrow_mut().eof
     }
 
-    // #[inline]
-    // pub(super) fn feed_error(&mut self, err: BodyError) {
-    //     if Rc::strong_count(&self.0) != 1 {
-    //         self.0.borrow_mut().feed_error(err)
-    //     }
-    // }
+    pub(super) fn feed_error(&mut self, err: BodyError) {
+        if Rc::strong_count(&self.0) != 1 {
+            self.0.borrow_mut().feed_error(err);
+        }
+    }
 
-    #[inline]
     pub(super) fn feed_eof(&mut self) {
-        if Rc::strong_count(&self.0) != 1 {
-            self.0.borrow_mut().feed_eof()
-        }
+        debug_assert!(self.payload_alive());
+        self.0.borrow_mut().feed_eof();
     }
 
-    #[inline]
     pub(super) fn feed_data(&mut self, data: Bytes) {
-        if Rc::strong_count(&self.0) != 1 {
-            self.0.borrow_mut().feed_data(data)
-        }
+        debug_assert!(self.payload_alive());
+        self.0.borrow_mut().feed_data(data);
     }
 
-    #[inline]
     pub(super) async fn ready(&self) -> io::Result<()> {
         poll_fn(|cx| self.poll_ready(cx)).await
     }
@@ -105,7 +92,7 @@ impl RequestBodySender {
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // we check backpressure only if Payload (other side) is alive,
         // otherwise always return io error.
-        if Rc::strong_count(&self.0) != 1 {
+        if self.payload_alive() {
             let mut borrow = self.0.borrow_mut();
             // when payload is backpressure register current task waker and wait.
             if borrow.backpressure() {
@@ -118,13 +105,21 @@ impl RequestBodySender {
             Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)))
         }
     }
+
+    /// Payload share the same `Rc` with Sender.
+    /// Strong count 1 means payload is already dropped.
+    fn payload_alive(&self) -> bool {
+        debug_assert!(Rc::strong_count(&self.0) <= 2);
+        debug_assert_eq!(Rc::weak_count(&self.0), 0);
+        Rc::strong_count(&self.0) != 1
+    }
 }
 
 #[derive(Debug)]
 struct Inner {
     len: usize,
     eof: bool,
-    // err: Option<BodyError>,
+    err: Option<BodyError>,
     need_read: bool,
     items: VecDeque<Bytes>,
     task: Option<Waker>,
@@ -136,7 +131,7 @@ impl Inner {
         Inner {
             eof,
             len: 0,
-            // err: None,
+            err: None,
             items: VecDeque::new(),
             need_read: true,
             task: None,
@@ -174,25 +169,21 @@ impl Inner {
         }
     }
 
-    // #[inline]
-    // fn feed_error(&mut self, err: BodyError) {
-    //     self.err = Some(err);
-    // }
+    fn feed_error(&mut self, err: BodyError) {
+        self.err = Some(err);
+    }
 
-    #[inline]
     fn feed_eof(&mut self) {
         self.eof = true;
         self.wake();
     }
 
-    #[inline]
     fn feed_data(&mut self, data: Bytes) {
         self.len += data.len();
         self.items.push_back(data);
         self.wake();
     }
 
-    #[inline(always)]
     fn backpressure(&self) -> bool {
         self.len >= MAX_BUFFER_SIZE
     }
@@ -201,10 +192,8 @@ impl Inner {
         if let Some(data) = self.items.pop_front() {
             self.len -= data.len();
             Poll::Ready(Some(Ok(data)))
-            // }
-            // else if let Some(err) = self.err.take() {
-            //     Poll::Ready(Some(Err(err)))
-            // }
+        } else if let Some(err) = self.err.take() {
+            Poll::Ready(Some(Err(err)))
         } else if self.eof {
             Poll::Ready(None)
         } else {

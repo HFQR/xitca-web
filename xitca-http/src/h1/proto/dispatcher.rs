@@ -179,18 +179,24 @@ where
     }
 
     /// A specialized readable check that always pending when read buffer is full.
-    /// This is a hack for tokio::select macro.
-    async fn readable(&self) -> Result<(), Error<E>> {
+    /// This is a hack for `crate::util::futures::Select`.
+    async fn readable<const HEADER_LIMIT: usize>(
+        &self,
+        handle: &mut RequestBodyHandle,
+        ctx: &mut Context<'_, HEADER_LIMIT>,
+    ) -> io::Result<()> {
         if self.read_buf.backpressure() {
             never().await
         } else {
             let _ = self.io.ready(Interest::READABLE).await?;
-            Ok(())
+            // Check the readiness of RequestBodyHandle
+            // so read ahead does not buffer too much data.
+            handle.ready(ctx).await
         }
     }
 
     /// A specialized writable check that always pending when write buffer is empty.
-    /// This is a hack for tokio::select macro.
+    /// This is a hack for `crate::util::futures::Select`.
     async fn writable(&self) -> Result<(), Error<E>> {
         if self.write_buf.empty() {
             never().await
@@ -198,66 +204,6 @@ where
             let _ = self.io.ready(Interest::WRITABLE).await?;
             Ok(())
         }
-    }
-
-    /// Return Ok when read is done or body handle is dropped by service call.
-    async fn handle_request_body<const HEADER_LIMIT: usize>(
-        &mut self,
-        handle: &mut RequestBodyHandle,
-        ctx: &mut Context<'_, HEADER_LIMIT>,
-    ) -> Result<(), Error<E>> {
-        loop {
-            if let Some(bytes) = handle.decoder.decode(self.read_buf.buf_mut())? {
-                if bytes.is_empty() {
-                    handle.sender.feed_eof();
-                    return Ok(());
-                } else {
-                    handle.sender.feed_data(bytes)
-                }
-            }
-
-            match handle.sender.ready().await {
-                Ok(_) => {
-                    self.readable().await?;
-                    self.try_read()?;
-                }
-                // When service call dropped payload there is no tell how many bytes
-                // still remain readable in the connection.
-                // close the connection would be a safe bet than draining it.
-                Err(_) => {
-                    ctx.set_force_close();
-                    return Ok(());
-                }
-            }
-        }
-    }
-
-    /// A ready check version of `Io::handle_request_body`.
-    /// This is to avoid borrow self as mut to co-op well with `tokio::select` macro.
-    async fn request_body_ready<const HEADER_LIMIT: usize>(
-        &self,
-        body_handle: &mut Option<RequestBodyHandle>,
-        ctx: &mut Context<'_, HEADER_LIMIT>,
-    ) -> Result<RequestBodyHandle, Error<E>> {
-        if let Some(handle) = body_handle.as_mut() {
-            match handle.sender.ready().await {
-                Ok(_) => {
-                    self.readable().await?;
-                    // TODO: This is an unwrap happen with every successful check. get rid of it.
-                    return Ok(body_handle.take().unwrap());
-                }
-                Err(_) => {
-                    // When service call dropped payload there is no tell how many bytes
-                    // still remain readable in the connection.
-                    // close the connection would be a safe bet than draining it.
-                    ctx.set_force_close();
-                    *body_handle = None;
-                }
-            }
-        }
-
-        // A future that would never resolve. This is a hack to work with tokio::select macro.
-        never().await
     }
 
     #[inline(never)]
@@ -434,22 +380,22 @@ where
 
         pin!(fut);
 
-        if let Some(handle) = body_handle {
-            match fut
-                .as_mut()
-                .select(self.io.handle_request_body(handle, &mut self.ctx))
-                .await
-            {
-                SelectOutput::A(res) => return res.map_err(Error::Service),
-                SelectOutput::B(res) => {
-                    // request body read is done or dropped. remove body_handle.
-                    res?;
-                    *body_handle = None;
-                }
+        loop {
+            match *body_handle {
+                Some(ref mut handle) => match handle.decode(&mut self.io.read_buf)? {
+                    DecodeState::Continue => match fut.as_mut().select(self.io.readable(handle, &mut self.ctx)).await {
+                        SelectOutput::A(res) => return res.map_err(Error::Service),
+                        SelectOutput::B(Ok(_)) => self.io.try_read()?,
+                        SelectOutput::B(Err(e)) => {
+                            handle.sender.feed_error(e.into());
+                            *body_handle = None;
+                        }
+                    },
+                    DecodeState::Eof => *body_handle = None,
+                },
+                None => return fut.await.map_err(Error::Service),
             }
         }
-
-        fut.await.map_err(Error::Service)
     }
 
     async fn response_handler(
@@ -460,53 +406,62 @@ where
     ) -> Result<(), Error<S::Error>> {
         pin!(body);
 
-        'res: loop {
+        loop {
             if self.io.write_buf.backpressure() {
                 trace!(target: "h1_dispatcher", "Write buffer limit reached. Enter backpressure.");
                 self.io.drain_write().await?;
                 trace!(target: "h1_dispatcher", "Write buffer empty. Recover from backpressure.");
+            } else if let Some(handle) = body_handle.as_mut() {
+                match handle.decode(&mut self.io.read_buf)? {
+                    DecodeState::Continue => match body
+                        .as_mut()
+                        .next()
+                        .select(self.io.writable())
+                        .select(self.io.readable(handle, &mut self.ctx))
+                        .await
+                    {
+                        SelectOutput::A(SelectOutput::A(Some(bytes))) => {
+                            let bytes = bytes?;
+                            encoder.encode(bytes, &mut self.io.write_buf);
+                        }
+                        SelectOutput::A(SelectOutput::A(None)) => {
+                            // Request body is partial consumed.
+                            // Close connection in case there are bytes remain in socket.
+                            if !handle.sender.is_eof() {
+                                self.ctx.set_force_close();
+                            };
+
+                            encoder.encode_eof(&mut self.io.write_buf);
+
+                            return Ok(());
+                        }
+                        SelectOutput::A(SelectOutput::B(res)) => {
+                            res?;
+                            let _ = self.io.try_write()?;
+                            self.io.flush().await?;
+                        }
+                        SelectOutput::B(Ok(_)) => self.io.try_read()?,
+                        SelectOutput::B(Err(e)) => {
+                            handle.sender.feed_error(e.into());
+                            body_handle = None;
+                        }
+                    },
+                    DecodeState::Eof => body_handle = None,
+                }
             } else {
-                match body
-                    .as_mut()
-                    .next()
-                    .select(self.io.writable())
-                    .select(self.io.request_body_ready(&mut body_handle, &mut self.ctx))
-                    .await
-                {
-                    SelectOutput::A(SelectOutput::A(Some(bytes))) => {
+                match body.as_mut().next().select(self.io.writable()).await {
+                    SelectOutput::A(Some(bytes)) => {
                         let bytes = bytes?;
                         encoder.encode(bytes, &mut self.io.write_buf);
                     }
-                    SelectOutput::A(SelectOutput::A(None)) => {
-                        // Request body is partial consumed.
-                        // Close connection in case there are bytes remain in socket.
-                        if body_handle.map(|handle| !handle.sender.is_eof()).unwrap_or(false) {
-                            self.ctx.set_force_close();
-                        };
-
+                    SelectOutput::A(None) => {
                         encoder.encode_eof(&mut self.io.write_buf);
-
                         return Ok(());
                     }
-                    SelectOutput::A(SelectOutput::B(res)) => {
+                    SelectOutput::B(res) => {
                         res?;
                         let _ = self.io.try_write()?;
                         self.io.flush().await?;
-                    }
-                    SelectOutput::B(res) => {
-                        let mut handle = res?;
-                        self.io.try_read()?;
-
-                        if let Some(bytes) = handle.decoder.decode(self.io.read_buf.buf_mut())? {
-                            if bytes.is_empty() {
-                                handle.sender.feed_eof();
-                                continue 'res;
-                            } else {
-                                handle.sender.feed_data(bytes);
-                            }
-                        }
-
-                        body_handle = Some(handle);
                     }
                 }
             }
@@ -537,6 +492,13 @@ struct RequestBodyHandle {
     sender: RequestBodySender,
 }
 
+enum DecodeState {
+    /// TransferDecoding can continue for more data.
+    Continue,
+    /// TransferDecoding is ended with eof.
+    Eof,
+}
+
 impl RequestBodyHandle {
     fn new_pair<ReqB>(decoder: TransferDecoding) -> (Option<Self>, ReqB)
     where
@@ -550,5 +512,31 @@ impl RequestBodyHandle {
             let body_handle = RequestBodyHandle { decoder, sender };
             (Some(body_handle), body.into())
         }
+    }
+
+    fn decode<const READ_BUF_LIMIT: usize>(
+        &mut self,
+        read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
+    ) -> io::Result<DecodeState> {
+        if let Some(bytes) = self.decoder.decode(read_buf.buf_mut())? {
+            if bytes.is_empty() {
+                self.sender.feed_eof();
+                return Ok(DecodeState::Eof);
+            } else {
+                self.sender.feed_data(bytes);
+            }
+        }
+
+        Ok(DecodeState::Continue)
+    }
+
+    async fn ready<const HEADER_LIMIT: usize>(&self, ctx: &mut Context<'_, HEADER_LIMIT>) -> io::Result<()> {
+        self.sender.ready().await.map_err(|e| {
+            // When service call dropped payload there is no tell how many bytes
+            // still remain readable in the connection.
+            // close the connection would be a safe bet than draining it.
+            ctx.set_force_close();
+            e
+        })
     }
 }
