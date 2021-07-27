@@ -380,22 +380,21 @@ where
 
         pin!(fut);
 
-        loop {
-            match *body_handle {
-                Some(ref mut handle) => match handle.decode(&mut self.io.read_buf)? {
-                    DecodeState::Continue => match fut.as_mut().select(self.io.readable(handle, &mut self.ctx)).await {
-                        SelectOutput::A(res) => return res.map_err(Error::Service),
-                        SelectOutput::B(Ok(_)) => self.io.try_read()?,
-                        SelectOutput::B(Err(e)) => {
-                            handle.sender.feed_error(e.into());
-                            *body_handle = None;
-                        }
-                    },
-                    DecodeState::Eof => *body_handle = None,
+        while let Some(ref mut handle) = *body_handle {
+            match handle.decode(&mut self.io.read_buf)? {
+                DecodeState::Continue => match fut.as_mut().select(self.io.readable(handle, &mut self.ctx)).await {
+                    SelectOutput::A(res) => return res.map_err(Error::Service),
+                    SelectOutput::B(Ok(_)) => self.io.try_read()?,
+                    SelectOutput::B(Err(e)) => {
+                        handle.sender.feed_error(e.into());
+                        *body_handle = None;
+                    }
                 },
-                None => return fut.await.map_err(Error::Service),
+                DecodeState::Eof => *body_handle = None,
             }
         }
+
+        fut.await.map_err(Error::Service)
     }
 
     async fn response_handler(
