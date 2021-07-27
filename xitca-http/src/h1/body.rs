@@ -70,7 +70,7 @@ impl RequestBodySender {
     }
 
     pub(super) fn feed_error(&mut self, err: BodyError) {
-        if Rc::strong_count(&self.0) != 1 {
+        if self.payload_alive() {
             self.0.borrow_mut().feed_error(err);
         }
     }

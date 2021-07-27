@@ -517,7 +517,7 @@ impl RequestBodyHandle {
         &mut self,
         read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
     ) -> io::Result<DecodeState> {
-        if let Some(bytes) = self.decoder.decode(read_buf.buf_mut())? {
+        while let Some(bytes) = self.decoder.decode(read_buf.buf_mut())? {
             if bytes.is_empty() {
                 self.sender.feed_eof();
                 return Ok(DecodeState::Eof);
