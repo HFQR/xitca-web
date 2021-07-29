@@ -1,7 +1,7 @@
 //! Content-Encoding support on top of `http` crate
 
 #![forbid(unsafe_code)]
-#![feature(min_type_alias_impl_trait)]
+#![feature(type_alias_impl_trait)]
 
 #[macro_use]
 mod coder;

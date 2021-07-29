@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 #![allow(incomplete_features)]
-#![feature(generic_associated_types, min_type_alias_impl_trait)]
+#![feature(generic_associated_types, type_alias_impl_trait)]
 
 mod body;
 mod builder;
