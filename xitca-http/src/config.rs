@@ -14,8 +14,8 @@ pub const DEFAULT_WRITE_BUF_LIMIT: usize = 8192 + 4096 * 100;
 
 /// The default maximum request header fields possible for one request.
 ///
-/// No particular reason. Copied from `actix-http` crate.
-pub const DEFAULT_HEADER_LIMIT: usize = 96;
+/// 64 chosen for no particular reason.
+pub const DEFAULT_HEADER_LIMIT: usize = 64;
 
 #[derive(Copy, Clone)]
 pub struct HttpServiceConfig<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
