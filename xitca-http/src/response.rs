@@ -21,16 +21,9 @@ pub trait ResponseError<Req, Res>: fmt::Debug {
 }
 
 // implement ResponseError for common error types.
-impl<B, Req> ResponseError<Req, Response<ResponseBody<B>>> for () {
+impl<Req, B> ResponseError<Req, Response<ResponseBody<B>>> for () {
     fn response_error(&mut self, _: &mut Req) -> Response<ResponseBody<B>> {
-        Response::builder()
-            .status(<Self as ResponseError<Req, Response<ResponseBody<B>>>>::status_code())
-            .header(
-                header::CONTENT_TYPE,
-                header::HeaderValue::from_static("text/plain; charset=utf-8"),
-            )
-            .body(Bytes::new().into())
-            .unwrap()
+        status_only(<Self as ResponseError<Req, Response<ResponseBody<B>>>>::status_code())
     }
 }
 
@@ -73,8 +66,8 @@ mod h1_impl {
     pub fn bad_request<B>() -> Response<ResponseBody<B>> {
         status_only(StatusCode::BAD_REQUEST)
     }
+}
 
-    fn status_only<B>(status: StatusCode) -> Response<ResponseBody<B>> {
-        Response::builder().status(status).body(Bytes::new().into()).unwrap()
-    }
+fn status_only<B>(status: StatusCode) -> Response<ResponseBody<B>> {
+    Response::builder().status(status).body(Bytes::new().into()).unwrap()
 }
