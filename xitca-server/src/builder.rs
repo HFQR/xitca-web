@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io, net, time::Duration};
+use std::{collections::HashMap, future::Future, io, net, pin::Pin, time::Duration};
 
 use crate::net::{AsListener, FromStream, TcpSocket};
 use crate::server::{AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone};
@@ -12,6 +12,7 @@ pub struct Builder {
     pub(crate) factories: HashMap<String, Box<dyn ServiceFactoryClone>>,
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
+    pub(crate) on_worker_start: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
     tcp_backlog: u32,
 }
 
@@ -33,6 +34,7 @@ impl Builder {
             factories: HashMap::new(),
             enable_signal: true,
             shutdown_timeout: Duration::from_secs(30),
+            on_worker_start: Box::new(|| Box::pin(async {})),
             tcp_backlog: 2048,
         }
     }
@@ -124,6 +126,26 @@ impl Builder {
 
     pub fn tcp_backlog(mut self, num: u32) -> Self {
         self.tcp_backlog = num;
+        self
+    }
+
+    #[doc(hidden)]
+    /// Async callback called when worker thread is spawned.
+    ///
+    /// *. This API is subject to change with no stable guarantee.
+    pub fn on_worker_start<F, Fut>(mut self, on_start: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Clone + 'static,
+        Fut: Future + Send,
+    {
+        self.on_worker_start = Box::new(move || {
+            let on_start = on_start.clone();
+            Box::pin(async move {
+                let fut = on_start();
+                let _ = fut.await;
+            })
+        });
+
         self
     }
 

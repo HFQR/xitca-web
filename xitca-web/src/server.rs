@@ -1,4 +1,4 @@
-use std::{fmt, net::ToSocketAddrs, time::Duration};
+use std::{fmt, future::Future, net::ToSocketAddrs, time::Duration};
 
 use bytes::Bytes;
 use futures_core::Stream;
@@ -174,6 +174,16 @@ where
             builder: self.builder,
             config: self.config.max_request_headers::<HEADER_LIMIT_2>(),
         }
+    }
+
+    #[doc(hidden)]
+    pub fn on_worker_start<FS, Fut>(mut self, on_start: FS) -> Self
+    where
+        FS: Fn() -> Fut + Send + Clone + 'static,
+        Fut: Future + Send,
+    {
+        self.builder = self.builder.on_worker_start(on_start);
+        self
     }
 
     pub fn bind<A: ToSocketAddrs, ResB, E>(mut self, addr: A) -> std::io::Result<Self>

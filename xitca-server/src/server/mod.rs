@@ -43,6 +43,7 @@ impl Server {
             listeners,
             factories,
             shutdown_timeout,
+            on_worker_start,
             ..
         } = builder;
 
@@ -107,10 +108,14 @@ impl Server {
 
                 let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
+                let on_start_fut = on_worker_start();
+
                 let handle = thread::Builder::new()
                     .name(format!("xitca-server-worker-{}", idx))
                     .spawn(move || {
                         let fut = async {
+                            on_start_fut.await;
+
                             // TODO: max blocking thread configure is needed.
                             let _ = worker_max_blocking_threads;
                             let fut = async {
