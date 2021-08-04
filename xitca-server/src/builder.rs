@@ -135,11 +135,11 @@ impl Builder {
     /// *. This API is subject to change with no stable guarantee.
     pub fn on_worker_start<F, Fut>(mut self, on_start: F) -> Self
     where
-        F: FnMut() -> Fut + Send + Clone + 'static,
+        F: Fn() -> Fut + Send + Clone + 'static,
         Fut: Future + Send,
     {
         self.on_worker_start = Box::new(move || {
-            let mut on_start = on_start.clone();
+            let on_start = on_start.clone();
             Box::pin(async move {
                 let fut = on_start();
                 let _ = fut.await;

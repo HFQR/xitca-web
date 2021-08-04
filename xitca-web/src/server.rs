@@ -179,7 +179,7 @@ where
     #[doc(hidden)]
     pub fn on_worker_start<FS, Fut>(mut self, on_start: FS) -> Self
     where
-        FS: FnMut() -> Fut + Send + Clone + 'static,
+        FS: Fn() -> Fut + Send + Clone + 'static,
         Fut: Future + Send,
     {
         self.builder = self.builder.on_worker_start(on_start);
