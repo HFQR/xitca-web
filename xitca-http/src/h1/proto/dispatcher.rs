@@ -151,9 +151,8 @@ where
         }
     }
 
-    /// Return true when write is blocked and need wait.
-    /// Return false when write is finished.(Did not blocked)
-    fn try_write(&mut self) -> Result<bool, Error<E>> {
+    /// Return when write is blocked and need wait.
+    fn try_write(&mut self) -> Result<(), Error<E>> {
         self.write_buf.try_write_io(self.io)
     }
 
@@ -172,7 +171,8 @@ where
 
     /// drain write buffer and flush the io.
     async fn drain_write(&mut self) -> Result<(), Error<E>> {
-        while self.try_write()? {
+        while !self.write_buf.empty() {
+            self.try_write()?;
             let _ = self.io.ready(Interest::WRITABLE).await?;
         }
         self.flush().await
@@ -436,7 +436,7 @@ where
                         }
                         SelectOutput::A(SelectOutput::B(res)) => {
                             res?;
-                            let _ = self.io.try_write()?;
+                            self.io.try_write()?;
                             self.io.flush().await?;
                         }
                         SelectOutput::B(Ok(_)) => self.io.try_read()?,
@@ -459,7 +459,7 @@ where
                     }
                     SelectOutput::B(res) => {
                         res?;
-                        let _ = self.io.try_write()?;
+                        self.io.try_write()?;
                         self.io.flush().await?;
                     }
                 }

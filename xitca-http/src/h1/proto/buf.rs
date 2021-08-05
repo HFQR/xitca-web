@@ -52,7 +52,7 @@ pub(super) trait WriteBuf<const WRITE_BUF_LIMIT: usize> {
 
     fn write_chunk(&mut self, bytes: Bytes);
 
-    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<bool, Error<E>>;
+    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<(), Error<E>>;
 }
 
 pub(super) struct FlatWriteBuf(BytesMut);
@@ -109,7 +109,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
         self.put_slice(b"\r\n");
     }
 
-    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<bool, Error<E>> {
+    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<(), Error<E>> {
         let mut written = 0;
         let len = self.remaining();
 
@@ -119,7 +119,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
                 Ok(n) => written += n,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     self.advance(written);
-                    return Ok(true);
+                    return Ok(());
                 }
                 Err(e) => return Err(e.into()),
             }
@@ -127,7 +127,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
 
         self.clear();
 
-        Ok(false)
+        Ok(())
     }
 }
 
@@ -243,7 +243,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
         self.buffer(EncodedBuf::Chunk(eof));
     }
 
-    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<bool, Error<E>> {
+    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<(), Error<E>> {
         let queue = &mut self.list;
         while queue.remaining() > 0 {
             let mut iovs = [io::IoSlice::new(&[]); BUF_LIST_CNT];
@@ -251,13 +251,11 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
             match io.try_write_vectored(&iovs[..len]) {
                 Ok(0) => return Err(Error::Closed),
                 Ok(n) => queue.advance(n),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    return Ok(true);
-                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(e) => return Err(e.into()),
             }
         }
 
-        Ok(false)
+        Ok(())
     }
 }
