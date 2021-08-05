@@ -108,9 +108,13 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                 _ => {}
             }
 
-            buf.put_slice(name.as_str().as_bytes());
+            let name = name.as_str().as_bytes();
+            let value = value.as_bytes();
+
+            buf.reserve(name.len() + value.len() + 4);
+            buf.put_slice(name);
             buf.put_slice(b": ");
-            buf.put_slice(value.as_bytes());
+            buf.put_slice(value);
             buf.put_slice(b"\r\n");
         }
 
@@ -130,9 +134,13 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                 }
                 ResponseBodySize::Sized(size) => {
                     let mut buffer = itoa::Buffer::new();
+                    let buffer = buffer.format(size).as_bytes();
+
+                    buf.reserve(buffer.len() + 18);
                     buf.put_slice(b"content-length: ");
-                    buf.put_slice(buffer.format(size).as_bytes());
+                    buf.put_slice(buffer);
                     buf.put_slice(b"\r\n");
+
                     encoding = TransferEncoding::length(size as u64);
                 }
             }
@@ -140,7 +148,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
         // set date header if there is not any.
         if !skip_date {
-            buf.reserve(DATE_VALUE_LENGTH + 8);
+            buf.reserve(DATE_VALUE_LENGTH + 10);
             buf.put_slice(b"date: ");
             buf.put_slice(self.date.borrow().date());
             buf.put_slice(b"\r\n\r\n");
@@ -161,7 +169,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 }
 
 #[inline]
-fn encode_version_status_reason<B: BufMut>(buf: &mut B, version: Version, status: StatusCode) {
+fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: StatusCode) {
     // encode version, status code and reason
     match (version, status) {
         // happy path shortcut.
@@ -181,10 +189,14 @@ fn encode_version_status_reason<B: BufMut>(buf: &mut B, version: Version, status
         }
     }
 
-    buf.put_slice(status.as_str().as_bytes());
-    buf.put_slice(b" ");
     // a reason MUST be written, as many parsers will expect it.
-    buf.put_slice(status.canonical_reason().unwrap_or("<none>").as_bytes());
+    let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();
+    let status = status.as_str().as_bytes();
+
+    buf.reserve(status.len() + reason.len() + 3);
+    buf.put_slice(status);
+    buf.put_slice(b" ");
+    buf.put_slice(reason);
     buf.put_slice(b"\r\n");
 }
 
