@@ -3,15 +3,16 @@ use std::{fmt, future::Future, marker::PhantomData};
 use bytes::Bytes;
 use futures_core::Stream;
 use http::{Request, Response};
-use xitca_server::net::Stream as ServerStream;
+use xitca_server::net::{AsyncReadWrite, Stream as ServerStream, TcpStream};
 use xitca_service::ServiceFactory;
 
 use super::body::{RequestBody, ResponseBody};
 use super::config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT};
 use super::error::{BodyError, HttpServiceError};
 use super::expect::ExpectHandler;
+use super::protocol::AsProtocol;
 use super::service::HttpService;
-use super::tls::{self, TlsStream};
+use super::tls::{self};
 use super::upgrade::UpgradeHandler;
 use super::util::LoggerFactory;
 
@@ -41,7 +42,7 @@ impl<F>
         RequestBody,
         ExpectHandler<F>,
         UpgradeHandler,
-        tls::TlsAcceptorService,
+        tls::NoOpTlsAcceptorService,
         DEFAULT_HEADER_LIMIT,
         DEFAULT_READ_BUF_LIMIT,
         DEFAULT_WRITE_BUF_LIMIT,
@@ -61,7 +62,7 @@ impl<F>
         RequestBody,
         ExpectHandler<F>,
         UpgradeHandler,
-        tls::TlsAcceptorService,
+        tls::NoOpTlsAcceptorService,
         HEADER_LIMIT,
         READ_BUF_LIMIT,
         WRITE_BUF_LIMIT,
@@ -70,7 +71,7 @@ impl<F>
             factory,
             expect: ExpectHandler::new(),
             upgrade: None,
-            tls_factory: tls::TlsAcceptorService::new(),
+            tls_factory: tls::NoOpTlsAcceptorService,
             config,
             _body: PhantomData,
         }
@@ -239,7 +240,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         RequestBody,
         FE,
         FU,
-        tls::TlsAcceptorService,
+        tls::openssl::TlsAcceptorService,
         HEADER_LIMIT,
         READ_BUF_LIMIT,
         WRITE_BUF_LIMIT,
@@ -248,7 +249,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: tls::TlsAcceptorService::OpenSsl(tls::openssl::TlsAcceptorService::new(acceptor)),
+            tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
             config: self.config,
             _body: PhantomData,
         }
@@ -263,7 +264,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         RequestBody,
         FE,
         FU,
-        tls::TlsAcceptorService,
+        tls::rustls::TlsAcceptorService,
         HEADER_LIMIT,
         READ_BUF_LIMIT,
         WRITE_BUF_LIMIT,
@@ -272,7 +273,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: tls::TlsAcceptorService::Rustls(tls::rustls::TlsAcceptorService::new(config)),
+            tls_factory: tls::rustls::TlsAcceptorService::new(config),
             config: self.config,
             _body: PhantomData,
         }
@@ -287,7 +288,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         RequestBody,
         FE,
         FU,
-        tls::TlsAcceptorService,
+        tls::native_tls::TlsAcceptorService,
         HEADER_LIMIT,
         READ_BUF_LIMIT,
         WRITE_BUF_LIMIT,
@@ -296,7 +297,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
             factory: self.factory,
             expect: self.expect,
             upgrade: self.upgrade,
-            tls_factory: tls::TlsAcceptorService::NativeTls(tls::native_tls::TlsAcceptorService::new(acceptor)),
+            tls_factory: tls::native_tls::TlsAcceptorService::new(acceptor),
             config: self.config,
             _body: PhantomData,
         }
@@ -320,8 +321,9 @@ where
     FU: ServiceFactory<Request<RequestBody>, Response = (), Config = ()>,
     FU::Service: 'static,
 
-    FA: ServiceFactory<ServerStream, Response = TlsStream, Config = ()>,
+    FA: ServiceFactory<TcpStream, Config = ()>,
     FA::Service: 'static,
+    FA::Response: AsyncReadWrite + AsProtocol,
 
     HttpServiceError<F::Error>: From<FU::Error> + From<FA::Error>,
     F::Error: From<FE::Error>,

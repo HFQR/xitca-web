@@ -72,12 +72,11 @@ impl<'a, D> WebRequest<'a, D> {
     pub fn as_response<B: Into<ResponseBody>>(&mut self, body: B) -> WebResponse {
         let Parts {
             mut headers,
-            mut extensions,
+            extensions,
             ..
         } = mem::take(self.request_mut()).into_parts().0;
 
         headers.clear();
-        extensions.clear();
 
         let mut res = WebResponse::new(body.into());
         *res.headers_mut() = headers;

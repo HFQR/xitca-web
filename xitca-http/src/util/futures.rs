@@ -48,10 +48,10 @@ pub(crate) async fn never<T>() -> T {
     poll_fn(|_| Poll::Pending).await
 }
 
-#[cfg(feature = "http1")]
+#[cfg(any(feature = "http1", feature = "http2"))]
 pub(crate) use select::*;
 
-#[cfg(feature = "http1")]
+#[cfg(any(feature = "http1", feature = "http2"))]
 mod select {
     use super::*;
 

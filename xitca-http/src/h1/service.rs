@@ -13,7 +13,7 @@ use xitca_service::Service;
 use crate::body::ResponseBody;
 use crate::error::{BodyError, HttpServiceError, TimeoutError};
 use crate::service::HttpService;
-use crate::util::{futures::Timeout, keep_alive::KeepAlive};
+use crate::util::futures::Timeout;
 
 use super::body::RequestBody;
 use super::proto;
@@ -62,9 +62,7 @@ where
     fn call(&self, io: St) -> Self::Future<'_> {
         async move {
             // tls accept timer.
-            let accept_dur = self.config.tls_accept_timeout;
-            let deadline = self.date.get().borrow().now() + accept_dur;
-            let timer = KeepAlive::new(deadline);
+            let timer = self.keep_alive();
             pin!(timer);
 
             let mut io = self
@@ -74,10 +72,8 @@ where
                 .await
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            // update timer to first request duration.
-            let request_dur = self.config.first_request_timeout;
-            let deadline = self.date.get().borrow().now() + request_dur;
-            timer.as_mut().update(deadline);
+            // update timer to first request timeout.
+            self.update_first_request_deadline(timer.as_mut());
 
             proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
                 .await

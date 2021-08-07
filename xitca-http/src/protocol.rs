@@ -1,4 +1,4 @@
-use xitca_server::net::Stream;
+use xitca_server::net::{Stream, TcpStream};
 
 /// A collection of regular used http protocols
 #[derive(Copy, Clone, PartialOrd, PartialEq, Debug)]
@@ -28,11 +28,18 @@ impl AsProtocol for Stream {
     #[inline]
     fn as_protocol(&self) -> Protocol {
         match *self {
-            Self::Tcp(..) => Protocol::Http1,
+            Self::Tcp(ref tcp) => tcp.as_protocol(),
             #[cfg(unix)]
             Self::Unix(..) => Protocol::Http1,
             #[cfg(feature = "http3")]
             Self::Udp(..) => Protocol::Http3,
         }
+    }
+}
+
+impl AsProtocol for TcpStream {
+    #[inline]
+    fn as_protocol(&self) -> Protocol {
+        Protocol::Http1
     }
 }

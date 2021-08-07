@@ -256,12 +256,14 @@ where
 
         let acceptor = builder.build();
 
-        self.builder = self.builder.bind::<_, _, _, ServerStream>("xitca-web", addr, move || {
-            let factory = factory();
-            HttpServiceBuilder::with_config(factory, config)
-                .openssl(acceptor.clone())
-                .with_logger()
-        })?;
+        self.builder = self
+            .builder
+            .bind::<_, _, _, ServerStream>("xitca-web-openssl", addr, move || {
+                let factory = factory();
+                HttpServiceBuilder::with_config(factory, config)
+                    .openssl(acceptor.clone())
+                    .with_logger()
+            })?;
 
         Ok(self)
     }
@@ -295,12 +297,14 @@ where
 
         let config = std::sync::Arc::new(config);
 
-        self.builder = self.builder.bind::<_, _, _, ServerStream>("xitca-web", addr, move || {
-            let factory = factory();
-            HttpServiceBuilder::with_config(factory, service_config)
-                .rustls(config.clone())
-                .with_logger()
-        })?;
+        self.builder = self
+            .builder
+            .bind::<_, _, _, ServerStream>("xitca-web-rustls", addr, move || {
+                let factory = factory();
+                HttpServiceBuilder::with_config(factory, service_config)
+                    .rustls(config.clone())
+                    .with_logger()
+            })?;
 
         Ok(self)
     }

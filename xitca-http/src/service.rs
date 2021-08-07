@@ -2,6 +2,7 @@ use std::{
     fmt,
     future::Future,
     marker::PhantomData,
+    pin::Pin,
     task::{Context, Poll},
 };
 
@@ -9,7 +10,7 @@ use bytes::Bytes;
 use futures_core::{ready, Stream};
 use http::{Request, Response};
 use tokio::pin;
-use xitca_server::net::Stream as ServerStream;
+use xitca_server::net::{AsyncReadWrite, Stream as ServerStream, TcpStream};
 use xitca_service::Service;
 
 use super::body::{RequestBody, ResponseBody};
@@ -17,7 +18,6 @@ use super::config::HttpServiceConfig;
 use super::error::{BodyError, HttpServiceError, TimeoutError};
 use super::flow::HttpFlow;
 use super::protocol::AsProtocol;
-use super::tls::TlsStream;
 use super::util::{date::DateTimeTask, futures::Timeout, keep_alive::KeepAlive};
 
 /// General purpose http service
@@ -89,6 +89,23 @@ impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
             .poll_ready(cx)
             .map_err(|_| HttpServiceError::ServiceReady)
     }
+
+    pub(crate) fn update_first_request_deadline(&self, timer: Pin<&mut KeepAlive>) {
+        let request_dur = self.config.first_request_timeout;
+        let deadline = self.date.get().borrow().now() + request_dur;
+        timer.update(deadline);
+    }
+
+    /// keep alive start with timer for `HttpServiceConfig.tls_accept_timeout`.
+    ///
+    /// It would be re-used for all following timer operation.
+    ///
+    /// This is an optimization for reducing heap allocation of multiple timers.
+    pub(crate) fn keep_alive(&self) -> KeepAlive {
+        let accept_dur = self.config.tls_accept_timeout;
+        let deadline = self.date.get().borrow().now() + accept_dur;
+        KeepAlive::new(deadline)
+    }
 }
 
 impl<S, X, U, B, E, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
@@ -97,7 +114,8 @@ where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     U: Service<Request<RequestBody>, Response = ()> + 'static,
-    A: Service<ServerStream, Response = TlsStream> + 'static,
+    A: Service<TcpStream> + 'static,
+    A::Response: AsyncReadWrite + AsProtocol,
 
     HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
 
@@ -119,19 +137,36 @@ where
     fn call(&self, io: ServerStream) -> Self::Future<'_> {
         async move {
             // tls accept timer.
-            let accept_dur = self.config.tls_accept_timeout;
-            let deadline = self.date.get().borrow().now() + accept_dur;
-            let timer = KeepAlive::new(deadline);
+            let timer = self.keep_alive();
             pin!(timer);
 
             match io {
                 #[cfg(feature = "http3")]
-                ServerStream::Udp(udp) => {
-                    let dispatcher = super::h3::Dispatcher::new(udp, &self.flow);
+                ServerStream::Udp(io) => {
+                    let dispatcher = super::h3::Dispatcher::new(io, &self.flow);
 
                     dispatcher.run().await.map_err(HttpServiceError::from)
                 }
-                io => {
+                #[cfg(unix)]
+                ServerStream::Unix(mut io) => {
+                    #[cfg(not(feature = "http1"))]
+                    {
+                        let _ = &mut io;
+                        drop(io);
+                        Err(HttpServiceError::UnknownProtocol(super::protocol::Protocol::Http1))
+                    }
+
+                    #[cfg(feature = "http1")]
+                    {
+                        // update timer to first request timeout.
+                        self.update_first_request_deadline(timer.as_mut());
+
+                        super::h1::proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
+                            .await
+                            .map_err(HttpServiceError::from)
+                    }
+                }
+                ServerStream::Tcp(io) => {
                     #[allow(unused_mut)]
                     let mut tls_stream = self
                         .tls_acceptor
@@ -143,9 +178,7 @@ where
                     let protocol = tls_stream.as_protocol();
 
                     // update timer to first request timeout.
-                    let request_dur = self.config.first_request_timeout;
-                    let deadline = self.date.get().borrow().now() + request_dur;
-                    timer.as_mut().update(deadline);
+                    self.update_first_request_deadline(timer.as_mut());
 
                     match protocol {
                         #[cfg(feature = "http1")]
