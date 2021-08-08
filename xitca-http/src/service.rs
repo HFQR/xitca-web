@@ -142,30 +142,10 @@ where
 
             match io {
                 #[cfg(feature = "http3")]
-                ServerStream::Udp(io) => {
-                    let dispatcher = super::h3::Dispatcher::new(io, &self.flow);
-
-                    dispatcher.run().await.map_err(HttpServiceError::from)
-                }
-                #[cfg(unix)]
-                ServerStream::Unix(mut io) => {
-                    #[cfg(not(feature = "http1"))]
-                    {
-                        let _ = &mut io;
-                        drop(io);
-                        Err(HttpServiceError::UnknownProtocol(super::protocol::Protocol::Http1))
-                    }
-
-                    #[cfg(feature = "http1")]
-                    {
-                        // update timer to first request timeout.
-                        self.update_first_request_deadline(timer.as_mut());
-
-                        super::h1::proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
-                            .await
-                            .map_err(HttpServiceError::from)
-                    }
-                }
+                ServerStream::Udp(io) => super::h3::Dispatcher::new(io, &self.flow)
+                    .run()
+                    .await
+                    .map_err(From::from),
                 ServerStream::Tcp(io) => {
                     #[allow(unused_mut)]
                     let mut tls_stream = self
@@ -191,7 +171,7 @@ where
                                 self.date.get(),
                             )
                             .await
-                            .map_err(HttpServiceError::from)
+                            .map_err(From::from)
                         }
                         #[cfg(feature = "http2")]
                         super::protocol::Protocol::Http2 => {
@@ -200,17 +180,36 @@ where
                                 .await
                                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
 
-                            let dispatcher = super::h2::Dispatcher::new(
+                            super::h2::Dispatcher::new(
                                 &mut conn,
                                 timer.as_mut(),
                                 self.config.keep_alive_timeout,
                                 &self.flow,
                                 self.date.get_shared(),
-                            );
-
-                            dispatcher.run().await.map_err(HttpServiceError::from)
+                            )
+                            .run()
+                            .await
+                            .map_err(HttpServiceError::from)
                         }
                         protocol => Err(HttpServiceError::UnknownProtocol(protocol)),
+                    }
+                }
+                #[cfg(unix)]
+                ServerStream::Unix(mut io) => {
+                    #[cfg(not(feature = "http1"))]
+                    {
+                        drop(io);
+                        Err(HttpServiceError::UnknownProtocol(super::protocol::Protocol::Http1))
+                    }
+
+                    #[cfg(feature = "http1")]
+                    {
+                        // update timer to first request timeout.
+                        self.update_first_request_deadline(timer.as_mut());
+
+                        super::h1::proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
+                            .await
+                            .map_err(From::from)
                     }
                 }
             }
