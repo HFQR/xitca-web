@@ -155,7 +155,13 @@ where
                         .await
                         .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-                    let protocol = tls_stream.as_protocol();
+                    let protocol = if self.config.peek_protocol {
+                        // peek protocol from connection to figure out the real protocol used
+                        // regardless of AsProtocol's outcome.
+                        todo!("peek protocol is not implemented yet!")
+                    } else {
+                        tls_stream.as_protocol()
+                    };
 
                     // update timer to first request timeout.
                     self.update_first_request_deadline(timer.as_mut());

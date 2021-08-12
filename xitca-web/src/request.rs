@@ -32,19 +32,19 @@ impl<'a, D> WebRequest<'a, D> {
         }
     }
 
-    /// Get an immutable reference of [HttpRequest](crate::request::HttpRequest)
+    /// Get an immutable reference of [Request](xitca_http::http::Request)
     #[inline]
     pub fn request_ref(&self) -> Ref<'_, Request<RequestBody>> {
         self.http.borrow()
     }
 
-    /// Get a mutable reference of [HttpRequest](crate::request::HttpRequest)
+    /// Get a mutable reference of [Request](xitca_http::http::Request)
     #[inline]
     pub fn request_ref_mut(&self) -> RefMut<'_, Request<RequestBody>> {
         self.http.borrow_mut()
     }
 
-    /// Get a mutable reference of [HttpRequest](crate::request::HttpRequest)
+    /// Get a mutable reference of [Request](xitca_http::http::Request)
     /// This API takes &mut WebRequest so it bypass runtime borrow checker
     /// and therefore has zero runtime overhead.
     #[inline]

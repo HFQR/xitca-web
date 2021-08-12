@@ -3,8 +3,9 @@ use std::{io, task::Poll};
 use bytes::{Buf, Bytes, BytesMut};
 use tracing::trace;
 
+/// Coder for different Transfer-Decoding/Transfer-Encoding.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum Kind {
+pub(super) enum TransferCoding {
     /// Coder used when a Content-Length header is passed with a positive integer.
     Length(u64),
 
@@ -34,6 +35,32 @@ pub(super) enum Kind {
     /// The chunk is consumed directly as IS without actual decoding.
     /// This is used for upgrade type connections like websocket.
     PlainChunked,
+}
+
+impl TransferCoding {
+    pub(super) const fn eof() -> Self {
+        Self::Eof
+    }
+
+    pub(super) fn is_eof(&self) -> bool {
+        matches!(self, Self::Eof)
+    }
+
+    pub(super) const fn length(len: u64) -> Self {
+        Self::Length(len)
+    }
+
+    pub(super) const fn decode_chunked() -> Self {
+        Self::DecodeChunked(ChunkedState::Size, 0)
+    }
+
+    pub(super) const fn encode_chunked() -> Self {
+        Self::EncodeChunked
+    }
+
+    pub(super) const fn plain_chunked() -> Self {
+        Self::PlainChunked
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

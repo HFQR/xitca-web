@@ -5,9 +5,9 @@ use http::{
     header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
     Method, Request, Uri, Version,
 };
-use httparse::{Header, Status, EMPTY_HEADER};
+use httparse::{Header, Status};
 
-use super::codec::{ChunkedState, Kind};
+use super::codec::{ChunkedState, TransferCoding};
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
@@ -16,12 +16,11 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
     pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
-    ) -> Result<Option<(Request<()>, TransferDecoding)>, ProtoError> {
-        let mut headers = [EMPTY_HEADER; MAX_HEADERS];
+    ) -> Result<Option<(Request<()>, TransferCoding)>, ProtoError> {
+        let mut req = httparse::Request::new(&mut []);
+        let mut headers = [mem::MaybeUninit::uninit(); MAX_HEADERS];
 
-        let mut req = httparse::Request::new(&mut headers);
-
-        match req.parse(buf)? {
+        match req.parse_with_uninit_headers(buf, &mut headers)? {
             Status::Complete(len) => {
                 // Important: reset context state for new request.
                 self.reset();
@@ -41,7 +40,6 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
                 // record the index of headers from the buffer.
                 let mut header_idx = [HeaderIndex::new(); MAX_HEADERS];
-
                 HeaderIndex::record(buf, req.headers, &mut header_idx);
 
                 let headers_len = req.headers.len();
@@ -49,11 +47,12 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                 // split the headers from buffer.
                 let slice = buf.split_to(len).freeze();
 
+                // default decoder.
+                let mut decoder = TransferCoding::eof();
+
                 // pop a cached headermap or construct a new one.
                 let mut headers = self.header.take().unwrap_or_else(HeaderMap::new);
                 headers.reserve(headers_len);
-
-                let mut decoder = TransferDecoding::eof();
 
                 // write headers to headermap and update request states.
                 for idx in &header_idx[..headers_len] {
@@ -73,7 +72,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                                 .eq_ignore_ascii_case("chunked");
 
                             if chunked {
-                                decoder.reset(TransferDecoding::chunked())?;
+                                decoder.try_set(TransferCoding::decode_chunked())?;
                             }
                         }
                         CONTENT_LENGTH => {
@@ -84,7 +83,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                                 .map_err(|_| ProtoError::Parse(Parse::HeaderName))?;
 
                             if len != 0 {
-                                decoder.reset(TransferDecoding::length(len))?;
+                                decoder.try_set(TransferCoding::length(len))?;
                             }
                         }
                         CONNECTION => {
@@ -96,7 +95,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                                     self.set_ctype(ConnectionType::Close);
                                 } else if value.eq_ignore_ascii_case("upgrade") {
                                     // set decoder to upgrade variant.
-                                    decoder = TransferDecoding::plain_chunked();
+                                    decoder = TransferCoding::plain_chunked();
                                     self.set_ctype(ConnectionType::Upgrade);
                                 }
                             }
@@ -114,7 +113,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                     self.set_ctype(ConnectionType::Upgrade);
                     // set method to context so it can pass method to response.
                     self.set_connect_method();
-                    decoder = TransferDecoding::plain_chunked();
+                    decoder = TransferCoding::plain_chunked();
                 }
 
                 let mut req = Request::new(());
@@ -157,54 +156,25 @@ impl HeaderIndex {
 
     fn record(bytes: &[u8], headers: &[Header<'_>], indices: &mut [Self]) {
         let bytes_ptr = bytes.as_ptr() as usize;
-        for (header, indices) in headers.iter().zip(indices.iter_mut()) {
+
+        headers.iter().zip(indices.iter_mut()).for_each(|(header, indice)| {
             let name_start = header.name.as_ptr() as usize - bytes_ptr;
-            let name_end = name_start + header.name.len();
-            indices.name = (name_start, name_end);
             let value_start = header.value.as_ptr() as usize - bytes_ptr;
+
+            let name_end = name_start + header.name.len();
             let value_end = value_start + header.value.len();
-            indices.value = (value_start, value_end);
-        }
+
+            indice.name = (name_start, name_end);
+            indice.value = (value_start, value_end);
+        });
     }
 }
 
-/// Decoders to handle different Transfer-Encodings.
-///
-/// If a message body does not include a Transfer-Encoding, it *should*
-/// include a Content-Length header.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TransferDecoding {
-    kind: Kind,
-}
-
-impl TransferDecoding {
-    pub const fn length(x: u64) -> TransferDecoding {
-        TransferDecoding { kind: Kind::Length(x) }
-    }
-
-    pub const fn chunked() -> TransferDecoding {
-        TransferDecoding {
-            kind: Kind::DecodeChunked(ChunkedState::Size, 0),
-        }
-    }
-
-    pub const fn plain_chunked() -> TransferDecoding {
-        TransferDecoding {
-            kind: Kind::PlainChunked,
-        }
-    }
-
-    pub const fn eof() -> TransferDecoding {
-        TransferDecoding { kind: Kind::Eof }
-    }
-
-    pub fn is_eof(&self) -> bool {
-        matches!(self.kind, Kind::Eof)
-    }
-
-    pub fn reset(&mut self, other: Self) -> Result<(), ProtoError> {
-        match (&self.kind, &other.kind) {
-            (Kind::DecodeChunked(..), Kind::Length(..)) | (Kind::Length(..), Kind::DecodeChunked(..)) => {
+impl TransferCoding {
+    fn try_set(&mut self, other: Self) -> Result<(), ProtoError> {
+        match (&self, &other) {
+            (TransferCoding::DecodeChunked(..), TransferCoding::Length(..))
+            | (TransferCoding::Length(..), TransferCoding::DecodeChunked(..)) => {
                 Err(ProtoError::Parse(Parse::HeaderName))
             }
             _ => {
@@ -213,12 +183,10 @@ impl TransferDecoding {
             }
         }
     }
-}
 
-impl TransferDecoding {
     pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
-        match self.kind {
-            Kind::Length(ref mut remaining) => {
+        match *self {
+            Self::Length(ref mut remaining) => {
                 if *remaining == 0 {
                     Ok(Some(Bytes::new()))
                 } else {
@@ -237,7 +205,7 @@ impl TransferDecoding {
                     Ok(Some(buf))
                 }
             }
-            Kind::DecodeChunked(ref mut state, ref mut size) => {
+            Self::DecodeChunked(ref mut state, ref mut size) => {
                 loop {
                     let mut buf = None;
                     // advances the chunked state
@@ -257,7 +225,7 @@ impl TransferDecoding {
                     }
                 }
             }
-            Kind::Eof | Kind::PlainChunked => {
+            Self::PlainChunked => {
                 if src.is_empty() {
                     Ok(None)
                 } else {
@@ -265,6 +233,7 @@ impl TransferDecoding {
                     Ok(Some(src.split().freeze()))
                 }
             }
+            Self::Eof => unreachable!("TransferCoding::Eof should never attempt to decode request payload"),
             _ => unreachable!(),
         }
     }

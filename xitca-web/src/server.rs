@@ -140,11 +140,7 @@ where
     pub fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(
         self,
     ) -> HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
-        HttpServer {
-            factory: self.factory,
-            builder: self.builder,
-            config: self.config.max_read_buf_size::<READ_BUF_LIMIT_2>(),
-        }
+        self.mutate_const_generic::<HEADER_LIMIT, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT>()
     }
 
     /// Change max size for write buffer size.
@@ -156,24 +152,16 @@ where
     pub fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(
         self,
     ) -> HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2> {
-        HttpServer {
-            factory: self.factory,
-            builder: self.builder,
-            config: self.config.max_write_buf_size::<WRITE_BUF_LIMIT_2>(),
-        }
+        self.mutate_const_generic::<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2>()
     }
 
     /// Change max header fields for one request.
     ///
-    /// Default to 96.
+    /// Default to 64.
     pub fn max_request_headers<const HEADER_LIMIT_2: usize>(
         self,
     ) -> HttpServer<F, HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
-        HttpServer {
-            factory: self.factory,
-            builder: self.builder,
-            config: self.config.max_request_headers::<HEADER_LIMIT_2>(),
-        }
+        self.mutate_const_generic::<HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT>()
     }
 
     #[doc(hidden)]
@@ -336,5 +324,17 @@ where
 
     pub fn run(self) -> ServerFuture {
         self.builder.build()
+    }
+
+    fn mutate_const_generic<const HEADER_LIMIT2: usize, const READ_BUF_LIMIT2: usize, const WRITE_BUF_LIMIT2: usize>(
+        self,
+    ) -> HttpServer<F, HEADER_LIMIT2, READ_BUF_LIMIT2, WRITE_BUF_LIMIT2> {
+        HttpServer {
+            factory: self.factory,
+            builder: self.builder,
+            config: self
+                .config
+                .mutate_const_generic::<HEADER_LIMIT2, READ_BUF_LIMIT2, WRITE_BUF_LIMIT2>(),
+        }
     }
 }

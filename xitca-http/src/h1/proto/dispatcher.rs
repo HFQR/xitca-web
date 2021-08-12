@@ -28,9 +28,8 @@ use crate::util::{
 };
 
 use super::buf::{FlatWriteBuf, ListWriteBuf, ReadBuf, WriteBuf};
+use super::codec::TransferCoding;
 use super::context::{ConnectionType, Context};
-use super::decode::TransferDecoding;
-use super::encode::TransferEncoding;
 use super::error::{Parse, ProtoError};
 
 /// function to generic over different writer buffer types dispatcher.
@@ -349,7 +348,7 @@ where
         }
     }
 
-    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<TransferEncoding, Error<S::Error>> {
+    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<TransferCoding, Error<S::Error>> {
         self.ctx
             .encode_head(parts, body.size(), &mut self.io.write_buf)
             .map_err(Error::from)
@@ -400,7 +399,7 @@ where
     async fn response_handler(
         &mut self,
         body: ResponseBody<ResB>,
-        encoder: &mut TransferEncoding,
+        encoder: &mut TransferCoding,
         mut body_handle: Option<RequestBodyHandle>,
     ) -> Result<(), Error<S::Error>> {
         pin!(body);
@@ -487,7 +486,7 @@ where
 type DecodedHead<ReqB> = (Request<ReqB>, Option<RequestBodyHandle>);
 
 struct RequestBodyHandle {
-    decoder: TransferDecoding,
+    decoder: TransferCoding,
     sender: RequestBodySender,
 }
 
@@ -499,7 +498,7 @@ enum DecodeState {
 }
 
 impl RequestBodyHandle {
-    fn new_pair<ReqB>(decoder: TransferDecoding) -> (Option<Self>, ReqB)
+    fn new_pair<ReqB>(decoder: TransferCoding) -> (Option<Self>, ReqB)
     where
         ReqB: From<RequestBody>,
     {
