@@ -1,4 +1,4 @@
-use std::{io, mem, task::Poll};
+use std::{io, mem};
 
 use bytes::{Buf, Bytes, BytesMut};
 use http::{
@@ -209,17 +209,19 @@ impl TransferCoding {
                 loop {
                     let mut buf = None;
                     // advances the chunked state
-                    *state = match state.step(src, size, &mut buf) {
-                        Poll::Pending => return Ok(None),
-                        Poll::Ready(Ok(state)) => state,
-                        Poll::Ready(Err(e)) => return Err(e),
+                    *state = match state.step(src, size, &mut buf)? {
+                        Some(state) => state,
+                        None => return Ok(None),
                     };
-                    if *state == ChunkedState::End {
+
+                    if matches!(state, ChunkedState::End) {
                         return Ok(Some(Bytes::new()));
                     }
+
                     if let Some(buf) = buf {
                         return Ok(Some(buf));
                     }
+
                     if src.is_empty() {
                         return Ok(None);
                     }
@@ -233,7 +235,7 @@ impl TransferCoding {
                     Ok(Some(src.split().freeze()))
                 }
             }
-            Self::Eof => unreachable!("TransferCoding::Eof should never attempt to decode request payload"),
+            Self::Eof => unreachable!("TransferCoding::Eof must never attempt to decode request payload"),
             _ => unreachable!(),
         }
     }

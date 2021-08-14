@@ -177,11 +177,11 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
             buf.put_slice(b"HTTP/1.1 200 OK\r\n");
             return;
         }
-        (Version::HTTP_10, _) => {
-            buf.put_slice(b"HTTP/1.0 ");
-        }
         (Version::HTTP_11, _) => {
             buf.put_slice(b"HTTP/1.1 ");
+        }
+        (Version::HTTP_10, _) => {
+            buf.put_slice(b"HTTP/1.0 ");
         }
         _ => {
             debug!(target: "h1_encode", "response with unexpected response version");
