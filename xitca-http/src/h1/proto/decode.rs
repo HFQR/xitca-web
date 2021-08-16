@@ -95,7 +95,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                                     self.set_ctype(ConnectionType::Close);
                                 } else if value.eq_ignore_ascii_case("upgrade") {
                                     // set decoder to upgrade variant.
-                                    decoder = TransferCoding::plain_chunked();
+                                    decoder.try_set(TransferCoding::plain_chunked())?;
                                     self.set_ctype(ConnectionType::Upgrade);
                                 }
                             }
@@ -113,7 +113,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                     self.set_ctype(ConnectionType::Upgrade);
                     // set method to context so it can pass method to response.
                     self.set_connect_method();
-                    decoder = TransferCoding::plain_chunked();
+                    decoder.try_set(TransferCoding::plain_chunked())?;
                 }
 
                 let mut req = Request::new(());
@@ -173,10 +173,15 @@ impl HeaderIndex {
 impl TransferCoding {
     fn try_set(&mut self, other: Self) -> Result<(), ProtoError> {
         match (&self, &other) {
-            (TransferCoding::DecodeChunked(..), TransferCoding::Length(..))
-            | (TransferCoding::Length(..), TransferCoding::DecodeChunked(..)) => {
-                Err(ProtoError::Parse(Parse::HeaderName))
-            }
+            // multiple set to plain chunked is allowed. This can happen from Connect method
+            // and/or Connection header.
+            (TransferCoding::PlainChunked, TransferCoding::PlainChunked) => Ok(()),
+            // multiple set to decoded chunked/content-length are forbidden.
+            //
+            // mutation between decoded chunked/content-length/plain chunked is forbidden.
+            (TransferCoding::PlainChunked, _)
+            | (TransferCoding::DecodeChunked(..), _)
+            | (TransferCoding::Length(..), _) => Err(ProtoError::Parse(Parse::HeaderName)),
             _ => {
                 *self = other;
                 Ok(())
