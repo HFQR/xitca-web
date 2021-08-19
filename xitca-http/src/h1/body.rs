@@ -120,7 +120,6 @@ struct Inner {
     len: usize,
     eof: bool,
     err: Option<BodyError>,
-    need_read: bool,
     items: VecDeque<Bytes>,
     task: Option<Waker>,
     io_task: Option<Waker>,
@@ -133,7 +132,6 @@ impl Inner {
             len: 0,
             err: None,
             items: VecDeque::new(),
-            need_read: true,
             task: None,
             io_task: None,
         }

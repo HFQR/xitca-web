@@ -40,7 +40,7 @@ native-tls-crate = { package = "native-tls", version = "0.2.7", optional = true 
 tokio-native-tls = { version = "0.3", optional = true }
 
 # http/1 support
-httparse = { version = "1.4", optional = true }
+httparse = { version = "1.5", optional = true }
 itoa = { version = "0.4.7", optional = true }
 
 # http/2 support
