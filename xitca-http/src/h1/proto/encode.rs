@@ -12,7 +12,7 @@ use crate::body::ResponseBodySize;
 use crate::util::date::DATE_VALUE_LENGTH;
 
 use super::buf::WriteBuf;
-use super::codec::Kind;
+use super::codec::TransferCoding;
 use super::context::{ConnectionType, Context};
 use super::error::{Parse, ProtoError};
 
@@ -29,7 +29,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         parts: Parts,
         size: ResponseBodySize,
         buf: &mut W,
-    ) -> Result<TransferEncoding, ProtoError>
+    ) -> Result<TransferCoding, ProtoError>
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
     {
@@ -41,7 +41,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         mut parts: Parts,
         size: ResponseBodySize,
         buf: &mut BytesMut,
-    ) -> Result<TransferEncoding, ProtoError> {
+    ) -> Result<TransferCoding, ProtoError> {
         let version = parts.version;
         let status = parts.status;
 
@@ -68,7 +68,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
         let mut skip_date = false;
 
-        let mut encoding = TransferEncoding::eof();
+        let mut encoding = TransferCoding::eof();
 
         for (name, value) in parts.headers.drain() {
             let name = name.expect("Handling optional header name is not implemented");
@@ -82,12 +82,12 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                         .ok()
                         .and_then(|v| v.parse().ok())
                         .ok_or(Parse::HeaderValue)?;
-                    encoding = TransferEncoding::length(value);
+                    encoding = TransferCoding::length(value);
                     skip_len = true;
                 }
                 TRANSFER_ENCODING => {
                     debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
-                    encoding = TransferEncoding::chunked_from(self.ctype());
+                    encoding = TransferCoding::encode_chunked_from(self.ctype());
                     skip_len = true;
                 }
                 CONNECTION if self.is_force_close() => continue,
@@ -126,11 +126,11 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         if !skip_len {
             match size {
                 ResponseBodySize::None => {
-                    encoding = TransferEncoding::eof();
+                    encoding = TransferCoding::eof();
                 }
                 ResponseBodySize::Stream => {
                     buf.put_slice(b"transfer-encoding: chunked\r\n");
-                    encoding = TransferEncoding::chunked_from(self.ctype());
+                    encoding = TransferCoding::encode_chunked_from(self.ctype());
                 }
                 ResponseBodySize::Sized(size) => {
                     let mut buffer = itoa::Buffer::new();
@@ -141,7 +141,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                     buf.put_slice(buffer);
                     buf.put_slice(b"\r\n");
 
-                    encoding = TransferEncoding::length(size as u64);
+                    encoding = TransferCoding::length(size as u64);
                 }
             }
         }
@@ -157,7 +157,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         }
 
         // put header map back to cache.
-        parts.headers.clear();
+        debug_assert!(parts.headers.is_empty());
         self.header = Some(parts.headers);
 
         // put extension back to cache;
@@ -177,11 +177,11 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
             buf.put_slice(b"HTTP/1.1 200 OK\r\n");
             return;
         }
-        (Version::HTTP_10, _) => {
-            buf.put_slice(b"HTTP/1.0 ");
-        }
         (Version::HTTP_11, _) => {
             buf.put_slice(b"HTTP/1.1 ");
+        }
+        (Version::HTTP_10, _) => {
+            buf.put_slice(b"HTTP/1.0 ");
         }
         _ => {
             debug!(target: "h1_encode", "response with unexpected response version");
@@ -200,40 +200,12 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
     buf.put_slice(b"\r\n");
 }
 
-/// Encoders to handle different Transfer-Encodings.
-#[derive(Debug)]
-pub(super) struct TransferEncoding {
-    kind: Kind,
-}
-
-impl TransferEncoding {
-    pub(super) const fn eof() -> Self {
-        Self { kind: Kind::Eof }
-    }
-
-    pub(super) const fn chunked() -> Self {
-        Self {
-            kind: Kind::EncodeChunked,
-        }
-    }
-
-    pub(super) const fn plain_chunked() -> Self {
-        Self {
-            kind: Kind::PlainChunked,
-        }
-    }
-
-    pub(super) const fn length(len: u64) -> Self {
-        Self {
-            kind: Kind::Length(len),
-        }
-    }
-
-    pub(super) fn chunked_from(ctype: ConnectionType) -> Self {
+impl TransferCoding {
+    fn encode_chunked_from(ctype: ConnectionType) -> Self {
         if ctype == ConnectionType::Upgrade {
             Self::plain_chunked()
         } else {
-            Self::chunked()
+            Self::encode_chunked()
         }
     }
 
@@ -249,16 +221,17 @@ impl TransferEncoding {
             return;
         }
 
-        match self.kind {
-            Kind::Eof | Kind::PlainChunked => buf.write_buf(bytes),
-            Kind::EncodeChunked => buf.write_chunk(bytes),
-            Kind::Length(ref mut remaining) => {
+        match *self {
+            Self::PlainChunked => buf.write_buf(bytes),
+            Self::EncodeChunked => buf.write_chunk(bytes),
+            Self::Length(ref mut remaining) => {
                 if *remaining > 0 {
                     let len = cmp::min(*remaining, bytes.len() as u64);
                     buf.write_buf(bytes.split_to(len as usize));
                     *remaining -= len as u64;
                 }
             }
+            Self::Eof => warn!(target: "h1_encode", "TransferCoding::Eof should not encode response body"),
             _ => unreachable!(),
         }
     }
@@ -268,10 +241,10 @@ impl TransferEncoding {
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
     {
-        match self.kind {
-            Kind::Eof | Kind::PlainChunked | Kind::Length(0) => {}
-            Kind::EncodeChunked => buf.write_static(b"0\r\n\r\n"),
-            Kind::Length(n) => unreachable!("UnexpectedEof for Length Body with {} remaining", n),
+        match *self {
+            Self::Eof | Self::PlainChunked | Self::Length(0) => {}
+            Self::EncodeChunked => buf.write_static(b"0\r\n\r\n"),
+            Self::Length(n) => unreachable!("UnexpectedEof for Length Body with {} remaining", n),
             _ => unreachable!(),
         }
     }
