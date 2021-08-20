@@ -116,19 +116,31 @@ impl ChunkedState {
     }
 
     fn read_size(rdr: &mut BytesMut, size: &mut u64) -> io::Result<Option<ChunkedState>> {
+        macro_rules! or_overflow {
+            ($e:expr) => (
+                match $e {
+                    Some(val) => val,
+                    None => return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "invalid chunk size: overflow",
+                    )),
+                }
+            )
+        }
+
         let radix = 16;
         match byte!(rdr) {
             b @ b'0'..=b'9' => {
-                *size *= radix;
-                *size += u64::from(b - b'0');
+                *size = or_overflow!(size.checked_mul(radix));
+                *size = or_overflow!(size.checked_add((b - b'0') as u64));
             }
             b @ b'a'..=b'f' => {
-                *size *= radix;
-                *size += u64::from(b + 10 - b'a');
+                *size = or_overflow!(size.checked_mul(radix));
+                *size = or_overflow!(size.checked_add((b + 10 - b'a') as u64));
             }
             b @ b'A'..=b'F' => {
-                *size *= radix;
-                *size += u64::from(b + 10 - b'A');
+                *size = or_overflow!(size.checked_mul(radix));
+                *size = or_overflow!(size.checked_add((b + 10 - b'A') as u64));
             }
             b'\t' | b' ' => return Ok(Some(ChunkedState::SizeLws)),
             b';' => return Ok(Some(ChunkedState::Extension)),
@@ -137,9 +149,10 @@ impl ChunkedState {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "Invalid chunk size line: Invalid Size",
-                ))
+                ));
             }
         }
+
         Ok(Some(ChunkedState::Size))
     }
 
