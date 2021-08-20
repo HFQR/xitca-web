@@ -147,7 +147,7 @@ struct HeaderIndex {
 }
 
 impl HeaderIndex {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             name: (0, 0),
             value: (0, 0),
