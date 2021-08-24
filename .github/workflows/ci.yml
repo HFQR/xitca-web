@@ -42,22 +42,15 @@ jobs:
       with:
         command: test
         args: --all
-
-  check_fmt_and_docs:
-    name: fmt, clippy, doc
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@master
-
-    - name: setup
-      run: |
-        rustup component add clippy rustfmt
-        rustc --version
+        
     - name: clippy
-      run: cargo clippy --tests --examples -- -D warnings
-
+      uses: actions-rs/cargo@v1
+      with:
+        command: clippy
+        args: --tests --examples
+    
     - name: fmt
-      run: cargo fmt --all -- --check
-
-    - name: Docs
-      run: cargo doc --no-deps
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: --all -- --check
