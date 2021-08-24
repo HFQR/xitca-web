@@ -23,11 +23,9 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         toolchain: ${{ matrix.rust }}
+        components: clippy, rustfmt
         override: true
         
-    - run: rustup component add rustfmt
-    - run: rustup component add clippy
-
     - name: check
       uses: actions-rs/cargo@v1
       with:
@@ -47,10 +45,10 @@ jobs:
         args: --all
         
     - name: clippy
-      uses: actions-rs/cargo@v1
+      uses: actions-rs/clippy-check@v1
       with:
-        command: clippy
-        args: --tests --examples
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features --tests --examples     
     
     - name: fmt
       uses: actions-rs/cargo@v1
