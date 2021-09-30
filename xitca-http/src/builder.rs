@@ -220,6 +220,22 @@ impl<F, ReqB, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize
         }
     }
 
+    /// Pass a tls service factory to Builder and use it to handle tls handling with
+    /// Http/1 and Http/2.
+    pub fn with_tls<TlsF>(
+        self,
+        tls_factory: TlsF,
+    ) -> HttpServiceBuilder<F, RequestBody, FE, FU, TlsF, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+        HttpServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            upgrade: self.upgrade,
+            tls_factory,
+            config: self.config,
+            _body: PhantomData,
+        }
+    }
+
     /// Finish builder with default logger.
     ///
     /// Would consume input.
@@ -245,14 +261,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         READ_BUF_LIMIT,
         WRITE_BUF_LIMIT,
     > {
-        HttpServiceBuilder {
-            factory: self.factory,
-            expect: self.expect,
-            upgrade: self.upgrade,
-            tls_factory: tls::openssl::TlsAcceptorService::new(acceptor),
-            config: self.config,
-            _body: PhantomData,
-        }
+        self.with_tls(tls::openssl::TlsAcceptorService::new(acceptor))
     }
 
     #[cfg(feature = "rustls")]
@@ -269,14 +278,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         READ_BUF_LIMIT,
         WRITE_BUF_LIMIT,
     > {
-        HttpServiceBuilder {
-            factory: self.factory,
-            expect: self.expect,
-            upgrade: self.upgrade,
-            tls_factory: tls::rustls::TlsAcceptorService::new(config),
-            config: self.config,
-            _body: PhantomData,
-        }
+        self.with_tls(tls::rustls::TlsAcceptorService::new(config))
     }
 
     #[cfg(feature = "native-tls")]
@@ -293,14 +295,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         READ_BUF_LIMIT,
         WRITE_BUF_LIMIT,
     > {
-        HttpServiceBuilder {
-            factory: self.factory,
-            expect: self.expect,
-            upgrade: self.upgrade,
-            tls_factory: tls::native_tls::TlsAcceptorService::new(acceptor),
-            config: self.config,
-            _body: PhantomData,
-        }
+        self.with_tls(tls::native_tls::TlsAcceptorService::new(acceptor))
     }
 }
 
