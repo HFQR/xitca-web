@@ -190,9 +190,9 @@ impl Future for H2PingPong<'_> {
     }
 }
 
-async fn h2_handler<Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>, date: SharedDate) -> Result<(), Error<E>>
+async fn h2_handler<'a, Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>, date: SharedDate) -> Result<(), Error<E>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'a,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
