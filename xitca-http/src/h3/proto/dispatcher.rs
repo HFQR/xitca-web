@@ -85,9 +85,9 @@ where
     }
 }
 
-async fn h3_handler<Fut, C, B, BE, E>(fut: Fut, stream: Rc<LocalMutex<RequestStream<C>>>) -> Result<(), Error<E>>
+async fn h3_handler<'a, Fut, C, B, BE, E>(fut: Fut, stream: Rc<LocalMutex<RequestStream<C>>>) -> Result<(), Error<E>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'a,
     C: SendStream<Bytes>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
