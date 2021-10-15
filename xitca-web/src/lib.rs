@@ -15,6 +15,8 @@ pub mod response;
 pub use app::App;
 pub use server::HttpServer;
 
+pub use xitca_http::http;
+
 pub mod dev {
     pub use xitca_service::{fn_service, Service, ServiceFactory, ServiceFactoryExt, Transform};
 

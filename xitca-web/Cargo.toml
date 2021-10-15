@@ -26,4 +26,4 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 rustls-crate = { package = "rustls", version = "0.19", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.6", features = ["rt", "macros"] }
+tokio = { version = "1.12", features = ["rt", "macros"] }
