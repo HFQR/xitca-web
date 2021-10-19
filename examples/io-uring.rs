@@ -9,14 +9,11 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use std::io::Write;
-use std::rc::Rc;
+use std::{io::Write, rc::Rc};
 
 use tempfile::NamedTempFile;
 use tokio_uring::fs::File;
-use xitca_http::http::HeaderValue;
-use xitca_service::fn_service;
-use xitca_web::{request::WebRequest, response::WebResponse, App, HttpServer};
+use xitca_web::{dev::fn_service, http::HeaderValue, request::WebRequest, response::WebResponse, App, HttpServer};
 
 const HELLO: &[u8] = b"hello world!";
 
