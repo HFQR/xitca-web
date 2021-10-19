@@ -13,10 +13,7 @@ use std::{
 use bytes::BufMut;
 use futures_task::noop_waker;
 use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
-use tokio_rustls::{
-    rustls::{ServerConfig, Session},
-    TlsAcceptor,
-};
+use tokio_rustls::{rustls::ServerConfig, TlsAcceptor};
 use tokio_util::io::poll_read_buf;
 use xitca_server::net::AsyncReadWrite;
 use xitca_service::{Service, ServiceFactory};
@@ -36,7 +33,7 @@ impl<S> AsProtocol for TlsStream<S> {
     fn as_protocol(&self) -> Protocol {
         self.get_ref()
             .1
-            .get_alpn_protocol()
+            .alpn_protocol()
             .map(|proto| {
                 if proto.windows(2).any(|window| window == b"h2") {
                     Protocol::Http2

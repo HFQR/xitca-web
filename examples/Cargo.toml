@@ -39,7 +39,8 @@ futures-util = "0.3"
 h3-quinn = "0.0.0"
 http = "0.2"
 mimalloc = { version = "0.1.26", default-features = false }
-rustls = "0.19"
+rustls = "0.20"
+rustls-pemfile = "0.2.1"
 tempfile = "3"
 tokio = { version = "1.5", features = ["fs", "macros", "rt"] }
 tracing = "0.1.26"

@@ -281,7 +281,7 @@ where
         #[cfg(not(feature = "http2"))]
         let protos = ["http/1.1".as_bytes().into()];
 
-        config.set_protocols(protos.as_ref());
+        config.alpn_protocols = protos.into();
 
         let config = std::sync::Arc::new(config);
 
