@@ -3,9 +3,13 @@
 use futures_util::TryStreamExt;
 use http_ws::{ws, Message};
 use tracing::info;
-use xitca_http::{BodyError, ResponseBody};
-use xitca_service::fn_service;
-use xitca_web::{request::WebRequest, response::WebResponse, App, HttpServer};
+use xitca_web::{
+    dev::fn_service,
+    error::BodyError,
+    request::WebRequest,
+    response::{ResponseBody, WebResponse},
+    App, HttpServer,
+};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {

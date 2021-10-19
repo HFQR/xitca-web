@@ -5,7 +5,6 @@
 //! for handling different protocols in one place.
 
 #![forbid(unsafe_code)]
-#![allow(incomplete_features)]
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 mod body;
