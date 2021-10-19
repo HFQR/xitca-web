@@ -8,19 +8,14 @@ use std::{
 
 use bytes::Bytes;
 use h3_quinn::quinn::generic::ServerConfig;
-use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, PrivateKey, ServerConfigBuilder};
+use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, ServerConfigBuilder};
+use rustls::{Certificate, PrivateKey};
 use xitca_http::{
     http::{Request, Response},
     util::LoggerFactory,
     HttpServiceBuilder, RequestBody, ResponseBody,
 };
 use xitca_service::fn_service;
-
-use rustls::{
-    self,
-    internal::pemfile::{certs, pkcs8_private_keys},
-    NoClientAuth,
-};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
@@ -57,7 +52,7 @@ fn h3_config() -> io::Result<ServerConfig<TlsSession>> {
     config.protocols(&[b"h3-29", b"h3-28", b"h3-27"]);
 
     let key = std::fs::read("./cert/key.pem")?;
-    let key = PrivateKey::from_pem(&key).unwrap();
+    let key = h3_quinn::quinn::PrivateKey::from_pem(&key).unwrap();
 
     let cert = std::fs::read("./cert/cert.pem")?;
     let cert = CertificateChain::from_pem(&cert).unwrap();
@@ -68,15 +63,23 @@ fn h3_config() -> io::Result<ServerConfig<TlsSession>> {
 }
 
 fn rustls_config() -> io::Result<Arc<rustls::ServerConfig>> {
-    let mut acceptor = rustls::ServerConfig::new(NoClientAuth::new());
     let cert_file = &mut BufReader::new(File::open("./cert/cert.pem")?);
     let key_file = &mut BufReader::new(File::open("./cert/key.pem")?);
-    let cert_chain = certs(cert_file).unwrap();
-    let mut keys = pkcs8_private_keys(key_file).unwrap();
+    let cert_chain = rustls_pemfile::certs(cert_file)
+        .unwrap()
+        .into_iter()
+        .map(Certificate)
+        .collect();
 
-    acceptor.set_single_cert(cert_chain, keys.remove(0)).unwrap();
-    let protos = vec!["h2".into(), "http/1.1".into()];
-    acceptor.set_protocols(&protos);
+    let mut keys = rustls_pemfile::pkcs8_private_keys(key_file).unwrap();
+
+    let mut acceptor = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, PrivateKey(keys.remove(0)))
+        .unwrap();
+
+    acceptor.alpn_protocols = vec!["h2".into(), "http/1.1".into()];
 
     Ok(Arc::new(acceptor))
 }

@@ -207,11 +207,13 @@ mod tests {
         payload: Bytes,
     }
 
-    fn is_none(frm: &Result<Option<(bool, OpCode, Option<BytesMut>)>, ProtocolError>) -> bool {
+    type Extract = (bool, OpCode, Option<BytesMut>);
+
+    fn is_none(frm: &Result<Option<Extract>, ProtocolError>) -> bool {
         matches!(*frm, Ok(None))
     }
 
-    fn extract(frm: Result<Option<(bool, OpCode, Option<BytesMut>)>, ProtocolError>) -> F {
+    fn extract(frm: Result<Option<Extract>, ProtocolError>) -> F {
         match frm {
             Ok(Some((finished, opcode, payload))) => F {
                 finished,

@@ -33,7 +33,7 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 tokio-openssl = { version = "0.6.1", optional = true }
 
 # rustls support
-tokio-rustls = { version = "0.22", optional = true }
+tokio-rustls = { version = "0.23", optional = true }
 
 # native tls support
 native-tls-crate = { package = "native-tls", version = "0.2.7", optional = true }
