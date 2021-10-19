@@ -5,8 +5,7 @@ use xitca_http::{
     http::{Request, Response},
     RequestBody, ResponseBody,
 };
-use xitca_service::fn_service;
-use xitca_web::HttpServer;
+use xitca_web::{dev::fn_service, HttpServer};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {
