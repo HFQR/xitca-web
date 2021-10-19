@@ -25,56 +25,6 @@ pub type H2ServiceBuilder<
     const WRITE_BUF_LIMIT: usize,
 > = HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
-{
-    #[cfg(feature = "openssl")]
-    pub fn openssl(
-        self,
-        acceptor: crate::tls::openssl::TlsAcceptor,
-    ) -> H2ServiceBuilder<
-        F,
-        FE,
-        FU,
-        crate::tls::openssl::TlsAcceptorService,
-        HEADER_LIMIT,
-        READ_BUF_LIMIT,
-        WRITE_BUF_LIMIT,
-    > {
-        H2ServiceBuilder {
-            factory: self.factory,
-            expect: self.expect,
-            upgrade: self.upgrade,
-            tls_factory: crate::tls::openssl::TlsAcceptorService::new(acceptor),
-            config: self.config,
-            _body: std::marker::PhantomData,
-        }
-    }
-
-    #[cfg(feature = "rustls")]
-    pub fn rustls(
-        self,
-        config: crate::tls::rustls::RustlsConfig,
-    ) -> H2ServiceBuilder<
-        F,
-        FE,
-        FU,
-        crate::tls::rustls::TlsAcceptorService,
-        HEADER_LIMIT,
-        READ_BUF_LIMIT,
-        WRITE_BUF_LIMIT,
-    > {
-        H2ServiceBuilder {
-            factory: self.factory,
-            expect: self.expect,
-            upgrade: self.upgrade,
-            tls_factory: crate::tls::rustls::TlsAcceptorService::new(config),
-            config: self.config,
-            _body: std::marker::PhantomData,
-        }
-    }
-}
-
 impl<
         St,
         F,
