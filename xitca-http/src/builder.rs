@@ -225,7 +225,7 @@ impl<F, ReqB, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize
     pub fn with_tls<TlsF>(
         self,
         tls_factory: TlsF,
-    ) -> HttpServiceBuilder<F, RequestBody, FE, FU, TlsF, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+    ) -> HttpServiceBuilder<F, ReqB, FE, FU, TlsF, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -242,18 +242,14 @@ impl<F, ReqB, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize
     pub fn with_logger(self) -> LoggerFactory<Self> {
         LoggerFactory::new(self)
     }
-}
 
-impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
-{
     #[cfg(feature = "openssl")]
     pub fn openssl(
         self,
         acceptor: tls::openssl::TlsAcceptor,
     ) -> HttpServiceBuilder<
         F,
-        RequestBody,
+        ReqB,
         FE,
         FU,
         tls::openssl::TlsAcceptorService,
@@ -270,7 +266,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         config: tls::rustls::RustlsConfig,
     ) -> HttpServiceBuilder<
         F,
-        RequestBody,
+        ReqB,
         FE,
         FU,
         tls::rustls::TlsAcceptorService,
@@ -287,7 +283,7 @@ impl<F, FE, FU, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         acceptor: tls::native_tls::TlsAcceptor,
     ) -> HttpServiceBuilder<
         F,
-        RequestBody,
+        ReqB,
         FE,
         FU,
         tls::native_tls::TlsAcceptorService,
