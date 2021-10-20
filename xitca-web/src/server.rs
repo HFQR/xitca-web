@@ -216,7 +216,6 @@ where
 
         const H11: &[u8] = b"\x08http/1.1";
 
-        #[cfg(feature = "http2")]
         const H2: &[u8] = b"\x02h2";
 
         builder.set_alpn_select_callback(|_, protocols| {
