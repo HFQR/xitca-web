@@ -17,15 +17,15 @@ xitca-server = { version = "0.1", default-features = false }
 xitca-service = "0.1"
 
 bytes = "1"
-futures-core = "0.3"
+futures-core = "0.3.17"
 http = "0.2.5"
 httpdate = "1.0"
-pin-project-lite = "0.2.6"
-tokio = { version = "1.6", features = ["io-util", "macros"] }
-tracing = { version = "0.1.26", default-features = false, features = ["std"] }
+pin-project-lite = "0.2.7"
+tokio = { version = "1.12", features = ["io-util"] }
+tracing = { version = "0.1.29", default-features = false }
 
 # tls support shared
-futures-task = { version = "0.3", default-features = false, optional = true }
+futures-task = { version = "0.3.17", default-features = false, optional = true }
 tokio-util = { version = "0.6", optional = true }
 
 # openssl support
@@ -53,4 +53,4 @@ h3 = { version = "0.0.0", optional = true }
 h3-quinn = { version = "0.0.0", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.6", features = ["macros", "rt"] }
+tokio = { version = "1.12", features = ["macros", "rt"] }

@@ -17,7 +17,7 @@ futures-core = "0.3"
 num_cpus = "1.13"
 pin-project-lite = "0.2.6"
 tokio = { version = "1.5", features = ["net", "parking_lot", "rt-multi-thread", "sync", "time"] }
-tracing = { version = "0.1.26", default-features = false, features = ["std"] }
+tracing = { version = "0.1.29", default-features = false }
 
 # http/3 support
 async-channel = { version = "1.6.1", optional = true }
