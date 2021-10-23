@@ -1,0 +1,21 @@
+[package]
+name = "xitca-client"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+openssl = ["openssl-crate", "tokio-openssl"]
+
+[dependencies]
+bytes = "1"
+http = "0.2.5"
+futures-core = { version = "0.3.17", default-features = false, features =["alloc"] }
+tokio = { version = "1.12", features = ["net", "rt", "sync"] }
+
+# openssl support
+openssl-crate = { package = "openssl", version = "0.10", optional = true }
+tokio-openssl = { version = "0.6.3", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.12", features = ["macros"] }
