@@ -34,7 +34,6 @@ impl Client {
         // }
 
         let mut connect = Connect::new(uri);
-
         self.resolver.resolve(&mut connect).await?;
 
         let stream = TcpStream::connect(connect.addrs().next().unwrap()).await?;
