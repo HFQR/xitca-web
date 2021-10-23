@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "xitca-client",
     "xitca-http",
     "xitca-server",
     "xitca-service",
@@ -10,6 +11,7 @@ members = [
 ]
 
 [patch.crates-io]
+xitca-client = { path = "./xitca-client" }
 xitca-http = { path = "./xitca-http" }
 xitca-server = { path = "./xitca-server" }
 xitca-service = { path = "./xitca-service" }
