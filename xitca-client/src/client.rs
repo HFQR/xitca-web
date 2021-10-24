@@ -1,7 +1,10 @@
-use bytes::Bytes;
-use futures_core::Stream;
+use std::pin::Pin;
+
 use http::uri;
-use tokio::net::TcpStream;
+use tokio::{
+    net::TcpStream,
+    time::{Instant, Sleep},
+};
 
 use crate::{
     builder::ClientBuilder,
@@ -13,6 +16,7 @@ use crate::{
     resolver::Resolver,
     timeout::{Timeout, TimeoutConfig},
     tls::connector::Connector,
+    uri::Uri,
 };
 
 pub struct Client {
@@ -40,17 +44,59 @@ impl Client {
         Ok(self.request(req))
     }
 
-    pub(crate) async fn make_connection(&self, connect: &mut Connect) -> Result<Connection, Error> {
-        let timer = tokio::time::sleep(self.timeout_config.resolve_timeout);
-        tokio::pin!(timer);
+    pub(crate) async fn make_connection(
+        &self,
+        connect: &mut Connect,
+        mut timer: Pin<&mut Sleep>,
+    ) -> Result<Connection, Error> {
+        match connect.uri {
+            Uri::Tcp(_) => {
+                let stream = self.make_tcp(connect, timer.as_mut()).await?;
+                Ok(stream.into())
+            }
+            Uri::Tls(_) => {
+                let stream = self.make_tcp(connect, timer.as_mut()).await?;
 
+                timer
+                    .as_mut()
+                    .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
+                let stream = self
+                    .connector
+                    .connect(stream, connect.hostname())
+                    .timeout(timer)
+                    .await
+                    .map_err(|_| TimeoutError::TlsHandshake)??;
+
+                Ok(stream.into())
+            }
+            #[cfg(unix)]
+            Uri::Unix(ref uri) => {
+                timer
+                    .as_mut()
+                    .reset(Instant::now() + self.timeout_config.connect_timeout);
+
+                let path = format!(
+                    "/{}{}",
+                    uri.authority().unwrap().as_str(),
+                    uri.path_and_query().unwrap().as_str()
+                );
+
+                let stream = tokio::net::UnixStream::connect(path)
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| TimeoutError::Connect)??;
+
+                Ok(stream.into())
+            }
+        }
+    }
+
+    async fn make_tcp(&self, connect: &mut Connect, mut timer: Pin<&mut Sleep>) -> Result<TcpStream, Error> {
         self.resolver
             .resolve(connect)
             .timeout(timer.as_mut())
             .await
             .map_err(|_| TimeoutError::Resolve)??;
-
-        use tokio::time::Instant;
 
         timer
             .as_mut()
@@ -60,29 +106,6 @@ impl Client {
             .await
             .map_err(|_| TimeoutError::Connect)??;
 
-        timer
-            .as_mut()
-            .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
-        let stream = self
-            .connector
-            .connect(stream, connect.hostname())
-            .timeout(timer)
-            .await
-            .map_err(|_| TimeoutError::TlsHandshake)??;
-
-        Ok(stream.into())
-    }
-}
-
-struct Dummy;
-
-impl Stream for Dummy {
-    type Item = Result<Bytes, Error>;
-
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        todo!()
+        Ok(stream)
     }
 }

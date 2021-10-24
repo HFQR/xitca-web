@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_local_addr() {
-        let mut conn = Connect::new(Uri::Regular(http::Uri::from_static("https://example.com")));
+        let mut conn = Connect::new(Uri::Tcp(http::Uri::from_static("https://example.com")));
         conn.set_local_addr([127, 0, 0, 1]);
         assert_eq!(conn.local_addr.unwrap(), IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
     }

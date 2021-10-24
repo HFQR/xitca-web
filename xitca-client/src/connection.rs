@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use http::uri::{Authority, PathAndQuery};
 use tokio::net::TcpStream;
 
-use crate::{pool::Conn, uri::Uri};
+use crate::uri::Uri;
 
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -12,21 +12,28 @@ use crate::tls::stream::TlsStream;
 
 #[non_exhaustive]
 pub enum Connection {
-    Tcp(TlsStream<TcpStream>),
+    Tcp(TcpStream),
+    Tls(TlsStream<TcpStream>),
     #[cfg(unix)]
-    Unix(TlsStream<UnixStream>),
+    Unix(UnixStream),
     H2(()),
 }
 
-impl From<TlsStream<TcpStream>> for Connection {
-    fn from(tcp: TlsStream<TcpStream>) -> Self {
+impl From<TcpStream> for Connection {
+    fn from(tcp: TcpStream) -> Self {
         Self::Tcp(tcp)
     }
 }
 
+impl From<TlsStream<TcpStream>> for Connection {
+    fn from(tcp: TlsStream<TcpStream>) -> Self {
+        Self::Tls(tcp)
+    }
+}
+
 #[cfg(unix)]
-impl From<TlsStream<UnixStream>> for Connection {
-    fn from(unix: TlsStream<UnixStream>) -> Self {
+impl From<UnixStream> for Connection {
+    fn from(unix: UnixStream) -> Self {
         Self::Unix(unix)
     }
 }
@@ -56,7 +63,7 @@ impl Hash for AuthorityWithPath {
 impl From<&Uri> for ConnectionKey {
     fn from(uri: &Uri) -> Self {
         match *uri {
-            Uri::Regular(ref uri) => ConnectionKey::Regular(uri.authority().unwrap().clone()),
+            Uri::Tcp(ref uri) | Uri::Tls(ref uri) => ConnectionKey::Regular(uri.authority().unwrap().clone()),
             #[cfg(unix)]
             Uri::Unix(ref uri) => ConnectionKey::Unix(AuthorityWithPath {
                 authority: uri.authority().unwrap().clone(),

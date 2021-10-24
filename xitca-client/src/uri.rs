@@ -8,7 +8,8 @@ use crate::error::InvalidUri;
 /// The purpose of it is to treat the Uri differently with Unix Socket Domain connection.
 #[derive(Debug, Clone)]
 pub enum Uri {
-    Regular(uri::Uri),
+    Tcp(uri::Uri),
+    Tls(uri::Uri),
     #[cfg(unix)]
     Unix(uri::Uri),
 }
@@ -18,7 +19,8 @@ impl Deref for Uri {
 
     fn deref(&self) -> &Self::Target {
         match *self {
-            Self::Regular(ref uri) => uri,
+            Self::Tcp(ref uri) => uri,
+            Self::Tls(ref uri) => uri,
             #[cfg(unix)]
             Self::Unix(ref uri) => uri,
         }
@@ -31,7 +33,8 @@ impl Uri {
             (_, _, None) => Err(InvalidUri::MissingAuthority),
             (_, None, _) => Err(InvalidUri::MissingHost),
             (None, _, _) => Err(InvalidUri::MissingScheme),
-            (Some("http" | "ws" | "https" | "wss"), _, _) => Ok(Uri::Regular(uri)),
+            (Some("http" | "ws"), _, _) => Ok(Uri::Tcp(uri)),
+            (Some("https" | "wss"), _, _) => Ok(Uri::Tls(uri)),
             #[cfg(unix)]
             (Some("unix"), _, _) => Ok(Uri::Unix(uri)),
             (Some(_), _, _) => Err(InvalidUri::UnknownScheme),
