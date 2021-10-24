@@ -53,6 +53,8 @@ pub enum InvalidUri {
     ReasonUnknown,
     MissingHost,
     MissingScheme,
+    MissingAuthority,
+    MissingPathQuery,
     UnknownScheme,
 }
 

@@ -1,19 +1,20 @@
 use bytes::Bytes;
 use futures_core::Stream;
-use http::{uri::Authority, Response};
+use http::Response;
 use tokio::net::TcpStream;
 
 use crate::builder::ClientBuilder;
 use crate::connect::Connect;
-use crate::connection::Connection;
+use crate::connection::{Connection, ConnectionKey};
 use crate::error::{Error, TimeoutError};
 use crate::pool::Pool;
 use crate::resolver::Resolver;
 use crate::timeout::{Timeout, TimeoutConfig};
 use crate::tls::connector::Connector;
+use crate::uri::Uri;
 
 pub struct Client {
-    pub(crate) pool: Pool<Authority, Connection>,
+    pub(crate) pool: Pool<ConnectionKey, Connection>,
     pub(crate) connector: Connector,
     pub(crate) resolver: Resolver,
     pub(crate) timeout_config: TimeoutConfig,
@@ -25,11 +26,9 @@ impl Client {
     }
 
     pub async fn get(&self, url: &str) -> Result<Response<impl Stream<Item = Result<Bytes, Error>>>, Error> {
-        let uri = crate::uri::try_parse_uri(url)?;
+        let uri = Uri::try_parse(url)?;
 
-        let key = uri.authority().unwrap().clone();
-
-        let mut conn = self.pool.acquire(key).await?;
+        let mut conn = self.pool.acquire(&uri).await?;
 
         // Nothing in the pool. construct new connection and add it to Conn.
         if conn.is_none() {

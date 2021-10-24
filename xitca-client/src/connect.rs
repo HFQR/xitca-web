@@ -4,7 +4,7 @@ use std::{
     net::{IpAddr, SocketAddr},
 };
 
-use http::uri::Uri;
+use crate::uri::Uri;
 
 pub trait Address {
     /// Get hostname part.
@@ -19,11 +19,11 @@ pub trait Address {
 impl Address for Uri {
     fn hostname(&self) -> &str {
         // TODO: handle the None variant.
-        Uri::host(self).unwrap_or("")
+        self.host().unwrap_or("")
     }
 
     fn port(&self) -> Option<u16> {
-        Uri::port_u16(self)
+        self.port_u16()
     }
 }
 
@@ -60,7 +60,7 @@ impl From<Option<SocketAddr>> for Addrs {
 }
 
 /// Connection info.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub struct Connect {
     pub(crate) uri: Uri,
     pub(crate) port: u16,

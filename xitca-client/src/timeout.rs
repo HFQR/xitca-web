@@ -8,8 +8,6 @@ use std::{
 use pin_project_lite::pin_project;
 use tokio::time::Sleep;
 
-use crate::error::Error;
-
 /// Configuration for various timeout setting for http client.
 pub struct TimeoutConfig {
     /// Timeout for resolve DNS look up for given address.

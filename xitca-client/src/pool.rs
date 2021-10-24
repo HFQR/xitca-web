@@ -28,9 +28,11 @@ where
         }
     }
 
-    pub(crate) async fn acquire(&self, key: K) -> Result<Conn<'_, K, C>, Error> {
+    pub(crate) async fn acquire(&self, key: impl Into<K>) -> Result<Conn<'_, K, C>, Error> {
         // permit is needed to operate on pool.
         let permit = self.permits.acquire().await.unwrap();
+
+        let key = key.into();
 
         let conn = {
             let mut conns = self.conns.lock();
