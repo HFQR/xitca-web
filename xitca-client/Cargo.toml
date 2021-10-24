@@ -13,7 +13,8 @@ bytes = "1"
 futures-core = { version = "0.3.17", default-features = false, features =["alloc"] }
 http = "0.2.5"
 parking_lot = "0.11.2"
-tokio = { version = "1.12", features = ["net", "rt", "sync"] }
+pin-project-lite = "0.2.7"
+tokio = { version = "1.12", features = ["net", "rt", "parking_lot", "sync", "time"] }
 
 # openssl support
 openssl-crate = { package = "openssl", version = "0.10", optional = true }

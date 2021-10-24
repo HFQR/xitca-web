@@ -33,6 +33,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Set timeout for DNS resolve.
+    ///
+    /// See [TimeoutConfig] for detail.
+    pub fn set_resolve_timeout(mut self, dur: Duration) -> Self {
+        self.timeout_config.resolve_timeout = dur;
+        self
+    }
+
     /// Set timeout for establishing connection.
     ///
     /// See [TimeoutConfig] for detail.
