@@ -1,17 +1,19 @@
 use bytes::Bytes;
 use futures_core::Stream;
-use http::Response;
+use http::uri;
 use tokio::net::TcpStream;
 
-use crate::builder::ClientBuilder;
-use crate::connect::Connect;
-use crate::connection::{Connection, ConnectionKey};
-use crate::error::{Error, TimeoutError};
-use crate::pool::Pool;
-use crate::resolver::Resolver;
-use crate::timeout::{Timeout, TimeoutConfig};
-use crate::tls::connector::Connector;
-use crate::uri::Uri;
+use crate::{
+    builder::ClientBuilder,
+    connect::Connect,
+    connection::{Connection, ConnectionKey},
+    error::{Error, TimeoutError},
+    pool::Pool,
+    request::Request,
+    resolver::Resolver,
+    timeout::{Timeout, TimeoutConfig},
+    tls::connector::Connector,
+};
 
 pub struct Client {
     pub(crate) pool: Pool<ConnectionKey, Connection>,
@@ -25,22 +27,20 @@ impl Client {
         ClientBuilder::default().finish()
     }
 
-    pub async fn get(&self, url: &str) -> Result<Response<impl Stream<Item = Result<Bytes, Error>>>, Error> {
-        let uri = Uri::try_parse(url)?;
-
-        let mut conn = self.pool.acquire(&uri).await?;
-
-        // Nothing in the pool. construct new connection and add it to Conn.
-        if conn.is_none() {
-            let mut connect = Connect::new(uri);
-            let c = self.make_connection(&mut connect).await?;
-            conn.add_conn(c);
-        }
-
-        Ok(Response::new(Box::pin(Dummy)))
+    pub fn request<B>(&self, req: http::Request<B>) -> Request<'_, B> {
+        Request::new(req, self)
     }
 
-    async fn make_connection(&self, connect: &mut Connect) -> Result<Connection, Error> {
+    pub fn get(&self, url: &str) -> Result<Request<'_, ()>, Error> {
+        let uri = uri::Uri::try_from(url)?;
+
+        let mut req = http::Request::new(());
+        *req.uri_mut() = uri;
+
+        Ok(self.request(req))
+    }
+
+    pub(crate) async fn make_connection(&self, connect: &mut Connect) -> Result<Connection, Error> {
         let timer = tokio::time::sleep(self.timeout_config.resolve_timeout);
         tokio::pin!(timer);
 

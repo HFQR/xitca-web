@@ -3,6 +3,7 @@ mod client;
 mod connect;
 mod connection;
 mod pool;
+mod request;
 mod resolver;
 mod timeout;
 mod tls;
@@ -21,6 +22,6 @@ mod test {
     async fn get() {
         let client = Client::new();
 
-        let _ = client.get("https://google.com").await.unwrap();
+        let _ = client.get("https://google.com").unwrap().send().await.unwrap();
     }
 }

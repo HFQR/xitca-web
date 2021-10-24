@@ -26,9 +26,7 @@ impl Deref for Uri {
 }
 
 impl Uri {
-    pub(crate) fn try_parse(url: &str) -> Result<Self, InvalidUri> {
-        let uri = uri::Uri::try_from(url)?;
-
+    pub(crate) fn try_parse(uri: uri::Uri) -> Result<Self, InvalidUri> {
         match (uri.scheme_str(), uri.host(), uri.authority()) {
             (_, _, None) => Err(InvalidUri::MissingAuthority),
             (_, None, _) => Err(InvalidUri::MissingHost),
@@ -47,18 +45,20 @@ mod test {
 
     #[test]
     fn uri_parse() {
-        let err = Uri::try_parse("http2://example.com").err().unwrap();
+        let err = Uri::try_parse(uri::Uri::from_static("http2://example.com"))
+            .err()
+            .unwrap();
         assert!(matches!(err, InvalidUri::UnknownScheme));
 
-        let err = Uri::try_parse("/hello/world").err().unwrap();
-        assert!(matches!(err, InvalidUri::MissingHost));
+        let err = Uri::try_parse(uri::Uri::from_static("/hello/world")).err().unwrap();
+        assert!(matches!(err, InvalidUri::MissingAuthority));
 
-        let err = Uri::try_parse("example.com").err().unwrap();
+        let err = Uri::try_parse(uri::Uri::from_static("example.com")).err().unwrap();
         assert!(matches!(err, InvalidUri::MissingScheme));
 
-        let _ = Uri::try_parse("http://example.com").unwrap();
+        let _ = Uri::try_parse(uri::Uri::from_static("http://example.com")).unwrap();
 
-        let uri = Uri::try_parse("unix://tmp/foo.socket").unwrap();
+        let uri = Uri::try_parse(uri::Uri::from_static("unix://tmp/foo.socket")).unwrap();
         assert_eq!(uri.scheme_str().unwrap(), "unix");
         assert_eq!(uri.host().unwrap(), "tmp");
         assert_eq!(uri.path(), "/foo.socket");

@@ -64,6 +64,12 @@ impl From<http::uri::InvalidUri> for InvalidUri {
     }
 }
 
+impl From<http::uri::InvalidUri> for Error {
+    fn from(e: http::uri::InvalidUri) -> Self {
+        Self::InvalidUri(e.into())
+    }
+}
+
 impl From<InvalidUri> for Error {
     fn from(e: InvalidUri) -> Self {
         Self::InvalidUri(e)
