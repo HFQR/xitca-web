@@ -1,8 +1,8 @@
-use std::pin::Pin;
+use std::{net::SocketAddr, pin::Pin};
 
 use http::uri;
 use tokio::{
-    net::TcpStream,
+    net::{TcpSocket, TcpStream},
     time::{Instant, Sleep},
 };
 
@@ -24,17 +24,33 @@ pub struct Client {
     pub(crate) connector: Connector,
     pub(crate) resolver: Resolver,
     pub(crate) timeout_config: TimeoutConfig,
+    pub(crate) local_addr: Option<SocketAddr>,
+}
+
+impl Default for Client {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Client {
+    /// Construct a new Client with default setting.
+    ///
+    /// See [ClientBuilder] for detail.
     pub fn new() -> Self {
         ClientBuilder::default().finish()
     }
 
+    /// Start a new HTTP request with given [http::Request].
+    ///
+    /// See [Request] for detail.
     pub fn request<B>(&self, req: http::Request<B>) -> Request<'_, B> {
         Request::new(req, self)
     }
 
+    /// Start a new HTTP GET request with empty request body.
+    ///
+    /// See [Request] for detail.
     pub fn get(&self, url: &str) -> Result<Request<'_, ()>, Error> {
         let uri = uri::Uri::try_from(url)?;
 
@@ -47,47 +63,13 @@ impl Client {
     pub(crate) async fn make_connection(
         &self,
         connect: &mut Connect,
-        mut timer: Pin<&mut Sleep>,
+        timer: Pin<&mut Sleep>,
     ) -> Result<Connection, Error> {
         match connect.uri {
-            Uri::Tcp(_) => {
-                let stream = self.make_tcp(connect, timer.as_mut()).await?;
-                Ok(stream.into())
-            }
-            Uri::Tls(_) => {
-                let stream = self.make_tcp(connect, timer.as_mut()).await?;
-
-                timer
-                    .as_mut()
-                    .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
-                let stream = self
-                    .connector
-                    .connect(stream, connect.hostname())
-                    .timeout(timer)
-                    .await
-                    .map_err(|_| TimeoutError::TlsHandshake)??;
-
-                Ok(stream.into())
-            }
+            Uri::Tcp(_) => self.make_tcp(connect, timer).await.map(Into::into),
+            Uri::Tls(_) => self.make_tls(connect, timer).await,
             #[cfg(unix)]
-            Uri::Unix(ref uri) => {
-                timer
-                    .as_mut()
-                    .reset(Instant::now() + self.timeout_config.connect_timeout);
-
-                let path = format!(
-                    "/{}{}",
-                    uri.authority().unwrap().as_str(),
-                    uri.path_and_query().unwrap().as_str()
-                );
-
-                let stream = tokio::net::UnixStream::connect(path)
-                    .timeout(timer.as_mut())
-                    .await
-                    .map_err(|_| TimeoutError::Connect)??;
-
-                Ok(stream.into())
-            }
+            Uri::Unix(ref uri) => self.make_unix(uri, timer).await,
         }
     }
 
@@ -101,11 +83,89 @@ impl Client {
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
-        let stream = TcpStream::connect(connect.addrs().next().unwrap())
+
+        let stream = self
+            .make_tcp_inner(connect)
             .timeout(timer.as_mut())
             .await
             .map_err(|_| TimeoutError::Connect)??;
 
         Ok(stream)
+    }
+
+    async fn make_tcp_inner(&self, connect: &mut Connect) -> Result<TcpStream, Error> {
+        let mut iter = connect.addrs();
+
+        let mut addr = iter.next().ok_or(Error::Resolve)?;
+
+        // try to connect with all addresses resolved by dns resolver.
+        // return the last error when all are fail to be connected.
+        loop {
+            match self.maybe_connect_with_local_addr(addr).await {
+                Ok(stream) => return Ok(stream),
+                Err(e) => match iter.next() {
+                    Some(a) => addr = a,
+                    None => return Err(e),
+                },
+            }
+        }
+    }
+
+    async fn maybe_connect_with_local_addr(&self, addr: SocketAddr) -> Result<TcpStream, Error> {
+        match self.local_addr {
+            Some(local_addr) => {
+                let socket = match local_addr {
+                    SocketAddr::V4(_) => {
+                        let socket = TcpSocket::new_v4()?;
+                        socket.bind(local_addr)?;
+                        socket
+                    }
+                    SocketAddr::V6(_) => {
+                        let socket = TcpSocket::new_v6()?;
+                        socket.bind(local_addr)?;
+                        socket
+                    }
+                };
+
+                socket.connect(addr).await.map_err(Into::into)
+            }
+            None => TcpStream::connect(addr).await.map_err(Into::into),
+        }
+    }
+
+    async fn make_tls(&self, connect: &mut Connect, mut timer: Pin<&mut Sleep>) -> Result<Connection, Error> {
+        let stream = self.make_tcp(connect, timer.as_mut()).await?;
+
+        timer
+            .as_mut()
+            .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
+        let stream = self
+            .connector
+            .connect(stream, connect.hostname())
+            .timeout(timer)
+            .await
+            .map_err(|_| TimeoutError::TlsHandshake)??;
+
+        Ok(stream.into())
+    }
+
+    #[cfg(unix)]
+    async fn make_unix(&self, uri: &uri::Uri, mut timer: Pin<&mut Sleep>) -> Result<Connection, Error> {
+        timer
+            .as_mut()
+            .reset(Instant::now() + self.timeout_config.connect_timeout);
+
+        let path = format!(
+            "/{}{}",
+            uri.authority().unwrap().as_str(),
+            uri.path_and_query().unwrap().as_str()
+        );
+
+        let stream = tokio::net::UnixStream::connect(path)
+            .timeout(timer.as_mut())
+            .await
+            .map_err(|_| TimeoutError::Connect)??;
+
+        Ok(stream.into())
     }
 }

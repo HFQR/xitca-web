@@ -42,7 +42,7 @@ impl Connector {
     {
         match *self {
             Self::NoOp => {
-                drop(domain);
+                let _ = domain;
                 Ok(TlsStream::NoOp(stream))
             }
             #[cfg(feature = "openssl")]

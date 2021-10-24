@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use crate::client::Client;
 use crate::pool::Pool;
@@ -11,6 +11,7 @@ pub struct ClientBuilder {
     resolver: Resolver,
     pool_capacity: usize,
     timeout_config: TimeoutConfig,
+    local_addr: Option<SocketAddr>,
 }
 
 impl Default for ClientBuilder {
@@ -20,6 +21,7 @@ impl Default for ClientBuilder {
             resolver: Resolver::default(),
             pool_capacity: 128,
             timeout_config: TimeoutConfig::default(),
+            local_addr: None,
         }
     }
 }
@@ -65,6 +67,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Set local Socket address, either IPv4 or IPv6 used for http client.
+    ///
+    /// By default client uses any free address the OS returns.
+    pub fn set_local_addr(mut self, addr: impl Into<SocketAddr>) -> Self {
+        self.local_addr = Some(addr.into());
+        self
+    }
+
     /// Set capacity of the connection pool for re-useable connection.
     ///
     /// Default to 128
@@ -83,6 +93,7 @@ impl ClientBuilder {
             connector: self.connector,
             resolver: self.resolver,
             timeout_config: self.timeout_config,
+            local_addr: self.local_addr,
         }
     }
 }

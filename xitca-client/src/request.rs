@@ -4,9 +4,14 @@ use http::{header::HeaderMap, Method, Version};
 
 use crate::{client::Client, connect::Connect, error::Error, uri::Uri};
 
+/// crate level HTTP request type.
 pub struct Request<'a, B> {
+    /// HTTP request type from [http] crate.
     req: http::Request<B>,
+    /// Referece to Client instance.
     client: &'a Client,
+    /// Request level timeout setting. When Some(Duration) would override
+    /// timeout configuration from Client.
     timeout: Option<Duration>,
 }
 
@@ -83,10 +88,11 @@ impl<'a, B> Request<'a, B> {
         (req, body_old)
     }
 
+    /// Send the request and return [Response](http::Response) asynchronously.
     pub async fn send(self) -> Result<http::Response<()>, Error> {
         let Self { req, client, timeout } = self;
 
-        let (parts, body) = req.into_parts();
+        let (parts, _body) = req.into_parts();
 
         let uri = Uri::try_parse(parts.uri)?;
 
@@ -109,6 +115,7 @@ impl<'a, B> Request<'a, B> {
         // Nothing in the pool. construct new connection and add it to Conn.
         if conn_is_none {
             let mut connect = Connect::new(uri);
+
             let c = client.make_connection(&mut connect, timer.as_mut()).await?;
             conn.add_conn(c);
         }

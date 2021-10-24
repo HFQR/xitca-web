@@ -22,6 +22,6 @@ mod test {
     async fn get() {
         let client = Client::new();
 
-        let _ = client.get("https://google.com").unwrap().send().await.unwrap();
+        let _ = client.get("http://google.com").unwrap().send().await.unwrap();
     }
 }

@@ -5,6 +5,7 @@ use std::io;
 pub enum Error {
     Io(io::Error),
     InvalidUri(InvalidUri),
+    Resolve,
     Timeout(TimeoutError),
     #[cfg(feature = "openssl")]
     Openssl(_openssl::OpensslError),

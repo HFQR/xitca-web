@@ -16,6 +16,7 @@ pub enum Connection {
     Tls(TlsStream<TcpStream>),
     #[cfg(unix)]
     Unix(UnixStream),
+    #[cfg(feature = "http2")]
     H2(()),
 }
 
@@ -47,10 +48,16 @@ pub enum ConnectionKey {
 }
 
 #[doc(hidden)]
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(Eq, Debug, Clone)]
 pub struct AuthorityWithPath {
     authority: Authority,
     path_and_query: PathAndQuery,
+}
+
+impl PartialEq for AuthorityWithPath {
+    fn eq(&self, other: &Self) -> bool {
+        self.authority.eq(&other.authority) && self.path_and_query.eq(&other.path_and_query)
+    }
 }
 
 impl Hash for AuthorityWithPath {

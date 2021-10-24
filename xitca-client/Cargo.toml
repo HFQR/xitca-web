@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 openssl = ["openssl-crate", "tokio-openssl"]
+http2 = []
 
 [dependencies]
 ahash = "0.7.6"

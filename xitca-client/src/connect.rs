@@ -1,7 +1,7 @@
 use std::{
     collections::vec_deque::{self, VecDeque},
-    fmt, iter, mem,
-    net::{IpAddr, SocketAddr},
+    fmt, iter,
+    net::SocketAddr,
 };
 
 use crate::uri::Uri;
@@ -34,16 +34,6 @@ pub(crate) enum Addrs {
     Multi(VecDeque<SocketAddr>),
 }
 
-impl Addrs {
-    pub(crate) fn is_none(&self) -> bool {
-        matches!(self, Self::None)
-    }
-
-    pub(crate) fn is_some(&self) -> bool {
-        !self.is_none()
-    }
-}
-
 impl Default for Addrs {
     fn default() -> Self {
         Self::None
@@ -65,7 +55,6 @@ pub struct Connect {
     pub(crate) uri: Uri,
     pub(crate) port: u16,
     pub(crate) addr: Addrs,
-    pub(crate) local_addr: Option<IpAddr>,
 }
 
 impl Connect {
@@ -77,7 +66,6 @@ impl Connect {
             uri,
             port: port.unwrap_or(0),
             addr: Addrs::None,
-            local_addr: None,
         }
     }
 
@@ -92,11 +80,6 @@ impl Connect {
         } else {
             Addrs::Multi(addrs)
         };
-    }
-
-    /// Set local_addr of connect.
-    pub fn set_local_addr(&mut self, addr: impl Into<IpAddr>) {
-        self.local_addr = Some(addr.into());
     }
 
     /// Get hostname.
@@ -117,15 +100,6 @@ impl Connect {
             Addrs::Multi(ref addrs) => AddrsIter::Multi(addrs.iter()),
         }
     }
-
-    /// Take resolved request addresses.
-    pub fn take_addrs(&mut self) -> AddrsIter<'static> {
-        match mem::take(&mut self.addr) {
-            Addrs::None => AddrsIter::None,
-            Addrs::One(addr) => AddrsIter::One(addr),
-            Addrs::Multi(addrs) => AddrsIter::MultiOwned(addrs.into_iter()),
-        }
-    }
 }
 
 impl fmt::Display for Connect {
@@ -140,7 +114,6 @@ pub enum AddrsIter<'a> {
     None,
     One(SocketAddr),
     Multi(vec_deque::Iter<'a, SocketAddr>),
-    MultiOwned(vec_deque::IntoIter<SocketAddr>),
 }
 
 impl Iterator for AddrsIter<'_> {
@@ -154,7 +127,6 @@ impl Iterator for AddrsIter<'_> {
                 Some(addr)
             }
             Self::Multi(ref mut iter) => iter.next().copied(),
-            Self::MultiOwned(ref mut iter) => iter.next(),
         }
     }
 
@@ -163,7 +135,6 @@ impl Iterator for AddrsIter<'_> {
             Self::None => (0, Some(0)),
             Self::One(_) => (1, Some(1)),
             Self::Multi(ref iter) => iter.size_hint(),
-            Self::MultiOwned(ref iter) => iter.size_hint(),
         }
     }
 }
@@ -194,7 +165,7 @@ fn parse_host(host: &str) -> (&str, Option<u16>) {
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
+    use std::net::{IpAddr, Ipv4Addr};
 
     use super::*;
 
@@ -220,11 +191,6 @@ mod tests {
         assert_eq!(iter.next(), Some(localhost));
         assert_eq!(iter.next(), Some(unspecified));
         assert_eq!(iter.next(), None);
-
-        let mut iter = AddrsIter::MultiOwned(addrs.into_iter());
-        assert_eq!(iter.next(), Some(localhost));
-        assert_eq!(iter.next(), Some(unspecified));
-        assert_eq!(iter.next(), None);
     }
 
     #[test]
@@ -237,12 +203,5 @@ mod tests {
 
         let mut iter = AddrsIter::None;
         assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn test_local_addr() {
-        let mut conn = Connect::new(Uri::Tcp(http::Uri::from_static("https://example.com")));
-        conn.set_local_addr([127, 0, 0, 1]);
-        assert_eq!(conn.local_addr.unwrap(), IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
     }
 }
