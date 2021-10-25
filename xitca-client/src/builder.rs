@@ -30,14 +30,14 @@ impl ClientBuilder {
     /// Use custom DNS resolver for domain look up.
     ///
     /// See [Resolve] for detail.
-    pub fn recsolver(mut self, resolver: impl Resolve + 'static) -> Self {
+    pub fn resolver(mut self, resolver: impl Resolve + 'static) -> Self {
         self.resolver = Resolver::custom(resolver);
         self
     }
 
     /// Set timeout for DNS resolve.
-    ///
-    /// See [TimeoutConfig] for detail.
+    /// 
+    /// Default to 5 seconds.
     pub fn set_resolve_timeout(mut self, dur: Duration) -> Self {
         self.timeout_config.resolve_timeout = dur;
         self
@@ -45,7 +45,7 @@ impl ClientBuilder {
 
     /// Set timeout for establishing connection.
     ///
-    /// See [TimeoutConfig] for detail.
+    /// Default to 5 seconds.
     pub fn set_connect_timeout(mut self, dur: Duration) -> Self {
         self.timeout_config.connect_timeout = dur;
         self
@@ -53,7 +53,7 @@ impl ClientBuilder {
 
     /// Set timeout for tls handshake.
     ///
-    /// See [TimeoutConfig] for detail.
+    /// Default to 5 seconds.
     pub fn set_tls_connect_timeout(mut self, dur: Duration) -> Self {
         self.timeout_config.tls_connect_timeout = dur;
         self
@@ -61,7 +61,7 @@ impl ClientBuilder {
 
     /// Set timeout for request.
     ///
-    /// See [TimeoutConfig] for detail.
+    /// Default to 15 seconds.
     pub fn set_request_timeout(mut self, dur: Duration) -> Self {
         self.timeout_config.request_timeout = dur;
         self

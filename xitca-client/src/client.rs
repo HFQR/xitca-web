@@ -42,15 +42,11 @@ impl Client {
     }
 
     /// Start a new HTTP request with given [http::Request].
-    ///
-    /// See [Request] for detail.
     pub fn request<B>(&self, req: http::Request<B>) -> Request<'_, B> {
         Request::new(req, self)
     }
 
     /// Start a new HTTP GET request with empty request body.
-    ///
-    /// See [Request] for detail.
     pub fn get(&self, url: &str) -> Result<Request<'_, ()>, Error> {
         let uri = uri::Uri::try_from(url)?;
 

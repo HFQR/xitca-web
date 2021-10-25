@@ -22,4 +22,5 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 tokio-openssl = { version = "0.6.3", optional = true }
 
 [dev-dependencies]
+async-trait = "0.1.51"
 tokio = { version = "1.12", features = ["macros"] }

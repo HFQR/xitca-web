@@ -13,6 +13,7 @@ pub mod error;
 
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
+pub use self::resolver::Resolve;
 
 #[cfg(test)]
 mod test {
