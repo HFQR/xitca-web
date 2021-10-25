@@ -18,6 +18,19 @@ pub enum TlsStream<S> {
     Openssl(SslStream<S>),
 }
 
+impl<S> From<Box<dyn Io>> for TlsStream<S> {
+    fn from(stream: Box<dyn Io>) -> Self {
+        Self::Boxed(stream)
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl<S> From<SslStream<S>> for TlsStream<S> {
+    fn from(stream: SslStream<S>) -> Self {
+        Self::Openssl(stream)
+    }
+}
+
 /// A trait impl for all types that impl [AsyncRead], [AsyncWrite], [Send] and [Unpin].
 /// Enabling `Box<dyn Io>` trait object usage.
 pub trait Io: AsyncRead + AsyncWrite + Send + Unpin {}

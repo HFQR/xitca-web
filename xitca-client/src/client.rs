@@ -1,6 +1,5 @@
 use std::{net::SocketAddr, pin::Pin};
 
-use http::uri;
 use tokio::{
     net::{TcpSocket, TcpStream},
     time::{Instant, Sleep},
@@ -12,13 +11,13 @@ use crate::{
     connect::Connect,
     connection::{Connection, ConnectionKey},
     error::{Error, TimeoutError},
+    http::{uri, Version},
     pool::Pool,
     request::Request,
     resolver::Resolver,
     timeout::{Timeout, TimeoutConfig},
     tls::connector::Connector,
     uri::Uri,
-    Protocol,
 };
 
 pub struct Client {
@@ -139,20 +138,34 @@ impl Client {
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
-        let (stream, protocol) = self
+
+        let (stream, version) = self
             .connector
             .connect(stream, connect.hostname())
             .timeout(timer)
             .await
             .map_err(|_| TimeoutError::TlsHandshake)??;
 
-        match protocol {
-            Protocol::HTTP1 => Ok(stream.into()),
-            Protocol::HTTP2 => {
-                // TODO: add http2 support.
-                Ok(stream.into())
+        match version {
+            Version::HTTP_11 => Ok(stream.into()),
+            Version::HTTP_2 => {
+                #[cfg(feature = "http2")]
+                {
+                    let (handle, conn) = h2::client::handshake(stream).await?;
+                    tokio::spawn(async {
+                        conn.await.expect("http2 connection failed");
+                    });
+
+                    Ok(handle.into())
+                }
+
+                #[cfg(not(feature = "http2"))]
+                {
+                    Ok(stream.into())
+                }
             }
-            Protocol::HTTP3 => unimplemented!("Protocol::HTTP3 is not yet supported"),
+            Version::HTTP_3 => unimplemented!("Protocol::HTTP3 is not yet supported"),
+            _ => unreachable!("HTTP_09 and HTTP_10 is impossible for tls connections"),
         }
     }
 

@@ -1,17 +1,19 @@
-use bytes::BytesMut;
+use http::HeaderMap;
 
 pub(crate) struct Context {
-    buf: BytesMut,
+    headers: HeaderMap,
 }
 
 impl Context {
-    pub(crate) fn with_capacity(cap: usize) -> Self {
-        Self {
-            buf: BytesMut::with_capacity(cap),
-        }
+    pub(crate) fn new(headers: HeaderMap) -> Self {
+        Self { headers }
     }
 
-    pub(crate) fn buf(&self) -> &[u8] {
-        &self.buf
+    pub(crate) fn headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+
+    pub(crate) fn headers_mut(&mut self) -> &mut HeaderMap {
+        &mut self.headers
     }
 }

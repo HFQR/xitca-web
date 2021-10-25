@@ -8,6 +8,9 @@ use crate::uri::Uri;
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
+#[cfg(feature = "http2")]
+use {bytes::Bytes, h2::client::SendRequest};
+
 use crate::tls::stream::TlsStream;
 
 #[non_exhaustive]
@@ -17,7 +20,7 @@ pub enum Connection {
     #[cfg(unix)]
     Unix(UnixStream),
     #[cfg(feature = "http2")]
-    H2(()),
+    H2(SendRequest<Bytes>),
 }
 
 impl From<TcpStream> for Connection {
@@ -36,6 +39,13 @@ impl From<TlsStream<TcpStream>> for Connection {
 impl From<UnixStream> for Connection {
     fn from(unix: UnixStream) -> Self {
         Self::Unix(unix)
+    }
+}
+
+#[cfg(feature = "http2")]
+impl From<SendRequest<Bytes>> for Connection {
+    fn from(handle: SendRequest<Bytes>) -> Self {
+        Self::H2(handle)
     }
 }
 

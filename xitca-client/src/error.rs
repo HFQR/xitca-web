@@ -9,6 +9,8 @@ pub enum Error {
     Resolve,
     Timeout(TimeoutError),
     TlsNotEnabled,
+    #[cfg(feature = "http2")]
+    H2(h2::Error),
     #[cfg(feature = "openssl")]
     Openssl(_openssl::OpensslError),
 }
@@ -54,6 +56,13 @@ impl From<io::Error> for Error {
 impl From<Box<dyn error::Error + Send + Sync>> for Error {
     fn from(e: Box<dyn error::Error + Send + Sync>) -> Self {
         Self::Std(e)
+    }
+}
+
+#[cfg(feature = "http2")]
+impl From<h2::Error> for Error {
+    fn from(e: h2::Error) -> Self {
+        Self::H2(e)
     }
 }
 
