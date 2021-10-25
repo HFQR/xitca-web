@@ -7,8 +7,7 @@ use std::{
 
 use tracing::error;
 
-use super::protocol::Protocol;
-use super::tls::TlsError;
+use super::{http::Version, tls::TlsError};
 
 /// HttpService layer error.
 pub enum HttpServiceError<E> {
@@ -16,7 +15,7 @@ pub enum HttpServiceError<E> {
     ServiceReady,
     Service(E),
     Timeout(TimeoutError),
-    UnknownProtocol(Protocol),
+    UnSupportedVersion(Version),
     Body(BodyError),
     Tls(TlsError),
     #[cfg(feature = "http1")]
@@ -36,7 +35,7 @@ impl<E: Debug> Debug for HttpServiceError<E> {
             Self::ServiceReady => write!(f, "Service is not ready"),
             Self::Service(ref e) => write!(f, "{:?}", e),
             Self::Timeout(ref timeout) => write!(f, "{:?} is timed out", timeout),
-            Self::UnknownProtocol(ref protocol) => write!(f, "Protocol: {:?} is not supported", protocol),
+            Self::UnSupportedVersion(ref protocol) => write!(f, "Protocol: {:?} is not supported", protocol),
             Self::Body(ref e) => write!(f, "{:?}", e),
             Self::Tls(ref e) => write!(f, "{:?}", e),
             #[cfg(feature = "http1")]

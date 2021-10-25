@@ -12,11 +12,11 @@ mod builder;
 mod error;
 mod expect;
 mod flow;
-mod protocol;
 mod response;
 mod service;
 mod tls;
 mod upgrade;
+mod version;
 
 #[cfg(feature = "http1")]
 pub mod h1;

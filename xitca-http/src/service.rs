@@ -8,7 +8,6 @@ use std::{
 
 use bytes::Bytes;
 use futures_core::{ready, Stream};
-use http::{Request, Response};
 use tokio::pin;
 use xitca_server::net::{AsyncReadWrite, Stream as ServerStream, TcpStream};
 use xitca_service::Service;
@@ -17,8 +16,11 @@ use super::body::{RequestBody, ResponseBody};
 use super::config::HttpServiceConfig;
 use super::error::{BodyError, HttpServiceError, TimeoutError};
 use super::flow::HttpFlow;
-use super::protocol::AsProtocol;
 use super::util::{date::DateTimeTask, futures::Timeout, keep_alive::KeepAlive};
+use super::{
+    http::{Request, Response, Version},
+    version::AsVersion,
+};
 
 /// General purpose http service
 pub struct HttpService<
@@ -115,7 +117,7 @@ where
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     U: Service<Request<RequestBody>, Response = ()> + 'static,
     A: Service<TcpStream> + 'static,
-    A::Response: AsyncReadWrite + AsProtocol,
+    A::Response: AsyncReadWrite + AsVersion,
 
     HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
 
@@ -155,32 +157,30 @@ where
                         .await
                         .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-                    let protocol = if self.config.peek_protocol {
-                        // peek protocol from connection to figure out the real protocol used
-                        // regardless of AsProtocol's outcome.
-                        todo!("peek protocol is not implemented yet!")
+                    let version = if self.config.peek_protocol {
+                        // peek version from connection to figure out the real protocol used
+                        // regardless of AsVersion's outcome.
+                        todo!("peek version is not implemented yet!")
                     } else {
-                        tls_stream.as_protocol()
+                        tls_stream.as_version()
                     };
 
                     // update timer to first request timeout.
                     self.update_first_request_deadline(timer.as_mut());
 
-                    match protocol {
+                    match version {
                         #[cfg(feature = "http1")]
-                        super::protocol::Protocol::Http1Tls | super::protocol::Protocol::Http1 => {
-                            super::h1::proto::run(
-                                &mut tls_stream,
-                                timer.as_mut(),
-                                self.config,
-                                &*self.flow,
-                                self.date.get(),
-                            )
-                            .await
-                            .map_err(From::from)
-                        }
+                        Version::HTTP_11 | Version::HTTP_10 => super::h1::proto::run(
+                            &mut tls_stream,
+                            timer.as_mut(),
+                            self.config,
+                            &*self.flow,
+                            self.date.get(),
+                        )
+                        .await
+                        .map_err(From::from),
                         #[cfg(feature = "http2")]
-                        super::protocol::Protocol::Http2 => {
+                        Version::HTTP_2 => {
                             let mut conn = ::h2::server::handshake(tls_stream)
                                 .timeout(timer.as_mut())
                                 .await
@@ -197,7 +197,7 @@ where
                             .await
                             .map_err(HttpServiceError::from)
                         }
-                        protocol => Err(HttpServiceError::UnknownProtocol(protocol)),
+                        version => Err(HttpServiceError::UnSupportedVersion(version)),
                     }
                 }
                 #[cfg(unix)]
@@ -205,7 +205,7 @@ where
                     #[cfg(not(feature = "http1"))]
                     {
                         drop(io);
-                        Err(HttpServiceError::UnknownProtocol(super::protocol::Protocol::Http1))
+                        Err(HttpServiceError::UnSupportedVersion(Version::HTTP_11))
                     }
 
                     #[cfg(feature = "http1")]
