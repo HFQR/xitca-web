@@ -16,7 +16,7 @@ pub trait Address {
     }
 }
 
-impl Address for Uri {
+impl Address for Uri<'_> {
     fn hostname(&self) -> &str {
         // TODO: handle the None variant.
         self.host().unwrap_or("")
@@ -51,15 +51,15 @@ impl From<Option<SocketAddr>> for Addrs {
 
 /// Connection info.
 #[derive(Debug)]
-pub struct Connect {
-    pub(crate) uri: Uri,
+pub struct Connect<'a> {
+    pub(crate) uri: Uri<'a>,
     pub(crate) port: u16,
     pub(crate) addr: Addrs,
 }
 
-impl Connect {
+impl<'a> Connect<'a> {
     /// Create `Connect` instance by splitting the string by ':' and convert the second part to u16
-    pub fn new(uri: Uri) -> Self {
+    pub fn new(uri: Uri<'a>) -> Self {
         let (_, port) = parse_host(uri.hostname());
 
         Self {
@@ -102,7 +102,7 @@ impl Connect {
     }
 }
 
-impl fmt::Display for Connect {
+impl fmt::Display for Connect<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.hostname(), self.port())
     }

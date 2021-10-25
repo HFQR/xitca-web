@@ -1,10 +1,12 @@
 use std::{net::SocketAddr, time::Duration};
 
-use crate::client::Client;
-use crate::pool::Pool;
-use crate::resolver::{Resolve, Resolver};
-use crate::timeout::TimeoutConfig;
-use crate::tls::connector::Connector;
+use crate::{
+    client::Client,
+    pool::Pool,
+    resolver::{Resolve, Resolver},
+    timeout::TimeoutConfig,
+    tls::connector::{Connector, TlsConnect},
+};
 
 pub struct ClientBuilder {
     connector: Connector,
@@ -27,6 +29,10 @@ impl Default for ClientBuilder {
 }
 
 impl ClientBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Use custom DNS resolver for domain look up.
     ///
     /// See [Resolve] for detail.
@@ -35,8 +41,16 @@ impl ClientBuilder {
         self
     }
 
+    /// Use custom tls connector for tls handling.
+    ///
+    /// See [TlsConnect] for detail.
+    pub fn tls_connector(mut self, connector: impl TlsConnect + 'static) -> Self {
+        self.connector = Connector::custom(connector);
+        self
+    }
+
     /// Set timeout for DNS resolve.
-    /// 
+    ///
     /// Default to 5 seconds.
     pub fn set_resolve_timeout(mut self, dur: Duration) -> Self {
         self.timeout_config.resolve_timeout = dur;
@@ -87,6 +101,7 @@ impl ClientBuilder {
         self
     }
 
+    /// Finish the builder and construct [Client] instance.
     pub fn finish(self) -> Client {
         Client {
             pool: Pool::with_capacity(self.pool_capacity),

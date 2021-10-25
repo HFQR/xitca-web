@@ -83,6 +83,12 @@ where
             state: ConnState::new(),
         });
     }
+
+    pub(crate) fn inner_ref(&mut self) -> &mut C {
+        self.conn
+            .as_deref_mut()
+            .expect("inner_ref must be called when Conn::is_none returns false.")
+    }
 }
 
 impl<K, C> Drop for Conn<'_, K, C>

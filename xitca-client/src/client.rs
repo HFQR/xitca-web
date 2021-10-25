@@ -7,6 +7,7 @@ use tokio::{
 };
 
 use crate::{
+    body::EmptyBody,
     builder::ClientBuilder,
     connect::Connect,
     connection::{Connection, ConnectionKey},
@@ -17,6 +18,7 @@ use crate::{
     timeout::{Timeout, TimeoutConfig},
     tls::connector::Connector,
     uri::Uri,
+    Protocol,
 };
 
 pub struct Client {
@@ -47,29 +49,31 @@ impl Client {
     }
 
     /// Start a new HTTP GET request with empty request body.
-    pub fn get(&self, url: &str) -> Result<Request<'_, ()>, Error> {
+    pub fn get(&self, url: &str) -> Result<Request<'_, EmptyBody>, Error> {
         let uri = uri::Uri::try_from(url)?;
 
-        let mut req = http::Request::new(());
+        let mut req = http::Request::new(EmptyBody);
         *req.uri_mut() = uri;
 
         Ok(self.request(req))
     }
+}
 
+impl Client {
     pub(crate) async fn make_connection(
         &self,
-        connect: &mut Connect,
+        connect: &mut Connect<'_>,
         timer: Pin<&mut Sleep>,
     ) -> Result<Connection, Error> {
         match connect.uri {
             Uri::Tcp(_) => self.make_tcp(connect, timer).await.map(Into::into),
             Uri::Tls(_) => self.make_tls(connect, timer).await,
             #[cfg(unix)]
-            Uri::Unix(ref uri) => self.make_unix(uri, timer).await,
+            Uri::Unix(uri) => self.make_unix(uri, timer).await,
         }
     }
 
-    async fn make_tcp(&self, connect: &mut Connect, mut timer: Pin<&mut Sleep>) -> Result<TcpStream, Error> {
+    async fn make_tcp(&self, connect: &mut Connect<'_>, mut timer: Pin<&mut Sleep>) -> Result<TcpStream, Error> {
         self.resolver
             .resolve(connect)
             .timeout(timer.as_mut())
@@ -89,7 +93,7 @@ impl Client {
         Ok(stream)
     }
 
-    async fn make_tcp_inner(&self, connect: &mut Connect) -> Result<TcpStream, Error> {
+    async fn make_tcp_inner(&self, connect: &mut Connect<'_>) -> Result<TcpStream, Error> {
         let mut iter = connect.addrs();
 
         let mut addr = iter.next().ok_or(Error::Resolve)?;
@@ -129,20 +133,27 @@ impl Client {
         }
     }
 
-    async fn make_tls(&self, connect: &mut Connect, mut timer: Pin<&mut Sleep>) -> Result<Connection, Error> {
+    async fn make_tls(&self, connect: &mut Connect<'_>, mut timer: Pin<&mut Sleep>) -> Result<Connection, Error> {
         let stream = self.make_tcp(connect, timer.as_mut()).await?;
 
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
-        let stream = self
+        let (stream, protocol) = self
             .connector
             .connect(stream, connect.hostname())
             .timeout(timer)
             .await
             .map_err(|_| TimeoutError::TlsHandshake)??;
 
-        Ok(stream.into())
+        match protocol {
+            Protocol::HTTP1 => Ok(stream.into()),
+            Protocol::HTTP2 => {
+                // TODO: add http2 support.
+                Ok(stream.into())
+            }
+            Protocol::HTTP3 => unimplemented!("Protocol::HTTP3 is not yet supported"),
+        }
     }
 
     #[cfg(unix)]

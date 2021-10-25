@@ -1,12 +1,14 @@
-use std::io;
+use std::{error, io};
 
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
     Io(io::Error),
+    Std(Box<dyn error::Error + Send + Sync>),
     InvalidUri(InvalidUri),
     Resolve,
     Timeout(TimeoutError),
+    TlsNotEnabled,
     #[cfg(feature = "openssl")]
     Openssl(_openssl::OpensslError),
 }
@@ -46,6 +48,12 @@ mod _openssl {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Self::Io(e)
+    }
+}
+
+impl From<Box<dyn error::Error + Send + Sync>> for Error {
+    fn from(e: Box<dyn error::Error + Send + Sync>) -> Self {
+        Self::Std(e)
     }
 }
 

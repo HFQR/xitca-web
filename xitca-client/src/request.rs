@@ -1,8 +1,15 @@
 use std::time::Duration;
 
-use http::{header::HeaderMap, Method, Version};
+use futures_core::Stream;
 
-use crate::{client::Client, connect::Connect, error::Error, uri::Uri};
+use crate::{
+    client::Client,
+    connect::Connect,
+    connection::Connection,
+    error::Error,
+    http::{header::HeaderMap, Method, Version},
+    uri::Uri,
+};
 
 /// crate level HTTP request type.
 pub struct Request<'a, B> {
@@ -88,13 +95,16 @@ impl<'a, B> Request<'a, B> {
         (req, body_old)
     }
 
-    /// Send the request and return [Response](http::Response) asynchronously.
-    pub async fn send(self) -> Result<http::Response<()>, Error> {
+    /// Send the request and return response asynchronously.
+    pub async fn send<T, E>(self) -> Result<http::Response<()>, Error>
+    where
+        B: Stream<Item = Result<T, E>>,
+        T: AsRef<[u8]>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
         let Self { req, client, timeout } = self;
 
-        let (parts, _body) = req.into_parts();
-
-        let uri = Uri::try_parse(parts.uri)?;
+        let uri = Uri::try_parse(req.uri())?;
 
         // Try to grab a connection from pool.
         let mut conn = client.pool.acquire(&uri).await?;
@@ -118,6 +128,12 @@ impl<'a, B> Request<'a, B> {
 
             let c = client.make_connection(&mut connect, timer.as_mut()).await?;
             conn.add_conn(c);
+        }
+
+        match conn.inner_ref() {
+            Connection::Tcp(stream) => crate::h1::send(stream, req).await?,
+            Connection::Tls(stream) => crate::h1::send(stream, req).await?,
+            _ => todo!(),
         }
 
         Ok(http::Response::new(()))

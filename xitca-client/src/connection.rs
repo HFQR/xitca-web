@@ -67,12 +67,12 @@ impl Hash for AuthorityWithPath {
     }
 }
 
-impl From<&Uri> for ConnectionKey {
-    fn from(uri: &Uri) -> Self {
+impl From<&Uri<'_>> for ConnectionKey {
+    fn from(uri: &Uri<'_>) -> Self {
         match *uri {
-            Uri::Tcp(ref uri) | Uri::Tls(ref uri) => ConnectionKey::Regular(uri.authority().unwrap().clone()),
+            Uri::Tcp(uri) | Uri::Tls(uri) => ConnectionKey::Regular(uri.authority().unwrap().clone()),
             #[cfg(unix)]
-            Uri::Unix(ref uri) => ConnectionKey::Unix(AuthorityWithPath {
+            Uri::Unix(uri) => ConnectionKey::Unix(AuthorityWithPath {
                 authority: uri.authority().unwrap().clone(),
                 path_and_query: uri.path_and_query().unwrap().clone(),
             }),

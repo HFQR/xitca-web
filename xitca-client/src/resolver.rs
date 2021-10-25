@@ -2,8 +2,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 
 use futures_core::future::BoxFuture;
 
-use crate::connect::Connect;
-use crate::error::Error;
+use crate::{connect::Connect, error::Error};
 
 pub(crate) enum Resolver {
     Std,
@@ -21,7 +20,7 @@ impl Resolver {
         Self::Custom(Box::new(resolver))
     }
 
-    pub(crate) async fn resolve(&self, connect: &mut Connect) -> Result<(), Error> {
+    pub(crate) async fn resolve(&self, connect: &mut Connect<'_>) -> Result<(), Error> {
         match *self {
             Self::Std => {
                 let host = format!("{}:{}", connect.hostname(), connect.port());
@@ -41,17 +40,16 @@ impl Resolver {
     }
 }
 
-
 /// Trait for custom resolver.
-/// 
+///
 /// # Examples
 /// ```rust
 /// use std::net::SocketAddr;
-/// 
+///
 /// use xitca_client::{error::Error, ClientBuilder, Resolve};
-/// 
+///
 /// struct MyResolver;
-/// 
+///
 /// #[async_trait::async_trait]
 /// impl Resolve for MyResolver {
 ///     async fn resolve(&self, hostname: &str, port: u16) -> Result<Vec<SocketAddr>, Error> {
@@ -59,9 +57,9 @@ impl Resolver {
 ///         todo!()
 ///     }
 /// }
-/// 
+///
 /// # fn resolve() {
-/// let client = ClientBuilder::default().resolver(MyResolver).finish();
+/// let client = ClientBuilder::new().resolver(MyResolver).finish();
 /// # }
 /// ```
 pub trait Resolve: Send {
