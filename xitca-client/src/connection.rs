@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
-use http::uri::{Authority, PathAndQuery};
 use tokio::net::TcpStream;
+use xitca_http::http::uri::{Authority, PathAndQuery};
 
 use crate::uri::Uri;
 

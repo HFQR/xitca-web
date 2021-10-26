@@ -95,7 +95,7 @@ impl ClientBuilder {
     ///
     /// # Panics:
     /// When pass 0 as pool capacity.
-    pub fn pool_capacity(mut self, cap: usize) -> Self {
+    pub fn set_pool_capacity(mut self, cap: usize) -> Self {
         assert_ne!(cap, 0);
         self.pool_capacity = cap;
         self

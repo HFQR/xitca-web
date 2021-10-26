@@ -4,6 +4,7 @@ use tokio::{
     net::{TcpSocket, TcpStream},
     time::{Instant, Sleep},
 };
+use xitca_http::http::{self, uri, Version};
 
 use crate::{
     body::EmptyBody,
@@ -11,7 +12,6 @@ use crate::{
     connect::Connect,
     connection::{Connection, ConnectionKey},
     error::{Error, TimeoutError},
-    http::{uri, Version},
     pool::Pool,
     request::Request,
     resolver::Resolver,
@@ -36,10 +36,15 @@ impl Default for Client {
 
 impl Client {
     /// Construct a new Client with default setting.
+    pub fn new() -> Self {
+        Self::builder().finish()
+    }
+
+    /// Start a new ClientBuilder.
     ///
     /// See [ClientBuilder] for detail.
-    pub fn new() -> Self {
-        ClientBuilder::default().finish()
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
     }
 
     /// Start a new HTTP request with given [http::Request].

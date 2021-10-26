@@ -1,22 +1,26 @@
 use std::mem;
 
 use bytes::BytesMut;
-use httparse::{Header, Status, EMPTY_HEADER};
+use httparse::{Status, EMPTY_HEADER};
 
-use crate::http::{
-    header::{HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
-    Response, StatusCode, Version,
+use xitca_http::{
+    h1::proto::{
+        codec::TransferCoding,
+        error::{Parse, ProtoError},
+        header::HeaderIndex,
+    },
+    http::{
+        header::{HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
+        Response, StatusCode, Version,
+    },
 };
 
-use super::{
-    context::Context,
-    error::{Parse, ProtoError},
-};
+use super::context::Context;
 
 const MAX_HEADERS: usize = 128;
 
 impl Context {
-    pub fn decode(&mut self, buf: &mut BytesMut) -> Result<Response<()>, ProtoError> {
+    pub(crate) fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Response<()>>, ProtoError> {
         let mut headers = [EMPTY_HEADER; MAX_HEADERS];
 
         let mut parsed = httparse::Response::new(&mut headers);
@@ -32,7 +36,7 @@ impl Context {
                 let status = StatusCode::from_u16(parsed.code.unwrap()).map_err(|_| Parse::StatusCode)?;
 
                 // record the index of headers from the buffer.
-                let mut header_idx = [HeaderIndex::new(); MAX_HEADERS];
+                let mut header_idx = HeaderIndex::new_array::<MAX_HEADERS>();
                 HeaderIndex::record(buf, parsed.headers, &mut header_idx);
 
                 let headers_len = parsed.headers.len();
@@ -42,6 +46,8 @@ impl Context {
 
                 let mut headers = mem::take(self.headers_mut());
                 headers.reserve(headers_len);
+
+                let mut decoder = TransferCoding::eof();
 
                 // write headers to headermap and update request states.
                 for idx in &header_idx[..headers_len] {
@@ -60,9 +66,9 @@ impl Context {
                                 .trim()
                                 .eq_ignore_ascii_case("chunked");
 
-                            // if chunked {
-                            //     decoder.try_set(TransferCoding::decode_chunked())?;
-                            // }
+                            if chunked {
+                                decoder.try_set(TransferCoding::decode_chunked())?;
+                            }
                         }
                         CONTENT_LENGTH => {
                             let len = value
@@ -71,9 +77,9 @@ impl Context {
                                 .parse::<u64>()
                                 .map_err(|_| ProtoError::Parse(Parse::HeaderName))?;
 
-                            // if len != 0 {
-                            //     decoder.try_set(TransferCoding::length(len))?;
-                            // }
+                            if len != 0 {
+                                decoder.try_set(TransferCoding::length(len))?;
+                            }
                         }
                         CONNECTION => {
                             if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
@@ -102,41 +108,11 @@ impl Context {
 
                 *res.version_mut() = version;
                 *res.status_mut() = status;
-                // *res.headers_mut() = headers;
+                *res.headers_mut() = headers;
 
-                Ok(res)
+                Ok(Some(res))
             }
-            Status::Partial => todo!(),
+            Status::Partial => Ok(None),
         }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct HeaderIndex {
-    name: (usize, usize),
-    value: (usize, usize),
-}
-
-impl HeaderIndex {
-    const fn new() -> Self {
-        Self {
-            name: (0, 0),
-            value: (0, 0),
-        }
-    }
-
-    fn record(bytes: &[u8], headers: &[Header<'_>], indices: &mut [Self]) {
-        let bytes_ptr = bytes.as_ptr() as usize;
-
-        headers.iter().zip(indices.iter_mut()).for_each(|(header, indice)| {
-            let name_start = header.name.as_ptr() as usize - bytes_ptr;
-            let value_start = header.value.as_ptr() as usize - bytes_ptr;
-
-            let name_end = name_start + header.name.len();
-            let value_end = value_start + header.value.len();
-
-            indice.name = (name_start, name_end);
-            indice.value = (value_start, value_end);
-        });
     }
 }

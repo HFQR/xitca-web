@@ -1,22 +1,26 @@
 use std::cmp;
 
 use bytes::{BufMut, Bytes, BytesMut};
-use http::{
-    header::{CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
-    response::Parts,
-    StatusCode, Version,
-};
 use tracing::{debug, warn};
 
-use crate::body::ResponseBodySize;
-use crate::util::date::DATE_VALUE_LENGTH;
+use crate::{
+    body::ResponseBodySize,
+    http::{
+        header::{CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
+        response::Parts,
+        StatusCode, Version,
+    },
+    util::date::DATE_VALUE_LENGTH,
+};
 
-use super::buf::WriteBuf;
-use super::codec::TransferCoding;
-use super::context::{ConnectionType, Context};
-use super::error::{Parse, ProtoError};
+use super::{
+    buf::WriteBuf,
+    codec::TransferCoding,
+    context::{ConnectionType, ServerContext},
+    error::{Parse, ProtoError},
+};
 
-impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
+impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
     pub(super) fn encode_continue<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W)
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
@@ -45,12 +49,14 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
         let version = parts.version;
         let status = parts.status;
 
+        let ctx = self.ctx();
+
         // decide if content-length or transfer-encoding header would be skipped.
         let mut skip_len = match (status, version) {
             (StatusCode::SWITCHING_PROTOCOLS, _) => false,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
-            (s, _) if self.is_connect_method() && s.is_success() => true,
+            (s, _) if ctx.is_connect_method() && s.is_success() => true,
             (s, _) if s.is_informational() => {
                 warn!(target: "h1_encode", "response with 1xx status code not supported");
                 return Err(ProtoError::Parse(Parse::StatusCode));
@@ -87,20 +93,20 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                 }
                 TRANSFER_ENCODING => {
                     debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
-                    encoding = TransferCoding::encode_chunked_from(self.ctype());
+                    encoding = TransferCoding::encode_chunked_from(ctx.ctype());
                     skip_len = true;
                 }
-                CONNECTION if self.is_force_close() => continue,
+                CONNECTION if ctx.is_force_close() => continue,
                 CONNECTION => {
                     for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
                         let val = val.trim();
 
                         if val.eq_ignore_ascii_case("close") {
-                            self.set_ctype(ConnectionType::Close);
+                            ctx.set_ctype(ConnectionType::Close);
                         } else if val.eq_ignore_ascii_case("keep-alive") {
-                            self.set_ctype(ConnectionType::KeepAlive);
+                            ctx.set_ctype(ConnectionType::KeepAlive);
                         } else if val.eq_ignore_ascii_case("upgrade") {
-                            self.set_ctype(ConnectionType::Upgrade);
+                            ctx.set_ctype(ConnectionType::Upgrade);
                         }
                     }
                 }
@@ -118,7 +124,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
             buf.put_slice(b"\r\n");
         }
 
-        if self.is_force_close() {
+        if ctx.is_force_close() {
             buf.put_slice(b"connection: close\r\n");
         }
 
@@ -130,7 +136,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                 }
                 ResponseBodySize::Stream => {
                     buf.put_slice(b"transfer-encoding: chunked\r\n");
-                    encoding = TransferCoding::encode_chunked_from(self.ctype());
+                    encoding = TransferCoding::encode_chunked_from(ctx.ctype());
                 }
                 ResponseBodySize::Sized(size) => {
                     let mut buffer = itoa::Buffer::new();
@@ -156,13 +162,15 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
             buf.put_slice(b"\r\n");
         }
 
+        let ctx = self.ctx();
+
         // put header map back to cache.
         debug_assert!(parts.headers.is_empty());
-        self.header = Some(parts.headers);
+        ctx.replace_headers(parts.headers);
 
         // put extension back to cache;
         parts.extensions.clear();
-        self.extensions = parts.extensions;
+        ctx.replace_extensions(parts.extensions);
 
         Ok(encoding)
     }

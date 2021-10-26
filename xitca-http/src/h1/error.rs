@@ -1,8 +1,8 @@
 use std::{fmt, io};
 
-use super::proto::ProtoError;
-
 use crate::error::{BodyError, HttpServiceError};
+
+use super::proto::error::ProtoError;
 
 pub enum Error<E> {
     /// Closed error should be treated as success and transform to Ok(())

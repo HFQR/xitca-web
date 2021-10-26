@@ -11,26 +11,30 @@ use tracing::trace;
 use xitca_server::net::AsyncReadWrite;
 use xitca_service::Service;
 
-use crate::body::ResponseBody;
-use crate::config::HttpServiceConfig;
-use crate::error::BodyError;
-use crate::flow::HttpFlowInner;
-use crate::h1::{
-    body::{RequestBody, RequestBodySender},
-    error::Error,
-};
-use crate::response;
-use crate::util::{
-    date::Date,
-    futures::{never, poll_fn, Select, SelectOutput, Timeout},
-    hint::unlikely,
-    keep_alive::KeepAlive,
+use crate::{
+    body::ResponseBody,
+    config::HttpServiceConfig,
+    error::BodyError,
+    flow::HttpFlowInner,
+    h1::{
+        body::{RequestBody, RequestBodySender},
+        error::Error,
+    },
+    response,
+    util::{
+        date::Date,
+        futures::{never, poll_fn, Select, SelectOutput, Timeout},
+        hint::unlikely,
+        keep_alive::KeepAlive,
+    },
 };
 
-use super::buf::{FlatWriteBuf, ListWriteBuf, ReadBuf, WriteBuf};
-use super::codec::TransferCoding;
-use super::context::{ConnectionType, Context};
-use super::error::{Parse, ProtoError};
+use super::{
+    buf::{FlatWriteBuf, ListWriteBuf, ReadBuf, WriteBuf},
+    codec::TransferCoding,
+    context::{ConnectionType, ServerContext},
+    error::{Parse, ProtoError},
+};
 
 /// function to generic over different writer buffer types dispatcher.
 pub(crate) async fn run<
@@ -104,7 +108,7 @@ struct Dispatcher<
     io: Io<'a, St, W, S::Error, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
-    ctx: Context<'a, HEADER_LIMIT>,
+    ctx: ServerContext<'a, HEADER_LIMIT>,
     flow: &'a HttpFlowInner<S, X, U>,
     _phantom: PhantomData<ReqB>,
 }
@@ -182,7 +186,7 @@ where
     async fn readable<const HEADER_LIMIT: usize>(
         &self,
         handle: &mut RequestBodyHandle,
-        ctx: &mut Context<'_, HEADER_LIMIT>,
+        ctx: &mut ServerContext<'_, HEADER_LIMIT>,
     ) -> io::Result<()> {
         if self.read_buf.backpressure() {
             never().await
@@ -253,7 +257,7 @@ where
             io: Io::new(io, write_buf),
             timer,
             ka_dur: config.keep_alive_timeout,
-            ctx: Context::new(date),
+            ctx: ServerContext::new(date),
             flow,
             _phantom: PhantomData,
         }
@@ -261,9 +265,9 @@ where
 
     async fn run(mut self) -> Result<(), Error<S::Error>> {
         loop {
-            match self.ctx.ctype() {
+            match self.ctx.ctx().ctype() {
                 ConnectionType::Init => {
-                    if self.ctx.is_force_close() {
+                    if self.ctx.ctx().is_force_close() {
                         unlikely();
                         trace!(target: "h1_dispatcher", "Connection error. Shutting down");
                         return Ok(());
@@ -279,7 +283,7 @@ where
                     }
                 }
                 ConnectionType::KeepAlive => {
-                    if self.ctx.is_force_close() {
+                    if self.ctx.ctx().is_force_close() {
                         unlikely();
                         trace!(target: "h1_dispatcher", "Connection is keep-alive but meet a force close condition. Shutting down");
                         return self.io.shutdown().await;
@@ -312,7 +316,7 @@ where
 
                         self.response_handler(res_body, encoder, body_handle).await?;
 
-                        if self.ctx.is_force_close() {
+                        if self.ctx.ctx().is_force_close() {
                             break 'req;
                         }
                     }
@@ -359,7 +363,7 @@ where
         mut req: Request<ReqB>,
         body_handle: &mut Option<RequestBodyHandle>,
     ) -> Result<S::Response, Error<S::Error>> {
-        if self.ctx.is_expect_header() {
+        if self.ctx.ctx().is_expect_header() {
             match self.flow.expect.call(req).await {
                 Ok(expect_res) => {
                     // encode continue
@@ -426,7 +430,7 @@ where
                             // Request body is partial consumed.
                             // Close connection in case there are bytes remain in socket.
                             if !handle.sender.is_eof() {
-                                self.ctx.set_force_close();
+                                self.ctx.ctx().set_force_close();
                             };
 
                             encoder.encode_eof(&mut self.io.write_buf);
@@ -475,7 +479,7 @@ where
         // Header is too large to be parsed.
         // Close the connection after sending error response as it's pointless
         // to read the remaining bytes inside connection.
-        self.ctx.set_force_close();
+        self.ctx.ctx().set_force_close();
 
         let (parts, res_body) = func().into_parts();
 
@@ -528,12 +532,12 @@ impl RequestBodyHandle {
         Ok(DecodeState::Continue)
     }
 
-    async fn ready<const HEADER_LIMIT: usize>(&self, ctx: &mut Context<'_, HEADER_LIMIT>) -> io::Result<()> {
-        self.sender.ready().await.map_err(|e| {
+    async fn ready<const HEADER_LIMIT: usize>(&self, ctx: &mut ServerContext<'_, HEADER_LIMIT>) -> io::Result<()> {
+        self.sender.ready().await.map_err(move |e| {
             // When service call dropped payload there is no tell how many bytes
             // still remain readable in the connection.
             // close the connection would be a safe bet than draining it.
-            ctx.set_force_close();
+            ctx.ctx().set_force_close();
             e
         })
     }

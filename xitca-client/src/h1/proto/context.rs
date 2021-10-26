@@ -1,4 +1,4 @@
-use http::HeaderMap;
+use xitca_http::http::HeaderMap;
 
 pub(crate) struct Context {
     headers: HeaderMap,

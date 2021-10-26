@@ -1,17 +1,21 @@
-use std::{io, mem};
+use std::mem;
 
-use bytes::{Buf, Bytes, BytesMut};
-use http::{
-    header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
+use bytes::{Buf, BytesMut};
+use httparse::Status;
+
+use crate::http::{
+    header::{HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
     Method, Request, Uri, Version,
 };
-use httparse::{Header, Status};
 
-use super::codec::{ChunkedState, TransferCoding};
-use super::context::{ConnectionType, Context};
-use super::error::{Parse, ProtoError};
+use super::{
+    codec::TransferCoding,
+    context::{ConnectionType, ServerContext},
+    error::{Parse, ProtoError},
+    header::HeaderIndex,
+};
 
-impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
+impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
     // decode head and generate request and body decoder.
     pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
@@ -22,8 +26,10 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
 
         match req.parse_with_uninit_headers(buf, &mut headers)? {
             Status::Complete(len) => {
+                let ctx = self.ctx();
+
                 // Important: reset context state for new request.
-                self.reset();
+                ctx.reset();
 
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
 
@@ -34,12 +40,12 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                     // Default ctype is KeepAlive so set_ctype is skipped here.
                     Version::HTTP_11
                 } else {
-                    self.set_ctype(ConnectionType::Close);
+                    ctx.set_ctype(ConnectionType::Close);
                     Version::HTTP_10
                 };
 
                 // record the index of headers from the buffer.
-                let mut header_idx = [HeaderIndex::new(); MAX_HEADERS];
+                let mut header_idx = HeaderIndex::new_array::<MAX_HEADERS>();
                 HeaderIndex::record(buf, req.headers, &mut header_idx);
 
                 let headers_len = req.headers.len();
@@ -51,7 +57,7 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                 let mut decoder = TransferCoding::eof();
 
                 // pop a cached headermap or construct a new one.
-                let mut headers = self.header.take().unwrap_or_else(HeaderMap::new);
+                let mut headers = ctx.take_headers();
                 headers.reserve(headers_len);
 
                 // write headers to headermap and update request states.
@@ -90,19 +96,19 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                             if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
                                 // Connection header would update context state.
                                 if value.eq_ignore_ascii_case("keep-alive") {
-                                    self.set_ctype(ConnectionType::KeepAlive);
+                                    ctx.set_ctype(ConnectionType::KeepAlive);
                                 } else if value.eq_ignore_ascii_case("close") {
-                                    self.set_ctype(ConnectionType::Close);
+                                    ctx.set_ctype(ConnectionType::Close);
                                 } else if value.eq_ignore_ascii_case("upgrade") {
                                     // set decoder to upgrade variant.
                                     decoder.try_set(TransferCoding::plain_chunked())?;
-                                    self.set_ctype(ConnectionType::Upgrade);
+                                    ctx.set_ctype(ConnectionType::Upgrade);
                                 }
                             }
                         }
-                        EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
+                        EXPECT if value.as_bytes() == b"100-continue" => ctx.set_expect_header(),
                         // Upgrades are only allowed with HTTP/1.1
-                        UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
+                        UPGRADE if version == Version::HTTP_11 => ctx.set_ctype(ConnectionType::Upgrade),
                         _ => {}
                     }
 
@@ -110,15 +116,15 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                 }
 
                 if method == Method::CONNECT {
-                    self.set_ctype(ConnectionType::Upgrade);
+                    ctx.set_ctype(ConnectionType::Upgrade);
                     // set method to context so it can pass method to response.
-                    self.set_connect_method();
+                    ctx.set_connect_method();
                     decoder.try_set(TransferCoding::plain_chunked())?;
                 }
 
                 let mut req = Request::new(());
 
-                let extensions = mem::take(&mut self.extensions);
+                let extensions = ctx.take_extensions();
 
                 *req.method_mut() = method;
                 *req.version_mut() = version;
@@ -136,112 +142,6 @@ impl<const MAX_HEADERS: usize> Context<'_, MAX_HEADERS> {
                     Ok(None)
                 }
             }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct HeaderIndex {
-    name: (usize, usize),
-    value: (usize, usize),
-}
-
-impl HeaderIndex {
-    const fn new() -> Self {
-        Self {
-            name: (0, 0),
-            value: (0, 0),
-        }
-    }
-
-    fn record(bytes: &[u8], headers: &[Header<'_>], indices: &mut [Self]) {
-        let bytes_ptr = bytes.as_ptr() as usize;
-
-        headers.iter().zip(indices.iter_mut()).for_each(|(header, indice)| {
-            let name_start = header.name.as_ptr() as usize - bytes_ptr;
-            let value_start = header.value.as_ptr() as usize - bytes_ptr;
-
-            let name_end = name_start + header.name.len();
-            let value_end = value_start + header.value.len();
-
-            indice.name = (name_start, name_end);
-            indice.value = (value_start, value_end);
-        });
-    }
-}
-
-impl TransferCoding {
-    fn try_set(&mut self, other: Self) -> Result<(), ProtoError> {
-        match (&self, &other) {
-            // multiple set to plain chunked is allowed. This can happen from Connect method
-            // and/or Connection header.
-            (TransferCoding::PlainChunked, TransferCoding::PlainChunked) => Ok(()),
-            // multiple set to decoded chunked/content-length are forbidden.
-            //
-            // mutation between decoded chunked/content-length/plain chunked is forbidden.
-            (TransferCoding::PlainChunked, _)
-            | (TransferCoding::DecodeChunked(..), _)
-            | (TransferCoding::Length(..), _) => Err(ProtoError::Parse(Parse::HeaderName)),
-            _ => {
-                *self = other;
-                Ok(())
-            }
-        }
-    }
-
-    pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
-        match *self {
-            Self::Length(ref mut remaining) => {
-                if *remaining == 0 {
-                    Ok(Some(Bytes::new()))
-                } else {
-                    if src.is_empty() {
-                        return Ok(None);
-                    }
-                    let len = src.len() as u64;
-                    let buf = if *remaining > len {
-                        *remaining -= len;
-                        src.split().freeze()
-                    } else {
-                        let mut split = 0;
-                        std::mem::swap(remaining, &mut split);
-                        src.split_to(split as usize).freeze()
-                    };
-                    Ok(Some(buf))
-                }
-            }
-            Self::DecodeChunked(ref mut state, ref mut size) => {
-                loop {
-                    let mut buf = None;
-                    // advances the chunked state
-                    *state = match state.step(src, size, &mut buf)? {
-                        Some(state) => state,
-                        None => return Ok(None),
-                    };
-
-                    if matches!(state, ChunkedState::End) {
-                        return Ok(Some(Bytes::new()));
-                    }
-
-                    if let Some(buf) = buf {
-                        return Ok(Some(buf));
-                    }
-
-                    if src.is_empty() {
-                        return Ok(None);
-                    }
-                }
-            }
-            Self::PlainChunked => {
-                if src.is_empty() {
-                    Ok(None)
-                } else {
-                    // TODO: hyper split 8kb here instead of take all.
-                    Ok(Some(src.split().freeze()))
-                }
-            }
-            Self::Eof => unreachable!("TransferCoding::Eof must never attempt to decode request payload"),
-            _ => unreachable!(),
         }
     }
 }

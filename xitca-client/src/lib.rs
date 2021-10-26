@@ -22,7 +22,7 @@ pub use self::resolver::Resolve;
 pub use self::tls::{connector::TlsConnect, stream::Io};
 
 // re-export http crate.
-pub use http;
+pub use xitca_http::http;
 
 #[cfg(test)]
 mod test {
@@ -32,6 +32,6 @@ mod test {
     async fn get() {
         let client = Client::new();
 
-        let _ = client.get("http://google.com").unwrap().send().await;
+        // let _ = client.get("http://google.com").unwrap().send().await;
     }
 }

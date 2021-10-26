@@ -3,9 +3,11 @@ use std::io;
 use bytes::{Buf, Bytes, BytesMut};
 use tracing::trace;
 
+use super::error::{Parse, ProtoError};
+
 /// Coder for different Transfer-Decoding/Transfer-Encoding.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum TransferCoding {
+pub enum TransferCoding {
     /// Coder used when a Content-Length header is passed with a positive integer.
     Length(u64),
 
@@ -38,33 +40,39 @@ pub(super) enum TransferCoding {
 }
 
 impl TransferCoding {
-    pub(super) const fn eof() -> Self {
+    #[inline]
+    pub const fn eof() -> Self {
         Self::Eof
     }
 
-    pub(super) fn is_eof(&self) -> bool {
+    #[inline]
+    pub fn is_eof(&self) -> bool {
         matches!(self, Self::Eof)
     }
 
-    pub(super) const fn length(len: u64) -> Self {
+    #[inline]
+    pub const fn length(len: u64) -> Self {
         Self::Length(len)
     }
 
-    pub(super) const fn decode_chunked() -> Self {
+    #[inline]
+    pub const fn decode_chunked() -> Self {
         Self::DecodeChunked(ChunkedState::Size, 0)
     }
 
-    pub(super) const fn encode_chunked() -> Self {
+    #[inline]
+    pub const fn encode_chunked() -> Self {
         Self::EncodeChunked
     }
 
-    pub(super) const fn plain_chunked() -> Self {
+    #[inline]
+    pub const fn plain_chunked() -> Self {
         Self::PlainChunked
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub(super) enum ChunkedState {
+pub enum ChunkedState {
     Size,
     SizeLws,
     Extension,
@@ -92,7 +100,7 @@ macro_rules! byte (
 );
 
 impl ChunkedState {
-    pub(super) fn step(
+    pub fn step(
         &self,
         body: &mut BytesMut,
         size: &mut u64,
@@ -249,6 +257,82 @@ impl ChunkedState {
         match byte!(rdr) {
             b'\n' => Ok(Some(ChunkedState::End)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end LF")),
+        }
+    }
+}
+
+impl TransferCoding {
+    pub fn try_set(&mut self, other: Self) -> Result<(), ProtoError> {
+        match (&self, &other) {
+            // multiple set to plain chunked is allowed. This can happen from Connect method
+            // and/or Connection header.
+            (TransferCoding::PlainChunked, TransferCoding::PlainChunked) => Ok(()),
+            // multiple set to decoded chunked/content-length are forbidden.
+            //
+            // mutation between decoded chunked/content-length/plain chunked is forbidden.
+            (TransferCoding::PlainChunked, _)
+            | (TransferCoding::DecodeChunked(..), _)
+            | (TransferCoding::Length(..), _) => Err(ProtoError::Parse(Parse::HeaderName)),
+            _ => {
+                *self = other;
+                Ok(())
+            }
+        }
+    }
+
+    pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
+        match *self {
+            Self::Length(ref mut remaining) => {
+                if *remaining == 0 {
+                    Ok(Some(Bytes::new()))
+                } else {
+                    if src.is_empty() {
+                        return Ok(None);
+                    }
+                    let len = src.len() as u64;
+                    let buf = if *remaining > len {
+                        *remaining -= len;
+                        src.split().freeze()
+                    } else {
+                        let mut split = 0;
+                        std::mem::swap(remaining, &mut split);
+                        src.split_to(split as usize).freeze()
+                    };
+                    Ok(Some(buf))
+                }
+            }
+            Self::DecodeChunked(ref mut state, ref mut size) => {
+                loop {
+                    let mut buf = None;
+                    // advances the chunked state
+                    *state = match state.step(src, size, &mut buf)? {
+                        Some(state) => state,
+                        None => return Ok(None),
+                    };
+
+                    if matches!(state, ChunkedState::End) {
+                        return Ok(Some(Bytes::new()));
+                    }
+
+                    if let Some(buf) = buf {
+                        return Ok(Some(buf));
+                    }
+
+                    if src.is_empty() {
+                        return Ok(None);
+                    }
+                }
+            }
+            Self::PlainChunked => {
+                if src.is_empty() {
+                    Ok(None)
+                } else {
+                    // TODO: hyper split 8kb here instead of take all.
+                    Ok(Some(src.split().freeze()))
+                }
+            }
+            Self::Eof => unreachable!("TransferCoding::Eof must never attempt to decode request payload"),
+            _ => unreachable!(),
         }
     }
 }

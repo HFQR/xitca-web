@@ -1,5 +1,7 @@
 use std::{error, io};
 
+use xitca_http::http;
+
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -9,6 +11,7 @@ pub enum Error {
     Resolve,
     Timeout(TimeoutError),
     TlsNotEnabled,
+    H1(crate::h1::Error),
     #[cfg(feature = "http2")]
     H2(h2::Error),
     #[cfg(feature = "openssl")]
@@ -56,6 +59,12 @@ impl From<io::Error> for Error {
 impl From<Box<dyn error::Error + Send + Sync>> for Error {
     fn from(e: Box<dyn error::Error + Send + Sync>) -> Self {
         Self::Std(e)
+    }
+}
+
+impl From<crate::h1::Error> for Error {
+    fn from(e: crate::h1::Error) -> Self {
+        Self::H1(e)
     }
 }
 

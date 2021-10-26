@@ -44,7 +44,7 @@ where
 {
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
-            Self::Boxed(io) => Pin::new(io).poll_read(cx, buf),
+            Self::Boxed(io) => Pin::new(io.as_mut()).poll_read(cx, buf),
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_read(cx, buf),
@@ -59,7 +59,7 @@ where
 {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         match self.get_mut() {
-            Self::Boxed(io) => Pin::new(io).poll_write(cx, buf),
+            Self::Boxed(io) => Pin::new(io.as_mut()).poll_write(cx, buf),
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_write(cx, buf),
@@ -68,7 +68,7 @@ where
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
-            Self::Boxed(io) => Pin::new(io).poll_flush(cx),
+            Self::Boxed(io) => Pin::new(io.as_mut()).poll_flush(cx),
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_flush(cx),
@@ -77,7 +77,7 @@ where
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
-            Self::Boxed(io) => Pin::new(io).poll_shutdown(cx),
+            Self::Boxed(io) => Pin::new(io.as_mut()).poll_shutdown(cx),
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_shutdown(cx),
@@ -90,7 +90,7 @@ where
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         match self.get_mut() {
-            Self::Boxed(io) => Pin::new(io).poll_write_vectored(cx, bufs),
+            Self::Boxed(io) => Pin::new(io.as_mut()).poll_write_vectored(cx, bufs),
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_write_vectored(cx, bufs),

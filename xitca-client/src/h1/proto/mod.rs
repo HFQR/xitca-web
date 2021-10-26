@@ -1,3 +1,5 @@
 mod context;
 mod decode;
-mod error;
+mod dispatcher;
+
+pub(crate) use dispatcher::run;

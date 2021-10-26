@@ -1,15 +1,9 @@
 use std::time::Duration;
 
 use futures_core::Stream;
+use xitca_http::http::{self, header::HeaderMap, Method, Version};
 
-use crate::{
-    client::Client,
-    connect::Connect,
-    connection::Connection,
-    error::Error,
-    http::{header::HeaderMap, Method, Version},
-    uri::Uri,
-};
+use crate::{client::Client, connect::Connect, connection::Connection, error::Error, uri::Uri};
 
 /// crate level HTTP request type.
 pub struct Request<'a, B> {
@@ -131,8 +125,8 @@ impl<'a, B> Request<'a, B> {
         }
 
         match conn.inner_ref() {
-            Connection::Tcp(stream) => crate::h1::send(stream, req).await?,
-            Connection::Tls(stream) => crate::h1::send(stream, req).await?,
+            Connection::Tcp(stream) => crate::h1::proto::run(stream, req).await?,
+            Connection::Tls(stream) => crate::h1::proto::run(stream, req).await?,
             _ => todo!(),
         }
 

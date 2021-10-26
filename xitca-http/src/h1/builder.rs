@@ -2,16 +2,17 @@ use std::future::Future;
 
 use bytes::Bytes;
 use futures_core::Stream;
-use http::{Request, Response};
 use xitca_server::net::AsyncReadWrite;
 use xitca_service::ServiceFactory;
 
-use crate::body::ResponseBody;
-use crate::builder::HttpServiceBuilder;
-use crate::error::{BodyError, HttpServiceError};
+use crate::{
+    body::ResponseBody,
+    builder::HttpServiceBuilder,
+    error::{BodyError, HttpServiceError},
+    http::{Request, Response},
+};
 
-use super::body::RequestBody;
-use super::service::H1Service;
+use super::{body::RequestBody, service::H1Service};
 
 /// Http/1 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
