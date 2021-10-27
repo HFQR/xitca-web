@@ -1,11 +1,11 @@
 //! protocol module of Http/1.x
 //! aiming to be correct and fast with only safe code.
 
-mod buf;
 mod decode;
 mod dispatcher;
 mod encode;
 
+pub mod buf;
 pub mod codec;
 pub mod context;
 pub mod error;

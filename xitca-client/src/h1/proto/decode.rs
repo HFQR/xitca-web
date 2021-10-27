@@ -17,7 +17,10 @@ use xitca_http::{
 use super::context::Context;
 
 impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
-    pub(crate) fn decode_head(&mut self, buf: &mut BytesMut) -> Result<Option<Response<()>>, ProtoError> {
+    pub(crate) fn decode_head(
+        &mut self,
+        buf: &mut BytesMut,
+    ) -> Result<Option<(Response<()>, TransferCoding)>, ProtoError> {
         let mut headers = [EMPTY_HEADER; HEADER_LIMIT];
 
         let mut parsed = httparse::Response::new(&mut headers);
@@ -106,7 +109,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
                 *res.status_mut() = status;
                 *res.headers_mut() = headers;
 
-                Ok(Some(res))
+                Ok(Some((res, decoder)))
             }
             Status::Partial => Ok(None),
         }

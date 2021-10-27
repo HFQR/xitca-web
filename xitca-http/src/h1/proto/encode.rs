@@ -24,21 +24,21 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
 where
     D: DateTime,
 {
-    pub(super) fn encode_continue<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W)
+    pub(super) fn encode_continue<W>(&mut self, buf: &mut W)
     where
-        W: WriteBuf<WRITE_BUF_LIMIT>,
+        W: WriteBuf,
     {
         buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
 
-    pub(super) fn encode_head<W, const WRITE_BUF_LIMIT: usize>(
+    pub(super) fn encode_head<W>(
         &mut self,
         parts: Parts,
         size: ResponseBodySize,
         buf: &mut W,
     ) -> Result<TransferCoding, ProtoError>
     where
-        W: WriteBuf<WRITE_BUF_LIMIT>,
+        W: WriteBuf,
     {
         buf.write_head(|buf| self.encode_head_inner(parts, size, buf))
     }
@@ -224,7 +224,7 @@ where
 }
 
 impl TransferCoding {
-    pub fn encode_chunked_from(ctype: ConnectionType) -> Self {
+    fn encode_chunked_from(ctype: ConnectionType) -> Self {
         if ctype == ConnectionType::Upgrade {
             Self::plain_chunked()
         } else {
@@ -233,12 +233,12 @@ impl TransferCoding {
     }
 
     /// Encode message. Return `EOF` state of encoder
-    pub(super) fn encode<W, const WRITE_BUF_LIMIT: usize>(&mut self, mut bytes: Bytes, buf: &mut W)
+    pub fn encode<W>(&mut self, mut bytes: Bytes, buf: &mut W)
     where
-        W: WriteBuf<WRITE_BUF_LIMIT>,
+        W: WriteBuf,
     {
         // Skip encode empty bytes.
-        // This is to avoid unnecessary extending on h1::proto::buf::ListWriteBuf when user
+        // This is to avoid unnecessary extending on h1::proto::buf::ListBuf when user
         // provided empty bytes by accident.
         if bytes.is_empty() {
             return;
@@ -260,9 +260,9 @@ impl TransferCoding {
     }
 
     /// Encode eof. Return `EOF` state of encoder
-    pub(super) fn encode_eof<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W)
+    pub fn encode_eof<W>(&mut self, buf: &mut W)
     where
-        W: WriteBuf<WRITE_BUF_LIMIT>,
+        W: WriteBuf,
     {
         match *self {
             Self::Eof | Self::PlainChunked | Self::Length(0) => {}

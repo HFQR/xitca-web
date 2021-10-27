@@ -30,7 +30,7 @@ use crate::{
 };
 
 use super::{
-    buf::{FlatWriteBuf, ListWriteBuf, ReadBuf, WriteBuf},
+    buf::{FlatBuf, ListBuf, WriteBuf},
     codec::TransferCoding,
     context::{ConnectionType, Context},
     error::{Parse, ProtoError},
@@ -80,10 +80,10 @@ where
     };
 
     let res = if is_vectored {
-        let write_buf = ListWriteBuf::default();
+        let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();
         Dispatcher::new(io, timer, config, flow, date, write_buf).run().await
     } else {
-        let write_buf = FlatWriteBuf::default();
+        let write_buf = FlatBuf::<WRITE_BUF_LIMIT>::default();
         Dispatcher::new(io, timer, config, flow, date, write_buf).run().await
     };
 
@@ -119,7 +119,7 @@ struct Dispatcher<
 
 struct Io<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     io: &'a mut St,
-    read_buf: ReadBuf<READ_BUF_LIMIT>,
+    read_buf: FlatBuf<READ_BUF_LIMIT>,
     write_buf: W,
     _err: PhantomData<E>,
 }
@@ -128,12 +128,12 @@ impl<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     Io<'a, St, W, E, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     St: AsyncReadWrite,
-    W: WriteBuf<WRITE_BUF_LIMIT>,
+    W: WriteBuf,
 {
     fn new(io: &'a mut St, write_buf: W) -> Self {
         Self {
             io,
-            read_buf: ReadBuf::new(),
+            read_buf: FlatBuf::new(),
             write_buf,
             _err: PhantomData,
         }
@@ -141,14 +141,12 @@ where
 
     /// read until blocked/read backpressure and advance readbuf.
     fn try_read(&mut self) -> Result<(), Error<E>> {
-        let buf = &mut self.read_buf;
-
         loop {
-            match self.io.try_read_buf(buf.buf_mut()) {
+            match self.io.try_read_buf(&mut *self.read_buf) {
                 Ok(0) => return Err(Error::Closed),
                 Ok(_) => {
-                    if buf.backpressure() {
-                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", buf.len());
+                    if self.read_buf.backpressure() {
+                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", self.read_buf.len());
                         return Ok(());
                     }
                 }
@@ -248,7 +246,7 @@ where
     S::Error: From<X::Error>,
 
     St: AsyncReadWrite,
-    W: WriteBuf<WRITE_BUF_LIMIT>,
+    W: WriteBuf,
 
     D: DateTime,
 {
@@ -345,7 +343,7 @@ where
     }
 
     fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
-        match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.buf_mut()) {
+        match self.ctx.decode_head::<READ_BUF_LIMIT>(&mut *self.io.read_buf) {
             Ok(Some((req, decoder))) => {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
@@ -525,9 +523,9 @@ impl RequestBodyHandle {
 
     fn decode<const READ_BUF_LIMIT: usize>(
         &mut self,
-        read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
+        read_buf: &mut FlatBuf<READ_BUF_LIMIT>,
     ) -> io::Result<DecodeState> {
-        while let Some(bytes) = self.decoder.decode(read_buf.buf_mut())? {
+        while let Some(bytes) = self.decoder.decode(&mut *read_buf)? {
             if bytes.is_empty() {
                 self.sender.feed_eof();
                 return Ok(DecodeState::Eof);

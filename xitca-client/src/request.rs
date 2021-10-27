@@ -58,7 +58,7 @@ impl<'a, B> Request<'a, B> {
 
     /// Set timeout of this request.
     ///
-    /// The vaule passed would override global [TimeoutConfig](crate::timeout::TimeoutConfig).
+    /// The value passed would override global [TimeoutConfig].
     #[inline]
     pub fn timeout(self, dur: Duration) -> Self {
         self._timeout(Some(dur))
@@ -69,29 +69,18 @@ impl<'a, B> Request<'a, B> {
         self
     }
 
-    // pub fn map_body<F, B1>(self, f: F) -> Request<'a, B1>
-    // where
-    //     F: FnOnce(B) -> B1,
-    // {
-    //     let Self { req, client, timeout } = self;
-    //     let (parts, body_old) = req.into_parts();
+    pub fn map_body<F, B1>(self, f: F) -> Request<'a, B1>
+    where
+        F: FnOnce(RequestBody<B>) -> RequestBody<B1>,
+    {
+        let Self { req, client, timeout } = self;
+        let (parts, body_old) = req.into_parts();
 
-    //     let body = f(body_old);
-    //     let req = http::Request::from_parts(parts, body);
+        let body = f(body_old);
+        let req = http::Request::from_parts(parts, body);
 
-    //     Request::new(req, client)._timeout(timeout)
-    // }
-
-    // pub fn replace_body<B1>(self, body: B1) -> (Request<'a, B1>, B) {
-    //     let Self { req, client, timeout } = self;
-    //     let (parts, body_old) = req.into_parts();
-
-    //     let req = http::Request::from_parts(parts, body);
-
-    //     let req = Request::new(req, client)._timeout(timeout);
-
-    //     (req, body_old)
-    // }
+        Request::new(req, client)._timeout(timeout)
+    }
 
     /// Send the request and return response asynchronously.
     pub async fn send<E>(self) -> Result<http::Response<()>, Error>

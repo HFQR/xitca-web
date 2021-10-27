@@ -1,9 +1,9 @@
 use std::io;
 
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use xitca_http::{error::BodyError, http};
+use xitca_http::{error::BodyError, h1::proto::buf::FlatBuf, http};
 
 use crate::{body::RequestBody, date::DateTimeHandle, h1::error::Error};
 
@@ -21,34 +21,40 @@ where
 {
     let (parts, body) = req.into_parts();
 
-    // TODO: make header limit configuarble.
+    // TODO: make const generic params configurable.
     let mut ctx = Context::<128>::new(&date);
-    let mut buf = BytesMut::new();
+    let mut buf = FlatBuf::<{ 1024 * 1024 }>::new();
 
     // encode request head and return transfer encoding for request body
-    let encoding = ctx.encode_head(&mut buf, parts, body.size())?;
+    let mut encoding = ctx.encode_head(&mut buf, parts, body.size())?;
 
     tokio::pin!(stream);
 
-    // send request head for potential intermidiate handling like expect header.
-    while buf.has_remaining() {
-        stream.write_buf(&mut buf).await?;
-    }
+    // send request head for potential intermediate handling like expect header.
+    stream.write_all_buf(&mut *buf).await?;
 
     if !encoding.is_eof() {
         tokio::pin!(body);
 
+        // poll request body and encode.
         while let Some(bytes) = body.as_mut().next().await {
             let bytes = bytes?;
-            // encoding.encode(bytes, &mut buf)?;
-            stream.write_all(&buf).await?;
+            encoding.encode(bytes, &mut buf);
+            // we are not in a hurry here so read and flush before next chunk
+            stream.write_all_buf(&mut *buf).await?;
+            stream.flush().await?;
         }
+
+        // body is finished. encode eof and clean up.
+        encoding.encode_eof(&mut buf);
+        stream.write_all_buf(&mut *buf).await?;
     }
 
     stream.flush().await?;
 
-    let _ = loop {
-        let n = stream.read_buf(&mut buf).await?;
+    // read response head and get body decoder.
+    let (res, decoder) = loop {
+        let n = stream.read_buf(&mut *buf).await?;
 
         if n == 0 {
             return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());

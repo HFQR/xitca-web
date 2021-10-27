@@ -14,30 +14,8 @@ use crate::util::{buf_list::BufList, writer::Writer};
 // 32 is chosen for max of 16 pipelined http requests with a single body item.
 const BUF_LIST_CNT: usize = 32;
 
-pub(super) struct ReadBuf<const READ_BUF_LIMIT: usize> {
-    buf: BytesMut,
-}
-
-impl<const READ_BUF_LIMIT: usize> ReadBuf<READ_BUF_LIMIT> {
-    pub(super) fn new() -> Self {
-        Self { buf: BytesMut::new() }
-    }
-
-    pub(super) fn len(&self) -> usize {
-        self.buf.len()
-    }
-
-    pub(super) fn backpressure(&self) -> bool {
-        self.buf.len() >= READ_BUF_LIMIT
-    }
-
-    pub(super) fn buf_mut(&mut self) -> &mut BytesMut {
-        &mut self.buf
-    }
-}
-
 /// Trait to generic over different types of write buffer strategy.
-pub(super) trait WriteBuf<const WRITE_BUF_LIMIT: usize> {
+pub trait WriteBuf {
     fn backpressure(&self) -> bool;
 
     fn empty(&self) -> bool;
@@ -55,15 +33,28 @@ pub(super) trait WriteBuf<const WRITE_BUF_LIMIT: usize> {
     fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<(), Error<E>>;
 }
 
-pub(super) struct FlatWriteBuf(BytesMut);
+pub struct FlatBuf<const BUF_LIMIT: usize>(BytesMut);
 
-impl Default for FlatWriteBuf {
-    fn default() -> Self {
+impl<const BUF_LIMIT: usize> FlatBuf<BUF_LIMIT> {
+    #[inline]
+    pub fn new() -> Self {
         Self(BytesMut::new())
     }
 }
 
-impl Deref for FlatWriteBuf {
+impl<const BUF_LIMIT: usize> From<BytesMut> for FlatBuf<BUF_LIMIT> {
+    fn from(bytes_mut: BytesMut) -> Self {
+        Self(bytes_mut)
+    }
+}
+
+impl<const BUF_LIMIT: usize> Default for FlatBuf<BUF_LIMIT> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const BUF_LIMIT: usize> Deref for FlatBuf<BUF_LIMIT> {
     type Target = BytesMut;
 
     fn deref(&self) -> &Self::Target {
@@ -71,21 +62,24 @@ impl Deref for FlatWriteBuf {
     }
 }
 
-impl DerefMut for FlatWriteBuf {
+impl<const BUF_LIMIT: usize> DerefMut for FlatBuf<BUF_LIMIT> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
+impl<const BUF_LIMIT: usize> WriteBuf for FlatBuf<BUF_LIMIT> {
+    #[inline]
     fn backpressure(&self) -> bool {
-        self.remaining() >= WRITE_BUF_LIMIT
+        self.remaining() >= BUF_LIMIT
     }
 
+    #[inline]
     fn empty(&self) -> bool {
         self.remaining() == 0
     }
 
+    #[inline]
     fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
@@ -93,10 +87,12 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
         func(&mut *self)
     }
 
+    #[inline]
     fn write_static(&mut self, bytes: &'static [u8]) {
         self.put_slice(bytes);
     }
 
+    #[inline]
     fn write_buf(&mut self, bytes: Bytes) {
         self.put_slice(bytes.as_ref());
     }
@@ -132,7 +128,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for FlatWriteBuf {
 }
 
 // an internal buffer to collect writes before flushes
-pub(super) struct ListWriteBuf<B> {
+pub(super) struct ListBuf<B, const BUF_LIMIT: usize> {
     /// Re-usable buffer that holds response head.
     /// After head writing finished it's split and pushed to list.
     buf: BytesMut,
@@ -140,7 +136,7 @@ pub(super) struct ListWriteBuf<B> {
     list: BufList<B>,
 }
 
-impl<B: Buf> Default for ListWriteBuf<B> {
+impl<B: Buf, const BUF_LIMIT: usize> Default for ListBuf<B, BUF_LIMIT> {
     fn default() -> Self {
         Self {
             buf: BytesMut::new(),
@@ -149,14 +145,14 @@ impl<B: Buf> Default for ListWriteBuf<B> {
     }
 }
 
-impl<B: Buf> ListWriteBuf<B> {
+impl<B: Buf, const BUF_LIMIT: usize> ListBuf<B, BUF_LIMIT> {
     pub(super) fn buffer<BB: Buf + Into<B>>(&mut self, buf: BB) {
         debug_assert!(buf.has_remaining());
         self.list.push(buf.into());
     }
 }
 
-impl<B: Buf> fmt::Debug for ListWriteBuf<B> {
+impl<B: Buf, const BUF_LIMIT: usize> fmt::Debug for ListBuf<B, BUF_LIMIT> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteBuf")
             .field("remaining", &self.list.remaining())
@@ -171,6 +167,7 @@ pub(super) enum EncodedBuf<B, BB> {
 }
 
 impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
+    #[inline]
     fn remaining(&self) -> usize {
         match *self {
             Self::Buf(ref buf) => buf.remaining(),
@@ -179,6 +176,7 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
         }
     }
 
+    #[inline]
     fn chunk(&self) -> &[u8] {
         match *self {
             Self::Buf(ref buf) => buf.chunk(),
@@ -187,6 +185,7 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
         }
     }
 
+    #[inline]
     fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
         match *self {
             Self::Buf(ref buf) => buf.chunks_vectored(dst),
@@ -195,6 +194,7 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
         }
     }
 
+    #[inline]
     fn advance(&mut self, cnt: usize) {
         match *self {
             Self::Buf(ref mut buf) => buf.advance(cnt),
@@ -207,11 +207,13 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
 // as special type for eof chunk when using transfer-encoding: chunked
 type Eof = Chain<Chain<Bytes, Bytes>, &'static [u8]>;
 
-impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<EncodedBuf<Bytes, Eof>> {
+impl<const BUF_LIMIT: usize> WriteBuf for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LIMIT> {
+    #[inline]
     fn backpressure(&self) -> bool {
-        self.list.remaining() >= WRITE_BUF_LIMIT || self.list.cnt() == BUF_LIST_CNT
+        self.list.remaining() >= BUF_LIMIT || self.list.cnt() == BUF_LIST_CNT
     }
 
+    #[inline]
     fn empty(&self) -> bool {
         self.list.remaining() == 0
     }
@@ -227,6 +229,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
         Ok(res)
     }
 
+    #[inline]
     fn write_static(&mut self, bytes: &'static [u8]) {
         self.buffer(EncodedBuf::Static(bytes));
     }
@@ -235,6 +238,7 @@ impl<const WRITE_BUF_LIMIT: usize> WriteBuf<WRITE_BUF_LIMIT> for ListWriteBuf<En
         self.buffer(EncodedBuf::Buf(bytes));
     }
 
+    #[inline]
     fn write_chunk(&mut self, bytes: Bytes) {
         let eof = Bytes::from(format!("{:X}\r\n", bytes.len()))
             .chain(bytes)
