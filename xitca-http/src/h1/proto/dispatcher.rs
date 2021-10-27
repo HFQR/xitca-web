@@ -14,6 +14,7 @@ use xitca_service::Service;
 use crate::{
     body::ResponseBody,
     config::HttpServiceConfig,
+    date::DateTime,
     error::BodyError,
     flow::HttpFlowInner,
     h1::{
@@ -22,7 +23,6 @@ use crate::{
     },
     response,
     util::{
-        date::Date,
         futures::{never, poll_fn, Select, SelectOutput, Timeout},
         hint::unlikely,
         keep_alive::KeepAlive,
@@ -32,7 +32,7 @@ use crate::{
 use super::{
     buf::{FlatWriteBuf, ListWriteBuf, ReadBuf, WriteBuf},
     codec::TransferCoding,
-    context::{ConnectionType, ServerContext},
+    context::{ConnectionType, Context},
     error::{Parse, ProtoError},
 };
 
@@ -46,6 +46,7 @@ pub(crate) async fn run<
     E,
     X,
     U,
+    D,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
@@ -54,7 +55,7 @@ pub(crate) async fn run<
     timer: Pin<&'a mut KeepAlive>,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     flow: &'a HttpFlowInner<S, X, U>,
-    date: &'a Date,
+    date: &'a D,
 ) -> Result<(), Error<S::Error>>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
@@ -69,6 +70,8 @@ where
     S::Error: From<X::Error>,
 
     St: AsyncReadWrite,
+
+    D: DateTime,
 {
     let is_vectored = if config.force_flat_buf {
         false
@@ -99,6 +102,7 @@ struct Dispatcher<
     X,
     U,
     W,
+    D,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
@@ -108,7 +112,7 @@ struct Dispatcher<
     io: Io<'a, St, W, S::Error, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
-    ctx: ServerContext<'a, HEADER_LIMIT>,
+    ctx: Context<'a, D, HEADER_LIMIT>,
     flow: &'a HttpFlowInner<S, X, U>,
     _phantom: PhantomData<ReqB>,
 }
@@ -183,10 +187,10 @@ where
 
     /// A specialized readable check that always pending when read buffer is full.
     /// This is a hack for `crate::util::futures::Select`.
-    async fn readable<const HEADER_LIMIT: usize>(
+    async fn readable<D, const HEADER_LIMIT: usize>(
         &self,
         handle: &mut RequestBodyHandle,
-        ctx: &mut ServerContext<'_, HEADER_LIMIT>,
+        ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<()> {
         if self.read_buf.backpressure() {
             never().await
@@ -226,10 +230,11 @@ impl<
         X,
         U,
         W,
+        D,
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, X, U, W, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Dispatcher<'a, St, S, ReqB, X, U, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
 
@@ -244,20 +249,22 @@ where
 
     St: AsyncReadWrite,
     W: WriteBuf<WRITE_BUF_LIMIT>,
+
+    D: DateTime,
 {
     fn new(
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         flow: &'a HttpFlowInner<S, X, U>,
-        date: &'a Date,
+        date: &'a D,
         write_buf: W,
     ) -> Self {
         Self {
             io: Io::new(io, write_buf),
             timer,
             ka_dur: config.keep_alive_timeout,
-            ctx: ServerContext::new(date),
+            ctx: Context::new(date),
             flow,
             _phantom: PhantomData,
         }
@@ -265,9 +272,9 @@ where
 
     async fn run(mut self) -> Result<(), Error<S::Error>> {
         loop {
-            match self.ctx.ctx().ctype() {
+            match self.ctx.ctype() {
                 ConnectionType::Init => {
-                    if self.ctx.ctx().is_force_close() {
+                    if self.ctx.is_force_close() {
                         unlikely();
                         trace!(target: "h1_dispatcher", "Connection error. Shutting down");
                         return Ok(());
@@ -283,7 +290,7 @@ where
                     }
                 }
                 ConnectionType::KeepAlive => {
-                    if self.ctx.ctx().is_force_close() {
+                    if self.ctx.is_force_close() {
                         unlikely();
                         trace!(target: "h1_dispatcher", "Connection is keep-alive but meet a force close condition. Shutting down");
                         return self.io.shutdown().await;
@@ -307,7 +314,7 @@ where
                 match res {
                     Ok((req, mut body_handle)) => {
                         // have new request. update timer deadline.
-                        let now = self.ctx.date.borrow().now() + self.ka_dur;
+                        let now = self.ctx.date.now() + self.ka_dur;
                         self.timer.as_mut().update(now);
 
                         let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
@@ -316,7 +323,7 @@ where
 
                         self.response_handler(res_body, encoder, body_handle).await?;
 
-                        if self.ctx.ctx().is_force_close() {
+                        if self.ctx.is_force_close() {
                             break 'req;
                         }
                     }
@@ -363,7 +370,7 @@ where
         mut req: Request<ReqB>,
         body_handle: &mut Option<RequestBodyHandle>,
     ) -> Result<S::Response, Error<S::Error>> {
-        if self.ctx.ctx().is_expect_header() {
+        if self.ctx.is_expect_header() {
             match self.flow.expect.call(req).await {
                 Ok(expect_res) => {
                     // encode continue
@@ -430,7 +437,7 @@ where
                             // Request body is partial consumed.
                             // Close connection in case there are bytes remain in socket.
                             if !handle.sender.is_eof() {
-                                self.ctx.ctx().set_force_close();
+                                self.ctx.set_force_close();
                             };
 
                             encoder.encode_eof(&mut self.io.write_buf);
@@ -479,7 +486,7 @@ where
         // Header is too large to be parsed.
         // Close the connection after sending error response as it's pointless
         // to read the remaining bytes inside connection.
-        self.ctx.ctx().set_force_close();
+        self.ctx.set_force_close();
 
         let (parts, res_body) = func().into_parts();
 
@@ -532,12 +539,12 @@ impl RequestBodyHandle {
         Ok(DecodeState::Continue)
     }
 
-    async fn ready<const HEADER_LIMIT: usize>(&self, ctx: &mut ServerContext<'_, HEADER_LIMIT>) -> io::Result<()> {
+    async fn ready<D, const HEADER_LIMIT: usize>(&self, ctx: &mut Context<'_, D, HEADER_LIMIT>) -> io::Result<()> {
         self.sender.ready().await.map_err(move |e| {
             // When service call dropped payload there is no tell how many bytes
             // still remain readable in the connection.
             // close the connection would be a safe bet than draining it.
-            ctx.ctx().set_force_close();
+            ctx.set_force_close();
             e
         })
     }

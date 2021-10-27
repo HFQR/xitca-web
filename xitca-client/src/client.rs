@@ -7,10 +7,11 @@ use tokio::{
 use xitca_http::http::{self, uri, Version};
 
 use crate::{
-    body::EmptyBody,
+    body::RequestBody,
     builder::ClientBuilder,
     connect::Connect,
     connection::{Connection, ConnectionKey},
+    date::DateTimeService,
     error::{Error, TimeoutError},
     pool::Pool,
     request::Request,
@@ -26,6 +27,7 @@ pub struct Client {
     pub(crate) resolver: Resolver,
     pub(crate) timeout_config: TimeoutConfig,
     pub(crate) local_addr: Option<SocketAddr>,
+    pub(crate) date_service: DateTimeService,
 }
 
 impl Default for Client {
@@ -48,15 +50,15 @@ impl Client {
     }
 
     /// Start a new HTTP request with given [http::Request].
-    pub fn request<B>(&self, req: http::Request<B>) -> Request<'_, B> {
+    pub fn request<B>(&self, req: http::Request<RequestBody<B>>) -> Request<'_, B> {
         Request::new(req, self)
     }
 
     /// Start a new HTTP GET request with empty request body.
-    pub fn get(&self, url: &str) -> Result<Request<'_, EmptyBody>, Error> {
+    pub fn get(&self, url: &str) -> Result<Request<'_, RequestBody>, Error> {
         let uri = uri::Uri::try_from(url)?;
 
-        let mut req = http::Request::new(EmptyBody);
+        let mut req = http::Request::new(RequestBody::None);
         *req.uri_mut() = uri;
 
         Ok(self.request(req))

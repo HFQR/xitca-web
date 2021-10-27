@@ -1,27 +1,24 @@
-use std::mem;
-
 use bytes::BytesMut;
 use httparse::{Status, EMPTY_HEADER};
 
 use xitca_http::{
     h1::proto::{
         codec::TransferCoding,
+        context::ConnectionType,
         error::{Parse, ProtoError},
         header::HeaderIndex,
     },
     http::{
-        header::{HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
+        header::{HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, TRANSFER_ENCODING, UPGRADE},
         Response, StatusCode, Version,
     },
 };
 
 use super::context::Context;
 
-const MAX_HEADERS: usize = 128;
-
-impl Context {
-    pub(crate) fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Response<()>>, ProtoError> {
-        let mut headers = [EMPTY_HEADER; MAX_HEADERS];
+impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
+    pub(crate) fn decode_head(&mut self, buf: &mut BytesMut) -> Result<Option<Response<()>>, ProtoError> {
+        let mut headers = [EMPTY_HEADER; HEADER_LIMIT];
 
         let mut parsed = httparse::Response::new(&mut headers);
 
@@ -36,7 +33,7 @@ impl Context {
                 let status = StatusCode::from_u16(parsed.code.unwrap()).map_err(|_| Parse::StatusCode)?;
 
                 // record the index of headers from the buffer.
-                let mut header_idx = HeaderIndex::new_array::<MAX_HEADERS>();
+                let mut header_idx = HeaderIndex::new_array::<HEADER_LIMIT>();
                 HeaderIndex::record(buf, parsed.headers, &mut header_idx);
 
                 let headers_len = parsed.headers.len();
@@ -44,7 +41,7 @@ impl Context {
                 // split the headers from buffer.
                 let slice = buf.split_to(len).freeze();
 
-                let mut headers = mem::take(self.headers_mut());
+                let mut headers = self.take_headers();
                 headers.reserve(headers_len);
 
                 let mut decoder = TransferCoding::eof();
@@ -84,20 +81,19 @@ impl Context {
                         CONNECTION => {
                             if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
                                 // Connection header would update context state.
-                                // if value.eq_ignore_ascii_case("keep-alive") {
-                                //     self.set_ctype(ConnectionType::KeepAlive);
-                                // } else if value.eq_ignore_ascii_case("close") {
-                                //     self.set_ctype(ConnectionType::Close);
-                                // } else if value.eq_ignore_ascii_case("upgrade") {
-                                //     // set decoder to upgrade variant.
-                                //     decoder.try_set(TransferCoding::plain_chunked())?;
-                                //     self.set_ctype(ConnectionType::Upgrade);
-                                // }
+                                if value.eq_ignore_ascii_case("keep-alive") {
+                                    self.set_ctype(ConnectionType::KeepAlive);
+                                } else if value.eq_ignore_ascii_case("close") {
+                                    self.set_ctype(ConnectionType::Close);
+                                } else if value.eq_ignore_ascii_case("upgrade") {
+                                    // set decoder to upgrade variant.
+                                    decoder.try_set(TransferCoding::plain_chunked())?;
+                                    self.set_ctype(ConnectionType::Upgrade);
+                                }
                             }
                         }
-                        // EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
-                        // // Upgrades are only allowed with HTTP/1.1
-                        // UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
+                        // Upgrades are only allowed with HTTP/1.1
+                        UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
                         _ => {}
                     }
 

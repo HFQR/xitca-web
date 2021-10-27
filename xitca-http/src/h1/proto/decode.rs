@@ -10,12 +10,12 @@ use crate::http::{
 
 use super::{
     codec::TransferCoding,
-    context::{ConnectionType, ServerContext},
+    context::{ConnectionType, Context},
     error::{Parse, ProtoError},
     header::HeaderIndex,
 };
 
-impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
+impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
     // decode head and generate request and body decoder.
     pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
@@ -26,10 +26,8 @@ impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
 
         match req.parse_with_uninit_headers(buf, &mut headers)? {
             Status::Complete(len) => {
-                let ctx = self.ctx();
-
                 // Important: reset context state for new request.
-                ctx.reset();
+                self.reset();
 
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
 
@@ -40,7 +38,7 @@ impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
                     // Default ctype is KeepAlive so set_ctype is skipped here.
                     Version::HTTP_11
                 } else {
-                    ctx.set_ctype(ConnectionType::Close);
+                    self.set_ctype(ConnectionType::Close);
                     Version::HTTP_10
                 };
 
@@ -57,7 +55,7 @@ impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
                 let mut decoder = TransferCoding::eof();
 
                 // pop a cached headermap or construct a new one.
-                let mut headers = ctx.take_headers();
+                let mut headers = self.take_headers();
                 headers.reserve(headers_len);
 
                 // write headers to headermap and update request states.
@@ -96,19 +94,19 @@ impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
                             if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
                                 // Connection header would update context state.
                                 if value.eq_ignore_ascii_case("keep-alive") {
-                                    ctx.set_ctype(ConnectionType::KeepAlive);
+                                    self.set_ctype(ConnectionType::KeepAlive);
                                 } else if value.eq_ignore_ascii_case("close") {
-                                    ctx.set_ctype(ConnectionType::Close);
+                                    self.set_ctype(ConnectionType::Close);
                                 } else if value.eq_ignore_ascii_case("upgrade") {
                                     // set decoder to upgrade variant.
                                     decoder.try_set(TransferCoding::plain_chunked())?;
-                                    ctx.set_ctype(ConnectionType::Upgrade);
+                                    self.set_ctype(ConnectionType::Upgrade);
                                 }
                             }
                         }
-                        EXPECT if value.as_bytes() == b"100-continue" => ctx.set_expect_header(),
+                        EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
                         // Upgrades are only allowed with HTTP/1.1
-                        UPGRADE if version == Version::HTTP_11 => ctx.set_ctype(ConnectionType::Upgrade),
+                        UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
                         _ => {}
                     }
 
@@ -116,15 +114,15 @@ impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
                 }
 
                 if method == Method::CONNECT {
-                    ctx.set_ctype(ConnectionType::Upgrade);
+                    self.set_ctype(ConnectionType::Upgrade);
                     // set method to context so it can pass method to response.
-                    ctx.set_connect_method();
+                    self.set_connect_method();
                     decoder.try_set(TransferCoding::plain_chunked())?;
                 }
 
                 let mut req = Request::new(());
 
-                let extensions = ctx.take_extensions();
+                let extensions = self.take_extensions();
 
                 *req.method_mut() = method;
                 *req.version_mut() = version;

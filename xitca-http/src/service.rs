@@ -12,13 +12,14 @@ use tokio::pin;
 use xitca_server::net::{AsyncReadWrite, Stream as ServerStream, TcpStream};
 use xitca_service::Service;
 
-use super::body::{RequestBody, ResponseBody};
-use super::config::HttpServiceConfig;
-use super::error::{BodyError, HttpServiceError, TimeoutError};
-use super::flow::HttpFlow;
-use super::util::{date::DateTimeTask, futures::Timeout, keep_alive::KeepAlive};
 use super::{
+    body::{RequestBody, ResponseBody},
+    config::HttpServiceConfig,
+    date::{DateTime, DateTimeService},
+    error::{BodyError, HttpServiceError, TimeoutError},
+    flow::HttpFlow,
     http::{Request, Response, Version},
+    util::{futures::Timeout, keep_alive::KeepAlive},
     version::AsVersion,
 };
 
@@ -34,7 +35,7 @@ pub struct HttpService<
     const WRITE_BUF_LIMIT: usize,
 > {
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    pub(crate) date: DateTimeTask,
+    pub(crate) date: DateTimeService,
     pub(crate) flow: HttpFlow<S, X, U>,
     pub(crate) tls_acceptor: A,
     _body: PhantomData<ReqB>,
@@ -53,7 +54,7 @@ impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
     ) -> Self {
         Self {
             config,
-            date: DateTimeTask::new(),
+            date: DateTimeService::new(),
             flow: HttpFlow::new(service, expect, upgrade),
             tls_acceptor,
             _body: PhantomData,
@@ -94,7 +95,7 @@ impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
 
     pub(crate) fn update_first_request_deadline(&self, timer: Pin<&mut KeepAlive>) {
         let request_dur = self.config.first_request_timeout;
-        let deadline = self.date.get().borrow().now() + request_dur;
+        let deadline = self.date.get().now() + request_dur;
         timer.update(deadline);
     }
 
@@ -105,7 +106,7 @@ impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
     /// This is an optimization for reducing heap allocation of multiple timers.
     pub(crate) fn keep_alive(&self) -> KeepAlive {
         let accept_dur = self.config.tls_accept_timeout;
-        let deadline = self.date.get().borrow().now() + accept_dur;
+        let deadline = self.date.get().now() + accept_dur;
         KeepAlive::new(deadline)
     }
 }

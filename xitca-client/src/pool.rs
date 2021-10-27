@@ -76,12 +76,16 @@ where
         self.conn.is_none()
     }
 
-    pub(crate) fn add_conn(&mut self, conn: C) {
+    pub(crate) fn add(&mut self, conn: C) {
         debug_assert!(self.is_none());
         self.conn = Some(PooledConn {
             conn,
             state: ConnState::new(),
         });
+    }
+
+    pub(crate) fn destroy(&mut self) {
+        self.conn.take();
     }
 
     pub(crate) fn inner_ref(&mut self) -> &mut C {

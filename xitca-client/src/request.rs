@@ -1,14 +1,18 @@
 use std::time::Duration;
 
+use bytes::Bytes;
 use futures_core::Stream;
-use xitca_http::http::{self, header::HeaderMap, Method, Version};
+use xitca_http::{
+    error::BodyError,
+    http::{self, header::HeaderMap, Method, Version},
+};
 
-use crate::{client::Client, connect::Connect, connection::Connection, error::Error, uri::Uri};
+use crate::{body::RequestBody, client::Client, connect::Connect, connection::Connection, error::Error, uri::Uri};
 
 /// crate level HTTP request type.
 pub struct Request<'a, B> {
     /// HTTP request type from [http] crate.
-    req: http::Request<B>,
+    req: http::Request<RequestBody<B>>,
     /// Referece to Client instance.
     client: &'a Client,
     /// Request level timeout setting. When Some(Duration) would override
@@ -17,7 +21,7 @@ pub struct Request<'a, B> {
 }
 
 impl<'a, B> Request<'a, B> {
-    pub(crate) fn new(req: http::Request<B>, client: &'a Client) -> Self {
+    pub(crate) fn new(req: http::Request<RequestBody<B>>, client: &'a Client) -> Self {
         Self {
             req,
             client,
@@ -65,36 +69,35 @@ impl<'a, B> Request<'a, B> {
         self
     }
 
-    pub fn map_body<F, B1>(self, f: F) -> Request<'a, B1>
-    where
-        F: FnOnce(B) -> B1,
-    {
-        let Self { req, client, timeout } = self;
-        let (parts, body_old) = req.into_parts();
+    // pub fn map_body<F, B1>(self, f: F) -> Request<'a, B1>
+    // where
+    //     F: FnOnce(B) -> B1,
+    // {
+    //     let Self { req, client, timeout } = self;
+    //     let (parts, body_old) = req.into_parts();
 
-        let body = f(body_old);
-        let req = http::Request::from_parts(parts, body);
+    //     let body = f(body_old);
+    //     let req = http::Request::from_parts(parts, body);
 
-        Request::new(req, client)._timeout(timeout)
-    }
+    //     Request::new(req, client)._timeout(timeout)
+    // }
 
-    pub fn replace_body<B1>(self, body: B1) -> (Request<'a, B1>, B) {
-        let Self { req, client, timeout } = self;
-        let (parts, body_old) = req.into_parts();
+    // pub fn replace_body<B1>(self, body: B1) -> (Request<'a, B1>, B) {
+    //     let Self { req, client, timeout } = self;
+    //     let (parts, body_old) = req.into_parts();
 
-        let req = http::Request::from_parts(parts, body);
+    //     let req = http::Request::from_parts(parts, body);
 
-        let req = Request::new(req, client)._timeout(timeout);
+    //     let req = Request::new(req, client)._timeout(timeout);
 
-        (req, body_old)
-    }
+    //     (req, body_old)
+    // }
 
     /// Send the request and return response asynchronously.
-    pub async fn send<T, E>(self) -> Result<http::Response<()>, Error>
+    pub async fn send<E>(self) -> Result<http::Response<()>, Error>
     where
-        B: Stream<Item = Result<T, E>>,
-        T: AsRef<[u8]>,
-        E: std::error::Error + Send + Sync + 'static,
+        B: Stream<Item = Result<Bytes, E>>,
+        BodyError: From<E>,
     {
         let Self { req, client, timeout } = self;
 
@@ -121,15 +124,23 @@ impl<'a, B> Request<'a, B> {
             let mut connect = Connect::new(uri);
 
             let c = client.make_connection(&mut connect, timer.as_mut()).await?;
-            conn.add_conn(c);
+            conn.add(c);
         }
 
-        match conn.inner_ref() {
-            Connection::Tcp(stream) => crate::h1::proto::run(stream, req).await?,
-            Connection::Tls(stream) => crate::h1::proto::run(stream, req).await?,
+        let date = client.date_service.handle();
+        let res = match conn.inner_ref() {
+            Connection::Tcp(stream) => crate::h1::proto::run(stream, date, req).await.map_err(Into::into),
+            Connection::Tls(stream) => crate::h1::proto::run(stream, date, req).await.map_err(Into::into),
             _ => todo!(),
-        }
+        };
 
-        Ok(http::Response::new(()))
+        match res {
+            Ok(_) => Ok(http::Response::new(())),
+            Err(e) => {
+                // TODO: Don't destroy connection on all error variants.
+                conn.destroy();
+                Err(e)
+            }
+        }
     }
 }

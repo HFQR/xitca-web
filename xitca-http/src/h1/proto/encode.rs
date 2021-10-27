@@ -5,22 +5,25 @@ use tracing::{debug, warn};
 
 use crate::{
     body::ResponseBodySize,
+    date::DateTime,
     http::{
-        header::{CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
+        header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
         response::Parts,
-        StatusCode, Version,
+        Extensions, StatusCode, Version,
     },
-    util::date::DATE_VALUE_LENGTH,
 };
 
 use super::{
     buf::WriteBuf,
     codec::TransferCoding,
-    context::{ConnectionType, ServerContext},
+    context::{ConnectionType, Context},
     error::{Parse, ProtoError},
 };
 
-impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
+impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
+where
+    D: DateTime,
+{
     pub(super) fn encode_continue<W, const WRITE_BUF_LIMIT: usize>(&mut self, buf: &mut W)
     where
         W: WriteBuf<WRITE_BUF_LIMIT>,
@@ -42,21 +45,19 @@ impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
 
     fn encode_head_inner(
         &mut self,
-        mut parts: Parts,
+        parts: Parts,
         size: ResponseBodySize,
         buf: &mut BytesMut,
     ) -> Result<TransferCoding, ProtoError> {
         let version = parts.version;
         let status = parts.status;
 
-        let ctx = self.ctx();
-
         // decide if content-length or transfer-encoding header would be skipped.
-        let mut skip_len = match (status, version) {
+        let skip_len = match (status, version) {
             (StatusCode::SWITCHING_PROTOCOLS, _) => false,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
-            (s, _) if ctx.is_connect_method() && s.is_success() => true,
+            (s, _) if self.is_connect_method() && s.is_success() => true,
             (s, _) if s.is_informational() => {
                 warn!(target: "h1_encode", "response with 1xx status code not supported");
                 return Err(ProtoError::Parse(Parse::StatusCode));
@@ -72,107 +73,7 @@ impl<const MAX_HEADERS: usize> ServerContext<'_, MAX_HEADERS> {
         // encode version, status code and reason
         encode_version_status_reason(buf, version, status);
 
-        let mut skip_date = false;
-
-        let mut encoding = TransferCoding::eof();
-
-        for (name, value) in parts.headers.drain() {
-            let name = name.expect("Handling optional header name is not implemented");
-
-            // TODO: more spec check needed. the current check barely does anything.
-            match name {
-                CONTENT_LENGTH => {
-                    debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
-                    let value = value
-                        .to_str()
-                        .ok()
-                        .and_then(|v| v.parse().ok())
-                        .ok_or(Parse::HeaderValue)?;
-                    encoding = TransferCoding::length(value);
-                    skip_len = true;
-                }
-                TRANSFER_ENCODING => {
-                    debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
-                    encoding = TransferCoding::encode_chunked_from(ctx.ctype());
-                    skip_len = true;
-                }
-                CONNECTION if ctx.is_force_close() => continue,
-                CONNECTION => {
-                    for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
-                        let val = val.trim();
-
-                        if val.eq_ignore_ascii_case("close") {
-                            ctx.set_ctype(ConnectionType::Close);
-                        } else if val.eq_ignore_ascii_case("keep-alive") {
-                            ctx.set_ctype(ConnectionType::KeepAlive);
-                        } else if val.eq_ignore_ascii_case("upgrade") {
-                            ctx.set_ctype(ConnectionType::Upgrade);
-                        }
-                    }
-                }
-                DATE => skip_date = true,
-                _ => {}
-            }
-
-            let name = name.as_str().as_bytes();
-            let value = value.as_bytes();
-
-            buf.reserve(name.len() + value.len() + 4);
-            buf.put_slice(name);
-            buf.put_slice(b": ");
-            buf.put_slice(value);
-            buf.put_slice(b"\r\n");
-        }
-
-        if ctx.is_force_close() {
-            buf.put_slice(b"connection: close\r\n");
-        }
-
-        // encode transfer-encoding or content-length
-        if !skip_len {
-            match size {
-                ResponseBodySize::None => {
-                    encoding = TransferCoding::eof();
-                }
-                ResponseBodySize::Stream => {
-                    buf.put_slice(b"transfer-encoding: chunked\r\n");
-                    encoding = TransferCoding::encode_chunked_from(ctx.ctype());
-                }
-                ResponseBodySize::Sized(size) => {
-                    let mut buffer = itoa::Buffer::new();
-                    let buffer = buffer.format(size).as_bytes();
-
-                    buf.reserve(buffer.len() + 18);
-                    buf.put_slice(b"content-length: ");
-                    buf.put_slice(buffer);
-                    buf.put_slice(b"\r\n");
-
-                    encoding = TransferCoding::length(size as u64);
-                }
-            }
-        }
-
-        // set date header if there is not any.
-        if !skip_date {
-            buf.reserve(DATE_VALUE_LENGTH + 10);
-            buf.put_slice(b"date: ");
-            buf.put_slice(self.date.borrow().date());
-            buf.put_slice(b"\r\n\r\n");
-        } else {
-            buf.put_slice(b"\r\n");
-        }
-
-        let ctx = self.ctx();
-
-        // put header map back to cache.
-        debug_assert!(parts.headers.is_empty());
-        ctx.replace_headers(parts.headers);
-
-        // put extension back to cache;
-        parts.extensions.clear();
-        ctx.replace_extensions(parts.extensions);
-
-        Ok(encoding)
+        self.encode_headers(parts.headers, parts.extensions, size, buf, skip_len)
     }
 }
 
@@ -208,8 +109,122 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
     buf.put_slice(b"\r\n");
 }
 
+impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
+where
+    D: DateTime,
+{
+    pub fn encode_headers(
+        &mut self,
+        mut headers: HeaderMap,
+        mut extensions: Extensions,
+        size: ResponseBodySize,
+        buf: &mut BytesMut,
+        mut skip_len: bool,
+    ) -> Result<TransferCoding, ProtoError> {
+        let mut skip_date = false;
+
+        let mut encoding = TransferCoding::eof();
+
+        for (name, value) in headers.drain() {
+            let name = name.expect("Handling optional header name is not implemented");
+
+            // TODO: more spec check needed. the current check barely does anything.
+            match name {
+                CONTENT_LENGTH => {
+                    debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
+                    let value = value
+                        .to_str()
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .ok_or(Parse::HeaderValue)?;
+                    encoding = TransferCoding::length(value);
+                    skip_len = true;
+                }
+                TRANSFER_ENCODING => {
+                    debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
+                    encoding = TransferCoding::encode_chunked_from(self.ctype());
+                    skip_len = true;
+                }
+                CONNECTION if self.is_force_close() => continue,
+                CONNECTION => {
+                    for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
+                        let val = val.trim();
+
+                        if val.eq_ignore_ascii_case("close") {
+                            self.set_ctype(ConnectionType::Close);
+                        } else if val.eq_ignore_ascii_case("keep-alive") {
+                            self.set_ctype(ConnectionType::KeepAlive);
+                        } else if val.eq_ignore_ascii_case("upgrade") {
+                            self.set_ctype(ConnectionType::Upgrade);
+                        }
+                    }
+                }
+                DATE => skip_date = true,
+                _ => {}
+            }
+
+            let name = name.as_str().as_bytes();
+            let value = value.as_bytes();
+
+            buf.reserve(name.len() + value.len() + 4);
+            buf.put_slice(name);
+            buf.put_slice(b": ");
+            buf.put_slice(value);
+            buf.put_slice(b"\r\n");
+        }
+
+        if self.is_force_close() {
+            buf.put_slice(b"connection: close\r\n");
+        }
+
+        // encode transfer-encoding or content-length
+        if !skip_len {
+            match size {
+                ResponseBodySize::None => {
+                    encoding = TransferCoding::eof();
+                }
+                ResponseBodySize::Stream => {
+                    buf.put_slice(b"transfer-encoding: chunked\r\n");
+                    encoding = TransferCoding::encode_chunked_from(self.ctype());
+                }
+                ResponseBodySize::Sized(size) => {
+                    let mut buffer = itoa::Buffer::new();
+                    let buffer = buffer.format(size).as_bytes();
+
+                    buf.reserve(buffer.len() + 18);
+                    buf.put_slice(b"content-length: ");
+                    buf.put_slice(buffer);
+                    buf.put_slice(b"\r\n");
+
+                    encoding = TransferCoding::length(size as u64);
+                }
+            }
+        }
+
+        // set date header if there is not any.
+        if !skip_date {
+            buf.reserve(D::DATE_VALUE_LENGTH + 10);
+            buf.put_slice(b"date: ");
+            self.date.with_date(|slice| buf.put_slice(slice));
+            buf.put_slice(b"\r\n\r\n");
+        } else {
+            buf.put_slice(b"\r\n");
+        }
+
+        // put header map back to cache.
+        debug_assert!(headers.is_empty());
+        self.replace_headers(headers);
+
+        // put extension back to cache;
+        extensions.clear();
+        self.replace_extensions(extensions);
+
+        Ok(encoding)
+    }
+}
+
 impl TransferCoding {
-    fn encode_chunked_from(ctype: ConnectionType) -> Self {
+    pub fn encode_chunked_from(ctype: ConnectionType) -> Self {
         if ctype == ConnectionType::Upgrade {
             Self::plain_chunked()
         } else {

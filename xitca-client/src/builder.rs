@@ -2,6 +2,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use crate::{
     client::Client,
+    date::DateTimeService,
     pool::Pool,
     resolver::{Resolve, Resolver},
     timeout::TimeoutConfig,
@@ -109,6 +110,7 @@ impl ClientBuilder {
             resolver: self.resolver,
             timeout_config: self.timeout_config,
             local_addr: self.local_addr,
+            date_service: DateTimeService::new(),
         }
     }
 }

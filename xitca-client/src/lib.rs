@@ -3,6 +3,7 @@ mod builder;
 mod client;
 mod connect;
 mod connection;
+mod date;
 mod h1;
 mod pool;
 mod request;
@@ -32,6 +33,10 @@ mod test {
     async fn get() {
         let client = Client::new();
 
-        // let _ = client.get("http://google.com").unwrap().send().await;
+        let _ = client.get("http://localhost:8080/").unwrap().send().await;
+
+        let _ = client.get("http://localhost:8080/").unwrap().send().await;
+
+        let _ = client.get("http://localhost:8080/").unwrap().send().await;
     }
 }

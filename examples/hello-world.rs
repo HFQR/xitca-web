@@ -6,11 +6,11 @@ use std::{
     sync::Arc,
 };
 
-use bytes::Bytes;
 use h3_quinn::quinn::generic::ServerConfig;
 use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, ServerConfigBuilder};
 use rustls::{Certificate, PrivateKey};
 use xitca_http::{
+    bytes::Bytes,
     http::{Request, Response},
     util::LoggerFactory,
     HttpServiceBuilder, RequestBody, ResponseBody,

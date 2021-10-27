@@ -1,18 +1,7 @@
-use std::{
-    convert::Infallible,
-    pin::Pin,
-    task::{Context, Poll},
-};
+pub(crate) use xitca_http::body::{ResponseBody, ResponseBodySize, StreamBody};
 
-use futures_core::Stream;
+/// When used by client [ResponseBody] is used as Request body.
+pub type RequestBody<B = StreamBody> = ResponseBody<B>;
 
-/// An empty body type that always yield None on first [Stream::poll_next]
-pub struct EmptyBody;
-
-impl Stream for EmptyBody {
-    type Item = Result<Vec<u8>, Infallible>;
-
-    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(None)
-    }
-}
+/// When used by client [ResponseBodySize] is used as Request body size.
+pub type RequestBodySize = ResponseBodySize;

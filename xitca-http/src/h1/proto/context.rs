@@ -1,18 +1,19 @@
 use std::mem;
 
 use crate::{
+    date::DateTime,
     http::{header::HeaderMap, Extensions},
-    util::date::Date,
 };
 
 /// Context is connection specific struct contain states for processing.
-pub struct Context {
+pub struct Context<'a, D, const HEADER_LIMIT: usize> {
     state: ContextState,
     ctype: ConnectionType,
     /// header map reused by next request.
     header: Option<HeaderMap>,
     /// extension reused by next request.
     extensions: Extensions,
+    pub(super) date: &'a D,
 }
 
 /// A set of state for current request that are used after request's ownership is passed
@@ -62,20 +63,20 @@ pub enum ConnectionType {
     Upgrade,
 }
 
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Context {
+impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
+    /// Context is constructed with a reference of certain type that impl [DateTime] trait.
+    /// This trait is used to write date header to request/response.
     #[inline]
-    pub fn new() -> Self {
+    pub fn new(date: &'a D) -> Self
+    where
+        D: DateTime,
+    {
         Self {
             state: ContextState::new(),
             ctype: ConnectionType::Init,
             header: None,
             extensions: Extensions::new(),
+            date,
         }
     }
 
@@ -158,26 +159,5 @@ impl Context {
     #[inline]
     pub fn ctype(&self) -> ConnectionType {
         self.ctype
-    }
-}
-
-/// Context type specialized for server side usage.
-/// It needs manually reset with every new successfully decoded request.
-/// See `ServerContext::reset` method for detail.
-pub(super) struct ServerContext<'a, const HEADER_LIMIT: usize> {
-    ctx: Context,
-    pub(super) date: &'a Date,
-}
-
-impl<'a, const HEADER_LIMIT: usize> ServerContext<'a, HEADER_LIMIT> {
-    pub(super) fn new(date: &'a Date) -> Self {
-        Self {
-            ctx: Context::new(),
-            date,
-        }
-    }
-
-    pub(super) fn ctx(&mut self) -> &mut Context {
-        &mut self.ctx
     }
 }
