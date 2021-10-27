@@ -3,13 +3,7 @@ use std::io;
 use bytes::{Buf, Bytes, BytesMut};
 use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use xitca_http::{
-    http::{
-        self,
-        header::{HeaderValue, CONTENT_LENGTH},
-    },
-    BodyError,
-};
+use xitca_http::{error::BodyError, http};
 
 use crate::{body::RequestBody, date::DateTimeHandle, h1::error::Error};
 
@@ -18,19 +12,14 @@ use super::context::Context;
 pub(crate) async fn run<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
-    mut req: http::Request<RequestBody<B>>,
+    req: http::Request<RequestBody<B>>,
 ) -> Result<(), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
-    req.headers_mut()
-        .insert(CONTENT_LENGTH, HeaderValue::from_str("36").unwrap());
-
     let (parts, body) = req.into_parts();
-
-    println!("request is {:?}", parts);
 
     // TODO: make header limit configuarble.
     let mut ctx = Context::<128>::new(&date);
@@ -49,9 +38,10 @@ where
     if !encoding.is_eof() {
         tokio::pin!(body);
 
-        while let Some(item) = body.as_mut().next().await {
-            let item = item.unwrap();
-            stream.write_all(item.as_ref()).await?;
+        while let Some(bytes) = body.as_mut().next().await {
+            let bytes = bytes?;
+            // encoding.encode(bytes, &mut buf)?;
+            stream.write_all(&buf).await?;
         }
     }
 
