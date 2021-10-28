@@ -120,25 +120,25 @@ where
     K: Eq + Hash + Clone,
 {
     fn drop(&mut self) {
-        let mut conn = self.conn.take().unwrap();
-
-        if conn.state.is_expired() || self.destroy_on_drop {
-            return;
-        }
-
-        conn.state.update_idle();
-
-        let mut conns = self.pool.conns.lock();
-
-        match conns.get_mut(&self.key) {
-            Some(queue) => queue.push_back(conn),
-            None => {
-                let queue = VecDeque::from([conn]);
-                conns.insert(self.key.clone(), queue);
+        if let Some(mut conn) = self.conn.take() {
+            if conn.state.is_expired() || self.destroy_on_drop {
+                return;
             }
-        }
 
-        let _ = self.permit;
+            conn.state.update_idle();
+
+            let mut conns = self.pool.conns.lock();
+
+            match conns.get_mut(&self.key) {
+                Some(queue) => queue.push_back(conn),
+                None => {
+                    let queue = VecDeque::from([conn]);
+                    conns.insert(self.key.clone(), queue);
+                }
+            }
+
+            let _ = self.permit;
+        }
     }
 }
 

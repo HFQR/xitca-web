@@ -75,7 +75,18 @@ impl<'a, B> Request<'a, B> {
         self
     }
 
+    /// Use streaming type as request body.
+    #[inline]
+    pub fn stream<B1, E>(self, body: B1) -> Request<'a, B1>
+    where
+        B1: Stream<Item = Result<Bytes, E>>,
+        BodyError: From<E>,
+    {
+        self.map_body(move |_| RequestBody::stream(body))
+    }
+
     #[cfg(feature = "json")]
+    /// Use json object as request body.
     pub fn json(self, body: impl serde::ser::Serialize) -> Result<Request<'a>, Error> {
         // TODO: handle serialize error.
         let body = serde_json::to_vec(&body).unwrap();
@@ -123,7 +134,6 @@ impl<'a, B> Request<'a, B> {
         // Nothing in the pool. construct new connection and add it to Conn.
         if conn_is_none {
             let mut connect = Connect::new(uri);
-
             let c = client.make_connection(&mut connect, &mut timer).await?;
             conn.add(c);
         }
