@@ -1,5 +1,5 @@
-use bytes::{BufMut, BytesMut};
 use xitca_http::{
+    bytes::{BufMut, BytesMut},
     h1::proto::{codec::TransferCoding, error::ProtoError},
     http::{request::Parts, version::Version},
 };

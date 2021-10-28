@@ -1,9 +1,13 @@
-use std::io;
+use std::{cmp, io};
 
 use bytes::{Buf, Bytes, BytesMut};
-use tracing::trace;
+use tracing::{trace, warn};
 
-use super::error::{Parse, ProtoError};
+use super::{
+    buf::WriteBuf,
+    context::ConnectionType,
+    error::{Parse, ProtoError},
+};
 
 /// Coder for different Transfer-Decoding/Transfer-Encoding.
 #[derive(Debug, Clone, PartialEq)]
@@ -280,7 +284,55 @@ impl TransferCoding {
         }
     }
 
-    pub(super) fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
+    pub(super) fn encode_chunked_from(ctype: ConnectionType) -> Self {
+        if ctype == ConnectionType::Upgrade {
+            Self::plain_chunked()
+        } else {
+            Self::encode_chunked()
+        }
+    }
+
+    /// Encode message. Return `EOF` state of encoder
+    pub fn encode<W>(&mut self, mut bytes: Bytes, buf: &mut W)
+    where
+        W: WriteBuf,
+    {
+        // Skip encode empty bytes.
+        // This is to avoid unnecessary extending on h1::proto::buf::ListBuf when user
+        // provided empty bytes by accident.
+        if bytes.is_empty() {
+            return;
+        }
+
+        match *self {
+            Self::PlainChunked => buf.write_buf(bytes),
+            Self::EncodeChunked => buf.write_chunk(bytes),
+            Self::Length(ref mut remaining) => {
+                if *remaining > 0 {
+                    let len = cmp::min(*remaining, bytes.len() as u64);
+                    buf.write_buf(bytes.split_to(len as usize));
+                    *remaining -= len as u64;
+                }
+            }
+            Self::Eof => warn!(target: "h1_encode", "TransferCoding::Eof should not encode response body"),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Encode eof. Return `EOF` state of encoder
+    pub fn encode_eof<W>(&mut self, buf: &mut W)
+    where
+        W: WriteBuf,
+    {
+        match *self {
+            Self::Eof | Self::PlainChunked | Self::Length(0) => {}
+            Self::EncodeChunked => buf.write_static(b"0\r\n\r\n"),
+            Self::Length(n) => unreachable!("UnexpectedEof for Length Body with {} remaining", n),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
         match *self {
             Self::Length(ref mut remaining) => {
                 if *remaining == 0 {

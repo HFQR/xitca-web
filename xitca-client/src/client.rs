@@ -69,7 +69,7 @@ impl Client {
     pub(crate) async fn make_connection(
         &self,
         connect: &mut Connect<'_>,
-        timer: Pin<&mut Sleep>,
+        timer: &mut Pin<Box<Sleep>>,
     ) -> Result<Connection, Error> {
         match connect.uri {
             Uri::Tcp(_) => self.make_tcp(connect, timer).await.map(Into::into),
@@ -79,7 +79,7 @@ impl Client {
         }
     }
 
-    async fn make_tcp(&self, connect: &mut Connect<'_>, mut timer: Pin<&mut Sleep>) -> Result<TcpStream, Error> {
+    async fn make_tcp(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<TcpStream, Error> {
         self.resolver
             .resolve(connect)
             .timeout(timer.as_mut())
@@ -139,8 +139,8 @@ impl Client {
         }
     }
 
-    async fn make_tls(&self, connect: &mut Connect<'_>, mut timer: Pin<&mut Sleep>) -> Result<Connection, Error> {
-        let stream = self.make_tcp(connect, timer.as_mut()).await?;
+    async fn make_tls(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
+        let stream = self.make_tcp(connect, timer).await?;
 
         timer
             .as_mut()
@@ -149,7 +149,7 @@ impl Client {
         let (stream, version) = self
             .connector
             .connect(stream, connect.hostname())
-            .timeout(timer)
+            .timeout(timer.as_mut())
             .await
             .map_err(|_| TimeoutError::TlsHandshake)??;
 
@@ -177,7 +177,7 @@ impl Client {
     }
 
     #[cfg(unix)]
-    async fn make_unix(&self, uri: &uri::Uri, mut timer: Pin<&mut Sleep>) -> Result<Connection, Error> {
+    async fn make_unix(&self, uri: &uri::Uri, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);

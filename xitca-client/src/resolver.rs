@@ -23,7 +23,21 @@ impl Resolver {
     pub(crate) async fn resolve(&self, connect: &mut Connect<'_>) -> Result<(), Error> {
         match *self {
             Self::Std => {
-                let host = format!("{}:{}", connect.hostname(), connect.port());
+                let host = connect.hostname();
+                // TODO: Connect should always return host with port if possible.
+                let host = if connect
+                    .hostname()
+                    .splitn(2, ':')
+                    .last()
+                    .and_then(|p| p.parse::<u16>().ok())
+                    .map(|p| p == connect.port())
+                    .unwrap_or(false)
+                {
+                    host.to_string()
+                } else {
+                    format!("{}:{}", host, connect.port())
+                };
+
                 let addrs = tokio::task::spawn_blocking(move || host.to_socket_addrs())
                     .await
                     .unwrap()?;

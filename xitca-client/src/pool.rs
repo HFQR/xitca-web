@@ -68,6 +68,30 @@ where
     permit: SemaphorePermit<'a>,
 }
 
+impl<K, C> Deref for Conn<'_, K, C>
+where
+    K: Eq + Hash + Clone,
+{
+    type Target = C;
+
+    fn deref(&self) -> &Self::Target {
+        self.conn
+            .as_deref()
+            .expect("Deref must be called when Conn::is_none returns false.")
+    }
+}
+
+impl<K, C> DerefMut for Conn<'_, K, C>
+where
+    K: Eq + Hash + Clone,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.conn
+            .as_deref_mut()
+            .expect("DerefMut must be called when Conn::is_none returns false.")
+    }
+}
+
 impl<K, C> Conn<'_, K, C>
 where
     K: Eq + Hash + Clone,
@@ -86,12 +110,6 @@ where
 
     pub(crate) fn destroy(&mut self) {
         self.conn.take();
-    }
-
-    pub(crate) fn inner_ref(&mut self) -> &mut C {
-        self.conn
-            .as_deref_mut()
-            .expect("inner_ref must be called when Conn::is_none returns false.")
     }
 }
 

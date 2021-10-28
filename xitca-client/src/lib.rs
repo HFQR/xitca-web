@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod body;
 mod builder;
 mod client;
@@ -8,6 +10,7 @@ mod h1;
 mod pool;
 mod request;
 mod resolver;
+mod response;
 mod timeout;
 mod tls;
 mod uri;
@@ -29,14 +32,24 @@ pub use xitca_http::http;
 mod test {
     use super::*;
 
+    #[cfg(all(feature = "json", feature = "openssl"))]
     #[tokio::test]
-    async fn get() {
-        let client = Client::new();
+    async fn get_json() {
+        use std::collections::HashMap;
 
-        let _ = client.get("http://localhost:8080/").unwrap().send().await;
+        let client = Client::builder().set_max_http_version(http::Version::HTTP_11).finish();
 
-        let _ = client.get("http://localhost:8080/").unwrap().send().await;
+        let string = client
+            .get("https://www.rust-lang.org")
+            .unwrap()
+            .send()
+            .await
+            .unwrap()
+            .limit::<{ 1024 * 1024 * 1024 }>()
+            .string()
+            .await
+            .unwrap();
 
-        let _ = client.get("http://localhost:8080/").unwrap().send().await;
+        println!("{:?}", string);
     }
 }

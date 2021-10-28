@@ -1,19 +1,23 @@
-use std::io;
+use std::{io, pin::Pin};
 
-use bytes::{Bytes, BytesMut};
 use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use xitca_http::{error::BodyError, h1::proto::buf::FlatBuf, http};
+use xitca_http::{
+    bytes::Bytes,
+    error::BodyError,
+    h1::proto::{buf::FlatBuf, codec::TransferCoding},
+    http,
+};
 
 use crate::{body::RequestBody, date::DateTimeHandle, h1::error::Error};
 
 use super::context::Context;
 
-pub(crate) async fn run<S, B, E>(
+pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
     req: http::Request<RequestBody<B>>,
-) -> Result<(), Error>
+) -> Result<(http::Response<()>, FlatBuf<{ 1024 * 1024 }>, TransferCoding), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>>,
@@ -28,7 +32,7 @@ where
     // encode request head and return transfer encoding for request body
     let mut encoding = ctx.encode_head(&mut buf, parts, body.size())?;
 
-    tokio::pin!(stream);
+    let mut stream = Pin::new(stream);
 
     // send request head for potential intermediate handling like expect header.
     stream.write_all_buf(&mut *buf).await?;
@@ -53,7 +57,7 @@ where
     stream.flush().await?;
 
     // read response head and get body decoder.
-    let (res, decoder) = loop {
+    loop {
         let n = stream.read_buf(&mut *buf).await?;
 
         if n == 0 {
@@ -61,10 +65,8 @@ where
         }
 
         match ctx.decode_head(&mut buf)? {
-            Some(res) => break res,
+            Some((res, decoder)) => return Ok((res, buf, decoder)),
             None => continue,
         }
-    };
-
-    Ok(())
+    }
 }

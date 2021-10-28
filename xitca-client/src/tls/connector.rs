@@ -6,7 +6,10 @@ use crate::{error::Error, http::Version};
 use super::stream::{Io, TlsStream};
 
 #[cfg(feature = "openssl")]
-use {openssl_crate::ssl::SslConnector, tokio_openssl::SslStream};
+use {
+    openssl_crate::ssl::{SslConnector, SslMethod},
+    tokio_openssl::SslStream,
+};
 
 /// Connector for tls connections.
 ///
@@ -35,6 +38,23 @@ impl From<SslConnector> for Connector {
 impl Connector {
     #[cfg(feature = "openssl")]
     pub fn openssl(protocols: &[&[u8]]) -> Self {
+        use xitca_http::bytes::BufMut;
+        let mut alpn = Vec::with_capacity(20);
+        for proto in protocols {
+            alpn.put_u8(proto.len() as u8);
+            alpn.put(*proto);
+        }
+
+        let mut ssl = SslConnector::builder(SslMethod::tls()).unwrap();
+
+        ssl.set_alpn_protos(&alpn)
+            .unwrap_or_else(|e| panic!("Can not set ALPN protocol: {:?}", e));
+
+        Self::Openssl(ssl.build())
+    }
+
+    #[cfg(feature = "rustls")]
+    pub fn rustls(protocols: &[&[u8]]) -> Self {
         todo!()
     }
 
@@ -57,6 +77,7 @@ impl Connector {
             Self::Openssl(ref connector) => {
                 let ssl = connector.configure()?.into_ssl(domain)?;
                 let mut stream = SslStream::new(ssl, stream)?;
+
                 std::pin::Pin::new(&mut stream).connect().await?;
 
                 let version = stream

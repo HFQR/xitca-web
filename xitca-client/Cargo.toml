@@ -6,19 +6,21 @@ edition = "2021"
 [features]
 default = ["http2"]
 openssl = ["openssl-crate", "tokio-openssl"]
+rustls = []
 http2 = ["h2"]
+json = ["serde", "serde_json"]
 
 [dependencies]
 xitca-http = "0.1"
 
 ahash = "0.7.6"
-bytes = "1.1.0"
 futures-core = { version = "0.3.17", default-features = false, features =["alloc"] }
 futures-util = { version = "0.3.17", default-features = false, features =["alloc"] }
 httparse = "1.5.1"
 parking_lot = "0.11.2"
 pin-project-lite = "0.2.7"
 tokio = { version = "1.12", features = ["io-util", "net", "rt", "parking_lot", "sync", "time"] }
+tokio-util = { version = "0.6", features = ["io"] }
 
 # http/2 support
 h2 = { version = "0.3.7", optional = true }
@@ -26,6 +28,12 @@ h2 = { version = "0.3.7", optional = true }
 # openssl support
 openssl-crate = { package = "openssl", version = "0.10", optional = true }
 tokio-openssl = { version = "0.6.3", optional = true }
+
+# serde support
+serde = { version = "1.0.130", default-features = false, optional = true }
+
+# json support
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 async-trait = "0.1.51"

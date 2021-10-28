@@ -1,7 +1,7 @@
-use bytes::BytesMut;
 use httparse::{Status, EMPTY_HEADER};
 
 use xitca_http::{
+    bytes::BytesMut,
     h1::proto::{
         codec::TransferCoding,
         context::ConnectionType,

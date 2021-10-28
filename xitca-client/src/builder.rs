@@ -1,5 +1,7 @@
 use std::{net::SocketAddr, time::Duration};
 
+use xitca_http::http::version::Version;
+
 use crate::{
     client::Client,
     date::DateTimeService,
@@ -10,28 +12,48 @@ use crate::{
 };
 
 pub struct ClientBuilder {
-    connector: Connector,
+    connector_builder: TlsConnectorBuilder,
     resolver: Resolver,
     pool_capacity: usize,
     timeout_config: TimeoutConfig,
     local_addr: Option<SocketAddr>,
+    max_http_version: Version,
 }
 
 impl Default for ClientBuilder {
     fn default() -> Self {
         ClientBuilder {
-            connector: Connector::default(),
+            connector_builder: TlsConnectorBuilder::Default,
             resolver: Resolver::default(),
             pool_capacity: 128,
             timeout_config: TimeoutConfig::default(),
             local_addr: None,
+            max_http_version: Version::HTTP_3,
         }
     }
 }
 
 impl ClientBuilder {
     pub fn new() -> Self {
-        Self::default()
+        ClientBuilder {
+            #[cfg(all(feature = "openssl", not(feature = "rustls")))]
+            connector_builder: TlsConnectorBuilder::Openssl,
+            #[cfg(all(feature = "rustls", not(feature = "openssl")))]
+            connector_builder: TlsConnectorBuilder::Rustls,
+            ..Default::default()
+        }
+    }
+
+    #[cfg(feature = "openssl")]
+    pub fn openssl(mut self) -> Self {
+        self.connector_builder = TlsConnectorBuilder::Openssl;
+        self
+    }
+
+    #[cfg(feature = "rustls")]
+    pub fn rustls(mut self) -> Self {
+        self.connector_builder = TlsConnectorBuilder::Rustls;
+        self
     }
 
     /// Use custom DNS resolver for domain look up.
@@ -46,7 +68,7 @@ impl ClientBuilder {
     ///
     /// See [TlsConnect] for detail.
     pub fn tls_connector(mut self, connector: impl TlsConnect + 'static) -> Self {
-        self.connector = Connector::custom(connector);
+        self.connector_builder = TlsConnectorBuilder::Custom(Connector::custom(connector));
         self
     }
 
@@ -102,15 +124,65 @@ impl ClientBuilder {
         self
     }
 
+    /// Set max http version client would be used.
+    ///
+    /// Default to Http/3
+    pub fn set_max_http_version(mut self, version: Version) -> Self {
+        self.max_http_version = version;
+        self
+    }
+
     /// Finish the builder and construct [Client] instance.
     pub fn finish(self) -> Client {
-        Client {
+        let mut client = Client {
             pool: Pool::with_capacity(self.pool_capacity),
-            connector: self.connector,
+            connector: Connector::default(),
             resolver: self.resolver,
             timeout_config: self.timeout_config,
             local_addr: self.local_addr,
             date_service: DateTimeService::new(),
-        }
+        };
+
+        match self.connector_builder {
+            TlsConnectorBuilder::Default => {}
+            TlsConnectorBuilder::Custom(connector) => client.connector = connector,
+            #[cfg(feature = "openssl")]
+            TlsConnectorBuilder::Openssl => match self.max_http_version {
+                Version::HTTP_09 | Version::HTTP_10 => {
+                    unimplemented!("rustls can not be used on HTTP/0.9 nor HTTP/1.0")
+                }
+                Version::HTTP_11 => {
+                    client.connector = Connector::openssl(&[b"http/1.1"]);
+                }
+                Version::HTTP_2 | Version::HTTP_3 => {
+                    client.connector = Connector::openssl(&[b"h2", b"http/1.1"]);
+                }
+                _ => unreachable!(),
+            },
+            #[cfg(feature = "rustls")]
+            TlsConnectorBuilder::Rustls => match self.max_http_version {
+                Version::HTTP_09 | Version::HTTP_10 => {
+                    unimplemented!("rustls can not be used on HTTP/0.9 nor HTTP/1.0")
+                }
+                Version::HTTP_11 => {
+                    client.connector = Connector::rustls(&[b"http/1.1"]);
+                }
+                Version::HTTP_2 | Version::HTTP_3 => {
+                    client.connector = Connector::rustls(&[b"h2", b"http/1.1"]);
+                }
+                _ => unreachable!(),
+            },
+        };
+
+        client
     }
+}
+
+enum TlsConnectorBuilder {
+    Default,
+    Custom(Connector),
+    #[cfg(feature = "openssl")]
+    Openssl,
+    #[cfg(feature = "rustls")]
+    Rustls,
 }

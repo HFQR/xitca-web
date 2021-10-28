@@ -3,4 +3,4 @@ mod decode;
 mod dispatcher;
 mod encode;
 
-pub(crate) use dispatcher::run;
+pub(crate) use dispatcher::send;

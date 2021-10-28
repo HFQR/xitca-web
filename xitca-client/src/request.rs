@@ -1,13 +1,23 @@
 use std::time::Duration;
 
-use bytes::Bytes;
 use futures_core::Stream;
+use tokio::time::Instant;
 use xitca_http::{
+    bytes::Bytes,
     error::BodyError,
     http::{self, header::HeaderMap, Method, Version},
 };
 
-use crate::{body::RequestBody, client::Client, connect::Connect, connection::Connection, error::Error, uri::Uri};
+use crate::{
+    body::{RequestBody, ResponseBody},
+    client::Client,
+    connect::Connect,
+    connection::Connection,
+    error::{Error, TimeoutError},
+    response::DefaultResponse,
+    timeout::Timeout,
+    uri::Uri,
+};
 
 /// crate level HTTP request type.
 pub struct Request<'a, B> {
@@ -83,7 +93,7 @@ impl<'a, B> Request<'a, B> {
     }
 
     /// Send the request and return response asynchronously.
-    pub async fn send<E>(self) -> Result<http::Response<()>, Error>
+    pub async fn send<E>(self) -> Result<DefaultResponse<'a>, Error>
     where
         B: Stream<Item = Result<Bytes, E>>,
         BodyError: From<E>,
@@ -105,31 +115,89 @@ impl<'a, B> Request<'a, B> {
             (false, None) => client.timeout_config.request_timeout,
         };
 
-        let timer = tokio::time::sleep(dur);
-        tokio::pin!(timer);
+        // heap allocate timer so it can be moved to Response type afterwards
+        let mut timer = Box::pin(tokio::time::sleep(dur));
 
         // Nothing in the pool. construct new connection and add it to Conn.
         if conn_is_none {
             let mut connect = Connect::new(uri);
 
-            let c = client.make_connection(&mut connect, timer.as_mut()).await?;
+            let c = client.make_connection(&mut connect, &mut timer).await?;
             conn.add(c);
         }
 
         let date = client.date_service.handle();
-        let res = match conn.inner_ref() {
-            Connection::Tcp(stream) => crate::h1::proto::run(stream, date, req).await.map_err(Into::into),
-            Connection::Tls(stream) => crate::h1::proto::run(stream, date, req).await.map_err(Into::into),
-            _ => todo!(),
-        };
 
-        match res {
-            Ok(_) => Ok(http::Response::new(())),
-            Err(e) => {
-                // TODO: Don't destroy connection on all error variants.
-                conn.destroy();
-                Err(e)
+        timer
+            .as_mut()
+            .reset(Instant::now() + client.timeout_config.request_timeout);
+
+        match &mut *conn {
+            Connection::Tcp(stream) => {
+                match crate::h1::proto::send(stream, date, req)
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| TimeoutError::Request)
+                {
+                    Ok(Ok((res, buf, decoder))) => {
+                        let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
+                        let res = res.map(|_| ResponseBody::H1(body));
+                        Ok(DefaultResponse::new(res, timer))
+                    }
+                    Ok(Err(e)) => {
+                        conn.destroy();
+                        Err(e.into())
+                    }
+                    Err(e) => {
+                        conn.destroy();
+                        Err(e.into())
+                    }
+                }
             }
+            Connection::Tls(stream) => {
+                match crate::h1::proto::send(stream, date, req)
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| TimeoutError::Request)
+                {
+                    Ok(Ok((res, buf, decoder))) => {
+                        let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
+                        let res = res.map(|_| ResponseBody::H1(body));
+                        Ok(DefaultResponse::new(res, timer))
+                    }
+                    Ok(Err(e)) => {
+                        conn.destroy();
+                        Err(e.into())
+                    }
+                    Err(e) => {
+                        conn.destroy();
+                        Err(e.into())
+                    }
+                }
+            }
+            Connection::Unix(stream) => {
+                match crate::h1::proto::send(stream, date, req)
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| TimeoutError::Request)
+                {
+                    Ok(Ok((res, buf, decoder))) => {
+                        let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
+                        let res = res.map(|_| ResponseBody::H1(body));
+                        Ok(DefaultResponse::new(res, timer))
+                    }
+                    Ok(Err(e)) => {
+                        conn.destroy();
+                        Err(e.into())
+                    }
+                    Err(e) => {
+                        conn.destroy();
+                        Err(e.into())
+                    }
+                }
+            }
+            #[cfg(feature = "http2")]
+            Connection::H2(_) => todo!(),
         }
     }
 }
