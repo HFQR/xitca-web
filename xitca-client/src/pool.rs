@@ -54,6 +54,7 @@ where
             key,
             conn,
             permit,
+            destroy_on_drop: false,
         })
     }
 }
@@ -66,6 +67,7 @@ where
     key: K,
     conn: Option<PooledConn<C>>,
     permit: SemaphorePermit<'a>,
+    destroy_on_drop: bool,
 }
 
 impl<K, C> Deref for Conn<'_, K, C>
@@ -108,8 +110,8 @@ where
         });
     }
 
-    pub(crate) fn destroy(&mut self) {
-        self.conn.take();
+    pub(crate) fn destroy_on_drop(&mut self) {
+        self.destroy_on_drop = true;
     }
 }
 
@@ -118,25 +120,25 @@ where
     K: Eq + Hash + Clone,
 {
     fn drop(&mut self) {
-        if let Some(mut conn) = self.conn.take() {
-            if conn.state.is_expired() {
-                return;
-            }
+        let mut conn = self.conn.take().unwrap();
 
-            conn.state.update_idle();
-
-            let mut conns = self.pool.conns.lock();
-
-            match conns.get_mut(&self.key) {
-                Some(queue) => queue.push_back(conn),
-                None => {
-                    let queue = VecDeque::from([conn]);
-                    conns.insert(self.key.clone(), queue);
-                }
-            }
-
-            let _ = self.permit;
+        if conn.state.is_expired() || self.destroy_on_drop {
+            return;
         }
+
+        conn.state.update_idle();
+
+        let mut conns = self.pool.conns.lock();
+
+        match conns.get_mut(&self.key) {
+            Some(queue) => queue.push_back(conn),
+            None => {
+                let queue = VecDeque::from([conn]);
+                conns.insert(self.key.clone(), queue);
+            }
+        }
+
+        let _ = self.permit;
     }
 }
 
