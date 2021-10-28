@@ -33,12 +33,10 @@ impl Address for Uri<'_> {
 fn scheme_to_port(scheme: Option<&str>) -> Option<u16> {
     match scheme {
         // HTTP
-        Some("http") => Some(80),
-        Some("https") => Some(443),
+        Some("http" | "ws") => Some(80),
 
-        // WebSockets
-        Some("ws") => Some(80),
-        Some("wss") => Some(443),
+        // HTTP Tls
+        Some("https" | "wss") => Some(443),
 
         // Advanced Message Queuing Protocol (AMQP)
         Some("amqp") => Some(5672),

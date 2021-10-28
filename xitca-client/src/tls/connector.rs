@@ -11,6 +11,14 @@ use {
     tokio_openssl::SslStream,
 };
 
+#[cfg(feature = "rustls")]
+use {
+    rustls_crate::{client::ServerName, ClientConfig, OwnedTrustAnchor, RootCertStore},
+    std::sync::Arc,
+    tokio_rustls::TlsConnector,
+    webpki_roots::TLS_SERVER_ROOTS,
+};
+
 /// Connector for tls connections.
 ///
 /// All connections are passed to tls connector. Non tls connections would be returned
@@ -19,6 +27,8 @@ pub enum Connector {
     NoOp,
     #[cfg(feature = "openssl")]
     Openssl(SslConnector),
+    #[cfg(feature = "rustls")]
+    Rustls(TlsConnector),
     Custom(Box<dyn TlsConnect>),
 }
 
@@ -55,7 +65,22 @@ impl Connector {
 
     #[cfg(feature = "rustls")]
     pub fn rustls(protocols: &[&[u8]]) -> Self {
-        todo!()
+        let mut root_certs = RootCertStore::empty();
+        for cert in TLS_SERVER_ROOTS.0 {
+            let cert =
+                OwnedTrustAnchor::from_subject_spki_name_constraints(cert.subject, cert.spki, cert.name_constraints);
+            let certs = vec![cert].into_iter();
+            root_certs.add_server_trust_anchors(certs);
+        }
+
+        let mut config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_certs)
+            .with_no_client_auth();
+
+        config.alpn_protocols = protocols.iter().map(|p| p.to_vec()).collect();
+
+        Self::Rustls(TlsConnector::from(Arc::new(config)))
     }
 
     pub(crate) fn custom(connector: impl TlsConnect + 'static) -> Self {
@@ -90,6 +115,24 @@ impl Connector {
                             Version::HTTP_11
                         }
                     });
+
+                Ok((stream.into(), version))
+            }
+            #[cfg(feature = "rustls")]
+            Self::Rustls(ref connector) => {
+                let name = ServerName::try_from(domain).map_err(|_| crate::error::RustlsError::InvalidDnsName)?;
+                let stream = connector
+                    .connect(name, stream)
+                    .await
+                    .map_err(crate::error::RustlsError::Io)?;
+
+                let version = stream.get_ref().1.alpn_protocol().map_or(Version::HTTP_11, |version| {
+                    if version.windows(2).any(|w| w == b"h2") {
+                        Version::HTTP_2
+                    } else {
+                        Version::HTTP_11
+                    }
+                });
 
                 Ok((stream.into(), version))
             }

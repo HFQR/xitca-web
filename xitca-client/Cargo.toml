@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 default = ["http2"]
 openssl = ["openssl-crate", "tokio-openssl"]
-rustls = []
+rustls = ["rustls-crate", "tokio-rustls", "webpki-roots"]
 http2 = ["h2"]
 json = ["serde", "serde_json"]
 
@@ -28,6 +28,11 @@ h2 = { version = "0.3.7", optional = true }
 # openssl support
 openssl-crate = { package = "openssl", version = "0.10", optional = true }
 tokio-openssl = { version = "0.6.3", optional = true }
+
+# rustls support
+rustls-crate = { package = "rustls", version = "0.20", optional = true }
+tokio-rustls = { version = "0.23", optional = true }
+webpki-roots = { version = "0.22", optional = true }
 
 # serde support
 serde = { version = "1.0.130", default-features = false, optional = true }

@@ -32,24 +32,24 @@ pub use xitca_http::http;
 mod test {
     use super::*;
 
-    #[cfg(all(feature = "json", feature = "openssl"))]
+    #[cfg(feature = "openssl")]
     #[tokio::test]
-    async fn get_json() {
-        use std::collections::HashMap;
-
-        let client = Client::builder().set_max_http_version(http::Version::HTTP_11).finish();
+    async fn get_string() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let client = Client::builder()
+            .openssl()
+            .set_max_http_version(http::Version::HTTP_11)
+            .finish();
 
         let string = client
-            .get("https://www.rust-lang.org")
-            .unwrap()
+            .get("https://www.rust-lang.org")?
             .send()
-            .await
-            .unwrap()
-            .limit::<{ 1024 * 1024 * 1024 }>()
+            .await?
+            .limit::<{ 1024 * 1024 }>()
             .string()
-            .await
-            .unwrap();
+            .await?;
 
         println!("{:?}", string);
+
+        Ok(())
     }
 }

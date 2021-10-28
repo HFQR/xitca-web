@@ -8,14 +8,19 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 #[cfg(feature = "openssl")]
-use tokio_openssl::SslStream;
+use tokio_openssl::SslStream as OpensslStream;
+
+#[cfg(feature = "rustls")]
+use tokio_rustls::client::TlsStream as RustlsStream;
 
 #[doc(hidden)]
 pub enum TlsStream<S> {
     Boxed(Box<dyn Io>),
     _Phantom(PhantomData<S>),
     #[cfg(feature = "openssl")]
-    Openssl(SslStream<S>),
+    Openssl(OpensslStream<S>),
+    #[cfg(feature = "rustls")]
+    Rustls(RustlsStream<S>),
 }
 
 impl<S> From<Box<dyn Io>> for TlsStream<S> {
@@ -25,9 +30,16 @@ impl<S> From<Box<dyn Io>> for TlsStream<S> {
 }
 
 #[cfg(feature = "openssl")]
-impl<S> From<SslStream<S>> for TlsStream<S> {
-    fn from(stream: SslStream<S>) -> Self {
+impl<S> From<OpensslStream<S>> for TlsStream<S> {
+    fn from(stream: OpensslStream<S>) -> Self {
         Self::Openssl(stream)
+    }
+}
+
+#[cfg(feature = "rustls")]
+impl<S> From<RustlsStream<S>> for TlsStream<S> {
+    fn from(stream: RustlsStream<S>) -> Self {
+        Self::Rustls(stream)
     }
 }
 
@@ -48,6 +60,8 @@ where
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_read(cx, buf),
+            #[cfg(feature = "rustls")]
+            Self::Rustls(s) => Pin::new(s).poll_read(cx, buf),
         }
     }
 }
@@ -63,6 +77,8 @@ where
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_write(cx, buf),
+            #[cfg(feature = "rustls")]
+            Self::Rustls(s) => Pin::new(s).poll_write(cx, buf),
         }
     }
 
@@ -72,6 +88,8 @@ where
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_flush(cx),
+            #[cfg(feature = "rustls")]
+            Self::Rustls(s) => Pin::new(s).poll_flush(cx),
         }
     }
 
@@ -81,6 +99,8 @@ where
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_shutdown(cx),
+            #[cfg(feature = "rustls")]
+            Self::Rustls(s) => Pin::new(s).poll_shutdown(cx),
         }
     }
 
@@ -94,6 +114,8 @@ where
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_write_vectored(cx, bufs),
+            #[cfg(feature = "rustls")]
+            Self::Rustls(s) => Pin::new(s).poll_write_vectored(cx, bufs),
         }
     }
 
@@ -103,6 +125,8 @@ where
             Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(ref s) => s.is_write_vectored(),
+            #[cfg(feature = "rustls")]
+            Self::Rustls(ref s) => s.is_write_vectored(),
         }
     }
 }

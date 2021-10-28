@@ -55,52 +55,6 @@ impl<E: Debug> HttpServiceError<E> {
     }
 }
 
-/// A collection of std error types. Due to xitca-http's single thread nature it support
-/// a wider range of [`Error`](std::error::Error) trait object with different bounds.
-pub enum StdError {
-    Std(Box<dyn Error>),
-    StdSend(Box<dyn Error + Send>),
-    StdSendSync(Box<dyn Error + Send + Sync>),
-}
-
-impl From<Box<dyn Error>> for StdError {
-    fn from(e: Box<dyn Error>) -> Self {
-        Self::Std(e)
-    }
-}
-
-impl From<Box<dyn Error + Send>> for StdError {
-    fn from(e: Box<dyn Error + Send>) -> Self {
-        Self::StdSend(e)
-    }
-}
-
-impl From<Box<dyn Error + Send + Sync>> for StdError {
-    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
-        Self::StdSendSync(e)
-    }
-}
-
-impl Debug for StdError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Std(ref e) => write!(f, "{:?}", *e),
-            Self::StdSend(ref e) => write!(f, "{:?}", *e),
-            Self::StdSendSync(ref e) => write!(f, "{:?}", *e),
-        }
-    }
-}
-
-impl Display for StdError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Std(ref e) => write!(f, "{}", *e),
-            Self::StdSend(ref e) => write!(f, "{}", *e),
-            Self::StdSendSync(ref e) => write!(f, "{}", *e),
-        }
-    }
-}
-
 /// time out error from async task that run for too long.
 #[derive(Debug)]
 pub enum TimeoutError {
@@ -110,18 +64,11 @@ pub enum TimeoutError {
 }
 
 /// Request/Response body layer error.
+#[derive(Debug)]
 pub enum BodyError {
-    Std(StdError),
+    Std(Box<dyn Error + Send + Sync>),
     Io(io::Error),
-}
-
-impl Debug for BodyError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Std(ref e) => write!(f, "{:?}", e),
-            Self::Io(ref e) => write!(f, "{:?}", e),
-        }
-    }
+    OverFlow,
 }
 
 impl Display for BodyError {
@@ -129,6 +76,7 @@ impl Display for BodyError {
         match *self {
             Self::Std(ref e) => write!(f, "{}", e),
             Self::Io(ref e) => write!(f, "{}", e),
+            Self::OverFlow => write!(f, "Body length is overflow"),
         }
     }
 }
@@ -141,12 +89,9 @@ impl From<io::Error> for BodyError {
     }
 }
 
-impl<E> From<E> for BodyError
-where
-    E: Into<StdError>,
-{
-    fn from(e: E) -> Self {
-        Self::Std(e.into())
+impl From<Box<dyn Error + Send + Sync>> for BodyError {
+    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
+        Self::Std(e)
     }
 }
 

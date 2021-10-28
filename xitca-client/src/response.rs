@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use futures_util::StreamExt;
 use tokio::time::Sleep;
-use xitca_http::{bytes::BytesMut, http};
+use xitca_http::{bytes::BytesMut, error::BodyError, http};
 
 use crate::{body::ResponseBody, error::Error};
 
@@ -32,6 +32,11 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
 
     #[inline]
     pub async fn string(self) -> Result<String, Error> {
+        self.collect().await
+    }
+
+    #[inline]
+    pub async fn body(self) -> Result<Vec<u8>, Error> {
         self.collect().await
     }
 
@@ -73,7 +78,7 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
                         Some(res) => {
                             let buf = res?;
                             if buf.len() + b.len() > limit {
-                                return Err(crate::error::Error::BodyOverFlow);
+                                return Err(BodyError::OverFlow.into());
                             }
                             b.try_extend_from_slice(&buf)?;
                         },
@@ -97,6 +102,24 @@ trait Collectable {
 }
 
 impl Collectable for BytesMut {
+    #[inline]
+    fn with_capacity(cap: usize) -> Self {
+        Self::with_capacity(cap)
+    }
+
+    #[inline]
+    fn try_extend_from_slice(&mut self, slice: &[u8]) -> Result<(), Error> {
+        self.extend_from_slice(slice);
+        Ok(())
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+}
+
+impl Collectable for Vec<u8> {
     #[inline]
     fn with_capacity(cap: usize) -> Self {
         Self::with_capacity(cap)
