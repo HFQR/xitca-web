@@ -50,17 +50,6 @@ mod test {
 
         println!("{:?}", string);
 
-        let string = client
-            .post("https://www.rust-lang.org")?
-            .json("json")?
-            .send()
-            .await?
-            .limit::<{ 1024 * 1024 }>()
-            .string()
-            .await?;
-
-        println!("{:?}", string);
-
         Ok(())
     }
 }

@@ -25,6 +25,8 @@ use crate::tls::stream::TlsStream;
 /// A convince type alias for typing connection without interacting with pool.
 pub type ConnectionWithKey<'a> = Conn<'a, ConnectionKey, Connection>;
 
+/// Connection type branched into different HTTP version/layer.
+#[allow(clippy::large_enum_variant)]
 #[non_exhaustive]
 pub enum Connection {
     Tcp(TcpStream),

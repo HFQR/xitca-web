@@ -19,7 +19,7 @@ pub struct TimeoutConfig {
     /// Timeout for tls handshake when tls features enabled.
     /// Default to 5 seconds.
     pub(crate) tls_connect_timeout: Duration,
-    /// Timeout for request go through keep-alived connection.
+    /// Timeout for request reach server and response head(all lines before response body) returns.
     /// Default to 15 seconds.
     pub(crate) request_timeout: Duration,
     /// Timeout for collecting response body.
