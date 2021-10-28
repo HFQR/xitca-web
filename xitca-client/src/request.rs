@@ -27,7 +27,7 @@ pub struct Request<'a, B> {
     client: &'a Client,
     /// Request level timeout setting. When Some(Duration) would override
     /// timeout configuration from Client.
-    timeout: Option<Duration>,
+    timeout: Duration,
 }
 
 impl<'a, B> Request<'a, B> {
@@ -35,7 +35,7 @@ impl<'a, B> Request<'a, B> {
         Self {
             req,
             client,
-            timeout: None,
+            timeout: client.timeout_config.request_timeout,
         }
     }
 
@@ -70,11 +70,7 @@ impl<'a, B> Request<'a, B> {
     ///
     /// The value passed would override global [TimeoutConfig].
     #[inline]
-    pub fn timeout(self, dur: Duration) -> Self {
-        self._timeout(Some(dur))
-    }
-
-    fn _timeout(mut self, dur: Option<Duration>) -> Self {
+    pub fn timeout(mut self, dur: Duration) -> Self {
         self.timeout = dur;
         self
     }
@@ -89,7 +85,7 @@ impl<'a, B> Request<'a, B> {
         let body = f(body_old);
         let req = http::Request::from_parts(parts, body);
 
-        Request::new(req, client)._timeout(timeout)
+        Request::new(req, client).timeout(timeout)
     }
 
     /// Send the request and return response asynchronously.
@@ -108,11 +104,10 @@ impl<'a, B> Request<'a, B> {
         let conn_is_none = conn.is_none();
 
         // setup timer according to outcome and timeout configs.
-        let dur = match (conn_is_none, timeout) {
-            (true, _) => client.timeout_config.resolve_timeout,
-            // request's own timeout should override the global one from TimeoutConfig.
-            (false, Some(timeout)) => timeout,
-            (false, None) => client.timeout_config.request_timeout,
+        let dur = if conn_is_none {
+            client.timeout_config.resolve_timeout
+        } else {
+            timeout
         };
 
         // heap allocate timer so it can be moved to Response type afterwards
