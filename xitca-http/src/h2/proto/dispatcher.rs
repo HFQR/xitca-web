@@ -24,23 +24,24 @@ use tokio::{
 use tracing::trace;
 use xitca_service::Service;
 
-use crate::body::{ResponseBody, ResponseBodySize};
-use crate::error::{BodyError, HttpServiceError};
-use crate::flow::HttpFlow;
-use crate::h2::{body::RequestBody, error::Error};
-use crate::util::{
-    date::{Date, SharedDate},
-    futures::{poll_fn, Select, SelectOutput},
-    keep_alive::KeepAlive,
+use crate::{
+    body::{ResponseBody, ResponseBodySize},
+    date::{DateTime, DateTimeHandle, SharedDateTimeHandle},
+    error::{BodyError, HttpServiceError},
+    flow::HttpFlow,
+    h2::{body::RequestBody, error::Error},
+    util::{
+        futures::{poll_fn, Select, SelectOutput},
+        keep_alive::KeepAlive,
+    },
 };
-
 /// Http/2 dispatcher
 pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X, U> {
     io: &'a mut Connection<TlsSt, Bytes>,
     keep_alive: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     flow: &'a HttpFlow<S, X, U>,
-    date: &'a SharedDate,
+    date: &'a SharedDateTimeHandle,
     _req_body: PhantomData<ReqB>,
 }
 
@@ -65,7 +66,7 @@ where
         keep_alive: Pin<&'a mut KeepAlive>,
         ka_dur: Duration,
         flow: &'a HttpFlow<S, X, U>,
-        date: &'a SharedDate,
+        date: &'a SharedDateTimeHandle,
     ) -> Self {
         Self {
             io,
@@ -90,7 +91,7 @@ where
         let ping_pong = io.ping_pong().unwrap();
 
         // reset timer to keep alive.
-        let deadline = date.borrow().now() + ka_dur;
+        let deadline = date.now() + ka_dur;
         keep_alive.as_mut().update(deadline);
 
         // timer for ping pong interval and keep alive.
@@ -112,7 +113,7 @@ where
                     let req = Request::from_parts(parts, body);
 
                     let flow = HttpFlow::clone(flow);
-                    let date = SharedDate::clone(self.date);
+                    let date = SharedDateTimeHandle::clone(self.date);
 
                     tokio::task::spawn_local(async move {
                         let fut = flow.service.call(req);
@@ -143,7 +144,7 @@ struct H2PingPong<'a> {
     on_flight: bool,
     keep_alive: Pin<&'a mut KeepAlive>,
     ping_pong: PingPong,
-    date: &'a Date,
+    date: &'a DateTimeHandle,
     ka_dur: Duration,
 }
 
@@ -162,7 +163,7 @@ impl Future for H2PingPong<'_> {
                     Poll::Ready(_) => {
                         this.on_flight = false;
 
-                        let deadline = this.date.borrow().now() + this.ka_dur;
+                        let deadline = this.date.now() + this.ka_dur;
 
                         this.keep_alive.as_mut().update(deadline);
                         this.keep_alive.as_mut().reset();
@@ -180,7 +181,7 @@ impl Future for H2PingPong<'_> {
                 // Update the keep alive to 10 times the normal keep alive duration.
                 // There is no particular reason for the duration choice here. as h2 connection is
                 // suggested to be kept alive for a relative long time.
-                let deadline = this.date.borrow().now() + (this.ka_dur * 10);
+                let deadline = this.date.now() + (this.ka_dur * 10);
 
                 this.keep_alive.as_mut().update(deadline);
 
@@ -190,7 +191,11 @@ impl Future for H2PingPong<'_> {
     }
 }
 
-async fn h2_handler<'a, Fut, B, BE, E>(fut: Fut, mut tx: SendResponse<Bytes>, date: SharedDate) -> Result<(), Error<E>>
+async fn h2_handler<'a, Fut, B, BE, E>(
+    fut: Fut,
+    mut tx: SendResponse<Bytes>,
+    date: SharedDateTimeHandle,
+) -> Result<(), Error<E>>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'a,
     B: Stream<Item = Result<Bytes, BE>>,
@@ -211,7 +216,7 @@ where
     }
 
     if !res.headers().contains_key(DATE) {
-        let date = HeaderValue::from_bytes(date.borrow().date()).unwrap();
+        let date = date.with_date(HeaderValue::from_bytes).unwrap();
         res.headers_mut().insert(DATE, date);
     }
 

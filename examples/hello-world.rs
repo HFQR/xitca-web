@@ -6,11 +6,11 @@ use std::{
     sync::Arc,
 };
 
-use bytes::Bytes;
 use h3_quinn::quinn::generic::ServerConfig;
 use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, ServerConfigBuilder};
 use rustls::{Certificate, PrivateKey};
 use xitca_http::{
+    bytes::Bytes,
     http::{Request, Response},
     util::LoggerFactory,
     HttpServiceBuilder, RequestBody, ResponseBody,
@@ -19,7 +19,9 @@ use xitca_service::fn_service;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    tracing_subscriber::fmt().with_env_filter("xitca=trace").init();
+    tracing_subscriber::fmt()
+        .with_env_filter("xitca=trace,[xitca_http_logger]=trace")
+        .init();
 
     // set up rustls and alpn protocol.
     let acceptor = rustls_config()?;

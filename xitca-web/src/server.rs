@@ -1,8 +1,8 @@
 use std::{fmt, future::Future, net::ToSocketAddrs, time::Duration};
 
-use bytes::Bytes;
 use futures_core::Stream;
 use xitca_http::{
+    bytes::Bytes,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::{Request, Response},
     BodyError, HttpServiceBuilder, RequestBody, ResponseBody,

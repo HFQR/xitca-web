@@ -1,13 +1,14 @@
 //! protocol module of Http/1.x
 //! aiming to be correct and fast with only safe code.
 
-mod buf;
-mod codec;
-mod context;
 mod decode;
 mod dispatcher;
 mod encode;
-mod error;
+
+pub mod buf;
+pub mod codec;
+pub mod context;
+pub mod error;
+pub mod header;
 
 pub(crate) use dispatcher::run;
-pub(crate) use error::ProtoError;

@@ -15,7 +15,7 @@ use tokio_util::io::poll_read_buf;
 use xitca_server::net::AsyncReadWrite;
 use xitca_service::{Service, ServiceFactory};
 
-use crate::protocol::{AsProtocol, Protocol};
+use crate::{http::Version, version::AsVersion};
 
 use super::error::TlsError;
 
@@ -26,17 +26,17 @@ pub struct TlsStream<S> {
     stream: tokio_native_tls::TlsStream<S>,
 }
 
-impl<S> AsProtocol for TlsStream<S>
+impl<S> AsVersion for TlsStream<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    fn as_protocol(&self) -> Protocol {
+    fn as_version(&self) -> Version {
         self.get_ref()
             .negotiated_alpn()
             .ok()
             .and_then(|proto| proto)
             .map(Self::from_alpn)
-            .unwrap_or(Protocol::Http1Tls)
+            .unwrap_or(Version::HTTP_11)
     }
 }
 

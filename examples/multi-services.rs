@@ -5,12 +5,12 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use std::{convert::Infallible, io};
 
-use bytes::Bytes;
 use h3_quinn::quinn::generic::ServerConfig;
 use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, PrivateKey, ServerConfigBuilder};
 use http::Version;
 use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 use xitca_http::{
+    bytes::Bytes,
     h1, h2, h3,
     http::{header, Request, Response},
     util::LoggerFactory,

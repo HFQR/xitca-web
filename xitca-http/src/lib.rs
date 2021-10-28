@@ -7,16 +7,18 @@
 #![forbid(unsafe_code)]
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
-mod body;
 mod builder;
-mod error;
 mod expect;
 mod flow;
-mod protocol;
 mod response;
 mod service;
 mod tls;
 mod upgrade;
+mod version;
+
+pub mod body;
+pub mod date;
+pub mod error;
 
 #[cfg(feature = "http1")]
 pub mod h1;
@@ -30,6 +32,9 @@ pub mod util;
 
 /// re-export http crate as module.
 pub use http;
+
+/// re-export bytes crate as module.
+pub use bytes;
 
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;

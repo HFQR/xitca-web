@@ -1,62 +1,53 @@
-use std::mem;
+use httparse::{Status, EMPTY_HEADER};
 
-use bytes::{Buf, BytesMut};
-use httparse::Status;
-
-use crate::http::{
-    header::{HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
-    Method, Request, Uri, Version,
+use xitca_http::{
+    bytes::BytesMut,
+    h1::proto::{
+        codec::TransferCoding,
+        context::ConnectionType,
+        error::{Parse, ProtoError},
+        header::HeaderIndex,
+    },
+    http::{
+        header::{HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, TRANSFER_ENCODING, UPGRADE},
+        Response, StatusCode, Version,
+    },
 };
 
-use super::{
-    codec::TransferCoding,
-    context::{ConnectionType, Context},
-    error::{Parse, ProtoError},
-    header::HeaderIndex,
-};
+use super::context::Context;
 
-impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
-    // decode head and generate request and body decoder.
-    pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
+impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
+    pub(crate) fn decode_head(
         &mut self,
         buf: &mut BytesMut,
-    ) -> Result<Option<(Request<()>, TransferCoding)>, ProtoError> {
-        let mut req = httparse::Request::new(&mut []);
-        let mut headers = [mem::MaybeUninit::uninit(); MAX_HEADERS];
+    ) -> Result<Option<(Response<()>, TransferCoding)>, ProtoError> {
+        let mut headers = [EMPTY_HEADER; HEADER_LIMIT];
 
-        match req.parse_with_uninit_headers(buf, &mut headers)? {
+        let mut parsed = httparse::Response::new(&mut headers);
+
+        match parsed.parse(buf.as_ref())? {
             Status::Complete(len) => {
-                // Important: reset context state for new request.
-                self.reset();
-
-                let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
-
-                let uri = req.path.unwrap().parse::<Uri>()?;
-
-                // Set connection type when doing version match.
-                let version = if req.version.unwrap() == 1 {
-                    // Default ctype is KeepAlive so set_ctype is skipped here.
+                let version = if parsed.version.unwrap() == 1 {
                     Version::HTTP_11
                 } else {
-                    self.set_ctype(ConnectionType::Close);
                     Version::HTTP_10
                 };
 
-                // record the index of headers from the buffer.
-                let mut header_idx = HeaderIndex::new_array::<MAX_HEADERS>();
-                HeaderIndex::record(buf, req.headers, &mut header_idx);
+                let status = StatusCode::from_u16(parsed.code.unwrap()).map_err(|_| Parse::StatusCode)?;
 
-                let headers_len = req.headers.len();
+                // record the index of headers from the buffer.
+                let mut header_idx = HeaderIndex::new_array::<HEADER_LIMIT>();
+                HeaderIndex::record(buf, parsed.headers, &mut header_idx);
+
+                let headers_len = parsed.headers.len();
 
                 // split the headers from buffer.
                 let slice = buf.split_to(len).freeze();
 
-                // default decoder.
-                let mut decoder = TransferCoding::eof();
-
-                // pop a cached headermap or construct a new one.
                 let mut headers = self.take_headers();
                 headers.reserve(headers_len);
+
+                let mut decoder = TransferCoding::eof();
 
                 // write headers to headermap and update request states.
                 for idx in &header_idx[..headers_len] {
@@ -104,7 +95,6 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                                 }
                             }
                         }
-                        EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
                         // Upgrades are only allowed with HTTP/1.1
                         UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
                         _ => {}
@@ -113,33 +103,15 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     headers.append(name, value);
                 }
 
-                if method == Method::CONNECT {
-                    self.set_ctype(ConnectionType::Upgrade);
-                    // set method to context so it can pass method to response.
-                    self.set_connect_method();
-                    decoder.try_set(TransferCoding::plain_chunked())?;
-                }
+                let mut res = Response::new(());
 
-                let mut req = Request::new(());
+                *res.version_mut() = version;
+                *res.status_mut() = status;
+                *res.headers_mut() = headers;
 
-                let extensions = self.take_extensions();
-
-                *req.method_mut() = method;
-                *req.version_mut() = version;
-                *req.uri_mut() = uri;
-                *req.headers_mut() = headers;
-                *req.extensions_mut() = extensions;
-
-                Ok(Some((req, decoder)))
+                Ok(Some((res, decoder)))
             }
-
-            Status::Partial => {
-                if buf.remaining() >= READ_BUF_LIMIT {
-                    Err(ProtoError::Parse(Parse::HeaderTooLarge))
-                } else {
-                    Ok(None)
-                }
-            }
+            Status::Partial => Ok(None),
         }
     }
 }

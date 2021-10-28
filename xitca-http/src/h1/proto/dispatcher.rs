@@ -11,26 +11,30 @@ use tracing::trace;
 use xitca_server::net::AsyncReadWrite;
 use xitca_service::Service;
 
-use crate::body::ResponseBody;
-use crate::config::HttpServiceConfig;
-use crate::error::BodyError;
-use crate::flow::HttpFlowInner;
-use crate::h1::{
-    body::{RequestBody, RequestBodySender},
-    error::Error,
-};
-use crate::response;
-use crate::util::{
-    date::Date,
-    futures::{never, poll_fn, Select, SelectOutput, Timeout},
-    hint::unlikely,
-    keep_alive::KeepAlive,
+use crate::{
+    body::ResponseBody,
+    config::HttpServiceConfig,
+    date::DateTime,
+    error::BodyError,
+    flow::HttpFlowInner,
+    h1::{
+        body::{RequestBody, RequestBodySender},
+        error::Error,
+    },
+    response,
+    util::{
+        futures::{never, poll_fn, Select, SelectOutput, Timeout},
+        hint::unlikely,
+        keep_alive::KeepAlive,
+    },
 };
 
-use super::buf::{FlatWriteBuf, ListWriteBuf, ReadBuf, WriteBuf};
-use super::codec::TransferCoding;
-use super::context::{ConnectionType, Context};
-use super::error::{Parse, ProtoError};
+use super::{
+    buf::{FlatBuf, ListBuf, WriteBuf},
+    codec::TransferCoding,
+    context::{ConnectionType, Context},
+    error::{Parse, ProtoError},
+};
 
 /// function to generic over different writer buffer types dispatcher.
 pub(crate) async fn run<
@@ -42,6 +46,7 @@ pub(crate) async fn run<
     E,
     X,
     U,
+    D,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
@@ -50,7 +55,7 @@ pub(crate) async fn run<
     timer: Pin<&'a mut KeepAlive>,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     flow: &'a HttpFlowInner<S, X, U>,
-    date: &'a Date,
+    date: &'a D,
 ) -> Result<(), Error<S::Error>>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
@@ -65,6 +70,8 @@ where
     S::Error: From<X::Error>,
 
     St: AsyncReadWrite,
+
+    D: DateTime,
 {
     let is_vectored = if config.force_flat_buf {
         false
@@ -73,10 +80,10 @@ where
     };
 
     let res = if is_vectored {
-        let write_buf = ListWriteBuf::default();
+        let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();
         Dispatcher::new(io, timer, config, flow, date, write_buf).run().await
     } else {
-        let write_buf = FlatWriteBuf::default();
+        let write_buf = FlatBuf::<WRITE_BUF_LIMIT>::default();
         Dispatcher::new(io, timer, config, flow, date, write_buf).run().await
     };
 
@@ -95,6 +102,7 @@ struct Dispatcher<
     X,
     U,
     W,
+    D,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
@@ -104,14 +112,14 @@ struct Dispatcher<
     io: Io<'a, St, W, S::Error, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
-    ctx: Context<'a, HEADER_LIMIT>,
+    ctx: Context<'a, D, HEADER_LIMIT>,
     flow: &'a HttpFlowInner<S, X, U>,
     _phantom: PhantomData<ReqB>,
 }
 
 struct Io<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     io: &'a mut St,
-    read_buf: ReadBuf<READ_BUF_LIMIT>,
+    read_buf: FlatBuf<READ_BUF_LIMIT>,
     write_buf: W,
     _err: PhantomData<E>,
 }
@@ -120,12 +128,12 @@ impl<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     Io<'a, St, W, E, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     St: AsyncReadWrite,
-    W: WriteBuf<WRITE_BUF_LIMIT>,
+    W: WriteBuf,
 {
     fn new(io: &'a mut St, write_buf: W) -> Self {
         Self {
             io,
-            read_buf: ReadBuf::new(),
+            read_buf: FlatBuf::new(),
             write_buf,
             _err: PhantomData,
         }
@@ -133,14 +141,12 @@ where
 
     /// read until blocked/read backpressure and advance readbuf.
     fn try_read(&mut self) -> Result<(), Error<E>> {
-        let buf = &mut self.read_buf;
-
         loop {
-            match self.io.try_read_buf(buf.buf_mut()) {
+            match self.io.try_read_buf(&mut *self.read_buf) {
                 Ok(0) => return Err(Error::Closed),
                 Ok(_) => {
-                    if buf.backpressure() {
-                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", buf.len());
+                    if self.read_buf.backpressure() {
+                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", self.read_buf.len());
                         return Ok(());
                     }
                 }
@@ -179,10 +185,10 @@ where
 
     /// A specialized readable check that always pending when read buffer is full.
     /// This is a hack for `crate::util::futures::Select`.
-    async fn readable<const HEADER_LIMIT: usize>(
+    async fn readable<D, const HEADER_LIMIT: usize>(
         &self,
         handle: &mut RequestBodyHandle,
-        ctx: &mut Context<'_, HEADER_LIMIT>,
+        ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<()> {
         if self.read_buf.backpressure() {
             never().await
@@ -222,10 +228,11 @@ impl<
         X,
         U,
         W,
+        D,
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, X, U, W, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Dispatcher<'a, St, S, ReqB, X, U, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
 
@@ -239,14 +246,16 @@ where
     S::Error: From<X::Error>,
 
     St: AsyncReadWrite,
-    W: WriteBuf<WRITE_BUF_LIMIT>,
+    W: WriteBuf,
+
+    D: DateTime,
 {
     fn new(
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         flow: &'a HttpFlowInner<S, X, U>,
-        date: &'a Date,
+        date: &'a D,
         write_buf: W,
     ) -> Self {
         Self {
@@ -303,7 +312,7 @@ where
                 match res {
                     Ok((req, mut body_handle)) => {
                         // have new request. update timer deadline.
-                        let now = self.ctx.date.borrow().now() + self.ka_dur;
+                        let now = self.ctx.date.now() + self.ka_dur;
                         self.timer.as_mut().update(now);
 
                         let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
@@ -334,7 +343,7 @@ where
     }
 
     fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
-        match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.buf_mut()) {
+        match self.ctx.decode_head::<READ_BUF_LIMIT>(&mut *self.io.read_buf) {
             Ok(Some((req, decoder))) => {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
@@ -514,9 +523,9 @@ impl RequestBodyHandle {
 
     fn decode<const READ_BUF_LIMIT: usize>(
         &mut self,
-        read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
+        read_buf: &mut FlatBuf<READ_BUF_LIMIT>,
     ) -> io::Result<DecodeState> {
-        while let Some(bytes) = self.decoder.decode(read_buf.buf_mut())? {
+        while let Some(bytes) = self.decoder.decode(&mut *read_buf)? {
             if bytes.is_empty() {
                 self.sender.feed_eof();
                 return Ok(DecodeState::Eof);
@@ -528,8 +537,8 @@ impl RequestBodyHandle {
         Ok(DecodeState::Continue)
     }
 
-    async fn ready<const HEADER_LIMIT: usize>(&self, ctx: &mut Context<'_, HEADER_LIMIT>) -> io::Result<()> {
-        self.sender.ready().await.map_err(|e| {
+    async fn ready<D, const HEADER_LIMIT: usize>(&self, ctx: &mut Context<'_, D, HEADER_LIMIT>) -> io::Result<()> {
+        self.sender.ready().await.map_err(move |e| {
             // When service call dropped payload there is no tell how many bytes
             // still remain readable in the connection.
             // close the connection would be a safe bet than draining it.

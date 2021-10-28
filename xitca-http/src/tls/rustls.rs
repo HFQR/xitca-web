@@ -18,7 +18,7 @@ use tokio_util::io::poll_read_buf;
 use xitca_server::net::AsyncReadWrite;
 use xitca_service::{Service, ServiceFactory};
 
-use crate::protocol::{AsProtocol, Protocol};
+use crate::{http::Version, version::AsVersion};
 
 use super::error::TlsError;
 
@@ -29,19 +29,13 @@ pub struct TlsStream<S> {
     stream: tokio_rustls::server::TlsStream<S>,
 }
 
-impl<S> AsProtocol for TlsStream<S> {
-    fn as_protocol(&self) -> Protocol {
+impl<S> AsVersion for TlsStream<S> {
+    fn as_version(&self) -> Version {
         self.get_ref()
             .1
             .alpn_protocol()
-            .map(|proto| {
-                if proto.windows(2).any(|window| window == b"h2") {
-                    Protocol::Http2
-                } else {
-                    Protocol::Http1Tls
-                }
-            })
-            .unwrap_or(Protocol::Http1Tls)
+            .map(Self::from_alpn)
+            .unwrap_or(Version::HTTP_11)
     }
 }
 

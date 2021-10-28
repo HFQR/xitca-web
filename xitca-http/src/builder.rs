@@ -10,11 +10,11 @@ use super::body::{RequestBody, ResponseBody};
 use super::config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT};
 use super::error::{BodyError, HttpServiceError};
 use super::expect::ExpectHandler;
-use super::protocol::AsProtocol;
 use super::service::HttpService;
 use super::tls::{self};
 use super::upgrade::UpgradeHandler;
 use super::util::LoggerFactory;
+use super::version::AsVersion;
 
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
@@ -314,7 +314,7 @@ where
 
     FA: ServiceFactory<TcpStream, Config = ()>,
     FA::Service: 'static,
-    FA::Response: AsyncReadWrite + AsProtocol,
+    FA::Response: AsyncReadWrite + AsVersion,
 
     HttpServiceError<F::Error>: From<FU::Error> + From<FA::Error>,
     F::Error: From<FE::Error>,

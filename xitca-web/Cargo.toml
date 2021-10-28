@@ -16,7 +16,6 @@ xitca-http = "0.1"
 xitca-server = { version = "0.1" }
 xitca-service = "0.1"
 
-bytes = "1"
 futures-core = "0.3"
 
 # openssl feature
