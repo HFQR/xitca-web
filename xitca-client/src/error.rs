@@ -94,6 +94,7 @@ pub enum TimeoutError {
     Connect,
     TlsHandshake,
     Request,
+    Response,
 }
 
 impl From<TimeoutError> for Error {

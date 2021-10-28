@@ -22,6 +22,9 @@ pub struct TimeoutConfig {
     /// Timeout for request go through keep-alived connection.
     /// Default to 15 seconds.
     pub(crate) request_timeout: Duration,
+    /// Timeout for collecting response body.
+    /// Default to 15 seconds.
+    pub(crate) response_timeout: Duration,
 }
 
 impl Default for TimeoutConfig {
@@ -31,6 +34,7 @@ impl Default for TimeoutConfig {
             connect_timeout: Duration::from_secs(5),
             tls_connect_timeout: Duration::from_secs(5),
             request_timeout: Duration::from_secs(15),
+            response_timeout: Duration::from_secs(15),
         }
     }
 }

@@ -104,6 +104,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Set timeout for collecting response body.
+    ///
+    /// Default to 15 seconds.
+    pub fn set_response_timeout(mut self, dur: Duration) -> Self {
+        self.timeout_config.response_timeout = dur;
+        self
+    }
+
     /// Set local Socket address, either IPv4 or IPv6 used for http client.
     ///
     /// By default client uses any free address the OS returns.
