@@ -1,6 +1,7 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use futures_core::future::BoxFuture;
+use tokio::task;
 
 use crate::{connect::Connect, error::Error};
 
@@ -23,24 +24,22 @@ impl Resolver {
     pub(crate) async fn resolve(&self, connect: &mut Connect<'_>) -> Result<(), Error> {
         match *self {
             Self::Std => {
-                let host = connect.hostname();
-                // TODO: Connect should always return host with port if possible.
-                let host = if connect
+                let host = connect.hostname().to_string();
+
+                let task = if connect
                     .hostname()
                     .splitn(2, ':')
                     .last()
                     .and_then(|p| p.parse::<u16>().ok())
-                    .map(|p| p == connect.port())
-                    .unwrap_or(false)
+                    .is_some()
                 {
-                    host.to_string()
+                    task::spawn_blocking(move || host.to_socket_addrs())
                 } else {
-                    format!("{}:{}", host, connect.port())
+                    let host = (host, connect.port());
+                    task::spawn_blocking(move || host.to_socket_addrs())
                 };
 
-                let addrs = tokio::task::spawn_blocking(move || host.to_socket_addrs())
-                    .await
-                    .unwrap()?;
+                let addrs = task.await.unwrap()?;
 
                 connect.set_addrs(addrs);
             }
