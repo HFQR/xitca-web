@@ -10,7 +10,7 @@ use xitca_http::{
 
 use super::response::WebResponse;
 
-pub struct WebRequest<'a, D> {
+pub struct WebRequest<'a, D = ()> {
     pub(crate) http: RefCell<Request<RequestBody>>,
     pub(crate) state: &'a D,
 }
