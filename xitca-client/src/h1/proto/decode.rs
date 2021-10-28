@@ -4,14 +4,10 @@ use xitca_http::{
     bytes::BytesMut,
     h1::proto::{
         codec::TransferCoding,
-        context::ConnectionType,
         error::{Parse, ProtoError},
         header::HeaderIndex,
     },
-    http::{
-        header::{HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, TRANSFER_ENCODING, UPGRADE},
-        Response, StatusCode, Version,
-    },
+    http::{Response, StatusCode, Version},
 };
 
 use super::context::Context;
@@ -51,56 +47,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
 
                 // write headers to headermap and update request states.
                 for idx in &header_idx[..headers_len] {
-                    let name = HeaderName::from_bytes(&slice[idx.name.0..idx.name.1]).unwrap();
-                    let value = HeaderValue::from_maybe_shared(slice.slice(idx.value.0..idx.value.1)).unwrap();
-
-                    match name {
-                        TRANSFER_ENCODING => {
-                            if version != Version::HTTP_11 {
-                                return Err(ProtoError::Parse(Parse::HeaderName));
-                            }
-
-                            let chunked = value
-                                .to_str()
-                                .map_err(|_| ProtoError::Parse(Parse::HeaderName))?
-                                .trim()
-                                .eq_ignore_ascii_case("chunked");
-
-                            if chunked {
-                                decoder.try_set(TransferCoding::decode_chunked())?;
-                            }
-                        }
-                        CONTENT_LENGTH => {
-                            let len = value
-                                .to_str()
-                                .map_err(|_| ProtoError::Parse(Parse::HeaderName))?
-                                .parse::<u64>()
-                                .map_err(|_| ProtoError::Parse(Parse::HeaderName))?;
-
-                            if len != 0 {
-                                decoder.try_set(TransferCoding::length(len))?;
-                            }
-                        }
-                        CONNECTION => {
-                            if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
-                                // Connection header would update context state.
-                                if value.eq_ignore_ascii_case("keep-alive") {
-                                    self.set_ctype(ConnectionType::KeepAlive);
-                                } else if value.eq_ignore_ascii_case("close") {
-                                    self.set_ctype(ConnectionType::Close);
-                                } else if value.eq_ignore_ascii_case("upgrade") {
-                                    // set decoder to upgrade variant.
-                                    decoder.try_set(TransferCoding::plain_chunked())?;
-                                    self.set_ctype(ConnectionType::Upgrade);
-                                }
-                            }
-                        }
-                        // Upgrades are only allowed with HTTP/1.1
-                        UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
-                        _ => {}
-                    }
-
-                    headers.append(name, value);
+                    self.try_write_header(&mut headers, &mut decoder, idx, &slice, version)?;
                 }
 
                 let mut res = Response::new(());
