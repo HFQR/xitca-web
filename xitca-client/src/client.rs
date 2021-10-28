@@ -4,7 +4,7 @@ use tokio::{
     net::{TcpSocket, TcpStream},
     time::{Instant, Sleep},
 };
-use xitca_http::http::{self, uri, Version};
+use xitca_http::http::{self, uri, Method, Version};
 
 use crate::{
     body::RequestBody,
@@ -54,12 +54,23 @@ impl Client {
         Request::new(req, self)
     }
 
-    /// Start a new HTTP GET request with empty request body.
+    /// Start a new GET request with empty request body.
     pub fn get(&self, url: &str) -> Result<Request<'_, RequestBody>, Error> {
         let uri = uri::Uri::try_from(url)?;
 
         let mut req = http::Request::new(RequestBody::None);
         *req.uri_mut() = uri;
+
+        Ok(self.request(req))
+    }
+
+    /// Start a new POST request with empty request body.
+    pub fn post(&self, url: &str) -> Result<Request<'_, RequestBody>, Error> {
+        let uri = uri::Uri::try_from(url)?;
+
+        let mut req = http::Request::new(RequestBody::None);
+        *req.uri_mut() = uri;
+        *req.method_mut() = Method::POST;
 
         Ok(self.request(req))
     }

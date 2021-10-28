@@ -5,7 +5,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use xitca_http::{
     bytes::Bytes,
     error::BodyError,
-    h1::proto::{buf::FlatBuf, codec::TransferCoding},
+    h1::proto::{buf::FlatBuf, codec::TransferCoding, context::ConnectionType},
     http,
 };
 
@@ -17,7 +17,7 @@ pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
     req: http::Request<RequestBody<B>>,
-) -> Result<(http::Response<()>, FlatBuf<{ 1024 * 1024 }>, TransferCoding), Error>
+) -> Result<(http::Response<()>, FlatBuf<{ 1024 * 1024 }>, TransferCoding, bool), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>>,
@@ -65,7 +65,9 @@ where
         }
 
         match ctx.decode_head(&mut buf)? {
-            Some((res, decoder)) => return Ok((res, buf, decoder)),
+            Some((res, decoder)) => {
+                return Ok((res, buf, decoder, ctx.ctype() == ConnectionType::Close));
+            }
             None => continue,
         }
     }

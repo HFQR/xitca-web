@@ -9,7 +9,7 @@ use xitca_http::{
 };
 
 use crate::{
-    body::{RequestBody, ResponseBody},
+    body::{RequestBody, ResponseBody, StreamBody},
     client::Client,
     connect::Connect,
     connection::Connection,
@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// crate level HTTP request type.
-pub struct Request<'a, B> {
+pub struct Request<'a, B = StreamBody> {
     /// HTTP request type from [http] crate.
     req: http::Request<RequestBody<B>>,
     /// Referece to Client instance.
@@ -75,7 +75,14 @@ impl<'a, B> Request<'a, B> {
         self
     }
 
-    pub fn map_body<F, B1>(self, f: F) -> Request<'a, B1>
+    #[cfg(feature = "json")]
+    pub fn json(self, body: impl serde::ser::Serialize) -> Result<Request<'a>, Error> {
+        // TODO: handle serialize error.
+        let body = serde_json::to_vec(&body).unwrap();
+        Ok(self.map_body(move |_| body.into()))
+    }
+
+    fn map_body<F, B1>(self, f: F) -> Request<'a, B1>
     where
         F: FnOnce(RequestBody<B>) -> RequestBody<B1>,
     {
@@ -134,18 +141,22 @@ impl<'a, B> Request<'a, B> {
                     .await
                     .map_err(|_| TimeoutError::Request)
                 {
-                    Ok(Ok((res, buf, decoder))) => {
+                    Ok(Ok((res, buf, decoder, is_close))) => {
+                        if is_close {
+                            conn.destroy_on_drop();
+                        }
+
                         let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
                         let res = res.map(|_| ResponseBody::H1(body));
                         let timeout = client.timeout_config.response_timeout;
                         Ok(DefaultResponse::new(res, timer, timeout))
                     }
                     Ok(Err(e)) => {
-                        conn.destroy();
+                        conn.destroy_on_drop();
                         Err(e.into())
                     }
                     Err(e) => {
-                        conn.destroy();
+                        conn.destroy_on_drop();
                         Err(e.into())
                     }
                 }
@@ -156,18 +167,22 @@ impl<'a, B> Request<'a, B> {
                     .await
                     .map_err(|_| TimeoutError::Request)
                 {
-                    Ok(Ok((res, buf, decoder))) => {
+                    Ok(Ok((res, buf, decoder, is_close))) => {
+                        if is_close {
+                            conn.destroy_on_drop();
+                        }
+
                         let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
                         let res = res.map(|_| ResponseBody::H1(body));
                         let timeout = client.timeout_config.response_timeout;
                         Ok(DefaultResponse::new(res, timer, timeout))
                     }
                     Ok(Err(e)) => {
-                        conn.destroy();
+                        conn.destroy_on_drop();
                         Err(e.into())
                     }
                     Err(e) => {
-                        conn.destroy();
+                        conn.destroy_on_drop();
                         Err(e.into())
                     }
                 }
@@ -178,18 +193,22 @@ impl<'a, B> Request<'a, B> {
                     .await
                     .map_err(|_| TimeoutError::Request)
                 {
-                    Ok(Ok((res, buf, decoder))) => {
+                    Ok(Ok((res, buf, decoder, is_close))) => {
+                        if is_close {
+                            conn.destroy_on_drop();
+                        }
+
                         let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
                         let res = res.map(|_| ResponseBody::H1(body));
                         let timeout = client.timeout_config.response_timeout;
                         Ok(DefaultResponse::new(res, timer, timeout))
                     }
                     Ok(Err(e)) => {
-                        conn.destroy();
+                        conn.destroy_on_drop();
                         Err(e.into())
                     }
                     Err(e) => {
-                        conn.destroy();
+                        conn.destroy_on_drop();
                         Err(e.into())
                     }
                 }
