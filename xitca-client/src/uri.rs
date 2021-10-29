@@ -60,7 +60,11 @@ mod test {
 
         let uri = uri::Uri::from_static("http://example.com");
         let _ = Uri::try_parse(&uri).unwrap();
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn uds_parse() {
         let uri = uri::Uri::from_static("unix://tmp/foo.socket");
         let uri = Uri::try_parse(&uri).unwrap();
         assert_eq!(uri.scheme_str().unwrap(), "unix");

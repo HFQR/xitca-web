@@ -32,7 +32,7 @@ pub use xitca_http::http;
 mod test {
     use super::*;
 
-    #[cfg(feature = "openssl")]
+    #[cfg(all(feature = "openssl", feature = "json"))]
     #[tokio::test]
     async fn get_string() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let client = Client::builder()

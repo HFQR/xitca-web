@@ -160,6 +160,7 @@ where
         let res = match &mut *conn {
             Connection::Tcp(stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
             Connection::Tls(stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
+            #[cfg(unix)]
             Connection::Unix(stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
             #[cfg(feature = "http2")]
             Connection::H2(_) => todo!(),
@@ -174,6 +175,7 @@ where
                 let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
                 let res = res.map(|_| ResponseBody::H1(body));
                 let timeout = client.timeout_config.response_timeout;
+
                 Ok(DefaultResponse::new(res, timer, timeout))
             }
             Ok(Err(e)) => {
