@@ -63,6 +63,7 @@ mod test {
     }
 
     #[cfg(unix)]
+    #[test]
     fn uds_parse() {
         let uri = uri::Uri::from_static("unix://tmp/foo.socket");
         let uri = Uri::try_parse(&uri).unwrap();
