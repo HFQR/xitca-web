@@ -197,6 +197,7 @@ impl<'a, B> Request<'a, B> {
                     }
                 }
             }
+            #[cfg(unix)]
             Connection::Unix(stream) => {
                 match crate::h1::proto::send(stream, date, req)
                     .timeout(timer.as_mut())
