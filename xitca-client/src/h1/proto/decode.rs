@@ -46,15 +46,18 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
                 let mut decoder = TransferCoding::eof();
 
                 // write headers to headermap and update request states.
-                for idx in &header_idx[..headers_len] {
-                    self.try_write_header(&mut headers, &mut decoder, idx, &slice, version)?;
-                }
+                header_idx
+                    .iter()
+                    .take(headers_len)
+                    .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
+
+                let extensions = self.take_extensions();
 
                 let mut res = Response::new(());
-
                 *res.version_mut() = version;
                 *res.status_mut() = status;
                 *res.headers_mut() = headers;
+                *res.extensions_mut() = extensions;
 
                 Ok(Some((res, decoder)))
             }
