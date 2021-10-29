@@ -175,7 +175,7 @@ where
                 let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
                 let res = res.map(|_| ResponseBody::H1(body));
                 let timeout = client.timeout_config.response_timeout;
-              
+
                 Ok(DefaultResponse::new(res, timer, timeout))
             }
             Ok(Err(e)) => {
