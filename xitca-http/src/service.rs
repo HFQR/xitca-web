@@ -202,6 +202,7 @@ where
                     }
                 }
                 #[cfg(unix)]
+                #[allow(unused_mut)]
                 ServerStream::Unix(mut io) => {
                     #[cfg(not(feature = "http1"))]
                     {
