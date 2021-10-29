@@ -1,4 +1,4 @@
-use std::{pin::Pin, time::Duration};
+use std::{fmt, pin::Pin, time::Duration};
 
 use futures_util::StreamExt;
 use tokio::time::{Instant, Sleep};
@@ -17,6 +17,12 @@ pub struct Response<'a, const PAYLOAD_LIMIT: usize> {
     res: http::Response<ResponseBody<'a>>,
     timer: Pin<Box<Sleep>>,
     timeout: Duration,
+}
+
+impl<const PAYLOAD_LIMIT: usize> fmt::Debug for Response<'_, PAYLOAD_LIMIT> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.res)
+    }
 }
 
 impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {

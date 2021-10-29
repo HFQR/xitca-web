@@ -1,10 +1,15 @@
 use std::{net::SocketAddr, pin::Pin};
 
+use futures_core::stream::Stream;
 use tokio::{
     net::{TcpSocket, TcpStream},
     time::{Instant, Sleep},
 };
-use xitca_http::http::{self, uri, Method, Version};
+use xitca_http::{
+    bytes::Bytes,
+    error::BodyError,
+    http::{self, uri, Method, Version},
+};
 
 use crate::{
     body::RequestBody,
@@ -50,7 +55,11 @@ impl Client {
     }
 
     /// Start a new HTTP request with given [http::Request].
-    pub fn request<B>(&self, req: http::Request<RequestBody<B>>) -> Request<'_, B> {
+    pub fn request<B, E>(&self, req: http::Request<RequestBody<B>>) -> Request<'_, B>
+    where
+        B: Stream<Item = Result<Bytes, E>>,
+        BodyError: From<E>,
+    {
         Request::new(req, self)
     }
 

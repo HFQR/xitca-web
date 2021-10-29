@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["http2"]
+default = []
 openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["rustls-crate", "tokio-rustls", "webpki-roots"]
 http2 = ["h2"]

@@ -5,7 +5,7 @@ pub(crate) use xitca_http::{
 };
 
 use std::{
-    io,
+    fmt, io,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -25,6 +25,14 @@ pub type RequestBodySize = ResponseBodySize;
 
 pub enum ResponseBody<'c> {
     H1(h1::body::ResponseBody<ConnectionWithKey<'c>>),
+}
+
+impl fmt::Debug for ResponseBody<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::H1(_) => write!(f, "ResponseBody::H1(..)"),
+        }
+    }
 }
 
 impl Stream for ResponseBody<'_> {
