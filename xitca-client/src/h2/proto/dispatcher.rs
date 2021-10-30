@@ -3,7 +3,6 @@ use std::cmp;
 use futures_core::stream::Stream;
 use futures_util::future::poll_fn;
 use h2::client::{self, Connection, SendRequest};
-use h2::RecvStream;
 use tokio::io::{AsyncRead, AsyncWrite};
 use xitca_http::{
     bytes::Bytes,
@@ -18,7 +17,7 @@ use xitca_http::{
 };
 
 use crate::{
-    body::{RequestBody, RequestBodySize},
+    body::{RequestBody, RequestBodySize, ResponseBody},
     date::DateTimeHandle,
     h2::error::Error,
 };
@@ -27,7 +26,7 @@ pub(crate) async fn send<B, E>(
     stream: &mut SendRequest<Bytes>,
     date: DateTimeHandle<'_>,
     mut req: http::Request<RequestBody<B>>,
-) -> Result<(http::Response<RecvStream>, bool), Error>
+) -> Result<http::Response<ResponseBody<'static>>, Error>
 where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
@@ -91,7 +90,14 @@ where
     }
 
     let res = fut.await?;
-    Ok((res, is_head_method))
+
+    let res = if is_head_method {
+        res.map(|_| ResponseBody::Eof)
+    } else {
+        res.map(|body| ResponseBody::H2(body.into()))
+    };
+
+    Ok(res)
 }
 
 pub(crate) async fn handshake<S>(stream: S) -> Result<(SendRequest<Bytes>, Connection<S>), Error>

@@ -165,15 +165,8 @@ where
             #[cfg(feature = "http2")]
             Connection::H2(stream) => {
                 return match crate::h2::proto::send(stream, date, req).timeout(timer.as_mut()).await {
-                    Ok(Ok((res, is_head_method))) => {
-                        let res = if is_head_method {
-                            res.map(|_| ResponseBody::Eof)
-                        } else {
-                            res.map(|body| ResponseBody::H2(body.into()))
-                        };
-
+                    Ok(Ok(res)) => {
                         let timeout = client.timeout_config.response_timeout;
-
                         Ok(DefaultResponse::new(res, timer, timeout))
                     }
                     Ok(Err(e)) => {
