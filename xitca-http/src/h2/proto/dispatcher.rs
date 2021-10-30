@@ -208,12 +208,21 @@ where
     // set response version.
     *res.version_mut() = Version::HTTP_2;
 
-    // set content length header when it's absent.
-    if !res.headers().contains_key(CONTENT_LENGTH) {
-        if let ResponseBodySize::Sized(n) = body.size() {
-            res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(n));
+    // check eof state of response body and make sure header is valid.
+    let is_eof = match body.size() {
+        ResponseBodySize::None => {
+            debug_assert!(!res.headers().contains_key(CONTENT_LENGTH));
+            true
         }
-    }
+        ResponseBodySize::Stream => false,
+        ResponseBodySize::Sized(n) => {
+            // add an content-length header if there is non provided.
+            if !res.headers().contains_key(CONTENT_LENGTH) {
+                res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(n));
+            }
+            n == 0
+        }
+    };
 
     if !res.headers().contains_key(DATE) {
         let date = date.with_date(HeaderValue::from_bytes).unwrap();
@@ -221,36 +230,27 @@ where
     }
 
     // send response and body(if there is one).
-    if body.is_eof() {
-        let _ = tx.send_response(res, true)?;
-    } else {
-        let mut stream = tx.send_response(res, false)?;
+    let mut stream = tx.send_response(res, is_eof)?;
 
+    if !is_eof {
         pin!(body);
 
         while let Some(res) = body.as_mut().next().await {
             let mut chunk = res?;
 
-            'send: loop {
-                stream.reserve_capacity(cmp::min(chunk.len(), CHUNK_SIZE));
+            while !chunk.is_empty() {
+                let len = chunk.len();
 
-                match poll_fn(|cx| stream.poll_capacity(cx)).await {
-                    // No capacity left. drop body and return.
-                    None => return Ok(()),
-                    Some(res) => {
-                        // Split chuck to writeable size and send to client.
-                        let cap = res?;
+                stream.reserve_capacity(cmp::min(len, CHUNK_SIZE));
 
-                        let len = chunk.len();
-                        let bytes = chunk.split_to(cmp::min(cap, len));
+                let cap = poll_fn(|cx| stream.poll_capacity(cx))
+                    .await
+                    .expect("No capacity left. http2 response is dropped")?;
 
-                        stream.send_data(bytes, false)?;
+                // Split chuck to writeable size and send to client.
+                let bytes = chunk.split_to(cmp::min(cap, len));
 
-                        if chunk.is_empty() {
-                            break 'send;
-                        }
-                    }
-                }
+                stream.send_data(bytes, false)?;
             }
         }
 

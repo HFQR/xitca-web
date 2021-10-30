@@ -108,8 +108,16 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
                 res = body.next() => {
                     match res {
                         Some(res) => {
-                            let buf = res?;
+                            let buf = match res {
+                                Ok(buf) => buf,
+                                // all error path should destroy connection on drop.
+                                Err(e) => {
+                                    body.destroy_on_drop();
+                                    return Err(e.into())
+                                }
+                            };
                             if buf.len() + b.len() > limit {
+                                body.destroy_on_drop();
                                 return Err(BodyError::OverFlow.into());
                             }
                             b.try_extend_from_slice(&buf)?;
@@ -117,7 +125,10 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
                         None => break,
                     }
                 },
-                _ = &mut timer => return Err(TimeoutError::Response.into())
+                _ = &mut timer => {
+                    body.destroy_on_drop();
+                    return Err(TimeoutError::Response.into())
+                }
             }
         }
 

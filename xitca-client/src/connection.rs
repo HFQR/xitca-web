@@ -17,9 +17,6 @@ use crate::{pool::Conn, uri::Uri};
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
-#[cfg(feature = "http2")]
-use {h2::client::SendRequest, xitca_http::bytes::Bytes};
-
 use crate::tls::stream::TlsStream;
 
 /// A convince type alias for typing connection without interacting with pool.
@@ -34,7 +31,9 @@ pub enum Connection {
     #[cfg(unix)]
     Unix(UnixStream),
     #[cfg(feature = "http2")]
-    H2(SendRequest<Bytes>),
+    H2(crate::h2::Connection),
+    #[cfg(feature = "http3")]
+    H3(crate::h3::Connection),
 }
 
 impl AsyncRead for Connection {
@@ -46,6 +45,8 @@ impl AsyncRead for Connection {
             Self::Unix(stream) => Pin::new(stream).poll_read(cx, buf),
             #[cfg(feature = "http2")]
             Self::H2(_) => unimplemented!("http2 connection can not use AsyncRead"),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
         }
     }
 }
@@ -59,6 +60,8 @@ impl AsyncWrite for Connection {
             Self::Unix(stream) => Pin::new(stream).poll_write(cx, buf),
             #[cfg(feature = "http2")]
             Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
         }
     }
 
@@ -70,6 +73,8 @@ impl AsyncWrite for Connection {
             Self::Unix(stream) => Pin::new(stream).poll_flush(cx),
             #[cfg(feature = "http2")]
             Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
         }
     }
 
@@ -81,6 +86,8 @@ impl AsyncWrite for Connection {
             Self::Unix(stream) => Pin::new(stream).poll_shutdown(cx),
             #[cfg(feature = "http2")]
             Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
         }
     }
 
@@ -96,6 +103,8 @@ impl AsyncWrite for Connection {
             Self::Unix(stream) => Pin::new(stream).poll_write_vectored(cx, bufs),
             #[cfg(feature = "http2")]
             Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
         }
     }
 
@@ -107,6 +116,8 @@ impl AsyncWrite for Connection {
             Self::Unix(stream) => stream.is_write_vectored(),
             #[cfg(feature = "http2")]
             Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
         }
     }
 }
@@ -131,9 +142,16 @@ impl From<UnixStream> for Connection {
 }
 
 #[cfg(feature = "http2")]
-impl From<SendRequest<Bytes>> for Connection {
-    fn from(handle: SendRequest<Bytes>) -> Self {
-        Self::H2(handle)
+impl From<crate::h2::Connection> for Connection {
+    fn from(connection: crate::h2::Connection) -> Self {
+        Self::H2(connection)
+    }
+}
+
+#[cfg(feature = "http3")]
+impl From<crate::h3::Connection> for Connection {
+    fn from(connection: crate::h3::Connection) -> Self {
+        Self::H3(connection)
     }
 }
 

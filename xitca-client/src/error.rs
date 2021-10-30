@@ -15,6 +15,8 @@ pub enum Error {
     H1(crate::h1::Error),
     #[cfg(feature = "http2")]
     H2(crate::h2::Error),
+    #[cfg(feature = "http3")]
+    H3(crate::h3::Error),
     #[cfg(feature = "openssl")]
     Openssl(_openssl::OpensslError),
     #[cfg(feature = "rustls")]
@@ -173,5 +175,12 @@ impl From<serde_json::Error> for Error {
 impl From<crate::h2::Error> for Error {
     fn from(e: crate::h2::Error) -> Self {
         Self::H2(e)
+    }
+}
+
+#[cfg(feature = "http3")]
+impl From<crate::h3::Error> for Error {
+    fn from(e: crate::h3::Error) -> Self {
+        Self::H3(e)
     }
 }

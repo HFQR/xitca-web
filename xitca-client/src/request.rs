@@ -179,6 +179,23 @@ where
                     }
                 }
             }
+            #[cfg(feature = "http3")]
+            Connection::H3(c) => {
+                return match crate::h3::proto::send(c, date, req).timeout(timer.as_mut()).await {
+                    Ok(Ok(res)) => {
+                        let timeout = client.timeout_config.response_timeout;
+                        Ok(DefaultResponse::new(res, timer, timeout))
+                    }
+                    Ok(Err(e)) => {
+                        conn.destroy_on_drop();
+                        Err(e.into())
+                    }
+                    Err(_) => {
+                        conn.destroy_on_drop();
+                        Err(TimeoutError::Request.into())
+                    }
+                }
+            }
         };
         match res {
             Ok(Ok((res, buf, decoder, is_close))) => {

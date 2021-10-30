@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 http2 = ["h2", "itoa", "xitca-http/http2"]
+http3 = ["h3", "h3-quinn", "itoa", "async-stream"]
 openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["rustls-crate", "tokio-rustls", "webpki-roots"]
 json = ["serde", "serde_json"]
@@ -24,6 +25,13 @@ tokio-util = { version = "0.6", features = ["io"] }
 
 # http/2 support
 h2 = { version = "0.3.7", optional = true }
+
+# http/3 support
+h3 = { version = "0.0.0", optional = true }
+h3-quinn = { version = "0.0.0", optional = true }
+async-stream = { version = "0.3", optional = true }
+
+# http/2 and http/3 shared
 itoa = { version = "0.4.8", optional = true }
 
 # openssl support

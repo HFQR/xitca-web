@@ -2,7 +2,7 @@ use std::cmp;
 
 use futures_core::stream::Stream;
 use futures_util::future::poll_fn;
-use h2::client::{self, Connection, SendRequest};
+use h2::client;
 use tokio::io::{AsyncRead, AsyncWrite};
 use xitca_http::{
     bytes::Bytes,
@@ -19,11 +19,11 @@ use xitca_http::{
 use crate::{
     body::{RequestBody, RequestBodySize, ResponseBody},
     date::DateTimeHandle,
-    h2::error::Error,
+    h2::{Connection, Error},
 };
 
 pub(crate) async fn send<B, E>(
-    stream: &mut SendRequest<Bytes>,
+    stream: &mut crate::h2::Connection,
     date: DateTimeHandle<'_>,
     mut req: http::Request<RequestBody<B>>,
 ) -> Result<http::Response<ResponseBody<'static>>, Error>
@@ -36,18 +36,25 @@ where
     let (parts, body) = req.into_parts();
     let mut req = http::Request::from_parts(parts, ());
 
-    // Content length
-    match body.size() {
-        RequestBodySize::None | RequestBodySize::Stream => {
+    // Content length and is body is in eof state.
+    let is_eof = match body.size() {
+        RequestBodySize::None => {
             req.headers_mut().remove(CONTENT_LENGTH);
+            true
+        }
+        RequestBodySize::Stream => {
+            req.headers_mut().remove(CONTENT_LENGTH);
+            false
         }
         RequestBodySize::Sized(len) if len == 0 => {
             req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
+            true
         }
         RequestBodySize::Sized(len) => {
             let mut buf = itoa::Buffer::new();
             req.headers_mut()
                 .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
+            false
         }
     };
 
@@ -62,31 +69,33 @@ where
         req.headers_mut().append(DATE, date);
     }
 
-    let is_eof = body.is_eof();
     let is_head_method = *req.method() == Method::HEAD;
 
-    let (fut, mut tx) = stream.send_request(req, is_eof)?;
+    let (fut, mut stream) = stream.send_request(req, is_eof)?;
 
     if !is_eof {
         tokio::pin!(body);
 
-        while let Some(bytes) = body.as_mut().next().await {
-            let mut bytes = bytes?;
+        while let Some(res) = body.as_mut().next().await {
+            let mut chunk = res?;
 
-            while bytes.len() > 0 {
-                tx.reserve_capacity(bytes.len());
+            while !chunk.is_empty() {
+                let len = chunk.len();
 
-                let size = poll_fn(|cx| tx.poll_capacity(cx)).await.unwrap()?;
+                stream.reserve_capacity(len);
 
-                let offset = cmp::min(size, bytes.len());
-                let buf = bytes.split_to(offset);
+                let cap = poll_fn(|cx| stream.poll_capacity(cx))
+                    .await
+                    .expect("No capacity left. http2 request is dropped")?;
 
-                tx.send_data(buf, false)?;
+                // Split chuck to writeable size and send to client.
+                let bytes = chunk.split_to(cmp::min(cap, len));
+
+                stream.send_data(bytes, false)?;
             }
         }
 
-        tx.send_data(Bytes::new(), true)?;
-        tx.reserve_capacity(0);
+        stream.send_data(Bytes::new(), true)?;
     }
 
     let res = fut.await?;
@@ -100,9 +109,17 @@ where
     Ok(res)
 }
 
-pub(crate) async fn handshake<S>(stream: S) -> Result<(SendRequest<Bytes>, Connection<S>), Error>
+pub(crate) async fn handshake<S>(stream: S) -> Result<Connection, Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    client::handshake(stream).await.map_err(Into::into)
+    let mut builder = client::Builder::new();
+    builder.enable_push(false);
+
+    let (conn, task) = builder.handshake(stream).await?;
+    tokio::spawn(async {
+        task.await.expect("http2 connection failed");
+    });
+
+    Ok(conn)
 }
