@@ -163,9 +163,23 @@ where
             #[cfg(unix)]
             Connection::Unix(stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
             #[cfg(feature = "http2")]
-            Connection::H2(_) => todo!(),
+            Connection::H2(stream) => {
+                return match crate::h2::proto::send(stream, date, req).timeout(timer.as_mut()).await {
+                    Ok(Ok(res)) => {
+                        let timeout = client.timeout_config.response_timeout;
+                        Ok(DefaultResponse::new(res, timer, timeout))
+                    }
+                    Ok(Err(e)) => {
+                        conn.destroy_on_drop();
+                        Err(e.into())
+                    }
+                    Err(_) => {
+                        conn.destroy_on_drop();
+                        Err(TimeoutError::Request.into())
+                    }
+                }
+            }
         };
-
         match res {
             Ok(Ok((res, buf, decoder, is_close))) => {
                 if is_close {

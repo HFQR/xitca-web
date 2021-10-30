@@ -1,8 +1,9 @@
-mod body;
 mod builder;
 mod error;
 mod proto;
 mod service;
+
+pub mod body;
 
 pub(crate) use self::proto::Dispatcher;
 

@@ -178,7 +178,7 @@ impl Client {
             Version::HTTP_2 => {
                 #[cfg(feature = "http2")]
                 {
-                    let (handle, conn) = h2::client::handshake(stream).await?;
+                    let (handle, conn) = crate::h2::proto::handshake(stream).await?;
                     tokio::spawn(async {
                         conn.await.expect("http2 connection failed");
                     });

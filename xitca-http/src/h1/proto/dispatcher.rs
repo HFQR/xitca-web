@@ -176,7 +176,7 @@ where
 
     /// drain write buffer and flush the io.
     async fn drain_write(&mut self) -> Result<(), Error<E>> {
-        while !self.write_buf.empty() {
+        while !self.write_buf.is_empty() {
             self.try_write()?;
             let _ = self.io.ready(Interest::WRITABLE).await?;
         }
@@ -203,7 +203,7 @@ where
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for `crate::util::futures::Select`.
     async fn writable(&self) -> Result<(), Error<E>> {
-        if self.write_buf.empty() {
+        if self.write_buf.is_empty() {
             never().await
         } else {
             let _ = self.io.ready(Interest::WRITABLE).await?;

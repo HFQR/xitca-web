@@ -5,9 +5,9 @@ edition = "2021"
 
 [features]
 default = []
+http2 = ["h2", "itoa", "xitca-http/http2"]
 openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["rustls-crate", "tokio-rustls", "webpki-roots"]
-http2 = ["h2"]
 json = ["serde", "serde_json"]
 
 [dependencies]
@@ -24,6 +24,7 @@ tokio-util = { version = "0.6", features = ["io"] }
 
 # http/2 support
 h2 = { version = "0.3.7", optional = true }
+itoa = { version = "0.4.8", optional = true }
 
 # openssl support
 openssl-crate = { package = "openssl", version = "0.10", optional = true }

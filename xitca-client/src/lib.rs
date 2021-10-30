@@ -30,13 +30,10 @@ pub use xitca_http::http;
 
 #[cfg(test)]
 mod test {
-    #[cfg(feature = "openssl")]
+    #[cfg(all(feature = "openssl", feature = "http2"))]
     #[tokio::test]
     async fn get_string() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let client = crate::Client::builder()
-            .openssl()
-            .set_max_http_version(crate::http::Version::HTTP_11)
-            .finish();
+        let client = crate::Client::builder().openssl().finish();
 
         let string = client
             .get("https://www.rust-lang.org")?

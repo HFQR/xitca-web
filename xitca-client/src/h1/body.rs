@@ -10,6 +10,7 @@ use tokio::io::AsyncRead;
 use tokio_util::io::poll_read_buf;
 use xitca_http::{
     bytes::Bytes,
+    error::BodyError,
     h1::proto::{buf::FlatBuf, codec::TransferCoding},
 };
 
@@ -34,7 +35,7 @@ where
     C: DerefMut + Unpin,
     C::Target: AsyncRead + Unpin + Sized,
 {
-    type Item = io::Result<Bytes>;
+    type Item = Result<Bytes, BodyError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -52,7 +53,7 @@ where
                         let n = ready!(poll_read_buf(Pin::new(&mut *this.conn), cx, &mut *this.buf))?;
 
                         if n == 0 {
-                            return Poll::Ready(Some(Err(io::ErrorKind::UnexpectedEof.into())));
+                            return Poll::Ready(Some(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())));
                         }
                     }
                 },
