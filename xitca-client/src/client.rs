@@ -33,6 +33,8 @@ pub struct Client {
     pub(crate) timeout_config: TimeoutConfig,
     pub(crate) local_addr: Option<SocketAddr>,
     pub(crate) date_service: DateTimeService,
+    #[cfg(feature = "http3")]
+    pub(crate) h3_client: h3_quinn::quinn::Endpoint,
 }
 
 impl Default for Client {
@@ -93,7 +95,21 @@ impl Client {
     ) -> Result<Connection, Error> {
         match connect.uri {
             Uri::Tcp(_) => self.make_tcp(connect, timer).await.map(Into::into),
-            Uri::Tls(_) => self.make_tls(connect, timer).await,
+            Uri::Tls(_) => {
+                #[cfg(feature = "http3")]
+                {
+                    // TODO: find better way to discover http3.
+                    if let Ok(conn) = self.make_h3(connect, timer).await.map_err(|e| {
+                        println!("{}", e);
+                        e
+                    }) {
+                        return Ok(conn);
+                    }
+                    // Fallback to tcp if http3 failed.
+                }
+
+                self.make_tls(connect, timer).await
+            }
             #[cfg(unix)]
             Uri::Unix(uri) => self.make_unix(uri, timer).await,
         }
@@ -178,12 +194,9 @@ impl Client {
             Version::HTTP_2 => {
                 #[cfg(feature = "http2")]
                 {
-                    let (handle, conn) = crate::h2::proto::handshake(stream).await?;
-                    tokio::spawn(async {
-                        conn.await.expect("http2 connection failed");
-                    });
+                    let connection = crate::h2::proto::handshake(stream).await?;
 
-                    Ok(handle.into())
+                    Ok(connection.into())
                 }
 
                 #[cfg(not(feature = "http2"))]
@@ -191,8 +204,48 @@ impl Client {
                     Ok(stream.into())
                 }
             }
-            Version::HTTP_3 => unimplemented!("Protocol::HTTP3 is not yet supported"),
+            Version::HTTP_3 => unreachable!("HTTP_3 can not use TCP connection"),
             _ => unreachable!("HTTP_09 and HTTP_10 is impossible for tls connections"),
+        }
+    }
+
+    #[cfg(feature = "http3")]
+    async fn make_h3(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
+        self.resolver
+            .resolve(connect)
+            .timeout(timer.as_mut())
+            .await
+            .map_err(|_| TimeoutError::Resolve)??;
+
+        timer
+            .as_mut()
+            .reset(Instant::now() + self.timeout_config.connect_timeout);
+
+        let stream = self
+            .make_h3_inner(connect)
+            .timeout(timer.as_mut())
+            .await
+            .map_err(|_| TimeoutError::Connect)??;
+
+        Ok(stream)
+    }
+
+    #[cfg(feature = "http3")]
+    async fn make_h3_inner(&self, connect: &mut Connect<'_>) -> Result<Connection, Error> {
+        let mut iter = connect.addrs();
+
+        let mut addr = iter.next().ok_or(Error::Resolve)?;
+
+        // try to connect with all addresses resolved by dns resolver.
+        // return the last error when all are fail to be connected.
+        loop {
+            match crate::h3::proto::connect(&self.h3_client, &addr, connect.hostname()).await {
+                Ok(connection) => return Ok(connection.into()),
+                Err(e) => match iter.next() {
+                    Some(a) => addr = a,
+                    None => return Err(e.into()),
+                },
+            }
         }
     }
 

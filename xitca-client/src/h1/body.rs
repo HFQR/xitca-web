@@ -28,6 +28,10 @@ impl<C> ResponseBody<C> {
 
         Self { conn, buf, decoder }
     }
+
+    pub(crate) fn conn(&mut self) -> &mut C {
+        &mut self.conn
+    }
 }
 
 impl<C> Stream for ResponseBody<C>

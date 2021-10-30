@@ -9,7 +9,7 @@ use xitca_http::{
     http,
 };
 
-use crate::{body::RequestBody, date::DateTimeHandle, h1::error::Error};
+use crate::{body::RequestBody, date::DateTimeHandle, h1::Error};
 
 use super::context::Context;
 

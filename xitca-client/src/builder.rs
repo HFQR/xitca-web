@@ -142,13 +142,48 @@ impl ClientBuilder {
 
     /// Finish the builder and construct [Client] instance.
     pub fn finish(self) -> Client {
-        let mut client = Client {
-            pool: Pool::with_capacity(self.pool_capacity),
-            connector: Connector::default(),
-            resolver: self.resolver,
-            timeout_config: self.timeout_config,
-            local_addr: self.local_addr,
-            date_service: DateTimeService::new(),
+        let mut client = {
+            #[cfg(feature = "http3")]
+            {
+                use h3_quinn::quinn::{ClientConfigBuilder, Endpoint};
+
+                assert_eq!(
+                    self.max_http_version,
+                    Version::HTTP_3,
+                    "Please disable http3 feature if max_http_version is below HTTP_3"
+                );
+
+                let mut config = ClientConfigBuilder::default();
+                config.protocols(&[b"h3-29"]);
+
+                let mut builder = Endpoint::builder();
+                builder.default_client_config(config.build());
+
+                let (h3_client, _) = match self.local_addr {
+                    Some(addr) => builder.bind(&addr).unwrap(),
+                    None => builder.bind(&"0.0.0.0:0".parse().unwrap()).unwrap(),
+                };
+
+                Client {
+                    pool: Pool::with_capacity(self.pool_capacity),
+                    connector: Connector::default(),
+                    resolver: self.resolver,
+                    timeout_config: self.timeout_config,
+                    local_addr: self.local_addr,
+                    date_service: DateTimeService::new(),
+                    h3_client,
+                }
+            }
+
+            #[cfg(not(feature = "http3"))]
+            Client {
+                pool: Pool::with_capacity(self.pool_capacity),
+                connector: Connector::default(),
+                resolver: self.resolver,
+                timeout_config: self.timeout_config,
+                local_addr: self.local_addr,
+                date_service: DateTimeService::new(),
+            }
         };
 
         match self.connector_builder {
