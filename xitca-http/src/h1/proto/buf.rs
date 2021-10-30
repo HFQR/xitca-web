@@ -4,11 +4,13 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use bytes::{buf::Chain, Buf, BufMut, Bytes, BytesMut};
 use xitca_server::net::AsyncReadWrite;
 
-use crate::h1::error::Error;
-use crate::util::{buf_list::BufList, writer::Writer};
+use crate::{
+    bytes::{buf::Chain, Buf, BufMut, Bytes, BytesMut},
+    h1::error::Error,
+    util::{buf_list::BufList, writer::Writer},
+};
 
 // buf list is forced to go in backpressure when it reaches this length.
 // 32 is chosen for max of 16 pipelined http requests with a single body item.
@@ -18,7 +20,7 @@ const BUF_LIST_CNT: usize = 32;
 pub trait WriteBuf {
     fn backpressure(&self) -> bool;
 
-    fn empty(&self) -> bool;
+    fn is_empty(&self) -> bool;
 
     fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
@@ -75,7 +77,7 @@ impl<const BUF_LIMIT: usize> WriteBuf for FlatBuf<BUF_LIMIT> {
     }
 
     #[inline]
-    fn empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.remaining() == 0
     }
 
@@ -214,7 +216,7 @@ impl<const BUF_LIMIT: usize> WriteBuf for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
     }
 
     #[inline]
-    fn empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.list.remaining() == 0
     }
 
