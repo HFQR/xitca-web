@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["http3"]
+default = []
 http2 = ["h2", "itoa", "xitca-http/http2"]
 http3 = ["h3", "h3-quinn", "itoa", "async-stream"]
 openssl = ["openssl-crate", "tokio-openssl"]
