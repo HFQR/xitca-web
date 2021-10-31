@@ -3,11 +3,10 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::Bytes;
 use futures_core::Stream;
 use h2::RecvStream;
 
-use crate::error::BodyError;
+use crate::{bytes::Bytes, error::BodyError};
 
 /// Request body type for Http/2 specifically.
 pub struct RequestBody(RecvStream);

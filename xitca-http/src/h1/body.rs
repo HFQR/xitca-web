@@ -7,11 +7,9 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use bytes::Bytes;
 use futures_core::Stream;
 
-use crate::error::BodyError;
-use crate::util::futures::poll_fn;
+use crate::{bytes::Bytes, error::BodyError, util::futures::poll_fn};
 
 /// max buffer size 32k
 pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;

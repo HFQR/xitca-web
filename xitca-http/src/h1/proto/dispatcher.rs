@@ -1,6 +1,5 @@
 use std::{io, marker::PhantomData, pin::Pin, time::Duration};
 
-use bytes::Bytes;
 use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use tokio::{
@@ -8,11 +7,12 @@ use tokio::{
     pin,
 };
 use tracing::trace;
-use xitca_server::net::AsyncReadWrite;
+use xitca_io::io::AsyncIo;
 use xitca_service::Service;
 
 use crate::{
     body::ResponseBody,
+    bytes::Bytes,
     config::HttpServiceConfig,
     date::DateTime,
     error::BodyError,
@@ -69,7 +69,7 @@ where
 
     S::Error: From<X::Error>,
 
-    St: AsyncReadWrite,
+    St: AsyncIo,
 
     D: DateTime,
 {
@@ -127,7 +127,7 @@ struct Io<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usiz
 impl<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     Io<'a, St, W, E, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    St: AsyncReadWrite,
+    St: AsyncIo,
     W: WriteBuf,
 {
     fn new(io: &'a mut St, write_buf: W) -> Self {
@@ -245,7 +245,7 @@ where
 
     S::Error: From<X::Error>,
 
-    St: AsyncReadWrite,
+    St: AsyncIo,
     W: WriteBuf,
 
     D: DateTime,

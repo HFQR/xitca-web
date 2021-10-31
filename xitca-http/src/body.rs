@@ -4,11 +4,13 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::{Bytes, BytesMut};
 use futures_core::stream::{LocalBoxStream, Stream};
 use pin_project_lite::pin_project;
 
-use super::error::BodyError;
+use super::{
+    bytes::{Bytes, BytesMut},
+    error::BodyError,
+};
 
 /// A unified request body type for different http protocols.
 /// This enables one service type to handle multiple http protocols.

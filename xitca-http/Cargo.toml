@@ -13,10 +13,10 @@ rustls = ["futures-task", "tokio-rustls", "tokio-util/io"]
 native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "tokio-util/io"]
 
 [dependencies]
+xitca-io = "0.1"
 xitca-server = { version = "0.1", default-features = false }
 xitca-service = "0.1"
 
-bytes = "1"
 futures-core = "0.3.17"
 http = "0.2.5"
 httpdate = "1.0"

@@ -5,18 +5,18 @@ edition = "2021"
 
 [features]
 default = ["signal"]
-http3 = ["async-channel", "quinn"]
+http3 = ["async-channel", "quinn", "tokio/net"]
 io-uring = ["tokio-uring"]
 signal = ["tokio/signal"]
 
 [dependencies]
+xitca-io = "0.1"
 xitca-service = "0.1"
 
-bytes = "1"
 futures-core = "0.3"
 num_cpus = "1.13"
 pin-project-lite = "0.2.6"
-tokio = { version = "1.5", features = ["net", "parking_lot", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.5", features = ["parking_lot", "rt-multi-thread", "sync", "time"] }
 tracing = { version = "0.1.29", default-features = false }
 
 # http/3 support

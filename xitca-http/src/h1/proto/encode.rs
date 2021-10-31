@@ -1,8 +1,8 @@
-use bytes::{BufMut, BytesMut};
 use tracing::{debug, warn};
 
 use crate::{
     body::ResponseBodySize,
+    bytes::{BufMut, BytesMut},
     date::DateTime,
     http::{
         header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},

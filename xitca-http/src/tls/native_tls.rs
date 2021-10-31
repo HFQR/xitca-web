@@ -8,14 +8,12 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::BufMut;
 use futures_task::noop_waker;
-use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use tokio_util::io::poll_read_buf;
-use xitca_server::net::AsyncReadWrite;
+use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use xitca_service::{Service, ServiceFactory};
 
-use crate::{http::Version, version::AsVersion};
+use crate::{bytes::BufMut, http::Version, version::AsVersion};
 
 use super::error::TlsError;
 
@@ -68,7 +66,7 @@ impl TlsAcceptorService {
     }
 }
 
-impl<St: AsyncReadWrite> ServiceFactory<St> for TlsAcceptorService {
+impl<St: AsyncIo> ServiceFactory<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = NativeTlsError;
     type Config = ();
@@ -82,7 +80,7 @@ impl<St: AsyncReadWrite> ServiceFactory<St> for TlsAcceptorService {
     }
 }
 
-impl<St: AsyncReadWrite> Service<St> for TlsAcceptorService {
+impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = NativeTlsError;
 
@@ -140,7 +138,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStream<S> {
     }
 }
 
-impl<S: AsyncReadWrite> AsyncReadWrite for TlsStream<S> {
+impl<S: AsyncIo> AsyncIo for TlsStream<S> {
     type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>>;
 
     #[inline]

@@ -2,7 +2,7 @@
 
 use std::{collections::VecDeque, io::IoSlice};
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use crate::bytes::{Buf, BufMut, Bytes, BytesMut};
 
 pub(crate) struct BufList<B> {
     bufs: VecDeque<B>,

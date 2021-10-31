@@ -1,7 +1,8 @@
 use std::{cmp, io};
 
-use bytes::{Buf, Bytes, BytesMut};
 use tracing::{trace, warn};
+
+use crate::bytes::{Buf, Bytes, BytesMut};
 
 use super::{
     buf::WriteBuf,

@@ -4,11 +4,13 @@ use std::{
     io::{self, Write},
 };
 
-use bytes::{Bytes, BytesMut};
 use http::{header, status::StatusCode, Response};
 
-use super::body::ResponseBody;
-use super::util::writer::Writer;
+use super::{
+    body::ResponseBody,
+    bytes::{Bytes, BytesMut},
+    util::writer::Writer,
+};
 
 /// Helper trait for convert Service::Error type to Service::Response.
 // TODO: Add method to modify status code.
