@@ -1,4 +1,4 @@
-use xitca_server::net::{Stream, TcpStream};
+use xitca_io::net::TcpStream;
 
 use crate::http::Version;
 
@@ -15,7 +15,7 @@ pub trait AsVersion {
     }
 }
 
-impl AsVersion for Stream {
+impl AsVersion for xitca_server::net::Stream {
     #[inline]
     fn as_version(&self) -> Version {
         match *self {

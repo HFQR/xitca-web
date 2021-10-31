@@ -4,18 +4,19 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::Bytes;
 use futures_core::Stream;
 use http::{Request, Response};
 use xitca_server::net::UdpStream;
 use xitca_service::Service;
 
-use super::proto::Dispatcher;
-use crate::body::ResponseBody;
-use crate::error::{BodyError, HttpServiceError};
-use crate::flow::HttpFlow;
+use crate::{
+    body::ResponseBody,
+    bytes::Bytes,
+    error::{BodyError, HttpServiceError},
+    flow::HttpFlow,
+};
 
-use super::body::RequestBody;
+use super::{body::RequestBody, proto::Dispatcher};
 
 pub struct H3Service<S> {
     flow: HttpFlow<S, (), ()>,

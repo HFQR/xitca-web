@@ -1,6 +1,8 @@
 use std::{collections::HashMap, future::Future, io, net, pin::Pin, time::Duration};
 
-use crate::net::{AsListener, FromStream, TcpSocket};
+use xitca_io::net::TcpSocket;
+
+use crate::net::{AsListener, FromStream};
 use crate::server::{AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone};
 
 pub struct Builder {

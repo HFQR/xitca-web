@@ -4,22 +4,21 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::Bytes;
 use futures_core::{ready, Stream};
 use http::{Request, Response};
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    pin,
-};
+use tokio::pin;
+use xitca_io::io::{AsyncRead, AsyncWrite};
 use xitca_service::Service;
 
-use crate::body::ResponseBody;
-use crate::error::{BodyError, HttpServiceError, TimeoutError};
-use crate::service::HttpService;
-use crate::util::futures::Timeout;
+use crate::{
+    body::ResponseBody,
+    bytes::Bytes,
+    error::{BodyError, HttpServiceError, TimeoutError},
+    service::HttpService,
+    util::futures::Timeout,
+};
 
-use super::body::RequestBody;
-use super::proto::Dispatcher;
+use super::{body::RequestBody, proto::Dispatcher};
 
 pub type H2Service<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
     HttpService<S, RequestBody, (), (), A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;

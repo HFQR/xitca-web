@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use xitca_server::net::AsyncReadWrite;
+use xitca_io::io::AsyncIo;
 
 use crate::{
     bytes::{buf::Chain, Buf, BufMut, Bytes, BytesMut},
@@ -32,7 +32,7 @@ pub trait WriteBuf {
 
     fn write_chunk(&mut self, bytes: Bytes);
 
-    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<(), Error<E>>;
+    fn try_write_io<Io: AsyncIo, E>(&mut self, io: &mut Io) -> Result<(), Error<E>>;
 }
 
 pub struct FlatBuf<const BUF_LIMIT: usize>(BytesMut);
@@ -107,7 +107,7 @@ impl<const BUF_LIMIT: usize> WriteBuf for FlatBuf<BUF_LIMIT> {
         self.put_slice(b"\r\n");
     }
 
-    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<(), Error<E>> {
+    fn try_write_io<Io: AsyncIo, E>(&mut self, io: &mut Io) -> Result<(), Error<E>> {
         let mut written = 0;
         let len = self.remaining();
 
@@ -249,7 +249,7 @@ impl<const BUF_LIMIT: usize> WriteBuf for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
         self.buffer(EncodedBuf::Chunk(eof));
     }
 
-    fn try_write_io<Io: AsyncReadWrite, E>(&mut self, io: &mut Io) -> Result<(), Error<E>> {
+    fn try_write_io<Io: AsyncIo, E>(&mut self, io: &mut Io) -> Result<(), Error<E>> {
         let queue = &mut self.list;
         while queue.remaining() > 0 {
             let mut iovs = [io::IoSlice::new(&[]); BUF_LIST_CNT];

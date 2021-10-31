@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use bytes::BufMut;
+use crate::bytes::BufMut;
 
 pub(crate) struct Writer<'a, B>(&'a mut B);
 

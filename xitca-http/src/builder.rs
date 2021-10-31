@@ -1,20 +1,23 @@
 use std::{fmt, future::Future, marker::PhantomData};
 
-use bytes::Bytes;
 use futures_core::Stream;
 use http::{Request, Response};
-use xitca_server::net::{AsyncReadWrite, Stream as ServerStream, TcpStream};
+use xitca_io::{io::AsyncIo, net::TcpStream};
+use xitca_server::net::Stream as ServerStream;
 use xitca_service::ServiceFactory;
 
-use super::body::{RequestBody, ResponseBody};
-use super::config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT};
-use super::error::{BodyError, HttpServiceError};
-use super::expect::ExpectHandler;
-use super::service::HttpService;
-use super::tls::{self};
-use super::upgrade::UpgradeHandler;
-use super::util::LoggerFactory;
-use super::version::AsVersion;
+use super::{
+    body::{RequestBody, ResponseBody},
+    bytes::Bytes,
+    config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
+    error::{BodyError, HttpServiceError},
+    expect::ExpectHandler,
+    service::HttpService,
+    tls,
+    upgrade::UpgradeHandler,
+    util::LoggerFactory,
+    version::AsVersion,
+};
 
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
@@ -314,7 +317,7 @@ where
 
     FA: ServiceFactory<TcpStream, Config = ()>,
     FA::Service: 'static,
-    FA::Response: AsyncReadWrite + AsVersion,
+    FA::Response: AsyncIo + AsVersion,
 
     HttpServiceError<F::Error>: From<FU::Error> + From<FA::Error>,
     F::Error: From<FE::Error>,

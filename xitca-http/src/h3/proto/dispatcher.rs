@@ -1,6 +1,5 @@
 use std::{fmt, future::Future, marker::PhantomData, rc::Rc};
 
-use bytes::Bytes;
 use futures_core::Stream;
 use futures_intrusive::sync::LocalMutex;
 use h3::{
@@ -11,10 +10,13 @@ use http::{Request, Response};
 use xitca_server::net::UdpStream;
 use xitca_service::Service;
 
-use crate::body::ResponseBody;
-use crate::error::{BodyError, HttpServiceError};
-use crate::flow::HttpFlow;
-use crate::h3::{body::RequestBody, error::Error};
+use crate::{
+    body::ResponseBody,
+    bytes::Bytes,
+    error::{BodyError, HttpServiceError},
+    flow::HttpFlow,
+    h3::{body::RequestBody, error::Error},
+};
 
 /// Http/3 dispatcher
 pub(crate) struct Dispatcher<'a, S, ReqB, X, U> {

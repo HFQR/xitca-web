@@ -34,7 +34,7 @@ pub mod util;
 pub use http;
 
 /// re-export bytes crate as module.
-pub use bytes;
+pub use xitca_io::bytes;
 
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;

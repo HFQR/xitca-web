@@ -1,13 +1,13 @@
 use std::future::Future;
 
-use bytes::Bytes;
 use futures_core::Stream;
-use xitca_server::net::AsyncReadWrite;
+use xitca_io::io::AsyncIo;
 use xitca_service::ServiceFactory;
 
 use crate::{
     body::ResponseBody,
     builder::HttpServiceBuilder,
+    bytes::Bytes,
     error::{BodyError, HttpServiceError},
     http::{Request, Response},
 };
@@ -62,8 +62,8 @@ where
     E: 'static,
     BodyError: From<E>,
 
-    St: AsyncReadWrite,
-    TlsSt: AsyncReadWrite,
+    St: AsyncIo,
+    TlsSt: AsyncIo,
 {
     type Response = ();
     type Error = HttpServiceError<F::Error>;

@@ -6,14 +6,15 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::Bytes;
 use futures_core::{ready, Stream};
 use tokio::pin;
-use xitca_server::net::{AsyncReadWrite, Stream as ServerStream, TcpStream};
+use xitca_io::{io::AsyncIo, net::TcpStream};
+use xitca_server::net::Stream as ServerStream;
 use xitca_service::Service;
 
 use super::{
     body::{RequestBody, ResponseBody},
+    bytes::Bytes,
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
     error::{BodyError, HttpServiceError, TimeoutError},
@@ -118,7 +119,7 @@ where
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     U: Service<Request<RequestBody>, Response = ()> + 'static,
     A: Service<TcpStream> + 'static,
-    A::Response: AsyncReadWrite + AsVersion,
+    A::Response: AsyncIo + AsVersion,
 
     HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
 
