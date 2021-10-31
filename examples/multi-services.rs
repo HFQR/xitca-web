@@ -16,7 +16,7 @@ use xitca_http::{
     util::LoggerFactory,
     HttpServiceBuilder, ResponseBody,
 };
-use xitca_server::net::TcpStream;
+use xitca_io::net::TcpStream;
 use xitca_service::fn_service;
 
 #[tokio::main(flavor = "current_thread")]
