@@ -6,7 +6,7 @@ use xitca_http::{
     bytes::Bytes,
     error::BodyError,
     h1::proto::{buf::FlatBuf, codec::TransferCoding, context::ConnectionType},
-    http,
+    http::{self, Method},
 };
 
 use crate::{body::RequestBody, date::DateTimeHandle, h1::Error};
@@ -17,12 +17,22 @@ pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
     req: http::Request<RequestBody<B>>,
-) -> Result<(http::Response<()>, FlatBuf<{ 1024 * 1024 }>, TransferCoding, bool), Error>
+) -> Result<
+    (
+        http::Response<()>,
+        FlatBuf<{ 1024 * 1024 }>,
+        Option<TransferCoding>,
+        bool,
+    ),
+    Error,
+>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
+    let is_head_method = *req.method() == Method::HEAD;
+
     let (parts, body) = req.into_parts();
 
     // TODO: make const generic params configurable.
@@ -66,7 +76,14 @@ where
 
         match ctx.decode_head(&mut buf)? {
             Some((res, decoder)) => {
-                return Ok((res, buf, decoder, ctx.ctype() == ConnectionType::Close));
+                let decoder = match (is_head_method, decoder.is_eof()) {
+                    (false, false) => Some(decoder),
+                    _ => None,
+                };
+
+                let is_close = matches!(ctx.ctype(), ConnectionType::Close);
+
+                return Ok((res, buf, decoder, is_close));
             }
             None => continue,
         }
