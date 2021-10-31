@@ -99,7 +99,7 @@ macro_rules! byte (
             $rdr.advance(1);
             b
         } else {
-            return Ok(None)
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF during chunk size line"));
         }
     })
 );
@@ -204,7 +204,8 @@ impl ChunkedState {
     fn read_body(rdr: &mut BytesMut, rem: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<ChunkedState>> {
         let len = rdr.len() as u64;
         if len == 0 {
-            Ok(Some(ChunkedState::Body))
+            *rem = 0;
+            return Err(incomplete_body());
         } else {
             let slice;
             if *rem > len {
@@ -339,11 +340,11 @@ impl TransferCoding {
                 if *remaining == 0 {
                     Ok(Some(Bytes::new()))
                 } else {
-                    if src.is_empty() {
-                        return Ok(None);
-                    }
                     let len = src.len() as u64;
                     let buf = if *remaining > len {
+                        if len == 0 {
+                            return Err(incomplete_body());
+                        }
                         *remaining -= len;
                         src.split().freeze()
                     } else {
@@ -370,10 +371,6 @@ impl TransferCoding {
                     if let Some(buf) = buf {
                         return Ok(Some(buf));
                     }
-
-                    if src.is_empty() {
-                        return Ok(None);
-                    }
                 }
             }
             Self::PlainChunked => {
@@ -388,4 +385,224 @@ impl TransferCoding {
             _ => unreachable!(),
         }
     }
+}
+
+#[inline(never)]
+#[cold]
+fn incomplete_body() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "end of file before message length reached",
+    )
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_read_chunk_size() {
+        use std::io::ErrorKind::{InvalidData, InvalidInput, UnexpectedEof};
+
+        fn read(s: &str) -> u64 {
+            let mut state = ChunkedState::Size;
+            let rdr = &mut BytesMut::from(s);
+            let mut size = 0;
+            loop {
+                let result = state.step(rdr, &mut size, &mut None);
+                let desc = format!("read_size failed for {:?}", s);
+                state = result.expect(desc.as_str()).unwrap();
+                if state == ChunkedState::Body || state == ChunkedState::EndCr {
+                    break;
+                }
+            }
+            size
+        }
+
+        fn read_err(s: &str, expected_err: io::ErrorKind) {
+            let mut state = ChunkedState::Size;
+            let rdr = &mut BytesMut::from(s);
+            let mut size = 0;
+            loop {
+                let result = state.step(rdr, &mut size, &mut None);
+                state = match result {
+                    Ok(s) => s.unwrap(),
+                    Err(e) => {
+                        assert_eq!(
+                            expected_err,
+                            e.kind(),
+                            "Reading {:?}, expected {:?}, but got {:?}",
+                            s,
+                            expected_err,
+                            e.kind()
+                        );
+                        return;
+                    }
+                };
+                if state == ChunkedState::Body || state == ChunkedState::End {
+                    panic!("Was Ok. Expected Err for {:?}", s);
+                }
+            }
+        }
+
+        assert_eq!(1, read("1\r\n"));
+        assert_eq!(1, read("01\r\n"));
+        assert_eq!(0, read("0\r\n"));
+        assert_eq!(0, read("00\r\n"));
+        assert_eq!(10, read("A\r\n"));
+        assert_eq!(10, read("a\r\n"));
+        assert_eq!(255, read("Ff\r\n"));
+        assert_eq!(255, read("Ff   \r\n"));
+        // Missing LF or CRLF
+        read_err("F\rF", InvalidInput);
+        read_err("F", UnexpectedEof);
+        // Invalid hex digit
+        read_err("X\r\n", InvalidInput);
+        read_err("1X\r\n", InvalidInput);
+        read_err("-\r\n", InvalidInput);
+        read_err("-1\r\n", InvalidInput);
+        // Acceptable (if not fully valid) extensions do not influence the size
+        assert_eq!(1, read("1;extension\r\n"));
+        assert_eq!(10, read("a;ext name=value\r\n"));
+        assert_eq!(1, read("1;extension;extension2\r\n"));
+        assert_eq!(1, read("1;;;  ;\r\n"));
+        assert_eq!(2, read("2; extension...\r\n"));
+        assert_eq!(3, read("3   ; extension=123\r\n"));
+        assert_eq!(3, read("3   ;\r\n"));
+        assert_eq!(3, read("3   ;   \r\n"));
+        // Invalid extensions cause an error
+        read_err("1 invalid extension\r\n", InvalidInput);
+        read_err("1 A\r\n", InvalidInput);
+        read_err("1;no CRLF", UnexpectedEof);
+        read_err("1;reject\nnewlines\r\n", InvalidData);
+        // Overflow
+        read_err("f0000000000000003\r\n", InvalidData);
+    }
+
+    #[test]
+    fn test_read_sized_early_eof() {
+        let bytes = &mut BytesMut::from("foo bar");
+        let mut decoder = TransferCoding::length(10);
+        let n = decoder.decode(bytes).unwrap().unwrap().len();
+        assert_eq!(n, 7);
+        let e = decoder.decode(bytes).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn test_read_chunked_early_eof() {
+        let bytes = &mut BytesMut::from(
+            "\
+            9\r\n\
+            foo bar\
+        ",
+        );
+        let mut decoder = TransferCoding::decode_chunked();
+        let n = decoder.decode(bytes).unwrap().unwrap().len();
+        assert_eq!(n, 7);
+        let e = decoder.decode(bytes).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn test_read_chunked_single_read() {
+        let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\n");
+        let buf = TransferCoding::decode_chunked().decode(mock_buf).unwrap().unwrap();
+        assert_eq!(16, buf.len());
+        let result = String::from_utf8(buf.as_ref().to_vec()).expect("decode String");
+        assert_eq!("1234567890abcdef", &result);
+    }
+
+    #[test]
+    fn test_read_chunked_trailer_with_missing_lf() {
+        let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\nbad\r\r\n");
+        let mut decoder = TransferCoding::decode_chunked();
+        decoder.decode(mock_buf).unwrap().unwrap();
+        let e = decoder.decode(mock_buf).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn test_read_chunked_after_eof() {
+        let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\n\r\n");
+        let mut decoder = TransferCoding::decode_chunked();
+
+        // normal read
+        let buf = decoder.decode(mock_buf).unwrap().unwrap();
+        assert_eq!(16, buf.len());
+        let result = String::from_utf8(buf.as_ref().to_vec()).unwrap();
+        assert_eq!("1234567890abcdef", &result);
+
+        // eof read
+        let buf = decoder.decode(mock_buf).unwrap().unwrap();
+        assert_eq!(0, buf.len());
+
+        // ensure read after eof also returns eof
+        let buf = decoder.decode(mock_buf).unwrap().unwrap();
+        assert_eq!(0, buf.len());
+    }
+
+    // TODO: Revive async tests.
+    // // perform an async read using a custom buffer size and causing a blocking
+    // // read at the specified byte
+    // fn read_async(mut decoder: TransferCoding, content: &[u8], block_at: usize) -> String {
+    //     let mut outs = Vec::new();
+    //
+    //     let mut ins = if block_at == 0 {
+    //         tokio_test::io::Builder::new()
+    //             .wait(Duration::from_millis(10))
+    //             .read(content)
+    //             .build()
+    //     } else {
+    //         tokio_test::io::Builder::new()
+    //             .read(&content[..block_at])
+    //             .wait(Duration::from_millis(10))
+    //             .read(&content[block_at..])
+    //             .build()
+    //     };
+    //
+    //     let mut ins = &mut ins as &mut (dyn AsyncRead + Unpin);
+    //
+    //     loop {
+    //         let buf = decoder
+    //             .decode_fut(&mut ins)
+    //             .await
+    //             .expect("unexpected decode error");
+    //         if buf.is_empty() {
+    //             break; // eof
+    //         }
+    //         outs.extend(buf.as_ref());
+    //     }
+    //
+    //     String::from_utf8(outs).unwrap()
+    // }
+    //
+    // // iterate over the different ways that this async read could go.
+    // // tests blocking a read at each byte along the content - The shotgun approach
+    // async fn all_async_cases(content: &str, expected: &str, decoder: Decoder) {
+    //     let content_len = content.len();
+    //     for block_at in 0..content_len {
+    //         let actual = read_async(decoder.clone(), content.as_bytes(), block_at).await;
+    //         assert_eq!(expected, &actual) //, "Failed async. Blocking at {}", block_at);
+    //     }
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_read_length_async() {
+    //     let content = "foobar";
+    //     all_async_cases(content, content, Decoder::length(content.len() as u64)).await;
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_read_chunked_async() {
+    //     let content = "3\r\nfoo\r\n3\r\nbar\r\n0\r\n\r\n";
+    //     let expected = "foobar";
+    //     all_async_cases(content, expected, Decoder::chunked()).await;
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_read_eof_async() {
+    //     let content = "foobar";
+    //     all_async_cases(content, content, Decoder::eof()).await;
+    // }
 }
