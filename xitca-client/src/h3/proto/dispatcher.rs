@@ -27,7 +27,7 @@ where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
-    *req.version_mut() = Version::HTTP_2;
+    *req.version_mut() = Version::HTTP_3;
 
     let (parts, body) = req.into_parts();
     let mut req = Request::from_parts(parts, ());
