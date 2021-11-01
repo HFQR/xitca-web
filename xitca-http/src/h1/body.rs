@@ -87,7 +87,7 @@ impl RequestBodySender {
         poll_fn(|cx| self.poll_ready(cx)).await
     }
 
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    pub(super) fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // we check backpressure only if Payload (other side) is alive,
         // otherwise always return io error.
         if self.payload_alive() {
