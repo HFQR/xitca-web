@@ -51,9 +51,10 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
                     .take(headers_len)
                     .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
 
+                let mut res = Response::new(());
+
                 let extensions = self.take_extensions();
 
-                let mut res = Response::new(());
                 *res.version_mut() = version;
                 *res.status_mut() = status;
                 *res.headers_mut() = headers;

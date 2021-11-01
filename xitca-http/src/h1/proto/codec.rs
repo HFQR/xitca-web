@@ -205,7 +205,7 @@ impl ChunkedState {
         let len = rdr.len() as u64;
         if len == 0 {
             *rem = 0;
-            return Err(incomplete_body());
+            Err(incomplete_body())
         } else {
             let slice;
             if *rem > len {

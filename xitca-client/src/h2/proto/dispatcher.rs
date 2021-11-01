@@ -10,7 +10,7 @@ use xitca_http::{
     error::BodyError,
     http::{
         self,
-        header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
+        header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING, UPGRADE},
         method::Method,
         version::Version,
     },
@@ -63,6 +63,7 @@ where
     // omit HTTP/1.x only headers
     req.headers_mut().remove(CONNECTION);
     req.headers_mut().remove(TRANSFER_ENCODING);
+    req.headers_mut().remove(UPGRADE);
 
     if !req.headers().contains_key(DATE) {
         let date = date.with_date(HeaderValue::from_bytes).unwrap();
