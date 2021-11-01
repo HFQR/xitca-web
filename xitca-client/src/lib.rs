@@ -57,14 +57,13 @@ mod test {
     #[cfg(feature = "http3")]
     #[tokio::test]
     async fn get_string_h3() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let client = crate::Client::builder().finish();
+        let client = crate::Client::new();
 
-        let string = client
-            .get("https://cloudflare-quic.com/")?
-            .send()
-            .await?
-            .string()
-            .await?;
+        let res = client.get("https://cloudflare-quic.com/")?.send().await?;
+
+        println!("{:?}", res);
+
+        let string = res.string().await?;
 
         println!("{:?}", string);
 
