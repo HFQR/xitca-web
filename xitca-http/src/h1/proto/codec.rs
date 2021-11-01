@@ -393,6 +393,8 @@ fn incomplete_body() -> io::Error {
 
 #[cfg(test)]
 mod test {
+    use crate::h1::proto::buf::FlatBuf;
+
     use super::*;
 
     #[test]
@@ -600,4 +602,49 @@ mod test {
     //     let content = "foobar";
     //     all_async_cases(content, content, Decoder::eof()).await;
     // }
+
+    #[test]
+    fn encode_chunked() {
+        let mut encoder = TransferCoding::encode_chunked();
+        let dst = &mut FlatBuf::<1024>::default();
+
+        let msg1 = Bytes::from("foo bar");
+        encoder.encode(msg1, dst);
+
+        assert_eq!(&***dst, b"7\r\nfoo bar\r\n");
+
+        let msg2 = Bytes::from("baz quux herp");
+        encoder.encode(msg2, dst);
+
+        assert_eq!(&***dst, b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n");
+
+        encoder.encode_eof(dst);
+
+        assert_eq!(&***dst, b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n0\r\n\r\n");
+    }
+
+    #[test]
+    fn encode_length() {
+        let max_len = 8;
+        let mut encoder = TransferCoding::length(max_len as u64);
+
+        let dst = &mut FlatBuf::<1024>::default();
+
+        let msg1 = Bytes::from("foo bar");
+        encoder.encode(msg1, dst);
+
+        assert_eq!(&***dst, b"foo bar");
+
+        for _ in 0..8 {
+            let msg2 = Bytes::from("baz");
+            encoder.encode(msg2, dst);
+
+            assert_eq!(dst.len(), max_len);
+            assert_eq!(&***dst, b"foo barb");
+        }
+
+        encoder.encode_eof(dst);
+        assert_eq!(dst.len(), max_len);
+        assert_eq!(&***dst, b"foo barb");
+    }
 }
