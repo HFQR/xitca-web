@@ -1,4 +1,4 @@
-use std::{cmp, io};
+use std::{cmp, io, mem};
 
 use tracing::{trace, warn};
 
@@ -334,26 +334,27 @@ impl TransferCoding {
         }
     }
 
+    /// Encode body. Return Bytes when successfully encoded new data.
+    ///
+    /// When returned bytes has zero length it means the encoder should enter Eof state.
+    /// (calling `Self::encode_eof`)
     pub fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
         match *self {
+            Self::Length(0) => Ok(Some(Bytes::new())),
             Self::Length(ref mut remaining) => {
-                if *remaining == 0 {
-                    Ok(Some(Bytes::new()))
+                let len = src.len() as u64;
+                let buf = if *remaining > len {
+                    if len == 0 {
+                        return Err(incomplete_body());
+                    }
+                    *remaining -= len;
+                    src.split().freeze()
                 } else {
-                    let len = src.len() as u64;
-                    let buf = if *remaining > len {
-                        if len == 0 {
-                            return Err(incomplete_body());
-                        }
-                        *remaining -= len;
-                        src.split().freeze()
-                    } else {
-                        let mut split = 0;
-                        std::mem::swap(remaining, &mut split);
-                        src.split_to(split as usize).freeze()
-                    };
-                    Ok(Some(buf))
-                }
+                    let mut split = 0;
+                    mem::swap(remaining, &mut split);
+                    src.split_to(split as usize).freeze()
+                };
+                Ok(Some(buf))
             }
             Self::DecodeChunked(ref mut state, ref mut size) => {
                 loop {
@@ -373,14 +374,8 @@ impl TransferCoding {
                     }
                 }
             }
-            Self::PlainChunked => {
-                if src.is_empty() {
-                    Ok(None)
-                } else {
-                    // TODO: hyper split 8kb here instead of take all.
-                    Ok(Some(src.split().freeze()))
-                }
-            }
+            // TODO: hyper split 8kb here instead of take all.
+            Self::PlainChunked => Ok(Some(src.split().freeze())),
             Self::Eof => unreachable!("TransferCoding::Eof must never attempt to decode request payload"),
             _ => unreachable!(),
         }

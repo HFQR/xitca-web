@@ -21,11 +21,7 @@ pub struct ResponseBody<C> {
 }
 
 impl<C> ResponseBody<C> {
-    pub(crate) fn new(conn: C, buf: FlatBuf<{ 1024 * 1024 }>, decoder: TransferCoding) -> Self {
-        // If decoder is already eof then the body has nothing to read
-        // and should always return None when polled.
-        let decoder = (!decoder.is_eof()).then(|| decoder);
-
+    pub(crate) fn new(conn: C, buf: FlatBuf<{ 1024 * 1024 }>, decoder: Option<TransferCoding>) -> Self {
         Self { conn, buf, decoder }
     }
 
