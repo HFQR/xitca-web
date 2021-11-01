@@ -76,12 +76,19 @@ where
 
         match ctx.decode_head(&mut buf)? {
             Some((res, decoder)) => {
+                // check if server sent connection close header.
+                let mut is_close = matches!(ctx.ctype(), ConnectionType::Close);
+
                 let decoder = match (is_head_method, decoder.is_eof()) {
                     (false, false) => Some(decoder),
+                    (true, false) => {
+                        // Server return a response body with head method.
+                        // close the connection to drop the potential garbage data on wire.
+                        is_close = true;
+                        None
+                    }
                     _ => None,
                 };
-
-                let is_close = matches!(ctx.ctype(), ConnectionType::Close);
 
                 return Ok((res, buf, decoder, is_close));
             }

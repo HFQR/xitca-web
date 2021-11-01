@@ -61,9 +61,10 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 headers.reserve(headers_len);
 
                 // write headers to headermap and update request states.
-                for idx in &header_idx[..headers_len] {
-                    self.try_write_header(&mut headers, &mut decoder, idx, &slice, version)?;
-                }
+                header_idx
+                    .iter()
+                    .take(headers_len)
+                    .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
 
                 if method == Method::CONNECT {
                     self.set_ctype(ConnectionType::Upgrade);
