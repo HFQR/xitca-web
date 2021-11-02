@@ -13,9 +13,11 @@ use {
 
 #[cfg(feature = "rustls")]
 use {
-    rustls_crate::{client::ServerName, ClientConfig, OwnedTrustAnchor, RootCertStore},
     std::sync::Arc,
-    tokio_rustls::TlsConnector,
+    tokio_rustls::{
+        rustls::{client::ServerName, ClientConfig, OwnedTrustAnchor, RootCertStore},
+        TlsConnector,
+    },
     webpki_roots::TLS_SERVER_ROOTS,
 };
 
