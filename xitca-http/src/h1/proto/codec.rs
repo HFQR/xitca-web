@@ -374,8 +374,14 @@ impl TransferCoding {
                     }
                 }
             }
-            // TODO: hyper split 8kb here instead of take all.
-            Self::PlainChunked => Ok(Some(src.split().freeze())),
+            Self::PlainChunked => {
+                if src.is_empty() {
+                    Ok(None)
+                } else {
+                    // TODO: hyper split 8kb here instead of take all.
+                    Ok(Some(src.split().freeze()))
+                }
+            }
             Self::Eof => unreachable!("TransferCoding::Eof must never attempt to decode request payload"),
             _ => unreachable!(),
         }
