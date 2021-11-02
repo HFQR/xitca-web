@@ -4,28 +4,34 @@ use std::{collections::VecDeque, io::IoSlice};
 
 use crate::bytes::{Buf, BufMut, Bytes, BytesMut};
 
-pub(crate) struct BufList<B> {
+pub struct BufList<B> {
     bufs: VecDeque<B>,
     remaining: usize,
 }
 
 impl<B: Buf> BufList<B> {
-    pub(crate) fn new() -> Self {
+    #[inline]
+    pub fn with_capacity(cap: usize) -> Self {
         Self {
-            bufs: VecDeque::new(),
+            bufs: VecDeque::with_capacity(cap),
             remaining: 0,
         }
     }
 
     #[inline]
-    pub(crate) fn push(&mut self, buf: B) {
+    pub fn new() -> Self {
+        Self::with_capacity(0)
+    }
+
+    #[inline]
+    pub fn push(&mut self, buf: B) {
         debug_assert!(buf.has_remaining());
         self.remaining += buf.remaining();
         self.bufs.push_back(buf);
     }
 
     #[inline]
-    pub(crate) fn cnt(&self) -> usize {
+    pub fn cnt(&self) -> usize {
         self.bufs.len()
     }
 }

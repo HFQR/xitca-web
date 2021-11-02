@@ -6,7 +6,6 @@ use crate::bytes::{Buf, Bytes, BytesMut};
 
 use super::{
     buf::WriteBuf,
-    context::ConnectionType,
     error::{Parse, ProtoError},
 };
 
@@ -286,14 +285,6 @@ impl TransferCoding {
         }
     }
 
-    pub(super) fn encode_chunked_from(ctype: ConnectionType) -> Self {
-        if ctype == ConnectionType::Upgrade {
-            Self::plain_chunked()
-        } else {
-            Self::encode_chunked()
-        }
-    }
-
     /// Encode message. Return `EOF` state of encoder
     pub fn encode<W>(&mut self, mut bytes: Bytes, buf: &mut W)
     where
@@ -388,8 +379,8 @@ impl TransferCoding {
     }
 }
 
-#[inline(never)]
 #[cold]
+#[inline(never)]
 fn incomplete_body() -> io::Error {
     io::Error::new(
         io::ErrorKind::UnexpectedEof,
