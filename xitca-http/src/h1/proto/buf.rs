@@ -142,7 +142,7 @@ impl<B: Buf, const BUF_LIMIT: usize> Default for ListBuf<B, BUF_LIMIT> {
     fn default() -> Self {
         Self {
             buf: BytesMut::new(),
-            list: BufList::new(),
+            list: BufList::with_capacity(BUF_LIMIT),
         }
     }
 }

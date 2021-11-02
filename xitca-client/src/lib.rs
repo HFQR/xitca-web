@@ -14,6 +14,7 @@ mod response;
 mod timeout;
 mod tls;
 mod uri;
+mod ws;
 
 #[cfg(feature = "http2")]
 mod h2;

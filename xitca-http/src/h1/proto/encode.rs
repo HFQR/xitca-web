@@ -52,7 +52,7 @@ where
 
         // decide if content-length or transfer-encoding header would be skipped.
         let skip_len = match (status, version) {
-            (StatusCode::SWITCHING_PROTOCOLS, _) => false,
+            (StatusCode::SWITCHING_PROTOCOLS, _) => true,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
             (s, _) if self.is_connect_method() && s.is_success() => true,
@@ -140,7 +140,7 @@ where
                 }
                 TRANSFER_ENCODING => {
                     debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
-                    encoding = TransferCoding::encode_chunked_from(self.ctype());
+                    encoding = TransferCoding::encode_chunked();
                     skip_len = true;
                 }
                 CONNECTION if self.is_force_close() => continue,
@@ -154,6 +154,7 @@ where
                             self.set_ctype(ConnectionType::KeepAlive);
                         } else if val.eq_ignore_ascii_case("upgrade") {
                             self.set_ctype(ConnectionType::Upgrade);
+                            encoding = TransferCoding::plain_chunked();
                         }
                     }
                 }
@@ -183,7 +184,7 @@ where
                 }
                 ResponseBodySize::Stream => {
                     buf.put_slice(b"transfer-encoding: chunked\r\n");
-                    encoding = TransferCoding::encode_chunked_from(self.ctype());
+                    encoding = TransferCoding::encode_chunked();
                 }
                 ResponseBodySize::Sized(size) => {
                     let mut buffer = itoa::Buffer::new();
