@@ -72,7 +72,7 @@ impl<'a> WebSocket<'a> {
     /// Split into a sink and reader pair that can be used for concurrent read/write
     /// message to websocket connection.
     #[inline]
-    pub fn split<'s>(&'s mut self) -> (WebSocketSink<'s, 'a>, WebSocketReader<'s, 'a>) {
+    pub fn split<'s>(&'s self) -> (WebSocketSink<'s, 'a>, WebSocketReader<'s, 'a>) {
         (WebSocketSink(&*self), WebSocketReader(&*self))
     }
 

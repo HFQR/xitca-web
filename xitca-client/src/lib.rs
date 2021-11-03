@@ -77,15 +77,17 @@ mod test {
 
     // #[tokio::test]
     // async fn ws() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    //     let client = crate::Client::new();
-    //
-    //     let mut ws = client.ws("ws://127.0.0.1:8080")?.send().await?.ws()?;
-    //     let (mut tx, mut rx) = ws.split();
-    //
-    //     tx.send(Message::Text(Bytes::from("hello world"))).await?;
-    //     let msg = rx.next().await.unwrap()?;
-    //     assert_eq!(msg, Message::Text(Bytes::from("Echo: hello world")));
-    //
-    //     Ok(())
+    //     tokio::spawn(async {
+    //         let client = crate::Client::new();
+
+    //         let ws = client.ws("ws://127.0.0.1:8080")?.send().await?.ws()?;
+    //         let (mut tx, mut rx) = ws.split();
+
+    //         tx.send(Message::Text(Bytes::from("hello world"))).await?;
+    //         let msg = rx.next().await.unwrap()?;
+    //         assert_eq!(msg, Message::Text(Bytes::from("Echo: hello world")));
+
+    //         Ok(())
+    //     }).await.unwrap()
     // }
 }

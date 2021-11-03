@@ -75,7 +75,7 @@ impl Resolver {
 /// let client = ClientBuilder::new().resolver(MyResolver).finish();
 /// # }
 /// ```
-pub trait Resolve: Send {
+pub trait Resolve: Send + Sync {
     /// *. hostname does not include port number.
     fn resolve<'s, 'h, 'f>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'f, Result<Vec<SocketAddr>, Error>>
     where

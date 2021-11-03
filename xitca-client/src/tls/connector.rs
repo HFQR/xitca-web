@@ -162,7 +162,7 @@ impl Connector {
 /// let client = ClientBuilder::new().tls_connector(MyConnector).finish();
 /// # }
 /// ```
-pub trait TlsConnect: Send {
+pub trait TlsConnect: Send + Sync {
     /// Box<dyn Io> is an async read/write type.
     ///
     /// See [Io] trait for detail.
