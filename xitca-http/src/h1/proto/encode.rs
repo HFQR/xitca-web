@@ -211,7 +211,6 @@ where
         }
 
         // put header map back to cache.
-        debug_assert!(headers.is_empty());
         self.replace_headers(headers);
 
         // put extension back to cache;

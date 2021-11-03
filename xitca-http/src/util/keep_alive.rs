@@ -9,9 +9,12 @@ use pin_project_lite::pin_project;
 use tokio::time::{sleep_until, Instant, Sleep};
 
 pin_project! {
-    /// A keep alive timer lazily reset the deadline.
-    /// after each successful poll.
-    pub(crate) struct KeepAlive {
+    /// A timer lazily reset the deadline after each successful poll(previous deadline met).
+    ///
+    /// This timer would optimistically assume deadline is not likely to be reached often.
+    /// It has little cost inserting a new deadline and additional cost when previous
+    /// deadline is met and the lazy reset happen with new deadline.
+    pub struct KeepAlive {
         #[pin]
         timer: Sleep,
         deadline: Instant,
@@ -19,28 +22,27 @@ pin_project! {
 }
 
 impl KeepAlive {
-    // time is passed from outside of keep alive to reduce overhead
-    // of timer syscall.
-    pub(crate) fn new(deadline: Instant) -> Self {
+    #[inline]
+    pub fn new(deadline: Instant) -> Self {
         Self {
             timer: sleep_until(deadline),
             deadline,
         }
     }
 
-    #[inline(always)]
-    pub(crate) fn update(self: Pin<&mut Self>, deadline: Instant) {
-        let this = self.project();
-        *this.deadline = deadline;
+    #[inline]
+    pub fn update(self: Pin<&mut Self>, deadline: Instant) {
+        *self.project().deadline = deadline;
     }
 
-    pub(crate) fn is_expired(&self) -> bool {
-        self.timer.deadline() >= self.deadline
-    }
-
-    pub(crate) fn reset(self: Pin<&mut Self>) {
+    #[inline]
+    pub fn reset(self: Pin<&mut Self>) {
         let this = self.project();
         this.timer.reset(*this.deadline)
+    }
+
+    fn is_expired(&self) -> bool {
+        self.timer.deadline() >= self.deadline
     }
 }
 
@@ -51,7 +53,7 @@ impl Future for KeepAlive {
         let this = self.as_mut().project();
         ready!(this.timer.poll(cx));
 
-        if self.as_mut().is_expired() {
+        if self.is_expired() {
             Poll::Ready(())
         } else {
             self.as_mut().reset();

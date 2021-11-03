@@ -96,13 +96,15 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
 
     /// Replace a new HeaderMap in current Context.
     #[inline]
-    pub fn replace_headers(&mut self, header: HeaderMap) {
-        self.header = Some(header);
+    pub fn replace_headers(&mut self, headers: HeaderMap) {
+        debug_assert!(headers.is_empty());
+        self.header = Some(headers);
     }
 
     /// Replace a new Extensions in current Context.
     #[inline]
     pub fn replace_extensions(&mut self, extensions: Extensions) {
+        debug_assert!(extensions.is_empty());
         self.extensions = extensions;
     }
 
