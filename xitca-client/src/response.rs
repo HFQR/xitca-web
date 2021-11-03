@@ -4,6 +4,7 @@ use futures_util::StreamExt;
 use tokio::time::{Instant, Sleep};
 use xitca_http::{bytes::BytesMut, error::BodyError, http};
 
+use crate::ws::WebSocket;
 use crate::{
     body::ResponseBody,
     error::{Error, TimeoutError},
@@ -79,6 +80,14 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
 
         let bytes = self.collect::<BytesMut>().await?;
         Ok(serde_json::from_slice(bytes.chunk())?)
+    }
+
+    pub fn ws(self) -> Result<WebSocket<'a>, Error> {
+        let body = self.res.into_body();
+        match body {
+            ResponseBody::H1(body) => Ok(WebSocket::from_body(body)),
+            _ => todo!(),
+        }
     }
 
     async fn collect<B>(self) -> Result<B, Error>

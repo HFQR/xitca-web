@@ -1,6 +1,7 @@
 use std::{error, fmt, io, str};
 
-use xitca_http::{error::BodyError, http};
+use http_ws::ProtocolError;
+use xitca_http::{error::BodyError, http::uri};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -72,14 +73,14 @@ pub enum InvalidUri {
     UnknownScheme,
 }
 
-impl From<http::uri::InvalidUri> for InvalidUri {
-    fn from(_: http::uri::InvalidUri) -> Self {
+impl From<uri::InvalidUri> for InvalidUri {
+    fn from(_: uri::InvalidUri) -> Self {
         Self::ReasonUnknown
     }
 }
 
-impl From<http::uri::InvalidUri> for Error {
-    fn from(e: http::uri::InvalidUri) -> Self {
+impl From<uri::InvalidUri> for Error {
+    fn from(e: uri::InvalidUri) -> Self {
         Self::InvalidUri(e.into())
     }
 }
@@ -110,6 +111,13 @@ pub enum ParseError {
     String(str::Utf8Error),
     #[cfg(feature = "json")]
     Json(serde_json::Error),
+    WebSocket(ProtocolError),
+}
+
+impl From<ProtocolError> for Error {
+    fn from(e: ProtocolError) -> Self {
+        Self::Parse(ParseError::WebSocket(e))
+    }
 }
 
 #[cfg(feature = "openssl")]
