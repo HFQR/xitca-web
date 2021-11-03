@@ -37,6 +37,10 @@ pub use xitca_http::bytes;
 
 #[cfg(test)]
 mod test {
+    use futures_util::{SinkExt, StreamExt};
+    use http_ws::Message;
+    use xitca_http::bytes::Bytes;
+
     #[cfg(all(feature = "openssl", feature = "http2"))]
     #[tokio::test]
     async fn get_string() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -70,4 +74,18 @@ mod test {
 
         Ok(())
     }
+
+    // #[tokio::test]
+    // async fn ws() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    //     let client = crate::Client::new();
+    //
+    //     let mut ws = client.ws("ws://127.0.0.1:8080")?.send().await?.ws()?;
+    //     let (mut tx, mut rx) = ws.split();
+    //
+    //     tx.send(Message::Text(Bytes::from("hello world"))).await?;
+    //     let msg = rx.next().await.unwrap()?;
+    //     assert_eq!(msg, Message::Text(Bytes::from("Echo: hello world")));
+    //
+    //     Ok(())
+    // }
 }
