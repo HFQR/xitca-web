@@ -9,4 +9,5 @@ pub(crate) mod writer;
 mod logger;
 
 pub use self::buf_list::BufList;
+pub use self::keep_alive::KeepAlive;
 pub use self::logger::LoggerFactory;

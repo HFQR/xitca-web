@@ -9,6 +9,12 @@ pub struct BufList<B> {
     remaining: usize,
 }
 
+impl<B: Buf> Default for BufList<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B: Buf> BufList<B> {
     #[inline]
     pub fn with_capacity(cap: usize) -> Self {
@@ -49,9 +55,7 @@ impl<B: Buf> Buf for BufList<B> {
 
     #[inline]
     fn chunks_vectored<'a>(&'a self, dst: &mut [IoSlice<'a>]) -> usize {
-        if dst.is_empty() {
-            return 0;
-        }
+        assert!(!dst.is_empty());
         let mut vecs = 0;
         for buf in &self.bufs {
             vecs += buf.chunks_vectored(&mut dst[vecs..]);
