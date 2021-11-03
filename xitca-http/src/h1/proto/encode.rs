@@ -143,21 +143,24 @@ where
                     encoding = TransferCoding::encode_chunked();
                     skip_len = true;
                 }
-                CONNECTION if self.is_force_close() => continue,
-                CONNECTION => {
-                    for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
-                        let val = val.trim();
-
-                        if val.eq_ignore_ascii_case("close") {
-                            self.set_ctype(ConnectionType::Close);
-                        } else if val.eq_ignore_ascii_case("keep-alive") {
-                            self.set_ctype(ConnectionType::KeepAlive);
-                        } else if val.eq_ignore_ascii_case("upgrade") {
-                            self.set_ctype(ConnectionType::Upgrade);
-                            encoding = TransferCoding::plain_chunked();
+                CONNECTION => match self.ctype() {
+                    // skip write header on close condition.
+                    // the header is checked again and written properly afterwards.
+                    ConnectionType::Close | ConnectionType::CloseForce => continue,
+                    _ => {
+                        for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
+                            let val = val.trim();
+                            if val.eq_ignore_ascii_case("close") {
+                                self.set_ctype(ConnectionType::Close);
+                            } else if val.eq_ignore_ascii_case("keep-alive") {
+                                self.set_ctype(ConnectionType::KeepAlive);
+                            } else if val.eq_ignore_ascii_case("upgrade") {
+                                self.set_ctype(ConnectionType::Upgrade);
+                                encoding = TransferCoding::plain_chunked();
+                            }
                         }
                     }
-                }
+                },
                 DATE => skip_date = true,
                 _ => {}
             }
@@ -172,7 +175,7 @@ where
             buf.put_slice(b"\r\n");
         }
 
-        if self.is_force_close() {
+        if matches!(self.ctype(), ConnectionType::Close | ConnectionType::CloseForce) {
             buf.put_slice(b"connection: close\r\n");
         }
 

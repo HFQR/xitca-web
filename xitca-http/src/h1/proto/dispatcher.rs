@@ -246,7 +246,7 @@ where
                         // When service call dropped payload there is no tell how many bytes
                         // still remain readable in the connection.
                         // close the connection would be a safe bet than draining it.
-                        this.ctx.set_force_close();
+                        this.ctx.set_force_close_on_error();
                         Poll::Ready(Err(e))
                     }
                     // on pending path the readable ready state should be removed.
@@ -329,40 +329,23 @@ where
     async fn run(mut self) -> Result<(), Error<S::Error>> {
         loop {
             match self.ctx.ctype() {
-                ConnectionType::Init => {
-                    if self.ctx.is_force_close() {
-                        unlikely();
-                        trace!(target: "h1_dispatcher", "Connection error. Shutting down");
-                        return Ok(());
-                    } else {
-                        // use timer to detect slow connection.
-                        match self.io.read().timeout(self.timer.as_mut()).await {
-                            Ok(res) => res?,
-                            Err(_) => {
-                                trace!(target: "h1_dispatcher", "Slow Connection detected. Shutting down");
-                                return Ok(());
-                            }
-                        }
-                    }
-                }
-                ConnectionType::KeepAlive => {
-                    if self.ctx.is_force_close() {
-                        unlikely();
-                        trace!(target: "h1_dispatcher", "Connection is keep-alive but meet a force close condition. Shutting down");
-                        return self.io.shutdown().await;
-                    } else {
-                        match self.io.read().timeout(self.timer.as_mut()).await {
-                            Ok(res) => res?,
-                            Err(_) => {
-                                trace!(target: "h1_dispatcher", "Connection keep-alive timeout. Shutting down");
-                                return self.io.shutdown().await;
-                            }
+                ConnectionType::Init | ConnectionType::KeepAlive => {
+                    match self.io.read().timeout(self.timer.as_mut()).await {
+                        Ok(res) => res?,
+                        Err(_) => {
+                            trace!(target: "h1_dispatcher", "Connection timeout. Shutting down");
+                            return self.io.shutdown().await;
                         }
                     }
                 }
                 ConnectionType::Upgrade | ConnectionType::Close => {
                     trace!(target: "h1_dispatcher", "Connection not keep-alive. Shutting down");
                     return self.io.shutdown().await;
+                }
+                ConnectionType::CloseForce => {
+                    unlikely();
+                    trace!(target: "h1_dispatcher", "Connection meets force close condition. Closing");
+                    return Ok(());
                 }
             }
 
@@ -379,7 +362,7 @@ where
 
                         self.response_handler(res_body, encoder, body_handle).await?;
 
-                        if self.ctx.is_force_close() {
+                        if self.ctx.is_connection_closed() {
                             break 'req;
                         }
                     }
@@ -488,7 +471,7 @@ where
                                 // Request body is partial consumed.
                                 // Close connection in case there are bytes remain in socket.
                                 if !handle.sender.is_eof() {
-                                    self.ctx.set_force_close();
+                                    self.ctx.set_force_close_on_non_eof();
                                 };
 
                                 encoder.encode_eof(&mut self.io.write_buf);
@@ -544,7 +527,7 @@ where
         // Header is too large to be parsed.
         // Close the connection after sending error response as it's pointless
         // to read the remaining bytes inside connection.
-        self.ctx.set_force_close();
+        self.ctx.set_force_close_on_error();
 
         let (parts, res_body) = func().into_parts();
 
@@ -602,7 +585,7 @@ impl RequestBodyHandle {
             // When service call dropped payload there is no tell how many bytes
             // still remain readable in the connection.
             // close the connection would be a safe bet than draining it.
-            ctx.set_force_close();
+            ctx.set_force_close_on_error();
             e
         })
     }
