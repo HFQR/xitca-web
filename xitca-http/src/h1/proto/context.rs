@@ -27,13 +27,6 @@ impl ContextState {
     /// Enable when current request is CONNECT method.
     const CONNECT: u8 = 0b_0010;
 
-    /// Want a force close after current request served.
-    ///
-    /// This is for situation like partial read of request body. Which could leave artifact
-    /// unread data in connection that can interfere with next request(If the connection is kept
-    /// alive).
-    const FORCE_CLOSE: u8 = 0b_0100;
-
     const fn new() -> Self {
         Self(0)
     }
@@ -53,8 +46,11 @@ pub enum ConnectionType {
     /// A connection that has no request yet.
     Init,
 
-    /// Close connection after response
+    /// Close connection after response with flush and shutdown IO.
     Close,
+
+    /// Close connection after response without flush and shutdown IO.
+    CloseForce,
 
     /// Keep connection alive after response
     KeepAlive,
@@ -127,37 +123,47 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state.insert(ContextState::CONNECT)
     }
 
-    /// Set Context's state to connection closed.
+    /// Set connection type to [ConnectionType::CloseForce] in case error happens.
     #[inline]
-    pub fn set_force_close(&mut self) {
-        self.state.insert(ContextState::FORCE_CLOSE)
+    pub fn set_force_close_on_error(&mut self) {
+        self.ctype = ConnectionType::CloseForce;
     }
 
-    /// Set Context's connection type.
+    /// Set connection type to [ConnectionType::CloseForce] in case [crate::h1::RequestBody]
+    /// is not in eof state after response generated.
+    #[inline]
+    pub fn set_force_close_on_non_eof(&mut self) {
+        // skip Upgrade connection type because it does not have eof state.
+        if self.ctype != ConnectionType::Upgrade {
+            self.ctype = ConnectionType::CloseForce;
+        }
+    }
+
+    /// Set connection type.
     #[inline]
     pub fn set_ctype(&mut self, ctype: ConnectionType) {
         self.ctype = ctype;
     }
 
-    /// Get current expect header state.
+    /// Get expect header state.
     #[inline]
     pub fn is_expect_header(&self) -> bool {
         self.state.contains(ContextState::EXPECT)
     }
 
-    /// Get current connect method state.
+    /// Get connect method state.
     #[inline]
     pub fn is_connect_method(&self) -> bool {
         self.state.contains(ContextState::CONNECT)
     }
 
-    /// Get current connection close state.
+    /// Return true if connection type is [ConnectionType::Close] or [ConnectionType::CloseForce].
     #[inline]
-    pub fn is_force_close(&self) -> bool {
-        self.state.contains(ContextState::FORCE_CLOSE)
+    pub fn is_connection_closed(&self) -> bool {
+        matches!(self.ctype, ConnectionType::Close | ConnectionType::CloseForce)
     }
 
-    /// Get current connection type.
+    /// Get connection type.
     #[inline]
     pub fn ctype(&self) -> ConnectionType {
         self.ctype
