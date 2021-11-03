@@ -5,6 +5,7 @@ members = [
     "xitca-io",
     "xitca-server",
     "xitca-service",
+    "xitca-test",
     "xitca-web",
     "examples",
     "http-encoding",

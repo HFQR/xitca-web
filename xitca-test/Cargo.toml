@@ -1,0 +1,18 @@
+[package]
+name = "xitca-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+xitca-client = "0.1"
+xitca-http = "0.1"
+xitca-io = "0.1"
+xitca-server = "0.1"
+xitca-service = "0.1"
+
+http-ws = "0.1"
+
+futures-util = "0.3.17"
+tokio = { version = "1.13", features = ["macros", "rt"] }
