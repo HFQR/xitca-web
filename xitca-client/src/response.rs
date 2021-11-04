@@ -1,13 +1,18 @@
-use std::{fmt, pin::Pin, time::Duration};
+use std::{
+    fmt,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    time::Duration,
+};
 
 use futures_util::StreamExt;
 use tokio::time::{Instant, Sleep};
 use xitca_http::{bytes::BytesMut, error::BodyError, http};
 
-use crate::ws::WebSocket;
 use crate::{
     body::ResponseBody,
     error::{Error, TimeoutError},
+    ws::WebSocket,
 };
 
 const DEFAULT_PAYLOAD_LIMIT: usize = 1024 * 1024 * 8;
@@ -20,6 +25,20 @@ pub struct Response<'a, const PAYLOAD_LIMIT: usize> {
     timeout: Duration,
 }
 
+impl<'a, const PAYLOAD_LIMIT: usize> Deref for Response<'a, PAYLOAD_LIMIT> {
+    type Target = http::Response<ResponseBody<'a>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.res
+    }
+}
+
+impl<const PAYLOAD_LIMIT: usize> DerefMut for Response<'_, PAYLOAD_LIMIT> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.res
+    }
+}
+
 impl<const PAYLOAD_LIMIT: usize> fmt::Debug for Response<'_, PAYLOAD_LIMIT> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.res)
@@ -29,6 +48,16 @@ impl<const PAYLOAD_LIMIT: usize> fmt::Debug for Response<'_, PAYLOAD_LIMIT> {
 impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
     pub(crate) fn new(res: http::Response<ResponseBody<'a>>, timer: Pin<Box<Sleep>>, timeout: Duration) -> Self {
         Self { res, timer, timeout }
+    }
+
+    /// Get a reference of the inner response type.
+    pub fn inner(&self) -> &http::Response<ResponseBody<'a>> {
+        &self.res
+    }
+
+    /// Get a mutable reference of the inner response type.
+    pub fn inner_mut(&mut self) -> &mut http::Response<ResponseBody<'a>> {
+        &mut self.res
     }
 
     /// Set payload size limit in bytes. Payload size beyond limit would be discarded.

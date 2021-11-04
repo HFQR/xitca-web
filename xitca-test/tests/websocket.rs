@@ -1,5 +1,3 @@
-use std::error;
-
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use http_ws::{ws, Message};
 use xitca_http::{
@@ -10,20 +8,15 @@ use xitca_http::{
 };
 use xitca_io::bytes::Bytes;
 use xitca_service::fn_service;
-
-type Error = Box<dyn error::Error + Send + Sync>;
+use xitca_test::Error;
 
 #[tokio::test]
 async fn message() -> Result<(), Error> {
-    let (addr, mut handle) = xitca_test::test_h1_server(|| fn_service(handler))?;
+    let mut handle = xitca_test::test_h1_server(|| fn_service(handler))?;
 
     let c = xitca_client::Client::new();
 
-    let ws = c
-        .ws(&format!("ws://{}:{}", addr.ip().to_string(), addr.port().to_string()))?
-        .send()
-        .await?
-        .ws()?;
+    let ws = c.ws(&format!("ws://{}", handle.ip_port_string()))?.send().await?.ws()?;
 
     let (mut tx, mut rx) = ws.split();
 
@@ -39,11 +32,9 @@ async fn message() -> Result<(), Error> {
     let msg = rx.next().await.unwrap()?;
     assert_eq!(msg, Message::Close(None));
 
-    handle.handle()?.stop(true);
+    handle.try_handle()?.stop(true);
 
-    handle.await?;
-
-    Ok(())
+    handle.await.map_err(Into::into)
 }
 
 async fn handler(req: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Error> {
@@ -68,11 +59,9 @@ async fn handler(req: Request<h1::RequestBody>) -> Result<Response<ResponseBody>
         }
     });
 
-    // construct response types.
     let (parts, body) = res.into_parts();
     let body = body.map_err(|e| BodyError::from(Box::new(e) as Error));
-    let body = Box::pin(body) as _;
-    let body = ResponseBody::stream(body);
+    let body = ResponseBody::stream(Box::pin(body) as _);
     let res = Response::from_parts(parts, body);
 
     Ok(res)
