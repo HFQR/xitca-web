@@ -429,21 +429,29 @@ where
 
         pin!(fut);
 
-        while let Some(ref mut handle) = *body_handle {
+        match fut.as_mut().select(self.request_body_handler(body_handle)).await {
+            SelectOutput::A(res) => res.map_err(Error::Service),
+            SelectOutput::B(res) => res,
+        }
+    }
+
+    async fn request_body_handler(
+        &mut self,
+        body_handle: &mut Option<RequestBodyHandle>,
+    ) -> Result<S::Response, Error<S::Error>> {
+        // decode request body and read more if needed.
+        while let Some(handle) = body_handle {
             match handle.decode(&mut self.io.read_buf)? {
-                DecodeState::Continue => match fut.as_mut().select(self.io.readable(handle, &mut self.ctx)).await {
-                    SelectOutput::A(res) => return res.map_err(Error::Service),
-                    SelectOutput::B(Ok(_)) => self.io.try_read()?,
-                    SelectOutput::B(Err(e)) => {
-                        handle.sender.feed_error(e.into());
-                        *body_handle = None;
-                    }
-                },
+                DecodeState::Continue => {
+                    self.io.readable(handle, &mut self.ctx).await?;
+                    self.io.try_read()?;
+                }
                 DecodeState::Eof => *body_handle = None,
             }
         }
 
-        fut.await.map_err(Error::Service)
+        // pending and do nothing when RequestBodyHandle is gone.
+        never().await
     }
 
     async fn response_handler(
