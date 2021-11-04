@@ -12,6 +12,7 @@ use xitca_http::{bytes::BytesMut, error::BodyError, http};
 use crate::{
     body::ResponseBody,
     error::{Error, TimeoutError},
+    timeout::Timeout,
     ws::WebSocket,
 };
 
@@ -142,30 +143,26 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
         timer.as_mut().reset(Instant::now() + self.timeout);
 
         loop {
-            tokio::select! {
-                res = body.next() => {
-                    match res {
-                        Some(res) => {
-                            let buf = match res {
-                                Ok(buf) => buf,
-                                // all error path should destroy connection on drop.
-                                Err(e) => {
-                                    body.destroy_on_drop();
-                                    return Err(e.into())
-                                }
-                            };
-                            if buf.len() + b.len() > limit {
-                                body.destroy_on_drop();
-                                return Err(BodyError::OverFlow.into());
-                            }
-                            b.try_extend_from_slice(&buf)?;
-                        },
-                        None => break,
+            match body.next().timeout(timer.as_mut()).await {
+                Ok(Some(res)) => {
+                    let buf = match res {
+                        Ok(buf) => buf,
+                        // all error path should destroy connection on drop.
+                        Err(e) => {
+                            body.destroy_on_drop();
+                            return Err(e.into());
+                        }
+                    };
+                    if buf.len() + b.len() > limit {
+                        body.destroy_on_drop();
+                        return Err(BodyError::OverFlow.into());
                     }
-                },
-                _ = &mut timer => {
+                    b.try_extend_from_slice(&buf)?;
+                }
+                Ok(None) => break,
+                Err(_) => {
                     body.destroy_on_drop();
-                    return Err(TimeoutError::Response.into())
+                    return Err(TimeoutError::Response.into());
                 }
             }
         }

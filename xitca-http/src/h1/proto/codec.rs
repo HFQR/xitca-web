@@ -333,11 +333,11 @@ impl TransferCoding {
         match *self {
             Self::Length(0) => Ok(Some(Bytes::new())),
             Self::Length(ref mut remaining) => {
+                if src.is_empty() {
+                    return Ok(None);
+                }
                 let len = src.len() as u64;
                 let buf = if *remaining > len {
-                    if len == 0 {
-                        return Err(incomplete_body());
-                    }
                     *remaining -= len;
                     src.split().freeze()
                 } else {
@@ -471,16 +471,6 @@ mod test {
         read_err("1;reject\nnewlines\r\n", InvalidData);
         // Overflow
         read_err("f0000000000000003\r\n", InvalidData);
-    }
-
-    #[test]
-    fn test_read_sized_early_eof() {
-        let bytes = &mut BytesMut::from("foo bar");
-        let mut decoder = TransferCoding::length(10);
-        let n = decoder.decode(bytes).unwrap().unwrap().len();
-        assert_eq!(n, 7);
-        let e = decoder.decode(bytes).unwrap_err();
-        assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
     }
 
     #[test]

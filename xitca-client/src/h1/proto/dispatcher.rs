@@ -1,11 +1,11 @@
-use std::{io, pin::Pin};
+use std::io;
 
 use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use xitca_http::{
     bytes::Bytes,
     error::BodyError,
-    h1::proto::{buf::FlatBuf, codec::TransferCoding, context::ConnectionType},
+    h1::proto::{buf::FlatBuf, codec::TransferCoding},
     http::{self, Method},
 };
 
@@ -40,31 +40,19 @@ where
     let mut buf = FlatBuf::<{ 1024 * 1024 }>::new();
 
     // encode request head and return transfer encoding for request body
-    let mut encoding = ctx.encode_head(&mut buf, parts, body.size())?;
-
-    let mut stream = Pin::new(stream);
+    let encoder = ctx.encode_head(&mut buf, parts, body.size())?;
 
     // send request head for potential intermediate handling like expect header.
     stream.write_all_buf(&mut *buf).await?;
 
-    if !encoding.is_eof() {
-        tokio::pin!(body);
-
-        // poll request body and encode.
-        while let Some(bytes) = body.as_mut().next().await {
-            let bytes = bytes?;
-            encoding.encode(bytes, &mut buf);
-            // we are not in a hurry here so read and flush before next chunk
-            stream.write_all_buf(&mut *buf).await?;
-            stream.flush().await?;
-        }
-
-        // body is finished. encode eof and clean up.
-        encoding.encode_eof(&mut buf);
-        stream.write_all_buf(&mut *buf).await?;
+    // try to send request body.
+    // continue to read response no matter the outcome.
+    if send_inner(stream, encoder, body, &mut buf).await.is_err() {
+        // an error indicate connection should be closed.
+        ctx.set_force_close_on_error();
+        // clear the buffer as there could be unfinished request data inside.
+        buf.clear();
     }
-
-    stream.flush().await?;
 
     // read response head and get body decoder.
     loop {
@@ -77,7 +65,7 @@ where
         match ctx.decode_head(&mut buf)? {
             Some((res, decoder)) => {
                 // check if server sent connection close header.
-                let mut is_close = matches!(ctx.ctype(), ConnectionType::Close);
+                let mut is_close = ctx.is_connection_closed();
 
                 let decoder = match (is_head_method, decoder.is_eof()) {
                     (false, false) => Some(decoder),
@@ -95,4 +83,37 @@ where
             None => continue,
         }
     }
+}
+
+async fn send_inner<S, B, E, const LIMIT: usize>(
+    stream: &mut S,
+    mut encoder: TransferCoding,
+    body: RequestBody<B>,
+    buf: &mut FlatBuf<LIMIT>,
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+    B: Stream<Item = Result<Bytes, E>>,
+    BodyError: From<E>,
+{
+    if !encoder.is_eof() {
+        tokio::pin!(body);
+
+        // poll request body and encode.
+        while let Some(bytes) = body.as_mut().next().await {
+            let bytes = bytes?;
+            encoder.encode(bytes, buf);
+            // we are not in a hurry here so read and flush before next chunk
+            stream.write_all_buf(&mut **buf).await?;
+            stream.flush().await?;
+        }
+
+        // body is finished. encode eof and clean up.
+        encoder.encode_eof(buf);
+        stream.write_all_buf(&mut **buf).await?;
+    }
+
+    stream.flush().await?;
+
+    Ok(())
 }
