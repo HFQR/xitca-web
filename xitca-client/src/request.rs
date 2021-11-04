@@ -5,7 +5,11 @@ use tokio::time::Instant;
 use xitca_http::{
     bytes::Bytes,
     error::BodyError,
-    http::{self, header::HeaderMap, Method, Version},
+    http::{
+        self,
+        header::{HeaderMap, HeaderValue, CONTENT_LENGTH},
+        Method, Version,
+    },
 };
 
 use crate::{
@@ -83,11 +87,14 @@ where
     ///
     /// Input type must implement [From] trait with [Bytes].
     #[inline]
-    pub fn body<B1>(self, body: B1) -> Request<'a, B>
+    pub fn body<B1>(mut self, body: B1) -> Request<'a, B>
     where
         Bytes: From<B1>,
     {
-        self.map_body(move |_| RequestBody::bytes(body.into()))
+        let bytes = Bytes::from(body);
+        self.headers_mut()
+            .insert(CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+        self.map_body(move |_| RequestBody::bytes(bytes))
     }
 
     /// Use streaming type as request body.
