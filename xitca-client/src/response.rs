@@ -4,10 +4,10 @@ use futures_util::StreamExt;
 use tokio::time::{Instant, Sleep};
 use xitca_http::{bytes::BytesMut, error::BodyError, http};
 
-use crate::ws::WebSocket;
 use crate::{
     body::ResponseBody,
     error::{Error, TimeoutError},
+    ws::WebSocket,
 };
 
 const DEFAULT_PAYLOAD_LIMIT: usize = 1024 * 1024 * 8;
@@ -29,6 +29,10 @@ impl<const PAYLOAD_LIMIT: usize> fmt::Debug for Response<'_, PAYLOAD_LIMIT> {
 impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
     pub(crate) fn new(res: http::Response<ResponseBody<'a>>, timer: Pin<Box<Sleep>>, timeout: Duration) -> Self {
         Self { res, timer, timeout }
+    }
+
+    pub fn head(&self) -> &http::Response<ResponseBody<'a>> {
+        &self.res
     }
 
     /// Set payload size limit in bytes. Payload size beyond limit would be discarded.
