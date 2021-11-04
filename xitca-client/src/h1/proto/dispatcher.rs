@@ -65,6 +65,12 @@ where
         match ctx.decode_head(&mut buf)? {
             Some((res, decoder)) => {
                 // check if server sent connection close header.
+
+                // *. If send_inner function produces error, Context has already set
+                // connection type to ConnectionType::CloseForce. We trust the server response
+                // to not produce another connection type that override it to any variant
+                // other than ConnectionType::Close in this case and only this case.
+
                 let mut is_close = ctx.is_connection_closed();
 
                 let decoder = match (is_head_method, decoder.is_eof()) {
