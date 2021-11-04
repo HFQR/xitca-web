@@ -8,21 +8,24 @@ on:
 
 jobs:
   build_and_test:
-    name: Build and test
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # TODO: add other os
-        os: [ubuntu-latest]
-        rust: [nightly]
+        target:
+          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
+          - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
+        version:
+          - nightly
 
+    name: ${{ matrix.target.name }} / ${{ matrix.version }}
+    runs-on: ${{ matrix.target.os }}  
+    
     steps:
     - uses: actions/checkout@master
 
-    - name: Install ${{ matrix.rust }}
+    - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.rust }}
+        toolchain: ${{ matrix.version }}
         components: clippy, rustfmt
         override: true
         
