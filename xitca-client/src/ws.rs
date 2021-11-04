@@ -161,7 +161,7 @@ impl Sink<Message> for WebSocketInner<'_> {
             }
         }
 
-        Poll::Ready(Ok(()))
+        Pin::new(&mut **inner.body.conn()).poll_flush(cx).map_err(Into::into)
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
