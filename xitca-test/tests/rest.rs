@@ -47,13 +47,19 @@ async fn h1_post() -> Result<(), Error> {
     let c = Client::new();
 
     for _ in 0..3 {
-        let mut req = c.post(&server_url)?.body(Bytes::from("Hello,World!"));
+        let mut body = BytesMut::new();
+        for _ in 0..1024 * 1024 {
+            body.extend_from_slice(b"Hello,World!");
+        }
+        let body_len = body.len();
+
+        let mut req = c.post(&server_url)?.body(body);
         req.headers_mut()
             .insert(header::CONTENT_TYPE, header::HeaderValue::from_static("text/plain"));
         let res = req.send().await?;
         assert_eq!(res.status().as_u16(), 200);
-        let body = res.string().await?;
-        assert_eq!("Hello,World!", body);
+        let body = res.limit::<{ 12 * 1024 * 1024 }>().string().await?;
+        assert_eq!(body.len(), body_len);
     }
 
     handle.try_handle()?.stop(false);
