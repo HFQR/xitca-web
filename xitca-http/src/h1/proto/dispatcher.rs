@@ -463,13 +463,11 @@ where
         pin!(body);
 
         loop {
-            if self.io.write_buf.backpressure() {
-                trace!(target: "h1_dispatcher", "Write buffer limit reached. Enter backpressure.");
-                self.io.drain_write().await?;
-                trace!(target: "h1_dispatcher", "Write buffer empty. Recover from backpressure.");
-            } else if let Some(handle) = body_handle.as_mut() {
-                match handle.decode(&mut self.io.read_buf)? {
+            match body_handle.as_mut() {
+                Some(handle) => match handle.decode(&mut self.io.read_buf)? {
                     DecodeState::Continue => {
+                        // TODO: body should be polled in a loop and yield when it's finished/error.
+                        // This would reduce the match on body handle.
                         match body.as_mut().next().select(self.io.ready(handle, &mut self.ctx)).await {
                             SelectOutput::A(Some(bytes)) => {
                                 let bytes = bytes?;
@@ -492,7 +490,9 @@ where
                                 }
                                 if ready.is_writable() {
                                     self.io.try_write()?;
-                                    self.io.flush().await?;
+                                    if self.io.write_buf.backpressure() {
+                                        self.io.flush().await?;
+                                    }
                                 }
                             }
                             // TODO: potential special handling error case of RequestBodySender::poll_ready ?
@@ -505,9 +505,8 @@ where
                         }
                     }
                     DecodeState::Eof => body_handle = None,
-                }
-            } else {
-                match body.as_mut().next().select(self.io.writable()).await {
+                },
+                None => match body.as_mut().next().select(self.io.writable()).await {
                     SelectOutput::A(Some(bytes)) => {
                         let bytes = bytes?;
                         encoder.encode(bytes, &mut self.io.write_buf);
@@ -521,7 +520,7 @@ where
                         self.io.try_write()?;
                         self.io.flush().await?;
                     }
-                }
+                },
             }
         }
     }

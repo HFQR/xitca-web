@@ -45,6 +45,10 @@ where
     // send request head for potential intermediate handling like expect header.
     stream.write_all_buf(&mut *buf).await?;
 
+    // TODO: concurrent read write is needed in case server decide to do two way
+    // streaming with very large body surpass socket buffer size.
+    // (In rare case the server could starting streaming back resposne without read all the request body)
+
     // try to send request body.
     // continue to read response no matter the outcome.
     if send_inner(stream, encoder, body, &mut buf).await.is_err() {
