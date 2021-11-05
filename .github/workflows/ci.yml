@@ -30,23 +30,22 @@ jobs:
           override: true
 
     - name: Install cargo-hack
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-hack
+      uses: actions-rs/cargo@v1
+      with:
+      command: install
+      args: cargo-hack
 
     - name: tests
-        if: matrix.target.os != 'ubuntu-latest'
-        run: |
-          cargo ci-test-exclude-io-uring
+      if: matrix.target.os != 'ubuntu-latest'
+      run: |
+        cargo ci-test-exclude-io-uring
 
     - name: tests
-        if: matrix.target.os == 'ubuntu-latest'
-        run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test"
+      if: matrix.target.os == 'ubuntu-latest'
+      run: |
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test"
     
     - name: Clear the cargo caches
-        run: |
-          cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
-          cargo-cache
-          
+      run: |
+        cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
+        cargo-cache
