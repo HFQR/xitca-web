@@ -34,30 +34,3 @@ pub use xitca_http::http;
 
 // re-export bytes crate.
 pub use xitca_http::bytes;
-
-#[cfg(test)]
-mod test {
-    #[cfg(all(feature = "openssl", feature = "http2"))]
-    #[tokio::test]
-    async fn get() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let client = crate::Client::builder().openssl().finish();
-
-        let res = client.get("https://www.rust-lang.org")?.send().await?;
-
-        println!("{:?}", res);
-
-        Ok(())
-    }
-
-    #[cfg(feature = "http3")]
-    #[tokio::test]
-    async fn get_h3() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let client = crate::Client::new();
-
-        let res = client.get("https://cloudflare-quic.com/")?.send().await?;
-
-        println!("{:?}", res);
-
-        Ok(())
-    }
-}
