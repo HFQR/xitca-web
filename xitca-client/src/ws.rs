@@ -178,15 +178,24 @@ impl Stream for WebSocketInner<'_> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        while let Some(res) = ready!(Pin::new(&mut this.body).poll_next(cx)) {
-            let bytes = res?;
-            this.recv_buf.extend_from_slice(&bytes);
+        let mut eof = false;
 
+        loop {
             if let Some(msg) = this.codec.decode(&mut this.recv_buf)? {
                 return Poll::Ready(Some(Ok(msg)));
             }
-        }
 
-        Poll::Ready(None)
+            if eof {
+                return Poll::Ready(None);
+            }
+
+            match ready!(Pin::new(&mut this.body).poll_next(cx)) {
+                Some(res) => {
+                    let bytes = res?;
+                    this.recv_buf.extend_from_slice(&bytes);
+                }
+                None => eof = true,
+            }
+        }
     }
 }

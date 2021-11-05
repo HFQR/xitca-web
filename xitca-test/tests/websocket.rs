@@ -20,9 +20,14 @@ async fn message() -> Result<(), Error> {
 
     let (mut tx, mut rx) = ws.split();
 
-    tx.send(Message::Text(Bytes::from("Hello,World!"))).await?;
-    let msg = rx.next().await.unwrap()?;
-    assert_eq!(msg, Message::Text(Bytes::from("Hello,World!")));
+    for _ in 0..9 {
+        tx.send(Message::Text(Bytes::from("Hello,World!"))).await?;
+    }
+
+    for _ in 0..9 {
+        let msg = rx.next().await.unwrap()?;
+        assert_eq!(msg, Message::Text(Bytes::from("Hello,World!")));
+    }
 
     tx.send(Message::Ping(Bytes::from("pingpong"))).await?;
     let msg = rx.next().await.unwrap()?;

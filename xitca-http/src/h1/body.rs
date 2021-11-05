@@ -103,7 +103,7 @@ impl RequestBodySender {
                 Poll::Ready(Ok(()))
             }
         } else {
-            Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)))
+            Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()))
         }
     }
 
