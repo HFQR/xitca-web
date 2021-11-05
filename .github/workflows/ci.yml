@@ -25,15 +25,15 @@ jobs:
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
-          toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
-          profile: minimal
-          override: true
+        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        profile: minimal
+        override: true
 
     - name: Install cargo-hack
       uses: actions-rs/cargo@v1
       with:
-      command: install
-      args: cargo-hack
+        command: install
+        args: cargo-hack
 
     - name: tests
       if: matrix.target.os != 'ubuntu-latest'
