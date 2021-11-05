@@ -1,13 +1,6 @@
-use std::{
-    future::Future,
-    io,
-    marker::PhantomData,
-    pin::Pin,
-    task::{self, Poll},
-    time::Duration,
-};
+use std::{io, marker::PhantomData, pin::Pin, task::Poll, time::Duration};
 
-use futures_core::{ready, stream::Stream};
+use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
 use tokio::pin;
 use tracing::trace;
@@ -167,7 +160,7 @@ where
 
     /// Block task and read.
     async fn read(&mut self) -> Result<(), Error<E>> {
-        let _ = self.io.ready(Interest::READABLE).await?;
+        self.io.ready(Interest::READABLE).await?;
         self.try_read()
     }
 
@@ -185,23 +178,6 @@ where
             let _ = self.io.ready(Interest::WRITABLE).await?;
         }
         self.flush().await
-    }
-
-    /// A specialized readable check that always pending when read buffer is full.
-    /// This is a hack for `crate::util::futures::Select`.
-    async fn readable<D, const HEADER_LIMIT: usize>(
-        &self,
-        handle: &mut RequestBodyHandle,
-        ctx: &mut Context<'_, D, HEADER_LIMIT>,
-    ) -> io::Result<()> {
-        if self.read_buf.backpressure() {
-            never().await
-        } else {
-            let _ = self.io.ready(Interest::READABLE).await?;
-            // Check the readiness of RequestBodyHandle
-            // so read ahead does not buffer too much data.
-            handle.ready(ctx).await
-        }
     }
 
     /// A specialized writable check that always pending when write buffer is empty.
@@ -222,48 +198,31 @@ where
         handle: &mut RequestBodyHandle,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {
-        struct ReadyFuture<'a, 'c, F, D, const HEADER_LIMIT: usize> {
-            fut: Pin<&'a mut F>,
-            handle: &'a RequestBodyHandle,
-            ctx: &'a mut Context<'c, D, HEADER_LIMIT>,
-        }
-
-        impl<F, D, const HEADER_LIMIT: usize> Future for ReadyFuture<'_, '_, F, D, HEADER_LIMIT>
-        where
-            F: Future<Output = io::Result<Ready>>,
-        {
-            type Output = io::Result<Ready>;
-
-            fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-                let this = self.get_mut();
-                let ready = ready!(this.fut.as_mut().poll(cx))?;
-                match this.handle.sender.poll_ready(cx) {
-                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(ready)),
-                    Poll::Ready(Err(e)) => {
-                        // When service call dropped payload there is no tell how many bytes
-                        // still remain readable in the connection.
-                        // close the connection would be a safe bet than draining it.
-                        this.ctx.set_force_close_on_error();
-                        Poll::Ready(Err(e))
-                    }
-                    // on pending path the readable ready state should be removed.
-                    // It indicate the read ahead buffer is at full capacity.
-                    Poll::Pending => Poll::Ready(Ok(ready - Ready::READABLE)),
-                }
-            }
-        }
-
         let interest = match (self.read_buf.backpressure(), self.write_buf.is_empty()) {
-            (true, true) => return never().await,
+            (true, true) => never().await,
             (false, true) => Interest::READABLE,
             (true, false) => Interest::WRITABLE,
             (false, false) => Interest::READABLE | Interest::WRITABLE,
         };
 
-        let fut = self.io.ready(interest);
-        pin!(fut);
+        let ready = self.io.ready(interest).await?;
 
-        ReadyFuture { fut, handle, ctx }.await
+        let ready = poll_fn(move |cx| match handle.sender.poll_ready(cx) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(ready)),
+            Poll::Ready(Err(e)) => {
+                // When service call dropped payload there is no tell how many bytes
+                // still remain readable in the connection.
+                // close the connection would be a safe bet than draining it.
+                ctx.set_force_close_on_error();
+                Poll::Ready(Err(e))
+            }
+            // on pending path the readable ready state should be removed.
+            // It indicate the read ahead buffer is at full capacity.
+            Poll::Pending => Poll::Ready(Ok(ready - Ready::READABLE)),
+        })
+        .await?;
+
+        Ok(ready)
     }
 
     #[inline(never)]
@@ -437,15 +396,28 @@ where
         body_handle: &mut Option<RequestBodyHandle>,
     ) -> Result<S::Response, Error<S::Error>> {
         // decode request body and read more if needed.
-        while let Some(handle) = body_handle {
-            match handle.decode(&mut self.io.read_buf)? {
-                DecodeState::Continue => {
-                    self.io.readable(handle, &mut self.ctx).await?;
-                    self.io.try_read()?;
+        if let Some(handle) = body_handle {
+            loop {
+                // Check the readiness of RequestBodyHandle
+                // so read ahead does not buffer too much data.
+                if handle.sender.ready().await.is_err() {
+                    // RequestBodySender's only error case is when service future drop the request
+                    // body half way. In this case notify Context to close connection afterwards.
+                    //
+                    // Service future is trusted to produce a meaningful response after it drops
+                    // the request body.
+                    self.ctx.set_force_close_on_error();
+                    break;
                 }
-                DecodeState::Eof => *body_handle = None,
+
+                match handle.decode(&mut self.io.read_buf)? {
+                    DecodeState::Continue => self.io.read().await?,
+                    DecodeState::Eof => break,
+                }
             }
         }
+
+        *body_handle = None;
 
         // pending and do nothing when RequestBodyHandle is gone.
         never().await
@@ -515,7 +487,9 @@ where
                     SelectOutput::B(res) => {
                         res?;
                         self.io.try_write()?;
-                        self.io.flush().await?;
+                        if self.io.write_buf.backpressure() {
+                            self.io.flush().await?;
+                        }
                     }
                 },
             }
@@ -582,15 +556,5 @@ impl RequestBodyHandle {
         }
 
         Ok(DecodeState::Continue)
-    }
-
-    async fn ready<D, const HEADER_LIMIT: usize>(&self, ctx: &mut Context<'_, D, HEADER_LIMIT>) -> io::Result<()> {
-        self.sender.ready().await.map_err(move |e| {
-            // When service call dropped payload there is no tell how many bytes
-            // still remain readable in the connection.
-            // close the connection would be a safe bet than draining it.
-            ctx.set_force_close_on_error();
-            e
-        })
     }
 }
