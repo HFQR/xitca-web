@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   build_and_test:
@@ -25,37 +25,28 @@ jobs:
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}
-        components: clippy, rustfmt
-        override: true
+          toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+          profile: minimal
+          override: true
 
-    - name: fmt
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
-
-    - name: clippy
-      uses: actions-rs/clippy-check@v1
-      with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --tests --examples
-
-    - name: check
-      uses: actions-rs/cargo@v1
-      with:
-        command: check
-        args: --all --bins --examples
-
-    - name: check no-default-features
-      uses: actions-rs/cargo@v1
-      with:
-        command: check
-        args: --no-default-features
+    - name: Install cargo-hack
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-hack
 
     - name: tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --all
-        
+        if: matrix.target.os != 'ubuntu-latest'
+        run: |
+          cargo ci-test-exclude-io-uring
+
+    - name: tests
+        if: matrix.target.os == 'ubuntu-latest'
+        run: |
+          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test"
+    
+    - name: Clear the cargo caches
+        run: |
+          cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
+          cargo-cache
+          
