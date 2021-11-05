@@ -74,13 +74,16 @@ impl RequestBodySender {
     }
 
     pub(super) fn feed_eof(&mut self) {
-        debug_assert!(self.payload_alive());
-        self.0.borrow_mut().feed_eof();
+        if self.payload_alive() {
+            self.0.borrow_mut().feed_eof();
+        }
     }
 
+    // TODO: feed_data should returrn the payload_alive status.
     pub(super) fn feed_data(&mut self, data: Bytes) {
-        debug_assert!(self.payload_alive());
-        self.0.borrow_mut().feed_data(data);
+        if self.payload_alive() {
+            self.0.borrow_mut().feed_data(data);
+        }
     }
 
     pub(super) async fn ready(&self) -> io::Result<()> {
@@ -100,7 +103,7 @@ impl RequestBodySender {
                 Poll::Ready(Ok(()))
             }
         } else {
-            Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)))
+            Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()))
         }
     }
 

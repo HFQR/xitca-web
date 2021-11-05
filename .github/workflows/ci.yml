@@ -2,56 +2,50 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   build_and_test:
-    name: Build and test
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # TODO: add other os
-        os: [ubuntu-latest]
-        rust: [nightly]
+        target:
+          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
+          - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
+        version:
+          - nightly
 
+    name: ${{ matrix.target.name }} / ${{ matrix.version }}
+    runs-on: ${{ matrix.target.os }}  
+    
     steps:
     - uses: actions/checkout@master
 
-    - name: Install ${{ matrix.rust }}
+    - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.rust }}
-        components: clippy, rustfmt
+        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        profile: minimal
         override: true
-        
-    - name: check
-      uses: actions-rs/cargo@v1
-      with:
-        command: check
-        args: --all --bins --examples
 
-    - name: check no-default-features
+    - name: Install cargo-hack
       uses: actions-rs/cargo@v1
       with:
-        command: check
-        args: --no-default-features
+        command: install
+        args: cargo-hack
 
     - name: tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --all
-        
-    - name: clippy
-      uses: actions-rs/clippy-check@v1
-      with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --tests --examples     
+      if: matrix.target.os != 'ubuntu-latest'
+      run: |
+        cargo ci-test-exclude-io-uring
+
+    - name: tests
+      if: matrix.target.os == 'ubuntu-latest'
+      run: |
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test"
     
-    - name: fmt
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
+    - name: Clear the cargo caches
+      run: |
+        cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
+        cargo-cache

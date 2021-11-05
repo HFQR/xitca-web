@@ -401,7 +401,7 @@ where
     fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<TransferCoding, Error<S::Error>> {
         self.ctx
             .encode_head(parts, body.size(), &mut self.io.write_buf)
-            .map_err(Error::from)
+            .map_err(Into::into)
     }
 
     async fn request_handler(
@@ -410,26 +410,24 @@ where
         body_handle: &mut Option<RequestBodyHandle>,
     ) -> Result<S::Response, Error<S::Error>> {
         if self.ctx.is_expect_header() {
-            match self.flow.expect.call(req).await {
-                Ok(expect_res) => {
-                    // encode continue
-                    self.ctx.encode_continue(&mut self.io.write_buf);
+            let expect_res = self.flow.expect.call(req).await.map_err(|e| Error::Service(e.into()))?;
 
-                    // use drain write to make sure continue is sent to client.
-                    // the world can wait until it happens.
-                    self.io.drain_write().await?;
+            // encode continue
+            self.ctx.encode_continue(&mut self.io.write_buf);
 
-                    req = expect_res;
-                }
-                Err(e) => return Err(Error::Service(e.into())),
-            }
+            // use drain write to make sure continue is sent to client. the world can wait until it happens.
+            self.io.drain_write().await?;
+
+            req = expect_res;
         };
 
-        let fut = self.flow.service.call(req);
-
-        pin!(fut);
-
-        match fut.as_mut().select(self.request_body_handler(body_handle)).await {
+        match self
+            .flow
+            .service
+            .call(req)
+            .select(self.request_body_handler(body_handle))
+            .await
+        {
             SelectOutput::A(res) => res.map_err(Error::Service),
             SelectOutput::B(res) => res,
         }
@@ -463,13 +461,11 @@ where
         pin!(body);
 
         loop {
-            if self.io.write_buf.backpressure() {
-                trace!(target: "h1_dispatcher", "Write buffer limit reached. Enter backpressure.");
-                self.io.drain_write().await?;
-                trace!(target: "h1_dispatcher", "Write buffer empty. Recover from backpressure.");
-            } else if let Some(handle) = body_handle.as_mut() {
-                match handle.decode(&mut self.io.read_buf)? {
+            match body_handle.as_mut() {
+                Some(handle) => match handle.decode(&mut self.io.read_buf)? {
                     DecodeState::Continue => {
+                        // TODO: body should be polled in a loop and yield when it's finished/error.
+                        // This would reduce the match on body handle.
                         match body.as_mut().next().select(self.io.ready(handle, &mut self.ctx)).await {
                             SelectOutput::A(Some(bytes)) => {
                                 let bytes = bytes?;
@@ -492,7 +488,9 @@ where
                                 }
                                 if ready.is_writable() {
                                     self.io.try_write()?;
-                                    self.io.flush().await?;
+                                    if self.io.write_buf.backpressure() {
+                                        self.io.flush().await?;
+                                    }
                                 }
                             }
                             // TODO: potential special handling error case of RequestBodySender::poll_ready ?
@@ -505,9 +503,8 @@ where
                         }
                     }
                     DecodeState::Eof => body_handle = None,
-                }
-            } else {
-                match body.as_mut().next().select(self.io.writable()).await {
+                },
+                None => match body.as_mut().next().select(self.io.writable()).await {
                     SelectOutput::A(Some(bytes)) => {
                         let bytes = bytes?;
                         encoder.encode(bytes, &mut self.io.write_buf);
@@ -521,7 +518,7 @@ where
                         self.io.try_write()?;
                         self.io.flush().await?;
                     }
-                }
+                },
             }
         }
     }
