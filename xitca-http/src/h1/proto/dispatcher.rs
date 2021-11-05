@@ -9,12 +9,9 @@ use std::{
 
 use futures_core::{ready, stream::Stream};
 use http::{response::Parts, Request, Response};
-use tokio::{
-    io::{AsyncWrite, Interest},
-    pin,
-};
+use tokio::pin;
 use tracing::trace;
-use xitca_io::io::{AsyncIo, Ready};
+use xitca_io::io::{AsyncIo, AsyncWrite, Interest, Ready};
 use xitca_service::Service;
 
 use crate::{
@@ -272,7 +269,9 @@ where
     #[inline(never)]
     async fn shutdown(&mut self) -> Result<(), Error<E>> {
         self.drain_write().await?;
-        self.flush().await
+        poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx))
+            .await
+            .map_err(Into::into)
     }
 }
 
