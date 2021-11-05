@@ -1,4 +1,3 @@
-#[cfg(feature = "http1")]
 pub(crate) mod buf_list;
 pub(crate) mod futures;
 #[cfg(feature = "http1")]
