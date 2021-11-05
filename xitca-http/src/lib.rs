@@ -42,7 +42,8 @@ pub use error::{BodyError, HttpServiceError};
 pub use response::ResponseError;
 pub use service::HttpService;
 
+// TODO: enable this conflict feature check.
 // temporary compile error for conflicted feature combination.
-#[cfg(not(feature = "http1"))]
-#[cfg(all(feature = "http2", feature = "native-tls"))]
-compile_error!("http2 feature can not use native-tls");
+// #[cfg(not(feature = "http1"))]
+// #[cfg(all(feature = "http2", feature = "native-tls"))]
+// compile_error!("http2 feature can not use native-tls");
