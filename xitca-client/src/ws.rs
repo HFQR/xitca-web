@@ -62,6 +62,7 @@ impl<'a> WebSocket<'a> {
         Self {
             inner: RefCell::new(WebSocketInner {
                 codec: Codec::new().client_mode(),
+                eof: false,
                 send_buf: BytesMut::new(),
                 recv_buf: BytesMut::new(),
                 body,
@@ -82,6 +83,7 @@ impl<'a> WebSocket<'a> {
     pub fn max_size(self, size: usize) -> Self {
         let WebSocketInner {
             codec,
+            eof,
             send_buf,
             recv_buf,
             body,
@@ -90,6 +92,7 @@ impl<'a> WebSocket<'a> {
         Self {
             inner: RefCell::new(WebSocketInner {
                 codec: codec.max_size(size),
+                eof,
                 send_buf,
                 recv_buf,
                 body,
@@ -128,6 +131,7 @@ impl Stream for WebSocket<'_> {
 
 struct WebSocketInner<'c> {
     codec: Codec,
+    eof: bool,
     send_buf: BytesMut,
     recv_buf: BytesMut,
     body: h1::body::ResponseBody<ConnectionWithKey<'c>>,
@@ -178,14 +182,12 @@ impl Stream for WebSocketInner<'_> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        let mut eof = false;
-
         loop {
             if let Some(msg) = this.codec.decode(&mut this.recv_buf)? {
                 return Poll::Ready(Some(Ok(msg)));
             }
 
-            if eof {
+            if this.eof {
                 return Poll::Ready(None);
             }
 
@@ -194,7 +196,7 @@ impl Stream for WebSocketInner<'_> {
                     let bytes = res?;
                     this.recv_buf.extend_from_slice(&bytes);
                 }
-                None => eof = true,
+                None => this.eof = true,
             }
         }
     }
