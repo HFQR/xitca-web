@@ -160,9 +160,16 @@ async fn h1_keepalive() -> Result<(), Error> {
     // If test_server has a different setting this must be changed accordingly.
     tokio::time::sleep(Duration::from_secs(6)).await;
 
-    stream.write_all(SIMPLE_GET_REQ)?;
-    let n = stream.read(&mut buf)?;
-    assert_eq!(n, 0);
+    // Due to platform difference this block may success or not.
+    // Either way it can not get a response from server as it has already close
+    // the connection.
+    {
+        let _ = stream.write_all(SIMPLE_GET_REQ);
+
+        if let Ok(n) = stream.read(&mut buf) {
+            assert_eq!(n, 0);
+        }
+    }
 
     handle.try_handle()?.stop(true);
 
