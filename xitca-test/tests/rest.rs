@@ -1,3 +1,9 @@
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+    time::Duration,
+};
+
 use xitca_client::Client;
 use xitca_http::{
     body::ResponseBody,
@@ -22,10 +28,7 @@ async fn h1_get() -> Result<(), Error> {
     assert_eq!("GET Response", body);
 
     for _ in 0..3 {
-        let mut req = c.post(&server_url)?.body(Bytes::from("Hello,World!"));
-        req.headers_mut()
-            .insert(header::CONTENT_TYPE, header::HeaderValue::from_static("text/plain"));
-        let res = req.send().await?;
+        let res = c.post(&server_url)?.text("Hello,World!").send().await?;
         assert_eq!(res.status().as_u16(), 200);
         let body = res.string().await?;
         assert_eq!("Hello,World!", body);
@@ -53,10 +56,7 @@ async fn h1_post() -> Result<(), Error> {
         }
         let body_len = body.len();
 
-        let mut req = c.post(&server_url)?.body(body);
-        req.headers_mut()
-            .insert(header::CONTENT_TYPE, header::HeaderValue::from_static("text/plain"));
-        let res = req.send().await?;
+        let res = c.post(&server_url)?.text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         let body = res.limit::<{ 12 * 1024 * 1024 }>().string().await?;
         assert_eq!(body.len(), body_len);
@@ -83,15 +83,39 @@ async fn h1_partial_body_read() -> Result<(), Error> {
             body.extend_from_slice(b"Hello,World!");
         }
 
-        let mut req = c.post(&server_url)?.body(body);
-
-        req.headers_mut()
-            .insert(header::CONTENT_TYPE, header::HeaderValue::from_static("text/plain"));
-
-        let res = req.send().await?;
-
+        let res = c.post(&server_url)?.text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
     }
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn h1_keepalive() -> Result<(), Error> {
+    let mut handle = test_h1_server(|| fn_service(handle))?;
+
+    let mut stream = TcpStream::connect(handle.addr())?;
+
+    let mut buf = [0; 128];
+    for _ in 0..3 {
+        stream.write_all(SIMPLE_GET_REQ)?;
+
+        let n = stream.read(&mut buf)?;
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        assert!(&buf[..n].ends_with(b"GET Response"));
+    }
+
+    // default h1 keep alive is 5 seconds.
+    // If test_server has a different setting this must be changed accordingly.
+    tokio::time::sleep(Duration::from_secs(6)).await;
+
+    stream.write_all(SIMPLE_GET_REQ)?;
+    let n = stream.read(&mut buf)?;
+    assert_eq!(n, 0);
 
     handle.try_handle()?.stop(false);
 
@@ -124,3 +148,5 @@ async fn handle(req: Request<h1::RequestBody>) -> Result<Response<ResponseBody>,
         _ => todo!(),
     }
 }
+
+const SIMPLE_GET_REQ: &[u8] = b"GET / HTTP/1.1\r\ncontent-length: 0\r\n\r\n";
