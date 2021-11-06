@@ -1,3 +1,5 @@
+pub use http_ws::Message;
+
 use std::{
     cell::RefCell,
     io,
@@ -7,7 +9,7 @@ use std::{
 
 use futures_core::{ready, stream::Stream};
 use futures_util::sink::Sink;
-use http_ws::{Codec, Message};
+use http_ws::Codec;
 use xitca_http::bytes::{Buf, BytesMut};
 use xitca_io::io::AsyncWrite;
 

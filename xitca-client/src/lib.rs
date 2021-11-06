@@ -14,7 +14,6 @@ mod response;
 mod timeout;
 mod tls;
 mod uri;
-mod ws;
 
 #[cfg(feature = "http2")]
 mod h2;
@@ -23,6 +22,7 @@ mod h2;
 mod h3;
 
 pub mod error;
+pub mod ws;
 
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;

@@ -3,10 +3,14 @@ use std::io;
 use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use xitca_http::{
-    bytes::Bytes,
+    bytes::{Bytes, BytesMut},
     error::BodyError,
     h1::proto::{buf::FlatBuf, codec::TransferCoding},
-    http::{self, Method},
+    http::{
+        self,
+        header::{HeaderValue, HOST},
+        Method,
+    },
 };
 
 use crate::{body::RequestBody, date::DateTimeHandle, h1::Error};
@@ -16,7 +20,7 @@ use super::context::Context;
 pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
-    req: http::Request<RequestBody<B>>,
+    mut req: http::Request<RequestBody<B>>,
 ) -> Result<
     (
         http::Response<()>,
@@ -32,6 +36,23 @@ where
     BodyError: From<E>,
 {
     let is_head_method = *req.method() == Method::HEAD;
+
+    if !req.headers().contains_key(HOST) {
+        if let Some(host) = req.uri().host() {
+            let mut buf = BytesMut::with_capacity(host.len() + 5);
+
+            buf.extend_from_slice(host.as_bytes());
+            match req.uri().port_u16() {
+                None | Some(80) | Some(443) => {}
+                Some(port) => {
+                    buf.extend_from_slice(b":");
+                    buf.extend_from_slice(port.to_string().as_bytes());
+                }
+            };
+            req.headers_mut()
+                .insert(HOST, HeaderValue::from_maybe_shared(buf.freeze()).unwrap());
+        }
+    }
 
     let (parts, body) = req.into_parts();
 
