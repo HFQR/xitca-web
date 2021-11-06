@@ -192,37 +192,44 @@ where
     }
 
     /// Check readable and writable state of IO and ready state of request payload sender.
-    /// Remove redable state if request payload is not ready(Read backpressure).
+    /// Remove readable state if request payload is not ready(Read ahead backpressure).
     async fn ready<D, const HEADER_LIMIT: usize>(
         &self,
         handle: &mut RequestBodyHandle,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {
-        let interest = match (self.read_buf.backpressure(), self.write_buf.is_empty()) {
-            (true, true) => never().await,
-            (false, true) => Interest::READABLE,
-            (true, false) => Interest::WRITABLE,
-            (false, false) => Interest::READABLE | Interest::WRITABLE,
-        };
+        match (!self.read_buf.backpressure(), !self.write_buf.is_empty()) {
+            (false, false) => never().await,
+            (false, true) => self.io.ready(Interest::WRITABLE).await,
+            (true, false) => match handle.sender.ready().await {
+                Ok(_) => self.io.ready(Interest::READABLE).await,
+                Err(e) => {
+                    // When service call dropped payload there is no tell how many bytes
+                    // still remain readable in the connection.
+                    // close the connection would be a safe bet than draining it.
+                    ctx.set_force_close_on_error();
+                    Err(e)
+                }
+            },
+            (true, true) => {
+                let ready = self.io.ready(Interest::READABLE | Interest::WRITABLE).await?;
 
-        let ready = self.io.ready(interest).await?;
+                let ready = poll_fn(move |cx| match handle.sender.poll_ready(cx) {
+                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(ready)),
+                    Poll::Ready(Err(e)) => {
+                        // Same reason as the other poll_ready(or ready.await) of RequestBodySender.
+                        ctx.set_force_close_on_error();
+                        Poll::Ready(Err(e))
+                    }
+                    // on pending path the readable ready state should be removed.
+                    // It indicate the read ahead buffer is at full capacity.
+                    Poll::Pending => Poll::Ready(Ok(ready - Ready::READABLE)),
+                })
+                .await?;
 
-        let ready = poll_fn(move |cx| match handle.sender.poll_ready(cx) {
-            Poll::Ready(Ok(_)) => Poll::Ready(Ok(ready)),
-            Poll::Ready(Err(e)) => {
-                // When service call dropped payload there is no tell how many bytes
-                // still remain readable in the connection.
-                // close the connection would be a safe bet than draining it.
-                ctx.set_force_close_on_error();
-                Poll::Ready(Err(e))
+                Ok(ready)
             }
-            // on pending path the readable ready state should be removed.
-            // It indicate the read ahead buffer is at full capacity.
-            Poll::Pending => Poll::Ready(Ok(ready - Ready::READABLE)),
-        })
-        .await?;
-
-        Ok(ready)
+        }
     }
 
     #[inline(never)]
@@ -432,68 +439,70 @@ where
         pin!(body);
 
         loop {
-            match body_handle.as_mut() {
-                Some(handle) => match handle.decode(&mut self.io.read_buf)? {
-                    DecodeState::Continue => {
-                        // TODO: body should be polled in a loop and yield when it's finished/error.
-                        // This would reduce the match on body handle.
-                        match body.as_mut().next().select(self.io.ready(handle, &mut self.ctx)).await {
-                            SelectOutput::A(Some(bytes)) => {
-                                let bytes = bytes?;
-                                encoder.encode(bytes, &mut self.io.write_buf);
-                            }
-                            SelectOutput::A(None) => {
-                                // Request body is partial consumed.
-                                // Close connection in case there are bytes remain in socket.
-                                if !handle.sender.is_eof() {
-                                    self.ctx.set_force_close_on_non_eof();
-                                };
+            match body
+                .as_mut()
+                .next()
+                .select(self.response_body_handler(&mut body_handle))
+                .await
+            {
+                SelectOutput::A(Some(res)) => {
+                    let bytes = res?;
+                    encoder.encode(bytes, &mut self.io.write_buf);
+                }
+                SelectOutput::A(None) => {
+                    // Request body is partial consumed.
+                    // Close connection in case there are bytes remain in socket.
+                    let is_eof = body_handle.take().map(|h| h.sender.is_eof()).unwrap_or(true);
+                    if !is_eof {
+                        self.ctx.set_force_close_on_non_eof();
+                    };
 
-                                encoder.encode_eof(&mut self.io.write_buf);
-
-                                return Ok(());
-                            }
-                            SelectOutput::B(Ok(ready)) => {
-                                if ready.is_readable() {
-                                    self.io.try_read()?
-                                }
-                                if ready.is_writable() {
-                                    self.io.try_write()?;
-                                    if self.io.write_buf.backpressure() {
-                                        self.io.flush().await?;
-                                    }
-                                }
-                            }
-                            // TODO: potential special handling error case of RequestBodySender::poll_ready ?
-                            // This output would mix IO error and RequestBodySender::poll_ready error.
-                            // For now the effect of not handling them differently is not clear.
-                            SelectOutput::B(Err(e)) => {
-                                handle.sender.feed_error(e.into());
-                                body_handle = None;
-                            }
-                        }
-                    }
-                    DecodeState::Eof => body_handle = None,
-                },
-                None => match body.as_mut().next().select(self.io.writable()).await {
-                    SelectOutput::A(Some(bytes)) => {
-                        let bytes = bytes?;
-                        encoder.encode(bytes, &mut self.io.write_buf);
-                    }
-                    SelectOutput::A(None) => {
-                        encoder.encode_eof(&mut self.io.write_buf);
-                        return Ok(());
-                    }
-                    SelectOutput::B(res) => {
-                        res?;
-                        self.io.try_write()?;
-                        if self.io.write_buf.backpressure() {
-                            self.io.flush().await?;
-                        }
-                    }
-                },
+                    encoder.encode_eof(&mut self.io.write_buf);
+                    return Ok(());
+                }
+                SelectOutput::B(res) => res?,
             }
         }
+    }
+
+    async fn response_body_handler(
+        &mut self,
+        body_handle: &mut Option<RequestBodyHandle>,
+    ) -> Result<(), Error<S::Error>> {
+        match body_handle.as_mut() {
+            Some(handle) => match handle.decode(&mut self.io.read_buf)? {
+                DecodeState::Continue => match self.io.ready(handle, &mut self.ctx).await {
+                    Ok(ready) => {
+                        if ready.is_readable() {
+                            self.io.try_read()?
+                        }
+                        if ready.is_writable() {
+                            self.io.try_write()?;
+                            if self.io.write_buf.backpressure() {
+                                self.io.flush().await?;
+                            }
+                        }
+                    }
+                    // TODO: potential special handling error case of RequestBodySender::poll_ready ?
+                    // This output would mix IO error and RequestBodySender::poll_ready error.
+                    // For now the effect of not handling them differently is not clear.
+                    Err(e) => {
+                        handle.sender.feed_error(e.into());
+                        *body_handle = None;
+                    }
+                },
+                DecodeState::Eof => *body_handle = None,
+            },
+            None => {
+                self.io.writable().await?;
+                self.io.try_write()?;
+                if self.io.write_buf.backpressure() {
+                    self.io.flush().await?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[cold]
