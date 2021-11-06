@@ -1,3 +1,4 @@
+use futures_util::StreamExt;
 use std::{
     io::{Read, Write},
     net::TcpStream,
@@ -7,10 +8,13 @@ use std::{
 use xitca_client::Client;
 use xitca_http::{
     body::ResponseBody,
+    bytes::{Bytes, BytesMut},
     h1,
-    http::{header, Method, Request, Response},
+    http::{
+        header::{self, HeaderValue, CONNECTION},
+        Method, Request, Response,
+    },
 };
-use xitca_io::bytes::{Bytes, BytesMut};
 use xitca_service::fn_service;
 use xitca_test::{test_h1_server, Error};
 
@@ -22,16 +26,12 @@ async fn h1_get() -> Result<(), Error> {
 
     let c = Client::new();
 
-    let res = c.get(&server_url)?.send().await?;
-    assert_eq!(res.status().as_u16(), 200);
-    let body = res.string().await?;
-    assert_eq!("GET Response", body);
-
     for _ in 0..3 {
-        let res = c.post(&server_url)?.text("Hello,World!").send().await?;
+        let mut res = c.get(&server_url)?.send().await?;
         assert_eq!(res.status().as_u16(), 200);
+        assert!(!res.is_close_connection());
         let body = res.string().await?;
-        assert_eq!("Hello,World!", body);
+        assert_eq!("GET Response", body);
     }
 
     handle.try_handle()?.stop(false);
@@ -56,10 +56,37 @@ async fn h1_post() -> Result<(), Error> {
         }
         let body_len = body.len();
 
-        let res = c.post(&server_url)?.text(body).send().await?;
+        let mut res = c.post(&server_url)?.text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
+        assert!(!res.is_close_connection());
         let body = res.limit::<{ 12 * 1024 * 1024 }>().string().await?;
         assert_eq!(body.len(), body_len);
+    }
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn h1_drop_body_read() -> Result<(), Error> {
+    let mut handle = test_h1_server(|| fn_service(handle))?;
+
+    let server_url = format!("http://{}/drop_body", handle.ip_port_string());
+
+    let c = Client::new();
+
+    for _ in 0..3 {
+        let mut body = BytesMut::new();
+        for _ in 0..1024 * 1024 {
+            body.extend_from_slice(b"Hello,World!");
+        }
+
+        let mut res = c.post(&server_url)?.text(body).send().await?;
+        assert_eq!(res.status().as_u16(), 200);
+        assert!(res.is_close_connection());
     }
 
     handle.try_handle()?.stop(false);
@@ -73,7 +100,7 @@ async fn h1_post() -> Result<(), Error> {
 async fn h1_partial_body_read() -> Result<(), Error> {
     let mut handle = test_h1_server(|| fn_service(handle))?;
 
-    let server_url = format!("http://{}/drop_body", handle.ip_port_string());
+    let server_url = format!("http://{}/partial_read", handle.ip_port_string());
 
     let c = Client::new();
 
@@ -83,9 +110,29 @@ async fn h1_partial_body_read() -> Result<(), Error> {
             body.extend_from_slice(b"Hello,World!");
         }
 
-        let res = c.post(&server_url)?.text(body).send().await?;
+        let mut res = c.post(&server_url)?.text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
+        assert!(res.is_close_connection());
     }
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn h1_close_connection() -> Result<(), Error> {
+    let mut handle = test_h1_server(|| fn_service(handle))?;
+
+    let server_url = format!("http://{}/close_connection", handle.ip_port_string());
+
+    let c = Client::new();
+
+    let mut res = c.get(&server_url)?.send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(res.is_close_connection());
 
     handle.try_handle()?.stop(false);
 
@@ -145,6 +192,28 @@ async fn handle(req: Request<h1::RequestBody>) -> Result<Response<ResponseBody>,
         }
         // drop request body. server should close connection afterwards.
         (&Method::POST, "/drop_body") => Ok(Response::new(Bytes::new().into())),
+        // partial read request body. server should close connection afterwards.
+        (&Method::POST, "/partial_read") => {
+            let (parts, mut body) = req.into_parts();
+
+            let length = parts
+                .headers
+                .get(header::CONTENT_LENGTH)
+                .unwrap()
+                .to_str()?
+                .parse::<usize>()?;
+
+            let bytes = body.next().await.unwrap()?;
+
+            assert!(bytes.len() < length);
+
+            Ok(Response::new(Bytes::new().into()))
+        }
+        (&Method::GET, "/close_connection") => {
+            let mut res = Response::new(Bytes::new().into());
+            res.headers_mut().insert(CONNECTION, HeaderValue::from_static("close"));
+            Ok(res)
+        }
         _ => todo!(),
     }
 }

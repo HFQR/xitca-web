@@ -169,6 +169,17 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
 
         Ok(b)
     }
+
+    // TODO: use a type to collect all information needed for testing.
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    /// Public API for test purpose.
+    ///
+    /// Used for testing server implementation to make sure it follows spec.
+    pub fn is_close_connection(&mut self) -> bool {
+        self.res.body_mut().is_destroy_on_drop()
+    }
 }
 
 trait Collectable {

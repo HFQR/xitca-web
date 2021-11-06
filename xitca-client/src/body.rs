@@ -41,6 +41,14 @@ impl ResponseBody<'_> {
             body.conn().destroy_on_drop()
         }
     }
+
+    pub(crate) fn is_destroy_on_drop(&mut self) -> bool {
+        if let Self::H1(ref mut body) = *self {
+            body.conn().is_destroy_on_drop()
+        } else {
+            false
+        }
+    }
 }
 
 impl fmt::Debug for ResponseBody<'_> {
