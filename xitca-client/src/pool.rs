@@ -113,6 +113,10 @@ where
     pub(crate) fn destroy_on_drop(&mut self) {
         self.destroy_on_drop = true;
     }
+
+    pub(crate) fn is_destroy_on_drop(&self) -> bool {
+        self.destroy_on_drop
+    }
 }
 
 impl<K, C> Drop for Conn<'_, K, C>

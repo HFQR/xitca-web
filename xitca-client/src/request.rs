@@ -97,6 +97,18 @@ where
         self.body(text)
     }
 
+    #[cfg(feature = "json")]
+    /// Use json object as request body.
+    pub fn json(mut self, body: impl serde::ser::Serialize) -> Result<Request<'a, B>, Error> {
+        // TODO: handle serialize error.
+        let body = serde_json::to_vec(&body).unwrap();
+
+        self.headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+        Ok(self.body(body))
+    }
+
     /// Use pre allocated bytes as request body.
     ///
     /// Input type must implement [From] trait with [Bytes].
@@ -119,14 +131,6 @@ where
         BodyError: From<E1>,
     {
         self.map_body(move |_| RequestBody::stream(body))
-    }
-
-    #[cfg(feature = "json")]
-    /// Use json object as request body.
-    pub fn json(self, body: impl serde::ser::Serialize) -> Result<Request<'a, B>, Error> {
-        // TODO: handle serialize error.
-        let body = serde_json::to_vec(&body).unwrap();
-        Ok(self.map_body(move |_| body.into()))
     }
 
     fn map_body<F, B1, E1>(self, f: F) -> Request<'a, B1>
