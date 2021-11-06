@@ -141,8 +141,8 @@ impl Sink<Message> for WebSocketInner<'_> {
     type Error = Error;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        // TODO: set up a meaningful backpressure limit for send buf.
-        if !self.as_mut().get_mut().send_buf.chunk().is_empty() {
+        // TODO: set up a customizable buffer backpressure for sending message.
+        if self.as_mut().get_mut().send_buf.chunk().len() > 1024 * 1024 {
             self.poll_flush(cx)
         } else {
             Poll::Ready(Ok(()))
@@ -151,18 +151,20 @@ impl Sink<Message> for WebSocketInner<'_> {
 
     fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
         let inner = self.get_mut();
-
         inner.codec.encode(item, &mut inner.send_buf).map_err(Into::into)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
 
-        while !inner.send_buf.chunk().is_empty() {
-            match ready!(Pin::new(&mut **inner.body.conn()).poll_write(cx, inner.send_buf.chunk()))? {
-                0 => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
-                n => inner.send_buf.advance(n),
-            }
+        debug_assert!(
+            !inner.send_buf.chunk().is_empty(),
+            "Empty websocket send buffer. Please report"
+        );
+
+        match ready!(Pin::new(&mut **inner.body.conn()).poll_write(cx, inner.send_buf.chunk()))? {
+            0 => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
+            n => inner.send_buf.advance(n),
         }
 
         Pin::new(&mut **inner.body.conn()).poll_flush(cx).map_err(Into::into)
