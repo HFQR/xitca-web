@@ -2,7 +2,7 @@ use tracing::{debug, warn};
 
 use crate::{
     body::ResponseBodySize,
-    bytes::{BufMut, BytesMut},
+    bytes::BytesMut,
     date::DateTime,
     http::{
         header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
@@ -81,18 +81,18 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
     match (version, status) {
         // happy path shortcut.
         (Version::HTTP_11, StatusCode::OK) => {
-            buf.put_slice(b"HTTP/1.1 200 OK\r\n");
+            buf.extend_from_slice(b"HTTP/1.1 200 OK\r\n");
             return;
         }
         (Version::HTTP_11, _) => {
-            buf.put_slice(b"HTTP/1.1 ");
+            buf.extend_from_slice(b"HTTP/1.1 ");
         }
         (Version::HTTP_10, _) => {
-            buf.put_slice(b"HTTP/1.0 ");
+            buf.extend_from_slice(b"HTTP/1.0 ");
         }
         _ => {
             debug!(target: "h1_encode", "response with unexpected response version");
-            buf.put_slice(b"HTTP/1.1 ");
+            buf.extend_from_slice(b"HTTP/1.1 ");
         }
     }
 
@@ -101,10 +101,10 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
     let status = status.as_str().as_bytes();
 
     buf.reserve(status.len() + reason.len() + 3);
-    buf.put_slice(status);
-    buf.put_slice(b" ");
-    buf.put_slice(reason);
-    buf.put_slice(b"\r\n");
+    buf.extend_from_slice(status);
+    buf.extend_from_slice(b" ");
+    buf.extend_from_slice(reason);
+    buf.extend_from_slice(b"\r\n");
 }
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
@@ -169,14 +169,14 @@ where
             let value = value.as_bytes();
 
             buf.reserve(name.len() + value.len() + 4);
-            buf.put_slice(name);
-            buf.put_slice(b": ");
-            buf.put_slice(value);
-            buf.put_slice(b"\r\n");
+            buf.extend_from_slice(name);
+            buf.extend_from_slice(b": ");
+            buf.extend_from_slice(value);
+            buf.extend_from_slice(b"\r\n");
         }
 
         if matches!(self.ctype(), ConnectionType::Close | ConnectionType::CloseForce) {
-            buf.put_slice(b"connection: close\r\n");
+            buf.extend_from_slice(b"connection: close\r\n");
         }
 
         // encode transfer-encoding or content-length
@@ -186,7 +186,7 @@ where
                     encoding = TransferCoding::eof();
                 }
                 ResponseBodySize::Stream => {
-                    buf.put_slice(b"transfer-encoding: chunked\r\n");
+                    buf.extend_from_slice(b"transfer-encoding: chunked\r\n");
                     encoding = TransferCoding::encode_chunked();
                 }
                 ResponseBodySize::Sized(size) => {
@@ -194,9 +194,9 @@ where
                     let buffer = buffer.format(size).as_bytes();
 
                     buf.reserve(buffer.len() + 18);
-                    buf.put_slice(b"content-length: ");
-                    buf.put_slice(buffer);
-                    buf.put_slice(b"\r\n");
+                    buf.extend_from_slice(b"content-length: ");
+                    buf.extend_from_slice(buffer);
+                    buf.extend_from_slice(b"\r\n");
 
                     encoding = TransferCoding::length(size as u64);
                 }
@@ -206,11 +206,11 @@ where
         // set date header if there is not any.
         if !skip_date {
             buf.reserve(D::DATE_VALUE_LENGTH + 10);
-            buf.put_slice(b"date: ");
-            self.date.with_date(|slice| buf.put_slice(slice));
-            buf.put_slice(b"\r\n\r\n");
+            buf.extend_from_slice(b"date: ");
+            self.date.with_date(|slice| buf.extend_from_slice(slice));
+            buf.extend_from_slice(b"\r\n\r\n");
         } else {
-            buf.put_slice(b"\r\n");
+            buf.extend_from_slice(b"\r\n");
         }
 
         // put header map back to cache.
