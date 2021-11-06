@@ -89,7 +89,7 @@ async fn h1_drop_body_read() -> Result<(), Error> {
         assert!(res.is_close_connection());
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -115,7 +115,7 @@ async fn h1_partial_body_read() -> Result<(), Error> {
         assert!(res.is_close_connection());
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -134,7 +134,7 @@ async fn h1_close_connection() -> Result<(), Error> {
     assert_eq!(res.status().as_u16(), 200);
     assert!(res.is_close_connection());
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -164,7 +164,7 @@ async fn h1_keepalive() -> Result<(), Error> {
     let n = stream.read(&mut buf)?;
     assert_eq!(n, 0);
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
