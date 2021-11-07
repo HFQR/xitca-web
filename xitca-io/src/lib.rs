@@ -23,7 +23,9 @@ pub mod io {
 
     /// A wrapper trait for an AsyncRead/AsyncWrite tokio type with additional methods.
     pub trait AsyncIo: AsyncRead + AsyncWrite + Unpin {
-        type ReadyFuture<'f>: Future<Output = io::Result<Ready>>;
+        type ReadyFuture<'f>: Future<Output = io::Result<Ready>>
+        where
+            Self: 'f;
 
         /// asynchronously wait for the IO type and
         fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_>;
