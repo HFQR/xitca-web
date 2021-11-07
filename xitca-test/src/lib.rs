@@ -7,13 +7,15 @@ use std::{
     task::{Context, Poll},
 };
 
+use futures_util::Stream;
 use xitca_http::{
     body::ResponseBody,
+    error::BodyError,
     h1,
     http::{Request, Response},
     HttpServiceBuilder,
 };
-use xitca_io::net::TcpStream;
+use xitca_io::{bytes::Bytes, net::TcpStream};
 use xitca_server::{net::FromStream, Builder, ServerFuture, ServerHandle};
 use xitca_service::ServiceFactory;
 
@@ -42,11 +44,14 @@ where
 }
 
 /// A specialized http/1 server on top of [test_server]
-pub fn test_h1_server<F, I>(factory: F) -> Result<TestServerHandle, Error>
+pub fn test_h1_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Clone + 'static,
-    I: ServiceFactory<Request<h1::RequestBody>, Response = Response<ResponseBody>, Config = (), InitError = ()>
+    I: ServiceFactory<Request<h1::RequestBody>, Response = Response<ResponseBody<B>>, Config = (), InitError = ()>
         + 'static,
+    B: Stream<Item = Result<Bytes, E>> + 'static,
+    E: 'static,
+    BodyError: From<E>,
 {
     test_server::<_, _, TcpStream>(move || {
         let f = factory();

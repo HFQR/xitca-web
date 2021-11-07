@@ -1,8 +1,7 @@
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
 use http_ws::{ws, Message};
 use xitca_http::{
     body::ResponseBody,
-    error::BodyError,
     h1,
     http::{Request, Response},
 };
@@ -42,7 +41,9 @@ async fn message() -> Result<(), Error> {
     handle.await.map_err(Into::into)
 }
 
-async fn handler(req: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Error> {
+async fn handler(
+    req: Request<h1::RequestBody>,
+) -> Result<Response<ResponseBody<impl Stream<Item = Result<Bytes, Error>>>>, Error> {
     let (mut decode, res, tx) = ws(req)?;
 
     // spawn websocket message handling logic task.
@@ -65,8 +66,8 @@ async fn handler(req: Request<h1::RequestBody>) -> Result<Response<ResponseBody>
     });
 
     let (parts, body) = res.into_parts();
-    let body = body.map_err(|e| BodyError::from(Box::new(e) as Error));
-    let body = ResponseBody::stream(Box::pin(body) as _);
+    let body = body.map_err(|e| Box::new(e) as _);
+    let body = ResponseBody::stream(body);
     let res = Response::from_parts(parts, body);
 
     Ok(res)
