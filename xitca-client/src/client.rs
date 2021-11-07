@@ -178,6 +178,7 @@ impl Client {
         &self,
         connect: &mut Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
+        max_version: Version,
     ) -> Result<Connection, Error> {
         match connect.uri {
             Uri::Tcp(_) => self.make_tcp(connect, timer).await.map(Into::into),
@@ -185,16 +186,13 @@ impl Client {
                 #[cfg(feature = "http3")]
                 {
                     // TODO: find better way to discover http3.
-                    if let Ok(conn) = self.make_h3(connect, timer).await.map_err(|e| {
-                        println!("{}", e);
-                        e
-                    }) {
+                    if let Ok(conn) = self.make_h3(connect, timer).await {
                         return Ok(conn);
                     }
                     // Fallback to tcp if http3 failed.
                 }
 
-                self.make_tls(connect, timer).await
+                self.make_tls(connect, timer, max_version).await
             }
             #[cfg(unix)]
             Uri::Unix(uri) => self.make_unix(uri, timer).await,
@@ -261,7 +259,12 @@ impl Client {
         }
     }
 
-    async fn make_tls(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
+    async fn make_tls(
+        &self,
+        connect: &mut Connect<'_>,
+        timer: &mut Pin<Box<Sleep>>,
+        max_version: Version,
+    ) -> Result<Connection, Error> {
         let stream = self.make_tcp(connect, timer).await?;
 
         timer
@@ -274,6 +277,14 @@ impl Client {
             .timeout(timer.as_mut())
             .await
             .map_err(|_| TimeoutError::TlsHandshake)??;
+
+        let version = match (version, max_version) {
+            (Version::HTTP_3, Version::HTTP_2 | Version::HTTP_11 | Version::HTTP_10 | Version::HTTP_09) => max_version,
+            (Version::HTTP_2, Version::HTTP_11 | Version::HTTP_10 | Version::HTTP_09) => max_version,
+            (Version::HTTP_11, Version::HTTP_10 | Version::HTTP_09) => max_version,
+            (Version::HTTP_10, Version::HTTP_09) => max_version,
+            _ => version,
+        };
 
         match version {
             Version::HTTP_11 => Ok(stream.into()),
