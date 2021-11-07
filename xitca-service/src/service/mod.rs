@@ -7,14 +7,14 @@ use core::{
 
 use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
-pub(crate) mod then;
-
 pub trait Service<Req> {
     type Response;
 
     type Error;
 
-    type Future<'f>: Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f>: Future<Output = Result<Self::Response, Self::Error>>
+    where
+        Self: 'f;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
 
@@ -29,7 +29,10 @@ macro_rules! impl_alloc {
         {
             type Response = S::Response;
             type Error = S::Error;
-            type Future<'f> = S::Future<'f>;
+            type Future<'f>
+            where
+                Self: 'f,
+            = S::Future<'f>;
 
             fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
                 (**self).poll_ready(cx)
@@ -53,7 +56,10 @@ where
 {
     type Response = <S::Target as Service<Req>>::Response;
     type Error = <S::Target as Service<Req>>::Error;
-    type Future<'f> = <S::Target as Service<Req>>::Future<'f>;
+    type Future<'f>
+    where
+        Self: 'f,
+    = <S::Target as Service<Req>>::Future<'f>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.as_ref().get_ref().poll_ready(cx)

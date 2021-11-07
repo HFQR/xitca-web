@@ -43,7 +43,10 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = Fut;
+    type Future<'f>
+    where
+        Self: 'f,
+    = Fut;
 
     #[inline]
     fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
