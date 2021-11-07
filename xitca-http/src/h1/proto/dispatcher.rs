@@ -1,4 +1,4 @@
-use std::{io, marker::PhantomData, pin::Pin, task::Poll, time::Duration};
+use std::{io, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
@@ -198,10 +198,8 @@ where
         handle: &mut RequestBodyHandle,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {
-        match (!self.read_buf.backpressure(), !self.write_buf.is_empty()) {
-            (false, false) => never().await,
-            (false, true) => self.io.ready(Interest::WRITABLE).await,
-            (true, false) => match handle.sender.ready().await {
+        if self.write_buf.is_empty() {
+            match handle.sender.ready().await {
                 Ok(_) => self.io.ready(Interest::READABLE).await,
                 Err(e) => {
                     // When service call dropped payload there is no tell how many bytes
@@ -210,24 +208,22 @@ where
                     ctx.set_force_close_on_error();
                     Err(e)
                 }
-            },
-            (true, true) => {
-                let ready = self.io.ready(Interest::READABLE | Interest::WRITABLE).await?;
-
-                let ready = poll_fn(move |cx| match handle.sender.poll_ready(cx) {
-                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(ready)),
-                    Poll::Ready(Err(e)) => {
-                        // Same reason as the other poll_ready(or ready.await) of RequestBodySender.
+            }
+        } else {
+            // for readable event the RequestBodyHandle must always be checked before polling
+            // it's Interest.
+            match handle.sender.ready().select(self.io.ready(Interest::WRITABLE)).await {
+                SelectOutput::A(res) => match res {
+                    Ok(_) => self.io.ready(Interest::READABLE | Interest::WRITABLE).await,
+                    Err(e) => {
+                        // When service call dropped payload there is no tell how many bytes
+                        // still remain readable in the connection.
+                        // close the connection would be a safe bet than draining it.
                         ctx.set_force_close_on_error();
-                        Poll::Ready(Err(e))
+                        Err(e)
                     }
-                    // on pending path the readable ready state should be removed.
-                    // It indicate the read ahead buffer is at full capacity.
-                    Poll::Pending => Poll::Ready(Ok(ready - Ready::READABLE)),
-                })
-                .await?;
-
-                Ok(ready)
+                },
+                SelectOutput::B(res) => res,
             }
         }
     }
@@ -471,26 +467,29 @@ where
     ) -> Result<(), Error<S::Error>> {
         match body_handle.as_mut() {
             Some(handle) => match handle.decode(&mut self.io.read_buf)? {
-                DecodeState::Continue => match self.io.ready(handle, &mut self.ctx).await {
-                    Ok(ready) => {
-                        if ready.is_readable() {
-                            self.io.try_read()?
-                        }
-                        if ready.is_writable() {
-                            self.io.try_write()?;
-                            if self.io.write_buf.backpressure() {
-                                self.io.flush().await?;
+                DecodeState::Continue => {
+                    assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
+                    match self.io.ready(handle, &mut self.ctx).await {
+                        Ok(ready) => {
+                            if ready.is_readable() {
+                                self.io.try_read()?
+                            }
+                            if ready.is_writable() {
+                                self.io.try_write()?;
+                                if self.io.write_buf.backpressure() {
+                                    self.io.flush().await?;
+                                }
                             }
                         }
+                        // TODO: potential special handling error case of RequestBodySender::poll_ready ?
+                        // This output would mix IO error and RequestBodySender::poll_ready error.
+                        // For now the effect of not handling them differently is not clear.
+                        Err(e) => {
+                            handle.sender.feed_error(e.into());
+                            *body_handle = None;
+                        }
                     }
-                    // TODO: potential special handling error case of RequestBodySender::poll_ready ?
-                    // This output would mix IO error and RequestBodySender::poll_ready error.
-                    // For now the effect of not handling them differently is not clear.
-                    Err(e) => {
-                        handle.sender.feed_error(e.into());
-                        *body_handle = None;
-                    }
-                },
+                }
                 DecodeState::Eof => *body_handle = None,
             },
             None => {
