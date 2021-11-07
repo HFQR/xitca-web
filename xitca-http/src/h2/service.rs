@@ -1,10 +1,6 @@
-use std::{
-    fmt,
-    future::Future,
-    task::{Context, Poll},
-};
+use std::{fmt, future::Future};
 
-use futures_core::{ready, Stream};
+use futures_core::Stream;
 use http::{Request, Response};
 use tokio::pin;
 use xitca_io::io::{AsyncRead, AsyncWrite};
@@ -42,19 +38,23 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error>;
+    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self
-            .tls_acceptor
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
+    fn ready(&self) -> Self::Ready<'_> {
+        async move {
+            self.tls_acceptor
+                .ready()
+                .await
+                .map_err(|_| HttpServiceError::ServiceReady)?;
 
-        self.flow
-            .service
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady)
+            self.flow
+                .service
+                .ready()
+                .await
+                .map_err(|_| HttpServiceError::ServiceReady)
+        }
     }
 
     fn call(&self, io: St) -> Self::Future<'_> {

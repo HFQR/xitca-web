@@ -1,7 +1,4 @@
-use core::{
-    future::Future,
-    task::{Context, Poll},
-};
+use core::future::{ready, Future, Ready};
 
 use super::ServiceFactory;
 use crate::Service;
@@ -43,14 +40,18 @@ where
 {
     type Response = Res;
     type Error = Err;
+    type Ready<'f>
+    where
+        Self: 'f,
+    = Ready<Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
     = Fut;
 
     #[inline]
-    fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn ready(&self) -> Self::Ready<'_> {
+        ready(Ok(()))
     }
 
     fn call(&self, req: Req) -> Self::Future<'_> {

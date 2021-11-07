@@ -1,8 +1,4 @@
-use std::{
-    fmt::Debug,
-    future::Future,
-    task::{Context, Poll},
-};
+use std::{fmt::Debug, future::Future};
 
 use tracing::{error, span, Level, Span};
 use xitca_service::{Service, ServiceFactory};
@@ -59,11 +55,12 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
+    type Ready<'f> = S::Ready<'f>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
+    fn ready(&self) -> Self::Ready<'_> {
+        self.service.ready()
     }
 
     #[inline]

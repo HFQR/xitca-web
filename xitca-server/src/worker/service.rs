@@ -1,8 +1,4 @@
-use std::{
-    marker::PhantomData,
-    rc::Rc,
-    task::{Context, Poll},
-};
+use std::{marker::PhantomData, rc::Rc};
 
 use xitca_service::Service;
 
@@ -11,8 +7,6 @@ use super::limit::LimitGuard;
 use crate::net::{FromStream, Stream};
 
 pub(crate) trait WorkerServiceTrait {
-    fn poll_ready(&self, cx: &mut Context) -> Poll<Result<(), ()>>;
-
     fn call(self: Rc<Self>, req: (LimitGuard, Stream));
 }
 
@@ -41,17 +35,14 @@ where
     S: Service<Req> + 'static,
     Req: FromStream + 'static,
 {
-    #[inline]
-    fn poll_ready(&self, ctx: &mut Context<'_>) -> Poll<Result<(), ()>> {
-        self.service.poll_ready(ctx).map_err(|_| ())
-    }
-
     fn call(self: Rc<Self>, (guard, req): (LimitGuard, Stream)) {
         let stream = FromStream::from_stream(req);
 
         tokio::task::spawn_local(async move {
-            let _ = self.service.call(stream).await;
-            drop(guard);
+            if self.service.ready().await.is_ok() {
+                let _ = self.service.call(stream).await;
+                drop(guard);
+            }
         });
     }
 }

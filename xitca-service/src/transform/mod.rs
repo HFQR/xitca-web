@@ -82,7 +82,7 @@ mod test {
     use super::*;
 
     use core::{
-        task::{Context, Poll},
+        future::{ready, Ready},
         time::Duration,
     };
 
@@ -125,13 +125,17 @@ mod test {
     {
         type Response = S::Response;
         type Error = S::Error;
+        type Ready<'f>
+        where
+            Self: 'f,
+        = Ready<Result<(), Self::Error>>;
         type Future<'f>
         where
             Self: 'f,
         = S::Future<'f>;
 
-        fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
+        fn ready(&self) -> Self::Ready<'_> {
+            ready(Ok(()))
         }
 
         fn call(&self, req: Req) -> Self::Future<'_> {

@@ -199,30 +199,16 @@ where
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {
         if self.write_buf.is_empty() {
-            match handle.sender.ready().await {
-                Ok(_) => self.io.ready(Interest::READABLE).await,
-                Err(e) => {
-                    // When service call dropped payload there is no tell how many bytes
-                    // still remain readable in the connection.
-                    // close the connection would be a safe bet than draining it.
-                    ctx.set_force_close_on_error();
-                    Err(e)
-                }
-            }
+            handle.sender_ready(ctx).await?;
+            self.io.ready(Interest::READABLE).await
         } else {
             // for readable event the RequestBodyHandle must always be checked before polling
             // it's Interest.
-            match handle.sender.ready().select(self.io.ready(Interest::WRITABLE)).await {
-                SelectOutput::A(res) => match res {
-                    Ok(_) => self.io.ready(Interest::READABLE | Interest::WRITABLE).await,
-                    Err(e) => {
-                        // When service call dropped payload there is no tell how many bytes
-                        // still remain readable in the connection.
-                        // close the connection would be a safe bet than draining it.
-                        ctx.set_force_close_on_error();
-                        Err(e)
-                    }
-                },
+            match handle.sender_ready(ctx).select(self.io.ready(Interest::WRITABLE)).await {
+                SelectOutput::A(res) => {
+                    res?;
+                    self.io.ready(Interest::READABLE | Interest::WRITABLE).await
+                }
                 SelectOutput::B(res) => res,
             }
         }
@@ -400,19 +386,9 @@ where
     ) -> Result<S::Response, Error<S::Error>> {
         // decode request body and read more if needed.
         if let Some(handle) = body_handle {
-            loop {
-                // Check the readiness of RequestBodyHandle
-                // so read ahead does not buffer too much data.
-                if handle.sender.ready().await.is_err() {
-                    // RequestBodySender's only error case is when service future drop the request
-                    // body half way. In this case notify Context to close connection afterwards.
-                    //
-                    // Service future is trusted to produce a meaningful response after it drops
-                    // the request body.
-                    self.ctx.set_force_close_on_error();
-                    break;
-                }
-
+            // Check the readiness of RequestBodyHandle
+            // so read ahead does not buffer too much data.
+            while handle.sender_ready(&mut self.ctx).await.is_ok() {
                 match handle.decode(&mut self.io.read_buf)? {
                     DecodeState::Continue => self.io.read().await?,
                     DecodeState::Eof => break,
@@ -564,5 +540,20 @@ impl RequestBodyHandle {
         }
 
         Ok(DecodeState::Continue)
+    }
+
+    async fn sender_ready<D, const HEADER_LIMIT: usize>(
+        &self,
+        ctx: &mut Context<'_, D, HEADER_LIMIT>,
+    ) -> io::Result<()> {
+        self.sender.ready().await.map_err(|e| {
+            // RequestBodySender's only error case is when service future drop the request
+            // body half way. In this case notify Context to close connection afterwards.
+            //
+            // Service future is trusted to produce a meaningful response after it drops
+            // the request body.
+            ctx.set_force_close_on_error();
+            e
+        })
     }
 }

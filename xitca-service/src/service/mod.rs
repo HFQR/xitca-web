@@ -1,9 +1,4 @@
-use core::{
-    future::Future,
-    ops::Deref,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use core::{future::Future, ops::Deref, pin::Pin};
 
 use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
@@ -12,11 +7,15 @@ pub trait Service<Req> {
 
     type Error;
 
+    type Ready<'f>: Future<Output = Result<(), Self::Error>>
+    where
+        Self: 'f;
+
     type Future<'f>: Future<Output = Result<Self::Response, Self::Error>>
     where
         Self: 'f;
 
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
+    fn ready(&self) -> Self::Ready<'_>;
 
     fn call(&self, req: Req) -> Self::Future<'_>;
 }
@@ -29,13 +28,17 @@ macro_rules! impl_alloc {
         {
             type Response = S::Response;
             type Error = S::Error;
+            type Ready<'f>
+            where
+                Self: 'f,
+            = S::Ready<'f>;
             type Future<'f>
             where
                 Self: 'f,
             = S::Future<'f>;
 
-            fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-                (**self).poll_ready(cx)
+            fn ready(&self) -> Self::Ready<'_> {
+                (**self).ready()
             }
 
             fn call(&self, req: Req) -> Self::Future<'_> {
@@ -56,13 +59,17 @@ where
 {
     type Response = <S::Target as Service<Req>>::Response;
     type Error = <S::Target as Service<Req>>::Error;
+    type Ready<'f>
+    where
+        Self: 'f,
+    = <S::Target as Service<Req>>::Ready<'f>;
     type Future<'f>
     where
         Self: 'f,
     = <S::Target as Service<Req>>::Future<'f>;
 
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.as_ref().get_ref().poll_ready(cx)
+    fn ready(&self) -> Self::Ready<'_> {
+        self.as_ref().get_ref().ready()
     }
 
     fn call(&self, req: Req) -> Self::Future<'_> {

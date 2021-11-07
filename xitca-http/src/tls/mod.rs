@@ -15,10 +15,7 @@ mod error;
 
 pub(crate) use error::TlsError;
 
-use std::{
-    future::Future,
-    task::{Context, Poll},
-};
+use std::future::{ready, Future, Ready};
 
 use xitca_service::{Service, ServiceFactory};
 
@@ -43,14 +40,12 @@ impl<St> Service<St> for NoOpTlsAcceptorService {
     type Response = St;
     type Error = TlsError;
 
-    type Future<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Ready<'f> = Ready<Result<(), Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
-    fn poll_ready(&self, _: &mut Context) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn ready(&self) -> Self::Ready<'_> {
+        ready(Ok(()))
     }
 
     #[inline]

@@ -1,9 +1,6 @@
 mod entry;
 
-use std::{
-    future::Future,
-    task::{Context, Poll},
-};
+use std::future::Future;
 
 use futures_core::future::LocalBoxFuture;
 use xitca_http::{http::Request, RequestBody, ResponseError};
@@ -131,11 +128,12 @@ where
 {
     type Response = Res;
     type Error = Err;
+    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
+    fn ready(&self) -> Self::Ready<'_> {
+        self.service.ready()
     }
 
     fn call(&self, req: Request<RequestBody>) -> Self::Future<'_> {
