@@ -1,9 +1,8 @@
 //! Default expect handler. Pass through request unconditionally.
 
 use std::{
-    future::Future,
+    future::{ready, Future, Ready},
     marker::PhantomData,
-    task::{Context, Poll},
 };
 
 use xitca_service::{Service, ServiceFactory};
@@ -44,14 +43,18 @@ where
 {
     type Response = Req;
     type Error = F::Error;
+    type Ready<'f>
+    where
+        Self: 'f,
+    = Ready<Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
-    fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn ready(&self) -> Self::Ready<'_> {
+        ready(Ok(()))
     }
 
     fn call(&self, req: Req) -> Self::Future<'_> {

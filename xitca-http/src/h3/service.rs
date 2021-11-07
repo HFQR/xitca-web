@@ -1,8 +1,4 @@
-use std::{
-    fmt,
-    future::Future,
-    task::{Context, Poll},
-};
+use std::{fmt, future::Future};
 
 use futures_core::Stream;
 use http::{Request, Response};
@@ -43,14 +39,18 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error>;
+    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.flow
-            .service
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady)
+    fn ready(&self) -> Self::Ready<'_> {
+        async move {
+            self.flow
+                .service
+                .ready()
+                .await
+                .map_err(|_| HttpServiceError::ServiceReady)
+        }
     }
 
     fn call(&self, stream: UdpStream) -> Self::Future<'_> {

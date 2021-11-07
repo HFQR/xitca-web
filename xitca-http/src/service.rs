@@ -1,12 +1,6 @@
-use std::{
-    fmt,
-    future::Future,
-    marker::PhantomData,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
 
-use futures_core::{ready, Stream};
+use futures_core::Stream;
 use tokio::pin;
 use xitca_io::{io::AsyncIo, net::TcpStream};
 use xitca_server::net::Stream as ServerStream;
@@ -63,10 +57,7 @@ impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
     }
 
     /// Service readiness check
-    pub(super) fn _poll_ready<ReqS, ReqX, ReqU, ReqA, E>(
-        &self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), HttpServiceError<E>>>
+    pub(super) async fn _ready<ReqS, ReqX, ReqU, ReqA, E>(&self) -> Result<(), HttpServiceError<E>>
     where
         S: Service<ReqS>,
         X: Service<ReqX>,
@@ -74,23 +65,24 @@ impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
         A: Service<ReqA>,
     {
         if let Some(upgrade) = self.flow.upgrade.as_ref() {
-            ready!(upgrade.poll_ready(cx).map_err(|_| HttpServiceError::ServiceReady))?;
+            upgrade.ready().await.map_err(|_| HttpServiceError::ServiceReady)?;
         }
 
-        ready!(self
-            .flow
+        self.flow
             .expect
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
+            .ready()
+            .await
+            .map_err(|_| HttpServiceError::ServiceReady)?;
 
-        ready!(self
-            .tls_acceptor
-            .poll_ready(cx)
-            .map_err(|_| HttpServiceError::ServiceReady))?;
+        self.tls_acceptor
+            .ready()
+            .await
+            .map_err(|_| HttpServiceError::ServiceReady)?;
 
         self.flow
             .service
-            .poll_ready(cx)
+            .ready()
+            .await
             .map_err(|_| HttpServiceError::ServiceReady)
     }
 
@@ -131,11 +123,12 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error>;
+    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self._poll_ready(cx)
+    fn ready(&self) -> Self::Ready<'_> {
+        self._ready()
     }
 
     fn call(&self, io: ServerStream) -> Self::Future<'_> {

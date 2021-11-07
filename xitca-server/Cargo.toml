@@ -15,7 +15,6 @@ xitca-service = "0.1"
 
 futures-core = "0.3"
 num_cpus = "1.13"
-pin-project-lite = "0.2.6"
 tokio = { version = "1.5", features = ["parking_lot", "rt-multi-thread", "sync", "time"] }
 tracing = { version = "0.1.29", default-features = false }
 

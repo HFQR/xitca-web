@@ -2,7 +2,7 @@ pub(crate) use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
 
 use std::{
     fmt::{self, Debug, Formatter},
-    future::Future,
+    future::{self, ready, Future},
     io,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -82,14 +82,12 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = OpensslError;
 
-    type Future<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Ready<'f> = future::Ready<Result<(), Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
-    fn poll_ready(&self, _: &mut Context) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn ready(&self) -> Self::Ready<'_> {
+        ready(Ok(()))
     }
 
     fn call(&self, io: St) -> Self::Future<'_> {

@@ -5,24 +5,18 @@ mod shutdown;
 pub(crate) use self::service::{RcWorkerService, WorkerService};
 
 use std::{
-    future::Future,
     io,
-    pin::Pin,
     sync::{atomic::AtomicBool, Arc},
-    task::{Context, Poll},
     thread,
     time::Duration,
 };
 
-use futures_core::ready;
-use pin_project_lite::pin_project;
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
 
-use crate::net::{Listener, Stream};
+use crate::net::Listener;
 
 use self::limit::Limit;
-use self::service::WorkerServiceTrait;
 use self::shutdown::ShutdownHandle;
 
 struct WorkerInner {
@@ -37,7 +31,7 @@ impl WorkerInner {
             loop {
                 let guard = self.limit.ready().await;
 
-                match self.accept().await {
+                match self.listener.accept().await {
                     Ok(stream) => self.service.clone().call((guard, stream)),
                     Err(ref e) if connection_error(e) => continue,
                     // TODO: This error branch is used to detect Accept thread exit.
@@ -50,46 +44,6 @@ impl WorkerInner {
                 }
             }
         })
-    }
-
-    #[inline(always)]
-    async fn accept(&self) -> io::Result<Stream> {
-        let fut = self.listener.accept();
-        let service = &*self.service;
-
-        Accept { service, fut }.await
-    }
-}
-
-pin_project! {
-    struct Accept<'a, Fut> {
-        service: &'a dyn WorkerServiceTrait,
-        #[pin]
-        fut: Fut
-    }
-}
-
-impl<Fut> Future for Accept<'_, Fut>
-where
-    Fut: Future<Output = io::Result<Stream>>,
-{
-    type Output = Fut::Output;
-
-    #[inline(always)]
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-
-        match ready!(this.service.poll_ready(cx)) {
-            Ok(_) => this.fut.poll(cx),
-            Err(_) => {
-                // FIXME: poll_ready error is treated as io error and delay retry accept.
-                // It should restart service instead.
-                Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "Service::poll_ready returns error",
-                )))
-            }
-        }
     }
 }
 
