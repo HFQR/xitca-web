@@ -57,6 +57,7 @@ impl Client {
     }
 
     /// Start a new HTTP request with given [http::Request].
+    #[inline]
     pub fn request<B, E>(&self, req: http::Request<RequestBody<B>>) -> Request<'_, B>
     where
         B: Stream<Item = Result<Bytes, E>>,
@@ -66,7 +67,11 @@ impl Client {
     }
 
     /// Start a new GET request with empty request body.
-    pub fn get(&self, url: &str) -> Result<Request<'_, RequestBody>, Error> {
+    pub fn get<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
         let uri = uri::Uri::try_from(url)?;
 
         let mut req = http::Request::new(RequestBody::None);
@@ -76,14 +81,73 @@ impl Client {
     }
 
     /// Start a new POST request with empty request body.
-    pub fn post(&self, url: &str) -> Result<Request<'_, RequestBody>, Error> {
-        let uri = uri::Uri::try_from(url)?;
+    #[inline]
+    pub fn post<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        Ok(self.get(url)?.method(Method::POST))
+    }
 
-        let mut req = http::Request::new(RequestBody::None);
-        *req.uri_mut() = uri;
-        *req.method_mut() = Method::POST;
+    /// Start a new PUT request with empty request body.
+    #[inline]
+    pub fn put<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        Ok(self.get(url)?.method(Method::PUT))
+    }
 
-        Ok(self.request(req))
+    /// Start a new PATCH request with empty request body.
+    #[inline]
+    pub fn patch<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        Ok(self.get(url)?.method(Method::PATCH))
+    }
+
+    /// Start a new DELETE request with empty request body.
+    #[inline]
+    pub fn delete<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        Ok(self.get(url)?.method(Method::DELETE))
+    }
+
+    /// Start a new OPTIONS request with empty request body.
+    #[inline]
+    pub fn options<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        Ok(self.get(url)?.method(Method::OPTIONS))
+    }
+
+    /// Start a new HEAD request with empty request body.
+    #[inline]
+    pub fn head<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        Ok(self.get(url)?.method(Method::HEAD))
+    }
+
+    /// Start a new CONNECT request with empty request body.
+    #[inline]
+    pub fn connect<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        Ok(self.get(url)?.method(Method::CONNECT))
     }
 
     /// Start a new websocket request.

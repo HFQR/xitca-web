@@ -60,6 +60,7 @@ where
     }
 
     /// Set HTTP method of this request.
+    #[inline]
     pub fn method(mut self, method: Method) -> Self {
         *self.req.method_mut() = method;
         self
@@ -86,7 +87,6 @@ where
     /// Use text(utf-8 encoded) as request body.
     ///
     /// [CONTENT_TYPE] header would be set with value: `text/plain; charset=utf-8`.
-    #[inline]
     pub fn text<B1>(mut self, text: B1) -> Request<'a, B>
     where
         Bytes: From<B1>,
@@ -112,7 +112,6 @@ where
     /// Use pre allocated bytes as request body.
     ///
     /// Input type must implement [From] trait with [Bytes].
-    #[inline]
     pub fn body<B1>(mut self, body: B1) -> Request<'a, B>
     where
         Bytes: From<B1>,
