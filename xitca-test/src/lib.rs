@@ -1,5 +1,5 @@
 use std::{
-    error,
+    error, fmt,
     future::Future,
     io,
     net::{SocketAddr, TcpListener},
@@ -11,7 +11,7 @@ use futures_util::Stream;
 use xitca_http::{
     body::ResponseBody,
     error::BodyError,
-    h1,
+    h1, h2,
     http::{Request, Response},
     HttpServiceBuilder,
 };
@@ -56,6 +56,23 @@ where
     test_server::<_, _, TcpStream>(move || {
         let f = factory();
         HttpServiceBuilder::h1(f)
+    })
+}
+
+/// A specialized http/2 server on top of [test_server]
+pub fn test_h2_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
+where
+    F: Fn() -> I + Send + Clone + 'static,
+    I: ServiceFactory<Request<h2::RequestBody>, Response = Response<ResponseBody<B>>, Config = (), InitError = ()>
+        + 'static,
+    I::Error: fmt::Debug,
+    B: Stream<Item = Result<Bytes, E>> + 'static,
+    E: 'static,
+    BodyError: From<E>,
+{
+    test_server::<_, _, TcpStream>(move || {
+        let f = factory();
+        HttpServiceBuilder::h2(f)
     })
 }
 

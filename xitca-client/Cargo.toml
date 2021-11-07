@@ -11,6 +11,9 @@ openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["tokio-rustls", "webpki-roots"]
 json = ["serde", "serde_json"]
 
+# used to test niche client side usage and correctness of server implemenation.
+dangerous = []
+
 [dependencies]
 xitca-http = "0.1"
 xitca-io = "0.1"

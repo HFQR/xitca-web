@@ -95,7 +95,20 @@ impl Connector {
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         match *self {
-            Self::NoOp => Err(Error::TlsNotEnabled),
+            Self::NoOp => {
+                #[cfg(not(feature = "dangerous"))]
+                {
+                    Err(Error::TlsNotEnabled)
+                }
+
+                #[cfg(feature = "dangerous")]
+                {
+                    // Enable HTTP/2 over plain TCP connection with dangerous feature.
+                    //
+                    // *. This is meant for test and local network usage. DO NOT use in internet environment.
+                    Ok((TlsStream::NoOp(stream), Version::HTTP_2))
+                }
+            }
             Self::Custom(ref connector) => {
                 let (stream, version) = connector.connect(Box::new(stream)).await?;
                 Ok((stream.into(), version))
