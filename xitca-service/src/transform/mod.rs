@@ -125,7 +125,10 @@ mod test {
     {
         type Response = S::Response;
         type Error = S::Error;
-        type Future<'f> where Self: 'f = S::Future<'f>;
+        type Future<'f>
+        where
+            Self: 'f,
+        = S::Future<'f>;
 
         fn poll_ready(&self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
