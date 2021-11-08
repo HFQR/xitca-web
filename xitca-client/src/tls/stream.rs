@@ -1,6 +1,5 @@
 use std::{
     io::{self, IoSlice},
-    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -15,8 +14,8 @@ use tokio_rustls::client::TlsStream as RustlsStream;
 
 #[doc(hidden)]
 pub enum TlsStream<S> {
+    NoOp(S),
     Boxed(Box<dyn Io>),
-    _Phantom(PhantomData<S>),
     #[cfg(feature = "openssl")]
     Openssl(OpensslStream<S>),
     #[cfg(feature = "rustls")]
@@ -56,8 +55,8 @@ where
 {
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
+            Self::NoOp(io) => Pin::new(io).poll_read(cx, buf),
             Self::Boxed(io) => Pin::new(io.as_mut()).poll_read(cx, buf),
-            Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_read(cx, buf),
             #[cfg(feature = "rustls")]
@@ -73,8 +72,8 @@ where
 {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         match self.get_mut() {
+            Self::NoOp(io) => Pin::new(io).poll_write(cx, buf),
             Self::Boxed(io) => Pin::new(io.as_mut()).poll_write(cx, buf),
-            Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_write(cx, buf),
             #[cfg(feature = "rustls")]
@@ -84,8 +83,8 @@ where
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
+            Self::NoOp(io) => Pin::new(io).poll_flush(cx),
             Self::Boxed(io) => Pin::new(io.as_mut()).poll_flush(cx),
-            Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_flush(cx),
             #[cfg(feature = "rustls")]
@@ -95,8 +94,8 @@ where
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
+            Self::NoOp(io) => Pin::new(io).poll_shutdown(cx),
             Self::Boxed(io) => Pin::new(io.as_mut()).poll_shutdown(cx),
-            Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_shutdown(cx),
             #[cfg(feature = "rustls")]
@@ -110,8 +109,8 @@ where
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         match self.get_mut() {
+            Self::NoOp(io) => Pin::new(io).poll_write_vectored(cx, bufs),
             Self::Boxed(io) => Pin::new(io.as_mut()).poll_write_vectored(cx, bufs),
-            Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(s) => Pin::new(s).poll_write_vectored(cx, bufs),
             #[cfg(feature = "rustls")]
@@ -121,8 +120,8 @@ where
 
     fn is_write_vectored(&self) -> bool {
         match *self {
+            Self::NoOp(ref io) => io.is_write_vectored(),
             Self::Boxed(ref io) => io.is_write_vectored(),
-            Self::_Phantom(_) => unreachable!(),
             #[cfg(feature = "openssl")]
             Self::Openssl(ref s) => s.is_write_vectored(),
             #[cfg(feature = "rustls")]

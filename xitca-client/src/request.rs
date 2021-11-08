@@ -171,7 +171,7 @@ where
         // Nothing in the pool. construct new connection and add it to Conn.
         if conn_is_none {
             let mut connect = Connect::new(uri);
-            let c = client.make_connection(&mut connect, &mut timer).await?;
+            let c = client.make_connection(&mut connect, &mut timer, req.version()).await?;
             conn.add(c);
         }
 
