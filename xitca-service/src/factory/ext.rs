@@ -1,14 +1,12 @@
-use crate::service::Service;
 use crate::transform::{Transform, TransformFactory};
 
 use super::ServiceFactory;
 
 pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
-    fn transform<T, S>(self, transform: T) -> TransformFactory<Self, S, Req, T>
+    fn transform<T>(self, transform: T) -> TransformFactory<Self, Req, T>
     where
-        T: Transform<S, Req>,
-        S: Service<Req>,
-        Self: ServiceFactory<Req, Service = S> + Sized,
+        T: Transform<Self::Service, Req>,
+        Self: ServiceFactory<Req> + Sized,
     {
         TransformFactory::new(self, transform)
     }
