@@ -5,11 +5,11 @@ mod app;
 mod extract;
 mod guard;
 mod server;
-mod service;
 
 pub mod error;
 pub mod request;
 pub mod response;
+pub mod service;
 
 pub use app::App;
 pub use server::HttpServer;
