@@ -5,11 +5,13 @@ use std::{
     net::{SocketAddr, TcpListener},
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 
 use futures_util::Stream;
 use xitca_http::{
     body::ResponseBody,
+    config::HttpServiceConfig,
     error::BodyError,
     h1, h2,
     http::{Request, Response},
@@ -72,7 +74,11 @@ where
 {
     test_server::<_, _, TcpStream>(move || {
         let f = factory();
-        HttpServiceBuilder::h2(f)
+        let config = HttpServiceConfig::new()
+            .first_request_timeout(Duration::from_millis(500))
+            .tls_accept_timeout(Duration::from_millis(500))
+            .keep_alive_timeout(Duration::from_millis(500));
+        HttpServiceBuilder::h2(f).config(config)
     })
 }
 

@@ -123,7 +123,7 @@ where
                 }
                 SelectOutput::B(Ok(_)) => {
                     trace!("Connection keep-alive timeout. Shutting down");
-                    break;
+                    return Ok(());
                 }
                 SelectOutput::A(None) => {
                     trace!("Connection closed by remote. Shutting down");

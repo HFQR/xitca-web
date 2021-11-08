@@ -1,8 +1,4 @@
-// use std::{
-//     io::{Read, Write},
-//     net::TcpStream,
-//     time::Duration,
-// };
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use xitca_client::Client;
@@ -63,45 +59,55 @@ async fn h2_post() -> Result<(), Error> {
     Ok(())
 }
 
-// #[tokio::test]
-// async fn h2_keepalive() -> Result<(), Error> {
-//     let mut handle = test_h2_server(|| fn_service(handle))?;
+#[tokio::test]
+async fn h2_keepalive() -> Result<(), Error> {
+    let mut handle = test_h2_server(|| fn_service(handle))?;
 
-//     let mut stream = TcpStream::connect(handle.addr())?;
+    let server_url = format!("https://{}/", handle.ip_port_string());
 
-//     let mut buf = [0; 128];
-//     for _ in 0..3 {
-//         stream.write_all(SIMPLE_GET_REQ)?;
+    let (tx, rx) = std::sync::mpsc::sync_channel::<()>(1);
 
-//         let n = stream.read(&mut buf)?;
-//         tokio::time::sleep(Duration::from_millis(1)).await;
-//         assert!(&buf[..n].ends_with(b"GET Response"));
-//     }
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let c = Client::new();
 
-//     // default h1 keep alive is 5 seconds.
-//     // If test_server has a different setting this must be changed accordingly.
-//     tokio::time::sleep(Duration::from_secs(6)).await;
+                let mut res = c.get(&server_url)?.version(Version::HTTP_2).send().await?;
+                assert_eq!(res.status().as_u16(), 200);
+                assert!(!res.is_close_connection());
+                let body = res.string().await?;
+                assert_eq!("GET Response", body);
 
-//     // Due to platform difference this block may success or not.
-//     // Either way it can not get a response from server as it has already close
-//     // the connection.
-//     {
-//         let _ = stream.write_all(SIMPLE_GET_REQ);
+                tx.send(()).unwrap();
 
-//         if let Ok(n) = stream.read(&mut buf) {
-//             assert_eq!(n, 0);
-//         }
-//     }
+                // block the thread so client can not reply to server keep alive.
+                // server would actively drop connection after keepalive timer expired.
+                std::thread::sleep(Duration::from_secs(1000));
+                drop(c);
+                Ok::<_, Error>(())
+            })
+    });
 
-//     handle.try_handle()?.stop(true);
+    rx.recv().unwrap();
 
-//     handle.await?;
+    handle.try_handle()?.stop(true);
 
-//     Ok(())
-// }
+    let now = Instant::now();
+
+    handle.await?;
+
+    // Default xitca-server shutdown timeout is 30 seconds.
+    // If keep-alive functions correctly server shutdown should happen much faster than it.
+    assert!(now.elapsed() < Duration::from_secs(30));
+
+    Ok(())
+}
 
 async fn handle(req: Request<h2::RequestBody>) -> Result<Response<ResponseBody>, Error> {
-    // Some yield for testing h1 dispatcher's concurrent future handling.
+    // Some yield for testing h2 dispatcher's concurrent future handling.
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
@@ -131,5 +137,3 @@ async fn handle(req: Request<h2::RequestBody>) -> Result<Response<ResponseBody>,
         _ => todo!(),
     }
 }
-
-// const SIMPLE_GET_REQ: &[u8] = b"GET / HTTP/1.1\r\ncontent-length: 0\r\n\r\n";
