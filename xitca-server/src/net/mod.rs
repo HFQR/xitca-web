@@ -1,6 +1,5 @@
 #[cfg(feature = "http3")]
 mod h3;
-mod io;
 
 #[cfg(feature = "http3")]
 pub use self::h3::{H3ServerConfig, UdpConnecting, UdpListener, UdpListenerBuilder, UdpStream};
@@ -8,7 +7,6 @@ pub use self::h3::{H3ServerConfig, UdpConnecting, UdpListener, UdpListenerBuilde
 use std::net;
 
 use xitca_io::net::{TcpListener, TcpStream};
-
 #[cfg(unix)]
 use xitca_io::net::{UnixListener, UnixStream};
 
