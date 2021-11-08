@@ -15,7 +15,7 @@ use crate::{
 use super::{body::RequestBody, proto::Dispatcher};
 
 pub struct H3Service<S> {
-    flow: HttpFlow<S, (), ()>,
+    flow: HttpFlow<S, ()>,
 }
 
 impl<S> H3Service<S> {
@@ -23,7 +23,7 @@ impl<S> H3Service<S> {
     /// No upgrade/expect services allowed in Http/3.
     pub fn new(service: S) -> Self {
         Self {
-            flow: HttpFlow::new(service, (), None),
+            flow: HttpFlow::new(service, ()),
         }
     }
 }

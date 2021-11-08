@@ -35,23 +35,21 @@ use crate::{
 };
 
 /// Http/2 dispatcher
-pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X, U> {
+pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X> {
     io: &'a mut Connection<TlsSt, Bytes>,
     keep_alive: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
-    flow: &'a HttpFlow<S, X, U>,
+    flow: &'a HttpFlow<S, X>,
     date: &'a SharedDateTimeHandle,
     _req_body: PhantomData<ReqB>,
 }
 
-impl<'a, TlsSt, S, ReqB, X, U, B, E> Dispatcher<'a, TlsSt, S, ReqB, X, U>
+impl<'a, TlsSt, S, ReqB, X, B, E> Dispatcher<'a, TlsSt, S, ReqB, X>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: fmt::Debug,
 
     X: 'static,
-
-    U: 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -64,7 +62,7 @@ where
         io: &'a mut Connection<TlsSt, Bytes>,
         keep_alive: Pin<&'a mut KeepAlive>,
         ka_dur: Duration,
-        flow: &'a HttpFlow<S, X, U>,
+        flow: &'a HttpFlow<S, X>,
         date: &'a SharedDateTimeHandle,
     ) -> Self {
         Self {

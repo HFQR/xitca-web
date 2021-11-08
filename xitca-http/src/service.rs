@@ -23,7 +23,6 @@ pub struct HttpService<
     S,
     ReqB,
     X,
-    U,
     A,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
@@ -31,43 +30,37 @@ pub struct HttpService<
 > {
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     pub(crate) date: DateTimeService,
-    pub(crate) flow: HttpFlow<S, X, U>,
+    pub(crate) flow: HttpFlow<S, X>,
     pub(crate) tls_acceptor: A,
     _body: PhantomData<ReqB>,
 }
 
-impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpService<S, ReqB, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, ReqB, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpService<S, ReqB, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     /// Construct new Http Service.
     pub fn new(
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         service: S,
         expect: X,
-        upgrade: Option<U>,
         tls_acceptor: A,
     ) -> Self {
         Self {
             config,
             date: DateTimeService::new(),
-            flow: HttpFlow::new(service, expect, upgrade),
+            flow: HttpFlow::new(service, expect),
             tls_acceptor,
             _body: PhantomData,
         }
     }
 
     /// Service readiness check
-    pub(super) async fn _ready<ReqS, ReqX, ReqU, ReqA, E>(&self) -> Result<(), HttpServiceError<E>>
+    pub(super) async fn _ready<ReqS, ReqX, ReqA, E>(&self) -> Result<(), HttpServiceError<E>>
     where
         S: Service<ReqS>,
         X: Service<ReqX>,
-        U: Service<ReqU>,
         A: Service<ReqA>,
     {
-        if let Some(upgrade) = self.flow.upgrade.as_ref() {
-            upgrade.ready().await.map_err(|_| HttpServiceError::ServiceReady)?;
-        }
-
         self.flow
             .expect
             .ready()
@@ -104,16 +97,15 @@ impl<S, ReqB, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
     }
 }
 
-impl<S, X, U, B, E, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<ServerStream> for HttpService<S, RequestBody, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, X, B, E, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<ServerStream> for HttpService<S, RequestBody, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
-    U: Service<Request<RequestBody>, Response = ()> + 'static,
     A: Service<TcpStream> + 'static,
     A::Response: AsyncIo + AsVersion,
 
-    HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
+    HttpServiceError<S::Error>: From<A::Error>,
 
     S::Error: fmt::Debug + From<X::Error>,
 
@@ -190,7 +182,7 @@ where
                             )
                             .run()
                             .await
-                            .map_err(HttpServiceError::from)
+                            .map_err(Into::into)
                         }
                         version => Err(HttpServiceError::UnSupportedVersion(version)),
                     }
