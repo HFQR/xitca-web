@@ -19,20 +19,18 @@ use crate::{
 };
 
 /// Http/3 dispatcher
-pub(crate) struct Dispatcher<'a, S, ReqB, X, U> {
+pub(crate) struct Dispatcher<'a, S, ReqB, X> {
     io: UdpStream,
-    flow: &'a HttpFlow<S, X, U>,
+    flow: &'a HttpFlow<S, X>,
     _req_body: PhantomData<ReqB>,
 }
 
-impl<'a, S, ReqB, X, U, B, E> Dispatcher<'a, S, ReqB, X, U>
+impl<'a, S, ReqB, X, B, E> Dispatcher<'a, S, ReqB, X>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: fmt::Debug,
 
     X: 'static,
-
-    U: 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -40,7 +38,7 @@ where
 
     ReqB: From<RequestBody> + 'static,
 {
-    pub(crate) fn new(io: UdpStream, flow: &'a HttpFlow<S, X, U>) -> Self {
+    pub(crate) fn new(io: UdpStream, flow: &'a HttpFlow<S, X>) -> Self {
         Self {
             io,
             flow,

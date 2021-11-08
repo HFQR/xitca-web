@@ -19,12 +19,11 @@ use super::{body::RequestBody, service::H2Service};
 pub type H2ServiceBuilder<
     F,
     FE,
-    FU,
     FA,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
-> = HttpServiceBuilder<F, RequestBody, FE, FU, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+> = HttpServiceBuilder<F, RequestBody, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
 impl<
         St,
@@ -32,13 +31,12 @@ impl<
         B,
         E,
         FE,
-        FU,
         FA,
         TlsSt,
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > ServiceFactory<St> for H2ServiceBuilder<F, FE, FU, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > ServiceFactory<St> for H2ServiceBuilder<F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
@@ -71,8 +69,7 @@ where
         async move {
             let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
-
-            Ok(H2Service::new(config, service, (), None, tls_acceptor))
+            Ok(H2Service::new(config, service, (), tls_acceptor))
         }
     }
 }

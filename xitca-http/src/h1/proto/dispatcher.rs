@@ -42,7 +42,6 @@ pub(crate) async fn run<
     ResB,
     E,
     X,
-    U,
     D,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
@@ -51,12 +50,11 @@ pub(crate) async fn run<
     io: &'a mut St,
     timer: Pin<&'a mut KeepAlive>,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    flow: &'a HttpFlowInner<S, X, U>,
+    flow: &'a HttpFlowInner<S, X>,
     date: &'a D,
 ) -> Result<(), Error<S::Error>>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
-
     X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
 
     ReqB: From<RequestBody>,
@@ -67,7 +65,6 @@ where
     S::Error: From<X::Error>,
 
     St: AsyncIo,
-
     D: DateTime,
 {
     let is_vectored = if config.force_flat_buf {
@@ -97,7 +94,6 @@ struct Dispatcher<
     S,
     ReqB,
     X,
-    U,
     W,
     D,
     const HEADER_LIMIT: usize,
@@ -110,7 +106,7 @@ struct Dispatcher<
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
-    flow: &'a HttpFlowInner<S, X, U>,
+    flow: &'a HttpFlowInner<S, X>,
     _phantom: PhantomData<ReqB>,
 }
 
@@ -231,16 +227,14 @@ impl<
         ResB,
         E,
         X,
-        U,
         W,
         D,
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, X, U, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Dispatcher<'a, St, S, ReqB, X, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
-
     X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
 
     ReqB: From<RequestBody>,
@@ -259,7 +253,7 @@ where
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-        flow: &'a HttpFlowInner<S, X, U>,
+        flow: &'a HttpFlowInner<S, X>,
         date: &'a D,
         write_buf: W,
     ) -> Self {

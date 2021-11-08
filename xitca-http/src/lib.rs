@@ -13,7 +13,6 @@ mod flow;
 mod response;
 mod service;
 mod tls;
-mod upgrade;
 mod version;
 
 pub mod body;

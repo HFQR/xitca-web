@@ -16,14 +16,13 @@ use crate::{
 
 use super::{body::RequestBody, proto};
 
-pub type H1Service<S, X, U, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
-    HttpService<S, RequestBody, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+pub type H1Service<S, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
+    HttpService<S, RequestBody, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
 impl<
         St,
         S,
         X,
-        U,
         B,
         E,
         A,
@@ -31,15 +30,14 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Service<St> for H1Service<S, X, U, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Service<St> for H1Service<S, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
-    U: Service<Request<RequestBody>, Response = ()> + 'static,
     A: Service<St, Response = TlsSt> + 'static,
 
     S::Error: From<X::Error>,
-    HttpServiceError<S::Error>: From<U::Error> + From<A::Error>,
+    HttpServiceError<S::Error>: From<A::Error>,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -76,7 +74,7 @@ where
 
             proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
                 .await
-                .map_err(HttpServiceError::from)
+                .map_err(Into::into)
         }
     }
 }
