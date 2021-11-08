@@ -25,20 +25,20 @@ pub trait Transform<S, Req> {
     fn new_transform(&self, service: S) -> Self::Future;
 }
 
-pub struct TransformFactory<F, S, Req, T>
+pub struct TransformFactory<F, Req, T>
 where
     F: ServiceFactory<Req>,
-    T: Transform<S, Req>,
+    T: Transform<F::Service, Req>,
 {
     factory: F,
     transform: Rc<T>,
-    _req: PhantomData<(S, Req)>,
+    _req: PhantomData<Req>,
 }
 
-impl<F, S, Req, T> TransformFactory<F, S, Req, T>
+impl<F, Req, T> TransformFactory<F, Req, T>
 where
     F: ServiceFactory<Req>,
-    T: Transform<S, Req>,
+    T: Transform<F::Service, Req>,
 {
     pub fn new(factory: F, transform: T) -> Self {
         Self {
@@ -49,11 +49,10 @@ where
     }
 }
 
-impl<F, S, Req, T> ServiceFactory<Req> for TransformFactory<F, S, Req, T>
+impl<F, Req, T> ServiceFactory<Req> for TransformFactory<F, Req, T>
 where
-    F: ServiceFactory<Req, Service = S>,
-    S: Service<Req>,
-    T: Transform<S, Req>,
+    F: ServiceFactory<Req>,
+    T: Transform<F::Service, Req>,
     // T::InitError: From<F::InitError>,
 {
     type Response = T::Response;
