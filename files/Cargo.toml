@@ -1,0 +1,24 @@
+[package]
+name = "xitca-files"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+io-uring = ["tokio-uring"]
+
+[dependencies]
+xitca-service = "0.1"
+xitca-http = "0.1"
+
+futures-core = "0.3.17"
+pin-project-lite = "0.2.7"
+tokio = "1.13"
+tracing = "0.1.29"
+
+# io-uring support for file IO
+tokio-uring = { version = "0.1", optional = true }
+
+[dev-dependencies]
+xitca-web = "0.1"
+tokio = { version = "1.13", features = ["macros", "rt"] }

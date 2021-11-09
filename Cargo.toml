@@ -1,24 +1,27 @@
 [workspace]
 members = [
-    "client",
-    "http",
-    "io",
-    "server",
     "service",
-    "test",
+    "io",
+    "http",
+    "server",
+    "client",
+    "files",
     "web",
+    "test",
     "examples",
     "http-encoding",
     "http-ws",
 ]
 
 [patch.crates-io]
-xitca-client = { path = "./client" }
-xitca-http = { path = "./http" }
-xitca-io = { path = "./io" }
-xitca-server = { path = "./server" }
 xitca-service = { path = "./service" }
+xitca-io = { path = "./io" }
+xitca-http = { path = "./http" }
+xitca-server = { path = "./server" }
+xitca-client = { path = "./client" }
+xitca-files = { path = "./files" }
 xitca-web = { path = "./web" }
+
 http-encoding = { path = "./http-encoding" }
 http-ws = { path = "./http-ws" }
 
