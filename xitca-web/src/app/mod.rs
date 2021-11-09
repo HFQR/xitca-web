@@ -161,84 +161,84 @@ where
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use super::*;
+#[cfg(test)]
+mod test {
+    use super::*;
 
-//     use crate::response::{ResponseBody, WebResponse};
+    use crate::response::{ResponseBody, WebResponse};
 
-//     struct TestFactory;
+    struct TestFactory;
 
-//     impl ServiceFactory<&'_ mut WebRequest<'_, String>> for TestFactory {
-//         type Response = WebResponse;
-//         type Error = ();
-//         type Config = ();
-//         type Service = TestService;
-//         type InitError = ();
-//         type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    impl ServiceFactory<&'_ mut WebRequest<'_, String>> for TestFactory {
+        type Response = WebResponse;
+        type Error = ();
+        type Config = ();
+        type Service = TestService;
+        type InitError = ();
+        type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-//         fn new_service(&self, _: Self::Config) -> Self::Future {
-//             async { Ok(TestService) }
-//         }
-//     }
+        fn new_service(&self, _: Self::Config) -> Self::Future {
+            async { Ok(TestService) }
+        }
+    }
 
-//     struct TestService;
+    struct TestService;
 
-//     impl<'rb> Service<&'rb mut WebRequest<'_, String>> for TestService {
-//         type Response = WebResponse;
-//         type Error = ();
-//         type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
-//         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    impl<'r, 's> Service<&'r mut WebRequest<'s, String>> for TestService {
+        type Response = WebResponse;
+        type Error = ();
+        type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-//         fn ready(&self) -> Self::Ready<'_> {
-//             async { Ok(()) }
-//         }
+        fn ready(&self) -> Self::Ready<'_> {
+            async { Ok(()) }
+        }
 
-//         fn call(&self, req: &'rb mut WebRequest<', String>) -> Self::Future<'_> {
-//             async move {
-//                 assert_eq!(req.state(), "state");
+        fn call(&self, req: &'r mut WebRequest<'s, String>) -> Self::Future<'_> {
+            async move {
+                assert_eq!(req.state(), "state");
 
-//                 Ok(WebResponse::new(ResponseBody::None))
-//             }
-//         }
-//     }
+                Ok(WebResponse::new(ResponseBody::None))
+            }
+        }
+    }
 
-//     #[tokio::test]
-//     async fn test_app() {
-//         let state = String::from("state");
-//         let app = App::with_current_thread_state(state).service(TestFactory);
+    #[tokio::test]
+    async fn test_app() {
+        let state = String::from("state");
+        let app = App::with_current_thread_state(state).service(TestFactory);
 
-//         let service = app.new_service(()).await.ok().unwrap();
+        let service = app.new_service(()).await.ok().unwrap();
 
-//         let req = Request::default();
+        let req = Request::default();
 
-//         let _ = service.call(req).await.unwrap();
-//     }
+        let _ = service.call(req).await.unwrap();
+    }
 
-//     #[tokio::test]
-//     async fn test_handler() {
-//         use crate::extract::State;
-//         use crate::response::WebResponse;
-//         use crate::service::HandlerService;
+    // #[tokio::test]
+    // async fn test_handler() {
+    //     use crate::extract::State;
+    //     use crate::response::WebResponse;
+    //     use crate::service::HandlerService;
 
-//         use xitca_http::ResponseBody;
+    //     use xitca_http::ResponseBody;
 
-//         async fn handler(req: &WebRequest<'_, String>, state: State<'_, String>) -> WebResponse {
-//             let state2 = req.state();
-//             assert_eq!(state2, &*state);
-//             assert_eq!("123", state2.as_str());
-//             WebResponse::new(ResponseBody::None)
-//         }
+    //     async fn handler(req: &WebRequest<'_, String>, state: State<'_, String>) -> WebResponse {
+    //         let state2 = req.state();
+    //         assert_eq!(state2, &*state);
+    //         assert_eq!("123", state2.as_str());
+    //         WebResponse::new(ResponseBody::None)
+    //     }
 
-//         let state = String::from("state");
-//         let app = App::with_current_thread_state(state).service(HandlerService::new(handler));
+    //     let state = String::from("state");
+    //     let app = App::with_current_thread_state(state).service(HandlerService::new(handler));
 
-//         let service = app.new_service(()).await.ok().unwrap();
+    //     let service = app.new_service(()).await.ok().unwrap();
 
-//         let req = Request::default();
+    //     let req = Request::default();
 
-//         let res = service.call(req).await.unwrap();
+    //     let res = service.call(req).await.unwrap();
 
-//         assert_eq!(res, "state")
-//     }
-// }
+    //     assert_eq!(res, "state")
+    // }
+}
