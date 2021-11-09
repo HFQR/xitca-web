@@ -195,3 +195,35 @@ impl From<&Uri<'_>> for ConnectionKey {
         }
     }
 }
+
+#[doc(hidden)]
+/// Trait for multiplex connection.
+/// HTTP2 and HTTP3 connections are supposed to be multiplexed on single TCP connection.
+pub trait Multiplex {
+    /// Get a ownership from mut reference.
+    ///
+    /// # Panics:
+    /// When called on connection type that are not multiplexable.
+    fn multiplex(&mut self) -> Self;
+
+    /// Return true for connection that can be multiplexed.
+    fn is_multiplexable(&self) -> bool;
+}
+
+impl Multiplex for Connection {
+    fn multiplex(&mut self) -> Self {
+        match *self {
+            #[cfg(feature = "http2")]
+            Self::H2(ref conn) => Self::H2(conn.clone()),
+            _ => unreachable!("Connection is not multiplexable"),
+        }
+    }
+
+    fn is_multiplexable(&self) -> bool {
+        match *self {
+            #[cfg(feature = "http2")]
+            Self::H2(_) => true,
+            _ => false,
+        }
+    }
+}

@@ -9,17 +9,23 @@ use ahash::AHashMap;
 use parking_lot::Mutex;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
-use crate::error::Error;
+use crate::{connection::Multiplex, error::Error};
 
 #[doc(hidden)]
 pub struct Pool<K, C> {
-    conns: Mutex<AHashMap<K, VecDeque<PooledConn<C>>>>,
+    conns: Mutex<AHashMap<K, Value<C>>>,
     permits: Semaphore,
+}
+
+enum Value<C> {
+    Multiplexable(PooledConn<C>),
+    NonMultiplexable(VecDeque<PooledConn<C>>),
 }
 
 impl<K, C> Pool<K, C>
 where
     K: Eq + Hash + Clone,
+    C: Multiplex,
 {
     pub(crate) fn with_capacity(size: usize) -> Self {
         Self {
@@ -38,13 +44,18 @@ where
             let mut conns = self.conns.lock();
 
             match conns.get_mut(&key) {
-                Some(queue) => loop {
+                Some(Value::NonMultiplexable(queue)) => loop {
                     match queue.pop_front() {
                         // drop connection that are expired.
                         Some(conn) if conn.state.is_expired() => drop(conn),
                         conn => break conn,
                     }
                 },
+                Some(Value::Multiplexable(conn)) if conn.state.is_expired() => {
+                    conns.remove(&key);
+                    None
+                }
+                Some(Value::Multiplexable(conn)) => Some(conn.multiplex()),
                 None => None,
             }
         };
@@ -62,6 +73,7 @@ where
 pub struct Conn<'a, K, C>
 where
     K: Eq + Hash + Clone,
+    C: Multiplex,
 {
     pool: &'a Pool<K, C>,
     key: K,
@@ -73,6 +85,8 @@ where
 impl<K, C> Deref for Conn<'_, K, C>
 where
     K: Eq + Hash + Clone,
+
+    C: Multiplex,
 {
     type Target = C;
 
@@ -86,6 +100,7 @@ where
 impl<K, C> DerefMut for Conn<'_, K, C>
 where
     K: Eq + Hash + Clone,
+    C: Multiplex,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.conn
@@ -97,6 +112,7 @@ where
 impl<K, C> Conn<'_, K, C>
 where
     K: Eq + Hash + Clone,
+    C: Multiplex,
 {
     pub(crate) fn is_none(&self) -> bool {
         self.conn.is_none()
@@ -122,6 +138,7 @@ where
 impl<K, C> Drop for Conn<'_, K, C>
 where
     K: Eq + Hash + Clone,
+    C: Multiplex,
 {
     fn drop(&mut self) {
         if let Some(mut conn) = self.conn.take() {
@@ -129,15 +146,20 @@ where
                 return;
             }
 
-            conn.state.update_idle();
-
             let mut conns = self.pool.conns.lock();
 
             match conns.get_mut(&self.key) {
-                Some(queue) => queue.push_back(conn),
+                Some(Value::NonMultiplexable(queue)) => {
+                    conn.state.update_idle();
+                    queue.push_back(conn);
+                }
+                Some(Value::Multiplexable(conn)) => conn.state.update_idle(),
+                None if conn.is_multiplexable() => {
+                    conns.insert(self.key.clone(), Value::Multiplexable(conn));
+                }
                 None => {
                     let queue = VecDeque::from([conn]);
-                    conns.insert(self.key.clone(), queue);
+                    conns.insert(self.key.clone(), Value::NonMultiplexable(queue));
                 }
             }
 
@@ -165,6 +187,7 @@ impl<C> DerefMut for PooledConn<C> {
     }
 }
 
+#[derive(Clone, Copy)]
 struct ConnState {
     born: Instant,
     idle_since: Instant,
@@ -186,5 +209,18 @@ impl ConnState {
 
     fn is_expired(&self) -> bool {
         self.born.elapsed() > Duration::from_secs(3600) || self.idle_since.elapsed() > Duration::from_secs(60)
+    }
+}
+
+impl<C: Multiplex> Multiplex for PooledConn<C> {
+    fn multiplex(&mut self) -> Self {
+        Self {
+            conn: self.conn.multiplex(),
+            state: self.state,
+        }
+    }
+
+    fn is_multiplexable(&self) -> bool {
+        self.conn.is_multiplexable()
     }
 }
