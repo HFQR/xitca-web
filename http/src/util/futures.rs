@@ -41,7 +41,7 @@ mod poll_fn {
     }
 }
 
-#[cfg(feature = "http1")]
+#[cfg(any(feature = "http1", feature = "http2"))]
 /// An async function that never resolve to the output.
 #[inline]
 pub(crate) async fn never<T>() -> T {

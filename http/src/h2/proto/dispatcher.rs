@@ -12,6 +12,7 @@ use ::h2::{
     Ping, PingPong,
 };
 use futures_core::{ready, Stream};
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use http::{
     header::{CONTENT_LENGTH, DATE},
     HeaderValue, Request, Response, Version,
@@ -24,12 +25,12 @@ use xitca_service::Service;
 use crate::{
     body::{ResponseBody, ResponseBodySize},
     bytes::Bytes,
-    date::{DateTime, DateTimeHandle, SharedDateTimeHandle},
+    date::{DateTime, DateTimeHandle},
     error::{BodyError, HttpServiceError},
     flow::HttpFlow,
     h2::{body::RequestBody, error::Error},
     util::{
-        futures::{poll_fn, Select, SelectOutput},
+        futures::{never, poll_fn, Select, SelectOutput},
         keep_alive::KeepAlive,
     },
 };
@@ -40,7 +41,7 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X> {
     keep_alive: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     flow: &'a HttpFlow<S, X>,
-    date: &'a SharedDateTimeHandle,
+    date: &'a DateTimeHandle,
     _req_body: PhantomData<ReqB>,
 }
 
@@ -63,7 +64,7 @@ where
         keep_alive: Pin<&'a mut KeepAlive>,
         ka_dur: Duration,
         flow: &'a HttpFlow<S, X>,
-        date: &'a SharedDateTimeHandle,
+        date: &'a DateTimeHandle,
     ) -> Self {
         Self {
             io,
@@ -100,40 +101,60 @@ where
             ka_dur,
         };
 
+        let mut queue = FuturesUnordered::new();
+        let mut queued = false;
+
         loop {
-            match io.accept().select(&mut ping_pong).await {
-                SelectOutput::A(Some(Ok((req, tx)))) => {
+            match io
+                .accept()
+                .select(try_queue(queued, &mut queue))
+                .select(&mut ping_pong)
+                .await
+            {
+                SelectOutput::A(SelectOutput::A(Some(Ok((req, tx))))) => {
                     // Convert http::Request body type to crate::h2::Body
                     // and reconstruct as HttpRequest.
                     let (parts, body) = req.into_parts();
                     let body = ReqB::from(RequestBody::from(body));
                     let req = Request::from_parts(parts, body);
 
-                    let flow = HttpFlow::clone(flow);
-                    let date = SharedDateTimeHandle::clone(self.date);
-
-                    tokio::task::spawn_local(async move {
+                    queue.push(async move {
                         let fut = flow.service.call(req);
-                        if let Err(e) = h2_handler(fut, tx, date).await {
-                            HttpServiceError::from(e).log("h2_dispatcher");
-                        }
+                        h2_handler(fut, tx, date).await
                     });
+                    queued = true;
                 }
+                SelectOutput::A(SelectOutput::B(Some(res))) => {
+                    if let Err(e) = res {
+                        HttpServiceError::from(e).log("h2_dispatcher");
+                    }
+                }
+                SelectOutput::A(SelectOutput::B(None)) => queued = false,
                 SelectOutput::B(Ok(_)) => {
                     trace!("Connection keep-alive timeout. Shutting down");
                     return Ok(());
                 }
-                SelectOutput::A(None) => {
+                SelectOutput::A(SelectOutput::A(None)) => {
                     trace!("Connection closed by remote. Shutting down");
                     break;
                 }
-                SelectOutput::A(Some(Err(e))) | SelectOutput::B(Err(e)) => return Err(From::from(e)),
+                SelectOutput::A(SelectOutput::A(Some(Err(e)))) | SelectOutput::B(Err(e)) => return Err(From::from(e)),
             }
         }
+
+        while queue.next().await.is_some() {}
 
         io.graceful_shutdown();
 
         poll_fn(|cx| io.poll_closed(cx)).await.map_err(From::from)
+    }
+}
+
+async fn try_queue<F: Future>(queued: bool, queue: &mut FuturesUnordered<F>) -> Option<F::Output> {
+    if queued {
+        queue.next().await
+    } else {
+        never().await
     }
 }
 
@@ -188,13 +209,13 @@ impl Future for H2PingPong<'_> {
     }
 }
 
-async fn h2_handler<'a, Fut, B, BE, E>(
+async fn h2_handler<'f, 'd, Fut, B, BE, E>(
     fut: Fut,
     mut tx: SendResponse<Bytes>,
-    date: SharedDateTimeHandle,
+    date: &'d DateTimeHandle,
 ) -> Result<(), Error<E>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'a,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'f,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
