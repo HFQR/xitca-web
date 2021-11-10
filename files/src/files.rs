@@ -6,15 +6,11 @@ use std::{
 use tracing::error;
 use xitca_http::{
     body::ResponseBody,
-    http::{
-        header::{CONTENT_LENGTH, LOCATION},
-        HeaderValue, IntoResponse, Request, Response, StatusCode,
-    },
+    http::{header::LOCATION, HeaderValue, IntoResponse, Request, Response, StatusCode},
 };
 use xitca_service::{Service, ServiceFactory};
 
 use crate::{
-    chunked::new_chunked_read,
     directory::{Directory, DirectoryRender},
     error::Error,
     named::NamedFile,
@@ -180,7 +176,6 @@ where
         async move {
             let real_path = PathBuf::parse_path("/", self.hidden_files)?;
             let path = self.directory.join(&real_path);
-
             path.canonicalize()?;
 
             if path.is_dir() {
@@ -202,13 +197,7 @@ where
                     (Some(index), show_index) => {
                         let named_path = path.join(index);
                         match NamedFile::open(named_path).await {
-                            Ok(file) => {
-                                let len = file.md.len();
-                                let body = Box::pin(new_chunked_read(len, 0, file.file)) as _;
-                                let mut res = mem::take(req).into_response(ResponseBody::stream(body));
-                                res.headers_mut().append(CONTENT_LENGTH, HeaderValue::from(len));
-                                Ok(res)
-                            }
+                            Ok(file) => Ok(file.into_response(req)),
                             Err(_) if show_index => {
                                 let dir = Directory::new(&self.directory, &path);
                                 let req = mem::take(req).map(|_| ());
@@ -222,15 +211,11 @@ where
                         let req = mem::take(req).map(|_| ());
                         self.directory_render.call((req, dir)).await
                     }
-                    (None, false) => todo!(),
+                    (None, false) => Err(Error::IsDirectory),
                 }
             } else {
                 let file = NamedFile::open(&path).await?;
-                let len = file.md.len();
-                let body = Box::pin(new_chunked_read(len, 0, file.file)) as _;
-                let mut res = mem::take(req).into_response(ResponseBody::stream(body));
-                res.headers_mut().append(CONTENT_LENGTH, HeaderValue::from(len));
-                Ok(res)
+                Ok(file.into_response(req))
             }
         }
     }

@@ -4,7 +4,6 @@
 //! more performant and simpler.
 
 #![feature(generic_associated_types, type_alias_impl_trait)]
-#![allow(dead_code, unused_variables)]
 
 mod chunked;
 mod directory;
@@ -27,6 +26,6 @@ mod test {
     async fn app() {
         let app = App::new().service(HttpServiceAdaptor::new(Files::new("/", "./")));
 
-        let app = app.new_service(()).await.unwrap();
+        let _app = app.new_service(()).await.unwrap();
     }
 }

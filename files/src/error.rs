@@ -4,6 +4,7 @@ use xitca_http::{body::ResponseBody, bytes::Bytes, http::Response, ResponseError
 
 #[derive(Debug)]
 pub enum Error {
+    IsDirectory,
     Io(io::Error),
     UriSegmentError(UriSegmentError),
 }
@@ -11,6 +12,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::IsDirectory => write!(f, "Unable to render directory without index file"),
             Self::Io(ref e) => fmt::Display::fmt(e, f),
             Self::UriSegmentError(ref e) => fmt::Display::fmt(e, f),
         }
@@ -58,7 +60,7 @@ impl From<io::Error> for Error {
 }
 
 impl<Req, B> ResponseError<Req, Response<ResponseBody<B>>> for Error {
-    fn response_error(&mut self, req: &mut Req) -> Response<ResponseBody<B>> {
+    fn response_error(&mut self, _: &mut Req) -> Response<ResponseBody<B>> {
         Response::new(Bytes::from(format!("{}", self)).into())
     }
 }
