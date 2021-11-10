@@ -14,6 +14,7 @@ mod path_buf;
 
 pub mod error;
 
+pub use files::Files;
 pub use named::NamedFile;
 
 #[cfg(test)]

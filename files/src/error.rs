@@ -59,6 +59,6 @@ impl From<io::Error> for Error {
 
 impl<Req, B> ResponseError<Req, Response<ResponseBody<B>>> for Error {
     fn response_error(&mut self, req: &mut Req) -> Response<ResponseBody<B>> {
-        Response::new(Bytes::new().into())
+        Response::new(Bytes::from(format!("{}", self)).into())
     }
 }

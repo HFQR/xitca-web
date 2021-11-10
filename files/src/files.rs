@@ -6,7 +6,10 @@ use std::{
 use tracing::error;
 use xitca_http::{
     body::ResponseBody,
-    http::{header::LOCATION, HeaderValue, IntoResponse, Request, Response, StatusCode},
+    http::{
+        header::{CONTENT_LENGTH, LOCATION},
+        HeaderValue, IntoResponse, Request, Response, StatusCode,
+    },
 };
 use xitca_service::{Service, ServiceFactory};
 
@@ -57,6 +60,18 @@ impl<F> Files<F> {
     /// when the index file is not found.
     pub fn show_files_listing(mut self) -> Self {
         self.show_index = true;
+        self
+    }
+
+    /// Set index file
+    ///
+    /// Shows specific index file for directories instead of
+    /// showing files listing.
+    ///
+    /// If the index file is not found, files listing is shown as a fallback if
+    /// [`Files::show_files_listing()`] is set.
+    pub fn index_file<T: Into<String>>(mut self, index: T) -> Self {
+        self.index = Some(index.into());
         self
     }
 
@@ -165,6 +180,7 @@ where
         async move {
             let real_path = PathBuf::parse_path("/", self.hidden_files)?;
             let path = self.directory.join(&real_path);
+
             path.canonicalize()?;
 
             if path.is_dir() {
@@ -189,7 +205,9 @@ where
                             Ok(file) => {
                                 let len = file.md.len();
                                 let body = Box::pin(new_chunked_read(len, 0, file.file)) as _;
-                                Ok(mem::take(req).into_response(ResponseBody::stream(body)))
+                                let mut res = mem::take(req).into_response(ResponseBody::stream(body));
+                                res.headers_mut().append(CONTENT_LENGTH, HeaderValue::from(len));
+                                Ok(res)
                             }
                             Err(_) if show_index => {
                                 let dir = Directory::new(&self.directory, &path);
@@ -199,14 +217,20 @@ where
                             Err(e) => Err(e.into()),
                         }
                     }
-                    (None, true) => todo!(),
+                    (None, true) => {
+                        let dir = Directory::new(&self.directory, &path);
+                        let req = mem::take(req).map(|_| ());
+                        self.directory_render.call((req, dir)).await
+                    }
                     (None, false) => todo!(),
                 }
             } else {
                 let file = NamedFile::open(&path).await?;
                 let len = file.md.len();
                 let body = Box::pin(new_chunked_read(len, 0, file.file)) as _;
-                Ok(mem::take(req).into_response(ResponseBody::stream(body)))
+                let mut res = mem::take(req).into_response(ResponseBody::stream(body));
+                res.headers_mut().append(CONTENT_LENGTH, HeaderValue::from(len));
+                Ok(res)
             }
         }
     }
