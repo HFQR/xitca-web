@@ -4,7 +4,7 @@ use std::{
 };
 
 use xitca_http::{
-    http::{request::Parts, Request},
+    http::{IntoResponse, Request},
     RequestBody, ResponseBody,
 };
 
@@ -62,26 +62,15 @@ impl<'a, D> WebRequest<'a, D> {
     ///
     /// The heap allocation of request would be re-used.
     #[inline(always)]
-    pub fn into_response<B: Into<ResponseBody>>(mut self, body: B) -> WebResponse {
-        self.as_response(body)
+    pub fn into_response<B: Into<ResponseBody>>(self, body: B) -> WebResponse {
+        self.http.into_inner().into_response(body.into())
     }
 
     /// Transform &mut self to a WebResponse with given body type.
     ///
     /// The heap allocation of request would be re-used.
+    #[inline(always)]
     pub fn as_response<B: Into<ResponseBody>>(&mut self, body: B) -> WebResponse {
-        let Parts {
-            mut headers,
-            extensions,
-            ..
-        } = mem::take(self.request_mut()).into_parts().0;
-
-        headers.clear();
-
-        let mut res = WebResponse::new(body.into());
-        *res.headers_mut() = headers;
-        *res.extensions_mut() = extensions;
-
-        res
+        mem::take(self.request_mut()).into_response(body)
     }
 }

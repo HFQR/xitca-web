@@ -25,6 +25,7 @@ xitca-web = { path = "./web" }
 http-encoding = { path = "./http-encoding" }
 http-ws = { path = "./http-ws" }
 
+tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring.git" }
 h3 = { git = "https://github.com/hyperium/h3.git" }
 h3-quinn = { git = "https://github.com/hyperium/h3.git" }
 

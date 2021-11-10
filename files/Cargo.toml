@@ -5,13 +5,15 @@ edition = "2021"
 
 [features]
 default = []
-io-uring = ["tokio-uring"]
+io-uring = ["tokio-uring/bytes"]
 
 [dependencies]
 xitca-service = "0.1"
 xitca-http = "0.1"
 
+askama_escape = "0.10.1"
 futures-core = "0.3.17"
+percent-encoding = "2.1.0"
 pin-project-lite = "0.2.7"
 tokio = "1.13"
 tracing = "0.1.29"

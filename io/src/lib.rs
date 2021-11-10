@@ -1,5 +1,5 @@
 //! Async traits and types used for Io operations.
-
+#![forbid(unsafe_code)]
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 /// re-export of [bytes] crate types.
