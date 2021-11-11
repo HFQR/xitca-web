@@ -62,18 +62,9 @@ impl DateTimeService {
     pub(crate) fn get(&self) -> &DateTimeHandle {
         &*self.state
     }
-
-    #[cfg(feature = "http2")]
-    #[inline(always)]
-    pub(crate) fn get_shared(&self) -> &SharedDateTimeHandle {
-        &self.state
-    }
 }
 
 pub(crate) type DateTimeHandle = RefCell<DateTimeState>;
-
-#[cfg(feature = "http2")]
-pub(crate) type SharedDateTimeHandle = Rc<DateTimeHandle>;
 
 /// The length of byte representation of [HttpDate].
 pub const DATE_VALUE_LENGTH: usize = 29;

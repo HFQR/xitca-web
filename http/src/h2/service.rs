@@ -83,7 +83,7 @@ where
                 timer.as_mut(),
                 self.config.keep_alive_timeout,
                 &self.flow,
-                self.date.get_shared(),
+                self.date.get(),
             );
 
             dispatcher.run().await?;
