@@ -414,10 +414,11 @@ where
                 SelectOutput::A(None) => {
                     // Request body is partial consumed.
                     // Close connection in case there are bytes remain in socket.
-                    let is_eof = body_handle.take().map(|h| h.sender.is_eof()).unwrap_or(true);
-                    if !is_eof {
-                        self.ctx.set_force_close_on_non_eof();
-                    };
+                    if let Some(handle) = body_handle.take() {
+                        if !handle.sender.is_eof() {
+                            self.ctx.set_force_close_on_non_eof();
+                        }
+                    }
 
                     encoder.encode_eof(&mut self.io.write_buf);
                     return Ok(());
