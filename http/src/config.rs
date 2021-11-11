@@ -19,7 +19,7 @@ pub const DEFAULT_HEADER_LIMIT: usize = 64;
 
 #[derive(Copy, Clone)]
 pub struct HttpServiceConfig<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
-    pub(crate) force_flat_buf: bool,
+    pub(crate) vectored_write: bool,
     pub(crate) keep_alive_timeout: Duration,
     pub(crate) first_request_timeout: Duration,
     pub(crate) tls_accept_timeout: Duration,
@@ -35,7 +35,7 @@ impl Default for HttpServiceConfig<DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT,
 impl HttpServiceConfig<DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
     pub const fn new() -> Self {
         Self {
-            force_flat_buf: false,
+            vectored_write: true,
             keep_alive_timeout: Duration::from_secs(5),
             first_request_timeout: Duration::from_secs(5),
             tls_accept_timeout: Duration::from_secs(3),
@@ -47,12 +47,22 @@ impl HttpServiceConfig<DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRI
 impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
+    /// Disable vectored write even when IO is able to perform it.
+    ///
+    /// This is beneficial when dealing with small size of response body.
+    pub fn disable_vectored_write(mut self) -> Self {
+        self.vectored_write = false;
+        self
+    }
+
+    #[deprecated(
+        note = "Please use HttpServiceConfig::disable_vectored_write. This API would be removed with 0.1 release"
+    )]
     /// Force IO write always use a flat buffer where extra data copy is preferred.
     ///
     /// This is beneficial when dealing with small size of response body.
-    pub fn force_flat_buf(mut self) -> Self {
-        self.force_flat_buf = true;
-        self
+    pub fn force_flat_buf(self) -> Self {
+        self.disable_vectored_write()
     }
 
     /// Define duration of how long a connection is kept alive.
@@ -128,7 +138,7 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
         self,
     ) -> HttpServiceConfig<HEADER_LIMIT2, READ_BUF_LIMIT2, WRITE_BUF_LIMIT2> {
         HttpServiceConfig {
-            force_flat_buf: self.force_flat_buf,
+            vectored_write: self.vectored_write,
             keep_alive_timeout: self.keep_alive_timeout,
             first_request_timeout: self.first_request_timeout,
             tls_accept_timeout: self.tls_accept_timeout,
