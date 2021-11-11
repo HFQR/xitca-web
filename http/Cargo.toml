@@ -6,8 +6,8 @@ edition = "2021"
 [features]
 default = ["http1"]
 http1 = ["httparse", "itoa"]
-http2 = ["h2"]
-http3 = ["xitca-server/http3", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
+http2 = ["h2", "futures-util/alloc"]
+http3 = ["xitca-server/http3", "futures-util/alloc", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
 openssl = ["futures-task", "openssl-crate", "tokio-openssl", "tokio-util/io"]
 rustls = ["futures-task", "tokio-rustls", "tokio-util/io"]
 native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "tokio-util/io"]
@@ -45,6 +45,7 @@ itoa = { version = "0.4.7", optional = true }
 
 # http/2 support
 h2 = { version = "0.3", optional = true }
+futures-util = { version = "0.3.17", default-features = false, optional = true }
 
 # http/3 support
 async-stream = { version = "0.3", optional = true }

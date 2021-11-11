@@ -13,7 +13,7 @@ use crate::{
     config::HttpServiceConfig,
     date::DateTime,
     error::BodyError,
-    flow::HttpFlowInner,
+    flow::HttpFlow,
     h1::{
         body::{RequestBody, RequestBodySender},
         error::Error,
@@ -50,7 +50,7 @@ pub(crate) async fn run<
     io: &'a mut St,
     timer: Pin<&'a mut KeepAlive>,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    flow: &'a HttpFlowInner<S, X>,
+    flow: &'a HttpFlow<S, X>,
     date: &'a D,
 ) -> Result<(), Error<S::Error>>
 where
@@ -106,7 +106,7 @@ struct Dispatcher<
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
-    flow: &'a HttpFlowInner<S, X>,
+    flow: &'a HttpFlow<S, X>,
     _phantom: PhantomData<ReqB>,
 }
 
@@ -253,7 +253,7 @@ where
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-        flow: &'a HttpFlowInner<S, X>,
+        flow: &'a HttpFlow<S, X>,
         date: &'a D,
         write_buf: W,
     ) -> Self {
