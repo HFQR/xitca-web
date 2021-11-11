@@ -199,6 +199,7 @@ where
                         match NamedFile::open(named_path).await {
                             Ok(file) => Ok(file.into_response(req)),
                             Err(_) if show_index => {
+                                self.directory_render.ready().await?;
                                 let dir = Directory::new(&self.directory, &path);
                                 let req = mem::take(req).map(|_| ());
                                 self.directory_render.call((req, dir)).await
@@ -207,6 +208,7 @@ where
                         }
                     }
                     (None, true) => {
+                        self.directory_render.ready().await?;
                         let dir = Directory::new(&self.directory, &path);
                         let req = mem::take(req).map(|_| ());
                         self.directory_render.call((req, dir)).await
