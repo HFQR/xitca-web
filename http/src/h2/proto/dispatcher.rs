@@ -13,10 +13,6 @@ use ::h2::{
 };
 use futures_core::{ready, Stream};
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use http::{
-    header::{CONTENT_LENGTH, DATE},
-    HeaderValue, Request, Response, Version,
-};
 use tokio::pin;
 use tracing::trace;
 use xitca_io::io::{AsyncRead, AsyncWrite};
@@ -29,6 +25,10 @@ use crate::{
     error::{BodyError, HttpServiceError},
     flow::HttpFlow,
     h2::{body::RequestBody, error::Error},
+    http::{
+        header::{CONNECTION, CONTENT_LENGTH, DATE},
+        HeaderValue, Request, Response, Version,
+    },
     util::{
         futures::{never, poll_fn, Select, SelectOutput},
         keep_alive::KeepAlive,
@@ -124,11 +124,11 @@ where
                     });
                     queued = true;
                 }
-                SelectOutput::A(SelectOutput::B(Some(res))) => {
-                    if let Err(e) = res {
-                        HttpServiceError::from(e).log("h2_dispatcher");
-                    }
-                }
+                SelectOutput::A(SelectOutput::B(Some(res))) => match res {
+                    Ok(ConnectionState::KeepAlive) => {}
+                    Ok(ConnectionState::Close) => io.graceful_shutdown(),
+                    Err(e) => HttpServiceError::from(e).log("h2_dispatcher"),
+                },
                 SelectOutput::A(SelectOutput::B(None)) => queued = false,
                 SelectOutput::B(Ok(_)) => {
                     trace!("Connection keep-alive timeout. Shutting down");
@@ -143,8 +143,6 @@ where
         }
 
         while queue.next().await.is_some() {}
-
-        io.graceful_shutdown();
 
         poll_fn(|cx| io.poll_closed(cx)).await.map_err(From::from)
     }
@@ -209,11 +207,17 @@ impl Future for H2PingPong<'_> {
     }
 }
 
+enum ConnectionState {
+    KeepAlive,
+    Close,
+}
+
+// handle request/response and return if connection should go into graceful shutdown.
 async fn h2_handler<'f, 'd, Fut, B, BE, E>(
     fut: Fut,
     mut tx: SendResponse<Bytes>,
     date: &'d DateTimeHandle,
-) -> Result<(), Error<E>>
+) -> Result<ConnectionState, Error<E>>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'f,
     B: Stream<Item = Result<Bytes, BE>>,
@@ -247,6 +251,13 @@ where
         res.headers_mut().insert(DATE, date);
     }
 
+    // check response header to determine if user want connection be closed.
+    let state = res
+        .headers()
+        .get(CONNECTION)
+        .and_then(|v| v.as_bytes().eq(b"close").then(|| ConnectionState::Close))
+        .unwrap_or(ConnectionState::KeepAlive);
+
     // send response and body(if there is one).
     let mut stream = tx.send_response(res, is_eof)?;
 
@@ -275,7 +286,7 @@ where
         stream.send_data(Bytes::new(), true)?;
     }
 
-    Ok(())
+    Ok(state)
 }
 
 const CHUNK_SIZE: usize = 16_384;
