@@ -145,21 +145,20 @@ mod queue {
             }
         }
 
-        pub(crate) async fn next(&mut self) -> Option<F::Output> {
+        pub(crate) async fn next(&mut self) -> F::Output {
             if self.queued {
-                self.futures.next().await
-            } else {
-                never().await
+                match self.futures.next().await {
+                    Some(res) => return res,
+                    None => self.queued = false,
+                }
             }
+
+            never().await
         }
 
         pub(crate) fn push(&mut self, future: F) {
             self.futures.push(future);
             self.queued = true;
-        }
-
-        pub(crate) fn set_queued(&mut self, value: bool) {
-            self.queued = value;
         }
 
         pub(crate) async fn drain(&mut self) {

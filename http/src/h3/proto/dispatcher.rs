@@ -83,9 +83,11 @@ where
                 }
                 SelectOutput::A(Ok(None)) => break,
                 SelectOutput::A(Err(e)) => return Err(e.into()),
-                SelectOutput::B(Some(Ok(_))) => {}
-                SelectOutput::B(Some(Err(e))) => HttpServiceError::from(e).log("h3_dispatcher"),
-                SelectOutput::B(None) => queue.set_queued(false),
+                SelectOutput::B(res) => {
+                    if let Err(e) = res {
+                        HttpServiceError::from(e).log("h3_dispatcher");
+                    }
+                }
             }
         }
 

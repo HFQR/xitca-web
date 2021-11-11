@@ -116,12 +116,11 @@ where
                         h2_handler(fut, tx, date).await
                     });
                 }
-                SelectOutput::A(SelectOutput::B(Some(res))) => match res {
+                SelectOutput::A(SelectOutput::B(res)) => match res {
                     Ok(ConnectionState::KeepAlive) => {}
                     Ok(ConnectionState::Close) => io.graceful_shutdown(),
                     Err(e) => HttpServiceError::from(e).log("h2_dispatcher"),
                 },
-                SelectOutput::A(SelectOutput::B(None)) => queue.set_queued(false),
                 SelectOutput::B(Ok(_)) => {
                     trace!("Connection keep-alive timeout. Shutting down");
                     return Ok(());
