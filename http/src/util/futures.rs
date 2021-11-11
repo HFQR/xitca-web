@@ -132,37 +132,27 @@ mod queue {
 
     use futures_util::stream::{FuturesUnordered, StreamExt};
 
-    pub(crate) struct Queue<F> {
-        queued: bool,
-        futures: FuturesUnordered<F>,
-    }
+    pub(crate) struct Queue<F>(FuturesUnordered<F>);
 
     impl<F: Future> Queue<F> {
         pub(crate) fn new() -> Self {
-            Self {
-                queued: false,
-                futures: FuturesUnordered::new(),
-            }
+            Self(FuturesUnordered::new())
         }
 
         pub(crate) async fn next(&mut self) -> F::Output {
-            if self.queued {
-                match self.futures.next().await {
-                    Some(res) => return res,
-                    None => self.queued = false,
-                }
+            if self.0.is_empty() {
+                never().await
+            } else {
+                self.0.next().await.unwrap()
             }
-
-            never().await
         }
 
-        pub(crate) fn push(&mut self, future: F) {
-            self.futures.push(future);
-            self.queued = true;
+        pub(crate) fn push(&self, future: F) {
+            self.0.push(future);
         }
 
         pub(crate) async fn drain(&mut self) {
-            while self.futures.next().await.is_some() {}
+            while self.0.next().await.is_some() {}
         }
     }
 }
