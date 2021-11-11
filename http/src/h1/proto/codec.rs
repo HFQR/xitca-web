@@ -37,10 +37,8 @@ pub enum TransferCoding {
     /// > status code and then close the connection.
     Eof,
 
-    /// Coder function similar to Eof but treated as Chunked variant.
-    /// The chunk is consumed directly as IS without actual decoding.
-    /// This is used for upgrade type connections like websocket.
-    PlainChunked,
+    /// Upgrade type coding that pass through data as is without transforming.
+    Upgrade,
 }
 
 impl TransferCoding {
@@ -70,8 +68,8 @@ impl TransferCoding {
     }
 
     #[inline]
-    pub const fn plain_chunked() -> Self {
-        Self::PlainChunked
+    pub const fn upgrade() -> Self {
+        Self::Upgrade
     }
 }
 
@@ -271,13 +269,13 @@ impl TransferCoding {
         match (&self, &other) {
             // multiple set to plain chunked is allowed. This can happen from Connect method
             // and/or Connection header.
-            (TransferCoding::PlainChunked, TransferCoding::PlainChunked) => Ok(()),
+            (TransferCoding::Upgrade, TransferCoding::Upgrade) => Ok(()),
             // multiple set to decoded chunked/content-length are forbidden.
             //
             // mutation between decoded chunked/content-length/plain chunked is forbidden.
-            (TransferCoding::PlainChunked, _)
-            | (TransferCoding::DecodeChunked(..), _)
-            | (TransferCoding::Length(..), _) => Err(ProtoError::Parse(Parse::HeaderName)),
+            (TransferCoding::Upgrade, _) | (TransferCoding::DecodeChunked(..), _) | (TransferCoding::Length(..), _) => {
+                Err(ProtoError::Parse(Parse::HeaderName))
+            }
             _ => {
                 *self = other;
                 Ok(())
@@ -298,7 +296,7 @@ impl TransferCoding {
         }
 
         match *self {
-            Self::PlainChunked => buf.write_buf(bytes),
+            Self::Upgrade => buf.write_buf(bytes),
             Self::EncodeChunked => buf.write_chunk(bytes),
             Self::Length(ref mut remaining) => {
                 if *remaining > 0 {
@@ -318,7 +316,7 @@ impl TransferCoding {
         W: WriteBuf,
     {
         match *self {
-            Self::Eof | Self::PlainChunked | Self::Length(0) => {}
+            Self::Eof | Self::Upgrade | Self::Length(0) => {}
             Self::EncodeChunked => buf.write_static(b"0\r\n\r\n"),
             Self::Length(n) => unreachable!("UnexpectedEof for Length Body with {} remaining", n),
             _ => unreachable!(),
@@ -365,7 +363,7 @@ impl TransferCoding {
                     }
                 }
             }
-            Self::PlainChunked => {
+            Self::Upgrade => {
                 if src.is_empty() {
                     Ok(None)
                 } else {

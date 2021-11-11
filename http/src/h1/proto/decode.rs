@@ -70,7 +70,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     self.set_ctype(ConnectionType::Upgrade);
                     // set method to context so it can pass method to response.
                     self.set_connect_method();
-                    decoder.try_set(TransferCoding::plain_chunked())?;
+                    decoder.try_set(TransferCoding::upgrade())?;
                 }
 
                 let mut req = Request::new(());
@@ -143,7 +143,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                         self.set_ctype(ConnectionType::Close);
                     } else if value.eq_ignore_ascii_case("upgrade") {
                         // set decoder to upgrade variant.
-                        decoder.try_set(TransferCoding::plain_chunked())?;
+                        decoder.try_set(TransferCoding::upgrade())?;
                         self.set_ctype(ConnectionType::Upgrade);
                     }
                 }
