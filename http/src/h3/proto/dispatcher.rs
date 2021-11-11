@@ -6,7 +6,6 @@ use h3::{
     quic::SendStream,
     server::{self, RequestStream},
 };
-use http::{Request, Response};
 use xitca_server::net::UdpStream;
 use xitca_service::Service;
 
@@ -16,6 +15,8 @@ use crate::{
     error::{BodyError, HttpServiceError},
     flow::HttpFlow,
     h3::{body::RequestBody, error::Error},
+    http::{Request, Response},
+    util::futures::{Queue, Select, SelectOutput},
 };
 
 /// Http/3 dispatcher
@@ -54,32 +55,41 @@ where
         let conn = h3_quinn::Connection::new(conn);
         let mut conn = server::Connection::new(conn).await?;
 
+        let mut queue = Queue::new();
+
         // accept loop
-        while let Some((req, stream)) = conn.accept().await? {
-            // Reconstruct HttpRequest to attach crate body type.
-            let (parts, _) = req.into_parts();
+        loop {
+            match conn.accept().select(queue.next()).await {
+                SelectOutput::A(Ok(Some((req, stream)))) => {
+                    // Reconstruct HttpRequest to attach crate body type.
+                    let (parts, _) = req.into_parts();
 
-            // a hack to split read/write of request stream.
-            // TODO: may deadlock?
-            let stream = Rc::new(LocalMutex::new(stream, true));
-            let sender = stream.clone();
-            let body = async_stream::stream! {
-                while let Some(res) = sender.lock().await.recv_data().await.transpose() {
-                    yield res;
+                    // a hack to split read/write of request stream.
+                    // TODO: may deadlock?
+                    let stream = Rc::new(LocalMutex::new(stream, true));
+                    let sender = stream.clone();
+                    let body = async_stream::stream! {
+                        while let Some(res) = sender.lock().await.recv_data().await.transpose() {
+                            yield res;
+                        }
+                    };
+                    let body = ReqB::from(RequestBody(Box::pin(body)));
+                    let req = Request::from_parts(parts, body);
+
+                    queue.push(async move {
+                        let fut = self.flow.service.call(req);
+                        h3_handler(fut, stream).await
+                    });
                 }
-            };
-            let body = ReqB::from(RequestBody(Box::pin(body)));
-
-            let req = Request::from_parts(parts, body);
-
-            let flow = HttpFlow::clone(self.flow);
-            tokio::task::spawn_local(async move {
-                let fut = flow.service.call(req);
-                if let Err(e) = h3_handler(fut, stream).await {
-                    HttpServiceError::from(e).log("h3_dispatcher");
-                }
-            });
+                SelectOutput::A(Ok(None)) => break,
+                SelectOutput::A(Err(e)) => return Err(e.into()),
+                SelectOutput::B(Some(Ok(_))) => {}
+                SelectOutput::B(Some(Err(e))) => HttpServiceError::from(e).log("h3_dispatcher"),
+                SelectOutput::B(None) => queue.set_queued(false),
+            }
         }
+
+        queue.drain().await;
 
         Ok(())
     }

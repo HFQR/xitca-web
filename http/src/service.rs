@@ -161,7 +161,7 @@ where
                             &mut tls_stream,
                             timer.as_mut(),
                             self.config,
-                            &*self.flow,
+                            &self.flow,
                             self.date.get(),
                         )
                         .await
@@ -201,7 +201,7 @@ where
                         // update timer to first request timeout.
                         self.update_first_request_deadline(timer.as_mut());
 
-                        super::h1::proto::run(&mut io, timer.as_mut(), self.config, &*self.flow, self.date.get())
+                        super::h1::proto::run(&mut io, timer.as_mut(), self.config, &self.flow, self.date.get())
                             .await
                             .map_err(From::from)
                     }

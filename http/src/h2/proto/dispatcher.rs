@@ -12,7 +12,6 @@ use ::h2::{
     Ping, PingPong,
 };
 use futures_core::{ready, Stream};
-use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::pin;
 use tracing::trace;
 use xitca_io::io::{AsyncRead, AsyncWrite};
@@ -30,7 +29,7 @@ use crate::{
         HeaderValue, Request, Response, Version,
     },
     util::{
-        futures::{never, poll_fn, Select, SelectOutput},
+        futures::{poll_fn, Queue, Select, SelectOutput},
         keep_alive::KeepAlive,
     },
 };
@@ -101,16 +100,10 @@ where
             ka_dur,
         };
 
-        let mut queue = FuturesUnordered::new();
-        let mut queued = false;
+        let mut queue = Queue::new();
 
         loop {
-            match io
-                .accept()
-                .select(try_queue(queued, &mut queue))
-                .select(&mut ping_pong)
-                .await
-            {
+            match io.accept().select(queue.next()).select(&mut ping_pong).await {
                 SelectOutput::A(SelectOutput::A(Some(Ok((req, tx))))) => {
                     // Convert http::Request body type to crate::h2::Body
                     // and reconstruct as HttpRequest.
@@ -122,14 +115,13 @@ where
                         let fut = flow.service.call(req);
                         h2_handler(fut, tx, date).await
                     });
-                    queued = true;
                 }
                 SelectOutput::A(SelectOutput::B(Some(res))) => match res {
                     Ok(ConnectionState::KeepAlive) => {}
                     Ok(ConnectionState::Close) => io.graceful_shutdown(),
                     Err(e) => HttpServiceError::from(e).log("h2_dispatcher"),
                 },
-                SelectOutput::A(SelectOutput::B(None)) => queued = false,
+                SelectOutput::A(SelectOutput::B(None)) => queue.set_queued(false),
                 SelectOutput::B(Ok(_)) => {
                     trace!("Connection keep-alive timeout. Shutting down");
                     return Ok(());
@@ -142,17 +134,9 @@ where
             }
         }
 
-        while queue.next().await.is_some() {}
+        queue.drain().await;
 
         poll_fn(|cx| io.poll_closed(cx)).await.map_err(From::from)
-    }
-}
-
-async fn try_queue<F: Future>(queued: bool, queue: &mut FuturesUnordered<F>) -> Option<F::Output> {
-    if queued {
-        queue.next().await
-    } else {
-        never().await
     }
 }
 

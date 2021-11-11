@@ -4,6 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use pin_project_lite::pin_project;
 
 use super::keep_alive::KeepAlive;
@@ -41,7 +42,6 @@ mod poll_fn {
     }
 }
 
-#[cfg(any(feature = "http1", feature = "http2"))]
 /// An async function that never resolve to the output.
 #[inline]
 pub(crate) async fn never<T>() -> T {
@@ -137,5 +137,40 @@ impl<F: Future> Future for TimeoutFuture<'_, F> {
         }
 
         this.timer.as_mut().poll(cx).map(Err)
+    }
+}
+
+pub(crate) struct Queue<F> {
+    queued: bool,
+    futures: FuturesUnordered<F>,
+}
+
+impl<F: Future> Queue<F> {
+    pub(crate) fn new() -> Self {
+        Self {
+            queued: false,
+            futures: FuturesUnordered::new(),
+        }
+    }
+
+    pub(crate) async fn next(&mut self) -> Option<F::Output> {
+        if self.queued {
+            self.futures.next().await
+        } else {
+            never().await
+        }
+    }
+
+    pub(crate) fn push(&mut self, future: F) {
+        self.futures.push(future);
+        self.queued = true;
+    }
+
+    pub(crate) fn set_queued(&mut self, value: bool) {
+        self.queued = value;
+    }
+
+    pub(crate) async fn drain(&mut self) {
+        while self.futures.next().await.is_some() {}
     }
 }
