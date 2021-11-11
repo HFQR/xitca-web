@@ -67,11 +67,7 @@ where
     St: AsyncIo,
     D: DateTime,
 {
-    let is_vectored = if config.force_flat_buf {
-        false
-    } else {
-        io.is_write_vectored()
-    };
+    let is_vectored = config.vectored_write && io.is_write_vectored();
 
     let res = if is_vectored {
         let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();

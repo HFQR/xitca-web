@@ -96,13 +96,20 @@ where
         self
     }
 
-    /// Enable optimization for small sized http request/response.
+    /// Disable vectored write even when IO is able to perform it.
     ///
-    /// This would false server to use a flat buffer for read/write.
-    /// It would result in more memory copy.
-    pub fn force_flat_buf(mut self) -> Self {
-        self.config = self.config.force_flat_buf();
+    /// This is beneficial when dealing with small size of response body.
+    pub fn disable_vectored_write(mut self) -> Self {
+        self.config = self.config.disable_vectored_write();
         self
+    }
+
+    #[deprecated(note = "Please use HttpServer::disable_vectored_write. This API would be removed with 0.1 release")]
+    /// Force IO write always use a flat buffer where extra data copy is preferred.
+    ///
+    /// This is beneficial when dealing with small size of response body.
+    pub fn force_flat_buf(self) -> Self {
+        self.disable_vectored_write()
     }
 
     /// Change keep alive duration for Http/1 connection.
