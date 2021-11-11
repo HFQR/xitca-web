@@ -7,10 +7,13 @@ use std::{
 };
 
 use httpdate::HttpDate;
+use mime::Mime;
 use xitca_http::{
     body::ResponseBody,
     http::{header::CONTENT_LENGTH, HeaderValue, IntoResponse, Request, Response, StatusCode},
 };
+
+use crate::utf8::equiv_utf8_text;
 
 pub struct NamedFile {
     path: PathBuf,
@@ -18,6 +21,7 @@ pub struct NamedFile {
     pub(crate) file: File,
     pub(crate) md: Metadata,
     modified: Option<SystemTime>,
+    pub(crate) content_type: Mime,
     use_etag: bool,
     use_last_modified: bool,
     use_content_disposition: bool,
@@ -47,6 +51,7 @@ impl fmt::Debug for NamedFile {
 pub(crate) use std::fs::File;
 #[cfg(feature = "io-uring")]
 pub(crate) use tokio_uring::fs::File;
+use xitca_http::http::header::CONTENT_TYPE;
 
 use crate::chunked::new_chunked_read;
 
@@ -81,6 +86,14 @@ impl NamedFile {
     /// Set response **Status Code**
     pub fn set_status_code(mut self, status: StatusCode) -> Self {
         self.status = status;
+        self
+    }
+
+    /// Set the MIME Content-Type for serving this file. By default
+    /// the Content-Type is inferred from the filename extension.
+    #[inline]
+    pub fn set_content_type(mut self, mime_type: Mime) -> Self {
+        self.content_type = mime_type;
         self
     }
 
@@ -137,47 +150,7 @@ impl NamedFile {
 
         // Get the name of the file and use it to construct default Content-Type
         // and Content-Disposition values
-        // let (content_type, content_disposition) = {
-        //     let filename = match path.file_name() {
-        //         Some(name) => name.to_string_lossy(),
-        //         None => {
-        //             return Err(io::Error::new(
-        //                 io::ErrorKind::InvalidInput,
-        //                 "Provided path has no filename",
-        //             ));
-        //         }
-        //     };
-
-        //     let ct = mime_guess::from_path(&path).first_or_octet_stream();
-
-        //     let disposition = match ct.type_() {
-        //         mime::IMAGE | mime::TEXT | mime::VIDEO => DispositionType::Inline,
-        //         mime::APPLICATION => match ct.subtype() {
-        //             mime::JAVASCRIPT | mime::JSON => DispositionType::Inline,
-        //             name if name == "wasm" => DispositionType::Inline,
-        //             _ => DispositionType::Attachment,
-        //         },
-        //         _ => DispositionType::Attachment,
-        //     };
-
-        //     let mut parameters =
-        //         vec![DispositionParam::Filename(String::from(filename.as_ref()))];
-
-        //     if !filename.is_ascii() {
-        //         parameters.push(DispositionParam::FilenameExt(ExtendedValue {
-        //             charset: Charset::Ext(String::from("UTF-8")),
-        //             language_tag: None,
-        //             value: filename.into_owned().into_bytes(),
-        //         }))
-        //     }
-
-        //     let cd = ContentDisposition {
-        //         disposition,
-        //         parameters,
-        //     };
-
-        //     (ct, cd)
-        // };
+        let content_type = mime_guess::from_path(&path).first_or_octet_stream();
 
         let md = {
             #[cfg(not(feature = "io-uring"))]
@@ -210,6 +183,7 @@ impl NamedFile {
             md,
             modified,
             status: StatusCode::OK,
+            content_type,
             use_etag: true,
             use_last_modified: true,
             use_content_disposition: true,
@@ -225,7 +199,17 @@ impl NamedFile {
         let len = self.md.len();
         let body = Box::pin(new_chunked_read(len, 0, self.file)) as _;
         let mut res = mem::take(req).into_response(ResponseBody::stream(body));
+
+        let content_type = if self.prefer_utf8 {
+            equiv_utf8_text(self.content_type)
+        } else {
+            self.content_type
+        };
+
+        res.headers_mut()
+            .append(CONTENT_TYPE, HeaderValue::try_from(content_type.as_ref()).unwrap());
         res.headers_mut().append(CONTENT_LENGTH, HeaderValue::from(len));
+
         res
     }
 }

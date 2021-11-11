@@ -10,6 +10,7 @@ mod directory;
 mod files;
 mod named;
 mod path_buf;
+mod utf8;
 
 pub mod error;
 
