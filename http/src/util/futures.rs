@@ -4,41 +4,32 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures_util::stream::{FuturesUnordered, StreamExt};
 use pin_project_lite::pin_project;
 
 use super::keep_alive::KeepAlive;
 
-#[cfg(any(feature = "http1", feature = "http2"))]
-pub(crate) use poll_fn::poll_fn;
+#[inline]
+pub(crate) fn poll_fn<T, F>(f: F) -> PollFn<F>
+where
+    F: FnMut(&mut Context<'_>) -> Poll<T>,
+{
+    PollFn { f }
+}
 
-#[cfg(any(feature = "http1", feature = "http2"))]
-mod poll_fn {
-    use super::*;
+pub(crate) struct PollFn<F> {
+    f: F,
+}
 
-    #[inline]
-    pub(crate) fn poll_fn<T, F>(f: F) -> PollFn<F>
-    where
-        F: FnMut(&mut Context<'_>) -> Poll<T>,
-    {
-        PollFn { f }
-    }
+impl<F> Unpin for PollFn<F> {}
 
-    pub(crate) struct PollFn<F> {
-        f: F,
-    }
+impl<T, F> Future for PollFn<F>
+where
+    F: FnMut(&mut Context<'_>) -> Poll<T>,
+{
+    type Output = T;
 
-    impl<F> Unpin for PollFn<F> {}
-
-    impl<T, F> Future for PollFn<F>
-    where
-        F: FnMut(&mut Context<'_>) -> Poll<T>,
-    {
-        type Output = T;
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-            (&mut self.f)(cx)
-        }
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+        (&mut self.f)(cx)
     }
 }
 
@@ -48,61 +39,53 @@ pub(crate) async fn never<T>() -> T {
     poll_fn(|_| Poll::Pending).await
 }
 
-#[cfg(any(feature = "http1", feature = "http2"))]
-pub(crate) use select::*;
+pub(crate) trait Select: Sized {
+    fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>;
+}
 
-#[cfg(any(feature = "http1", feature = "http2"))]
-mod select {
-    use super::*;
-
-    pub(crate) trait Select: Sized {
-        fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>;
-    }
-
-    impl<F> Select for F
-    where
-        F: Future,
-    {
-        #[inline]
-        fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut> {
-            SelectFuture {
-                fut1: self,
-                fut2: other,
-            }
+impl<F> Select for F
+where
+    F: Future,
+{
+    #[inline]
+    fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut> {
+        SelectFuture {
+            fut1: self,
+            fut2: other,
         }
     }
+}
 
-    pin_project! {
-        pub(crate) struct SelectFuture<Fut1, Fut2> {
-            #[pin]
-            fut1: Fut1,
-            #[pin]
-            fut2: Fut2,
+pin_project! {
+    pub(crate) struct SelectFuture<Fut1, Fut2> {
+        #[pin]
+        fut1: Fut1,
+        #[pin]
+        fut2: Fut2,
+    }
+}
+
+impl<Fut1, Fut2> Future for SelectFuture<Fut1, Fut2>
+where
+    Fut1: Future,
+    Fut2: Future,
+{
+    type Output = SelectOutput<Fut1::Output, Fut2::Output>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+
+        if let Poll::Ready(a) = this.fut1.poll(cx) {
+            return Poll::Ready(SelectOutput::A(a));
         }
+
+        this.fut2.poll(cx).map(SelectOutput::B)
     }
+}
 
-    impl<Fut1, Fut2> Future for SelectFuture<Fut1, Fut2>
-    where
-        Fut1: Future,
-        Fut2: Future,
-    {
-        type Output = SelectOutput<Fut1::Output, Fut2::Output>;
-
-        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            let this = self.project();
-
-            if let Poll::Ready(a) = this.fut1.poll(cx) {
-                return Poll::Ready(SelectOutput::A(a));
-            }
-
-            this.fut2.poll(cx).map(SelectOutput::B)
-        }
-    }
-
-    pub(crate) enum SelectOutput<A, B> {
-        A(A),
-        B(B),
-    }
+pub(crate) enum SelectOutput<A, B> {
+    A(A),
+    B(B),
 }
 
 pub(crate) trait Timeout: Sized {
@@ -140,37 +123,47 @@ impl<F: Future> Future for TimeoutFuture<'_, F> {
     }
 }
 
-pub(crate) struct Queue<F> {
-    queued: bool,
-    futures: FuturesUnordered<F>,
-}
+#[cfg(any(feature = "http2", feature = "http3"))]
+pub(crate) use queue::*;
 
-impl<F: Future> Queue<F> {
-    pub(crate) fn new() -> Self {
-        Self {
-            queued: false,
-            futures: FuturesUnordered::new(),
+#[cfg(any(feature = "http2", feature = "http3"))]
+mod queue {
+    use super::*;
+
+    use futures_util::stream::{FuturesUnordered, StreamExt};
+
+    pub(crate) struct Queue<F> {
+        queued: bool,
+        futures: FuturesUnordered<F>,
+    }
+
+    impl<F: Future> Queue<F> {
+        pub(crate) fn new() -> Self {
+            Self {
+                queued: false,
+                futures: FuturesUnordered::new(),
+            }
         }
-    }
 
-    pub(crate) async fn next(&mut self) -> Option<F::Output> {
-        if self.queued {
-            self.futures.next().await
-        } else {
-            never().await
+        pub(crate) async fn next(&mut self) -> Option<F::Output> {
+            if self.queued {
+                self.futures.next().await
+            } else {
+                never().await
+            }
         }
-    }
 
-    pub(crate) fn push(&mut self, future: F) {
-        self.futures.push(future);
-        self.queued = true;
-    }
+        pub(crate) fn push(&mut self, future: F) {
+            self.futures.push(future);
+            self.queued = true;
+        }
 
-    pub(crate) fn set_queued(&mut self, value: bool) {
-        self.queued = value;
-    }
+        pub(crate) fn set_queued(&mut self, value: bool) {
+            self.queued = value;
+        }
 
-    pub(crate) async fn drain(&mut self) {
-        while self.futures.next().await.is_some() {}
+        pub(crate) async fn drain(&mut self) {
+            while self.futures.next().await.is_some() {}
+        }
     }
 }
