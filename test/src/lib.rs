@@ -94,12 +94,12 @@ where
     E: 'static,
     BodyError: From<E>,
 {
+    let addr = std::net::UdpSocket::bind("127.0.0.1:0")?.local_addr()?;
+
     let key = fs::read("../examples/cert/key.pem")?;
     let key = h3_quinn::quinn::PrivateKey::from_pem(&key)?;
     let cert = fs::read("../examples/cert/cert.pem")?;
     let cert = CertificateChain::from_pem(&cert)?;
-
-    let addr = "127.0.0.1:8080".parse()?;
 
     let mut config = ServerConfigBuilder::default();
     config.protocols(&[b"h3", b"h3-29", b"h3-28", b"h3-27"]);
