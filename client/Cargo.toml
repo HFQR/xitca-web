@@ -10,24 +10,23 @@ http3 = ["h3", "h3-quinn", "itoa", "async-stream"]
 openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["tokio-rustls", "webpki-roots"]
 json = ["serde", "serde_json"]
+websocket = ["http-ws"]
 
-# used to test niche client side usage and correctness of server implemenation.
+# used to test niche client side usage and correctness of server implemenation:
+# - http/2 clear text over plain tcp connection
+# - http/3 connection to server with self signed certificates.
 dangerous = ["rustls_019/dangerous_configuration", "webpki"]
 
 [dependencies]
 xitca-http = "0.1"
 xitca-io = "0.1"
 
-http-ws = "0.1"
-
 ahash = "0.7.6"
-base64 = "0.13.0"
 futures-core = { version = "0.3.17", default-features = false, features =["alloc"] }
 futures-util = { version = "0.3.17", default-features = false, features =["alloc", "sink"] }
 httparse = "1.5.1"
 parking_lot = "0.11.2"
 pin-project-lite = "0.2.7"
-rand = "0.8.4"
 tokio = { version = "1.12", features = ["io-util", "net", "rt", "parking_lot", "sync", "time"] }
 tokio-util = { version = "0.6", features = ["io"] }
 
@@ -55,6 +54,9 @@ serde = { version = "1.0.130", default-features = false, optional = true }
 
 # json support
 serde_json = { version = "1", optional = true }
+
+# websocket support
+http-ws = { version = "0.1", default-features = false, optional = true }
 
 # dangerous feature
 # TODO: update to rustls 0.20 when h3-quinn crate is updated.

@@ -8,7 +8,7 @@ use tokio::{
 use xitca_http::{
     bytes::Bytes,
     error::BodyError,
-    http::{self, header, uri, Method, Version},
+    http::{self, uri, Method, Version},
 };
 
 use crate::{
@@ -150,26 +150,11 @@ impl Client {
         Ok(self.get(url)?.method(Method::CONNECT))
     }
 
+    #[cfg(feature = "websocket")]
     /// Start a new websocket request.
     pub fn ws(&self, url: &str) -> Result<Request<'_, RequestBody>, Error> {
-        let mut req = self.get(url)?;
-
-        req.headers_mut()
-            .insert(header::UPGRADE, header::HeaderValue::from_static("websocket"));
-        req.headers_mut()
-            .insert(header::CONNECTION, header::HeaderValue::from_static("upgrade"));
-        req.headers_mut()
-            .insert(header::SEC_WEBSOCKET_VERSION, header::HeaderValue::from_static("13"));
-
-        let sec_key = rand::random::<[u8; 16]>();
-        let key = base64::encode(&sec_key);
-
-        req.headers_mut().insert(
-            header::SEC_WEBSOCKET_KEY,
-            header::HeaderValue::try_from(key.as_str()).unwrap(),
-        );
-
-        Ok(req)
+        let req = http_ws::client_request_from_uri(url)?.map(|_| RequestBody::None);
+        Ok(Request::new(req, self))
     }
 }
 

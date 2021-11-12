@@ -13,7 +13,6 @@ use crate::{
     body::ResponseBody,
     error::{Error, TimeoutError},
     timeout::Timeout,
-    ws::WebSocket,
 };
 
 const DEFAULT_PAYLOAD_LIMIT: usize = 1024 * 1024 * 8;
@@ -112,10 +111,11 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
         Ok(serde_json::from_slice(bytes.chunk())?)
     }
 
-    pub fn ws(self) -> Result<WebSocket<'a>, Error> {
+    #[cfg(feature = "websocket")]
+    pub fn ws(self) -> Result<crate::ws::WebSocket<'a>, Error> {
         let body = self.res.into_body();
         match body {
-            ResponseBody::H1(body) => Ok(WebSocket::from_body(body)),
+            ResponseBody::H1(body) => Ok(crate::ws::WebSocket::from_body(body)),
             _ => todo!(),
         }
     }

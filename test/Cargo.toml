@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-xitca-client = { version = "0.1", features = ["http2", "http3", "dangerous"] }
+xitca-client = { version = "0.1", features = ["http2", "http3", "websocket", "dangerous"] }
 xitca-http = { version = "0.1", features = ["http2", "http3"] }
 xitca-io = "0.1"
 xitca-server = { version = "0.1", features = ["http3"] }
