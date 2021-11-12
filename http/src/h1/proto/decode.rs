@@ -135,17 +135,16 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 }
             }
             CONNECTION => {
-                if let Ok(value) = value.to_str().map(|conn| conn.trim()) {
-                    // Connection header would update context state.
-                    if value.eq_ignore_ascii_case("keep-alive") {
-                        self.set_ctype(ConnectionType::KeepAlive);
-                    } else if value.eq_ignore_ascii_case("close") {
-                        self.set_ctype(ConnectionType::Close);
-                    } else if value.eq_ignore_ascii_case("upgrade") {
-                        // set decoder to upgrade variant.
-                        decoder.try_set(TransferCoding::upgrade())?;
-                        self.set_ctype(ConnectionType::Upgrade);
-                    }
+                let v = value.as_bytes();
+                // Connection header would update context state.
+                if v.eq_ignore_ascii_case(b"keep-alive") {
+                    self.set_ctype(ConnectionType::KeepAlive);
+                } else if v.eq_ignore_ascii_case(b"close") {
+                    self.set_ctype(ConnectionType::Close);
+                } else if v.eq_ignore_ascii_case(b"upgrade") {
+                    // set decoder to upgrade variant.
+                    decoder.try_set(TransferCoding::upgrade())?;
+                    self.set_ctype(ConnectionType::Upgrade);
                 }
             }
             EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),

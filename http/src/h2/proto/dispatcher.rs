@@ -236,9 +236,13 @@ where
 
     // check response header to determine if user want connection be closed.
     let state = res
-        .headers()
-        .get(CONNECTION)
-        .and_then(|v| v.as_bytes().eq(b"close").then(|| ConnectionState::Close))
+        .headers_mut()
+        .remove(CONNECTION)
+        .and_then(|v| {
+            v.as_bytes()
+                .eq_ignore_ascii_case(b"close")
+                .then(|| ConnectionState::Close)
+        })
         .unwrap_or(ConnectionState::KeepAlive);
 
     // send response and body(if there is one).
