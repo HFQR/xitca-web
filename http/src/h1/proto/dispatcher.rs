@@ -266,7 +266,7 @@ where
     async fn run(mut self) -> Result<(), Error<S::Error>> {
         loop {
             match self.ctx.ctype() {
-                ConnectionType::Init | ConnectionType::KeepAlive => {
+                ConnectionType::Init | ConnectionType::KeepAlive | ConnectionType::Upgrade => {
                     match self.io.read().timeout(self.timer.as_mut()).await {
                         Ok(res) => res?,
                         Err(_) => {
@@ -275,7 +275,7 @@ where
                         }
                     }
                 }
-                ConnectionType::Upgrade | ConnectionType::Close => {
+                ConnectionType::Close => {
                     trace!(target: "h1_dispatcher", "Connection not keep-alive. Shutting down");
                     return self.io.shutdown().await;
                 }
@@ -289,10 +289,6 @@ where
             'req: while let Some(res) = self.decode_head() {
                 match res {
                     Ok((req, mut body_handle)) => {
-                        // have new request. update timer deadline.
-                        let now = self.ctx.date.now() + self.ka_dur;
-                        self.timer.as_mut().update(now);
-
                         let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
 
                         let encoder = &mut self.encode_head(parts, &res_body)?;
@@ -302,6 +298,10 @@ where
                         if self.ctx.is_connection_closed() {
                             break 'req;
                         }
+
+                        // update keep alive after successful response.
+                        let now = self.ctx.date.now() + self.ka_dur;
+                        self.timer.as_mut().update(now);
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         self.request_error(response::header_too_large)?;

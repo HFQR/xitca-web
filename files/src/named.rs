@@ -34,7 +34,7 @@ pub struct NamedFile {
     modified: Option<SystemTime>,
     pub(crate) content_type: Mime,
     #[cfg(feature = "compress")]
-    pub(crate) content_encoding: ContentEncoding,
+    pub(crate) content_encoding: Option<ContentEncoding>,
     use_etag: bool,
     use_last_modified: bool,
     use_content_disposition: bool,
@@ -85,7 +85,51 @@ impl NamedFile {
             }
         };
 
-        Self::from_file(file, path)
+        let path = path.as_ref().to_path_buf();
+
+        // Get the name of the file and use it to construct default Content-Type
+        // and Content-Disposition values
+        let content_type = mime_guess::from_path(&path).first_or_octet_stream();
+
+        let md = {
+            #[cfg(not(feature = "io-uring"))]
+            {
+                file.metadata()?
+            }
+
+            #[cfg(feature = "io-uring")]
+            {
+                use std::os::unix::prelude::{AsRawFd, FromRawFd};
+
+                let fd = file.as_raw_fd();
+
+                // TODO: Remove this.
+                // SAFETY: fd is borrowed and lives longer than the unsafe block.
+                unsafe {
+                    let fs = std::fs::File::from_raw_fd(fd);
+                    let res = fs.metadata();
+                    mem::forget(fs);
+                    res?
+                }
+            }
+        };
+
+        let modified = md.modified().ok();
+
+        Ok(NamedFile {
+            path,
+            file,
+            md,
+            modified,
+            status: StatusCode::OK,
+            content_type,
+            #[cfg(feature = "compress")]
+            content_encoding: None,
+            use_etag: true,
+            use_last_modified: true,
+            use_content_disposition: true,
+            prefer_utf8: true,
+        })
     }
 
     /// Set response **Status Code**
@@ -106,7 +150,7 @@ impl NamedFile {
     /// Set content encoding for serving this file
     #[inline]
     pub fn set_content_encoding(mut self, encoding: ContentEncoding) -> Self {
-        self.content_encoding = encoding;
+        self.content_encoding = Some(encoding);
         self
     }
 
@@ -156,52 +200,6 @@ impl NamedFile {
     #[inline]
     pub fn path(&self) -> &Path {
         self.path.as_path()
-    }
-
-    fn from_file<P: AsRef<Path>>(file: File, path: P) -> io::Result<NamedFile> {
-        let path = path.as_ref().to_path_buf();
-
-        // Get the name of the file and use it to construct default Content-Type
-        // and Content-Disposition values
-        let content_type = mime_guess::from_path(&path).first_or_octet_stream();
-
-        let md = {
-            #[cfg(not(feature = "io-uring"))]
-            {
-                file.metadata()?
-            }
-
-            #[cfg(feature = "io-uring")]
-            {
-                use std::os::unix::prelude::{AsRawFd, FromRawFd};
-
-                let fd = file.as_raw_fd();
-
-                // TODO: Remove this.
-                // SAFETY: fd is borrowed and lives longer than the unsafe block.
-                unsafe {
-                    let fs = std::fs::File::from_raw_fd(fd);
-                    let res = fs.metadata();
-                    mem::forget(fs);
-                    res?
-                }
-            }
-        };
-
-        let modified = md.modified().ok();
-
-        Ok(NamedFile {
-            path,
-            file,
-            md,
-            modified,
-            status: StatusCode::OK,
-            content_type,
-            use_etag: true,
-            use_last_modified: true,
-            use_content_disposition: true,
-            prefer_utf8: true,
-        })
     }
 
     pub fn last_modified(&self) -> Option<HttpDate> {
