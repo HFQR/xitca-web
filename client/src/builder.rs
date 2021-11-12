@@ -157,7 +157,44 @@ impl ClientBuilder {
                 config.protocols(&[b"h3-29"]);
 
                 let mut builder = Endpoint::builder();
-                builder.default_client_config(config.build());
+
+                #[cfg(not(feature = "dangerous"))]
+                {
+                    builder.default_client_config(config.build());
+                }
+
+                #[cfg(feature = "dangerous")]
+                {
+                    use std::sync::Arc;
+
+                    use h3_quinn::quinn;
+                    use rustls_019 as rustls;
+
+                    struct YesVerifier;
+                    impl rustls::ServerCertVerifier for YesVerifier {
+                        fn verify_server_cert(
+                            &self,
+                            _roots: &rustls::RootCertStore,
+                            _presented_certs: &[rustls::Certificate],
+                            _dns_name: webpki::DNSNameRef,
+                            _ocsp_response: &[u8],
+                        ) -> std::result::Result<rustls::ServerCertVerified, rustls::TLSError> {
+                            Ok(rustls::ServerCertVerified::assertion())
+                        }
+                    }
+
+                    let mut tls_config = rustls::ClientConfig::new();
+                    tls_config.versions = vec![rustls::ProtocolVersion::TLSv1_3];
+                    tls_config.enable_early_data = true;
+                    tls_config.dangerous().set_certificate_verifier(Arc::new(YesVerifier));
+                    tls_config.alpn_protocols = vec![b"h3-29".to_vec()];
+
+                    let transport = quinn::TransportConfig::default();
+                    builder.default_client_config(quinn::ClientConfig {
+                        crypto: Arc::new(tls_config),
+                        transport: Arc::new(transport),
+                    });
+                }
 
                 let (h3_client, _) = match self.local_addr {
                     Some(addr) => builder.bind(&addr).unwrap(),
