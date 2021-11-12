@@ -191,7 +191,7 @@ where
 
     fn call(&self, req: &'r mut Request<B>) -> Self::Future<'_> {
         async move {
-            let real_path = PathBuf::parse_path("/", self.hidden_files)?;
+            let real_path = PathBuf::parse_path(req.uri().path(), self.hidden_files)?;
             let path = self.directory.join(&real_path);
             path.canonicalize()?;
 
@@ -234,7 +234,11 @@ where
                 }
             } else {
                 #[cfg(feature = "compress")]
-                if self.use_encode_cache {}
+                if self.use_encode_cache {
+                    if let Some(encoding) = req.headers().get(xitca_http::http::header::ACCEPT_ENCODING) {
+                        println!("{:?}", encoding);
+                    }
+                }
 
                 let file = NamedFile::open(&path).await?;
                 Ok(file.into_response(req))
