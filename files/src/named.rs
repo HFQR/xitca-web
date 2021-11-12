@@ -10,10 +10,21 @@ use httpdate::HttpDate;
 use mime::Mime;
 use xitca_http::{
     body::ResponseBody,
-    http::{header::CONTENT_LENGTH, HeaderValue, IntoResponse, Request, Response, StatusCode},
+    http::{
+        header::{CONTENT_LENGTH, CONTENT_TYPE},
+        HeaderValue, IntoResponse, Request, Response, StatusCode,
+    },
 };
 
-use crate::utf8::equiv_utf8_text;
+#[cfg(feature = "compress")]
+use http_encoding::ContentEncoding;
+
+use crate::{chunked::new_chunked_read, utf8::equiv_utf8_text};
+
+#[cfg(not(feature = "io-uring"))]
+pub(crate) use std::fs::File;
+#[cfg(feature = "io-uring")]
+pub(crate) use tokio_uring::fs::File;
 
 pub struct NamedFile {
     path: PathBuf,
@@ -22,6 +33,8 @@ pub struct NamedFile {
     pub(crate) md: Metadata,
     modified: Option<SystemTime>,
     pub(crate) content_type: Mime,
+    #[cfg(feature = "compress")]
+    pub(crate) content_encoding: ContentEncoding,
     use_etag: bool,
     use_last_modified: bool,
     use_content_disposition: bool,
@@ -46,14 +59,6 @@ impl fmt::Debug for NamedFile {
             .finish()
     }
 }
-
-#[cfg(not(feature = "io-uring"))]
-pub(crate) use std::fs::File;
-#[cfg(feature = "io-uring")]
-pub(crate) use tokio_uring::fs::File;
-use xitca_http::http::header::CONTENT_TYPE;
-
-use crate::chunked::new_chunked_read;
 
 impl NamedFile {
     /// Attempts to open a file asynchronously in read-only mode.
@@ -94,6 +99,14 @@ impl NamedFile {
     #[inline]
     pub fn set_content_type(mut self, mime_type: Mime) -> Self {
         self.content_type = mime_type;
+        self
+    }
+
+    #[cfg(feature = "compress")]
+    /// Set content encoding for serving this file
+    #[inline]
+    pub fn set_content_encoding(mut self, encoding: ContentEncoding) -> Self {
+        self.content_encoding = encoding;
         self
     }
 
@@ -169,7 +182,7 @@ impl NamedFile {
                 unsafe {
                     let fs = std::fs::File::from_raw_fd(fd);
                     let res = fs.metadata();
-                    std::mem::forget(fs);
+                    mem::forget(fs);
                     res?
                 }
             }
@@ -197,7 +210,9 @@ impl NamedFile {
 
     pub fn into_response<B: Default>(self, req: &mut Request<B>) -> Response<ResponseBody> {
         let len = self.md.len();
+
         let body = Box::pin(new_chunked_read(len, 0, self.file)) as _;
+
         let mut res = mem::take(req).into_response(ResponseBody::stream(body));
 
         let content_type = if self.prefer_utf8 {
