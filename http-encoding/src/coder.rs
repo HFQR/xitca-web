@@ -122,7 +122,7 @@ where
                     Poll::Ready(res) => match res {
                         Some(Ok(next)) => {
                             // construct next code in_flight future and continue.
-                            let fut = coder.code(next);
+                            let fut = coder.code_async(next);
                             this.in_flight.set(Some(fut));
                         }
                         Some(Err(e)) => {
@@ -158,7 +158,9 @@ pub trait AsyncCode<Item>: Sized {
 
     type Future: Future<Output = io::Result<(Self, Option<Self::Item>)>>;
 
-    fn code(self, item: Item) -> Self::Future;
+    fn code(self, item: Item) -> io::Result<(Self, Option<Self::Item>)>;
+
+    fn code_async(self, item: Item) -> Self::Future;
 
     fn code_eof(self) -> io::Result<Option<Self::Item>>;
 }
@@ -173,10 +175,17 @@ where
     type Item = Bytes;
     type Future = impl Future<Output = io::Result<(Self, Option<Self::Item>)>>;
 
-    fn code(self, item: Item) -> Self::Future {
-        async move { Ok((self, Some(item.into()))) }
+    #[inline]
+    fn code(self, item: Item) -> io::Result<(Self, Option<Self::Item>)> {
+        Ok((self, Some(item.into())))
     }
 
+    #[inline]
+    fn code_async(self, item: Item) -> Self::Future {
+        async move { self.code(item) }
+    }
+
+    #[inline]
     fn code_eof(self) -> io::Result<Option<Self::Item>> {
         Ok(None)
     }
@@ -189,16 +198,16 @@ macro_rules! async_code_impl {
         where
             Item: AsRef<[u8]> + Send + 'static,
         {
-            type Item = bytes::Bytes;
-            type Future = impl std::future::Future<Output = std::io::Result<(Self, Option<Self::Item>)>>;
+            type Item = ::bytes::Bytes;
+            type Future = impl ::std::future::Future<Output = ::std::io::Result<(Self, Option<Self::Item>)>>;
 
-            fn code(self, item: Item) -> Self::Future {
+            fn code(self, item: Item) -> ::std::io::Result<(Self, Option<Self::Item>)> {
                 use std::io::Write;
 
-                fn code(
+                fn _code(
                     mut this: $coder<crate::writer::Writer>,
                     buf: &[u8],
-                ) -> std::io::Result<($coder<crate::writer::Writer>, Option<bytes::Bytes>)> {
+                ) -> ::std::io::Result<($coder<crate::writer::Writer>, Option<::bytes::Bytes>)> {
                     this.write_all(buf)?;
                     this.flush()?;
                     let b = this.get_mut().take();
@@ -209,18 +218,21 @@ macro_rules! async_code_impl {
                     }
                 }
 
+                _code(self, item.as_ref())
+            }
+
+            fn code_async(self, item: Item) -> Self::Future {
                 async move {
-                    let buf = item.as_ref();
-                    if buf.len() < $in_place_size {
-                        code(self, buf)
+                    if item.as_ref().len() < $in_place_size {
+                        self.code(item)
                     } else {
-                        tokio::task::spawn_blocking(move || code(self, item.as_ref())).await?
+                        ::tokio::task::spawn_blocking(move || self.code(item)).await?
                     }
                 }
             }
 
             #[allow(unused_mut)]
-            fn code_eof(mut self) -> std::io::Result<Option<Self::Item>> {
+            fn code_eof(mut self) -> ::std::io::Result<Option<Self::Item>> {
                 let b = self.finish()?.take();
 
                 if !b.is_empty() {

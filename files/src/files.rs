@@ -24,6 +24,7 @@ pub struct Files<F = DirectoryRender> {
     show_index: bool,
     redirect_to_slash: bool,
     hidden_files: bool,
+    use_encode_cache: bool,
     directory_render: F,
 }
 
@@ -42,6 +43,7 @@ impl Files<DirectoryRender> {
             show_index: false,
             redirect_to_slash: false,
             hidden_files: false,
+            use_encode_cache: false,
             directory_render: DirectoryRender,
         }
     }
@@ -85,6 +87,13 @@ impl<F> Files<F> {
         self
     }
 
+    #[cfg(feature = "compress")]
+    /// Enables caching files with enabled compress features.
+    pub fn use_encode_cache(mut self) -> Self {
+        self.use_encode_cache = true;
+        self
+    }
+
     /// Change the directory render of index files list.
     ///
     /// See [DirectoryRender] for example implementation.
@@ -100,6 +109,7 @@ impl<F> Files<F> {
             show_index: self.show_index,
             redirect_to_slash: self.redirect_to_slash,
             hidden_files: self.hidden_files,
+            use_encode_cache: self.use_encode_cache,
             directory_render,
         }
     }
@@ -128,6 +138,9 @@ where
         let redirect_to_slash = self.redirect_to_slash;
         let hidden_files = self.hidden_files;
 
+        #[cfg(feature = "compress")]
+        let use_encode_cache = self.use_encode_cache;
+
         async move {
             let directory_render = directory_render.await.ok().unwrap();
             Ok(FilesService {
@@ -136,6 +149,8 @@ where
                 show_index,
                 redirect_to_slash,
                 hidden_files,
+                #[cfg(feature = "compress")]
+                use_encode_cache,
                 directory_render,
             })
         }
@@ -148,6 +163,8 @@ pub struct FilesService<S> {
     show_index: bool,
     redirect_to_slash: bool,
     hidden_files: bool,
+    #[cfg(feature = "compress")]
+    use_encode_cache: bool,
     directory_render: S,
 }
 
@@ -216,6 +233,9 @@ where
                     (None, false) => Err(Error::IsDirectory),
                 }
             } else {
+                #[cfg(feature = "compress")]
+                if self.use_encode_cache {}
+
                 let file = NamedFile::open(&path).await?;
                 Ok(file.into_response(req))
             }

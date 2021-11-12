@@ -125,22 +125,39 @@ where
     type Item = Bytes;
     type Future = impl Future<Output = io::Result<(Self, Option<Self::Item>)>>;
 
-    fn code(self, item: Item) -> Self::Future {
+    fn code(self, item: Item) -> io::Result<(Self, Option<Self::Item>)> {
+        match self.decoder {
+            _ContentDecoder::Identity(decoder) => {
+                <IdentityCoder as AsyncCode<Item>>::code(decoder, item).map(|(decoder, item)| (decoder.into(), item))
+            }
+            #[cfg(feature = "br")]
+            _ContentDecoder::Br(decoder) => <BrotliDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
+                .map(|(decoder, item)| (decoder.into(), item)),
+            #[cfg(feature = "gz")]
+            _ContentDecoder::Gz(decoder) => <GzDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
+                .map(|(decoder, item)| (decoder.into(), item)),
+            #[cfg(feature = "de")]
+            _ContentDecoder::De(decoder) => <DeflateDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
+                .map(|(decoder, item)| (decoder.into(), item)),
+        }
+    }
+
+    fn code_async(self, item: Item) -> Self::Future {
         async move {
             match self.decoder {
-                _ContentDecoder::Identity(decoder) => <IdentityCoder as AsyncCode<Item>>::code(decoder, item)
+                _ContentDecoder::Identity(decoder) => <IdentityCoder as AsyncCode<Item>>::code_async(decoder, item)
                     .await
                     .map(|(decoder, item)| (decoder.into(), item)),
                 #[cfg(feature = "br")]
-                _ContentDecoder::Br(decoder) => <BrotliDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
+                _ContentDecoder::Br(decoder) => <BrotliDecoder<Writer> as AsyncCode<Item>>::code_async(decoder, item)
                     .await
                     .map(|(decoder, item)| (decoder.into(), item)),
                 #[cfg(feature = "gz")]
-                _ContentDecoder::Gz(decoder) => <GzDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
+                _ContentDecoder::Gz(decoder) => <GzDecoder<Writer> as AsyncCode<Item>>::code_async(decoder, item)
                     .await
                     .map(|(decoder, item)| (decoder.into(), item)),
                 #[cfg(feature = "de")]
-                _ContentDecoder::De(decoder) => <DeflateDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
+                _ContentDecoder::De(decoder) => <DeflateDecoder<Writer> as AsyncCode<Item>>::code_async(decoder, item)
                     .await
                     .map(|(decoder, item)| (decoder.into(), item)),
             }
