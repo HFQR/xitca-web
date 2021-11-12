@@ -1,5 +1,5 @@
 use std::{
-    error, fmt,
+    error, fmt, fs,
     future::Future,
     io,
     net::{SocketAddr, TcpListener},
@@ -9,11 +9,12 @@ use std::{
 };
 
 use futures_util::Stream;
+use h3_quinn::quinn::{CertificateChain, ServerConfigBuilder};
 use xitca_http::{
     body::ResponseBody,
     config::HttpServiceConfig,
     error::BodyError,
-    h1, h2,
+    h1, h2, h3,
     http::{Request, Response},
     HttpServiceBuilder,
 };
@@ -80,6 +81,42 @@ where
             .keep_alive_timeout(Duration::from_millis(500));
         HttpServiceBuilder::h2(f).config(config)
     })
+}
+
+/// A specialized http/3 server
+pub fn test_h3_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
+where
+    F: Fn() -> I + Send + Clone + 'static,
+    I: ServiceFactory<Request<h3::RequestBody>, Response = Response<ResponseBody<B>>, Config = (), InitError = ()>
+        + 'static,
+    I::Error: fmt::Debug,
+    B: Stream<Item = Result<Bytes, E>> + 'static,
+    E: 'static,
+    BodyError: From<E>,
+{
+    let addr = std::net::UdpSocket::bind("127.0.0.1:0")?.local_addr()?;
+
+    let key = fs::read("../examples/cert/key.pem")?;
+    let key = h3_quinn::quinn::PrivateKey::from_pem(&key)?;
+    let cert = fs::read("../examples/cert/cert.pem")?;
+    let cert = CertificateChain::from_pem(&cert)?;
+
+    let mut config = ServerConfigBuilder::default();
+    config.protocols(&[b"h3", b"h3-29", b"h3-28", b"h3-27"]);
+    config.certificate(cert, key)?;
+    let config = config.build();
+
+    let handle = Builder::new()
+        .worker_threads(1)
+        .server_threads(1)
+        .disable_signal()
+        .bind_h3("test_server", addr, config, move || {
+            let f = factory();
+            HttpServiceBuilder::h3(f)
+        })?
+        .build();
+
+    Ok(TestServerHandle { addr, handle })
 }
 
 pub struct TestServerHandle {

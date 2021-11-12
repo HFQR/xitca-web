@@ -130,7 +130,7 @@ async fn handle(req: Request<h2::RequestBody>) -> Result<Response<ResponseBody>,
                 buf.extend_from_slice(&bytes?);
             }
 
-            assert!(buf.len() == length);
+            assert_eq!(buf.len(), length);
 
             Ok(Response::new(Bytes::new().into()))
         }

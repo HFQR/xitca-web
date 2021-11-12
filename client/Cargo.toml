@@ -12,7 +12,7 @@ rustls = ["tokio-rustls", "webpki-roots"]
 json = ["serde", "serde_json"]
 
 # used to test niche client side usage and correctness of server implemenation.
-dangerous = []
+dangerous = ["rustls_019/dangerous_configuration", "webpki"]
 
 [dependencies]
 xitca-http = "0.1"
@@ -55,6 +55,11 @@ serde = { version = "1.0.130", default-features = false, optional = true }
 
 # json support
 serde_json = { version = "1", optional = true }
+
+# dangerous feature
+# TODO: update to rustls 0.20 when h3-quinn crate is updated.
+rustls_019 = { package = "rustls", version = "0.19", optional = true }
+webpki = { version = "0.21", optional = true }
 
 [dev-dependencies]
 async-trait = "0.1.51"
