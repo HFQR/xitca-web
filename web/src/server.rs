@@ -7,7 +7,8 @@ use xitca_http::{
     http::{Request, Response},
     BodyError, HttpServiceBuilder, RequestBody, ResponseBody,
 };
-use xitca_server::{net::Stream as ServerStream, Builder, ServerFuture};
+use xitca_io::net::Stream as ServerStream;
+use xitca_server::{Builder, ServerFuture};
 use xitca_service::ServiceFactory;
 
 pub struct HttpServer<F, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {

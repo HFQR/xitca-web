@@ -262,13 +262,13 @@ impl Builder {
         mut self,
         name: N,
         addr: A,
-        config: crate::net::H3ServerConfig,
+        config: xitca_io::net::H3ServerConfig,
         factory: F,
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: AsServiceFactoryClone<super::net::Stream>,
+        F: AsServiceFactoryClone<xitca_io::net::Stream>,
     {
         let addr = addr
             .to_socket_addrs()?
@@ -290,7 +290,7 @@ impl Builder {
             .or_insert_with(Vec::new)
             .push(Box::new(Some(listener)));
 
-        let builder = crate::net::UdpListenerBuilder::new(addr, config);
+        let builder = xitca_io::net::UdpListenerBuilder::new(addr, config);
 
         self.listeners
             .entry(name.as_ref().to_string())
@@ -308,20 +308,20 @@ impl Builder {
         mut self,
         name: N,
         addr: A,
-        config: crate::net::H3ServerConfig,
+        config: xitca_io::net::H3ServerConfig,
         factory: F,
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: AsServiceFactoryClone<crate::net::UdpStream>,
+        F: AsServiceFactoryClone<xitca_io::net::UdpStream>,
     {
         let addr = addr
             .to_socket_addrs()?
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
-        let builder = crate::net::UdpListenerBuilder::new(addr, config);
+        let builder = xitca_io::net::UdpListenerBuilder::new(addr, config);
 
         self.listeners
             .entry(name.as_ref().to_string())

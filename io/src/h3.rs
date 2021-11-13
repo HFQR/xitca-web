@@ -13,9 +13,6 @@ use quinn::{
     generic::{Connecting, Endpoint, Incoming, ServerConfig},
     EndpointError,
 };
-use tracing::info;
-
-use super::{AsListener, FromStream, Listener, Stream};
 
 pub type UdpConnecting = Connecting<TlsSession>;
 
@@ -27,6 +24,12 @@ pub struct UdpListener<S: Session = TlsSession> {
     endpoint: Endpoint<S>,
     /// `async-channel` is used to receive Connecting from [`Incoming`](quinn::generic::Incoming).
     incoming: Receiver<Connecting<S>>,
+}
+
+impl<S: Session> UdpListener<S> {
+    pub fn endpoint(&self) -> &Endpoint<S> {
+        &self.endpoint
+    }
 }
 
 impl<S: Session> UdpListener<S> {
@@ -60,16 +63,6 @@ impl<S: Session> Future for Accept<'_, S> {
 pub struct UdpListenerBuilder<S: Session = TlsSession> {
     addr: SocketAddr,
     config: ServerConfig<S>,
-}
-
-impl AsListener for Option<UdpListenerBuilder> {
-    fn as_listener(&mut self) -> io::Result<Listener> {
-        let udp = self.take().unwrap().build()?;
-
-        info!("Started Udp listening on: {:?}", udp.endpoint.local_addr().ok());
-
-        Ok(Listener::Udp(udp))
-    }
 }
 
 impl<S> UdpListenerBuilder<S>
@@ -145,7 +138,7 @@ impl<S: Session> UdpStream<S> {
     /// # Examples:
     ///
     /// ```rust
-    /// # use xitca_server::net::UdpStream;
+    /// # use xitca_io::net::UdpStream;
     /// async fn handle(stream: UdpStream) {
     ///     use quinn::NewConnection;
     ///     let new_conn: NewConnection = stream.connecting().await.unwrap();
@@ -158,14 +151,5 @@ impl<S: Session> UdpStream<S> {
     /// Get remote `SocketAddr` self connected to.
     pub fn peer_addr(&self) -> SocketAddr {
         self.connecting.remote_address()
-    }
-}
-
-impl FromStream for UdpStream {
-    fn from_stream(stream: Stream) -> Self {
-        match stream {
-            Stream::Udp(udp) => udp,
-            _ => unreachable!("Can not be casted to UdpStream"),
-        }
     }
 }

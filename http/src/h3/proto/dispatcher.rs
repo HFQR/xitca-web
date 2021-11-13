@@ -6,7 +6,7 @@ use h3::{
     quic::SendStream,
     server::{self, RequestStream},
 };
-use xitca_server::net::UdpStream;
+use xitca_io::net::UdpStream;
 use xitca_service::Service;
 
 use crate::{

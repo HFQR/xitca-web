@@ -2,7 +2,7 @@ use std::{fmt, future::Future};
 
 use futures_core::Stream;
 use http::{Request, Response};
-use xitca_server::net::UdpStream;
+use xitca_io::net::UdpStream;
 use xitca_service::Service;
 
 use crate::{
