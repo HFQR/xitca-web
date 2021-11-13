@@ -13,13 +13,11 @@ rustls = ["xitca-http/rustls", "rustls-crate"]
 
 [dependencies]
 xitca-http = "0.1"
+xitca-io = "0.1"
 xitca-server = { version = "0.1" }
 xitca-service = "0.1"
 
 futures-core = "0.3"
-
-# http3 feature
-xitca-io = { version = "0.1", optional = true }
 
 # openssl feature
 openssl-crate = { package = "openssl", version = "0.10", optional = true }

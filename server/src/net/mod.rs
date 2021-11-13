@@ -22,10 +22,7 @@ impl FromStream for TcpStream {
     fn from_stream(stream: Stream) -> Self {
         match stream {
             Stream::Tcp(tcp) => tcp,
-            #[cfg(feature = "http3")]
-            Stream::Udp(_) => unreachable!("Can not be casted to TcpStream"),
-            #[cfg(unix)]
-            Stream::Unix(_) => unreachable!("Can not be casted to TcpStream"),
+            _ => unreachable!("Can not be casted to TcpStream"),
         }
     }
 }
