@@ -1,6 +1,5 @@
 use std::{error, fmt, io, str};
 
-use http_ws::ProtocolError;
 use xitca_http::{error::BodyError, http::uri};
 
 #[derive(Debug)]
@@ -111,11 +110,13 @@ pub enum ParseError {
     String(str::Utf8Error),
     #[cfg(feature = "json")]
     Json(serde_json::Error),
-    WebSocket(ProtocolError),
+    #[cfg(feature = "websocket")]
+    WebSocket(http_ws::ProtocolError),
 }
 
-impl From<ProtocolError> for Error {
-    fn from(e: ProtocolError) -> Self {
+#[cfg(feature = "websocket")]
+impl From<http_ws::ProtocolError> for Error {
+    fn from(e: http_ws::ProtocolError) -> Self {
         Self::Parse(ParseError::WebSocket(e))
     }
 }
