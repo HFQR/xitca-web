@@ -22,7 +22,6 @@ use crate::{
     bytes::Bytes,
     date::{DateTime, DateTimeHandle},
     error::{BodyError, HttpServiceError},
-    flow::HttpFlow,
     h2::{body::RequestBody, error::Error},
     http::{
         header::{CONNECTION, CONTENT_LENGTH, DATE},
@@ -35,21 +34,19 @@ use crate::{
 };
 
 /// Http/2 dispatcher
-pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB, X> {
+pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
     io: &'a mut Connection<TlsSt, Bytes>,
     keep_alive: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
-    flow: &'a HttpFlow<S, X>,
+    service: &'a S,
     date: &'a DateTimeHandle,
     _req_body: PhantomData<ReqB>,
 }
 
-impl<'a, TlsSt, S, ReqB, X, B, E> Dispatcher<'a, TlsSt, S, ReqB, X>
+impl<'a, TlsSt, S, ReqB, B, E> Dispatcher<'a, TlsSt, S, ReqB>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: fmt::Debug,
-
-    X: 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -62,14 +59,14 @@ where
         io: &'a mut Connection<TlsSt, Bytes>,
         keep_alive: Pin<&'a mut KeepAlive>,
         ka_dur: Duration,
-        flow: &'a HttpFlow<S, X>,
+        service: &'a S,
         date: &'a DateTimeHandle,
     ) -> Self {
         Self {
             io,
             keep_alive,
             ka_dur,
-            flow,
+            service,
             date,
             _req_body: PhantomData,
         }
@@ -80,7 +77,7 @@ where
             io,
             mut keep_alive,
             ka_dur,
-            flow,
+            service,
             date,
             ..
         } = self;
@@ -112,7 +109,7 @@ where
                     let req = Request::from_parts(parts, body);
 
                     queue.push(async move {
-                        let fut = flow.service.call(req);
+                        let fut = service.call(req);
                         h2_handler(fut, tx, date).await
                     });
                 }

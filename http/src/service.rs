@@ -11,7 +11,6 @@ use super::{
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
     error::{BodyError, HttpServiceError, TimeoutError},
-    flow::HttpFlow,
     http::{Request, Response, Version},
     util::{futures::Timeout, keep_alive::KeepAlive},
     version::AsVersion,
@@ -29,7 +28,8 @@ pub struct HttpService<
 > {
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     pub(crate) date: DateTimeService,
-    pub(crate) flow: HttpFlow<S, X>,
+    pub(crate) expect: X,
+    pub(crate) service: S,
     pub(crate) tls_acceptor: A,
     _body: PhantomData<ReqB>,
 }
@@ -47,7 +47,8 @@ impl<S, ReqB, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         Self {
             config,
             date: DateTimeService::new(),
-            flow: HttpFlow::new(service, expect),
+            expect,
+            service,
             tls_acceptor,
             _body: PhantomData,
         }
@@ -60,22 +61,14 @@ impl<S, ReqB, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         X: Service<ReqX>,
         A: Service<ReqA>,
     {
-        self.flow
-            .expect
-            .ready()
-            .await
-            .map_err(|_| HttpServiceError::ServiceReady)?;
+        self.expect.ready().await.map_err(|_| HttpServiceError::ServiceReady)?;
 
         self.tls_acceptor
             .ready()
             .await
             .map_err(|_| HttpServiceError::ServiceReady)?;
 
-        self.flow
-            .service
-            .ready()
-            .await
-            .map_err(|_| HttpServiceError::ServiceReady)
+        self.service.ready().await.map_err(|_| HttpServiceError::ServiceReady)
     }
 
     pub(crate) fn update_first_request_deadline(&self, timer: Pin<&mut KeepAlive>) {
@@ -130,7 +123,7 @@ where
 
             match io {
                 #[cfg(feature = "http3")]
-                ServerStream::Udp(io) => super::h3::Dispatcher::new(io, &self.flow)
+                ServerStream::Udp(io) => super::h3::Dispatcher::new(io, &self.service)
                     .run()
                     .await
                     .map_err(From::from),
@@ -160,7 +153,8 @@ where
                             &mut tls_stream,
                             timer.as_mut(),
                             self.config,
-                            &self.flow,
+                            &self.expect,
+                            &self.service,
                             self.date.get(),
                         )
                         .await
@@ -176,7 +170,7 @@ where
                                 &mut conn,
                                 timer.as_mut(),
                                 self.config.keep_alive_timeout,
-                                &self.flow,
+                                &self.service,
                                 self.date.get(),
                             )
                             .run()
@@ -200,9 +194,16 @@ where
                         // update timer to first request timeout.
                         self.update_first_request_deadline(timer.as_mut());
 
-                        super::h1::proto::run(&mut io, timer.as_mut(), self.config, &self.flow, self.date.get())
-                            .await
-                            .map_err(From::from)
+                        super::h1::proto::run(
+                            &mut io,
+                            timer.as_mut(),
+                            self.config,
+                            &self.expect,
+                            &self.service,
+                            self.date.get(),
+                        )
+                        .await
+                        .map_err(From::from)
                     }
                 }
             }

@@ -72,9 +72,16 @@ where
             // update timer to first request timeout.
             self.update_first_request_deadline(timer.as_mut());
 
-            proto::run(&mut io, timer.as_mut(), self.config, &self.flow, self.date.get())
-                .await
-                .map_err(Into::into)
+            proto::run(
+                &mut io,
+                timer.as_mut(),
+                self.config,
+                &self.expect,
+                &self.service,
+                self.date.get(),
+            )
+            .await
+            .map_err(Into::into)
         }
     }
 }

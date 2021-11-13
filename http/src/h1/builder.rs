@@ -14,6 +14,10 @@ use crate::{
 
 use super::{body::RequestBody, service::H1Service};
 
+#[doc(hidden)]
+/// a marker type for separate HttpServerBuilders' ServiceFactory implement with speicialized trait method.
+pub struct H1;
+
 /// Http/1 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 pub type H1ServiceBuilder<
@@ -23,7 +27,7 @@ pub type H1ServiceBuilder<
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
-> = HttpServiceBuilder<F, RequestBody, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+> = HttpServiceBuilder<H1, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
 impl<
         St,
