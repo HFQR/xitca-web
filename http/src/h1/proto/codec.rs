@@ -402,8 +402,9 @@ mod test {
             let mut size = 0;
             loop {
                 let result = state.step(rdr, &mut size, &mut None);
-                let desc = format!("read_size failed for {:?}", s);
-                state = result.expect(desc.as_str()).unwrap();
+                state = result
+                    .unwrap_or_else(|_| panic!("read_size failed for {:?}", s))
+                    .unwrap();
                 if state == ChunkedState::Body || state == ChunkedState::EndCr {
                     break;
                 }
