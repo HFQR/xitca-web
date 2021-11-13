@@ -1,10 +1,11 @@
 use std::{marker::PhantomData, rc::Rc};
 
+use xitca_io::net::Stream;
 use xitca_service::Service;
 
 use super::limit::LimitGuard;
 
-use crate::net::{FromStream, Stream};
+use crate::net::FromStream;
 
 pub(crate) trait WorkerServiceTrait {
     fn call(self: Rc<Self>, req: (LimitGuard, Stream));

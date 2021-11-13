@@ -2,8 +2,7 @@ use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
 
 use futures_core::Stream;
 use tokio::pin;
-use xitca_io::{io::AsyncIo, net::TcpStream};
-use xitca_server::net::Stream as ServerStream;
+use xitca_io::{io::AsyncIo, net::Stream as ServerStream, net::TcpStream};
 use xitca_service::Service;
 
 use super::{

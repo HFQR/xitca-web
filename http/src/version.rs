@@ -15,7 +15,7 @@ pub trait AsVersion {
     }
 }
 
-impl AsVersion for xitca_server::net::Stream {
+impl AsVersion for xitca_io::net::Stream {
     #[inline]
     fn as_version(&self) -> Version {
         match *self {

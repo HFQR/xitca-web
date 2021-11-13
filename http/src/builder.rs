@@ -2,8 +2,10 @@ use std::{fmt, future::Future, marker::PhantomData};
 
 use futures_core::Stream;
 use http::{Request, Response};
-use xitca_io::{io::AsyncIo, net::TcpStream};
-use xitca_server::net::Stream as ServerStream;
+use xitca_io::{
+    io::AsyncIo,
+    net::{Stream as ServerStream, TcpStream},
+};
 use xitca_service::ServiceFactory;
 
 use super::{
