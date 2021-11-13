@@ -1,7 +1,6 @@
 use std::{fmt, future::Future, marker::PhantomData};
 
 use futures_core::Stream;
-use http::{Request, Response};
 use xitca_io::{
     io::AsyncIo,
     net::{Stream as ServerStream, TcpStream},
@@ -14,6 +13,7 @@ use super::{
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     error::{BodyError, HttpServiceError},
     expect::ExpectHandler,
+    http::{Request, Response},
     service::HttpService,
     tls,
     util::LoggerFactory,
@@ -23,8 +23,8 @@ use super::{
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 pub struct HttpServiceBuilder<
+    V,
     F,
-    ReqB,
     FE,
     FA,
     const HEADER_LIMIT: usize,
@@ -35,13 +35,13 @@ pub struct HttpServiceBuilder<
     pub(crate) expect: FE,
     pub(crate) tls_factory: FA,
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    pub(crate) _body: PhantomData<ReqB>,
+    pub(crate) _body: PhantomData<V>,
 }
 
 impl<F>
     HttpServiceBuilder<
+        Http,
         F,
-        RequestBody,
         ExpectHandler<F>,
         tls::NoOpTlsAcceptorService,
         DEFAULT_HEADER_LIMIT,
@@ -59,8 +59,8 @@ impl<F>
         factory: F,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     ) -> HttpServiceBuilder<
+        Http,
         F,
-        RequestBody,
         ExpectHandler<F>,
         tls::NoOpTlsAcceptorService,
         HEADER_LIMIT,
@@ -83,9 +83,8 @@ impl<F>
     /// This is a request type specific for Http/1 request body.
     pub fn h1<ResB, E>(
         factory: F,
-    ) -> HttpServiceBuilder<
+    ) -> super::h1::H1ServiceBuilder<
         F,
-        super::h1::RequestBody,
         ExpectHandler<F>,
         tls::NoOpTlsAcceptorService,
         DEFAULT_HEADER_LIMIT,
@@ -116,9 +115,8 @@ impl<F>
     /// This is a request type specific for Http/2 request body.
     pub fn h2<ResB, E>(
         factory: F,
-    ) -> HttpServiceBuilder<
+    ) -> super::h2::H2ServiceBuilder<
         F,
-        super::h2::RequestBody,
         (),
         tls::NoOpTlsAcceptorService,
         DEFAULT_HEADER_LIMIT,
@@ -160,13 +158,13 @@ impl<F>
     }
 }
 
-impl<F, ReqB, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpServiceBuilder<F, ReqB, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<V, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServiceBuilder<V, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     pub fn config<const HEADER_LIMIT_2: usize, const READ_BUF_LIMIT_2: usize, const WRITE_BUF_LIMIT_2: usize>(
         self,
         config: HttpServiceConfig<HEADER_LIMIT_2, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT_2>,
-    ) -> HttpServiceBuilder<F, ReqB, FE, FA, HEADER_LIMIT_2, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT_2> {
+    ) -> HttpServiceBuilder<V, F, FE, FA, HEADER_LIMIT_2, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT_2> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -177,10 +175,10 @@ impl<F, ReqB, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, co
     }
 
     #[cfg(feature = "http1")]
-    pub fn expect<FE2, ResB>(
+    pub fn expect<FE2, ReqB, ResB>(
         self,
         expect: FE2,
-    ) -> HttpServiceBuilder<F, ReqB, FE2, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, F, FE2, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     where
         FE2: ServiceFactory<Request<ReqB>, Response = Request<ResB>>,
         FE2::Service: 'static,
@@ -199,7 +197,7 @@ impl<F, ReqB, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, co
     pub fn with_tls<TlsF>(
         self,
         tls_factory: TlsF,
-    ) -> HttpServiceBuilder<F, ReqB, FE, TlsF, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+    ) -> HttpServiceBuilder<V, F, FE, TlsF, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
         HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
@@ -220,7 +218,7 @@ impl<F, ReqB, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, co
     pub fn openssl(
         self,
         acceptor: tls::openssl::TlsAcceptor,
-    ) -> HttpServiceBuilder<F, ReqB, FE, tls::openssl::TlsAcceptorService, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, F, FE, tls::openssl::TlsAcceptorService, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
         self.with_tls(tls::openssl::TlsAcceptorService::new(acceptor))
     }
@@ -229,7 +227,7 @@ impl<F, ReqB, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, co
     pub fn rustls(
         self,
         config: tls::rustls::RustlsConfig,
-    ) -> HttpServiceBuilder<F, ReqB, FE, tls::rustls::TlsAcceptorService, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, F, FE, tls::rustls::TlsAcceptorService, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
         self.with_tls(tls::rustls::TlsAcceptorService::new(config))
     }
@@ -238,22 +236,18 @@ impl<F, ReqB, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, co
     pub fn native_tls(
         self,
         acceptor: tls::native_tls::TlsAcceptor,
-    ) -> HttpServiceBuilder<
-        F,
-        ReqB,
-        FE,
-        tls::native_tls::TlsAcceptorService,
-        HEADER_LIMIT,
-        READ_BUF_LIMIT,
-        WRITE_BUF_LIMIT,
-    > {
+    ) -> HttpServiceBuilder<V, F, FE, tls::native_tls::TlsAcceptorService, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    {
         self.with_tls(tls::native_tls::TlsAcceptorService::new(acceptor))
     }
 }
 
+#[doc(hidden)]
+/// a marker type for separate HttpServerBuilders' ServiceFactory implement with speicialized trait method.
+pub struct Http;
+
 impl<F, ResB, E, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    ServiceFactory<ServerStream>
-    for HttpServiceBuilder<F, RequestBody, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ServiceFactory<ServerStream> for HttpServiceBuilder<Http, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,

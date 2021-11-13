@@ -13,25 +13,22 @@ use crate::{
     body::ResponseBody,
     bytes::Bytes,
     error::{BodyError, HttpServiceError},
-    flow::HttpFlow,
     h3::{body::RequestBody, error::Error},
     http::{Request, Response},
     util::futures::{Queue, Select, SelectOutput},
 };
 
 /// Http/3 dispatcher
-pub(crate) struct Dispatcher<'a, S, ReqB, X> {
+pub(crate) struct Dispatcher<'a, S, ReqB> {
     io: UdpStream,
-    flow: &'a HttpFlow<S, X>,
+    service: &'a S,
     _req_body: PhantomData<ReqB>,
 }
 
-impl<'a, S, ReqB, X, B, E> Dispatcher<'a, S, ReqB, X>
+impl<'a, S, ReqB, B, E> Dispatcher<'a, S, ReqB>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<B>>> + 'static,
     S::Error: fmt::Debug,
-
-    X: 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -39,10 +36,10 @@ where
 
     ReqB: From<RequestBody> + 'static,
 {
-    pub(crate) fn new(io: UdpStream, flow: &'a HttpFlow<S, X>) -> Self {
+    pub(crate) fn new(io: UdpStream, service: &'a S) -> Self {
         Self {
             io,
-            flow,
+            service,
             _req_body: PhantomData,
         }
     }
@@ -77,7 +74,7 @@ where
                     let req = Request::from_parts(parts, body);
 
                     queue.push(async move {
-                        let fut = self.flow.service.call(req);
+                        let fut = self.service.call(req);
                         h3_handler(fut, stream).await
                     });
                 }
