@@ -8,35 +8,43 @@ use pin_project_lite::pin_project;
 
 use super::keep_alive::KeepAlive;
 
-#[inline]
-pub(crate) fn poll_fn<T, F>(f: F) -> PollFn<F>
-where
-    F: FnMut(&mut Context<'_>) -> Poll<T>,
-{
-    PollFn { f }
-}
+#[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
+pub(crate) use poll::*;
 
-pub(crate) struct PollFn<F> {
-    f: F,
-}
+#[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
+mod poll {
+    use super::*;
 
-impl<F> Unpin for PollFn<F> {}
-
-impl<T, F> Future for PollFn<F>
-where
-    F: FnMut(&mut Context<'_>) -> Poll<T>,
-{
-    type Output = T;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-        (&mut self.f)(cx)
+    #[inline]
+    pub(crate) fn poll_fn<T, F>(f: F) -> PollFn<F>
+    where
+        F: FnMut(&mut Context<'_>) -> Poll<T>,
+    {
+        PollFn { f }
     }
-}
 
-/// An async function that never resolve to the output.
-#[inline]
-pub(crate) async fn never<T>() -> T {
-    poll_fn(|_| Poll::Pending).await
+    pub(crate) struct PollFn<F> {
+        f: F,
+    }
+
+    impl<F> Unpin for PollFn<F> {}
+
+    impl<T, F> Future for PollFn<F>
+    where
+        F: FnMut(&mut Context<'_>) -> Poll<T>,
+    {
+        type Output = T;
+
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+            (&mut self.f)(cx)
+        }
+    }
+
+    /// An async function that never resolve to the output.
+    #[inline]
+    pub(crate) async fn never<T>() -> T {
+        poll_fn(|_| Poll::Pending).await
+    }
 }
 
 pub(crate) trait Select: Sized {

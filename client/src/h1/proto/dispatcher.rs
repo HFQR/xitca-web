@@ -21,15 +21,7 @@ pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
     mut req: http::Request<RequestBody<B>>,
-) -> Result<
-    (
-        http::Response<()>,
-        FlatBuf<{ 1024 * 1024 }>,
-        Option<TransferCoding>,
-        bool,
-    ),
-    Error,
->
+) -> Result<(http::Response<()>, FlatBuf<{ 1024 * 1024 }>, TransferCoding, bool), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>>,
@@ -88,7 +80,7 @@ where
         }
 
         match ctx.decode_head(&mut buf)? {
-            Some((res, decoder)) => {
+            Some((res, mut decoder)) => {
                 // check if server sent connection close header.
 
                 // *. If send_inner function produces error, Context has already set
@@ -98,16 +90,14 @@ where
 
                 let mut is_close = ctx.is_connection_closed();
 
-                let decoder = match (is_head_method, decoder.is_eof()) {
-                    (false, false) => Some(decoder),
-                    (true, false) => {
+                if is_head_method {
+                    if !decoder.is_eof() {
                         // Server return a response body with head method.
                         // close the connection to drop the potential garbage data on wire.
                         is_close = true;
-                        None
                     }
-                    _ => None,
-                };
+                    decoder = TransferCoding::eof();
+                }
 
                 return Ok((res, buf, decoder, is_close));
             }

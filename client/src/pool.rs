@@ -1,19 +1,18 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     hash::Hash,
     ops::{Deref, DerefMut},
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
-use ahash::AHashMap;
-use parking_lot::Mutex;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::{connection::Multiplex, error::Error};
 
 #[doc(hidden)]
 pub struct Pool<K, C> {
-    conns: Mutex<AHashMap<K, Value<C>>>,
+    conns: Mutex<HashMap<K, Value<C>>>,
     permits: Semaphore,
 }
 
@@ -29,7 +28,7 @@ where
 {
     pub(crate) fn with_capacity(size: usize) -> Self {
         Self {
-            conns: Mutex::new(AHashMap::new()),
+            conns: Mutex::new(HashMap::new()),
             permits: Semaphore::new(size),
         }
     }
@@ -41,7 +40,7 @@ where
         let key = key.into();
 
         let conn = {
-            let mut conns = self.conns.lock();
+            let mut conns = self.conns.lock().unwrap();
 
             match conns.get_mut(&key) {
                 Some(Value::NonMultiplexable(queue)) => loop {
@@ -146,7 +145,7 @@ where
                 return;
             }
 
-            let mut conns = self.pool.conns.lock();
+            let mut conns = self.pool.conns.lock().unwrap();
 
             match conns.get_mut(&self.key) {
                 Some(Value::NonMultiplexable(queue)) => {

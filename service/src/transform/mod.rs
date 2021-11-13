@@ -53,13 +53,13 @@ impl<F, Req, T> ServiceFactory<Req> for TransformFactory<F, Req, T>
 where
     F: ServiceFactory<Req>,
     T: Transform<F::Service, Req>,
-    // T::InitError: From<F::InitError>,
+    F::InitError: From<T::InitError>,
 {
     type Response = T::Response;
     type Error = T::Error;
     type Config = F::Config;
     type Service = T::Transform;
-    type InitError = ();
+    type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
@@ -68,8 +68,8 @@ where
         let transform = self.transform.clone();
 
         async move {
-            let service = service.await.ok().unwrap();
-            let transform = transform.new_transform(service).await.ok().unwrap();
+            let service = service.await?;
+            let transform = transform.new_transform(service).await?;
 
             Ok(transform)
         }
