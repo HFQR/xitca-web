@@ -176,15 +176,12 @@ mod test {
                 let date = crate::date::DateTimeService::new();
                 let mut ctx = Context::<_, 4>::new(date.get());
 
-                let mut buf = BytesMut::new();
-
                 let head = b"\
                 GET / HTTP/1.1\r\n\
                 Transfer-Encoding: gzip, chunked\r\n\
                 \r\n\
                 ";
-
-                buf.extend_from_slice(head);
+                let mut buf = BytesMut::from(&head[..]);
 
                 let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
                 assert_eq!(
@@ -196,6 +193,44 @@ mod test {
                     TransferCoding::DecodeChunked(_, _) => {}
                     _ => panic!("trasnfer coding is not decoded chunked"),
                 };
+
+                ctx.reset();
+
+                let head = b"\
+                GET / HTTP/1.1\r\n\
+                Transfer-Encoding: chunked\r\n\
+                \r\n\
+                ";
+                let mut buf = BytesMut::from(&head[..]);
+
+                let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+                assert_eq!(
+                    req.headers().get(TRANSFER_ENCODING).unwrap().to_str().unwrap(),
+                    "chunked"
+                );
+
+                match decoder {
+                    TransferCoding::DecodeChunked(_, _) => {}
+                    _ => panic!("trasnfer coding is not decoded chunked"),
+                };
+
+                let head = b"\
+                GET / HTTP/1.1\r\n\
+                Transfer-Encoding: identity\r\n\
+                \r\n\
+                ";
+                let mut buf = BytesMut::from(&head[..]);
+
+                assert!(ctx.decode_head::<128>(&mut buf).is_err());
+
+                let head = b"\
+                GET / HTTP/1.1\r\n\
+                Transfer-Encoding: chunked, gzip\r\n\
+                \r\n\
+                ";
+                let mut buf = BytesMut::from(&head[..]);
+
+                assert!(ctx.decode_head::<128>(&mut buf).is_err());
             })
             .await
     }
