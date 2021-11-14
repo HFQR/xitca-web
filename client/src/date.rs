@@ -1,6 +1,5 @@
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{ops::Deref, sync::Arc, sync::RwLock, time::Duration};
 
-use parking_lot::RwLock;
 use tokio::{
     task::{spawn, JoinHandle},
     time::{interval, Instant},
@@ -41,7 +40,7 @@ impl DateTimeService {
             let state = &*state_clone;
             loop {
                 let _ = interval.tick().await;
-                *state.write() = DateTimeState::new();
+                *state.write().unwrap() = DateTimeState::new();
             }
         });
 
@@ -60,11 +59,11 @@ impl DateTime for DateTimeHandle<'_> {
     where
         F: FnOnce(&[u8]) -> O,
     {
-        let state = self.read();
+        let state = self.read().unwrap();
         f(&state.date[..])
     }
 
     fn now(&self) -> Instant {
-        self.read().now
+        self.read().unwrap().now
     }
 }

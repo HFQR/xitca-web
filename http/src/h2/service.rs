@@ -49,11 +49,7 @@ where
                 .await
                 .map_err(|_| HttpServiceError::ServiceReady)?;
 
-            self.flow
-                .service
-                .ready()
-                .await
-                .map_err(|_| HttpServiceError::ServiceReady)
+            self.service.ready().await.map_err(|_| HttpServiceError::ServiceReady)
         }
     }
 
@@ -82,7 +78,7 @@ where
                 &mut conn,
                 timer.as_mut(),
                 self.config.keep_alive_timeout,
-                &self.flow,
+                &self.service,
                 self.date.get(),
             );
 

@@ -85,6 +85,7 @@ impl<SF, F> App<SF, F> {
     where
         F: ServiceFactory<Req>,
         T: Transform<F::Service, Req>,
+        F::InitError: From<T::InitError>,
     {
         App {
             state_factory: self.state_factory,

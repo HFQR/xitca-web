@@ -13,8 +13,7 @@ use std::{
 
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
-
-use crate::net::Listener;
+use xitca_io::net::Listener;
 
 use self::limit::Limit;
 use self::shutdown::ShutdownHandle;

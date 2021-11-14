@@ -21,8 +21,10 @@ mod h2;
 #[cfg(feature = "http3")]
 mod h3;
 
-pub mod error;
+#[cfg(feature = "websocket")]
 pub mod ws;
+
+pub mod error;
 
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;

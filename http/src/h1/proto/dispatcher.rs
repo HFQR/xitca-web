@@ -13,7 +13,6 @@ use crate::{
     config::HttpServiceConfig,
     date::DateTime,
     error::BodyError,
-    flow::HttpFlow,
     h1::{
         body::{RequestBody, RequestBodySender},
         error::Error,
@@ -50,7 +49,8 @@ pub(crate) async fn run<
     io: &'a mut St,
     timer: Pin<&'a mut KeepAlive>,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    flow: &'a HttpFlow<S, X>,
+    expect: &'a X,
+    service: &'a S,
     date: &'a D,
 ) -> Result<(), Error<S::Error>>
 where
@@ -71,10 +71,14 @@ where
 
     let res = if is_vectored {
         let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();
-        Dispatcher::new(io, timer, config, flow, date, write_buf).run().await
+        Dispatcher::new(io, timer, config, expect, service, date, write_buf)
+            .run()
+            .await
     } else {
         let write_buf = FlatBuf::<WRITE_BUF_LIMIT>::default();
-        Dispatcher::new(io, timer, config, flow, date, write_buf).run().await
+        Dispatcher::new(io, timer, config, expect, service, date, write_buf)
+            .run()
+            .await
     };
 
     match res {
@@ -102,7 +106,8 @@ struct Dispatcher<
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
-    flow: &'a HttpFlow<S, X>,
+    expect: &'a X,
+    service: &'a S,
     _phantom: PhantomData<ReqB>,
 }
 
@@ -249,7 +254,9 @@ where
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-        flow: &'a HttpFlow<S, X>,
+
+        expect: &'a X,
+        service: &'a S,
         date: &'a D,
         write_buf: W,
     ) -> Self {
@@ -258,7 +265,8 @@ where
             timer,
             ka_dur: config.keep_alive_timeout,
             ctx: Context::new(date),
-            flow,
+            expect,
+            service,
             _phantom: PhantomData,
         }
     }
@@ -347,7 +355,7 @@ where
         body_handle: &mut Option<RequestBodyHandle>,
     ) -> Result<S::Response, Error<S::Error>> {
         if self.ctx.is_expect_header() {
-            let expect_res = self.flow.expect.call(req).await.map_err(|e| Error::Service(e.into()))?;
+            let expect_res = self.expect.call(req).await.map_err(|e| Error::Service(e.into()))?;
 
             // encode continue
             self.ctx.encode_continue(&mut self.io.write_buf);
@@ -359,7 +367,6 @@ where
         };
 
         match self
-            .flow
             .service
             .call(req)
             .select(self.request_body_handler(body_handle))

@@ -9,7 +9,6 @@
 
 mod builder;
 mod expect;
-mod flow;
 mod response;
 mod service;
 mod tls;

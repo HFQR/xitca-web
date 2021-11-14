@@ -17,11 +17,11 @@ use xitca_http::{
 pub struct ResponseBody<C> {
     conn: C,
     buf: FlatBuf<{ 1024 * 1024 }>,
-    decoder: Option<TransferCoding>,
+    decoder: TransferCoding,
 }
 
 impl<C> ResponseBody<C> {
-    pub(crate) fn new(conn: C, buf: FlatBuf<{ 1024 * 1024 }>, decoder: Option<TransferCoding>) -> Self {
+    pub(crate) fn new(conn: C, buf: FlatBuf<{ 1024 * 1024 }>, decoder: TransferCoding) -> Self {
         Self { conn, buf, decoder }
     }
 
@@ -40,25 +40,20 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        loop {
-            match this.decoder.as_mut() {
-                Some(decoder) => match decoder.decode(&mut *this.buf)? {
-                    Some(bytes) if bytes.is_empty() => {
-                        // take the decoder and drop it.
-                        // prevent accidental more polling on the StreamBody.
-                        this.decoder.take();
-                    }
-                    Some(bytes) => return Poll::Ready(Some(Ok(bytes))),
-                    None => {
-                        let n = ready!(poll_read_buf(Pin::new(&mut *this.conn), cx, &mut *this.buf))?;
+        while !this.decoder.is_eof() {
+            match this.decoder.decode(&mut *this.buf)? {
+                Some(bytes) if bytes.is_empty() => this.decoder = TransferCoding::eof(),
+                Some(bytes) => return Poll::Ready(Some(Ok(bytes))),
+                None => {
+                    let n = ready!(poll_read_buf(Pin::new(&mut *this.conn), cx, &mut *this.buf))?;
 
-                        if n == 0 {
-                            return Poll::Ready(Some(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())));
-                        }
+                    if n == 0 {
+                        return Poll::Ready(Some(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())));
                     }
-                },
-                None => return Poll::Ready(None),
+                }
             }
         }
+
+        Poll::Ready(None)
     }
 }

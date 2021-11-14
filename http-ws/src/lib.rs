@@ -73,7 +73,9 @@
 
 use http::{
     header::{self, HeaderValue},
+    request::Request,
     response::{Builder, Response},
+    uri::Uri,
     HeaderMap, Method, StatusCode,
 };
 
@@ -97,6 +99,32 @@ impl From<HandshakeError> for Builder {
             _ => Response::builder().status(StatusCode::BAD_REQUEST),
         }
     }
+}
+
+/// Prepare a request with given Uri.
+/// After process the request would be ready to be sent to server for websocket connection.
+pub fn client_request_from_uri<U, E>(uri: U) -> Result<Request<()>, E>
+where
+    Uri: TryFrom<U, Error = E>,
+{
+    let uri = uri.try_into()?;
+    let mut req = Request::new(());
+    *req.uri_mut() = uri;
+
+    req.headers_mut()
+        .insert(header::UPGRADE, HeaderValue::from_static("websocket"));
+    req.headers_mut()
+        .insert(header::CONNECTION, HeaderValue::from_static("upgrade"));
+    req.headers_mut()
+        .insert(header::SEC_WEBSOCKET_VERSION, HeaderValue::from_static("13"));
+
+    let sec_key = rand::random::<[u8; 16]>();
+    let key = base64::encode(&sec_key);
+
+    req.headers_mut()
+        .insert(header::SEC_WEBSOCKET_KEY, HeaderValue::try_from(key.as_str()).unwrap());
+
+    Ok(req)
 }
 
 /// Verify WebSocket handshake request and create handshake response.
