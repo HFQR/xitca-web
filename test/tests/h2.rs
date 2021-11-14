@@ -50,6 +50,7 @@ async fn h2_post() -> Result<(), Error> {
         let mut res = c.post(&server_url)?.version(Version::HTTP_2).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.is_close_connection());
+        let _ = res.body().await?;
     }
 
     handle.try_handle()?.stop(false);

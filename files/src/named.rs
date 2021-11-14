@@ -33,12 +33,14 @@ pub struct NamedFile {
     pub(crate) md: Metadata,
     modified: Option<SystemTime>,
     pub(crate) content_type: Mime,
-    #[cfg(feature = "compress")]
-    pub(crate) content_encoding: Option<ContentEncoding>,
     use_etag: bool,
     use_last_modified: bool,
     use_content_disposition: bool,
     prefer_utf8: bool,
+    #[cfg(feature = "compress")]
+    pub(crate) content_encoding: Option<ContentEncoding>,
+    #[cfg(feature = "compress")]
+    cache: bool,
 }
 
 impl fmt::Debug for NamedFile {
@@ -123,12 +125,14 @@ impl NamedFile {
             modified,
             status: StatusCode::OK,
             content_type,
-            #[cfg(feature = "compress")]
-            content_encoding: None,
             use_etag: true,
             use_last_modified: true,
             use_content_disposition: true,
             prefer_utf8: true,
+            #[cfg(feature = "compress")]
+            content_encoding: None,
+            #[cfg(feature = "compress")]
+            cache: false,
         })
     }
 
@@ -143,14 +147,6 @@ impl NamedFile {
     #[inline]
     pub fn set_content_type(mut self, mime_type: Mime) -> Self {
         self.content_type = mime_type;
-        self
-    }
-
-    #[cfg(feature = "compress")]
-    /// Set content encoding for serving this file
-    #[inline]
-    pub fn set_content_encoding(mut self, encoding: ContentEncoding) -> Self {
-        self.content_encoding = Some(encoding);
         self
     }
 
@@ -187,6 +183,26 @@ impl NamedFile {
     #[inline]
     pub fn prefer_utf8(mut self, value: bool) -> Self {
         self.prefer_utf8 = value;
+        self
+    }
+
+    #[cfg(feature = "compress")]
+    /// Set content encoding for serving this file
+    #[inline]
+    pub fn set_content_encoding(mut self, encoding: ContentEncoding) -> Self {
+        self.content_encoding = Some(encoding);
+        self
+    }
+
+    #[cfg(feature = "compress")]
+    /// Specifies whether do caching when [ContentEncoding] is provided.
+    ///
+    /// Cache will be done with filename ad content-encoding as suffix.
+    ///
+    /// Default is false.
+    #[inline]
+    pub fn set_cache(mut self, value: bool) -> Self {
+        self.cache = value;
         self
     }
 

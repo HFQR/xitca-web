@@ -236,7 +236,20 @@ where
                 #[cfg(feature = "compress")]
                 if self.use_encode_cache {
                     if let Some(encoding) = req.headers().get(xitca_http::http::header::ACCEPT_ENCODING) {
-                        println!("{:?}", encoding);
+                        let mut cache_path = path.clone();
+
+                        match cache_path.extension() {
+                            Some(ext) => {
+                                let mut ext = ext.to_os_string();
+                                ext.push(".gz");
+                                cache_path.set_extension(ext)
+                            }
+                            None => cache_path.set_extension("gz"),
+                        };
+
+                        if let Ok(file) = NamedFile::open(&cache_path).await {
+                            return Ok(file.into_response(req));
+                        }
                     }
                 }
 
