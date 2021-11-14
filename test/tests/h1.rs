@@ -147,7 +147,7 @@ async fn h1_close_connection() -> Result<(), Error> {
 async fn h1_request_too_large() -> Result<(), Error> {
     let mut handle = test_h1_server(|| fn_service(handle))?;
 
-    let server_url = format!("http://{}/close_connection", handle.ip_port_string());
+    let server_url = format!("http://{}/", handle.ip_port_string());
 
     let c = Client::new();
 
@@ -159,6 +159,7 @@ async fn h1_request_too_large() -> Result<(), Error> {
 
     let res = req.send().await?;
     assert_eq!(res.status().as_u16(), 200);
+    let _ = res.body().await;
 
     let mut req = c.get(&server_url)?;
 
