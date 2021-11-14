@@ -141,6 +141,43 @@ async fn h1_close_connection() -> Result<(), Error> {
     Ok(())
 }
 
+// Request head size is limited by ReadBuf's max size which is 1MB by default.
+// If the default setting changed this test must be chagned to reflex it.
+#[tokio::test]
+async fn h1_request_too_large() -> Result<(), Error> {
+    let mut handle = test_h1_server(|| fn_service(handle))?;
+
+    let server_url = format!("http://{}/", handle.ip_port_string());
+
+    let c = Client::new();
+
+    let mut req = c.get(&server_url)?;
+
+    let body = vec![*b"H".first().unwrap(); 512 * 1024];
+    req.headers_mut()
+        .insert("large-header", HeaderValue::try_from(body).unwrap());
+
+    let res = req.send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    let _ = res.body().await;
+
+    let mut req = c.get(&server_url)?;
+
+    let body = vec![*b"H".first().unwrap(); 1024 * 1024];
+    req.headers_mut()
+        .insert("large-header", HeaderValue::try_from(body).unwrap());
+
+    let mut res = req.send().await?;
+    assert_eq!(res.status().as_u16(), 431);
+    assert!(res.is_close_connection());
+
+    handle.try_handle()?.stop(true);
+
+    handle.await?;
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn h1_keepalive() -> Result<(), Error> {
     let mut handle = test_h1_server(|| fn_service(handle))?;
