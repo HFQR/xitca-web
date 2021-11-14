@@ -170,7 +170,7 @@ mod test {
     use tokio::task::LocalSet;
 
     #[tokio::test]
-    async fn decode_transfer_encoding() {
+    async fn transfer_encoding() {
         LocalSet::new()
             .run_until(async {
                 let date = crate::date::DateTimeService::new();
