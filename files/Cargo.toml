@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = []
-compress = ["http-encoding"]
+cache-compress = ["http-encoding/all"]
 io-uring = ["tokio-uring/bytes"]
 
 [dependencies]

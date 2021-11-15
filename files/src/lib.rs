@@ -12,6 +12,9 @@ mod named;
 mod path_buf;
 mod utf8;
 
+#[cfg(feature = "cache-compress")]
+pub mod cache;
+
 pub mod error;
 
 pub use files::Files;

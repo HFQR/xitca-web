@@ -24,7 +24,8 @@ pub struct Files<F = DirectoryRender> {
     show_index: bool,
     redirect_to_slash: bool,
     hidden_files: bool,
-    use_encode_cache: bool,
+    #[cfg(feature = "cache-compress")]
+    cache_encodings: Vec<crate::cache::ContentEncoding>,
     directory_render: F,
 }
 
@@ -43,7 +44,8 @@ impl Files<DirectoryRender> {
             show_index: false,
             redirect_to_slash: false,
             hidden_files: false,
-            use_encode_cache: false,
+            #[cfg(feature = "cache-compress")]
+            cache_encodings: Vec::new(),
             directory_render: DirectoryRender,
         }
     }
@@ -87,10 +89,12 @@ impl<F> Files<F> {
         self
     }
 
-    #[cfg(feature = "compress")]
-    /// Enables caching files with enabled compress features.
-    pub fn use_encode_cache(mut self) -> Self {
-        self.use_encode_cache = true;
+    #[cfg(feature = "cache-compress")]
+    /// Insert new cacheable encoding to file service.
+    ///
+    /// Insert order matters. The encoding inserted later would have lower priority.
+    pub fn insert_cache_encoding(mut self, encoding: crate::cache::ContentEncoding) -> Self {
+        self.cache_encodings.push(encoding);
         self
     }
 
@@ -109,7 +113,8 @@ impl<F> Files<F> {
             show_index: self.show_index,
             redirect_to_slash: self.redirect_to_slash,
             hidden_files: self.hidden_files,
-            use_encode_cache: self.use_encode_cache,
+            #[cfg(feature = "cache-compress")]
+            cache_encodings: self.cache_encodings,
             directory_render,
         }
     }
@@ -138,8 +143,8 @@ where
         let redirect_to_slash = self.redirect_to_slash;
         let hidden_files = self.hidden_files;
 
-        #[cfg(feature = "compress")]
-        let use_encode_cache = self.use_encode_cache;
+        #[cfg(feature = "cache-compress")]
+        let cacher = crate::cache::Cacher::new(self.cache_encodings.clone());
 
         async move {
             let directory_render = directory_render.await.ok().unwrap();
@@ -149,8 +154,8 @@ where
                 show_index,
                 redirect_to_slash,
                 hidden_files,
-                #[cfg(feature = "compress")]
-                use_encode_cache,
+                #[cfg(feature = "cache-compress")]
+                cacher,
                 directory_render,
             })
         }
@@ -163,8 +168,8 @@ pub struct FilesService<S> {
     show_index: bool,
     redirect_to_slash: bool,
     hidden_files: bool,
-    #[cfg(feature = "compress")]
-    use_encode_cache: bool,
+    #[cfg(feature = "cache-compress")]
+    cacher: crate::cache::Cacher,
     directory_render: S,
 }
 
@@ -195,11 +200,24 @@ where
             let path = self.directory.join(&real_path);
             path.canonicalize()?;
 
-            if path.is_dir() {
-                if self.redirect_to_slash
-                    && !req.uri().path().ends_with('/')
-                    && (self.index.is_some() || self.show_index)
-                {
+            let is_dir = path.is_dir();
+            let redirect = self.redirect_to_slash && !req.uri().path().ends_with('/');
+            let show_index = self.show_index;
+
+            match (is_dir, redirect, show_index, self.index.as_ref()) {
+                (false, _, _, _) => {
+                    #[cfg(feature = "cache-compress")]
+                    {
+                        if let Ok(Some(res)) = self.cacher.serve_cached(req, &path).await {
+                            return Ok(res);
+                        }
+                    }
+
+                    let file = NamedFile::open(&path).await?;
+                    Ok(file.into_response(req))
+                }
+                (_, _, false, None) => Err(Error::IsDirectory),
+                (true, true, _, _) => {
                     let redirect_to = format!("{}/", req.uri().path());
 
                     let mut res = req.as_response(ResponseBody::None);
@@ -207,54 +225,27 @@ where
                     res.headers_mut()
                         .append(LOCATION, HeaderValue::try_from(redirect_to).unwrap());
 
-                    return Ok(res);
+                    Ok(res)
                 }
-
-                match (self.index.as_ref(), self.show_index) {
-                    (Some(index), show_index) => {
-                        let named_path = path.join(index);
-                        match NamedFile::open(named_path).await {
-                            Ok(file) => Ok(file.into_response(req)),
-                            Err(_) if show_index => {
-                                self.directory_render.ready().await?;
-                                let dir = Directory::new(&self.directory, &path);
-                                let req = mem::take(req).map(|_| ());
-                                self.directory_render.call((req, dir)).await
-                            }
-                            Err(e) => Err(e.into()),
+                (_, _, _, Some(index)) => {
+                    let named_path = path.join(index);
+                    match NamedFile::open(named_path).await {
+                        Ok(file) => Ok(file.into_response(req)),
+                        Err(_) if show_index => {
+                            self.directory_render.ready().await?;
+                            let dir = Directory::new(&self.directory, &path);
+                            let req = mem::take(req).map(|_| ());
+                            self.directory_render.call((req, dir)).await
                         }
-                    }
-                    (None, true) => {
-                        self.directory_render.ready().await?;
-                        let dir = Directory::new(&self.directory, &path);
-                        let req = mem::take(req).map(|_| ());
-                        self.directory_render.call((req, dir)).await
-                    }
-                    (None, false) => Err(Error::IsDirectory),
-                }
-            } else {
-                #[cfg(feature = "compress")]
-                if self.use_encode_cache {
-                    if let Some(encoding) = req.headers().get(xitca_http::http::header::ACCEPT_ENCODING) {
-                        let mut cache_path = path.clone();
-
-                        match cache_path.extension() {
-                            Some(ext) => {
-                                let mut ext = ext.to_os_string();
-                                ext.push(".gz");
-                                cache_path.set_extension(ext)
-                            }
-                            None => cache_path.set_extension("gz"),
-                        };
-
-                        if let Ok(file) = NamedFile::open(&cache_path).await {
-                            return Ok(file.into_response(req));
-                        }
+                        Err(e) => Err(e.into()),
                     }
                 }
-
-                let file = NamedFile::open(&path).await?;
-                Ok(file.into_response(req))
+                (_, _, true, _) => {
+                    self.directory_render.ready().await?;
+                    let dir = Directory::new(&self.directory, &path);
+                    let req = mem::take(req).map(|_| ());
+                    self.directory_render.call((req, dir)).await
+                }
             }
         }
     }

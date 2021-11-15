@@ -34,6 +34,17 @@ impl ContentEncoding {
             ContentEncoding::Identity | ContentEncoding::Auto => 0.1,
         }
     }
+
+    /// Return a file path extension str for according encoding variant.
+    #[inline]
+    pub fn as_path_extension(&self) -> &str {
+        match *self {
+            Self::Auto | Self::Identity => panic!("todo"),
+            Self::Br => "br",
+            Self::Deflate => "de",
+            Self::Gzip => "gz",
+        }
+    }
 }
 
 impl Default for ContentEncoding {
