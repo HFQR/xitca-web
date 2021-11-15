@@ -11,6 +11,8 @@ use bytes::Bytes;
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
+use crate::coding::EncodingError;
+
 pin_project! {
     /// A coder type that can be used for either encode or decode which determined by De type.
     pub struct Coder<S, De, I>
@@ -47,6 +49,7 @@ where
 /// Coder Error collection. Error can either from coding process as std::io::Error
 /// or input Stream's error type.
 pub enum CoderError<E> {
+    Encoding(EncodingError),
     Io(io::Error),
     Runtime(tokio::task::JoinError),
     Feature(Feature),
@@ -63,6 +66,7 @@ pub enum Feature {
 impl<E> fmt::Debug for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::Encoding(ref e) => write!(f, "{:?}", e),
             Self::Io(ref e) => write!(f, "{:?}", e),
             Self::Runtime(ref e) => write!(f, "{:?}", e),
             Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
@@ -76,6 +80,7 @@ impl<E> fmt::Debug for CoderError<E> {
 impl<E> fmt::Display for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::Encoding(ref e) => write!(f, "{}", e),
             Self::Io(ref e) => write!(f, "{}", e),
             Self::Runtime(ref e) => write!(f, "{}", e),
             Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
@@ -83,6 +88,12 @@ impl<E> fmt::Display for CoderError<E> {
             Self::Feature(Feature::Deflate) => write!(f, "de feature is disabled."),
             Self::Stream(..) => write!(f, "Input Stream body error."),
         }
+    }
+}
+
+impl<E> From<EncodingError> for CoderError<E> {
+    fn from(e: EncodingError) -> Self {
+        Self::Encoding(e)
     }
 }
 

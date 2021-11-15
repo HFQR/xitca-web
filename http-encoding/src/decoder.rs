@@ -36,7 +36,7 @@ fn from_headers<E>(headers: &HeaderMap) -> Result<ContentDecoder, CoderError<E>>
     let decoder = headers
         .get(&CONTENT_ENCODING)
         .and_then(|val| val.to_str().ok())
-        .map(|encoding| match ContentEncoding::from(encoding) {
+        .map(|encoding| match ContentEncoding::try_from(encoding)? {
             ContentEncoding::Br => {
                 #[cfg(feature = "br")]
                 {

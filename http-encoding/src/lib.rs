@@ -38,4 +38,4 @@ mod deflate {
 }
 
 pub use self::coder::{AsyncCode, Coder};
-pub use self::coding::ContentEncoding;
+pub use self::coding::{AcceptEncoding, ContentEncoding};
