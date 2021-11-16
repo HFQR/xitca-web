@@ -157,6 +157,7 @@ where
                             } else if val.eq_ignore_ascii_case("upgrade") {
                                 self.set_ctype(ConnectionType::Upgrade);
                                 encoding = TransferCoding::upgrade();
+                                break;
                             }
                         }
                     }
