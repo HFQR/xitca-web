@@ -17,6 +17,7 @@ pub mod cache;
 
 pub mod error;
 
+pub use directory::Directory;
 pub use files::Files;
 pub use named::NamedFile;
 
