@@ -265,17 +265,18 @@ impl ChunkedState {
 }
 
 impl TransferCoding {
+    #[inline]
     pub fn try_set(&mut self, other: Self) -> Result<(), ProtoError> {
         match (&self, &other) {
-            // multiple set to plain chunked is allowed. This can happen from Connect method
+            // multiple set to upgrade is allowed. This can happen from Connect method
             // and/or Connection header.
             (TransferCoding::Upgrade, TransferCoding::Upgrade) => Ok(()),
-            // multiple set to decoded chunked/content-length are forbidden.
-            //
-            // mutation between decoded chunked/content-length/plain chunked is forbidden.
-            (TransferCoding::Upgrade, _) | (TransferCoding::DecodeChunked(..), _) | (TransferCoding::Length(..), _) => {
-                Err(ProtoError::Parse(Parse::HeaderName))
-            }
+            // multiple set to chunked/content-length are forbidden.
+            // mutation between chunked/content-length/upgrade is forbidden.
+            (TransferCoding::Upgrade, _)
+            | (TransferCoding::DecodeChunked(..), _)
+            | (TransferCoding::Length(..), _)
+            | (TransferCoding::EncodeChunked, _) => Err(ProtoError::Parse(Parse::HeaderName)),
             _ => {
                 *self = other;
                 Ok(())

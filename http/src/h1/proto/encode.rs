@@ -129,18 +129,16 @@ where
             // TODO: more spec check needed. the current check barely does anything.
             match name {
                 CONTENT_LENGTH => {
-                    debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
                     let value = value
                         .to_str()
                         .ok()
                         .and_then(|v| v.parse().ok())
                         .ok_or(Parse::HeaderValue)?;
-                    encoding = TransferCoding::length(value);
+                    encoding.try_set(TransferCoding::length(value))?;
                     skip_len = true;
                 }
                 TRANSFER_ENCODING => {
-                    debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
-                    encoding = TransferCoding::encode_chunked();
+                    encoding.try_set(TransferCoding::encode_chunked())?;
                     skip_len = true;
                 }
                 CONNECTION => match self.ctype() {
@@ -156,7 +154,9 @@ where
                                 self.set_ctype(ConnectionType::KeepAlive);
                             } else if val.eq_ignore_ascii_case("upgrade") {
                                 self.set_ctype(ConnectionType::Upgrade);
-                                encoding = TransferCoding::upgrade();
+                                encoding.try_set(TransferCoding::upgrade())?;
+                                // break on upgrade type it must be final connection type if presented.
+                                break;
                             }
                         }
                     }
