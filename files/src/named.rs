@@ -16,9 +16,6 @@ use xitca_http::{
     },
 };
 
-#[cfg(feature = "compress")]
-use http_encoding::ContentEncoding;
-
 use crate::{chunked::new_chunked_read, utf8::equiv_utf8_text};
 
 #[cfg(not(feature = "io-uring"))]
@@ -37,10 +34,6 @@ pub struct NamedFile {
     use_last_modified: bool,
     use_content_disposition: bool,
     prefer_utf8: bool,
-    #[cfg(feature = "compress")]
-    pub(crate) content_encoding: Option<ContentEncoding>,
-    #[cfg(feature = "compress")]
-    cache: bool,
 }
 
 impl fmt::Debug for NamedFile {
@@ -129,10 +122,6 @@ impl NamedFile {
             use_last_modified: true,
             use_content_disposition: true,
             prefer_utf8: true,
-            #[cfg(feature = "compress")]
-            content_encoding: None,
-            #[cfg(feature = "compress")]
-            cache: false,
         })
     }
 
@@ -183,26 +172,6 @@ impl NamedFile {
     #[inline]
     pub fn prefer_utf8(mut self, value: bool) -> Self {
         self.prefer_utf8 = value;
-        self
-    }
-
-    #[cfg(feature = "compress")]
-    /// Set content encoding for serving this file
-    #[inline]
-    pub fn set_content_encoding(mut self, encoding: ContentEncoding) -> Self {
-        self.content_encoding = Some(encoding);
-        self
-    }
-
-    #[cfg(feature = "compress")]
-    /// Specifies whether do caching when [ContentEncoding] is provided.
-    ///
-    /// Cache will be done with filename ad content-encoding as suffix.
-    ///
-    /// Default is false.
-    #[inline]
-    pub fn set_cache(mut self, value: bool) -> Self {
-        self.cache = value;
         self
     }
 
