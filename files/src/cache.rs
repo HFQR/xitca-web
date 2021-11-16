@@ -31,35 +31,34 @@ impl Cacher {
     {
         match req.headers_mut().remove(ACCEPT_ENCODING) {
             Some(encoding) => {
-                let value = encoding.to_str().unwrap();
+                let accept_encoding = encoding
+                    .to_str()
+                    .unwrap()
+                    .replace(' ', "")
+                    .split(',')
+                    .filter_map(AcceptEncoding::new)
+                    .filter(|enc| self.encodings.contains(enc.encoding()))
+                    .next();
 
-                for enc in self
-                    .encodings
-                    .iter()
-                    .filter_map(|enc| AcceptEncoding::try_parse(value, *enc).ok())
-                {
-                    match enc {
-                        // TODO: AcceptEncoding::try_parse should not return identity encoding.
-                        ContentEncoding::Identity => continue,
-                        enc => {
-                            let mut cache_path = path.clone();
+                match accept_encoding {
+                    Some(accept_encoding) => {
+                        let enc = accept_encoding.encoding();
+                        let mut cache_path = path.clone();
 
-                            match cache_path.extension() {
-                                Some(ext) => {
-                                    let mut ext = ext.to_os_string();
-                                    ext.push(enc.as_path_extension());
-                                    cache_path.set_extension(ext)
-                                }
-                                None => cache_path.set_extension(enc.as_path_extension()),
-                            };
+                        match cache_path.extension() {
+                            Some(ext) => {
+                                let mut ext = ext.to_os_string();
+                                ext.push(enc.as_path_extension());
+                                cache_path.set_extension(ext)
+                            }
+                            None => cache_path.set_extension(enc.as_path_extension()),
+                        };
 
-                            let file = NamedFile::open(&cache_path).await?;
-                            return Ok(Some(file.into_response(req)));
-                        }
+                        let file = NamedFile::open(&cache_path).await?;
+                        Ok(Some(file.into_response(req)))
                     }
+                    None => Ok(None),
                 }
-
-                Ok(None)
             }
             None => Ok(None),
         }

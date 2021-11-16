@@ -108,7 +108,7 @@ impl TryFrom<&str> for ContentEncoding {
 }
 
 pub struct AcceptEncoding {
-    encoding: ContentEncoding,
+    pub encoding: ContentEncoding,
     // TODO: use Quality or QualityItem<ContentEncoding>
     quality: f64,
 }
@@ -144,7 +144,7 @@ impl PartialEq for AcceptEncoding {
 ///
 /// If parse fail, then fallback to default value which is 1.
 /// More details available here: <https://developer.mozilla.org/en-US/docs/Glossary/Quality_values>
-fn parse_quality(parts: &[&str]) -> f64 {
+fn parse_quality<'a>(parts: impl Iterator<Item = &'a str>) -> f64 {
     for part in parts {
         if part.trim().starts_with("q=") {
             return part[2..].parse().unwrap_or(1.0);
@@ -156,21 +156,20 @@ fn parse_quality(parts: &[&str]) -> f64 {
 
 impl AcceptEncoding {
     pub fn new(tag: &str) -> Option<AcceptEncoding> {
-        let parts: Vec<&str> = tag.split(';').collect();
-        let encoding = match parts.len() {
-            0 => return None,
-            _ => match ContentEncoding::try_from(parts[0]) {
-                Err(_) => return None,
-                Ok(x) => x,
-            },
-        };
+        let mut parts = tag.split(';');
 
-        let quality = parse_quality(&parts[1..]);
-        if quality <= 0.0 || quality > 1.0 {
-            return None;
-        }
+        parts
+            .next()
+            .and_then(|part| ContentEncoding::try_from(part).ok())
+            .and_then(|encoding| {
+                let quality = parse_quality(parts);
+                (0.0 < quality && quality <= 1.0).then(|| AcceptEncoding { encoding, quality })
+            })
+    }
 
-        Some(AcceptEncoding { encoding, quality })
+    #[inline]
+    pub fn encoding(&self) -> &ContentEncoding {
+        &self.encoding
     }
 
     /// Parse a raw Accept-Encoding header value into an ordered list then return the best match
