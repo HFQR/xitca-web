@@ -1,4 +1,4 @@
-use std::{io, marker::PhantomData, pin::Pin, time::Duration};
+use std::{future::Future, io, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures_core::stream::Stream;
 use http::{response::Parts, Request, Response};
@@ -408,9 +408,8 @@ where
         pin!(body);
 
         loop {
-            match body
-                .as_mut()
-                .next()
+            match self
+                .try_poll_body(body.as_mut())
                 .select(self.response_body_handler(&mut body_handle))
                 .await
             {
@@ -435,6 +434,20 @@ where
         }
     }
 
+    fn try_poll_body<'b>(
+        &self,
+        body: Pin<&'b mut ResponseBody<ResB>>,
+    ) -> impl Future<Output = Option<Result<Bytes, BodyError>>> + 'b {
+        let write_backpressure = self.io.write_buf.backpressure();
+        async move {
+            if write_backpressure {
+                never().await
+            } else {
+                body.next().await
+            }
+        }
+    }
+
     async fn response_body_handler(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
@@ -442,7 +455,7 @@ where
         match body_handle.as_mut() {
             Some(handle) => match handle.decode(&mut self.io.read_buf)? {
                 DecodeState::Continue => {
-                    assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
+                    debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
                     match self.io.ready(handle, &mut self.ctx).await {
                         Ok(ready) => {
                             if ready.is_readable() {
@@ -450,9 +463,6 @@ where
                             }
                             if ready.is_writable() {
                                 self.io.try_write()?;
-                                if self.io.write_buf.backpressure() {
-                                    self.io.flush().await?;
-                                }
                             }
                         }
                         // TODO: potential special handling error case of RequestBodySender::poll_ready ?
@@ -469,9 +479,6 @@ where
             None => {
                 self.io.writable().await?;
                 self.io.try_write()?;
-                if self.io.write_buf.backpressure() {
-                    self.io.flush().await?;
-                }
             }
         }
 
