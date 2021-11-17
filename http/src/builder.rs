@@ -5,7 +5,7 @@ use xitca_io::{
     io::AsyncIo,
     net::{Stream as ServerStream, TcpStream},
 };
-use xitca_service::ServiceFactory;
+use xitca_service::{ServiceFactory, ServiceFactoryExt, TransformFactory};
 
 use super::{
     body::{RequestBody, ResponseBody},
@@ -16,7 +16,7 @@ use super::{
     http::{Request, Response},
     service::HttpService,
     tls,
-    util::LoggerFactory,
+    util::Logger,
     version::AsVersion,
 };
 
@@ -210,8 +210,12 @@ impl<V, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
     /// Finish builder with default logger.
     ///
     /// Would consume input.
-    pub fn with_logger(self) -> LoggerFactory<Self> {
-        LoggerFactory::new(self)
+    pub fn with_logger<Req>(self) -> TransformFactory<Self, Req, Logger>
+    where
+        Self: ServiceFactory<Req>,
+        <Self as ServiceFactory<Req>>::Error: fmt::Debug,
+    {
+        self.transform(Logger::new())
     }
 
     #[cfg(feature = "openssl")]

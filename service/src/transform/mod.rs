@@ -1,11 +1,9 @@
 use core::{future::Future, marker::PhantomData};
 
-use alloc::rc::Rc;
-
 use crate::factory::ServiceFactory;
 use crate::service::Service;
 
-pub trait Transform<S, Req> {
+pub trait Transform<S, Req>: Clone {
     /// Responses produced by the service.
     type Response;
 
@@ -31,7 +29,7 @@ where
     T: Transform<F::Service, Req>,
 {
     factory: F,
-    transform: Rc<T>,
+    transform: T,
     _req: PhantomData<Req>,
 }
 
@@ -43,7 +41,7 @@ where
     pub fn new(factory: F, transform: T) -> Self {
         Self {
             factory,
-            transform: Rc::new(transform),
+            transform,
             _req: PhantomData,
         }
     }
@@ -64,13 +62,10 @@ where
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
         let service = self.factory.new_service(cfg);
-
         let transform = self.transform.clone();
-
         async move {
             let service = service.await?;
             let transform = transform.new_transform(service).await?;
-
             Ok(transform)
         }
     }
@@ -86,6 +81,7 @@ mod test {
     };
 
     // pseudo-doctest for Transform trait
+    #[derive(Clone)]
     struct TimeoutTransform {
         timeout: Duration,
     }

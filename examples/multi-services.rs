@@ -13,11 +13,11 @@ use xitca_http::{
     bytes::Bytes,
     h1, h2, h3,
     http::{header, Request, Response},
-    util::LoggerFactory,
+    util::Logger,
     HttpServiceBuilder, ResponseBody,
 };
 use xitca_io::net::TcpStream;
-use xitca_service::fn_service;
+use xitca_service::{fn_service, ServiceFactoryExt};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
@@ -40,9 +40,7 @@ async fn main() -> io::Result<()> {
         // bind to a http/2 service.
         // *. http/1 and http/2 both use tcp listener so it should be using a separate port.
         .bind::<_, _, _, TcpStream>("http/2", "127.0.0.1:8081", move || {
-            HttpServiceBuilder::h2(fn_service(handler_h2))
-                .openssl(acceptor.clone())
-                .with_logger()
+            HttpServiceBuilder::h2(fn_service(handler_h2)).openssl(acceptor.clone())
         })?
         // bind to a http/3 service.
         // *. note the service name must be unique.
@@ -50,8 +48,7 @@ async fn main() -> io::Result<()> {
         // Bind to same service with different bind_xxx API is allowed for reusing one service
         // on multiple socket addresses and protocols.
         .bind_h3("http/3", "127.0.0.1:8080", config, move || {
-            let builder = HttpServiceBuilder::h3(fn_service(handler_h3));
-            LoggerFactory::new(builder)
+            HttpServiceBuilder::h3(fn_service(handler_h3)).transform(Logger::default())
         })?
         .build()
         .await

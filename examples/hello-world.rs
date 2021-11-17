@@ -12,7 +12,6 @@ use rustls::{Certificate, PrivateKey};
 use xitca_http::{
     bytes::Bytes,
     http::{Request, Response},
-    util::LoggerFactory,
     HttpServiceBuilder, RequestBody, ResponseBody,
 };
 use xitca_service::fn_service;
@@ -33,9 +32,9 @@ async fn main() -> io::Result<()> {
     xitca_server::Builder::new()
         // bind to both tcp and udp addresses where a single service would handle http/1/2/3 traffic.
         .bind_all("hello-world", "127.0.0.1:8080", config, move || {
-            let builder = HttpServiceBuilder::new(fn_service(handler)).rustls(acceptor.clone());
-
-            LoggerFactory::new(builder)
+            HttpServiceBuilder::new(fn_service(handler))
+                .rustls(acceptor.clone())
+                .with_logger()
         })?
         .build()
         .await
