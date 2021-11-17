@@ -37,10 +37,12 @@ macro_rules! impl_alloc {
                 Self: 'f,
             = S::Future<'f>;
 
+            #[inline]
             fn ready(&self) -> Self::Ready<'_> {
                 (**self).ready()
             }
 
+            #[inline]
             fn call(&self, req: Req) -> Self::Future<'_> {
                 (**self).call(req)
             }
@@ -68,10 +70,12 @@ where
         Self: 'f,
     = <S::Target as Service<Req>>::Future<'f>;
 
+    #[inline]
     fn ready(&self) -> Self::Ready<'_> {
         self.as_ref().get_ref().ready()
     }
 
+    #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         self.as_ref().get_ref().call(req)
     }

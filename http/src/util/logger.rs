@@ -1,43 +1,42 @@
 use std::{fmt::Debug, future::Future};
 
 use tracing::{error, span, Level, Span};
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{Service, Transform};
 
 /// A factory for logger service.
-pub struct LoggerFactory<F> {
-    factory: F,
+#[derive(Clone)]
+pub struct Logger {
+    span: Span,
 }
 
-impl<F> LoggerFactory<F> {
-    pub fn new(factory: F) -> Self {
-        Self { factory }
+impl Default for Logger {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-impl<F, Req> ServiceFactory<Req> for LoggerFactory<F>
-where
-    F: ServiceFactory<Req>,
-    F::Service: 'static,
-    F::Error: Debug,
-{
-    type Response = F::Response;
-    type Error = F::Error;
-    type Config = F::Config;
-    type Service = LoggerService<F::Service>;
-    type InitError = F::InitError;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
-
-    fn new_service(&self, cfg: Self::Config) -> Self::Future {
-        let service = self.factory.new_service(cfg);
-
-        async move {
-            let service = service.await?;
-
-            Ok(LoggerService {
-                service,
-                span: span!(Level::TRACE, "xitca_http_logger"),
-            })
+impl Logger {
+    pub fn new() -> Self {
+        Self {
+            span: span!(Level::TRACE, "xitca-logger"),
         }
+    }
+}
+
+impl<S, Req> Transform<S, Req> for Logger
+where
+    S: Service<Req>,
+    S::Error: Debug,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Transform = LoggerService<S>;
+    type InitError = ();
+    type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        let span = self.span.clone();
+        async move { Ok(LoggerService { service, span }) }
     }
 }
 
@@ -50,13 +49,19 @@ pub struct LoggerService<S> {
 
 impl<S, Req> Service<Req> for LoggerService<S>
 where
-    S: Service<Req> + 'static,
+    S: Service<Req>,
     S::Error: Debug,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Ready<'f> = S::Ready<'f>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Ready<'f>
+    where
+        S: 'f,
+    = S::Ready<'f>;
+    type Future<'f>
+    where
+        S: 'f,
+    = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
@@ -68,7 +73,7 @@ where
         async move {
             let _enter = self.span.enter();
             self.service.call(req).await.map_err(|e| {
-                error!(target: "xitca_http_error", "{:?}", e);
+                error!("{:?}", e);
                 e
             })
         }
