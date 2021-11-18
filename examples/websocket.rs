@@ -15,7 +15,7 @@ use xitca_web::{
 async fn main() -> std::io::Result<()> {
     // use tokio tracing for log.
     tracing_subscriber::fmt()
-        .with_env_filter("xitca=trace,[xitca_http_logger]=trace,websocket=info")
+        .with_env_filter("xitca=trace,[xitca-logger]=trace,websocket=info")
         .init();
 
     // some state shared in http server.

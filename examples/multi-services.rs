@@ -13,7 +13,7 @@ use xitca_http::{
     bytes::Bytes,
     h1, h2, h3,
     http::{header, Request, Response, Version},
-    util::Logger,
+    util::{Logger, TcpConfig},
     HttpServiceBuilder, ResponseBody,
 };
 use xitca_io::net::TcpStream;
@@ -22,7 +22,7 @@ use xitca_service::{fn_service, ServiceFactoryExt};
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("xitca=info,[xitca_http_logger]=trace")
+        .with_env_filter("xitca=info,[xitca-logger]=trace")
         .init();
 
     // construct http2 openssl config.
@@ -31,9 +31,17 @@ async fn main() -> io::Result<()> {
     // construct http3 quic server config
     let config = h3_config()?;
 
-    let h1_factory = || HttpServiceBuilder::h1(fn_service(handler_h1)).with_logger();
-    let h2_factory = move || HttpServiceBuilder::h2(fn_service(handler_h2)).openssl(acceptor.clone());
-    let h3_factory = || HttpServiceBuilder::h3(fn_service(handler_h3)).transform(Logger::new());
+    let h1_factory = || {
+        HttpServiceBuilder::h1(fn_service(handler_h1))
+            .transform(TcpConfig::new())
+            .transform(Logger::default())
+    };
+    let h2_factory = move || {
+        HttpServiceBuilder::h2(fn_service(handler_h2))
+            .openssl(acceptor.clone())
+            .with_logger()
+    };
+    let h3_factory = || HttpServiceBuilder::h3(fn_service(handler_h3)).transform(Logger::default());
 
     // construct server
     xitca_server::Builder::new()

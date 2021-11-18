@@ -19,7 +19,7 @@ use xitca_service::fn_service;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("xitca=trace,[xitca_http_logger]=trace")
+        .with_env_filter("xitca=trace,[xitca-logger]=trace")
         .init();
 
     // set up rustls and alpn protocol.
