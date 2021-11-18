@@ -367,7 +367,6 @@ impl TransferCoding {
                 if src.is_empty() {
                     Ok(None)
                 } else {
-                    // TODO: hyper split 8kb here instead of take all.
                     Ok(Some(src.split().freeze()))
                 }
             }
