@@ -29,7 +29,47 @@ pub mod config;
 pub mod util;
 
 /// re-export http crate as module.
-pub use http;
+pub mod http {
+    pub use http::*;
+
+    use crate::body::ResponseBody;
+
+    /// Helper trait for convert a [Request] to [Response].
+    /// This is for re-use request's heap allocation and pass down the context data inside [Extensions]
+    pub trait IntoResponse<B, ResB> {
+        fn into_response(self, body: B) -> Response<ResponseBody<ResB>>;
+
+        fn as_response(&mut self, body: B) -> Response<ResponseBody<ResB>>
+        where
+            Self: Default,
+        {
+            std::mem::take(self).into_response(body)
+        }
+    }
+
+    impl<ReqB, B, ResB> IntoResponse<B, ResB> for Request<ReqB>
+    where
+        B: Into<ResponseBody<ResB>>,
+    {
+        fn into_response(self, body: B) -> Response<ResponseBody<ResB>> {
+            let (
+                request::Parts {
+                    mut headers,
+                    extensions,
+                    ..
+                },
+                _,
+            ) = self.into_parts();
+            headers.clear();
+
+            let mut res = Response::new(body.into());
+            *res.headers_mut() = headers;
+            *res.extensions_mut() = extensions;
+
+            res
+        }
+    }
+}
 
 /// re-export bytes crate as module.
 pub use xitca_io::bytes;
