@@ -23,10 +23,8 @@ async fn main() -> std::io::Result<()> {
 
     // construct http server
     HttpServer::new(move || {
-        // a simple async function that handle request.
-        let factory = fn_service(handler);
         // construct an app with state and handler.
-        App::with_multi_thread_state(shared_state).service(factory)
+        App::with_multi_thread_state(shared_state).service(fn_service(handler))
     })
     .max_write_buf_size::<16>()
     .bind("127.0.0.1:8080")?
@@ -69,11 +67,8 @@ async fn handler(req: &mut WebRequest<'_, &'static str>) -> Result<WebResponse, 
     });
 
     // construct response types.
-    let (parts, body) = res.into_parts();
-    let body = body.map_err(|e| BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
-    let body = Box::pin(body) as _;
-    let body = ResponseBody::stream(body);
-    let res = WebResponse::from_parts(parts, body);
-
-    Ok(res)
+    Ok(res.map(|body| {
+        let body = body.map_err(|e| BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
+        ResponseBody::stream(Box::pin(body) as _)
+    }))
 }
