@@ -1,10 +1,7 @@
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    mem,
-};
+use std::cell::{Ref, RefCell, RefMut};
 
 use xitca_http::{
-    http::{request::Parts, Request},
+    http::{IntoResponse, Request},
     RequestBody, ResponseBody,
 };
 
@@ -61,27 +58,16 @@ impl<'a, D> WebRequest<'a, D> {
     /// Transform self to a WebResponse with given body type.
     ///
     /// The heap allocation of request would be re-used.
-    #[inline(always)]
+    #[inline]
     pub fn into_response<B: Into<ResponseBody>>(mut self, body: B) -> WebResponse {
-        self.as_response(body)
+        self.request_mut().as_response(body.into())
     }
 
     /// Transform &mut self to a WebResponse with given body type.
     ///
     /// The heap allocation of request would be re-used.
+    #[inline]
     pub fn as_response<B: Into<ResponseBody>>(&mut self, body: B) -> WebResponse {
-        let Parts {
-            mut headers,
-            extensions,
-            ..
-        } = mem::take(self.request_mut()).into_parts().0;
-
-        headers.clear();
-
-        let mut res = WebResponse::new(body.into());
-        *res.headers_mut() = headers;
-        *res.extensions_mut() = extensions;
-
-        res
+        self.request_mut().as_response(body.into())
     }
 }
