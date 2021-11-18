@@ -16,7 +16,6 @@ use xitca_http::{
     util::{Logger, TcpConfig},
     HttpServiceBuilder, ResponseBody,
 };
-use xitca_io::net::TcpStream;
 use xitca_service::{fn_service, ServiceFactoryExt};
 
 #[tokio::main(flavor = "current_thread")]
@@ -46,10 +45,10 @@ async fn main() -> io::Result<()> {
     // construct server
     xitca_server::Builder::new()
         // bind to a http/1 service.
-        .bind::<_, _, _, TcpStream>("http/1", "127.0.0.1:8080", h1_factory)?
+        .bind("http/1", "127.0.0.1:8080", h1_factory)?
         // bind to a http/2 service.
         // *. http/1 and http/2 both use tcp listener so it should be using a separate port.
-        .bind::<_, _, _, TcpStream>("http/2", "127.0.0.1:8081", h2_factory)?
+        .bind("http/2", "127.0.0.1:8081", h2_factory)?
         // bind to a http/3 service.
         // *. note the service name must be unique.
         //
