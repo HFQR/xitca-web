@@ -51,7 +51,7 @@ async fn h1_post() -> Result<(), Error> {
 
     for _ in 0..3 {
         let mut body = BytesMut::new();
-        for _ in 0..512 * 1024 {
+        for _ in 0..1024 {
             body.extend_from_slice(b"Hello,World!");
         }
         let body_len = body.len();
@@ -59,7 +59,7 @@ async fn h1_post() -> Result<(), Error> {
         let mut res = c.post(&server_url)?.text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.is_close_connection());
-        let body = res.limit::<{ 12 * 512 * 1024 }>().string().await?;
+        let body = res.limit::<{ 12 * 1024 }>().string().await?;
         assert_eq!(body.len(), body_len);
     }
 
