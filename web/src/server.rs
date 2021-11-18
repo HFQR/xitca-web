@@ -7,7 +7,6 @@ use xitca_http::{
     http::{Request, Response},
     BodyError, HttpServiceBuilder, RequestBody, ResponseBody,
 };
-use xitca_io::net::Stream as ServerStream;
 use xitca_server::{Builder, ServerFuture};
 use xitca_service::ServiceFactory;
 
@@ -195,7 +194,7 @@ where
     {
         let factory = self.factory.clone();
         let config = self.config;
-        self.builder = self.builder.bind::<_, _, _, ServerStream>("xitca-web", addr, move || {
+        self.builder = self.builder.bind("xitca-web", addr, move || {
             let factory = factory();
             HttpServiceBuilder::with_config(factory, config).with_logger()
         })?;
@@ -251,14 +250,12 @@ where
 
         let acceptor = builder.build();
 
-        self.builder = self
-            .builder
-            .bind::<_, _, _, ServerStream>("xitca-web-openssl", addr, move || {
-                let factory = factory();
-                HttpServiceBuilder::with_config(factory, config)
-                    .openssl(acceptor.clone())
-                    .with_logger()
-            })?;
+        self.builder = self.builder.bind("xitca-web-openssl", addr, move || {
+            let factory = factory();
+            HttpServiceBuilder::with_config(factory, config)
+                .openssl(acceptor.clone())
+                .with_logger()
+        })?;
 
         Ok(self)
     }
@@ -292,14 +289,12 @@ where
 
         let config = std::sync::Arc::new(config);
 
-        self.builder = self
-            .builder
-            .bind::<_, _, _, ServerStream>("xitca-web-rustls", addr, move || {
-                let factory = factory();
-                HttpServiceBuilder::with_config(factory, service_config)
-                    .rustls(config.clone())
-                    .with_logger()
-            })?;
+        self.builder = self.builder.bind("xitca-web-rustls", addr, move || {
+            let factory = factory();
+            HttpServiceBuilder::with_config(factory, service_config)
+                .rustls(config.clone())
+                .with_logger()
+        })?;
 
         Ok(self)
     }
@@ -319,12 +314,10 @@ where
         let factory = self.factory.clone();
         let config = self.config;
 
-        self.builder = self
-            .builder
-            .bind_unix::<_, _, _, ServerStream>("xitca-web", path, move || {
-                let factory = factory();
-                HttpServiceBuilder::with_config(factory, config).with_logger()
-            })?;
+        self.builder = self.builder.bind_unix("xitca-web", path, move || {
+            let factory = factory();
+            HttpServiceBuilder::with_config(factory, config).with_logger()
+        })?;
 
         Ok(self)
     }

@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{future::Future, marker::PhantomData};
 
 use futures_core::Stream;
 use xitca_io::io::AsyncIo;
@@ -21,13 +21,35 @@ pub struct H1;
 /// Http/1 Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 pub type H1ServiceBuilder<
+    St,
     F,
     FE,
     FA,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
-> = HttpServiceBuilder<H1, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+> = HttpServiceBuilder<H1, St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+
+impl<St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    H1ServiceBuilder<St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+{
+    #[cfg(unix)]
+    /// Transform Self to a Http1 service builder that able to take in [xitca_io::net::UnixStream] IO type.
+    pub fn unix(
+        self,
+    ) -> H1ServiceBuilder<xitca_io::net::UnixStream, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    where
+        FA: ServiceFactory<xitca_io::net::UnixStream>,
+    {
+        H1ServiceBuilder {
+            factory: self.factory,
+            expect: self.expect,
+            tls_factory: self.tls_factory,
+            config: self.config,
+            _body: PhantomData,
+        }
+    }
+}
 
 impl<
         St,
@@ -40,7 +62,7 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > ServiceFactory<St> for H1ServiceBuilder<F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > ServiceFactory<St> for H1ServiceBuilder<St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
