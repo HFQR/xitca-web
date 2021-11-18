@@ -5,10 +5,11 @@ use tracing::warn;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
 use xitca_service::{Service, Transform};
 
+/// A middleware for socket options config of [TcpStream].
 #[derive(Clone, Debug)]
 pub struct TcpConfig {
     ka: Option<TcpKeepalive>,
-    no_delay: bool,
+    nodelay: bool,
 }
 
 impl Default for TcpConfig {
@@ -21,47 +22,65 @@ impl TcpConfig {
     pub const fn new() -> Self {
         Self {
             ka: None,
-            no_delay: false,
+            nodelay: false,
         }
     }
 
-    /// See [socket2::Socket::set]
-    pub fn set_no_delay(mut self, value: bool) -> Self {
-        self.no_delay = value;
+    /// For more information about this option, see [`set_nodelay`].
+    ///
+    /// [`set_nodelay`]: socket2::Socket::set_nodelay
+    pub fn set_nodelay(mut self, value: bool) -> Self {
+        self.nodelay = value;
         self
     }
 
+    /// For more information about this option, see [`with_time`].
+    ///
+    /// [`with_time`]: TcpKeepalive::with_time
     pub fn keep_alive_with_time(mut self, time: Duration) -> Self {
         self.ka = Some(self.ka.unwrap_or_else(TcpKeepalive::new).with_time(time));
         self
     }
 
+    /// For more information about this option, see [`with_interval`].
+    ///
+    /// [`with_interval`]: TcpKeepalive::with_interval
     pub fn keep_alive_with_interval(mut self, time: Duration) -> Self {
         self.ka = Some(self.ka.unwrap_or_else(TcpKeepalive::new).with_interval(time));
         self
     }
 
+    /// For more information about this option, see [`with_retries`].
+    ///
+    /// [`with_retries`]: TcpKeepalive::with_retries
     pub fn keep_alive_with_retries(mut self, retries: u32) -> Self {
         self.ka = Some(self.ka.unwrap_or_else(TcpKeepalive::new).with_retries(retries));
         self
     }
 }
 
-impl<S> Transform<S, TcpStream> for TcpConfig
-where
-    S: Service<TcpStream>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Transform = TcpConfigMiddleware<S>;
-    type InitError = ();
-    type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+macro_rules! transform_impl {
+    ($ty: ty) => {
+        impl<S> Transform<S, $ty> for TcpConfig
+        where
+            S: Service<$ty>,
+        {
+            type Response = S::Response;
+            type Error = S::Error;
+            type Transform = TcpConfigMiddleware<S>;
+            type InitError = ();
+            type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
 
-    fn new_transform(&self, service: S) -> Self::Future {
-        let config = self.clone();
-        async move { Ok(TcpConfigMiddleware { config, service }) }
-    }
+            fn new_transform(&self, service: S) -> Self::Future {
+                let config = self.clone();
+                async move { Ok(TcpConfigMiddleware { config, service }) }
+            }
+        }
+    };
 }
+
+transform_impl!(TcpStream);
+transform_impl!(ServerStream);
 
 impl<S> Service<TcpStream> for TcpConfigMiddleware<S>
 where
@@ -87,22 +106,6 @@ where
     fn call(&self, req: TcpStream) -> Self::Future<'_> {
         self.try_apply_config(&req);
         self.service.call(req)
-    }
-}
-
-impl<S> Transform<S, ServerStream> for TcpConfig
-where
-    S: Service<ServerStream>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Transform = TcpConfigMiddleware<S>;
-    type InitError = ();
-    type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
-
-    fn new_transform(&self, service: S) -> Self::Future {
-        let config = self.clone();
-        async move { Ok(TcpConfigMiddleware { config, service }) }
     }
 }
 
@@ -146,7 +149,7 @@ pub struct TcpConfigMiddleware<S> {
 impl<S> TcpConfigMiddleware<S> {
     fn apply_config(&self, stream: &TcpStream) -> io::Result<()> {
         let stream_ref = SockRef::from(stream);
-        stream_ref.set_nodelay(self.config.no_delay)?;
+        stream_ref.set_nodelay(self.config.nodelay)?;
 
         if let Some(ka) = self.config.ka.as_ref() {
             stream_ref.set_tcp_keepalive(ka)?;
