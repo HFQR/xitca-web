@@ -11,6 +11,8 @@ use bytes::Bytes;
 use futures_core::{ready, Stream};
 use pin_project_lite::pin_project;
 
+use crate::coding::EncodingError;
+
 pin_project! {
     /// A coder type that can be used for either encode or decode which determined by De type.
     pub struct Coder<S, De, I>
@@ -47,6 +49,7 @@ where
 /// Coder Error collection. Error can either from coding process as std::io::Error
 /// or input Stream's error type.
 pub enum CoderError<E> {
+    Encoding(EncodingError),
     Io(io::Error),
     Runtime(tokio::task::JoinError),
     Feature(Feature),
@@ -63,6 +66,7 @@ pub enum Feature {
 impl<E> fmt::Debug for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::Encoding(ref e) => write!(f, "{:?}", e),
             Self::Io(ref e) => write!(f, "{:?}", e),
             Self::Runtime(ref e) => write!(f, "{:?}", e),
             Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
@@ -76,6 +80,7 @@ impl<E> fmt::Debug for CoderError<E> {
 impl<E> fmt::Display for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::Encoding(ref e) => write!(f, "{}", e),
             Self::Io(ref e) => write!(f, "{}", e),
             Self::Runtime(ref e) => write!(f, "{}", e),
             Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
@@ -83,6 +88,12 @@ impl<E> fmt::Display for CoderError<E> {
             Self::Feature(Feature::Deflate) => write!(f, "de feature is disabled."),
             Self::Stream(..) => write!(f, "Input Stream body error."),
         }
+    }
+}
+
+impl<E> From<EncodingError> for CoderError<E> {
+    fn from(e: EncodingError) -> Self {
+        Self::Encoding(e)
     }
 }
 
@@ -122,7 +133,7 @@ where
                     Poll::Ready(res) => match res {
                         Some(Ok(next)) => {
                             // construct next code in_flight future and continue.
-                            let fut = coder.code(next);
+                            let fut = coder.code_async(next);
                             this.in_flight.set(Some(fut));
                         }
                         Some(Err(e)) => {
@@ -158,7 +169,9 @@ pub trait AsyncCode<Item>: Sized {
 
     type Future: Future<Output = io::Result<(Self, Option<Self::Item>)>>;
 
-    fn code(self, item: Item) -> Self::Future;
+    fn code(self, item: Item) -> io::Result<(Self, Option<Self::Item>)>;
+
+    fn code_async(self, item: Item) -> Self::Future;
 
     fn code_eof(self) -> io::Result<Option<Self::Item>>;
 }
@@ -173,10 +186,17 @@ where
     type Item = Bytes;
     type Future = impl Future<Output = io::Result<(Self, Option<Self::Item>)>>;
 
-    fn code(self, item: Item) -> Self::Future {
-        async move { Ok((self, Some(item.into()))) }
+    #[inline]
+    fn code(self, item: Item) -> io::Result<(Self, Option<Self::Item>)> {
+        Ok((self, Some(item.into())))
     }
 
+    #[inline]
+    fn code_async(self, item: Item) -> Self::Future {
+        async move { self.code(item) }
+    }
+
+    #[inline]
     fn code_eof(self) -> io::Result<Option<Self::Item>> {
         Ok(None)
     }
@@ -189,16 +209,16 @@ macro_rules! async_code_impl {
         where
             Item: AsRef<[u8]> + Send + 'static,
         {
-            type Item = bytes::Bytes;
-            type Future = impl std::future::Future<Output = std::io::Result<(Self, Option<Self::Item>)>>;
+            type Item = ::bytes::Bytes;
+            type Future = impl ::std::future::Future<Output = ::std::io::Result<(Self, Option<Self::Item>)>>;
 
-            fn code(self, item: Item) -> Self::Future {
+            fn code(self, item: Item) -> ::std::io::Result<(Self, Option<Self::Item>)> {
                 use std::io::Write;
 
-                fn code(
+                fn _code(
                     mut this: $coder<crate::writer::Writer>,
                     buf: &[u8],
-                ) -> std::io::Result<($coder<crate::writer::Writer>, Option<bytes::Bytes>)> {
+                ) -> ::std::io::Result<($coder<crate::writer::Writer>, Option<::bytes::Bytes>)> {
                     this.write_all(buf)?;
                     this.flush()?;
                     let b = this.get_mut().take();
@@ -209,18 +229,21 @@ macro_rules! async_code_impl {
                     }
                 }
 
+                _code(self, item.as_ref())
+            }
+
+            fn code_async(self, item: Item) -> Self::Future {
                 async move {
-                    let buf = item.as_ref();
-                    if buf.len() < $in_place_size {
-                        code(self, buf)
+                    if item.as_ref().len() < $in_place_size {
+                        self.code(item)
                     } else {
-                        tokio::task::spawn_blocking(move || code(self, item.as_ref())).await?
+                        ::tokio::task::spawn_blocking(move || self.code(item)).await?
                     }
                 }
             }
 
             #[allow(unused_mut)]
-            fn code_eof(mut self) -> std::io::Result<Option<Self::Item>> {
+            fn code_eof(mut self) -> ::std::io::Result<Option<Self::Item>> {
                 let b = self.finish()?.take();
 
                 if !b.is_empty() {

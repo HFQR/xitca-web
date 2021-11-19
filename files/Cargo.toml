@@ -1,0 +1,33 @@
+[package]
+name = "xitca-files"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+cache-compress = ["http-encoding/all"]
+io-uring = ["tokio-uring/bytes"]
+
+[dependencies]
+xitca-service = "0.1"
+xitca-http = "0.1"
+
+askama_escape = "0.10.1"
+futures-core = "0.3.17"
+httpdate = "1.0.1"
+mime = "0.3"
+mime_guess = "2.0.1"
+percent-encoding = "2.1.0"
+pin-project-lite = "0.2.7"
+tokio = "1.13"
+tracing = "0.1.29"
+
+# content-encoding feature
+http-encoding = { version = "0.1", optional = true }
+
+# io-uring support for file IO
+tokio-uring = { version = "0.1", optional = true }
+
+[dev-dependencies]
+xitca-web = "0.1"
+tokio = { version = "1.13", features = ["macros", "rt"] }
