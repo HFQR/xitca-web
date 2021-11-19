@@ -11,8 +11,9 @@ struct TestFactory;
 
 #[xitca_http_codegen::service_impl]
 impl Test {
-    async fn new_service(_: &TestFactory, cfg: String) -> Result<Self, Infallible> {
-        assert_eq!(cfg.as_str(), "996");
+    async fn new_service(_: &TestFactory, mut cfg123: String) -> Result<Self, Infallible> {
+        cfg123.push_str("+da_gong_ren");
+        assert_eq!(cfg123.as_str(), "996+da_gong_ren");
         Ok(Test)
     }
 

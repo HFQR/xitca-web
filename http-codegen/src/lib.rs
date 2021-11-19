@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{FnArg, GenericArgument, ImplItem, ImplItemMethod, PathArguments, ReturnType, Type};
+use quote::{__private::Span, quote};
+use syn::{FnArg, GenericArgument, Ident, ImplItem, ImplItemMethod, Pat, PatIdent, PathArguments, ReturnType, Type};
 
 #[proc_macro_attribute]
 pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -21,22 +21,34 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // collect ServiceFactory, Config and InitError type from new_service_impl
     let mut inputs = new_service_impl.sig.inputs.iter();
-    let factory_ty = match inputs.next().unwrap() {
+
+    let (factory_ident, factory_ty) = match inputs.next().unwrap() {
         FnArg::Receiver(_) => panic!("new_service method does not accept Self as receiver"),
-        FnArg::Typed(ty) => match ty.ty.as_ref() {
-            Type::Reference(ty_ref) if ty_ref.mutability.is_none() => &ty_ref.elem,
+        FnArg::Typed(ty) => match (ty.pat.as_ref(), ty.ty.as_ref()) {
+            (Pat::Wild(_), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
+                (default_pat_ident("_factory"), &ty_ref.elem)
+            }
+            (Pat::Ident(ident), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
+                (ident.to_owned(), &ty_ref.elem)
+            }
             _ => panic!("new_service must receive ServiceFactory type as immutable reference"),
         },
     };
-    let config_ty = match inputs.next().unwrap() {
+    let (cfg_ident, cfg_ty) = match inputs.next().unwrap() {
         FnArg::Receiver(_) => panic!("new_service method must not receive Self as receiver"),
-        FnArg::Typed(ty) => &ty.ty,
+        FnArg::Typed(ty) => match ty.pat.as_ref() {
+            Pat::Wild(_) => (default_pat_ident("_cfg"), &*ty.ty),
+            Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
+            _ => panic!("new_service method must use cfg: Config as second function argument"),
+        },
     };
     let (_, init_err_ty) = extract_res_ty(&new_service_impl.sig.output);
+    let factory_stmts = &new_service_impl.block.stmts;
 
     // make sure async fn ready is there and move on.
     // TODO: Check the first fn arg and make sure it's a Receiver of &Self.
-    let _ = find_async_method(&input.items, "ready").expect("ready method can not be located");
+    let ready_impl = find_async_method(&input.items, "ready").expect("ready method can not be located");
+    let ready_stmts = &ready_impl.block.stmts;
 
     // collect Request, Response and Error type.
     let call_impl = find_async_method(&input.items, "call").expect("call method can not be located");
@@ -46,26 +58,31 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // TODO: Check the first fn arg and make sure it's a Receiver of &Self.
     let _ = inputs.next().unwrap();
 
-    let req_ty = match inputs.next().unwrap() {
-        FnArg::Receiver(_) => panic!("new_service method does not accept Self as receiver"),
-        FnArg::Typed(ty) => &ty.ty,
+    let (req_ident, req_ty) = match inputs.next().unwrap() {
+        FnArg::Receiver(_) => panic!("call method does not accept Self as second argument"),
+        FnArg::Typed(ty) => match ty.pat.as_ref() {
+            Pat::Wild(_) => (default_pat_ident("_req"), &*ty.ty),
+            Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
+            _ => panic!("call must use req: Request as second function argument"),
+        },
     };
-
     let (res_ty, err_ty) = extract_res_ty(&call_impl.sig.output);
+    let call_stmts = &call_impl.block.stmts;
 
     let result = quote! {
         impl ::xitca_service::ServiceFactory<#req_ty> for #factory_ty {
             type Response = #res_ty;
             type Error = #err_ty;
-            type Config = #config_ty;
+            type Config = #cfg_ty;
             type Service = #service_ty;
             type InitError = #init_err_ty;
             type Future = impl ::core::future::Future<Output = Result<Self::Service, Self::InitError>>;
 
             fn new_service(&self, cfg: Self::Config) -> Self::Future {
-                let this = self.clone();
+                let #factory_ident = self.clone();
+                let #cfg_ident = cfg;
                 async move {
-                    #service_ty::new_service(&this, cfg).await
+                    #(#factory_stmts)*
                 }
             }
         }
@@ -79,19 +96,18 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #[inline]
             fn ready(&self) -> Self::Ready<'_> {
                 async move {
-                    #service_ty::ready(self).await
+                    #(#ready_stmts)*
                 }
             }
 
             #[inline]
             fn call(&self, req: #req_ty) -> Self::Future<'_> {
+                let #req_ident = req;
                 async move {
-                    #service_ty::call(self, req).await
+                    #(#call_stmts)*
                 }
             }
         }
-
-        #input
     };
 
     result.into()
@@ -125,4 +141,15 @@ fn extract_res_ty(ret: &ReturnType) -> (&Type, &Type) {
     }
 
     panic!("new_service method must output Result<Self, <InitError>>")
+}
+
+// generate a default PatIdent
+fn default_pat_ident(ident: &str) -> PatIdent {
+    PatIdent {
+        attrs: Vec::with_capacity(0),
+        by_ref: None,
+        mutability: None,
+        ident: Ident::new(ident, Span::call_site()),
+        subpat: None,
+    }
 }
