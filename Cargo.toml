@@ -2,6 +2,7 @@
 members = [
     "client",
     "http",
+    "http-codegen",
     "io",
     "server",
     "service",
@@ -15,6 +16,7 @@ members = [
 [patch.crates-io]
 xitca-client = { path = "./client" }
 xitca-http = { path = "./http" }
+xitca-http-codegen = { path = "./http-codegen" }
 xitca-io = { path = "./io" }
 xitca-server = { path = "./server" }
 xitca-service = { path = "./service" }
