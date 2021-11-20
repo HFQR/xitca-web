@@ -2,7 +2,7 @@
 
 use std::convert::Infallible;
 
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
 
 struct Test;
 
@@ -28,13 +28,44 @@ impl Test {
     }
 }
 
+#[derive(Clone)]
+struct TestMiddleware;
+
+struct TestMiddlewareService<S>(S);
+
+#[xitca_http_codegen::middleware_impl]
+impl<S> TestMiddlewareService<S>
+where
+    S: Service<String, Error = Box<dyn std::error::Error>, Response = usize>,
+{
+    async fn new_transform(_m: &TestMiddleware, service: S) -> Result<Self, Infallible> {
+        Ok(TestMiddlewareService(service))
+    }
+
+    async fn ready(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.0.ready().await
+    }
+
+    async fn call(&self, req: String) -> Result<usize, Box<dyn std::error::Error>> {
+        assert_eq!(req.as_str(), "007");
+
+        self.0.call(req).await
+    }
+}
+
 #[tokio::test]
 async fn http_codegen() {
     let factory = TestFactory;
     let cfg = String::from("996");
-    let test = ServiceFactory::new_service(&factory, cfg).await.unwrap();
+    let service = ServiceFactory::new_service(&factory, cfg.clone()).await.unwrap();
 
-    Service::ready(&test).await.err().unwrap();
-    let res = Service::call(&test, String::from("007")).await.unwrap();
+    Service::ready(&service).await.err().unwrap();
+    let res = Service::call(&service, String::from("007")).await.unwrap();
+    assert_eq!(res, 233);
+
+    let transform = factory.transform(TestMiddleware);
+    let middlware = ServiceFactory::new_service(&transform, cfg).await.unwrap();
+
+    let res = Service::call(&middlware, String::from("007")).await.unwrap();
     assert_eq!(res, 233);
 }
