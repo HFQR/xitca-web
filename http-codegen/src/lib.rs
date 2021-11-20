@@ -1,6 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{__private::Span, quote};
-use syn::{FnArg, GenericArgument, Ident, ImplItem, ImplItemMethod, Pat, PatIdent, PathArguments, ReturnType, Type};
+use syn::{
+    FnArg, GenericArgument, Ident, ImplItem, ImplItemMethod, Pat, PatIdent, PathArguments, ReturnType, Stmt, Type,
+};
 
 #[proc_macro_attribute]
 pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -13,7 +15,8 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     // collect generics.
-    let generics = &input.generics;
+    let generic_ty = &input.generics.params;
+    let where_clause = &input.generics.where_clause;
 
     // find methods from impl.
     let new_service_impl =
@@ -45,29 +48,15 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let (_, init_err_ty) = extract_res_ty(&new_service_impl.sig.output);
     let factory_stmts = &new_service_impl.block.stmts;
 
-    // make sure async fn ready is there and move on.
-    // TODO: Check the first fn arg and make sure it's a Receiver of &Self.
-    let ready_impl = find_async_method(&input.items, "ready").expect("ready method can not be located");
-    let ready_stmts = &ready_impl.block.stmts;
+    let ReadyImpl { ready_stmts } = ReadyImpl::from_items(&input.items);
 
-    // collect Request, Response and Error type.
-    let call_impl = find_async_method(&input.items, "call").expect("call method can not be located");
-
-    let mut inputs = call_impl.sig.inputs.iter();
-    // ignore receiver and move on.
-    // TODO: Check the first fn arg and make sure it's a Receiver of &Self.
-    let _ = inputs.next().unwrap();
-
-    let (req_ident, req_ty) = match inputs.next().unwrap() {
-        FnArg::Receiver(_) => panic!("call method does not accept Self as second argument"),
-        FnArg::Typed(ty) => match ty.pat.as_ref() {
-            Pat::Wild(_) => (default_pat_ident("_req"), &*ty.ty),
-            Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
-            _ => panic!("call must use req: Request as second function argument"),
-        },
-    };
-    let (res_ty, err_ty) = extract_res_ty(&call_impl.sig.output);
-    let call_stmts = &call_impl.block.stmts;
+    let CallImpl {
+        req_ident,
+        req_ty,
+        res_ty,
+        err_ty,
+        call_stmts,
+    } = CallImpl::from_items(&input.items);
 
     let result = quote! {
         impl ::xitca_service::ServiceFactory<#req_ty> for #factory_ty {
@@ -87,7 +76,110 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        impl<#generics> ::xitca_service::Service<#req_ty> for #service_ty {
+        impl<#generic_ty> ::xitca_service::Service<#req_ty> for #service_ty
+        #where_clause
+        {
+            type Response = #res_ty;
+            type Error = #err_ty;
+            type Ready<'f> where Self: 'f = impl ::core::future::Future<Output = Result<(), Self::Error>>;
+            type Future<'f> where Self: 'f = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>>;
+
+            #[inline]
+            fn ready(&self) -> Self::Ready<'_> {
+                async move {
+                    #(#ready_stmts)*
+                }
+            }
+
+            #[inline]
+            fn call(&self, req: #req_ty) -> Self::Future<'_> {
+                let #req_ident = req;
+                async move {
+                    #(#call_stmts)*
+                }
+            }
+        }
+    };
+
+    result.into()
+}
+
+#[proc_macro_attribute]
+pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::ItemImpl);
+
+    // Collect type path from impl.
+    let middleware_ty = match input.self_ty.as_ref() {
+        Type::Path(path) => path,
+        _ => panic!("middleware_impl macro must be used on a TypePath"),
+    };
+
+    // collect generics.
+    let generic_ty = &input.generics.params;
+    let where_clause = &input.generics.where_clause;
+
+    // find methods from impl.
+    let new_transform_impl =
+        find_async_method(&input.items, "new_transform").expect("new_transform method can not be located");
+
+    // collect ServiceFactory, Config and InitError type from new_transform_impl
+    let mut inputs = new_transform_impl.sig.inputs.iter();
+
+    let (transform_ident, transform_ty) = match inputs.next().unwrap() {
+        FnArg::Receiver(_) => panic!("new_transform method does not accept Self as receiver"),
+        FnArg::Typed(ty) => match (ty.pat.as_ref(), ty.ty.as_ref()) {
+            (Pat::Wild(_), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
+                (default_pat_ident("_factory"), &ty_ref.elem)
+            }
+            (Pat::Ident(ident), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
+                (ident.to_owned(), &ty_ref.elem)
+            }
+            _ => panic!("new_transform must receive ServiceFactory type as immutable reference"),
+        },
+    };
+    let (service_ident, service_ty) = match inputs.next().unwrap() {
+        FnArg::Receiver(_) => panic!("new_transform method must not receive Self as receiver"),
+        FnArg::Typed(ty) => match ty.pat.as_ref() {
+            Pat::Wild(_) => (default_pat_ident("_service"), &*ty.ty),
+            Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
+            _ => panic!("new_transform method must use cfg: Config as second function argument"),
+        },
+    };
+    let (_, init_err_ty) = extract_res_ty(&new_transform_impl.sig.output);
+    let tranform_stmts = &new_transform_impl.block.stmts;
+
+    let ReadyImpl { ready_stmts } = ReadyImpl::from_items(&input.items);
+
+    let CallImpl {
+        req_ident,
+        req_ty,
+        res_ty,
+        err_ty,
+        call_stmts,
+    } = CallImpl::from_items(&input.items);
+
+    let result = quote! {
+        impl<#generic_ty> ::xitca_service::Transform<#service_ty, #req_ty> for #transform_ty
+        #where_clause
+        {
+            type Response = #res_ty;
+            type Error = #err_ty;
+            type Transform = #middleware_ty;
+            type InitError = #init_err_ty;
+            type Future = impl ::core::future::Future<Output = Result<Self::Transform, Self::InitError>>;
+
+            fn new_transform(&self, service: #service_ty) -> Self::Future {
+                let #transform_ident = self.clone();
+                let #service_ident = service;
+                async move {
+                    #(#tranform_stmts)*
+                }
+            }
+        }
+
+        impl<#generic_ty> ::xitca_service::Service<#req_ty> for #middleware_ty
+        #where_clause
+        {
             type Response = #res_ty;
             type Error = #err_ty;
             type Ready<'f> where Self: 'f = impl ::core::future::Future<Output = Result<(), Self::Error>>;
@@ -121,6 +213,61 @@ fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &'a str) -> Option<&'
         }
         _ => None,
     })
+}
+
+struct CallImpl<'a> {
+    req_ident: PatIdent,
+    req_ty: &'a Type,
+    res_ty: &'a Type,
+    err_ty: &'a Type,
+    call_stmts: &'a [Stmt],
+}
+
+impl<'a> CallImpl<'a> {
+    fn from_items(items: &'a [ImplItem]) -> Self {
+        // collect Request, Response and Error type.
+        let call_impl = find_async_method(items, "call").expect("call method can not be located");
+
+        let mut inputs = call_impl.sig.inputs.iter();
+        // ignore receiver and move on.
+        // TODO: Check the first fn arg and make sure it's a Receiver of &Self.
+        let _ = inputs.next().unwrap();
+
+        let (req_ident, req_ty) = match inputs.next().unwrap() {
+            FnArg::Receiver(_) => panic!("call method does not accept Self as second argument"),
+            FnArg::Typed(ty) => match ty.pat.as_ref() {
+                Pat::Wild(_) => (default_pat_ident("_req"), &*ty.ty),
+                Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
+                _ => panic!("call must use req: Request as second function argument"),
+            },
+        };
+        let (res_ty, err_ty) = extract_res_ty(&call_impl.sig.output);
+        let call_stmts = &call_impl.block.stmts;
+
+        CallImpl {
+            req_ident,
+            req_ty,
+            res_ty,
+            err_ty,
+            call_stmts,
+        }
+    }
+}
+
+struct ReadyImpl<'a> {
+    ready_stmts: &'a [Stmt],
+}
+
+impl<'a> ReadyImpl<'a> {
+    fn from_items(items: &'a [ImplItem]) -> Self {
+        // make sure async fn ready is there and move on.
+        // TODO: Check the first fn arg and make sure it's a Receiver of &Self.
+
+        let ready_impl = find_async_method(items, "ready").expect("ready method can not be located");
+        let ready_stmts = &ready_impl.block.stmts;
+
+        Self { ready_stmts }
+    }
 }
 
 // Extract Result<T, E> types from a return type of function.
