@@ -7,9 +7,9 @@ use std::{
 use xitca_io::io::AsyncIo;
 
 use crate::{
-    bytes::{buf::Chain, Buf, BufMut, Bytes, BytesMut},
+    bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut},
     h1::error::Error,
-    util::{buf_list::BufList, writer::Writer},
+    util::buf_list::BufList,
 };
 
 // buf list is forced to go in backpressure when it reaches this length.
@@ -100,7 +100,7 @@ impl<const BUF_LIMIT: usize> WriteBuf for FlatBuf<BUF_LIMIT> {
     }
 
     fn write_chunk(&mut self, bytes: Bytes) {
-        write!(Writer::new(&mut **self), "{:X}\r\n", bytes.len()).unwrap();
+        write!(BufMutWriter(&mut **self), "{:X}\r\n", bytes.len()).unwrap();
 
         self.reserve(bytes.len() + 2);
         self.put_slice(bytes.as_ref());
