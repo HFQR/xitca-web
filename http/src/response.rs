@@ -8,8 +8,7 @@ use http::{header, status::StatusCode, Response};
 
 use super::{
     body::ResponseBody,
-    bytes::{Bytes, BytesMut},
-    util::writer::Writer,
+    bytes::{BufMutWriter, Bytes, BytesMut},
 };
 
 /// Helper trait for convert Service::Error type to Service::Response.
@@ -34,7 +33,7 @@ macro_rules! internal_impl {
         impl<B, Req> ResponseError<Req, Response<ResponseBody<B>>> for $ty {
             fn response_error(&mut self, _: &mut Req) -> Response<ResponseBody<B>> {
                 let mut bytes = BytesMut::new();
-                write!(Writer::new(&mut bytes), "{}", self).unwrap();
+                write!(BufMutWriter(&mut bytes), "{}", self).unwrap();
                 Response::builder()
                     .status(<Self as ResponseError<Req, Response<ResponseBody<B>>>>::status_code())
                     .header(
