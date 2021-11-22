@@ -33,6 +33,20 @@ where
     _req: PhantomData<Req>,
 }
 
+impl<F, Req, T> Clone for TransformFactory<F, Req, T>
+where
+    F: ServiceFactory<Req> + Clone,
+    T: Transform<F::Service, Req>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            factory: self.factory.clone(),
+            transform: self.transform.clone(),
+            _req: PhantomData,
+        }
+    }
+}
+
 impl<F, Req, T> TransformFactory<F, Req, T>
 where
     F: ServiceFactory<Req>,
