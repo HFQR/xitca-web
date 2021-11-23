@@ -11,7 +11,8 @@ where
     FnServiceFactory { f }
 }
 
-pub struct FnServiceFactory<F> {
+#[derive(Clone)]
+pub struct FnServiceFactory<F: Clone> {
     f: F,
 }
 
