@@ -6,7 +6,7 @@ use std::{
 
 use pin_project_lite::pin_project;
 
-use super::keep_alive::KeepAlive;
+use super::keep_alive::{KeepAlive, KeepAliveExpired};
 
 #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
 pub(crate) use poll::*;
@@ -118,16 +118,14 @@ pin_project! {
 }
 
 impl<F: Future> Future for TimeoutFuture<'_, F> {
-    type Output = Result<F::Output, ()>;
+    type Output = Result<F::Output, KeepAliveExpired>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-
-        if let Poll::Ready(res) = this.fut.poll(cx) {
-            return Poll::Ready(Ok(res));
+        match this.fut.poll(cx) {
+            Poll::Ready(res) => Poll::Ready(Ok(res)),
+            Poll::Pending => this.timer.as_mut().poll(cx).map(Err),
         }
-
-        this.timer.as_mut().poll(cx).map(Err)
     }
 }
 

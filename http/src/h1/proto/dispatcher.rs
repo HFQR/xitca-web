@@ -83,6 +83,10 @@ where
 
     match res {
         Ok(_) | Err(Error::Closed) => Ok(()),
+        Err(Error::KeepAliveExpire) => {
+            trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
+            Ok(())
+        }
         Err(e) => Err(e),
     }
 }
@@ -183,7 +187,7 @@ where
         if self.write_buf.is_empty() {
             never().await
         } else {
-            let _ = self.io.ready(Interest::WRITABLE).await?;
+            self.io.ready(Interest::WRITABLE).await?;
             Ok(())
         }
     }
@@ -275,21 +279,13 @@ where
         loop {
             match self.ctx.ctype() {
                 ConnectionType::Init | ConnectionType::KeepAlive => {
-                    match self.io.read().timeout(self.timer.as_mut()).await {
-                        Ok(res) => res?,
-                        Err(_) => {
-                            trace!(target: "h1_dispatcher", "Connection timeout. Shutting down");
-                            return self.io.shutdown().await;
-                        }
-                    }
+                    self.io.read().timeout(self.timer.as_mut()).await??;
                 }
                 ConnectionType::Upgrade | ConnectionType::Close => {
-                    trace!(target: "h1_dispatcher", "Connection not keep-alive. Shutting down");
-                    return self.io.shutdown().await;
+                    return self.io.shutdown().timeout(self.timer.as_mut()).await?;
                 }
                 ConnectionType::CloseForce => {
                     unlikely();
-                    trace!(target: "h1_dispatcher", "Connection meets force close condition. Closing");
                     return Ok(());
                 }
             }
@@ -297,12 +293,7 @@ where
             'req: while let Some(res) = self.decode_head() {
                 match res {
                     Ok((req, mut body_handle)) => {
-                        // have new request. update timer deadline.
-                        let now = self.ctx.date.now() + self.ka_dur;
-                        self.timer.as_mut().update(now);
-
                         let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
-
                         let encoder = &mut self.encode_head(parts, &res_body)?;
 
                         self.response_handler(res_body, encoder, body_handle).await?;
@@ -310,6 +301,8 @@ where
                         if self.ctx.is_connection_closed() {
                             break 'req;
                         }
+
+                        self.update_timer();
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         self.request_error(response::header_too_large)?;
@@ -326,6 +319,12 @@ where
 
             self.io.drain_write().await?;
         }
+    }
+
+    // update timer deadline according to keep alive duration.
+    fn update_timer(&mut self) {
+        let now = self.ctx.date.now() + self.ka_dur;
+        self.timer.as_mut().update(now);
     }
 
     fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
@@ -406,7 +405,6 @@ where
         mut body_handle: Option<RequestBodyHandle>,
     ) -> Result<(), Error<S::Error>> {
         pin!(body);
-
         loop {
             match self
                 .try_poll_body(body.as_mut())

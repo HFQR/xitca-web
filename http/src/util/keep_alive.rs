@@ -46,15 +46,17 @@ impl KeepAlive {
     }
 }
 
+pub struct KeepAliveExpired;
+
 impl Future for KeepAlive {
-    type Output = ();
+    type Output = KeepAliveExpired;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.as_mut().project();
         ready!(this.timer.poll(cx));
 
         if self.is_expired() {
-            Poll::Ready(())
+            Poll::Ready(KeepAliveExpired)
         } else {
             self.as_mut().reset();
             self.poll(cx)
