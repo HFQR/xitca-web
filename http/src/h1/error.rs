@@ -1,10 +1,15 @@
 use std::{fmt, io};
 
-use crate::error::{BodyError, HttpServiceError};
+use crate::{
+    error::{BodyError, HttpServiceError},
+    util::keep_alive::KeepAliveExpired,
+};
 
 use super::proto::error::ProtoError;
 
 pub enum Error<E> {
+    /// KeepAlive error should be treated as success and transform to Ok(())
+    KeepAliveExpire,
     /// Closed error should be treated as success and transform to Ok(())
     Closed,
     Service(E),
@@ -16,6 +21,7 @@ pub enum Error<E> {
 impl<E: fmt::Debug> fmt::Debug for Error<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::KeepAliveExpire => write!(f, "Keep-Alive time expired"),
             Self::Closed => write!(f, "Closed"),
             Self::Service(ref e) => write!(f, "{:?}", e),
             Self::Body(ref e) => write!(f, "{:?}", e),
@@ -44,6 +50,12 @@ impl<E> From<io::Error> for Error<E> {
             io::ErrorKind::WouldBlock => panic!("WouldBlock error should never be treated as error."),
             _ => Self::Io(e),
         }
+    }
+}
+
+impl<E> From<KeepAliveExpired> for Error<E> {
+    fn from(_: KeepAliveExpired) -> Self {
+        Self::KeepAliveExpire
     }
 }
 
