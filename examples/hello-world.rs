@@ -1,13 +1,8 @@
 //! A Http server returns Hello World String as Response.
 
-use std::{
-    fs::File,
-    io::{self, BufReader},
-    sync::Arc,
-};
+use std::{fs, io, sync::Arc};
 
-use h3_quinn::quinn::generic::ServerConfig;
-use h3_quinn::quinn::{crypto::rustls::TlsSession, CertificateChain, ServerConfigBuilder};
+use h3_quinn::quinn::ServerConfig;
 use rustls::{Certificate, PrivateKey};
 use xitca_http::{
     bytes::Bytes,
@@ -22,10 +17,10 @@ async fn main() -> io::Result<()> {
         .with_env_filter("xitca=trace,[xitca-logger]=trace")
         .init();
 
-    // set up rustls and alpn protocol.
-    let acceptor = rustls_config()?;
+    // setup h1 and h2 rustls config.
+    let acceptor = h1_h2_config()?;
 
-    // construct http3 quic server config
+    // setup h3 quinn config on top of rustls config.
     let config = h3_config()?;
 
     // construct server
@@ -48,39 +43,36 @@ async fn handler(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<
     Ok(res)
 }
 
-fn h3_config() -> io::Result<ServerConfig<TlsSession>> {
-    let mut config = ServerConfigBuilder::default();
-    config.protocols(&[b"h3-29", b"h3-28", b"h3-27"]);
-
-    let key = std::fs::read("./cert/key.pem")?;
-    let key = h3_quinn::quinn::PrivateKey::from_pem(&key).unwrap();
-
-    let cert = std::fs::read("./cert/cert.pem")?;
-    let cert = CertificateChain::from_pem(&cert).unwrap();
-
-    config.certificate(cert, key).unwrap();
-
-    Ok(config.build())
+fn h1_h2_config() -> io::Result<Arc<rustls::ServerConfig>> {
+    let config = rustls_config(vec!["h2".into(), "http/1.1".into()])?;
+    Ok(config)
 }
 
-fn rustls_config() -> io::Result<Arc<rustls::ServerConfig>> {
-    let cert_file = &mut BufReader::new(File::open("./cert/cert.pem")?);
-    let key_file = &mut BufReader::new(File::open("./cert/key.pem")?);
-    let cert_chain = rustls_pemfile::certs(cert_file)
+fn h3_config() -> io::Result<ServerConfig> {
+    let config = rustls_config(vec![b"h3-29".to_vec(), b"h3-28".to_vec(), b"h3-27".to_vec()])?;
+    Ok(ServerConfig::with_crypto(config))
+}
+
+fn rustls_config(alpn_protocols: Vec<Vec<u8>>) -> io::Result<Arc<rustls::ServerConfig>> {
+    let cert = fs::read("./cert/cert.pem")?;
+    let key = fs::read("./cert/key.pem")?;
+
+    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
+    let key = PrivateKey(key);
+
+    let cert = rustls_pemfile::certs(&mut &*cert)
         .unwrap()
         .into_iter()
         .map(Certificate)
         .collect();
 
-    let mut keys = rustls_pemfile::pkcs8_private_keys(key_file).unwrap();
-
     let mut acceptor = rustls::ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
-        .with_single_cert(cert_chain, PrivateKey(keys.remove(0)))
+        .with_single_cert(cert, key)
         .unwrap();
 
-    acceptor.alpn_protocols = vec!["h2".into(), "http/1.1".into()];
+    acceptor.alpn_protocols = alpn_protocols;
 
     Ok(Arc::new(acceptor))
 }

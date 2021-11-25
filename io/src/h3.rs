@@ -8,45 +8,41 @@ use std::{
 
 use async_channel::{Receiver, Recv};
 use futures_core::ready;
-use quinn::{
-    crypto::{rustls::TlsSession, Session},
-    generic::{Connecting, Endpoint, Incoming, ServerConfig},
-    EndpointError,
-};
+use quinn::{Connecting, Endpoint, Incoming, ServerConfig};
 
-pub type UdpConnecting = Connecting<TlsSession>;
+pub type UdpConnecting = Connecting;
 
-pub type H3ServerConfig = ServerConfig<TlsSession>;
+pub type H3ServerConfig = ServerConfig;
 
-/// UdpListener is a wrapper type of [`Endpoint`](quinn::generic::Endpoint).
+/// UdpListener is a wrapper type of [`Endpoint`].
 #[derive(Debug)]
-pub struct UdpListener<S: Session = TlsSession> {
-    endpoint: Endpoint<S>,
-    /// `async-channel` is used to receive Connecting from [`Incoming`](quinn::generic::Incoming).
-    incoming: Receiver<Connecting<S>>,
+pub struct UdpListener {
+    endpoint: Endpoint,
+    /// `async-channel` is used to receive Connecting from [`Incoming`].
+    incoming: Receiver<Connecting>,
 }
 
-impl<S: Session> UdpListener<S> {
-    pub fn endpoint(&self) -> &Endpoint<S> {
+impl UdpListener {
+    pub fn endpoint(&self) -> &Endpoint {
         &self.endpoint
     }
 }
 
-impl<S: Session> UdpListener<S> {
-    /// Accept [`UdpStream`](self::UdpStream).
-    pub fn accept(&self) -> Accept<'_, S> {
+impl UdpListener {
+    /// Accept [`UdpStream`].
+    pub fn accept(&self) -> Accept<'_> {
         Accept {
             recv: self.incoming.recv(),
         }
     }
 }
 
-pub struct Accept<'a, S: Session> {
-    recv: Recv<'a, Connecting<S>>,
+pub struct Accept<'a> {
+    recv: Recv<'a, Connecting>,
 }
 
-impl<S: Session> Future for Accept<'_, S> {
-    type Output = io::Result<UdpStream<S>>;
+impl Future for Accept<'_> {
+    type Output = io::Result<UdpStream>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match ready!(Pin::new(&mut self.get_mut().recv).poll(cx)) {
@@ -60,37 +56,29 @@ impl<S: Session> Future for Accept<'_, S> {
 }
 
 /// Builder type for UdpListener.
-pub struct UdpListenerBuilder<S: Session = TlsSession> {
+pub struct UdpListenerBuilder {
     addr: SocketAddr,
-    config: ServerConfig<S>,
+    config: ServerConfig,
 }
 
-impl<S> UdpListenerBuilder<S>
-where
-    S: Session + 'static,
-{
-    pub fn new(addr: SocketAddr, config: ServerConfig<S>) -> Self {
+impl UdpListenerBuilder {
+    pub fn new(addr: SocketAddr, config: ServerConfig) -> Self {
         Self { addr, config }
     }
 
-    pub fn build(self) -> io::Result<UdpListener<S>> {
+    pub fn build(self) -> io::Result<UdpListener> {
         let config = self.config;
         let addr = self.addr;
 
-        let mut builder = Endpoint::builder();
-        builder.listen(config);
-
-        let (endpoint, mut incoming) = builder.bind(&addr).map_err(|e| match e {
-            EndpointError::Socket(e) => e,
-        })?;
+        let (endpoint, mut incoming) = Endpoint::server(config, addr)?;
 
         // Use async channel to dispatch Connecting<Session> to worker threads.
         // Incoming can only be held by single task and sharing it between
         // threads would cause hanging.
         let (tx, rx) = async_channel::unbounded();
 
-        // Detach the Incoming<Session> as a spawn task.
-        // When Endpoint<Session> dropped incoming will be wakeup and get None to end task.
+        // Detach the Incoming> as a spawn task.
+        // When Endpoint dropped incoming will be wakeup and get None to end task.
         tokio::spawn(async move {
             while let Some(conn) = incoming.next().await {
                 tx.send(conn).await.unwrap()
@@ -101,23 +89,23 @@ where
     }
 }
 
-trait NextTrait<S: Session> {
-    fn next(&mut self) -> Next<'_, S>;
+trait NextTrait {
+    fn next(&mut self) -> Next<'_>;
 }
 
-impl<S: Session> NextTrait<S> for Incoming<S> {
+impl NextTrait for Incoming {
     #[inline(always)]
-    fn next(&mut self) -> Next<'_, S> {
+    fn next(&mut self) -> Next<'_> {
         Next { stream: self }
     }
 }
 
-struct Next<'a, S: Session> {
-    stream: &'a mut Incoming<S>,
+struct Next<'a> {
+    stream: &'a mut Incoming,
 }
 
-impl<S: Session> Future for Next<'_, S> {
-    type Output = Option<<Incoming<S> as futures_core::Stream>::Item>;
+impl Future for Next<'_> {
+    type Output = Option<<Incoming as futures_core::Stream>::Item>;
 
     #[inline(always)]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -125,15 +113,15 @@ impl<S: Session> Future for Next<'_, S> {
     }
 }
 
-/// Wrapper type for [`Connecting`](quinn::generic::Connecting).
+/// Wrapper type for [`Connecting`].
 ///
 /// Naming is to keep consistent with `TcpStream` / `UnixStream`.
-pub struct UdpStream<S: Session = TlsSession> {
-    connecting: Connecting<S>,
+pub struct UdpStream {
+    connecting: Connecting,
 }
 
-impl<S: Session> UdpStream<S> {
-    /// Expose [`Connecting`](quinn::generic::Connecting) type that can be polled or awaited.
+impl UdpStream {
+    /// Expose [`Connecting`] type that can be polled or awaited.
     ///
     /// # Examples:
     ///
@@ -144,11 +132,11 @@ impl<S: Session> UdpStream<S> {
     ///     let new_conn: NewConnection = stream.connecting().await.unwrap();
     /// }
     /// ```
-    pub fn connecting(self) -> Connecting<S> {
+    pub fn connecting(self) -> Connecting {
         self.connecting
     }
 
-    /// Get remote `SocketAddr` self connected to.
+    /// Get remote [`SocketAddr`] self connected to.
     pub fn peer_addr(&self) -> SocketAddr {
         self.connecting.remote_address()
     }

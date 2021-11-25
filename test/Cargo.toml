@@ -15,4 +15,6 @@ http-ws = "0.1"
 
 futures-util = "0.3.17"
 h3-quinn = "0.0.0"
+rustls = "0.20.2"
+rustls-pemfile = "0.2.1"
 tokio = { version = "1.13", features = ["macros", "rt"] }

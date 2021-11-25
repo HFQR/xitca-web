@@ -145,7 +145,10 @@ impl ClientBuilder {
         let mut client = {
             #[cfg(feature = "http3")]
             {
-                use h3_quinn::quinn::{ClientConfigBuilder, Endpoint};
+                use std::sync::Arc;
+
+                use h3_quinn::quinn::{ClientConfig, Endpoint};
+                use tokio_rustls::rustls;
 
                 assert_eq!(
                     self.max_http_version,
@@ -153,52 +156,80 @@ impl ClientBuilder {
                     "Please disable http3 feature if max_http_version is below HTTP_3"
                 );
 
-                let mut config = ClientConfigBuilder::default();
-                config.protocols(&[b"h3-29"]);
-
-                let mut builder = Endpoint::builder();
-
                 #[cfg(not(feature = "dangerous"))]
-                {
-                    builder.default_client_config(config.build());
-                }
+                let h3_client = {
+                    use rustls::{OwnedTrustAnchor, RootCertStore};
+                    use webpki_roots::TLS_SERVER_ROOTS;
+
+                    let mut root_certs = RootCertStore::empty();
+                    for cert in TLS_SERVER_ROOTS.0 {
+                        let cert = OwnedTrustAnchor::from_subject_spki_name_constraints(
+                            cert.subject,
+                            cert.spki,
+                            cert.name_constraints,
+                        );
+                        let certs = vec![cert].into_iter();
+                        root_certs.add_server_trust_anchors(certs);
+                    }
+
+                    let mut crypto = rustls::ClientConfig::builder()
+                        .with_safe_defaults()
+                        .with_root_certificates(root_certs)
+                        .with_no_client_auth();
+
+                    crypto.alpn_protocols = vec![b"h3-29".to_vec()];
+
+                    let config = ClientConfig::new(Arc::new(crypto));
+
+                    let mut endpoint = match self.local_addr {
+                        Some(addr) => Endpoint::client(addr).unwrap(),
+                        None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
+                    };
+
+                    endpoint.set_default_client_config(config);
+
+                    endpoint
+                };
 
                 #[cfg(feature = "dangerous")]
-                {
-                    use std::sync::Arc;
+                let h3_client = {
+                    struct SkipServerVerification;
 
-                    use h3_quinn::quinn;
-                    use rustls_019 as rustls;
-
-                    struct YesVerifier;
-                    impl rustls::ServerCertVerifier for YesVerifier {
+                    impl SkipServerVerification {
+                        fn new() -> Arc<Self> {
+                            Arc::new(Self)
+                        }
+                    }
+                    impl rustls::client::ServerCertVerifier for SkipServerVerification {
                         fn verify_server_cert(
                             &self,
-                            _roots: &rustls::RootCertStore,
-                            _presented_certs: &[rustls::Certificate],
-                            _dns_name: webpki::DNSNameRef,
+                            _end_entity: &rustls::Certificate,
+                            _intermediates: &[rustls::Certificate],
+                            _server_name: &rustls::ServerName,
+                            _scts: &mut dyn Iterator<Item = &[u8]>,
                             _ocsp_response: &[u8],
-                        ) -> std::result::Result<rustls::ServerCertVerified, rustls::TLSError> {
-                            Ok(rustls::ServerCertVerified::assertion())
+                            _now: std::time::SystemTime,
+                        ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+                            Ok(rustls::client::ServerCertVerified::assertion())
                         }
                     }
 
-                    let mut tls_config = rustls::ClientConfig::new();
-                    tls_config.versions = vec![rustls::ProtocolVersion::TLSv1_3];
-                    tls_config.enable_early_data = true;
-                    tls_config.dangerous().set_certificate_verifier(Arc::new(YesVerifier));
-                    tls_config.alpn_protocols = vec![b"h3-29".to_vec()];
+                    let mut crypto = rustls::ClientConfig::builder()
+                        .with_safe_defaults()
+                        .with_custom_certificate_verifier(SkipServerVerification::new())
+                        .with_no_client_auth();
+                    crypto.alpn_protocols = vec![b"h3-29".to_vec()];
 
-                    let transport = quinn::TransportConfig::default();
-                    builder.default_client_config(quinn::ClientConfig {
-                        crypto: Arc::new(tls_config),
-                        transport: Arc::new(transport),
-                    });
-                }
+                    let config = ClientConfig::new(Arc::new(crypto));
 
-                let (h3_client, _) = match self.local_addr {
-                    Some(addr) => builder.bind(&addr).unwrap(),
-                    None => builder.bind(&"0.0.0.0:0".parse().unwrap()).unwrap(),
+                    let mut endpoint = match self.local_addr {
+                        Some(addr) => Endpoint::client(addr).unwrap(),
+                        None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
+                    };
+
+                    endpoint.set_default_client_config(config);
+
+                    endpoint
                 };
 
                 Client {

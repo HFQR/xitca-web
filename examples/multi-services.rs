@@ -3,12 +3,11 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use std::{convert::Infallible, io};
+use std::{convert::Infallible, fs, io, sync::Arc};
 
-use h3_quinn::quinn::{
-    crypto::rustls::TlsSession, generic::ServerConfig, CertificateChain, PrivateKey, ServerConfigBuilder,
-};
+use h3_quinn::quinn::ServerConfig;
 use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
+use rustls::{Certificate, PrivateKey};
 use xitca_http::{
     bytes::Bytes,
     h1, h2, h3,
@@ -110,17 +109,26 @@ fn h2_config() -> io::Result<SslAcceptor> {
     Ok(builder.build())
 }
 
-fn h3_config() -> io::Result<ServerConfig<TlsSession>> {
-    let mut config = ServerConfigBuilder::default();
-    config.protocols(&[b"h3-29", b"h3-28", b"h3-27"]);
+fn h3_config() -> io::Result<ServerConfig> {
+    let cert = fs::read("./cert/cert.pem")?;
+    let key = fs::read("./cert/key.pem")?;
 
-    let key = std::fs::read("./cert/key.pem")?;
-    let cert = std::fs::read("./cert/cert.pem")?;
+    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
+    let key = PrivateKey(key);
 
-    let key = PrivateKey::from_pem(&key).unwrap();
-    let cert = CertificateChain::from_pem(&cert).unwrap();
+    let cert = rustls_pemfile::certs(&mut &*cert)
+        .unwrap()
+        .into_iter()
+        .map(Certificate)
+        .collect();
 
-    config.certificate(cert, key).unwrap();
+    let mut acceptor = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(cert, key)
+        .unwrap();
 
-    Ok(config.build())
+    acceptor.alpn_protocols = vec![b"h3-29".to_vec(), b"h3-28".to_vec(), b"h3-27".to_vec()];
+
+    Ok(ServerConfig::with_crypto(Arc::new(acceptor)))
 }
