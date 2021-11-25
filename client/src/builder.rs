@@ -145,7 +145,10 @@ impl ClientBuilder {
         let mut client = {
             #[cfg(feature = "http3")]
             {
+                use std::sync::Arc;
+
                 use h3_quinn::quinn::{ClientConfig, Endpoint};
+                use tokio_rustls::rustls;
 
                 assert_eq!(
                     self.max_http_version,
@@ -155,7 +158,25 @@ impl ClientBuilder {
 
                 #[cfg(not(feature = "dangerous"))]
                 let h3_client = {
-                    let mut crypto = rustls::ClientConfig::builder().with_safe_defaults();
+                    use rustls::{OwnedTrustAnchor, RootCertStore};
+                    use webpki_roots::TLS_SERVER_ROOTS;
+
+                    let mut root_certs = RootCertStore::empty();
+                    for cert in TLS_SERVER_ROOTS.0 {
+                        let cert = OwnedTrustAnchor::from_subject_spki_name_constraints(
+                            cert.subject,
+                            cert.spki,
+                            cert.name_constraints,
+                        );
+                        let certs = vec![cert].into_iter();
+                        root_certs.add_server_trust_anchors(certs);
+                    }
+
+                    let mut crypto = rustls::ClientConfig::builder()
+                        .with_safe_defaults()
+                        .with_root_certificates(root_certs)
+                        .with_no_client_auth();
+
                     crypto.alpn_protocols = vec![b"h3-29".to_vec()];
 
                     let config = ClientConfig::new(Arc::new(crypto));
@@ -172,10 +193,6 @@ impl ClientBuilder {
 
                 #[cfg(feature = "dangerous")]
                 let h3_client = {
-                    use std::sync::Arc;
-
-                    use tokio_rustls::rustls;
-
                     struct SkipServerVerification;
 
                     impl SkipServerVerification {

@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 default = []
 http2 = ["h2", "itoa", "xitca-http/http2"]
-http3 = ["h3", "h3-quinn", "itoa", "async-stream"]
+http3 = ["h3", "h3-quinn", "itoa", "async-stream", "tokio-rustls", "webpki-roots"]
 openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["tokio-rustls", "webpki-roots"]
 json = ["serde", "serde_json"]
@@ -43,11 +43,9 @@ itoa = { version = "0.4.8", optional = true }
 openssl-crate = { package = "openssl", version = "0.10", optional = true }
 tokio-openssl = { version = "0.6.3", optional = true }
 
-# rustls support
-webpki-roots = { version = "0.22", optional = true }
-
-# rustls support and dangerous feature shared
+# rustls, http3 and dangerous features shared support
 tokio-rustls = { version = "0.23", optional = true }
+webpki-roots = { version = "0.22", optional = true }
 
 # serde support
 serde = { version = "1.0.130", default-features = false, optional = true }
