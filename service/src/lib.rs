@@ -9,10 +9,16 @@ mod service;
 mod transform;
 
 pub use self::{
-    factory::{fn_service, ServiceFactory, ServiceFactoryExt},
-    service::Service,
+    factory::{fn_service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject},
+    service::{Service, ServiceObject},
     transform::{Transform, TransformFactory},
 };
+
+use core::{future::Future, pin::Pin};
+
+use alloc::boxed::Box;
+
+pub(crate) type BoxFuture<'a, Res, Err> = Pin<Box<dyn Future<Output = Result<Res, Err>> + 'a>>;
 
 /// Macro for generate an enum Service/ServiceFactory with given list of identifiers.
 ///

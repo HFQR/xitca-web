@@ -1,7 +1,8 @@
 mod ext;
 mod function;
+mod object;
 
-pub use self::{ext::ServiceFactoryExt, function::fn_service};
+pub use self::{ext::ServiceFactoryExt, function::fn_service, object::ServiceFactoryObject};
 
 use core::future::Future;
 
