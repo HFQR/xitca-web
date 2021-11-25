@@ -86,7 +86,7 @@ where
 }
 
 pub(crate) async fn connect(client: &Endpoint, addr: &SocketAddr, hostname: &str) -> Result<Connection, Error> {
-    let conn = client.connect(addr, hostname)?.await?;
+    let conn = client.connect(*addr, hostname)?.await?;
 
     let res = h3::client::Connection::new(h3_quinn::Connection::new(conn)).await?;
 
