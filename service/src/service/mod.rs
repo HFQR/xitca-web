@@ -1,3 +1,7 @@
+mod object;
+
+pub use object::ServiceObject;
+
 use core::{future::Future, ops::Deref, pin::Pin};
 
 use alloc::{boxed::Box, rc::Rc, sync::Arc};
