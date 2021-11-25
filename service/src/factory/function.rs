@@ -55,6 +55,7 @@ where
         ready(Ok(()))
     }
 
+    #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         (self.f)(req)
     }
