@@ -280,7 +280,6 @@ mod test {
     use crate::{
         body::{RequestBody, ResponseBody},
         http::Response,
-        util::service::{Router, RouterError},
     };
 
     async fn index(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Infallible> {
@@ -291,10 +290,7 @@ mod test {
     async fn route() {
         let route = get(fn_service(index)).post(fn_service(index));
 
-        let router = Router::new().insert("/", route);
-
-        let service = router.new_service(()).await.unwrap();
-
+        let service = route.new_service(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);
         let res = service.call(req).await.ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
@@ -307,6 +303,6 @@ mod test {
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
         let err = service.call(req).await.err().unwrap();
-        assert!(matches!(err, RouterError::Service(RouteError::MethodNotAllowed)));
+        assert!(matches!(err, RouteError::MethodNotAllowed));
     }
 }
