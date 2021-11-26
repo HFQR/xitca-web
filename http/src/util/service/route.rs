@@ -8,26 +8,37 @@ use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
 
 use crate::http::{Method, Request};
 
-pub fn get<GET, Req>(
-    factory: GET,
-) -> Route<
-    GET::Response,
-    GET::Error,
-    GET::Config,
-    GET::InitError,
-    impl ServiceFactory<
-        Req,
-        Response = GET::Response,
-        Error = RouteError<GET::Error>,
-        Config = GET::Config,
-        InitError = GET::InitError,
-    >,
->
-where
-    GET: ServiceFactory<Req>,
-{
-    Route::new().get(factory)
+macro_rules! method {
+    ($method: ident; $($req: ident), *) => {
+        pub fn $method<F, Req>(
+            factory: F,
+        ) -> Route<
+            F::Response,
+            F::Error,
+            F::Config,
+            F::InitError,
+            // This is a hack to generate opaque return type repeatedly.
+            $(
+                impl ServiceFactory<
+                    $req,
+                    Response = F::Response,
+                    Error = RouteError<F::Error>,
+                    Config = F::Config,
+                    InitError = F::InitError,
+                >,
+            ) *
+        >
+        where
+            F: ServiceFactory<Req>,
+        {
+            Route::new().$method(factory)
+        }
+    };
 }
+
+method!(get; Req, Req, Req);
+method!(post; Req, Req, Req);
+method!(put; Req, Req, Req);
 
 macro_rules! route {
     ($($method: ident), *) => {
