@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData};
+use std::future::Future;
 
 use futures_core::Stream;
 use xitca_io::io::AsyncIo;
@@ -46,7 +46,7 @@ impl<St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
             expect: self.expect,
             tls_factory: self.tls_factory,
             config: self.config,
-            _body: PhantomData,
+            _body: std::marker::PhantomData,
         }
     }
 }
