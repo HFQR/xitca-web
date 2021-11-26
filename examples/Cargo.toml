@@ -16,6 +16,10 @@ name = "multi-services"
 path = "multi-services.rs"
 
 [[example]]
+name = "route"
+path = "route.rs"
+
+[[example]]
 name = "websocket"
 path = "websocket.rs"
 
@@ -35,6 +39,7 @@ xitca-service = "0.1"
 xitca-web = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
 http-ws = "0.1"
 
+anyhow = "1.0.48"
 bytes = "1"
 futures-util = "0.3"
 h3-quinn = "0.0.0"

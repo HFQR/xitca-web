@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    error, fmt,
     future::{ready, Future, Ready},
 };
 
@@ -23,6 +24,26 @@ pub enum RouterError<E> {
     /// Error type of the inner service.
     Service(E),
 }
+
+impl<E: fmt::Debug> fmt::Debug for RouterError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::MatchError(ref e) => write!(f, "{:?}", e),
+            Self::Service(ref e) => write!(f, "{:?}", e),
+        }
+    }
+}
+
+impl<E: fmt::Display> fmt::Display for RouterError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::MatchError(ref e) => write!(f, "{}", e),
+            Self::Service(ref e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl<E> error::Error for RouterError<E> where E: fmt::Debug + fmt::Display {}
 
 impl<Req, Res, Err, Cfg, InitErr> Default for Router<Req, Res, Err, Cfg, InitErr> {
     fn default() -> Self {

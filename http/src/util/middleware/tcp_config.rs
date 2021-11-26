@@ -50,6 +50,7 @@ impl TcpConfig {
         self
     }
 
+    #[cfg(not(windows))]
     /// For more information about this option, see [`with_retries`].
     ///
     /// [`with_retries`]: TcpKeepalive::with_retries

@@ -1,4 +1,5 @@
 use std::{
+    error, fmt,
     future::Future,
     future::{ready, Ready},
     marker::PhantomData,
@@ -229,6 +230,26 @@ pub enum RouteError<E> {
     /// Error type of the inner service.
     Service(E),
 }
+
+impl<E: fmt::Debug> fmt::Debug for RouteError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::MethodNotAllowed => write!(f, "MethodNotAllowed"),
+            Self::Service(ref e) => write!(f, "{:?}", e),
+        }
+    }
+}
+
+impl<E: fmt::Display> fmt::Display for RouteError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::MethodNotAllowed => write!(f, "MethodNotAllowed"),
+            Self::Service(ref e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl<E> error::Error for RouteError<E> where E: fmt::Debug + fmt::Display {}
 
 #[doc(hidden)]
 pub struct MethodNotAllowed<Res, Err, Cfg, InitErr>(PhantomData<(Res, Err, Cfg, InitErr)>);
