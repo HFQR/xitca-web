@@ -2,9 +2,17 @@ use alloc::boxed::Box;
 
 use crate::transform::{Transform, TransformFactory};
 
-use super::{ServiceFactory, ServiceFactoryObject};
+use super::{map_err::MapErrServiceFactory, ServiceFactory, ServiceFactoryObject};
 
 pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
+    fn map_err<F, E>(self, err: F) -> MapErrServiceFactory<Self, Req, F, E>
+    where
+        F: Fn(Self::Error) -> E + Clone,
+        Self: Sized,
+    {
+        MapErrServiceFactory::new(self, err)
+    }
+
     fn transform<T>(self, transform: T) -> TransformFactory<Self, Req, T>
     where
         T: Transform<Self::Service, Req>,

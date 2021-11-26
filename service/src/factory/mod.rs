@@ -1,5 +1,6 @@
 mod ext;
 mod function;
+mod map_err;
 mod object;
 
 pub use self::{ext::ServiceFactoryExt, function::fn_service, object::ServiceFactoryObject};
