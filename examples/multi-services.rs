@@ -12,7 +12,7 @@ use xitca_http::{
     bytes::Bytes,
     h1, h2, h3,
     http::{header, Request, Response, Version},
-    util::{Logger, TcpConfig},
+    util::middleware::{Logger, TcpConfig},
     HttpServiceBuilder, ResponseBody,
 };
 use xitca_service::{fn_service, ServiceFactoryExt};
