@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use futures_core::stream::Stream;
+use futures_util::future::poll_fn;
 use h3_quinn::quinn::Endpoint;
 use xitca_http::{
     bytes::Bytes,
@@ -88,7 +89,13 @@ where
 pub(crate) async fn connect(client: &Endpoint, addr: &SocketAddr, hostname: &str) -> Result<Connection, Error> {
     let conn = client.connect(*addr, hostname)?.await?;
 
-    let res = h3::client::Connection::new(h3_quinn::Connection::new(conn)).await?;
+    let (mut task, conn) = h3::client::new(h3_quinn::Connection::new(conn)).await?;
 
-    Ok(res)
+    tokio::spawn(async move {
+        poll_fn(|cx| task.poll_close(cx))
+            .await
+            .expect("http3 connection failed");
+    });
+
+    Ok(conn)
 }
