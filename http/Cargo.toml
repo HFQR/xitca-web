@@ -7,7 +7,7 @@ edition = "2021"
 default = ["http1"]
 http1 = ["httparse", "itoa"]
 http2 = ["h2", "futures-util/alloc"]
-http3 = ["xitca-io/http3", "futures-util/alloc", "async-stream", "futures-intrusive", "h3", "h3-quinn"]
+http3 = ["xitca-io/http3", "futures-util/alloc", "async-stream", "futures-intrusive", "h3/test_helpers", "h3-quinn"]
 openssl = ["futures-task", "openssl-crate", "tokio-openssl", "tokio-util/io"]
 rustls = ["futures-task", "tokio-rustls", "tokio-util/io"]
 native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "tokio-util/io"]
@@ -19,6 +19,7 @@ xitca-service = "0.1"
 futures-core = "0.3.17"
 http = "0.2.5"
 httpdate = "1.0"
+matchit = "0.4.4"
 pin-project-lite = "0.2.7"
 socket2 = { version = "0.4.2", features = ["all"] }
 tokio = { version = "1.12", features = ["io-util", "time"] }

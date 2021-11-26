@@ -67,13 +67,13 @@ macro_rules! transform_impl {
         {
             type Response = S::Response;
             type Error = S::Error;
-            type Transform = TcpConfigMiddleware<S>;
+            type Transform = TcpConfigService<S>;
             type InitError = ();
             type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
 
             fn new_transform(&self, service: S) -> Self::Future {
                 let config = self.clone();
-                async move { Ok(TcpConfigMiddleware { config, service }) }
+                async move { Ok(TcpConfigService { config, service }) }
             }
         }
     };
@@ -82,7 +82,7 @@ macro_rules! transform_impl {
 transform_impl!(TcpStream);
 transform_impl!(ServerStream);
 
-impl<S> Service<TcpStream> for TcpConfigMiddleware<S>
+impl<S> Service<TcpStream> for TcpConfigService<S>
 where
     S: Service<TcpStream>,
 {
@@ -109,7 +109,7 @@ where
     }
 }
 
-impl<S> Service<ServerStream> for TcpConfigMiddleware<S>
+impl<S> Service<ServerStream> for TcpConfigService<S>
 where
     S: Service<ServerStream>,
 {
@@ -141,12 +141,12 @@ where
     }
 }
 
-pub struct TcpConfigMiddleware<S> {
+pub struct TcpConfigService<S> {
     config: TcpConfig,
     service: S,
 }
 
-impl<S> TcpConfigMiddleware<S> {
+impl<S> TcpConfigService<S> {
     fn apply_config(&self, stream: &TcpStream) -> io::Result<()> {
         let stream_ref = SockRef::from(stream);
         stream_ref.set_nodelay(self.config.nodelay)?;

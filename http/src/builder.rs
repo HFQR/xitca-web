@@ -16,7 +16,7 @@ use super::{
     http::{Request, Response},
     service::HttpService,
     tls,
-    util::Logger,
+    util::middleware::Logger,
     version::AsVersion,
 };
 
