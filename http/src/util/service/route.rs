@@ -1,3 +1,6 @@
+#![allow(non_snake_case)]
+#![allow(non_camel_case_types)]
+
 use std::{
     error, fmt,
     future::Future,
@@ -14,6 +17,7 @@ macro_rules! method {
         pub fn $method<F, Req>(
             factory: F,
         ) -> Route<
+            Req,
             F::Response,
             F::Error,
             F::Config,
@@ -37,144 +41,253 @@ macro_rules! method {
     };
 }
 
-method!(get; Req, Req, Req);
-method!(post; Req, Req, Req);
-method!(put; Req, Req, Req);
-
 macro_rules! route {
-    ($($method: ident), *) => {
-        #[allow(non_camel_case_types)]
+    ($($method: ident), *; $($req: ident), *) => {
         pub struct Route<
+            Req,
             Res,
             Err,
             Cfg,
             InitErr,
-            $($method = MethodNotAllowed<Res, Err, Cfg, InitErr>), *
+            $(
+                $method = MethodNotAllowed<Res, Err, Cfg, InitErr>,
+            )*
         > {
-            $($method: $method), *,
-            _phantom: PhantomData<(Res, Err, Cfg, InitErr)>,
+            $(
+                $method: $method,
+            )*
+            _phantom: PhantomData<(Req, Res, Err, Cfg, InitErr)>,
+        }
+
+        impl<Req, Res, Err, Cfg, InitErr> Route<Req, Res, Err, Cfg, InitErr> {
+            pub fn new() -> Self {
+                Self {
+                    $(
+                        $method: Default::default(),
+                    )*
+                    _phantom: PhantomData,
+                }
+            }
+        }
+
+        impl<Req, Res, Err, Cfg, InitErr> Default for Route<Req, Res, Err, Cfg, InitErr> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+
+        impl<ReqB, Res, Err, Cfg, InitErr, $($method), *> ServiceFactory<Request<ReqB>>
+            for Route<Request<ReqB>, Res, Err, Cfg, InitErr, $($method), *>
+        where
+            $(
+                $method: ServiceFactory<Request<ReqB>, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
+            )*
+            Cfg: Clone,
+        {
+            type Response = Res;
+            type Error = RouteError<Err>;
+            type Config = Cfg;
+            type Service = RouteService<$($method::Service), *>;
+            type InitError = InitErr;
+            type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+
+            fn new_service(&self, cfg: Self::Config) -> Self::Future {
+                let ($($method), *) = ($(self.$method.new_service(cfg.clone())), *);
+
+                async move {
+                    let ($($method), *) = ($($method.await?), *);
+                    Ok(RouteService { $($method), * })
+                }
+            }
+        }
+
+        impl<Req, Res, Err, Cfg, InitErr, $($method), *> Route<Req, Res, Err, Cfg, InitErr, $($method), *>
+        where
+            $(
+                $method: ServiceFactory<Req, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
+            )*
+        {
+            pub fn get<GET1>(self, factory: GET1) -> route!($($req), *)
+            where
+                GET1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: factory.map_err(RouteError::Service),
+                    POST: self.POST,
+                    PUT: self.PUT,
+                    DELETE: self.DELETE,
+                    HEAD: self.HEAD,
+                    OPTIONS: self.OPTIONS,
+                    CONNECT: self.CONNECT,
+                    PATCH: self.PATCH,
+                    TRACE: self.TRACE,
+                    _phantom: PhantomData,
+                }
+            }
+            pub fn post<POST1>(self, factory: POST1) -> route!($($req), *)
+            where
+                POST1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: self.GET,
+                    POST: factory.map_err(RouteError::Service),
+                    PUT: self.PUT,
+                    DELETE: self.DELETE,
+                    HEAD: self.HEAD,
+                    OPTIONS: self.OPTIONS,
+                    CONNECT: self.CONNECT,
+                    PATCH: self.PATCH,
+                    TRACE: self.TRACE,
+                    _phantom: PhantomData,
+                }
+            }
+
+            pub fn put<PUT1>(self, factory: PUT1) -> route!($($req), *)
+            where
+                PUT1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: self.GET,
+                    POST: self.POST,
+                    PUT: factory.map_err(RouteError::Service),
+                    DELETE: self.DELETE,
+                    HEAD: self.HEAD,
+                    OPTIONS: self.OPTIONS,
+                    CONNECT: self.CONNECT,
+                    PATCH: self.PATCH,
+                    TRACE: self.TRACE,
+                    _phantom: PhantomData,
+                }
+            }
+
+            pub fn delete<DELETE1>(self, factory: DELETE1) -> route!($($req), *)
+            where
+                DELETE1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: self.GET,
+                    POST: self.POST,
+                    PUT: self.PUT,
+                    DELETE: factory.map_err(RouteError::Service),
+                    HEAD: self.HEAD,
+                    OPTIONS: self.OPTIONS,
+                    CONNECT: self.CONNECT,
+                    PATCH: self.PATCH,
+                    TRACE: self.TRACE,
+                    _phantom: PhantomData,
+                }
+            }
+
+            pub fn head<HEAD1>(self, factory: HEAD1) -> route!($($req), *)
+            where
+                HEAD1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: self.GET,
+                    POST: self.POST,
+                    PUT: self.PUT,
+                    DELETE: self.DELETE,
+                    HEAD: factory.map_err(RouteError::Service),
+                    OPTIONS: self.OPTIONS,
+                    CONNECT: self.CONNECT,
+                    PATCH: self.PATCH,
+                    TRACE: self.TRACE,
+                    _phantom: PhantomData,
+                }
+            }
+
+            pub fn options<OPTIONS1>(self, factory: OPTIONS1) -> route!($($req), *)
+            where
+                OPTIONS1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: self.GET,
+                    POST: self.POST,
+                    PUT: self.PUT,
+                    DELETE: self.DELETE,
+                    HEAD: self.HEAD,
+                    OPTIONS: factory.map_err(RouteError::Service),
+                    CONNECT: self.CONNECT,
+                    PATCH: self.PATCH,
+                    TRACE: self.TRACE,
+                    _phantom: PhantomData,
+                }
+            }
+
+            pub fn connect<CONNECT1>(self, factory: CONNECT1) -> route!($($req), *)
+            where
+                CONNECT1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: self.GET,
+                    POST: self.POST,
+                    PUT: self.PUT,
+                    DELETE: self.DELETE,
+                    HEAD: self.HEAD,
+                    OPTIONS: self.OPTIONS,
+                    CONNECT: factory.map_err(RouteError::Service),
+                    PATCH: self.PATCH,
+                    TRACE: self.TRACE,
+                    _phantom: PhantomData,
+                }
+            }
+
+            pub fn patch<PATCH1>(self, factory: PATCH1) -> route!($($req), *)
+            where
+                PATCH1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: self.GET,
+                    POST: self.POST,
+                    PUT: self.PUT,
+                    DELETE: self.DELETE,
+                    HEAD: self.HEAD,
+                    OPTIONS: self.OPTIONS,
+                    CONNECT: self.CONNECT,
+                    PATCH: factory.map_err(RouteError::Service),
+                    TRACE: self.TRACE,
+                    _phantom: PhantomData,
+                }
+            }
+
+            pub fn trace<TRACE1>(self, factory: TRACE1) -> route!($($req), *)
+            where
+                TRACE1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            {
+                Route {
+                    GET: self.GET,
+                    POST: self.POST,
+                    PUT: self.PUT,
+                    DELETE: self.DELETE,
+                    HEAD: self.HEAD,
+                    OPTIONS: self.OPTIONS,
+                    CONNECT: self.CONNECT,
+                    PATCH: self.PATCH,
+                    TRACE: factory.map_err(RouteError::Service),
+                    _phantom: PhantomData,
+                }
+            }
         }
     };
-}
-
-route!(get, post, put);
-
-impl<Res, Err, Cfg, InitErr> Default for Route<Res, Err, Cfg, InitErr> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<Res, Err, Cfg, InitErr> Route<Res, Err, Cfg, InitErr> {
-    pub fn new() -> Self {
-        Self {
-            get: Default::default(),
-            post: Default::default(),
-            put: Default::default(),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<Res, Err, Cfg, InitErr, GET, POST, PUT> Route<Res, Err, Cfg, InitErr, GET, POST, PUT> {
-    pub fn get<GET1, Req>(
-        self,
-        factory: GET1,
-    ) -> Route<
-        Res,
-        Err,
-        Cfg,
-        InitErr,
-        impl ServiceFactory<Req, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
-        POST,
-        PUT,
-    >
-    where
-        GET1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-    {
-        Route {
-            get: factory.map_err(RouteError::Service),
-            post: self.post,
-            put: self.put,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn post<POST1, Req>(
-        self,
-        factory: POST1,
-    ) -> Route<
-        Res,
-        Err,
-        Cfg,
-        InitErr,
-        GET,
-        impl ServiceFactory<Req, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
-        PUT,
-    >
-    where
-        POST1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-    {
-        Route {
-            get: self.get,
-            post: factory.map_err(RouteError::Service),
-            put: self.put,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn put<PUT1, Req>(
-        self,
-        factory: PUT1,
-    ) -> Route<
-        Res,
-        Err,
-        Cfg,
-        InitErr,
-        GET,
-        POST,
-        impl ServiceFactory<Req, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
-    >
-    where
-        PUT1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-    {
-        Route {
-            get: self.get,
-            post: self.post,
-            put: factory.map_err(RouteError::Service),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<ReqB, Res, Err, Cfg, InitErr, GET, POST, PUT> ServiceFactory<Request<ReqB>>
-    for Route<Res, Err, Cfg, InitErr, GET, POST, PUT>
-where
-    GET: ServiceFactory<Request<ReqB>, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
-    POST: ServiceFactory<Request<ReqB>, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
-    PUT: ServiceFactory<Request<ReqB>, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
-    Cfg: Clone,
-{
-    type Response = Res;
-    type Error = RouteError<Err>;
-    type Config = Cfg;
-    type Service = RouteService<GET::Service, POST::Service, PUT::Service>;
-    type InitError = InitErr;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
-
-    fn new_service(&self, cfg: Self::Config) -> Self::Future {
-        let get = self.get.new_service(cfg.clone());
-        let post = self.post.new_service(cfg.clone());
-        let put = self.put.new_service(cfg);
-
-        async move {
-            let get = get.await?;
-            let post = post.await?;
-            let put = put.await?;
-
-            Ok(RouteService { get, post, put })
-        }
-    }
+    ($($req: ident), *) => {
+        Route<
+            Req,
+            Res,
+            Err,
+            Cfg,
+            InitErr,
+            $(
+                impl ServiceFactory<
+                    $req,
+                    Response = Res,
+                    Error = RouteError<Err>,
+                    Config = Cfg,
+                    InitError = InitErr,
+                >,
+            )*
+        >
+    };
 }
 
 macro_rules! route_service {
@@ -183,45 +296,57 @@ macro_rules! route_service {
         pub struct RouteService<$($method), *> {
             $($method: $method), *
         }
-    }
-}
 
-route_service!(get, post, put);
+        impl<ReqB, Res, Err, $($method), *> Service<Request<ReqB>> for RouteService<$($method), *>
+        where
+             $(
+                $method: Service<Request<ReqB>, Response = Res, Error = RouteError<Err>>
+             ), *
+        {
+            type Response = Res;
+            type Error = RouteError<Err>;
+            type Ready<'f>
+            where
+                Self: 'f,
+            = Ready<Result<(), Self::Error>>;
+            type Future<'f>
+            where
+                Self: 'f,
+            = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-impl<ReqB, GET, POST, PUT> Service<Request<ReqB>> for RouteService<GET, POST, PUT>
-where
-    GET: Service<Request<ReqB>>,
-    POST: Service<Request<ReqB>, Response = GET::Response, Error = GET::Error>,
-    PUT: Service<Request<ReqB>, Response = GET::Response, Error = GET::Error>,
-{
-    type Response = GET::Response;
-    type Error = GET::Error;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = Ready<Result<(), Self::Error>>;
-    type Future<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+            #[inline]
+            fn ready(&self) -> Self::Ready<'_> {
+                ready(Ok(()))
+            }
 
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        ready(Ok(()))
-    }
-
-    #[inline]
-    fn call(&self, req: Request<ReqB>) -> Self::Future<'_> {
-        async move {
-            match *req.method() {
-                Method::GET => self.get.call(req).await,
-                Method::POST => self.post.call(req).await,
-                Method::PUT => self.put.call(req).await,
-                _ => unimplemented!("{:?} Method can not be handled", req.method()),
+            #[inline]
+            fn call(&self, req: Request<ReqB>) -> Self::Future<'_> {
+                async move {
+                    match *req.method() {
+                        $(
+                            Method::$method => self.$method.call(req).await,
+                        ) *
+                        _ => Err(RouteError::MethodNotAllowed),
+                    }
+                }
             }
         }
     }
 }
+
+method!(get; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+method!(post; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+method!(put; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+method!(delete; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+method!(head; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+method!(options; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+method!(connect; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+method!(patch; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+method!(trace; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+
+route!(GET, POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+
+route_service!(GET, POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE);
 
 /// Error type of Route service.
 pub enum RouteError<E> {
