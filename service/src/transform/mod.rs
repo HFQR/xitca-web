@@ -1,3 +1,5 @@
+pub(crate) mod function;
+
 use core::{future::Future, marker::PhantomData};
 
 use crate::factory::ServiceFactory;

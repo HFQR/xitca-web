@@ -1,6 +1,8 @@
+use core::future::Future;
+
 use alloc::boxed::Box;
 
-use crate::transform::{Transform, TransformFactory};
+use crate::transform::{function::TransformFunctionFactory, Transform, TransformFactory};
 
 use super::{map::MapServiceFactory, map_err::MapErrServiceFactory, ServiceFactory, ServiceFactoryObject};
 
@@ -27,6 +29,15 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         Self: ServiceFactory<Req> + Sized,
     {
         TransformFactory::new(self, transform)
+    }
+
+    fn transform_fn<T, Fut>(self, transform: T) -> TransformFunctionFactory<Self, T>
+    where
+        T: for<'s> Fn(&'s Self::Service, Req) -> Fut + Clone,
+        Fut: Future,
+        Self: Sized,
+    {
+        TransformFunctionFactory::new(self, transform)
     }
 
     fn into_object(self) -> ServiceFactoryObject<Req, Self::Response, Self::Error, Self::Config, Self::InitError>
@@ -129,5 +140,22 @@ mod test {
 
         let err = service.call("996").await.err().unwrap();
         assert_eq!(err, "251");
+    }
+
+    #[tokio::test]
+    async fn transform_fn() {
+        let factory = fn_service(index).transform_fn(|service, req| {
+            let service = service.clone();
+            async move {
+                let res = service.call(req).await?;
+                assert_eq!(res, "996");
+                Ok::<&'static str, ()>("251")
+            }
+        });
+
+        let service = factory.new_service(()).await.unwrap();
+
+        let res = service.call("996").await.ok().unwrap();
+        assert_eq!(res, "251");
     }
 }

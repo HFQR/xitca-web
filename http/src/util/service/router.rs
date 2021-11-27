@@ -108,6 +108,14 @@ pub struct RouterService<Req, Res, Err> {
     routes: Node<ServiceObject<Req, Res, Err>>,
 }
 
+impl<Req, Res, Err> Clone for RouterService<Req, Res, Err> {
+    fn clone(&self) -> Self {
+        Self {
+            routes: self.routes.clone(),
+        }
+    }
+}
+
 impl<ReqB, Res, Err> Service<Request<ReqB>> for RouterService<Request<ReqB>, Res, Err> {
     type Response = Res;
     type Error = RouterError<Err>;

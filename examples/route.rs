@@ -52,4 +52,5 @@ async fn foo(req: Request<RequestBody>) -> Result<Response<ResponseBody>, anyhow
     Ok(res)
 }
 
+#[allow(clippy::declare_interior_mutable_const)]
 const TEXT: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
