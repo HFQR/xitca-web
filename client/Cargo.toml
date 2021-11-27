@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 default = []
 http2 = ["h2", "itoa", "xitca-http/http2"]
-http3 = ["h3/test_helpers", "h3-quinn", "itoa", "async-stream", "tokio-rustls", "webpki-roots"]
+http3 = ["h3", "h3-quinn", "itoa", "async-stream", "tokio-rustls", "webpki-roots"]
 openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["tokio-rustls", "webpki-roots"]
 json = ["serde", "serde_json"]
