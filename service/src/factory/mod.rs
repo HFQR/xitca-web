@@ -1,5 +1,6 @@
 mod ext;
 mod function;
+mod map;
 mod map_err;
 mod object;
 

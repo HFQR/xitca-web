@@ -2,9 +2,17 @@ use alloc::boxed::Box;
 
 use crate::transform::{Transform, TransformFactory};
 
-use super::{map_err::MapErrServiceFactory, ServiceFactory, ServiceFactoryObject};
+use super::{map::MapServiceFactory, map_err::MapErrServiceFactory, ServiceFactory, ServiceFactoryObject};
 
 pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
+    fn map<F, Res>(self, mapper: F) -> MapServiceFactory<Self, Req, F, Res>
+    where
+        F: Fn(Result<Self::Response, Self::Error>) -> Result<Res, Self::Error> + Clone,
+        Self: Sized,
+    {
+        MapServiceFactory::new(self, mapper)
+    }
+
     fn map_err<F, E>(self, err: F) -> MapErrServiceFactory<Self, Req, F, E>
     where
         F: Fn(Self::Error) -> E + Clone,
@@ -93,17 +101,33 @@ mod test {
         }
     }
 
+    async fn index(s: &'static str) -> Result<&'static str, ()> {
+        Ok(s)
+    }
+
     #[tokio::test]
     async fn service_object() {
-        async fn index(s: &'static str) -> Result<&'static str, ()> {
-            Ok(s)
-        }
-
         let factory = fn_service(index).transform(DummyMiddleware).into_object();
 
         let service = factory.new_service(()).await.unwrap();
 
         let res = service.call("996").await.unwrap();
         assert_eq!(res, "996");
+    }
+
+    #[tokio::test]
+    async fn map() {
+        let factory = fn_service(index)
+            .map(|res| {
+                let str = res?;
+                assert_eq!(str, "996");
+                Err::<(), _>(())
+            })
+            .map_err(|_| "251");
+
+        let service = factory.new_service(()).await.unwrap();
+
+        let err = service.call("996").await.err().unwrap();
+        assert_eq!(err, "251");
     }
 }
