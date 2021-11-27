@@ -108,170 +108,33 @@ macro_rules! route {
                 $method: ServiceFactory<Req, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
             )*
         {
-            pub fn get<GET1>(self, factory: GET1) -> route!($($req), *)
-            where
-                GET1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: factory.map_err(RouteError::Service),
-                    POST: self.POST,
-                    PUT: self.PUT,
-                    DELETE: self.DELETE,
-                    HEAD: self.HEAD,
-                    OPTIONS: self.OPTIONS,
-                    CONNECT: self.CONNECT,
-                    PATCH: self.PATCH,
-                    TRACE: self.TRACE,
-                    _phantom: PhantomData,
-                }
-            }
-            pub fn post<POST1>(self, factory: POST1) -> route!($($req), *)
-            where
-                POST1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: self.GET,
-                    POST: factory.map_err(RouteError::Service),
-                    PUT: self.PUT,
-                    DELETE: self.DELETE,
-                    HEAD: self.HEAD,
-                    OPTIONS: self.OPTIONS,
-                    CONNECT: self.CONNECT,
-                    PATCH: self.PATCH,
-                    TRACE: self.TRACE,
-                    _phantom: PhantomData,
-                }
-            }
 
-            pub fn put<PUT1>(self, factory: PUT1) -> route!($($req), *)
-            where
-                PUT1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: self.GET,
-                    POST: self.POST,
-                    PUT: factory.map_err(RouteError::Service),
-                    DELETE: self.DELETE,
-                    HEAD: self.HEAD,
-                    OPTIONS: self.OPTIONS,
-                    CONNECT: self.CONNECT,
-                    PATCH: self.PATCH,
-                    TRACE: self.TRACE,
-                    _phantom: PhantomData,
-                }
-            }
+            route!(get, GET; POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
 
-            pub fn delete<DELETE1>(self, factory: DELETE1) -> route!($($req), *)
-            where
-                DELETE1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: self.GET,
-                    POST: self.POST,
-                    PUT: self.PUT,
-                    DELETE: factory.map_err(RouteError::Service),
-                    HEAD: self.HEAD,
-                    OPTIONS: self.OPTIONS,
-                    CONNECT: self.CONNECT,
-                    PATCH: self.PATCH,
-                    TRACE: self.TRACE,
-                    _phantom: PhantomData,
-                }
-            }
+            route!(post, POST; GET, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
 
-            pub fn head<HEAD1>(self, factory: HEAD1) -> route!($($req), *)
-            where
-                HEAD1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: self.GET,
-                    POST: self.POST,
-                    PUT: self.PUT,
-                    DELETE: self.DELETE,
-                    HEAD: factory.map_err(RouteError::Service),
-                    OPTIONS: self.OPTIONS,
-                    CONNECT: self.CONNECT,
-                    PATCH: self.PATCH,
-                    TRACE: self.TRACE,
-                    _phantom: PhantomData,
-                }
-            }
+            route!(put, PUT; GET, POST, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
 
-            pub fn options<OPTIONS1>(self, factory: OPTIONS1) -> route!($($req), *)
-            where
-                OPTIONS1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: self.GET,
-                    POST: self.POST,
-                    PUT: self.PUT,
-                    DELETE: self.DELETE,
-                    HEAD: self.HEAD,
-                    OPTIONS: factory.map_err(RouteError::Service),
-                    CONNECT: self.CONNECT,
-                    PATCH: self.PATCH,
-                    TRACE: self.TRACE,
-                    _phantom: PhantomData,
-                }
-            }
+            route!(delete, DELETE; GET, POST, PUT, HEAD, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
 
-            pub fn connect<CONNECT1>(self, factory: CONNECT1) -> route!($($req), *)
-            where
-                CONNECT1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: self.GET,
-                    POST: self.POST,
-                    PUT: self.PUT,
-                    DELETE: self.DELETE,
-                    HEAD: self.HEAD,
-                    OPTIONS: self.OPTIONS,
-                    CONNECT: factory.map_err(RouteError::Service),
-                    PATCH: self.PATCH,
-                    TRACE: self.TRACE,
-                    _phantom: PhantomData,
-                }
-            }
+            route!(head, HEAD; GET, POST, PUT, DELETE, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
 
-            pub fn patch<PATCH1>(self, factory: PATCH1) -> route!($($req), *)
-            where
-                PATCH1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: self.GET,
-                    POST: self.POST,
-                    PUT: self.PUT,
-                    DELETE: self.DELETE,
-                    HEAD: self.HEAD,
-                    OPTIONS: self.OPTIONS,
-                    CONNECT: self.CONNECT,
-                    PATCH: factory.map_err(RouteError::Service),
-                    TRACE: self.TRACE,
-                    _phantom: PhantomData,
-                }
-            }
+            route!(options, OPTIONS; GET, POST, PUT, DELETE, HEAD, CONNECT, PATCH, TRACE; $($req),*);
 
-            pub fn trace<TRACE1>(self, factory: TRACE1) -> route!($($req), *)
-            where
-                TRACE1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            {
-                Route {
-                    GET: self.GET,
-                    POST: self.POST,
-                    PUT: self.PUT,
-                    DELETE: self.DELETE,
-                    HEAD: self.HEAD,
-                    OPTIONS: self.OPTIONS,
-                    CONNECT: self.CONNECT,
-                    PATCH: self.PATCH,
-                    TRACE: factory.map_err(RouteError::Service),
-                    _phantom: PhantomData,
-                }
-            }
+            route!(connect, CONNECT; GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH, TRACE; $($req),*);
+
+            route!(patch, PATCH; GET, POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, TRACE; $($req),*);
+
+            route!(trace, TRACE; GET, POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH; $($req),*);
         }
     };
-    ($($req: ident), *) => {
-        Route<
+    // Generate Route::method
+    (
+        $method: ident, $method_ty: ident;
+        $($untouched_method: ident),*;
+        $($req: ident),*
+    ) => {
+        pub fn $method<F1>(self, factory: F1) -> Route<
             Req,
             Res,
             Err,
@@ -287,7 +150,18 @@ macro_rules! route {
                 >,
             )*
         >
-    };
+        where
+            F1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+        {
+            Route {
+                $method_ty: factory.map_err(RouteError::Service),
+                $(
+                    $untouched_method: self.$untouched_method,
+                )*
+                _phantom: PhantomData
+            }
+        }
+    }
 }
 
 macro_rules! route_service {
