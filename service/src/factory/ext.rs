@@ -123,10 +123,7 @@ mod test {
                 assert_eq!(str, "996");
                 Err::<(), _>(())
             })
-            .map_err(|e| {
-                assert_eq!(e, ());
-                "251"
-            });
+            .map_err(|_| "251");
 
         let service = factory.new_service(()).await.unwrap();
 
