@@ -64,7 +64,7 @@ where
 
     #[inline]
     fn clone_object(&self) -> ServiceObject<Req, S::Response, S::Error> {
-        ServiceObject(Box::new(self.clone()) as _)
+        ServiceObject::new(self.clone())
     }
 
     #[inline]
