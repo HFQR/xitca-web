@@ -132,13 +132,13 @@ where
 
     #[inline]
     fn call(&self, req: ServerStream) -> Self::Future<'_> {
-        match req {
-            ServerStream::Tcp(ref tcp) => {
-                self.try_apply_config(tcp);
-                self.service.call(req)
-            }
-            req => self.service.call(req),
+        // Windows OS specific lint.
+        #[allow(irrefutable_let_patterns)]
+        if let ServerStream::Tcp(ref tcp) = req {
+            self.try_apply_config(tcp);
         }
+
+        self.service.call(req)
     }
 }
 

@@ -1,3 +1,4 @@
+pub(crate) mod map;
 pub(crate) mod map_err;
 
 mod object;
