@@ -1,3 +1,5 @@
+pub(crate) mod map_err;
+
 mod object;
 
 pub use object::ServiceObject;
