@@ -85,7 +85,7 @@ where
     type Future<'f>
     where
         Self: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+    = Fut;
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
