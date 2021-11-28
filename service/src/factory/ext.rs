@@ -2,42 +2,54 @@ use core::future::Future;
 
 use alloc::boxed::Box;
 
-use crate::transform::{function::TransformFunctionFactory, Transform, TransformFactory};
+use crate::transform::Transform;
 
-use super::{map::MapServiceFactory, map_err::MapErrServiceFactory, ServiceFactory, ServiceFactoryObject};
+use super::{
+    pipeline::{marker, PipelineServiceFactory},
+    ServiceFactory, ServiceFactoryObject,
+};
 
 pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
-    fn map<F, Res>(self, mapper: F) -> MapServiceFactory<Self, Req, F, Res>
+    fn map<F, Res>(self, mapper: F) -> PipelineServiceFactory<Self, F, marker::Map>
     where
         F: Fn(Result<Self::Response, Self::Error>) -> Result<Res, Self::Error> + Clone,
         Self: Sized,
     {
-        MapServiceFactory::new(self, mapper)
+        PipelineServiceFactory::new(self, mapper)
     }
 
-    fn map_err<F, E>(self, err: F) -> MapErrServiceFactory<Self, Req, F, E>
+    fn map_err<F, E>(self, err: F) -> PipelineServiceFactory<Self, F, marker::MapErr>
     where
         F: Fn(Self::Error) -> E + Clone,
         Self: Sized,
     {
-        MapErrServiceFactory::new(self, err)
+        PipelineServiceFactory::new(self, err)
     }
 
-    fn transform<T>(self, transform: T) -> TransformFactory<Self, Req, T>
+    fn then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::Then>
+    where
+        F: ServiceFactory<Result<Self::Response, Self::Error>>,
+        Self: Sized,
+    {
+        PipelineServiceFactory::new(self, factory)
+    }
+
+    fn transform<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::Transform>
     where
         T: Transform<Self::Service, Req>,
         Self: ServiceFactory<Req> + Sized,
     {
-        TransformFactory::new(self, transform)
+        PipelineServiceFactory::new(self, transform)
     }
 
-    fn transform_fn<T, Fut>(self, transform: T) -> TransformFunctionFactory<Self, T>
+    fn transform_fn<T, Fut>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::TransformFn>
     where
-        T: for<'s> Fn(&'s Self::Service, Req) -> Fut + Clone,
+        T: Fn(Self::Service, Req) -> Fut + Clone,
         Fut: Future,
         Self: Sized,
+        Self::Service: Clone,
     {
-        TransformFunctionFactory::new(self, transform)
+        PipelineServiceFactory::new(self, transform)
     }
 
     fn into_object(self) -> ServiceFactoryObject<Req, Self::Response, Self::Error, Self::Config, Self::InitError>
@@ -144,14 +156,24 @@ mod test {
 
     #[tokio::test]
     async fn transform_fn() {
-        let factory = fn_service(index).transform_fn(|service, req| {
-            let service = service.clone();
-            async move {
-                let res = service.call(req).await?;
-                assert_eq!(res, "996");
-                Ok::<&'static str, ()>("251")
-            }
+        let factory = fn_service(index).transform_fn(|service, req| async move {
+            let res = service.call(req).await?;
+            assert_eq!(res, "996");
+            Ok::<&'static str, ()>("251")
         });
+
+        let service = factory.new_service(()).await.unwrap();
+
+        let res = service.call("996").await.ok().unwrap();
+        assert_eq!(res, "251");
+    }
+
+    #[tokio::test]
+    async fn then() {
+        let factory = fn_service(index).then(fn_service(|res: Result<&'static str, ()>| async move {
+            assert_eq!(res.ok().unwrap(), "996");
+            Ok::<_, ()>("251")
+        }));
 
         let service = factory.new_service(()).await.unwrap();
 

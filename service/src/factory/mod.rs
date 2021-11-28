@@ -1,8 +1,11 @@
+pub(crate) mod pipeline;
+
 mod ext;
 mod function;
 mod map;
 mod map_err;
 mod object;
+mod then;
 
 pub use self::{ext::ServiceFactoryExt, function::fn_service, object::ServiceFactoryObject};
 

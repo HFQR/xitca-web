@@ -215,7 +215,7 @@ impl<V, St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
     /// Finish builder with default logger.
     ///
     /// Would consume input.
-    pub fn with_logger<Req>(self) -> TransformFactory<Self, Req, Logger>
+    pub fn with_logger<Req>(self) -> TransformFactory<Self, Logger>
     where
         Self: ServiceFactory<Req>,
         <Self as ServiceFactory<Req>>::Error: fmt::Debug,
