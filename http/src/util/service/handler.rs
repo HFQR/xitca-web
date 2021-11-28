@@ -7,6 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use pin_project_lite::pin_project;
 use xitca_service::{fn_service, ServiceFactory};
 
 pub fn handler_service<F, Req, T>(
@@ -52,23 +53,23 @@ macro_rules! from_req_impl {
 
             fn from_request(req: &RefCell<Req>) -> Self::Future<'_> {
                 $fut {
-                    items: <($(Option<$req>,)+)>::default(),
                     $(
-                        $req: $req::from_request(req),
+                        $req: ExtractFuture::Future {
+                            fut: $req::from_request(req)
+                        },
                     )+
                 }
             }
         }
 
-        pin_project_lite::pin_project! {
-                struct $fut<'f, Req, Err, $($req: FromRequest<Req, Error = Err>),+>
-                where
-                    Req: 'f
-                {
-                items: ($(Option<$req>,)+),
+        pin_project! {
+            struct $fut<'f, Req, Err, $($req: FromRequest<Req, Error = Err>),+>
+            where
+                Req: 'f
+            {
                 $(
                     #[pin]
-                    $req: $req::Future<'f>,
+                    $req: ExtractFuture<$req::Future<'f>, $req>,
                 )+
             }
         }
@@ -82,19 +83,26 @@ macro_rules! from_req_impl {
 
                 let mut ready = true;
                 $(
-                    if this.items.$n.is_none() {
-                        match this.$req.poll(cx)? {
-                            Poll::Ready(item) => {
-                                this.items.$n = Some(item);
-                            }
+                    match this.$req.as_mut().project() {
+                        ExtractProj::Future { fut } => match fut.poll(cx)? {
+                            Poll::Ready(output) => {
+                                let _ = this.$req.as_mut().project_replace(ExtractFuture::Done { output });
+                            },
                             Poll::Pending => ready = false,
-                        }
+                        },
+                        ExtractProj::Done { .. } => {},
+                        ExtractProj::Empty => unreachable!("FromRequest polled after finished"),
                     }
                 )+
 
                 if ready {
                     Poll::Ready(Ok(
-                        ($(this.items.$n.take().unwrap(),)+)
+                        ($(
+                            match this.$req.project_replace(ExtractFuture::Empty) {
+                                ExtractReplaceProj::Done { output } => output,
+                                _ => unreachable!("FromRequest polled after finished"),
+                            },
+                        )+)
                     ))
                 } else {
                     Poll::Pending
@@ -102,6 +110,21 @@ macro_rules! from_req_impl {
             }
         }
     };
+}
+
+pin_project! {
+    #[project = ExtractProj]
+    #[project_replace = ExtractReplaceProj]
+    enum ExtractFuture<Fut, Res> {
+        Future {
+            #[pin]
+            fut: Fut
+        },
+        Done {
+            output: Res,
+        },
+        Empty
+    }
 }
 
 from_req_impl! { Extract1; (0, A) }
@@ -145,3 +168,65 @@ handler_impl! { A, B, C, D, E, F }
 handler_impl! { A, B, C, D, E, F, G }
 handler_impl! { A, B, C, D, E, F, G, H }
 handler_impl! { A, B, C, D, E, F, G, H, I }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::{
+        convert::Infallible,
+        future::{ready, Ready},
+    };
+
+    use xitca_service::Service;
+
+    use crate::http::{Request, Response, StatusCode};
+
+    async fn handler(e1: String, e2: u32, e3: u64) -> Response<()> {
+        assert_eq!(e1, "996");
+        assert_eq!(e2, 996);
+        assert_eq!(e3, 996);
+
+        let mut res = Response::new(());
+        *res.status_mut() = StatusCode::MULTI_STATUS;
+        res
+    }
+
+    impl FromRequest<Request<()>> for String {
+        type Error = Infallible;
+        type Future<'f> = Ready<Result<Self, Self::Error>>;
+
+        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+            ready(Ok(String::from("996")))
+        }
+    }
+
+    impl FromRequest<Request<()>> for u32 {
+        type Error = Infallible;
+        type Future<'f> = Ready<Result<Self, Self::Error>>;
+
+        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+            ready(Ok(996))
+        }
+    }
+
+    impl FromRequest<Request<()>> for u64 {
+        type Error = Infallible;
+        type Future<'f> = Ready<Result<Self, Self::Error>>;
+
+        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+            ready(Ok(996))
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_extract() {
+        let service = handler_service(handler).new_service(()).await.unwrap();
+
+        let req = Request::new(());
+
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
+    }
+}
