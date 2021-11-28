@@ -1,46 +1,10 @@
-use core::{future::Future, marker::PhantomData};
+use core::future::Future;
 
-use super::Service;
+use crate::factory::pipeline::marker;
 
-/// Service for the `map_err` combinator, changing the type of a service's error.
-///
-/// This is created by the `ServiceExt::map_err` method.
-pub struct MapErr<S, Req, F, E> {
-    service: S,
-    mapper: F,
-    _t: PhantomData<(Req, E)>,
-}
+use super::{pipeline::PipelineService, Service};
 
-impl<S, Req, F, E> MapErr<S, Req, F, E> {
-    /// Create new `MapErr` combinator
-    pub(crate) fn new(service: S, mapper: F) -> Self
-    where
-        S: Service<Req>,
-        F: Fn(S::Error) -> E,
-    {
-        Self {
-            service,
-            mapper,
-            _t: PhantomData,
-        }
-    }
-}
-
-impl<S, Req, F, E> Clone for MapErr<S, Req, F, E>
-where
-    S: Clone,
-    F: Clone,
-{
-    fn clone(&self) -> Self {
-        MapErr {
-            service: self.service.clone(),
-            mapper: self.mapper.clone(),
-            _t: PhantomData,
-        }
-    }
-}
-
-impl<S, Req, F, E> Service<Req> for MapErr<S, Req, F, E>
+impl<S, Req, F, E> Service<Req> for PipelineService<S, F, marker::MapErr>
 where
     S: Service<Req>,
     F: Fn(S::Error) -> E,
@@ -58,11 +22,11 @@ where
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        async move { self.service.ready().await.map_err(&self.mapper) }
+        async move { self.service.ready().await.map_err(&self.service2) }
     }
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
-        async move { self.service.call(req).await.map_err(&self.mapper) }
+        async move { self.service.call(req).await.map_err(&self.service2) }
     }
 }

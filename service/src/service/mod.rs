@@ -1,7 +1,9 @@
-pub(crate) mod map;
-pub(crate) mod map_err;
+pub(crate) mod pipeline;
 
+mod map;
+mod map_err;
 mod object;
+mod then;
 
 pub use object::ServiceObject;
 

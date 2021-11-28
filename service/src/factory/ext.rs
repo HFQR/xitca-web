@@ -4,23 +4,34 @@ use alloc::boxed::Box;
 
 use crate::transform::{function::TransformFunctionFactory, Transform, TransformFactory};
 
-use super::{map::MapServiceFactory, map_err::MapErrServiceFactory, ServiceFactory, ServiceFactoryObject};
+use super::{
+    pipeline::{marker, PipelineServiceFactory},
+    ServiceFactory, ServiceFactoryObject,
+};
 
 pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
-    fn map<F, Res>(self, mapper: F) -> MapServiceFactory<Self, Req, F, Res>
+    fn map<F, Res>(self, mapper: F) -> PipelineServiceFactory<Self, F, marker::Map>
     where
         F: Fn(Result<Self::Response, Self::Error>) -> Result<Res, Self::Error> + Clone,
         Self: Sized,
     {
-        MapServiceFactory::new(self, mapper)
+        PipelineServiceFactory::new_map(self, mapper)
     }
 
-    fn map_err<F, E>(self, err: F) -> MapErrServiceFactory<Self, Req, F, E>
+    fn map_err<F, E>(self, err: F) -> PipelineServiceFactory<Self, F, marker::MapErr>
     where
         F: Fn(Self::Error) -> E + Clone,
         Self: Sized,
     {
-        MapErrServiceFactory::new(self, err)
+        PipelineServiceFactory::new_map_err(self, err)
+    }
+
+    fn then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::Then>
+    where
+        F: ServiceFactory<Result<Self::Response, Self::Error>>,
+        Self: Sized,
+    {
+        PipelineServiceFactory::new_then(self, factory)
     }
 
     fn transform<T>(self, transform: T) -> TransformFactory<Self, Req, T>
@@ -152,6 +163,19 @@ mod test {
                 Ok::<&'static str, ()>("251")
             }
         });
+
+        let service = factory.new_service(()).await.unwrap();
+
+        let res = service.call("996").await.ok().unwrap();
+        assert_eq!(res, "251");
+    }
+
+    #[tokio::test]
+    async fn then() {
+        let factory = fn_service(index).then(fn_service(|res: Result<&'static str, ()>| async move {
+            assert_eq!(res.ok().unwrap(), "996");
+            Ok::<_, ()>("251")
+        }));
 
         let service = factory.new_service(()).await.unwrap();
 
