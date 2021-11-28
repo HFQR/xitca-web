@@ -25,7 +25,7 @@ where
 
         async move {
             let service = service.await?;
-            Ok(PipelineService::new_map(service, mapper))
+            Ok(PipelineService::new(service, mapper))
         }
     }
 }

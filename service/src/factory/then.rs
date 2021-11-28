@@ -30,7 +30,7 @@ where
         async move {
             let service = service.await?;
             let then_service = then_service.await?;
-            Ok(PipelineService::new_then(service, then_service))
+            Ok(PipelineService::new(service, then_service))
         }
     }
 }

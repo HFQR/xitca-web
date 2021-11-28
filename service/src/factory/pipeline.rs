@@ -1,12 +1,10 @@
 use core::marker::PhantomData;
 
-use super::ServiceFactory;
-
 /// Constructor type for two step ServiceFactory where field are called
 /// with top down order.
 pub struct PipelineServiceFactory<SF, SF1, M = ()> {
-    pub(super) factory: SF,
-    pub(super) factory2: SF1,
+    pub(crate) factory: SF,
+    pub(crate) factory2: SF1,
     _marker: PhantomData<M>,
 }
 
@@ -15,6 +13,8 @@ pub(crate) mod marker {
     pub struct Map;
     pub struct MapErr;
     pub struct Then;
+    pub struct Transform;
+    pub struct TransformFn;
 }
 
 impl<SF, SF1, M> Clone for PipelineServiceFactory<SF, SF1, M>
@@ -31,39 +31,8 @@ where
     }
 }
 
-impl<SF, SF1> PipelineServiceFactory<SF, SF1> {
-    /// Create new `Map` new service instance
-    pub(super) fn new_map<Req, Res>(factory: SF, factory2: SF1) -> PipelineServiceFactory<SF, SF1, marker::Map>
-    where
-        SF: ServiceFactory<Req>,
-        SF1: Fn(Result<SF::Response, SF::Error>) -> Result<Res, SF::Error>,
-    {
-        PipelineServiceFactory {
-            factory,
-            factory2,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Create new `MapErr` new service instance
-    pub(super) fn new_map_err<Req, E>(factory: SF, factory2: SF1) -> PipelineServiceFactory<SF, SF1, marker::MapErr>
-    where
-        SF: ServiceFactory<Req>,
-        SF1: Fn(SF::Error) -> E + Clone,
-    {
-        PipelineServiceFactory {
-            factory,
-            factory2,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Create new `Then` new service instance
-    pub(super) fn new_then<Req>(factory: SF, factory2: SF1) -> PipelineServiceFactory<SF, SF1, marker::Then>
-    where
-        SF: ServiceFactory<Req>,
-        SF1: ServiceFactory<Result<SF::Response, SF::Error>>,
-    {
+impl<SF, SF1, M> PipelineServiceFactory<SF, SF1, M> {
+    pub(super) fn new(factory: SF, factory2: SF1) -> PipelineServiceFactory<SF, SF1, M> {
         PipelineServiceFactory {
             factory,
             factory2,

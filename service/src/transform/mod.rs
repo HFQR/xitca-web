@@ -1,9 +1,14 @@
 pub(crate) mod function;
 
-use core::{future::Future, marker::PhantomData};
+use core::future::Future;
 
-use crate::factory::ServiceFactory;
-use crate::service::Service;
+use crate::{
+    factory::{
+        pipeline::{marker, PipelineServiceFactory},
+        ServiceFactory,
+    },
+    service::Service,
+};
 
 pub trait Transform<S, Req>: Clone {
     /// Responses produced by the service.
@@ -25,45 +30,10 @@ pub trait Transform<S, Req>: Clone {
     fn new_transform(&self, service: S) -> Self::Future;
 }
 
-pub struct TransformFactory<F, Req, T>
-where
-    F: ServiceFactory<Req>,
-    T: Transform<F::Service, Req>,
-{
-    factory: F,
-    transform: T,
-    _req: PhantomData<Req>,
-}
+/// Type alias for specialized [PipelineServiceFactory].
+pub type TransformFactory<F, T> = PipelineServiceFactory<F, T, marker::Transform>;
 
-impl<F, Req, T> Clone for TransformFactory<F, Req, T>
-where
-    F: ServiceFactory<Req> + Clone,
-    T: Transform<F::Service, Req>,
-{
-    fn clone(&self) -> Self {
-        Self {
-            factory: self.factory.clone(),
-            transform: self.transform.clone(),
-            _req: PhantomData,
-        }
-    }
-}
-
-impl<F, Req, T> TransformFactory<F, Req, T>
-where
-    F: ServiceFactory<Req>,
-    T: Transform<F::Service, Req>,
-{
-    pub fn new(factory: F, transform: T) -> Self {
-        Self {
-            factory,
-            transform,
-            _req: PhantomData,
-        }
-    }
-}
-
-impl<F, Req, T> ServiceFactory<Req> for TransformFactory<F, Req, T>
+impl<F, Req, T> ServiceFactory<Req> for PipelineServiceFactory<F, T, marker::Transform>
 where
     F: ServiceFactory<Req>,
     T: Transform<F::Service, Req>,
@@ -78,7 +48,7 @@ where
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
         let service = self.factory.new_service(cfg);
-        let transform = self.transform.clone();
+        let transform = self.factory2.clone();
         async move {
             let service = service.await?;
             let transform = transform.new_transform(service).await?;

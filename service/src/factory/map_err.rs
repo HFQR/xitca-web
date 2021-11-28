@@ -25,7 +25,7 @@ where
         let mapper = self.factory2.clone();
         async move {
             let service = service.await?;
-            Ok(PipelineService::new_map_err(service, mapper))
+            Ok(PipelineService::new(service, mapper))
         }
     }
 }

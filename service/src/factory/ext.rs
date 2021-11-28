@@ -2,7 +2,7 @@ use core::future::Future;
 
 use alloc::boxed::Box;
 
-use crate::transform::{function::TransformFunctionFactory, Transform, TransformFactory};
+use crate::transform::Transform;
 
 use super::{
     pipeline::{marker, PipelineServiceFactory},
@@ -15,7 +15,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         F: Fn(Result<Self::Response, Self::Error>) -> Result<Res, Self::Error> + Clone,
         Self: Sized,
     {
-        PipelineServiceFactory::new_map(self, mapper)
+        PipelineServiceFactory::new(self, mapper)
     }
 
     fn map_err<F, E>(self, err: F) -> PipelineServiceFactory<Self, F, marker::MapErr>
@@ -23,7 +23,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         F: Fn(Self::Error) -> E + Clone,
         Self: Sized,
     {
-        PipelineServiceFactory::new_map_err(self, err)
+        PipelineServiceFactory::new(self, err)
     }
 
     fn then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::Then>
@@ -31,24 +31,24 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         F: ServiceFactory<Result<Self::Response, Self::Error>>,
         Self: Sized,
     {
-        PipelineServiceFactory::new_then(self, factory)
+        PipelineServiceFactory::new(self, factory)
     }
 
-    fn transform<T>(self, transform: T) -> TransformFactory<Self, Req, T>
+    fn transform<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::Transform>
     where
         T: Transform<Self::Service, Req>,
         Self: ServiceFactory<Req> + Sized,
     {
-        TransformFactory::new(self, transform)
+        PipelineServiceFactory::new(self, transform)
     }
 
-    fn transform_fn<T, Fut>(self, transform: T) -> TransformFunctionFactory<Self, T>
+    fn transform_fn<T, Fut>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::TransformFn>
     where
         T: for<'s> Fn(&'s Self::Service, Req) -> Fut + Clone,
         Fut: Future,
         Self: Sized,
     {
-        TransformFunctionFactory::new(self, transform)
+        PipelineServiceFactory::new(self, transform)
     }
 
     fn into_object(self) -> ServiceFactoryObject<Req, Self::Response, Self::Error, Self::Config, Self::InitError>
