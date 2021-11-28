@@ -2,6 +2,8 @@ pub(crate) mod function;
 
 use core::future::Future;
 
+use alloc::{boxed::Box, rc::Rc, sync::Arc};
+
 use crate::{
     factory::{
         pipeline::{marker, PipelineServiceFactory},
@@ -56,6 +58,29 @@ where
         }
     }
 }
+
+macro_rules! impl_alloc {
+    ($alloc: ident) => {
+        impl<T, S, Req> Transform<S, Req> for $alloc<T>
+        where
+            T: Transform<S, Req> + ?Sized,
+        {
+            type Response = T::Response;
+            type Error = T::Error;
+            type Transform = T::Transform;
+            type InitError = T::InitError;
+            type Future = T::Future;
+
+            fn new_transform(&self, service: S) -> Self::Future {
+                (**self).new_transform(service)
+            }
+        }
+    };
+}
+
+impl_alloc!(Box);
+impl_alloc!(Rc);
+impl_alloc!(Arc);
 
 #[cfg(test)]
 mod test {
