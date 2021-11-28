@@ -38,7 +38,7 @@ pub trait FromRequest<Req>: Sized {
 }
 
 macro_rules! from_req_impl {
-    ($fut: ident; $(($n: tt, $req: ident)),*) => {
+    ($fut: ident; $($req: ident),*) => {
         impl<Req, Err, $($req,)*> FromRequest<Req> for ($($req,)*)
         where
             $(
@@ -127,15 +127,15 @@ pin_project! {
     }
 }
 
-from_req_impl! { Extract1; (0, A) }
-from_req_impl! { Extract2; (0, A), (1, B) }
-from_req_impl! { Extract3; (0, A), (1, B), (2, C) }
-from_req_impl! { Extract4; (0, A), (1, B), (2, C), (3, D) }
-from_req_impl! { Extract5; (0, A), (1, B), (2, C), (3, D), (4, E) }
-from_req_impl! { Extract6; (0, A), (1, B), (2, C), (3, D), (4, E), (5, F) }
-from_req_impl! { Extract7; (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G) }
-from_req_impl! { Extract8; (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H) }
-from_req_impl! { Extract9; (0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H), (8, I) }
+from_req_impl! { Extract1; A }
+from_req_impl! { Extract2; A, B }
+from_req_impl! { Extract3; A, B, C }
+from_req_impl! { Extract4; A, B, C, D }
+from_req_impl! { Extract5; A, B, C, D, E }
+from_req_impl! { Extract6; A, B, C, D, E, F }
+from_req_impl! { Extract7; A, B, C, D, E, F, G }
+from_req_impl! { Extract8; A, B, C, D, E, F, G, H }
+from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I }
 
 pub trait Handler<Arg>: Clone {
     type Output;
