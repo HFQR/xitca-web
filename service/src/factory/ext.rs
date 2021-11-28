@@ -44,9 +44,10 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
 
     fn transform_fn<T, Fut>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::TransformFn>
     where
-        T: for<'s> Fn(&'s Self::Service, Req) -> Fut + Clone,
+        T: Fn(Self::Service, Req) -> Fut + Clone,
         Fut: Future,
         Self: Sized,
+        Self::Service: Clone,
     {
         PipelineServiceFactory::new(self, transform)
     }
@@ -155,13 +156,10 @@ mod test {
 
     #[tokio::test]
     async fn transform_fn() {
-        let factory = fn_service(index).transform_fn(|service, req| {
-            let service = service.clone();
-            async move {
-                let res = service.call(req).await?;
-                assert_eq!(res, "996");
-                Ok::<&'static str, ()>("251")
-            }
+        let factory = fn_service(index).transform_fn(|service, req| async move {
+            let res = service.call(req).await?;
+            assert_eq!(res, "996");
+            Ok::<&'static str, ()>("251")
         });
 
         let service = factory.new_service(()).await.unwrap();

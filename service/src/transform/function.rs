@@ -11,7 +11,8 @@ use crate::{
 impl<SF, Req, T, Fut, Res, Err> ServiceFactory<Req> for PipelineServiceFactory<SF, T, marker::TransformFn>
 where
     SF: ServiceFactory<Req>,
-    T: for<'s> Fn(&'s SF::Service, Req) -> Fut + Clone,
+    SF::Service: Clone,
+    T: Fn(SF::Service, Req) -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
     Err: From<SF::Error>,
 {
@@ -35,8 +36,8 @@ where
 
 impl<S, Req, T, Fut, Res, Err> Service<Req> for PipelineService<S, T, marker::TransformFn>
 where
-    S: Service<Req>,
-    T: for<'s> Fn(&'s S, Req) -> Fut,
+    S: Service<Req> + Clone,
+    T: Fn(S, Req) -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
     Err: From<S::Error>,
 {
@@ -58,6 +59,6 @@ where
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
-        (self.service2)(&self.service, req)
+        (self.service2)(self.service.clone(), req)
     }
 }
