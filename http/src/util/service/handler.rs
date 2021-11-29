@@ -10,7 +10,7 @@ use std::{
 use pin_project_lite::pin_project;
 use xitca_service::{fn_service, Service, ServiceFactory};
 
-pub fn handler_service<F, Req, T, Res, Err>(
+pub fn handler_service<'any, F, Req, T, Res, Err>(
     func: F,
 ) -> impl ServiceFactory<
     Req,
@@ -21,7 +21,7 @@ pub fn handler_service<F, Req, T, Res, Err>(
     Service = impl Service<Req, Response = Res, Error = Err> + Clone,
 >
 where
-    F: for<'a> Handler<'a, Req, T, Response = Res, Error = Err>,
+    F: for<'a> Handler<'any, 'a, Req, T, Response = Res, Error = Err>,
 {
     fn_service(move |req| {
         let func = func.clone();
@@ -40,7 +40,7 @@ where
 ///     `F: for<'a> FnArgs<<T as FromRequest>::Type<'a>>,`
 ///     `for<'a> FnArgs<T::Type<'a>>::Output: Future`
 /// But these are known to be buggy. See https://github.com/rust-lang/rust/issues/56556
-pub trait Handler<'a, Req, T>: Clone {
+pub trait Handler<'any, 'a, Req, T>: Clone {
     type Error;
     type Response;
     type Future: Future<Output = Result<Self::Response, Self::Error>>;
@@ -48,12 +48,12 @@ pub trait Handler<'a, Req, T>: Clone {
     fn handle(&'a self, req: &'a RefCell<Req>) -> Self::Future;
 }
 
-impl<'a, Req, T, Fut, Res, Err, F> Handler<'a, Req, T> for F
+impl<'any, 'a, Req, T, Fut, Res, Err, F> Handler<'any, 'a, Req, T> for F
 where
     F: FnArgs<T::Type<'a>, Output = Fut> + Clone,
     // second bound to assist type inference to pinpoint T
     F: FnArgs<T>,
-    T: FromRequest<Req, Error = Err>,
+    T: FromRequest<'any, Req, Error = Err>,
     Fut: Future<Output = Res>,
 {
     type Error = Err;
@@ -61,42 +61,40 @@ where
     type Future = impl Future<Output = Result<Self::Response, Self::Error>> + 'a;
 
     fn handle(&'a self, req: &'a RefCell<Req>) -> Self::Future {
-        async move { Ok(self.call(T::from_request(req).await?).await) }
+        async move {
+            let data = <T as FromRequest<'any, Req>>::Type::<'a>::from_request(req).await?;
+            Ok(self.call(data).await)
+        }
     }
 }
 
-pub trait FromRequest<Req>: Sized {
+pub trait FromRequest<'a, Req>: Sized {
     // Most extractors should set this to Self.
     //
     // However extractor types with lifetime paramter that bwrrows from request and wants to to
     // support being extracted in handler arguments should take care.
-    type Type<'f>;
+    type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
 
     type Error;
-    type Future<'f>: Future<Output = Result<Self::Type<'f>, Self::Error>>
-    where
-        Req: 'f;
+    type Future: Future<Output = Result<Self, Self::Error>>;
 
-    fn from_request(req: &RefCell<Req>) -> Self::Future<'_>;
+    fn from_request(req: &'a RefCell<Req>) -> Self::Future;
 }
 
 macro_rules! from_req_impl {
     ($fut: ident; $($req: ident),*) => {
-        impl<Req, Err, $($req,)*> FromRequest<Req> for ($($req,)*)
+        impl<'a, Req, Err, $($req,)*> FromRequest<'a, Req> for ($($req,)*)
         where
             $(
-                $req: FromRequest<Req, Error = Err>,
+                $req: FromRequest<'a, Req, Error = Err>,
             )*
         {
-            type Type<'f> = ($($req::Type<'f>,)*);
+            type Type<'r> = ($($req::Type<'r>,)*);
             type Error = Err;
-            type Future<'f>
-            where
-                Req: 'f,
-            = impl Future<Output = Result<Self::Type<'f>, Self::Error>>;
+            type Future = impl Future<Output = Result<Self, Self::Error>>;
 
-            fn from_request<'a>(req: &'a RefCell<Req>) -> Self::Future<'a> {
-                $fut::<'a, _, _, $($req,)*> {
+            fn from_request(req: &'a RefCell<Req>) -> Self::Future {
+                $fut {
                     $(
                         $req: ExtractFuture::Future {
                             fut: $req::from_request(req)
@@ -107,20 +105,18 @@ macro_rules! from_req_impl {
         }
 
         pin_project! {
-            struct $fut<'f, Req, Err, $($req: FromRequest<Req, Error = Err>),+>
-            where
-                Req: 'f
+            struct $fut<'f, Req, Err, $($req: FromRequest<'f, Req, Error = Err>),+>
             {
                 $(
                     #[pin]
-                    $req: ExtractFuture<$req::Future<'f>, $req::Type<'f>>,
+                    $req: ExtractFuture<$req::Future, $req>,
                 )+
             }
         }
 
-        impl<'f, Req, Err, $($req: FromRequest<Req, Error = Err>),+> Future for $fut<'f, Req, Err, $($req),+>
+        impl<'f, Req, Err, $($req: FromRequest<'f, Req, Error = Err>),+> Future for $fut<'f, Req, Err, $($req),+>
         {
-            type Output = Result<($($req::Type<'f>,)+), Err>;
+            type Output = Result<($($req,)+), Err>;
 
             fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
                 let mut this = self.project();
@@ -236,42 +232,42 @@ mod test {
         res
     }
 
-    impl FromRequest<Request<()>> for String {
+    impl<'a> FromRequest<'a, Request<()>> for String {
         type Type<'f> = Self;
         type Error = Infallible;
-        type Future<'f> = Ready<Result<Self, Self::Error>>;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
             ready(Ok(String::from("996")))
         }
     }
 
-    impl FromRequest<Request<()>> for u32 {
+    impl<'a> FromRequest<'a, Request<()>> for u32 {
         type Type<'f> = Self;
         type Error = Infallible;
-        type Future<'f> = Ready<Result<Self, Self::Error>>;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
             ready(Ok(996))
         }
     }
 
-    impl FromRequest<Request<()>> for u64 {
+    impl<'a> FromRequest<'a, Request<()>> for u64 {
         type Type<'f> = Self;
         type Error = Infallible;
-        type Future<'f> = Ready<Result<Self, Self::Error>>;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
             ready(Ok(996))
         }
     }
 
-    impl FromRequest<Request<()>> for &RefCell<Request<()>> {
+    impl<'a> FromRequest<'a, Request<()>> for &'a RefCell<Request<()>> {
         type Type<'f> = &'f RefCell<Request<()>>;
         type Error = Infallible;
-        type Future<'f> = Ready<Result<Self::Type<'f>, Self::Error>>;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(req: &RefCell<Request<()>>) -> Self::Future<'_> {
+        fn from_request(req: &'a RefCell<Request<()>>) -> Self::Future {
             ready(Ok(req))
         }
     }
