@@ -24,6 +24,12 @@ pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;
 #[derive(Debug)]
 pub struct RequestBody(Rc<RefCell<Inner>>);
 
+impl Default for RequestBody {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 impl RequestBody {
     /// Create payload stream.
     ///
