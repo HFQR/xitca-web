@@ -10,7 +10,7 @@ use std::{
 use pin_project_lite::pin_project;
 use xitca_service::{fn_service, Service, ServiceFactory};
 
-pub fn handler_service<'any, F, Req, T, Res, Err>(
+pub fn handler_service<'t, F, Req, T, Res, Err>(
     func: F,
 ) -> impl ServiceFactory<
     Req,
@@ -21,7 +21,7 @@ pub fn handler_service<'any, F, Req, T, Res, Err>(
     Service = impl Service<Req, Response = Res, Error = Err> + Clone,
 >
 where
-    F: for<'a> Handler<'any, 'a, Req, T, Response = Res, Error = Err>,
+    F: for<'a> Handler<'t, 'a, Req, T, Response = Res, Error = Err>,
 {
     fn_service(move |req| {
         let func = func.clone();
@@ -34,13 +34,13 @@ where
 
 /// Helper trait to make the HRTB bounds in `handler_service` as simple as posible.
 ///     `F: for<'a> Handler<'a, Req, T, Output=Out, Error=Err>,`
-/// More preciscely, HRTB bound shouldn't specify any associated type that is bound to the
+/// More precisely, HRTB bounds shouldn't specify any associated type that is bound to the
 /// quantified lifetime.
 /// For example, the following bounds would otherwise be necessary in `fn_service`:
 ///     `F: for<'a> FnArgs<<T as FromRequest>::Type<'a>>,`
 ///     `for<'a> FnArgs<T::Type<'a>>::Output: Future`
 /// But these are known to be buggy. See https://github.com/rust-lang/rust/issues/56556
-pub trait Handler<'any, 'a, Req, T>: Clone {
+pub trait Handler<'t, 'a, Req, T>: Clone {
     type Error;
     type Response;
     type Future: Future<Output = Result<Self::Response, Self::Error>>;
@@ -48,29 +48,25 @@ pub trait Handler<'any, 'a, Req, T>: Clone {
     fn handle(&'a self, req: &'a RefCell<Req>) -> Self::Future;
 }
 
-impl<'any, 'a, Req, T, Fut, Res, Err, F> Handler<'any, 'a, Req, T> for F
+impl<'t, 'a, Req, T, Res, Err, F> Handler<'t, 'a, Req, T> for F
 where
-    F: FnArgs<T::Type<'a>, Output = Fut> + Clone,
-    // second bound to assist type inference to pinpoint T
-    F: FnArgs<T>,
-    T: FromRequest<'any, Req, Error = Err>,
-    Fut: Future<Output = Res>,
+    T: FromRequest<'t, Req, Error = Err>,
+    F: AsyncFn<T::Type<'a>, Output = Res> + Clone,
+    F: AsyncFn<T>, // second bound to assist type inference to pinpoint T
 {
     type Error = Err;
     type Response = Res;
     type Future = impl Future<Output = Result<Self::Response, Self::Error>> + 'a;
 
     fn handle(&'a self, req: &'a RefCell<Req>) -> Self::Future {
-        async move {
-            let data = <T as FromRequest<'any, Req>>::Type::<'a>::from_request(req).await?;
-            Ok(self.call(data).await)
-        }
+        async move { Ok(self.call(T::Type::<'a>::from_request(req).await?).await) }
     }
 }
 
 pub trait FromRequest<'a, Req>: Sized {
-    // Most extractors should set this to Self.
+    // Used to construct the type for any lifetime 'b.
     //
+    // Most extractors should set this to Self.
     // However extractor types with lifetime paramter that bwrrows from request and wants to to
     // support being extracted in handler arguments should take care.
     type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
@@ -177,37 +173,45 @@ from_req_impl! { Extract7; A, B, C, D, E, F, G }
 from_req_impl! { Extract8; A, B, C, D, E, F, G, H }
 from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I }
 
-pub trait FnArgs<Arg>: Clone {
+/// Same as `std::ops::Fn` trait but for async output.
+///
+/// It is necessary in the the HRTB bounds for async fn's with reference paramters because it
+/// allows the output future to be bound to the paramter lifetime.
+///     `F: for<'a> AsyncFn<(&'a u8,) Output=u8>`
+pub trait AsyncFn<Arg> {
     type Output;
+    type Future: Future<Output = Self::Output>;
 
-    fn call(&self, arg: Arg) -> Self::Output;
+    fn call(&self, arg: Arg) -> Self::Future;
 }
 
-macro_rules! handler_impl {
+macro_rules! async_fn_impl {
     ($($arg: ident),*) => {
-        impl<Func, O, $($arg,)*> FnArgs<($($arg,)*)> for Func
+        impl<Func, Fut, O, $($arg,)*> AsyncFn<($($arg,)*)> for Func
         where
-            Func: Fn($($arg),*) -> O + Clone,
+            Func: Fn($($arg),*) -> Fut,
+            Fut: Future<Output = O>,
         {
             type Output = O;
+            type Future = Fut;
 
-            fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Output {
+            fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Future {
                 self($($arg,)*)
             }
         }
     }
 }
 
-handler_impl! {}
-handler_impl! { A }
-handler_impl! { A, B }
-handler_impl! { A, B, C }
-handler_impl! { A, B, C, D }
-handler_impl! { A, B, C, D, E }
-handler_impl! { A, B, C, D, E, F }
-handler_impl! { A, B, C, D, E, F, G }
-handler_impl! { A, B, C, D, E, F, G, H }
-handler_impl! { A, B, C, D, E, F, G, H, I }
+async_fn_impl! {}
+async_fn_impl! { A }
+async_fn_impl! { A, B }
+async_fn_impl! { A, B, C }
+async_fn_impl! { A, B, C, D }
+async_fn_impl! { A, B, C, D, E }
+async_fn_impl! { A, B, C, D, E, F }
+async_fn_impl! { A, B, C, D, E, F, G }
+async_fn_impl! { A, B, C, D, E, F, G, H }
+async_fn_impl! { A, B, C, D, E, F, G, H, I }
 
 #[cfg(test)]
 mod test {
