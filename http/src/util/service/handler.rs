@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 use std::{
-    cell::RefCell,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -25,8 +24,6 @@ where
 {
     fn_service(move |req| {
         let func = func.clone();
-        let req = RefCell::new(req);
-
         // self-referential future
         async move { func.handle(&req).await }
     })
@@ -45,7 +42,7 @@ pub trait Handler<'t, 'a, Req, T>: Clone {
     type Response;
     type Future: Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn handle(&'a self, req: &'a RefCell<Req>) -> Self::Future;
+    fn handle(&'a self, req: &'a Req) -> Self::Future;
 }
 
 impl<'t, 'a, Req, T, Res, Err, F> Handler<'t, 'a, Req, T> for F
@@ -58,7 +55,7 @@ where
     type Response = Res;
     type Future = impl Future<Output = Result<Self::Response, Self::Error>> + 'a;
 
-    fn handle(&'a self, req: &'a RefCell<Req>) -> Self::Future {
+    fn handle(&'a self, req: &'a Req) -> Self::Future {
         async move { Ok(self.call(T::Type::<'a>::from_request(req).await?).await) }
     }
 }
@@ -74,7 +71,7 @@ pub trait FromRequest<'a, Req>: Sized {
     type Error;
     type Future: Future<Output = Result<Self, Self::Error>>;
 
-    fn from_request(req: &'a RefCell<Req>) -> Self::Future;
+    fn from_request(req: &'a Req) -> Self::Future;
 }
 
 macro_rules! from_req_impl {
@@ -89,7 +86,7 @@ macro_rules! from_req_impl {
             type Error = Err;
             type Future = impl Future<Output = Result<Self, Self::Error>>;
 
-            fn from_request(req: &'a RefCell<Req>) -> Self::Future {
+            fn from_request(req: &'a Req) -> Self::Future {
                 $fut {
                     $(
                         $req: ExtractFuture::Future {
@@ -226,7 +223,7 @@ mod test {
 
     use crate::http::{Request, Response, StatusCode};
 
-    async fn handler(e1: String, e2: u32, (_, e3): (&RefCell<Request<()>>, u64)) -> Response<()> {
+    async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> Response<()> {
         assert_eq!(e1, "996");
         assert_eq!(e2, 996);
         assert_eq!(e3, 996);
@@ -241,7 +238,7 @@ mod test {
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
+        fn from_request(_: &'a Request<()>) -> Self::Future {
             ready(Ok(String::from("996")))
         }
     }
@@ -251,7 +248,7 @@ mod test {
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
+        fn from_request(_: &'a Request<()>) -> Self::Future {
             ready(Ok(996))
         }
     }
@@ -261,17 +258,17 @@ mod test {
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
+        fn from_request(_: &'a Request<()>) -> Self::Future {
             ready(Ok(996))
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for &'a RefCell<Request<()>> {
-        type Type<'f> = &'f RefCell<Request<()>>;
+    impl<'a> FromRequest<'a, Request<()>> for &'a Request<()> {
+        type Type<'f> = &'f Request<()>;
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(req: &'a RefCell<Request<()>>) -> Self::Future {
+        fn from_request(req: &'a Request<()>) -> Self::Future {
             ready(Ok(req))
         }
     }

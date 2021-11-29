@@ -1,5 +1,6 @@
 pub(crate) mod pipeline;
 
+mod and_then;
 mod map;
 mod map_err;
 mod object;
