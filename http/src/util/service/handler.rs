@@ -8,11 +8,18 @@ use std::{
 };
 
 use pin_project_lite::pin_project;
-use xitca_service::{fn_service, ServiceFactory};
+use xitca_service::{fn_service, Service, ServiceFactory};
 
 pub fn handler_service<F, Req, T>(
     func: F,
-) -> impl ServiceFactory<Req, Response = <F::Output as Future>::Output, Error = T::Error, InitError = (), Config = ()>
+) -> impl ServiceFactory<
+    Req,
+    Response = <F::Output as Future>::Output,
+    Error = T::Error,
+    InitError = (),
+    Config = (),
+    Service = impl Service<Req, Response = <F::Output as Future>::Output, Error = T::Error> + Clone,
+>
 where
     F: Handler<T>,
     F::Output: Future,
@@ -178,7 +185,7 @@ mod test {
         future::{ready, Ready},
     };
 
-    use xitca_service::Service;
+    use xitca_service::{Service, ServiceFactoryExt};
 
     use crate::http::{Request, Response, StatusCode};
 
@@ -221,7 +228,11 @@ mod test {
 
     #[tokio::test]
     async fn concurrent_extract() {
-        let service = handler_service(handler).new_service(()).await.unwrap();
+        let service = handler_service(handler)
+            .transform_fn(|s, req| async move { s.call(req).await })
+            .new_service(())
+            .await
+            .unwrap();
 
         let req = Request::new(());
 
