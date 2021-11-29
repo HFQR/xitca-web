@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 /// Constructor type for two step ServiceFactory where field are called
 /// with top down order.
-pub struct PipelineServiceFactory<SF, SF1, M = ()> {
+pub struct PipelineServiceFactory<SF, SF1, M> {
     pub(crate) factory: SF,
     pub(crate) factory2: SF1,
     _marker: PhantomData<M>,
