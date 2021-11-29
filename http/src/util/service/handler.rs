@@ -10,55 +10,86 @@ use std::{
 use pin_project_lite::pin_project;
 use xitca_service::{fn_service, Service, ServiceFactory};
 
-pub fn handler_service<F, Req, T>(
+pub fn handler_service<'t, F, Req, T, Res, Err>(
     func: F,
 ) -> impl ServiceFactory<
     Req,
-    Response = <F::Output as Future>::Output,
-    Error = T::Error,
+    Response = Res,
+    Error = Err,
     InitError = (),
     Config = (),
-    Service = impl Service<Req, Response = <F::Output as Future>::Output, Error = T::Error> + Clone,
+    Service = impl Service<Req, Response = Res, Error = Err> + Clone,
 >
 where
-    F: Handler<T>,
-    F::Output: Future,
-    T: FromRequest<Req>,
+    F: for<'a> Handler<'t, 'a, Req, T, Response = Res, Error = Err>,
 {
     fn_service(move |req| {
         let func = func.clone();
         let req = RefCell::new(req);
-        async move {
-            let t = T::from_request(&req).await?;
-            Ok(func.call(t).await)
-        }
+
+        // self-referential future
+        async move { func.handle(&req).await }
     })
 }
 
-pub trait FromRequest<Req>: Sized {
+/// Helper trait to make the HRTB bounds in `handler_service` as simple as posible.
+///     `F: for<'a> Handler<'a, Req, T, Output=Out, Error=Err>,`
+/// More precisely, HRTB bounds shouldn't specify any associated type that is bound to the
+/// quantified lifetime.
+/// For example, the following bounds would otherwise be necessary in `fn_service`:
+///     `F: for<'a> FnArgs<<T as FromRequest>::Type<'a>>,`
+///     `for<'a> FnArgs<T::Type<'a>>::Output: Future`
+/// But these are known to be buggy. See https://github.com/rust-lang/rust/issues/56556
+pub trait Handler<'t, 'a, Req, T>: Clone {
     type Error;
-    type Future<'f>: Future<Output = Result<Self, Self::Error>>
-    where
-        Req: 'f;
+    type Response;
+    type Future: Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn from_request(req: &RefCell<Req>) -> Self::Future<'_>;
+    fn handle(&'a self, req: &'a RefCell<Req>) -> Self::Future;
+}
+
+impl<'t, 'a, Req, T, Res, Err, F> Handler<'t, 'a, Req, T> for F
+where
+    T: FromRequest<'t, Req, Error = Err>,
+    F: AsyncFn<T::Type<'a>, Output = Res> + Clone,
+    F: AsyncFn<T>, // second bound to assist type inference to pinpoint T
+{
+    type Error = Err;
+    type Response = Res;
+    type Future = impl Future<Output = Result<Self::Response, Self::Error>> + 'a;
+
+    fn handle(&'a self, req: &'a RefCell<Req>) -> Self::Future {
+        async move { Ok(self.call(T::Type::<'a>::from_request(req).await?).await) }
+    }
+}
+
+pub trait FromRequest<'a, Req>: Sized {
+    // Used to construct the type for any lifetime 'b.
+    //
+    // Most extractors should set this to Self.
+    // However extractor types with lifetime paramter that bwrrows from request and wants to to
+    // support being extracted in handler arguments should take care.
+    type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
+
+    type Error;
+    type Future: Future<Output = Result<Self, Self::Error>>;
+
+    fn from_request(req: &'a RefCell<Req>) -> Self::Future;
 }
 
 macro_rules! from_req_impl {
     ($fut: ident; $($req: ident),*) => {
-        impl<Req, Err, $($req,)*> FromRequest<Req> for ($($req,)*)
+        impl<'a, Req, Err, $($req,)*> FromRequest<'a, Req> for ($($req,)*)
         where
             $(
-                $req: FromRequest<Req, Error = Err>,
+                $req: FromRequest<'a, Req, Error = Err>,
             )*
         {
+            type Type<'r> = ($($req::Type<'r>,)*);
             type Error = Err;
-            type Future<'f>
-            where
-                Req: 'f,
-            = impl Future<Output = Result<Self, Self::Error>>;
+            type Future = impl Future<Output = Result<Self, Self::Error>>;
 
-            fn from_request(req: &RefCell<Req>) -> Self::Future<'_> {
+            fn from_request(req: &'a RefCell<Req>) -> Self::Future {
                 $fut {
                     $(
                         $req: ExtractFuture::Future {
@@ -70,18 +101,16 @@ macro_rules! from_req_impl {
         }
 
         pin_project! {
-            struct $fut<'f, Req, Err, $($req: FromRequest<Req, Error = Err>),+>
-            where
-                Req: 'f
+            struct $fut<'f, Req, Err, $($req: FromRequest<'f, Req, Error = Err>),+>
             {
                 $(
                     #[pin]
-                    $req: ExtractFuture<$req::Future<'f>, $req>,
+                    $req: ExtractFuture<$req::Future, $req>,
                 )+
             }
         }
 
-        impl<Req, Err, $($req: FromRequest<Req, Error = Err>),+> Future for $fut<'_, Req, Err, $($req),+>
+        impl<'f, Req, Err, $($req: FromRequest<'f, Req, Error = Err>),+> Future for $fut<'f, Req, Err, $($req),+>
         {
             type Output = Result<($($req,)+), Err>;
 
@@ -144,37 +173,45 @@ from_req_impl! { Extract7; A, B, C, D, E, F, G }
 from_req_impl! { Extract8; A, B, C, D, E, F, G, H }
 from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I }
 
-pub trait Handler<Arg>: Clone {
+/// Same as `std::ops::Fn` trait but for async output.
+///
+/// It is necessary in the the HRTB bounds for async fn's with reference paramters because it
+/// allows the output future to be bound to the paramter lifetime.
+///     `F: for<'a> AsyncFn<(&'a u8,) Output=u8>`
+pub trait AsyncFn<Arg> {
     type Output;
+    type Future: Future<Output = Self::Output>;
 
-    fn call(&self, arg: Arg) -> Self::Output;
+    fn call(&self, arg: Arg) -> Self::Future;
 }
 
-macro_rules! handler_impl {
+macro_rules! async_fn_impl {
     ($($arg: ident),*) => {
-        impl<Func, O, $($arg,)*> Handler<($($arg,)*)> for Func
+        impl<Func, Fut, O, $($arg,)*> AsyncFn<($($arg,)*)> for Func
         where
-            Func: Fn($($arg),*) -> O + Clone,
+            Func: Fn($($arg),*) -> Fut,
+            Fut: Future<Output = O>,
         {
             type Output = O;
+            type Future = Fut;
 
-            fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Output {
+            fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Future {
                 self($($arg,)*)
             }
         }
     }
 }
 
-handler_impl! {}
-handler_impl! { A }
-handler_impl! { A, B }
-handler_impl! { A, B, C }
-handler_impl! { A, B, C, D }
-handler_impl! { A, B, C, D, E }
-handler_impl! { A, B, C, D, E, F }
-handler_impl! { A, B, C, D, E, F, G }
-handler_impl! { A, B, C, D, E, F, G, H }
-handler_impl! { A, B, C, D, E, F, G, H, I }
+async_fn_impl! {}
+async_fn_impl! { A }
+async_fn_impl! { A, B }
+async_fn_impl! { A, B, C }
+async_fn_impl! { A, B, C, D }
+async_fn_impl! { A, B, C, D, E }
+async_fn_impl! { A, B, C, D, E, F }
+async_fn_impl! { A, B, C, D, E, F, G }
+async_fn_impl! { A, B, C, D, E, F, G, H }
+async_fn_impl! { A, B, C, D, E, F, G, H, I }
 
 #[cfg(test)]
 mod test {
@@ -189,7 +226,7 @@ mod test {
 
     use crate::http::{Request, Response, StatusCode};
 
-    async fn handler(e1: String, e2: u32, e3: u64) -> Response<()> {
+    async fn handler(e1: String, e2: u32, (_, e3): (&RefCell<Request<()>>, u64)) -> Response<()> {
         assert_eq!(e1, "996");
         assert_eq!(e2, 996);
         assert_eq!(e3, 996);
@@ -199,30 +236,43 @@ mod test {
         res
     }
 
-    impl FromRequest<Request<()>> for String {
+    impl<'a> FromRequest<'a, Request<()>> for String {
+        type Type<'f> = Self;
         type Error = Infallible;
-        type Future<'f> = Ready<Result<Self, Self::Error>>;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
             ready(Ok(String::from("996")))
         }
     }
 
-    impl FromRequest<Request<()>> for u32 {
+    impl<'a> FromRequest<'a, Request<()>> for u32 {
+        type Type<'f> = Self;
         type Error = Infallible;
-        type Future<'f> = Ready<Result<Self, Self::Error>>;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
             ready(Ok(996))
         }
     }
 
-    impl FromRequest<Request<()>> for u64 {
+    impl<'a> FromRequest<'a, Request<()>> for u64 {
+        type Type<'f> = Self;
         type Error = Infallible;
-        type Future<'f> = Ready<Result<Self, Self::Error>>;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &RefCell<Request<()>>) -> Self::Future<'_> {
+        fn from_request(_: &'a RefCell<Request<()>>) -> Self::Future {
             ready(Ok(996))
+        }
+    }
+
+    impl<'a> FromRequest<'a, Request<()>> for &'a RefCell<Request<()>> {
+        type Type<'f> = &'f RefCell<Request<()>>;
+        type Error = Infallible;
+        type Future = Ready<Result<Self, Self::Error>>;
+
+        fn from_request(req: &'a RefCell<Request<()>>) -> Self::Future {
+            ready(Ok(req))
         }
     }
 
