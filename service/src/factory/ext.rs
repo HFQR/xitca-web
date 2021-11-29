@@ -26,6 +26,12 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         PipelineServiceFactory::new(self, err)
     }
 
+    /// Chain another service factory who's service takes `Self`'s `Service::Future` output as
+    /// `Service::Request`.
+    ///
+    /// *. Only `F`'s readiness is checked beforehand.
+    /// `Self::Service`'s readiness is checked inside `<F::Service as Service>::call`.
+    /// This way the readiness error would be able to be handled by `F`.
     fn then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::Then>
     where
         F: ServiceFactory<Result<Self::Response, Self::Error>>,
