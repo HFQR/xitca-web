@@ -8,14 +8,13 @@ impl<S, Req, S1> Service<Req> for PipelineService<S, S1, Then>
 where
     S: Service<Req>,
     S1: Service<Result<S::Response, S::Error>>,
-    S1::Error: From<S::Error>,
 {
     type Response = S1::Response;
     type Error = S1::Error;
     type Ready<'f>
     where
         Self: 'f,
-    = impl Future<Output = Result<(), Self::Error>>;
+    = S1::Ready<'f>;
     type Future<'f>
     where
         Self: 'f,
@@ -23,17 +22,24 @@ where
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        async move {
-            self.service.ready().await?;
-            self.service2.ready().await
-        }
+        // Only check service2's readiness.
+        self.service2.ready()
     }
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
-            let res = self.service.call(req).await;
+            // check service1's readiness in service call and pass potential error to service2.
+            let res = ready_and_call(&self.service, req).await;
             self.service2.call(res).await
         }
     }
+}
+
+async fn ready_and_call<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
+where
+    S: Service<Req>,
+{
+    service.ready().await?;
+    service.call(req).await
 }

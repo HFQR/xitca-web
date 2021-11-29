@@ -14,7 +14,6 @@ where
     SF::Config: Clone,
 
     SF1: ServiceFactory<Result<SF::Response, SF::Error>, Config = SF::Config>,
-    SF1::Error: From<SF::Error>,
 {
     type Response = SF1::Response;
     type Error = SF1::Error;
