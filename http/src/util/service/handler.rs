@@ -252,14 +252,23 @@ mod test {
 
     use crate::http::{Request, Response, StatusCode};
 
-    async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> Response<()> {
+    async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> StatusCode {
         assert_eq!(e1, "996");
         assert_eq!(e2, 996);
         assert_eq!(e3, 996);
 
-        let mut res = Response::new(());
-        *res.status_mut() = StatusCode::MULTI_STATUS;
-        res
+        StatusCode::MULTI_STATUS
+    }
+
+    impl<'a> Responder<'a, Request<()>> for StatusCode {
+        type Output = Response<()>;
+        type Future = Ready<Self::Output>;
+
+        fn respond_to(self, _: &'a mut Request<()>) -> Self::Future {
+            let mut res = Response::new(());
+            *res.status_mut() = self;
+            ready(res)
+        }
     }
 
     impl<'a> FromRequest<'a, Request<()>> for String {
