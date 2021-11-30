@@ -10,6 +10,7 @@ use std::{
 use pin_project_lite::pin_project;
 use xitca_service::{fn_service, Service, ServiceFactory};
 
+#[inline]
 pub fn handler_service<'t, F, Req, T, O, Res, Err>(
     func: F,
 ) -> impl ServiceFactory<
