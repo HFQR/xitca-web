@@ -14,6 +14,7 @@ pub(crate) mod marker {
     pub struct MapErr;
     pub struct MapInitErr;
     pub struct Then;
+    pub struct AndThen;
     pub struct Transform;
     pub struct TransformFn;
 }

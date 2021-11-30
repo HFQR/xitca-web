@@ -220,7 +220,10 @@ macro_rules! route_service {
                 async move {
                     match *req.method() {
                         $(
-                            Method::$method => self.$method.call(req).await,
+                            Method::$method => {
+                                self.$method.ready().await?;
+                                self.$method.call(req).await
+                            },
                         ) *
                         _ => Err(RouteError::MethodNotAllowed),
                     }

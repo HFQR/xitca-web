@@ -48,6 +48,14 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         PipelineServiceFactory::new(self, factory)
     }
 
+    fn and_then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::AndThen>
+    where
+        F: ServiceFactory<Self::Response>,
+        Self: Sized,
+    {
+        PipelineServiceFactory::new(self, factory)
+    }
+
     fn transform<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::Transform>
     where
         T: Transform<Self::Service, Req>,

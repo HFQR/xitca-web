@@ -3,22 +3,23 @@ use core::future::Future;
 use crate::service::pipeline::PipelineService;
 
 use super::{
-    pipeline::{marker::Then, PipelineServiceFactory},
+    pipeline::{marker::AndThen, PipelineServiceFactory},
     ServiceFactory,
 };
 
-impl<SF, Req, SF1> ServiceFactory<Req> for PipelineServiceFactory<SF, SF1, Then>
+impl<SF, Req, SF1> ServiceFactory<Req> for PipelineServiceFactory<SF, SF1, AndThen>
 where
     SF: ServiceFactory<Req>,
     SF::InitError: From<SF1::InitError>,
     SF::Config: Clone,
 
-    SF1: ServiceFactory<Result<SF::Response, SF::Error>, Config = SF::Config>,
+    SF1: ServiceFactory<SF::Response, Config = SF::Config>,
+    SF1::Error: From<SF::Error>,
 {
     type Response = SF1::Response;
     type Error = SF1::Error;
     type Config = SF::Config;
-    type Service = PipelineService<SF::Service, SF1::Service, Then>;
+    type Service = PipelineService<SF::Service, SF1::Service, AndThen>;
     type InitError = SF::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
