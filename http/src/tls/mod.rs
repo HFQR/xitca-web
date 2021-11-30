@@ -15,7 +15,7 @@ mod error;
 
 pub(crate) use error::TlsError;
 
-use std::future::{ready, Future, Ready};
+use std::future::Future;
 
 use xitca_service::{Service, ServiceFactory};
 
@@ -32,7 +32,7 @@ impl<St> ServiceFactory<St> for NoOpTlsAcceptorService {
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, _: Self::Config) -> Self::Future {
-        async move { Ok(Self) }
+        async { Ok(Self) }
     }
 }
 
@@ -40,12 +40,12 @@ impl<St> Service<St> for NoOpTlsAcceptorService {
     type Response = St;
     type Error = TlsError;
 
-    type Ready<'f> = Ready<Result<(), Self::Error>>;
+    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        ready(Ok(()))
+        async { Ok(()) }
     }
 
     #[inline]

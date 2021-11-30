@@ -1,7 +1,7 @@
 pub(crate) use tokio_native_tls::native_tls::{Error as NativeTlsError, TlsAcceptor};
 
 use std::{
-    future::{self, ready, Future},
+    future::Future,
     io,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -84,12 +84,12 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = NativeTlsError;
 
-    type Ready<'f> = future::Ready<Result<(), Self::Error>>;
+    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        ready(Ok(()))
+        async { Ok(()) }
     }
 
     #[inline]

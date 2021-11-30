@@ -2,7 +2,7 @@ pub(crate) type RustlsConfig = Arc<ServerConfig>;
 
 use std::{
     fmt::{self, Debug, Formatter},
-    future::{self, ready, Future},
+    future::Future,
     io,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -75,7 +75,7 @@ impl<St: AsyncIo> ServiceFactory<St> for TlsAcceptorService {
 
     fn new_service(&self, _: Self::Config) -> Self::Future {
         let this = self.clone();
-        async move { Ok(this) }
+        async { Ok(this) }
     }
 }
 
@@ -83,12 +83,12 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = RustlsError;
 
-    type Ready<'f> = future::Ready<Result<(), Self::Error>>;
+    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        ready(Ok(()))
+        async { Ok(()) }
     }
 
     #[inline]

@@ -57,6 +57,19 @@ pub struct StateService<S, St> {
     state: St,
 }
 
+impl<S, St> Clone for StateService<S, St>
+where
+    S: Clone,
+    St: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            service: self.service.clone(),
+            state: self.state.clone(),
+        }
+    }
+}
+
 impl<S, ReqB, St> Service<Request<ReqB>> for StateService<S, St>
 where
     S: Service<Request<ReqB>>,

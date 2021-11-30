@@ -1,12 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
 
-use std::{
-    error, fmt,
-    future::Future,
-    future::{ready, Ready},
-    marker::PhantomData,
-};
+use std::{error, fmt, future::Future, marker::PhantomData};
 
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
 
@@ -204,7 +199,7 @@ macro_rules! route_service {
             type Ready<'f>
             where
                 Self: 'f,
-            = Ready<Result<(), Self::Error>>;
+            = impl Future<Output = Result<(), Self::Error>>;
             type Future<'f>
             where
                 Self: 'f,
@@ -212,7 +207,7 @@ macro_rules! route_service {
 
             #[inline]
             fn ready(&self) -> Self::Ready<'_> {
-                ready(Ok(()))
+                async { Ok(()) }
             }
 
             #[inline]
@@ -296,10 +291,11 @@ impl<Req, Res, Err, Cfg, InitErr> ServiceFactory<Req> for MethodNotAllowed<Res, 
     type Config = Cfg;
     type Service = Self;
     type InitError = InitErr;
-    type Future = Ready<Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, _: Self::Config) -> Self::Future {
-        ready(Ok(self.clone()))
+        let this = self.clone();
+        async { Ok(this) }
     }
 }
 
@@ -309,20 +305,20 @@ impl<Req, Res, Err, Cfg, InitErr> Service<Req> for MethodNotAllowed<Res, Err, Cf
     type Ready<'f>
     where
         Self: 'f,
-    = Ready<Result<(), Self::Error>>;
+    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
-    = Ready<Result<Self::Response, Self::Error>>;
+    = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        ready(Ok(()))
+        async { Ok(()) }
     }
 
     #[inline]
     fn call(&self, _: Req) -> Self::Future<'_> {
-        ready(Err(RouteError::MethodNotAllowed))
+        async { Err(RouteError::MethodNotAllowed) }
     }
 }
 
