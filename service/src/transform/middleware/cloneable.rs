@@ -1,4 +1,4 @@
-use core::future::{ready, Ready};
+use core::future::Future;
 
 use alloc::rc::Rc;
 
@@ -15,10 +15,10 @@ where
     type Error = S::Error;
     type Transform = Rc<S>;
     type InitError = ();
-    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(Rc::new(service)))
+        async { Ok(Rc::new(service)) }
     }
 }
 

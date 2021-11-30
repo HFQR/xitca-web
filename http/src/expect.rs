@@ -1,9 +1,6 @@
 //! Default expect handler. Pass through request unconditionally.
 
-use std::{
-    future::{ready, Future, Ready},
-    marker::PhantomData,
-};
+use std::{future::Future, marker::PhantomData};
 
 use xitca_service::{Service, ServiceFactory};
 
@@ -46,7 +43,7 @@ where
     type Ready<'f>
     where
         Self: 'f,
-    = Ready<Result<(), Self::Error>>;
+    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
@@ -54,7 +51,7 @@ where
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        ready(Ok(()))
+        async { Ok(()) }
     }
 
     fn call(&self, req: Req) -> Self::Future<'_> {

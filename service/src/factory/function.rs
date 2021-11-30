@@ -1,4 +1,4 @@
-use core::future::{ready, Future, Ready};
+use core::future::Future;
 
 use super::ServiceFactory;
 use crate::Service;
@@ -44,7 +44,7 @@ where
     type Ready<'f>
     where
         Self: 'f,
-    = Ready<Result<(), Self::Error>>;
+    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
@@ -52,7 +52,7 @@ where
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        ready(Ok(()))
+        async { Ok(()) }
     }
 
     #[inline]

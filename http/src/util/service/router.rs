@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    error, fmt,
-    future::{ready, Future, Ready},
-};
+use std::{collections::HashMap, error, fmt, future::Future};
 
 use matchit::{MatchError, Node};
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject};
@@ -122,7 +118,7 @@ impl<ReqB, Res, Err> Service<Request<ReqB>> for RouterService<Request<ReqB>, Res
     type Ready<'f>
     where
         Self: 'f,
-    = Ready<Result<(), Self::Error>>;
+    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
@@ -130,7 +126,7 @@ impl<ReqB, Res, Err> Service<Request<ReqB>> for RouterService<Request<ReqB>, Res
 
     #[inline]
     fn ready(&self) -> Self::Ready<'_> {
-        ready(Ok(()))
+        async { Ok(()) }
     }
 
     #[inline]

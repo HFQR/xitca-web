@@ -1,38 +1,96 @@
 #![allow(non_snake_case)]
 
 use std::{
-    convert::Infallible,
-    future::{ready, Future, Ready},
+    future::Future,
+    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
 
 use pin_project_lite::pin_project;
-use xitca_service::{fn_service, Service, ServiceFactory};
+use xitca_service::{Service, ServiceFactory};
 
-#[inline]
-pub fn handler_service<'t, F, Req, T, O, Res, Err>(
-    func: F,
-) -> impl ServiceFactory<
-    Req,
-    Response = Res,
-    Error = Err,
-    InitError = (),
-    Config = (),
-    Service = impl Service<Req, Response = Res, Error = Err> + Clone,
->
+pub fn handler_service<'t, F, Req, T, O, Res, Err>(func: F) -> HandlerService<'t, F, T, O, Res, Err>
 where
     F: for<'a> Handler<'t, 'a, Req, T, Response = O, Error = Err>,
     O: for<'a> Responder<'a, Req, Output = Res>,
 {
-    fn_service(move |mut req| {
-        let func = func.clone();
-        // self-referential future
+    HandlerService::new(func)
+}
+
+pub struct HandlerService<'t, F, T, O, Res, Err> {
+    func: F,
+    _p: PhantomData<(&'t (), T, O, Res, Err)>,
+}
+
+impl<'t, F, T, O, Res, Err> HandlerService<'t, F, T, O, Res, Err> {
+    pub fn new<Req>(func: F) -> Self
+    where
+        F: for<'a> Handler<'t, 'a, Req, T, Response = O, Error = Err>,
+        O: for<'a> Responder<'a, Req, Output = Res>,
+    {
+        Self { func, _p: PhantomData }
+    }
+}
+
+impl<F, T, O, Res, Err> Clone for HandlerService<'_, F, T, O, Res, Err>
+where
+    F: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            func: self.func.clone(),
+            _p: PhantomData,
+        }
+    }
+}
+
+impl<'t, F, Req, T, O, Res, Err> ServiceFactory<Req> for HandlerService<'t, F, T, O, Res, Err>
+where
+    F: for<'a> Handler<'t, 'a, Req, T, Response = O, Error = Err>,
+    O: for<'a> Responder<'a, Req, Output = Res>,
+{
+    type Response = Res;
+    type Error = Err;
+    type Config = ();
+    type Service = Self;
+    type InitError = ();
+    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+
+    fn new_service(&self, _: Self::Config) -> Self::Future {
+        let this = self.clone();
+        async { Ok(this) }
+    }
+}
+
+impl<'t, F, Req, T, O, Res, Err> Service<Req> for HandlerService<'t, F, T, O, Res, Err>
+where
+    F: for<'a> Handler<'t, 'a, Req, T, Response = O, Error = Err>,
+    O: for<'a> Responder<'a, Req, Output = Res>,
+{
+    type Response = Res;
+    type Error = Err;
+    type Ready<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<(), Self::Error>>;
+    type Future<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<Self::Response, Self::Error>>;
+
+    #[inline]
+    fn ready(&self) -> Self::Ready<'_> {
+        async { Ok(()) }
+    }
+
+    #[inline]
+    fn call(&self, mut req: Req) -> Self::Future<'_> {
         async move {
-            let res = func.handle(&mut req).await?;
+            let res = self.func.handle(&mut req).await?;
             Ok(res.respond_to(&mut req).await)
         }
-    })
+    }
 }
 
 /// Helper trait to make the HRTB bounds in `handler_service` as simple as posible.
@@ -61,9 +119,10 @@ where
     type Response = Res;
     type Future = impl Future<Output = Result<Self::Response, Self::Error>> + 'a;
 
+    #[inline]
     fn handle(&'a self, req: &'a mut Req) -> Self::Future {
         async move {
-            let extract = T::Type::<'a>::from_request(&*req).await?;
+            let extract = T::Type::<'a>::from_request(req).await?;
             Ok(self.call(extract).await)
         }
     }
@@ -82,16 +141,6 @@ pub trait FromRequest<'a, Req>: Sized {
     type Future: Future<Output = Result<Self, Self::Error>>;
 
     fn from_request(req: &'a Req) -> Self::Future;
-}
-
-impl<'a, Req> FromRequest<'a, Req> for () {
-    type Type<'b> = ();
-    type Error = Infallible;
-    type Future = Ready<Result<Self, Self::Error>>;
-
-    fn from_request(_: &'a Req) -> Self::Future {
-        ready(Ok(()))
-    }
 }
 
 macro_rules! from_req_impl {
