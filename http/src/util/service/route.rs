@@ -30,11 +30,17 @@ macro_rules! method {
                     Error = RouteError<F::Error>,
                     Config = F::Config,
                     InitError = F::InitError,
+                    Service = impl Service<
+                        $req,
+                        Response = F::Response,
+                        Error = RouteError<F::Error>,
+                    > + Clone
                 >,
             ) *
         >
         where
             F: ServiceFactory<Req>,
+            F::Service: Clone
         {
             Route::new().$method(factory)
         }
@@ -76,7 +82,6 @@ macro_rules! route {
             }
         }
 
-
         impl<ReqB, Res, Err, Cfg, InitErr, $($method), *> ServiceFactory<Request<ReqB>>
             for Route<Request<ReqB>, Res, Err, Cfg, InitErr, $($method), *>
         where
@@ -106,6 +111,7 @@ macro_rules! route {
         where
             $(
                 $method: ServiceFactory<Req, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
+                $method::Service: Clone,
             )*
         {
 
@@ -147,11 +153,17 @@ macro_rules! route {
                     Error = RouteError<Err>,
                     Config = Cfg,
                     InitError = InitErr,
+                    Service = impl Service<
+                        $req,
+                        Response = Res,
+                        Error = RouteError<Err>
+                    > + Clone
                 >,
             )*
         >
         where
             F1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
+            F1::Service: Clone
         {
             Route {
                 $method_ty: factory.map_err(RouteError::Service),
@@ -169,6 +181,16 @@ macro_rules! route_service {
         #[allow(non_camel_case_types)]
         pub struct RouteService<$($method), *> {
             $($method: $method), *
+        }
+
+        impl<$($method: Clone), *> Clone for RouteService<$($method), *> {
+            fn clone(&self) -> Self {
+                Self {
+                    $(
+                        $method: self.$method.clone()
+                    ), *
+                }
+            }
         }
 
         impl<ReqB, Res, Err, $($method), *> Service<Request<ReqB>> for RouteService<$($method), *>
