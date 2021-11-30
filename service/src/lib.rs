@@ -11,7 +11,7 @@ mod transform;
 pub use self::{
     factory::{fn_service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject},
     service::{Service, ServiceObject},
-    transform::{Transform, TransformFactory},
+    transform::{middleware, Transform, TransformFactory},
 };
 
 use core::{future::Future, pin::Pin};
