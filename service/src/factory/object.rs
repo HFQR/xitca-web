@@ -38,7 +38,7 @@ where
         let fut = ServiceFactory::new_service(self, cfg);
         Box::pin(async move {
             let service = fut.await?;
-            Ok(ServiceObject::new(Rc::new(service)))
+            Ok(Rc::new(Rc::new(service)) as _)
         })
     }
 }
