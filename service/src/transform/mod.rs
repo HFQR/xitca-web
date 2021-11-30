@@ -1,3 +1,5 @@
+pub mod middleware;
+
 pub(crate) mod function;
 
 use core::future::Future;
