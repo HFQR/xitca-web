@@ -30,7 +30,7 @@ mod test {
 
     #[tokio::test]
     async fn cloneable() {
-        let service = fn_service(|_: &'static str| ready(Ok::<_, ()>("996")))
+        let service = fn_service(|_: &'static str| async { Ok::<_, ()>("996") })
             .transform(Cloneable)
             .new_service(())
             .await
