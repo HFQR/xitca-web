@@ -26,6 +26,14 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         PipelineServiceFactory::new(self, err)
     }
 
+    fn map_init_err<F, E>(self, err: F) -> PipelineServiceFactory<Self, F, marker::MapInitErr>
+    where
+        F: Fn(Self::InitError) -> E + Clone,
+        Self: Sized,
+    {
+        PipelineServiceFactory::new(self, err)
+    }
+
     /// Chain another service factory who's service takes `Self`'s `Service::Future` output as
     /// `Service::Request`.
     ///
@@ -61,7 +69,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
     fn into_object(self) -> ServiceFactoryObject<Req, Self::Response, Self::Error, Self::Config, Self::InitError>
     where
         Self: Sized + 'static,
-        Self::Service: 'static,
+        Self::Service: Clone + 'static,
         Self::Future: 'static,
         Req: 'static,
     {
@@ -82,20 +90,17 @@ mod test {
     #[derive(Clone)]
     struct DummyMiddleware;
 
-    struct DummyMiddlewareService<S>(S);
+    #[derive(Clone)]
+    struct DummyMiddlewareService<S: Clone>(S);
 
     impl<S, Req> Transform<S, Req> for DummyMiddleware
     where
-        S: Service<Req>,
+        S: Service<Req> + Clone,
     {
         type Response = S::Response;
-
         type Error = S::Error;
-
         type Transform = DummyMiddlewareService<S>;
-
         type InitError = ();
-
         type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
 
         fn new_transform(&self, service: S) -> Self::Future {
@@ -105,17 +110,14 @@ mod test {
 
     impl<S, Req> Service<Req> for DummyMiddlewareService<S>
     where
-        S: Service<Req>,
+        S: Service<Req> + Clone,
     {
         type Response = S::Response;
-
         type Error = S::Error;
-
         type Ready<'f>
         where
             S: 'f,
         = impl Future<Output = Result<(), Self::Error>>;
-
         type Future<'f>
         where
             S: 'f,
@@ -185,5 +187,18 @@ mod test {
 
         let res = service.call("996").await.ok().unwrap();
         assert_eq!(res, "251");
+    }
+
+    #[tokio::test]
+    async fn map_init_err() {
+        let factory = fn_service(index)
+            .map_init_err(|_| "init_err")
+            .map_init_err(|_| ())
+            .transform(DummyMiddleware);
+
+        let service = factory.new_service(()).await.unwrap();
+
+        let res = service.call("996").await.ok().unwrap();
+        assert_eq!(res, "996");
     }
 }

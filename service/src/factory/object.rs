@@ -28,7 +28,7 @@ pub trait _ServiceFactoryObject<Req, Res, Err, Cfg, InitErr> {
 impl<F, Req> _ServiceFactoryObject<Req, F::Response, F::Error, F::Config, F::InitError> for F
 where
     F: ServiceFactory<Req>,
-    F::Service: 'static,
+    F::Service: Clone + 'static,
     F::Future: 'static,
     Req: 'static,
 {
@@ -38,7 +38,7 @@ where
         let fut = ServiceFactory::new_service(self, cfg);
         Box::pin(async move {
             let service = fut.await?;
-            Ok(Rc::new(Rc::new(service)) as _)
+            Ok(Rc::new(service) as _)
         })
     }
 }

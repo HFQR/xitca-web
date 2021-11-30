@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 ///
 /// [crate::factory::pipeline::marker] is used as `M` type for specialization
 /// [Service] trait impl of different usage.
-pub struct PipelineService<S, S1, M = ()> {
+pub struct PipelineService<S, S1, M> {
     pub(crate) service: S,
     pub(crate) service2: S1,
     _marker: PhantomData<M>,

@@ -64,7 +64,7 @@ impl<Req, Res, Err, Cfg, InitErr> Router<Req, Res, Err, Cfg, InitErr> {
     pub fn insert<F>(mut self, path: &'static str, factory: F) -> Self
     where
         F: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr> + 'static,
-        F::Service: 'static,
+        F::Service: Clone + 'static,
         F::Future: 'static,
         Req: 'static,
     {

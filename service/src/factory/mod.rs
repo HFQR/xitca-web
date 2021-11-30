@@ -4,6 +4,7 @@ mod ext;
 mod function;
 mod map;
 mod map_err;
+mod map_init_err;
 mod object;
 mod then;
 
