@@ -73,10 +73,12 @@ where
         S: 'f,
     = S::Future<'f>;
 
+    #[inline]
     fn ready(&self) -> Self::Ready<'_> {
         self.service.ready()
     }
 
+    #[inline]
     fn call(&self, mut req: Request<ReqB>) -> Self::Future<'_> {
         req.extensions_mut().insert(self.state.clone());
         self.service.call(req)
