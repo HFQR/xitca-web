@@ -7,240 +7,241 @@ use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
 
 use crate::http::{Method, Request};
 
+type RouteMethodFactory<Req, R: ServiceFactory<Req>> = impl ServiceFactory<
+    Req,
+    Response = R::Response,
+    Error = RouteError<R::Error>,
+    Config = R::Config,
+    InitError = R::InitError,
+    Service = impl Service<Req, Response = R::Response, Error = RouteError<R::Error>> + Clone,
+>;
+
 macro_rules! method {
-    ($method: ident; $($req: ident), *) => {
-        pub fn $method<F, Req>(
-            factory: F,
+    ($method_fn: ident, $method: ident) => {
+        pub fn $method_fn<R, Req>(
+            route: R,
+        ) -> Route<RouteMethodFactory<Req, R>, MethodNotAllowed<R::Response, R::Error, R::Config, R::InitError>, 1>
+        where
+            R: ServiceFactory<Req>,
+            R::Service: Clone,
+        {
+            Route::new(route).methods([Method::$method])
+        }
+    };
+}
+
+method!(get, GET);
+method!(post, POST);
+method!(put, PUT);
+method!(delete, DELETE);
+method!(head, HEAD);
+method!(options, OPTIONS);
+method!(connect, CONNECT);
+method!(patch, PATCH);
+method!(trace, TRACE);
+
+pub struct Route<R, N, const M: usize> {
+    methods: [Method; M],
+    route: R,
+    next: N,
+}
+
+impl<R, N, const M: usize> Clone for Route<R, N, M>
+where
+    R: Clone,
+    N: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            methods: self.methods.clone(),
+            route: self.route.clone(),
+            next: self.next.clone(),
+        }
+    }
+}
+
+impl Route<(), (), 0> {
+    #[allow(clippy::type_complexity)]
+    pub fn new<R, Req>(
+        route: R,
+    ) -> Route<RouteMethodFactory<Req, R>, MethodNotAllowed<R::Response, R::Error, R::Config, R::InitError>, 0>
+    where
+        R: ServiceFactory<Req>,
+        R::Service: Clone,
+    {
+        Route {
+            methods: [],
+            route: route.map_err(RouteError::Service),
+            next: MethodNotAllowed::default(),
+        }
+    }
+}
+
+macro_rules! route_method {
+    ($method_fn: ident, $method: ident) => {
+        pub fn $method_fn<N1, Req>(
+            self,
+            $method_fn: N1,
         ) -> Route<
-            Req,
-            F::Response,
-            F::Error,
-            F::Config,
-            F::InitError,
-            // This is a hack to generate opaque return type repeatedly.
-            $(
+            R,
+            Route<
                 impl ServiceFactory<
-                    $req,
-                    Response = F::Response,
-                    Error = RouteError<F::Error>,
-                    Config = F::Config,
-                    InitError = F::InitError,
-                    Service = impl Service<
-                        $req,
-                        Response = F::Response,
-                        Error = RouteError<F::Error>,
-                    > + Clone
+                    Req,
+                    Response = N1::Response,
+                    Error = RouteError<N1::Error>,
+                    Config = N1::Config,
+                    InitError = N1::InitError,
+                    Service = impl Service<Req, Response = N1::Response, Error = RouteError<N1::Error>> + Clone,
                 >,
-            ) *
+                N,
+                1,
+            >,
+            M,
         >
         where
-            F: ServiceFactory<Req>,
-            F::Service: Clone
+            R: ServiceFactory<Req>,
+            R::Service: Clone,
+            N1: ServiceFactory<Req>,
+            N1::Service: Clone,
         {
-            Route::new().$method(factory)
+            self.next(Route::new($method_fn).methods([Method::$method]))
         }
     };
 }
 
-macro_rules! route {
-    ($($method: ident), *; $($req: ident), *) => {
-        pub struct Route<
-            Req,
-            Res,
-            Err,
-            Cfg,
-            InitErr,
-            $(
-                $method = MethodNotAllowed<Res, Err, Cfg, InitErr>,
-            )*
-        > {
-            $(
-                $method: $method,
-            )*
-            _phantom: PhantomData<(Req, Res, Err, Cfg, InitErr)>,
+impl<R, N, const M: usize> Route<R, N, M> {
+    pub fn methods<const M1: usize>(self, methods: [Method; M1]) -> Route<R, N, M1> {
+        assert!(M1 > 0, "Route method can not be empty");
+
+        if M != 0 {
+            panic!(
+                "Trying to overwrite existing {:?} methods with {:?}",
+                self.methods, methods
+            );
         }
 
-        impl<Req, Res, Err, Cfg, InitErr> Route<Req, Res, Err, Cfg, InitErr> {
-            pub fn new() -> Self {
-                Self {
-                    $(
-                        $method: Default::default(),
-                    )*
-                    _phantom: PhantomData,
-                }
-            }
+        Route {
+            methods,
+            route: self.route,
+            next: self.next,
         }
+    }
 
-        impl<Req, Res, Err, Cfg, InitErr> Default for Route<Req, Res, Err, Cfg, InitErr> {
-            fn default() -> Self {
-                Self::new()
-            }
+    pub fn next<Req, R1, N1, const M1: usize>(self, next: Route<R1, N1, M1>) -> Route<R, Route<R1, N, M1>, M>
+    where
+        R: ServiceFactory<Req>,
+        R::Service: Clone,
+        N1: ServiceFactory<Req>,
+        N1::Service: Clone,
+    {
+        Route {
+            methods: self.methods,
+            route: self.route,
+            next: Route {
+                methods: next.methods,
+                route: next.route,
+                next: self.next,
+            },
         }
+    }
 
-        impl<ReqB, Res, Err, Cfg, InitErr, $($method), *> ServiceFactory<Request<ReqB>>
-            for Route<Request<ReqB>, Res, Err, Cfg, InitErr, $($method), *>
-        where
-            $(
-                $method: ServiceFactory<Request<ReqB>, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
-            )*
-            Cfg: Clone,
-        {
-            type Response = Res;
-            type Error = RouteError<Err>;
-            type Config = Cfg;
-            type Service = RouteService<$($method::Service), *>;
-            type InitError = InitErr;
-            type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    route_method!(get, GET);
+    route_method!(post, POST);
+    route_method!(put, PUT);
+    route_method!(delete, DELETE);
+    route_method!(head, HEAD);
+    route_method!(options, OPTIONS);
+    route_method!(connect, CONNECT);
+    route_method!(patch, PATCH);
+    route_method!(trace, TRACE);
+}
 
-            fn new_service(&self, cfg: Self::Config) -> Self::Future {
-                let ($($method), *) = ($(self.$method.new_service(cfg.clone())), *);
+impl<ReqB, R, N, const M: usize> ServiceFactory<Request<ReqB>> for Route<R, N, M>
+where
+    R: ServiceFactory<Request<ReqB>>,
+    N: ServiceFactory<
+        Request<ReqB>,
+        Response = R::Response,
+        Error = R::Error,
+        Config = R::Config,
+        InitError = R::InitError,
+    >,
+    R::Config: Clone,
+{
+    type Response = R::Response;
+    type Error = R::Error;
+    type Config = R::Config;
+    type Service = RouteService<R::Service, N::Service, M>;
+    type InitError = R::InitError;
+    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
-                async move {
-                    let ($($method), *) = ($($method.await?), *);
-                    Ok(RouteService { $($method), * })
-                }
-            }
-        }
+    fn new_service(&self, cfg: Self::Config) -> Self::Future {
+        let route = self.route.new_service(cfg.clone());
+        let next = self.next.new_service(cfg);
 
-        impl<Req, Res, Err, Cfg, InitErr, $($method), *> Route<Req, Res, Err, Cfg, InitErr, $($method), *>
-        where
-            $(
-                $method: ServiceFactory<Req, Response = Res, Error = RouteError<Err>, Config = Cfg, InitError = InitErr>,
-                $method::Service: Clone,
-            )*
-        {
+        let methods = self.methods.clone();
 
-            route!(get, GET; POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
-
-            route!(post, POST; GET, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
-
-            route!(put, PUT; GET, POST, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
-
-            route!(delete, DELETE; GET, POST, PUT, HEAD, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
-
-            route!(head, HEAD; GET, POST, PUT, DELETE, OPTIONS, CONNECT, PATCH, TRACE; $($req),*);
-
-            route!(options, OPTIONS; GET, POST, PUT, DELETE, HEAD, CONNECT, PATCH, TRACE; $($req),*);
-
-            route!(connect, CONNECT; GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH, TRACE; $($req),*);
-
-            route!(patch, PATCH; GET, POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, TRACE; $($req),*);
-
-            route!(trace, TRACE; GET, POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH; $($req),*);
-        }
-    };
-    // Generate Route::method
-    (
-        $method: ident, $method_ty: ident;
-        $($untouched_method: ident),*;
-        $($req: ident),*
-    ) => {
-        pub fn $method<F1>(self, factory: F1) -> Route<
-            Req,
-            Res,
-            Err,
-            Cfg,
-            InitErr,
-            $(
-                impl ServiceFactory<
-                    $req,
-                    Response = Res,
-                    Error = RouteError<Err>,
-                    Config = Cfg,
-                    InitError = InitErr,
-                    Service = impl Service<
-                        $req,
-                        Response = Res,
-                        Error = RouteError<Err>
-                    > + Clone
-                >,
-            )*
-        >
-        where
-            F1: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr>,
-            F1::Service: Clone
-        {
-            Route {
-                $method_ty: factory.map_err(RouteError::Service),
-                $(
-                    $untouched_method: self.$untouched_method,
-                )*
-                _phantom: PhantomData
-            }
+        async move {
+            let route = route.await?;
+            let next = next.await?;
+            Ok(RouteService { methods, route, next })
         }
     }
 }
 
-macro_rules! route_service {
-    ($($method: ident), *) => {
-        #[allow(non_camel_case_types)]
-        pub struct RouteService<$($method), *> {
-            $($method: $method), *
-        }
+pub struct RouteService<R, N, const M: usize> {
+    methods: [Method; M],
+    route: R,
+    next: N,
+}
 
-        impl<$($method: Clone), *> Clone for RouteService<$($method), *> {
-            fn clone(&self) -> Self {
-                Self {
-                    $(
-                        $method: self.$method.clone()
-                    ), *
-                }
-            }
-        }
-
-        impl<ReqB, Res, Err, $($method), *> Service<Request<ReqB>> for RouteService<$($method), *>
-        where
-             $(
-                $method: Service<Request<ReqB>, Response = Res, Error = RouteError<Err>>
-             ), *
-        {
-            type Response = Res;
-            type Error = RouteError<Err>;
-            type Ready<'f>
-            where
-                Self: 'f,
-            = impl Future<Output = Result<(), Self::Error>>;
-            type Future<'f>
-            where
-                Self: 'f,
-            = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-            #[inline]
-            fn ready(&self) -> Self::Ready<'_> {
-                async { Ok(()) }
-            }
-
-            #[inline]
-            fn call(&self, req: Request<ReqB>) -> Self::Future<'_> {
-                async move {
-                    match *req.method() {
-                        $(
-                            Method::$method => {
-                                self.$method.ready().await?;
-                                self.$method.call(req).await
-                            },
-                        ) *
-                        _ => Err(RouteError::MethodNotAllowed),
-                    }
-                }
-            }
+impl<R, N, const M: usize> Clone for RouteService<R, N, M>
+where
+    R: Clone,
+    N: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            methods: self.methods.clone(),
+            route: self.route.clone(),
+            next: self.next.clone(),
         }
     }
 }
 
-method!(get; Req, Req, Req, Req, Req, Req, Req, Req, Req);
-method!(post; Req, Req, Req, Req, Req, Req, Req, Req, Req);
-method!(put; Req, Req, Req, Req, Req, Req, Req, Req, Req);
-method!(delete; Req, Req, Req, Req, Req, Req, Req, Req, Req);
-method!(head; Req, Req, Req, Req, Req, Req, Req, Req, Req);
-method!(options; Req, Req, Req, Req, Req, Req, Req, Req, Req);
-method!(connect; Req, Req, Req, Req, Req, Req, Req, Req, Req);
-method!(patch; Req, Req, Req, Req, Req, Req, Req, Req, Req);
-method!(trace; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+impl<ReqB, R, N, const M: usize> Service<Request<ReqB>> for RouteService<R, N, M>
+where
+    R: Service<Request<ReqB>>,
+    N: Service<Request<ReqB>, Response = R::Response, Error = R::Error>,
+{
+    type Response = R::Response;
+    type Error = R::Error;
+    type Ready<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<(), Self::Error>>;
+    type Future<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-route!(GET, POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE; Req, Req, Req, Req, Req, Req, Req, Req, Req);
+    #[inline]
+    fn ready(&self) -> Self::Ready<'_> {
+        async { Ok(()) }
+    }
 
-route_service!(GET, POST, PUT, DELETE, HEAD, OPTIONS, CONNECT, PATCH, TRACE);
+    #[inline]
+    fn call(&self, req: Request<ReqB>) -> Self::Future<'_> {
+        async move {
+            if self.methods.contains(req.method()) {
+                self.route.ready().await?;
+                self.route.call(req).await
+            } else {
+                self.next.call(req).await
+            }
+        }
+    }
+}
 
 /// Error type of Route service.
 pub enum RouteError<E> {
@@ -339,8 +340,11 @@ mod test {
     }
 
     #[tokio::test]
-    async fn route() {
-        let route = get(fn_service(index)).post(fn_service(index));
+    async fn route_fn() {
+        let route = get(fn_service(index))
+            .post(fn_service(index))
+            .trace(fn_service(index))
+            .transform_fn(|s, req| async move { s.call(req).await });
 
         let service = route.new_service(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);
@@ -356,5 +360,72 @@ mod test {
         *req.method_mut() = Method::PUT;
         let err = service.call(req).await.err().unwrap();
         assert!(matches!(err, RouteError::MethodNotAllowed));
+    }
+
+    #[tokio::test]
+    async fn route_mixed() {
+        let route = get(fn_service(index)).next(Route::new(fn_service(index)).methods([Method::POST, Method::PUT]));
+
+        let service = route.new_service(()).await.ok().unwrap();
+        let req = Request::new(RequestBody::None);
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::POST;
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::DELETE;
+        let err = service.call(req).await.err().unwrap();
+        assert!(matches!(err, RouteError::MethodNotAllowed));
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::PUT;
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+    }
+
+    #[tokio::test]
+    async fn route_struct() {
+        let route = Route::new(fn_service(index))
+            .methods([Method::POST, Method::PUT])
+            .next(Route::new(fn_service(index)).methods([Method::GET]))
+            .next(Route::new(fn_service(index)).methods([Method::OPTIONS]))
+            .next(trace(fn_service(index)));
+
+        let service = route.new_service(()).await.ok().unwrap();
+        let req = Request::new(RequestBody::None);
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::POST;
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::DELETE;
+        let err = service.call(req).await.err().unwrap();
+        assert!(matches!(err, RouteError::MethodNotAllowed));
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::PUT;
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::TRACE;
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+    }
+
+    #[should_panic]
+    #[test]
+    fn overwrite_method_panic() {
+        let _ = Route::new(fn_service(index))
+            .methods([Method::POST, Method::PUT])
+            .methods([Method::GET, Method::PUT]);
     }
 }
