@@ -10,30 +10,30 @@ use std::{
 use pin_project_lite::pin_project;
 use xitca_service::{Service, ServiceFactory};
 
-pub fn handler_service<'t, F, Req, T, O, Res, Err>(func: F) -> HandlerService<'t, F, T, O, Res, Err>
+pub fn handler_service<F, Req, T, O, Res, Err>(func: F) -> HandlerService<F, T, O, Res, Err>
 where
-    F: for<'a> Handler<'t, 'a, Req, T, Response = O, Error = Err>,
+    F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
     O: for<'a> Responder<'a, Req, Output = Res>,
 {
     HandlerService::new(func)
 }
 
-pub struct HandlerService<'t, F, T, O, Res, Err> {
+pub struct HandlerService<F, T, O, Res, Err> {
     func: F,
-    _p: PhantomData<(&'t (), T, O, Res, Err)>,
+    _p: PhantomData<(T, O, Res, Err)>,
 }
 
-impl<'t, F, T, O, Res, Err> HandlerService<'t, F, T, O, Res, Err> {
+impl<F, T, O, Res, Err> HandlerService<F, T, O, Res, Err> {
     pub fn new<Req>(func: F) -> Self
     where
-        F: for<'a> Handler<'t, 'a, Req, T, Response = O, Error = Err>,
+        F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
         O: for<'a> Responder<'a, Req, Output = Res>,
     {
         Self { func, _p: PhantomData }
     }
 }
 
-impl<F, T, O, Res, Err> Clone for HandlerService<'_, F, T, O, Res, Err>
+impl<F, T, O, Res, Err> Clone for HandlerService<F, T, O, Res, Err>
 where
     F: Clone,
 {
@@ -45,9 +45,9 @@ where
     }
 }
 
-impl<'t, F, Req, T, O, Res, Err> ServiceFactory<Req> for HandlerService<'t, F, T, O, Res, Err>
+impl<F, Req, T, O, Res, Err> ServiceFactory<Req> for HandlerService<F, T, O, Res, Err>
 where
-    F: for<'a> Handler<'t, 'a, Req, T, Response = O, Error = Err>,
+    F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
     O: for<'a> Responder<'a, Req, Output = Res>,
 {
     type Response = Res;
@@ -63,9 +63,9 @@ where
     }
 }
 
-impl<'t, F, Req, T, O, Res, Err> Service<Req> for HandlerService<'t, F, T, O, Res, Err>
+impl<F, Req, T, O, Res, Err> Service<Req> for HandlerService<F, T, O, Res, Err>
 where
-    F: for<'a> Handler<'t, 'a, Req, T, Response = O, Error = Err>,
+    F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
     O: for<'a> Responder<'a, Req, Output = Res>,
 {
     type Response = Res;
@@ -101,7 +101,7 @@ where
 ///     `F: for<'a> FnArgs<<T as FromRequest>::Type<'a>>,`
 ///     `for<'a> FnArgs<T::Type<'a>>::Output: Future`
 /// But these are known to be buggy. See https://github.com/rust-lang/rust/issues/56556
-pub trait Handler<'t, 'a, Req, T>: Clone {
+pub trait Handler<'a, Req, T>: Clone {
     type Error;
     type Response;
     type Future: Future<Output = Result<Self::Response, Self::Error>>;
@@ -109,9 +109,9 @@ pub trait Handler<'t, 'a, Req, T>: Clone {
     fn handle(&'a self, req: &'a mut Req) -> Self::Future;
 }
 
-impl<'t, 'a, Req, T, Res, Err, F> Handler<'t, 'a, Req, T> for F
+impl<'a, Req, T, Res, Err, F> Handler<'a, Req, T> for F
 where
-    T: FromRequest<'t, Req, Error = Err>,
+    T: FromRequest<'static, Req, Error = Err>,
     F: AsyncFn<T::Type<'a>, Output = Res> + Clone,
     F: AsyncFn<T>, // second bound to assist type inference to pinpoint T
 {
