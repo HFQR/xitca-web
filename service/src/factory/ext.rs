@@ -7,6 +7,7 @@ use crate::transform::Transform;
 use super::{
     pipeline::{marker, PipelineServiceFactory},
     ServiceFactory, ServiceFactoryObject,
+    boxed::BoxedServiceFactory
 };
 
 pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
@@ -34,6 +35,16 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         PipelineServiceFactory::new(self, err)
     }
 
+    /// Box `<Self as ServiceFactory<_>>::Future` to reduce it's stack size.
+    ///
+    /// *. This cominator does not box `Self` or `Self::Service`.
+    fn boxed_future(self) -> BoxedServiceFactory<Self>
+    where
+        Self: Sized
+    {
+        BoxedServiceFactory::new(self)
+    }
+
     /// Chain another service factory who's service takes `Self`'s `Service::Future` output as
     /// `Service::Request`.
     ///
@@ -48,6 +59,10 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         PipelineServiceFactory::new(self, factory)
     }
 
+    /// Chain another service factory who's service takes `Self`'s `Service::Response` output as
+    /// `Service::Request`.
+    ///
+    /// *. Unlike `then` combinator both `F` and `Self`'s readiness are checked beforehand.
     fn and_then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::AndThen>
     where
         F: ServiceFactory<Self::Response>,
@@ -74,6 +89,11 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
         PipelineServiceFactory::new(self, transform)
     }
 
+    /// Box self and cast it to a trait object.
+    ///
+    /// This would erase `Self::Service` type and it's GAT nature.
+    ///
+    /// See [crate::service::ServiceObject] for detail.
     fn into_object(self) -> ServiceFactoryObject<Req, Self::Response, Self::Error, Self::Config, Self::InitError>
     where
         Self: Sized + 'static,
