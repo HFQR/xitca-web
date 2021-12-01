@@ -5,9 +5,9 @@ use alloc::boxed::Box;
 use crate::transform::Transform;
 
 use super::{
+    boxed::BoxedServiceFactory,
     pipeline::{marker, PipelineServiceFactory},
     ServiceFactory, ServiceFactoryObject,
-    boxed::BoxedServiceFactory
 };
 
 pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
@@ -40,7 +40,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
     /// *. This cominator does not box `Self` or `Self::Service`.
     fn boxed_future(self) -> BoxedServiceFactory<Self>
     where
-        Self: Sized
+        Self: Sized,
     {
         BoxedServiceFactory::new(self)
     }
