@@ -37,7 +37,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
 
     /// Box `<Self as ServiceFactory<_>>::Future` to reduce it's stack size.
     ///
-    /// *. This cominator does not box `Self` or `Self::Service`.
+    /// *. This combinator does not box `Self` or `Self::Service`.
     fn boxed_future(self) -> BoxedServiceFactory<Self>
     where
         Self: Sized,
