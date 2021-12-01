@@ -271,6 +271,7 @@ macro_rules! async_fn_impl {
             type Output = Fut::Output;
             type Future = Fut;
 
+            #[inline]
             fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Future {
                 self($($arg,)*)
             }
