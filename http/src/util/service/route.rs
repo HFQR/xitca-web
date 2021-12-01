@@ -1,6 +1,3 @@
-#![allow(non_snake_case)]
-#![allow(non_camel_case_types)]
-
 use std::{error, fmt, future::Future, marker::PhantomData};
 
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
@@ -171,7 +168,7 @@ where
     type Response = R::Response;
     type Error = R::Error;
     type Config = R::Config;
-    type Service = RouteService<R::Service, N::Service, M>;
+    type Service = Route<R::Service, N::Service, M>;
     type InitError = R::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
@@ -184,32 +181,13 @@ where
         async move {
             let route = route.await?;
             let next = next.await?;
-            Ok(RouteService { methods, route, next })
+            // re-use Route for Service trait type.
+            Ok(Route { methods, route, next })
         }
     }
 }
 
-pub struct RouteService<R, N, const M: usize> {
-    methods: [Method; M],
-    route: R,
-    next: N,
-}
-
-impl<R, N, const M: usize> Clone for RouteService<R, N, M>
-where
-    R: Clone,
-    N: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            methods: self.methods.clone(),
-            route: self.route.clone(),
-            next: self.next.clone(),
-        }
-    }
-}
-
-impl<ReqB, R, N, const M: usize> Service<Request<ReqB>> for RouteService<R, N, M>
+impl<ReqB, R, N, const M: usize> Service<Request<ReqB>> for Route<R, N, M>
 where
     R: Service<Request<ReqB>>,
     N: Service<Request<ReqB>, Response = R::Response, Error = R::Error>,
