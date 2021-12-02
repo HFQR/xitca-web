@@ -15,7 +15,7 @@ pub struct Builder {
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
     pub(crate) on_worker_start: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
-    tcp_backlog: u32,
+    backlog: u32,
 }
 
 impl Default for Builder {
@@ -37,7 +37,7 @@ impl Builder {
             enable_signal: true,
             shutdown_timeout: Duration::from_secs(30),
             on_worker_start: Box::new(|| Box::pin(async {})),
-            tcp_backlog: 2048,
+            backlog: 2048,
         }
     }
 
@@ -126,8 +126,14 @@ impl Builder {
         self
     }
 
+    #[deprecated(note = "use Builder::backlog instead")]
     pub fn tcp_backlog(mut self, num: u32) -> Self {
-        self.tcp_backlog = num;
+        self.backlog = num;
+        self
+    }
+
+    pub fn backlog(mut self, num: u32) -> Self {
+        self.backlog = num;
         self
     }
 
@@ -171,7 +177,7 @@ impl Builder {
 
         socket.set_reuseaddr(true)?;
         socket.bind(addr)?;
-        let listener = socket.listen(self.tcp_backlog)?.into_std()?;
+        let listener = socket.listen(self.backlog)?.into_std()?;
 
         self.listen(name, listener, factory)
     }
@@ -283,7 +289,7 @@ impl Builder {
 
         socket.set_reuseaddr(true)?;
         socket.bind(addr)?;
-        let listener = socket.listen(self.tcp_backlog)?.into_std()?;
+        let listener = socket.listen(self.backlog)?.into_std()?;
 
         self.listeners
             .entry(name.as_ref().to_string())
@@ -321,7 +327,7 @@ impl Builder {
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
-        let builder = xitca_io::net::UdpListenerBuilder::new(addr, config);
+        let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
 
         self.listeners
             .entry(name.as_ref().to_string())
