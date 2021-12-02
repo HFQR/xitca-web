@@ -3,7 +3,7 @@ use std::{fmt, future::Future, marker::PhantomData, rc::Rc};
 use futures_core::Stream;
 use futures_intrusive::sync::LocalMutex;
 use h3::{
-    quic::SendStream,
+    quic::{RecvStream, SendStream},
     server::{self, RequestStream},
 };
 use xitca_io::net::UdpStream;
@@ -97,7 +97,7 @@ where
 async fn h3_handler<'a, Fut, C, B, BE, E>(fut: Fut, stream: Rc<LocalMutex<RequestStream<C>>>) -> Result<(), Error<E>>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'a,
-    C: SendStream<Bytes>,
+    C: RecvStream + SendStream<Bytes>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {

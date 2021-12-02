@@ -50,7 +50,7 @@ where
         Self: 'f,
     = Fut;
 
-    #[inline]
+    #[inline(always)]
     fn ready(&self) -> Self::Ready<'_> {
         async { Ok(()) }
     }

@@ -79,7 +79,7 @@ where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    #[inline]
+    #[inline(always)]
     fn ready(&self) -> Self::Ready<'_> {
         async { Ok(()) }
     }
