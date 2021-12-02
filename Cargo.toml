@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "client",
+    "files",
     "http",
     "http-codegen",
     "io",
@@ -15,6 +16,7 @@ members = [
 
 [patch.crates-io]
 xitca-client = { path = "./client" }
+xitca-files = { path = "./files" }
 xitca-http = { path = "./http" }
 xitca-http-codegen = { path = "./http-codegen" }
 xitca-io = { path = "./io" }
@@ -26,6 +28,7 @@ http-ws = { path = "./http-ws" }
 
 h3 = { git = "https://github.com/hyperium/h3.git" }
 h3-quinn = { git = "https://github.com/hyperium/h3.git" }
+tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring.git" }
 
 [profile.release]
 lto = true
