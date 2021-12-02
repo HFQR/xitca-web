@@ -203,7 +203,7 @@ where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    #[inline]
+    #[inline(always)]
     fn ready(&self) -> Self::Ready<'_> {
         async { Ok(()) }
     }
@@ -290,12 +290,14 @@ impl<Req, Res, Err, Cfg, InitErr> Service<Req> for MethodNotAllowed<Res, Err, Cf
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    #[inline]
+    #[cold]
+    #[inline(never)]
     fn ready(&self) -> Self::Ready<'_> {
         async { Ok(()) }
     }
 
-    #[inline]
+    #[cold]
+    #[inline(never)]
     fn call(&self, _: Req) -> Self::Future<'_> {
         async { Err(RouteError::MethodNotAllowed) }
     }

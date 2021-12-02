@@ -43,12 +43,12 @@ impl<St> Service<St> for NoOpTlsAcceptorService {
     type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    #[inline]
+    #[inline(always)]
     fn ready(&self) -> Self::Ready<'_> {
         async { Ok(()) }
     }
 
-    #[inline]
+    #[inline(always)]
     fn call(&self, io: St) -> Self::Future<'_> {
         async move { Ok(io) }
     }
