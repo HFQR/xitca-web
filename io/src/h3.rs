@@ -59,23 +59,37 @@ impl Future for Accept<'_> {
 pub struct UdpListenerBuilder {
     addr: SocketAddr,
     config: ServerConfig,
+    /// An artificial backlog capacity reinforced by bounded channel.
+    /// The channel is tasked with distribute [UdpStream] and can cache stream up most to
+    /// the number equal to backlog.
+    backlog: u32,
 }
 
 impl UdpListenerBuilder {
     pub fn new(addr: SocketAddr, config: ServerConfig) -> Self {
-        Self { addr, config }
+        Self {
+            addr,
+            config,
+            backlog: 2048,
+        }
+    }
+
+    pub fn backlog(mut self, backlog: u32) -> Self {
+        self.backlog = backlog;
+        self
     }
 
     pub fn build(self) -> io::Result<UdpListener> {
         let config = self.config;
         let addr = self.addr;
+        let backlog = self.backlog;
 
         let (endpoint, mut incoming) = Endpoint::server(config, addr)?;
 
         // Use async channel to dispatch Connecting<Session> to worker threads.
         // Incoming can only be held by single task and sharing it between
         // threads would cause hanging.
-        let (tx, rx) = async_channel::unbounded();
+        let (tx, rx) = async_channel::bounded(backlog as usize);
 
         // Detach the Incoming> as a spawn task.
         // When Endpoint dropped incoming will be wakeup and get None to end task.

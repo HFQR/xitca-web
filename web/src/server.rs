@@ -91,8 +91,14 @@ where
         self
     }
 
+    #[deprecated(note = "use Server::backlog instead")]
     pub fn tcp_backlog(mut self, num: u32) -> Self {
-        self.builder = self.builder.tcp_backlog(num);
+        self.builder = self.builder.backlog(num);
+        self
+    }
+
+    pub fn backlog(mut self, num: u32) -> Self {
+        self.builder = self.builder.backlog(num);
         self
     }
 
