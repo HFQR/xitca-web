@@ -34,6 +34,15 @@ pub mod http {
 
     use crate::body::ResponseBody;
 
+    /// Some often used header value.
+    #[allow(clippy::declare_interior_mutable_const)]
+    pub mod const_header_value {
+        use super::*;
+
+        pub const TEXT_UTF8: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
+        pub const JSON: HeaderValue = HeaderValue::from_static("application/json");
+    }
+
     /// Helper trait for convert a [Request] to [Response].
     /// This is for re-use request's heap allocation and pass down the context data inside [Extensions]
     pub trait IntoResponse<B, ResB> {

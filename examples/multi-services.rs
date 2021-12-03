@@ -9,9 +9,8 @@ use h3_quinn::quinn::ServerConfig;
 use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 use rustls::{Certificate, PrivateKey};
 use xitca_http::{
-    bytes::Bytes,
     h1, h2, h3,
-    http::{header, Request, Response, Version},
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, Response, Version},
     util::middleware::{Logger, TcpConfig},
     HttpServiceBuilder, ResponseBody,
 };
@@ -60,19 +59,16 @@ async fn main() -> io::Result<()> {
 
 async fn handler_h1(_: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Infallible> {
     Ok(Response::builder()
-        .header(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("text/plain; charset=utf-8"),
-        )
-        .body(Bytes::from_static(b"Hello World from Http/1!").into())
+        .header(CONTENT_TYPE, TEXT_UTF8)
+        .body("Hello World from Http/1!".into())
         .unwrap())
 }
 
 async fn handler_h2(_: Request<h2::RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
     let res = Response::builder()
         .status(200)
-        .header("Content-Type", "text/plain; charset=utf-8")
-        .body(Bytes::from_static(b"Hello World from Http/2!").into())?;
+        .header(CONTENT_TYPE, TEXT_UTF8)
+        .body("Hello World from Http/2!".into())?;
     Ok(res)
 }
 
@@ -80,8 +76,8 @@ async fn handler_h3(_: Request<h3::RequestBody>) -> Result<Response<ResponseBody
     Response::builder()
         .status(200)
         .version(Version::HTTP_3)
-        .header("Content-Type", "text/plain; charset=utf-8")
-        .body(Bytes::from_static(b"Hello World from Http/3!").into())
+        .header(CONTENT_TYPE, TEXT_UTF8)
+        .body("Hello World from Http/3!".into())
         .map_err(Into::into)
 }
 
