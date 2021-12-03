@@ -6,7 +6,7 @@ use xitca_http::{
     bytes::Bytes,
     error::BodyError,
     http::{
-        self,
+        self, const_header_value,
         header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE},
         Method, Version,
     },
@@ -91,8 +91,7 @@ where
     where
         Bytes: From<B1>,
     {
-        self.headers_mut()
-            .insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
+        self.headers_mut().insert(CONTENT_TYPE, const_header_value::TEXT_UTF8);
 
         self.body(text)
     }
@@ -103,8 +102,7 @@ where
         // TODO: handle serialize error.
         let body = serde_json::to_vec(&body).unwrap();
 
-        self.headers_mut()
-            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        self.headers_mut().insert(CONTENT_TYPE, const_header_value::JSON);
 
         Ok(self.body(body))
     }

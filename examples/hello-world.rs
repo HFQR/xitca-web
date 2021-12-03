@@ -5,8 +5,7 @@ use std::{fs, io, sync::Arc};
 use h3_quinn::quinn::ServerConfig;
 use rustls::{Certificate, PrivateKey};
 use xitca_http::{
-    bytes::Bytes,
-    http::{Request, Response},
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, Response},
     HttpServiceBuilder, RequestBody, ResponseBody,
 };
 use xitca_service::fn_service;
@@ -38,8 +37,8 @@ async fn main() -> io::Result<()> {
 async fn handler(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
     let res = Response::builder()
         .status(200)
-        .header("Content-Type", "text/plain; charset=utf-8")
-        .body(Bytes::from_static(b"Hello World!").into())?;
+        .header(CONTENT_TYPE, TEXT_UTF8)
+        .body("Hello World!".into())?;
     Ok(res)
 }
 

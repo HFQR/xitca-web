@@ -9,12 +9,17 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use std::io::Write;
-use std::rc::Rc;
+use std::{io::Write, rc::Rc};
 
 use tempfile::NamedTempFile;
 use tokio_uring::fs::File;
-use xitca_web::{dev::fn_service, http::HeaderValue, request::WebRequest, response::WebResponse, App, HttpServer};
+use xitca_web::{
+    dev::fn_service,
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
+    request::WebRequest,
+    response::WebResponse,
+    App, HttpServer,
+};
 
 const HELLO: &[u8] = b"hello world!";
 
@@ -41,8 +46,7 @@ async fn handler(req: &mut WebRequest<'_, Rc<NamedTempFile>>) -> Result<WebRespo
     let buf = res?;
 
     let mut res = req.as_response(buf);
-    res.headers_mut()
-        .append("Content-Type", HeaderValue::from_static("text/plain; charset=utf-8"));
+    res.headers_mut().append(CONTENT_TYPE, TEXT_UTF8);
 
     Ok(res)
 }

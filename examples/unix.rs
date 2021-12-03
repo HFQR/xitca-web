@@ -1,8 +1,7 @@
 //! A UnixDomain server returns Hello World String as Response.
 
-use bytes::Bytes;
 use xitca_http::{
-    http::{Request, Response},
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, Response},
     RequestBody, ResponseBody,
 };
 use xitca_web::{dev::fn_service, HttpServer};
@@ -25,7 +24,7 @@ async fn main() -> std::io::Result<()> {
 async fn handler(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
     let res = Response::builder()
         .status(200)
-        .header("Content-Type", "text/plain; charset=utf-8")
-        .body(Bytes::from_static(b"Hello World!").into())?;
+        .header(CONTENT_TYPE, TEXT_UTF8)
+        .body("Hello World!".into())?;
     Ok(res)
 }

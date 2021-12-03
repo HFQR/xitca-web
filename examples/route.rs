@@ -5,10 +5,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use xitca_http::{
     body::{RequestBody, ResponseBody},
-    http::{
-        header::{HeaderValue, CONTENT_TYPE},
-        IntoResponse, Request, Response,
-    },
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, IntoResponse, Request, Response},
     util::service::{get, Router},
     HttpServiceBuilder,
 };
@@ -42,15 +39,12 @@ async fn main() -> std::io::Result<()> {
 
 async fn index(req: Request<RequestBody>) -> Result<Response<ResponseBody>, anyhow::Error> {
     let mut res = req.into_response("Hello,World!");
-    res.headers_mut().insert(CONTENT_TYPE, TEXT);
+    res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
     Ok(res)
 }
 
 async fn foo(req: Request<RequestBody>) -> Result<Response<ResponseBody>, anyhow::Error> {
     let mut res = req.into_response("Hello,World from foo!");
-    res.headers_mut().insert(CONTENT_TYPE, TEXT);
+    res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
     Ok(res)
 }
-
-#[allow(clippy::declare_interior_mutable_const)]
-const TEXT: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
