@@ -1,11 +1,19 @@
-use std::{fmt, future::Future, marker::PhantomData, rc::Rc};
-
-use futures_core::Stream;
-use futures_intrusive::sync::LocalMutex;
-use h3::{
-    quic::BidiStream,
-    server::{self, RequestStream},
+use std::{
+    fmt,
+    future::Future,
+    marker::PhantomData,
+    pin::Pin,
+    rc::Rc,
+    task::{Context, Poll},
 };
+
+use futures_core::{ready, Stream};
+use futures_intrusive::{
+    sync::{GenericMutex, LocalMutex},
+    NoopLock,
+};
+use h3::{quic::BidiStream, server};
+use pin_project_lite::pin_project;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
 
@@ -65,12 +73,10 @@ where
                     // TODO: may deadlock?
                     let stream = Rc::new(LocalMutex::new(stream, true));
                     let sender = stream.clone();
-                    let body = async_stream::stream! {
-                        while let Some(res) = sender.lock().await.recv_data().await.transpose() {
-                            yield res;
-                        }
-                    };
-                    let body = ReqB::from(RequestBody(Box::pin(body)));
+
+                    let body = Box::pin(AsyncStream::new(sender, async_stream_callback));
+
+                    let body = ReqB::from(RequestBody(body));
                     let req = Request::from_parts(parts, body);
 
                     queue.push(async move {
@@ -94,7 +100,9 @@ where
     }
 }
 
-async fn h3_handler<'a, Fut, C, B, BE, E>(fut: Fut, stream: Rc<LocalMutex<RequestStream<C>>>) -> Result<(), Error<E>>
+type RequestStream<C> = Rc<GenericMutex<NoopLock, server::RequestStream<C>>>;
+
+async fn h3_handler<'a, Fut, C, B, BE, E>(fut: Fut, stream: RequestStream<C>) -> Result<(), Error<E>>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'a,
     C: BidiStream<Bytes>,
@@ -116,4 +124,91 @@ where
     stream.lock().await.finish().await?;
 
     Ok(())
+}
+
+pin_project! {
+    struct AsyncStream<F, Arg, Fut>{
+        callback: F,
+        #[pin]
+        inner: _AsyncStream<Arg, Fut>
+    }
+}
+
+pin_project! {
+    #[project = AsyncStreamProj]
+    #[project_replace = AsyncStreamReplaceProj]
+    enum _AsyncStream<Arg, Fut> {
+        Arg {
+            arg: Arg
+        },
+        Next {
+            #[pin]
+            fut: Fut
+        },
+        Empty
+    }
+}
+
+impl<F, Arg, Fut> AsyncStream<F, Arg, Fut> {
+    fn new(arg: Arg, callback: F) -> Self
+    where
+        F: Fn(Arg) -> Fut,
+    {
+        let fut = callback(arg);
+
+        Self {
+            callback,
+            inner: _AsyncStream::Next { fut },
+        }
+    }
+}
+
+async fn async_stream_callback<C>(stream: RequestStream<C>) -> Result<Option<(Bytes, RequestStream<C>)>, ::h3::Error>
+where
+    C: BidiStream<Bytes>,
+{
+    let res = stream.lock().await.recv_data().await?;
+    Ok(res.map(|bytes| (bytes, stream)))
+}
+
+impl<F, Arg, Fut, Res, Err> Stream for AsyncStream<F, Arg, Fut>
+where
+    F: Fn(Arg) -> Fut,
+    Fut: Future<Output = Result<Option<(Res, Arg)>, Err>>,
+{
+    type Item = Result<Res, Err>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        loop {
+            match this.inner.as_mut().project() {
+                AsyncStreamProj::Next { fut } => {
+                    return match ready!(fut.poll(cx)) {
+                        Ok(Some((bytes, arg))) => {
+                            this.inner.set(_AsyncStream::Arg { arg });
+                            Poll::Ready(Some(Ok(bytes)))
+                        }
+                        Ok(None) => {
+                            this.inner.set(_AsyncStream::Empty);
+                            Poll::Ready(None)
+                        }
+                        Err(e) => {
+                            this.inner.set(_AsyncStream::Empty);
+                            Poll::Ready(Some(Err(e)))
+                        }
+                    }
+                }
+                AsyncStreamProj::Arg { .. } => match this.inner.as_mut().project_replace(_AsyncStream::Empty) {
+                    AsyncStreamReplaceProj::Arg { arg } => {
+                        this.inner.set(_AsyncStream::Next {
+                            fut: (this.callback)(arg),
+                        });
+                    }
+                    _ => unreachable!("Never gonna happen"),
+                },
+                AsyncStreamProj::Empty => unreachable!("StreamRequest polled after finis"),
+            }
+        }
+    }
 }
