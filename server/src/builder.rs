@@ -296,7 +296,7 @@ impl Builder {
             .or_insert_with(Vec::new)
             .push(Box::new(Some(listener)));
 
-        let builder = xitca_io::net::UdpListenerBuilder::new(addr, config);
+        let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
 
         self.listeners
             .entry(name.as_ref().to_string())
