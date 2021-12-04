@@ -193,13 +193,13 @@ enum ConnectionState {
 }
 
 // handle request/response and return if connection should go into graceful shutdown.
-async fn h2_handler<'f, 'd, Fut, B, BE, E>(
+async fn h2_handler<Fut, B, BE, E>(
     fut: Fut,
     mut tx: SendResponse<Bytes>,
-    date: &'d DateTimeHandle,
+    date: &DateTimeHandle,
 ) -> Result<ConnectionState, Error<E>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'f,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {
