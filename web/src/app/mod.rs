@@ -217,27 +217,20 @@ mod test {
     // #[tokio::test]
     // async fn test_handler() {
     //     use crate::extract::State;
-    //     use crate::response::WebResponse;
     //     use crate::service::HandlerService;
-
-    //     use xitca_http::ResponseBody;
-
-    //     async fn handler(req: &WebRequest<'_, String>, state: State<'_, String>) -> WebResponse {
-    //         let state2 = req.state();
-    //         assert_eq!(state2, &*state);
-    //         assert_eq!("123", state2.as_str());
-    //         WebResponse::new(ResponseBody::None)
+    //
+    //     async fn handler(state: State<'_, String>) -> StatusCode {
+    //         assert_eq!("123", state.as_str());
+    //         StatusCode::MULTI_STATUS
     //     }
-
+    //
     //     let state = String::from("state");
-    //     let app = App::with_current_thread_state(state).service(HandlerService::new(handler));
-
-    //     let service = app.new_service(()).await.ok().unwrap();
-
+    //     let service = App::with_current_thread_state(state)
+    //         .service(HandlerService::new(handler))
+    //         .new_service(()).await.ok().unwrap();
+    //
     //     let req = Request::default();
-
-    //     let res = service.call(req).await.unwrap();
-
-    //     assert_eq!(res, "state")
+    //
+    //     let _ = service.call(req).await.unwrap();
     // }
 }

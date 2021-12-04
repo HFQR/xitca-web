@@ -93,6 +93,7 @@ where
     }
 }
 
+#[doc(hidden)]
 /// Helper trait to make the HRTB bounds in `handler_service` as simple as posible.
 ///     `F: for<'a> Handler<'a, Req, T, Output=Out, Error=Err>,`
 /// More precisely, HRTB bounds shouldn't specify any associated type that is bound to the
