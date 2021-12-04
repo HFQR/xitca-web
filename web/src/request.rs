@@ -1,4 +1,7 @@
-use std::cell::{Ref, RefCell};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    mem,
+};
 
 use xitca_http::{
     http::{IntoResponse, Request},
@@ -48,11 +51,23 @@ impl<'a, D> WebRequest<'a, D> {
     }
 
     /// Get a mutable reference of [RequestBody]
+    #[inline]
+    pub fn body_borrow_mut(&self) -> RefMut<'_, RequestBody> {
+        self.body.borrow_mut()
+    }
+
+    /// Get a mutable reference of [RequestBody]
     /// This API takes &mut WebRequest so it bypass runtime borrow checker
     /// and therefore has zero runtime overhead.
     #[inline]
-    pub fn body_mut(&mut self) -> &mut RequestBody {
+    pub fn body_get_mut(&mut self) -> &mut RequestBody {
         self.body.get_mut()
+    }
+
+    pub fn take_request(&mut self) -> Request<RequestBody> {
+        let head = mem::take(self.req_mut());
+        let body = mem::take(self.body_get_mut());
+        head.map(|_| body)
     }
 
     /// Get an immutable reference of App state

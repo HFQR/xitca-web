@@ -38,7 +38,7 @@ async fn handler(req: &mut WebRequest<'_, &'static str>) -> Result<WebResponse, 
     assert_eq!(*state, "app_state");
 
     // take ownership of request.
-    let req = std::mem::take(req.request_mut());
+    let req = req.take_request();
 
     // construct websocket handler types.
     let (mut decode, res, tx) = ws(req)?;

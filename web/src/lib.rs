@@ -2,10 +2,10 @@
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 mod app;
-mod extract;
 mod server;
 
 pub mod error;
+pub mod extract;
 pub mod request;
 pub mod response;
 pub mod service;
