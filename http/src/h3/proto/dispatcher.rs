@@ -12,7 +12,10 @@ use futures_intrusive::{
     sync::{GenericMutex, LocalMutex},
     NoopLock,
 };
-use h3::{quic::BidiStream, server};
+use h3::{
+    quic::BidiStream,
+    server::{self, RequestStream},
+};
 use pin_project_lite::pin_project;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
@@ -74,14 +77,17 @@ where
                     let stream = Rc::new(LocalMutex::new(stream, true));
                     let sender = stream.clone();
 
-                    let body = Box::pin(AsyncStream::new(sender, async_stream_callback));
+                    let body = Box::pin(AsyncStream::new(sender, |stream| async move {
+                        let res = stream.lock().await.recv_data().await?;
+                        Ok(res.map(|bytes| (bytes, stream)))
+                    }));
 
                     let body = ReqB::from(RequestBody(body));
                     let req = Request::from_parts(parts, body);
 
                     queue.push(async move {
                         let fut = self.service.call(req);
-                        h3_handler(fut, stream).await
+                        h3_handler(fut, &*stream).await
                     });
                 }
                 SelectOutput::A(Ok(None)) => break,
@@ -100,11 +106,12 @@ where
     }
 }
 
-type RequestStream<C> = Rc<GenericMutex<NoopLock, server::RequestStream<C>>>;
-
-async fn h3_handler<'a, Fut, C, B, BE, E>(fut: Fut, stream: RequestStream<C>) -> Result<(), Error<E>>
+async fn h3_handler<Fut, C, B, BE, E>(
+    fut: Fut,
+    stream: &GenericMutex<NoopLock, RequestStream<C>>,
+) -> Result<(), Error<E>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'a,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
     C: BidiStream<Bytes>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
@@ -161,14 +168,6 @@ impl<F, Arg, Fut> AsyncStream<F, Arg, Fut> {
             inner: _AsyncStream::Next { fut },
         }
     }
-}
-
-async fn async_stream_callback<C>(stream: RequestStream<C>) -> Result<Option<(Bytes, RequestStream<C>)>, ::h3::Error>
-where
-    C: BidiStream<Bytes>,
-{
-    let res = stream.lock().await.recv_data().await?;
-    Ok(res.map(|bytes| (bytes, stream)))
 }
 
 impl<F, Arg, Fut, Res, Err> Stream for AsyncStream<F, Arg, Fut>
