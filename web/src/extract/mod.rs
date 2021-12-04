@@ -1,10 +1,12 @@
 mod body;
+mod request;
 mod state;
 
 pub use self::state::State;
 
 use std::ops::{Deref, DerefMut};
 
+/// General purpose extractor type.
 pub struct Extract<T>(T);
 
 impl<T> Extract<T> {

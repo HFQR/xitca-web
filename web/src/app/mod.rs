@@ -2,7 +2,7 @@ use std::future::Future;
 
 use futures_core::future::LocalBoxFuture;
 use xitca_http::{http::Request, RequestBody, ResponseError};
-use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, Transform};
+use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, Transform, TransformFactory};
 
 use crate::request::WebRequest;
 
@@ -79,7 +79,7 @@ impl<SF, F> App<SF, F> {
         }
     }
 
-    pub fn middleware<Req, T>(self, transform: T) -> App<SF, impl ServiceFactory<Req>>
+    pub fn middleware<Req, T>(self, transform: T) -> App<SF, TransformFactory<F, T>>
     where
         F: ServiceFactory<Req>,
         T: Transform<F::Service, Req>,
@@ -162,6 +162,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use xitca_service::middleware::Cloneable;
+
     use super::*;
 
     use crate::response::{ResponseBody, WebResponse};
@@ -214,23 +216,27 @@ mod test {
         let _ = service.call(req).await.unwrap();
     }
 
-    // #[tokio::test]
-    // async fn test_handler() {
-    //     use crate::extract::State;
-    //     use crate::service::HandlerService;
-    //
-    //     async fn handler(state: State<'_, String>) -> StatusCode {
-    //         assert_eq!("123", state.as_str());
-    //         StatusCode::MULTI_STATUS
-    //     }
-    //
-    //     let state = String::from("state");
-    //     let service = App::with_current_thread_state(state)
-    //         .service(HandlerService::new(handler))
-    //         .new_service(()).await.ok().unwrap();
-    //
-    //     let req = Request::default();
-    //
-    //     let _ = service.call(req).await.unwrap();
-    // }
+    #[tokio::test]
+    async fn test_handler() {
+        use crate::extract::State;
+        use crate::service::HandlerService;
+
+        async fn handler(state: State<'_, String>) -> String {
+            assert_eq!("state", state.as_str());
+            state.to_string()
+        }
+
+        let state = String::from("state");
+        let service = App::with_current_thread_state(state)
+            .service(HandlerService::new(handler))
+            .middleware(Cloneable)
+            .new_service(())
+            .await
+            .ok()
+            .unwrap();
+
+        let req = Request::default();
+
+        let _ = service.call(req).await.unwrap();
+    }
 }
