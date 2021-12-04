@@ -87,7 +87,7 @@ where
 
                     queue.push(async move {
                         let fut = self.service.call(req);
-                        h3_handler(fut, stream).await
+                        h3_handler(fut, &*stream).await
                     });
                 }
                 SelectOutput::A(Ok(None)) => break,
@@ -106,12 +106,12 @@ where
     }
 }
 
-async fn h3_handler<'a, Fut, C, B, BE, E>(
+async fn h3_handler<Fut, C, B, BE, E>(
     fut: Fut,
-    stream: Rc<GenericMutex<NoopLock, RequestStream<C>>>,
+    stream: &GenericMutex<NoopLock, RequestStream<C>>,
 ) -> Result<(), Error<E>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>> + 'a,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
     C: BidiStream<Bytes>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
