@@ -24,6 +24,7 @@ where
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>>;
 
+    #[inline]
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
         async move { Ok(State(req.state())) }
     }

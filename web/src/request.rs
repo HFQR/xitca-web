@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::{Ref, RefCell};
 
 use xitca_http::{
     http::{IntoResponse, Request},
@@ -8,45 +8,51 @@ use xitca_http::{
 use super::response::WebResponse;
 
 pub struct WebRequest<'a, D = ()> {
-    pub(crate) http: RefCell<Request<RequestBody>>,
+    pub(crate) req: Request<()>,
+    pub(crate) body: RefCell<RequestBody>,
     pub(crate) state: &'a D,
 }
 
 impl<'a, D> WebRequest<'a, D> {
     #[doc(hidden)]
     pub fn new(http: Request<RequestBody>, state: &'a D) -> Self {
+        let (parts, body) = http.into_parts();
         Self {
-            http: RefCell::new(http),
+            req: Request::from_parts(parts, ()),
+            body: RefCell::new(body),
             state,
         }
     }
 
     #[cfg(test)]
     pub fn with_state(state: &'a D) -> Self {
-        Self {
-            http: RefCell::new(Request::default()),
-            state,
-        }
+        Self::new(Request::default(), state)
     }
 
-    /// Get an immutable reference of [Request](xitca_http::http::Request)
+    /// Get an immutable reference of [Request]
     #[inline]
-    pub fn request_ref(&self) -> Ref<'_, Request<RequestBody>> {
-        self.http.borrow()
+    pub fn req(&self) -> &Request<()> {
+        &self.req
     }
 
-    /// Get a mutable reference of [Request](xitca_http::http::Request)
+    /// Get a mutable reference of [Request]
     #[inline]
-    pub fn request_ref_mut(&self) -> RefMut<'_, Request<RequestBody>> {
-        self.http.borrow_mut()
+    pub fn req_mut(&mut self) -> &mut Request<()> {
+        &mut self.req
     }
 
-    /// Get a mutable reference of [Request](xitca_http::http::Request)
+    /// Get a immutable reference of [RequestBody]
+    #[inline]
+    pub fn body(&self) -> Ref<'_, RequestBody> {
+        self.body.borrow()
+    }
+
+    /// Get a mutable reference of [RequestBody]
     /// This API takes &mut WebRequest so it bypass runtime borrow checker
     /// and therefore has zero runtime overhead.
     #[inline]
-    pub fn request_mut(&mut self) -> &mut Request<RequestBody> {
-        self.http.get_mut()
+    pub fn body_mut(&mut self) -> &mut RequestBody {
+        self.body.get_mut()
     }
 
     /// Get an immutable reference of App state
@@ -60,7 +66,7 @@ impl<'a, D> WebRequest<'a, D> {
     /// The heap allocation of request would be re-used.
     #[inline]
     pub fn into_response<B: Into<ResponseBody>>(self, body: B) -> WebResponse {
-        self.http.into_inner().into_response(body.into())
+        self.req.into_response(body.into())
     }
 
     /// Transform &mut self to a WebResponse with given body type.
@@ -68,6 +74,6 @@ impl<'a, D> WebRequest<'a, D> {
     /// The heap allocation of request would be re-used.
     #[inline]
     pub fn as_response<B: Into<ResponseBody>>(&mut self, body: B) -> WebResponse {
-        self.request_mut().as_response(body.into())
+        self.req.as_response(body.into())
     }
 }
