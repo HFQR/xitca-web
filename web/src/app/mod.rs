@@ -160,33 +160,39 @@ mod test {
         service::HandlerService,
     };
 
-    async fn handler(StateRef(state): StateRef<'_, String>, PathRef(path): PathRef<'_>) -> String {
+    async fn handler(
+        StateRef(state): StateRef<'_, String>,
+        PathRef(path): PathRef<'_>,
+        req: &WebRequest<'_, String>,
+    ) -> String {
         assert_eq!("state", state);
+        assert_eq!(state, req.state());
         assert_eq!("/", path);
+        assert_eq!(path, req.req().uri().path());
         state.to_string()
     }
 
     #[derive(Clone)]
-    struct MW;
+    struct Middleware;
 
-    impl<S, State, Res, Err> Transform<S, &mut WebRequest<'_, State>> for MW
+    impl<S, State, Res, Err> Transform<S, &mut WebRequest<'_, State>> for Middleware
     where
         S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
     {
         type Response = Res;
         type Error = Err;
-        type Transform = MWS<S>;
+        type Transform = MiddlewareService<S>;
         type InitError = ();
         type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
 
         fn new_transform(&self, service: S) -> Self::Future {
-            async move { Ok(MWS(service)) }
+            async move { Ok(MiddlewareService(service)) }
         }
     }
 
-    struct MWS<S>(S);
+    struct MiddlewareService<S>(S);
 
-    impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MWS<S>
+    impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
     where
         S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
     {
@@ -216,7 +222,7 @@ mod test {
 
         let service = App::with_current_thread_state(state)
             .service(HandlerService::new(handler))
-            .middleware(MW)
+            .middleware(Middleware)
             .new_service(())
             .await
             .ok()
