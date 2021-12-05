@@ -1,3 +1,5 @@
+mod router;
+
 use std::future::Future;
 
 use futures_core::future::LocalBoxFuture;
