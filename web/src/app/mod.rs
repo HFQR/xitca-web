@@ -152,75 +152,71 @@ where
 
 #[cfg(test)]
 mod test {
-    use xitca_service::middleware::Cloneable;
-
     use super::*;
 
-    use crate::response::{ResponseBody, WebResponse};
+    use crate::{
+        extract::{PathRef, StateRef},
+        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
+        service::HandlerService,
+    };
 
-    struct TestFactory;
+    async fn handler(StateRef(state): StateRef<'_, String>, PathRef(path): PathRef<'_>) -> String {
+        assert_eq!("state", state);
+        assert_eq!("/", path);
+        state.to_string()
+    }
 
-    impl ServiceFactory<&'_ mut WebRequest<'_, String>> for TestFactory {
-        type Response = WebResponse;
-        type Error = ();
-        type Config = ();
-        type Service = TestService;
+    #[derive(Clone)]
+    struct MW;
+
+    impl<S, State, Res, Err> Transform<S, &mut WebRequest<'_, State>> for MW
+    where
+        S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
+    {
+        type Response = Res;
+        type Error = Err;
+        type Transform = MWS<S>;
         type InitError = ();
-        type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+        type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
 
-        fn new_service(&self, _: Self::Config) -> Self::Future {
-            async { Ok(TestService) }
+        fn new_transform(&self, service: S) -> Self::Future {
+            async move { Ok(MWS(service)) }
         }
     }
 
-    struct TestService;
+    struct MWS<S>(S);
 
-    impl<'r, 's> Service<&'r mut WebRequest<'s, String>> for TestService {
-        type Response = WebResponse;
-        type Error = ();
-        type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MWS<S>
+    where
+        S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
+    {
+        type Response = Res;
+        type Error = Err;
+        type Ready<'f>
+        where
+            Self: 'f,
+        = impl Future<Output = Result<(), Self::Error>>;
+        type Future<'f>
+        where
+            Self: 'f,
+        = impl Future<Output = Result<Self::Response, Self::Error>>;
 
         fn ready(&self) -> Self::Ready<'_> {
-            async { Ok(()) }
+            async move { self.0.ready().await }
         }
 
-        fn call(&self, req: &'r mut WebRequest<'s, String>) -> Self::Future<'_> {
-            async move {
-                assert_eq!(req.state(), "state");
-
-                Ok(WebResponse::new(ResponseBody::None))
-            }
+        fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
+            async move { self.0.call(req).await }
         }
     }
 
     #[tokio::test]
     async fn test_app() {
         let state = String::from("state");
-        let app = App::with_current_thread_state(state).service(TestFactory);
 
-        let service = app.new_service(()).await.ok().unwrap();
-
-        let req = Request::default();
-
-        let _ = service.call(req).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_handler() {
-        use crate::extract::{PathRef, StateRef};
-        use crate::service::HandlerService;
-
-        async fn handler(StateRef(state): StateRef<'_, String>, PathRef(path): PathRef<'_>) -> String {
-            assert_eq!("state", state);
-            assert_eq!("/", path);
-            state.to_string()
-        }
-
-        let state = String::from("state");
         let service = App::with_current_thread_state(state)
             .service(HandlerService::new(handler))
-            .middleware(Cloneable)
+            .middleware(MW)
             .new_service(())
             .await
             .ok()
@@ -228,6 +224,9 @@ mod test {
 
         let req = Request::default();
 
-        let _ = service.call(req).await.unwrap();
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res.status().as_u16(), 200);
+        assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
     }
 }
