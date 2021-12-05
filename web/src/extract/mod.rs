@@ -19,12 +19,30 @@ pub use self::uri::UriRef;
 #[cfg(feature = "json")]
 pub use self::json::Json;
 
-use std::convert::Infallible;
+use std::{convert::Infallible, future::Future};
+
+use xitca_http::util::service::FromRequest;
+
+use crate::request::WebRequest;
 
 pub enum ExtractError {}
 
 impl From<Infallible> for ExtractError {
     fn from(_: Infallible) -> Self {
         unreachable!()
+    }
+}
+
+impl<'a, 'r, 's, S> FromRequest<'a, &'r mut WebRequest<'s, S>> for &'a WebRequest<'a, S>
+where
+    S: 'static,
+{
+    type Type<'b> = &'b WebRequest<'b, S>;
+    type Error = Infallible;
+    type Future = impl Future<Output = Result<Self, Self::Error>>;
+
+    #[inline]
+    fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
+        async move { Ok(&**req) }
     }
 }
