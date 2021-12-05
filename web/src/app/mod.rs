@@ -153,7 +153,7 @@ where
                 .service
                 .call(&mut req)
                 .await
-                .unwrap_or_else(|ref mut e| ResponseError::response_error(e, &mut req));
+                .unwrap_or_else(|e| ResponseError::response_error(e, &mut req));
 
             Ok(res)
         }
@@ -218,11 +218,12 @@ mod test {
 
     #[tokio::test]
     async fn test_handler() {
-        use crate::extract::State;
+        use crate::extract::{PathRef, StateRef};
         use crate::service::HandlerService;
 
-        async fn handler(state: State<'_, String>) -> String {
-            assert_eq!("state", state.as_str());
+        async fn handler(StateRef(state): StateRef<'_, String>, PathRef(path): PathRef<'_>) -> String {
+            assert_eq!("state", state);
+            assert_eq!("/", path);
             state.to_string()
         }
 

@@ -1,30 +1,12 @@
 mod body;
+mod extension;
+mod path;
 mod request;
 mod state;
+mod uri;
 
-pub use self::state::State;
-
-use std::ops::{Deref, DerefMut};
-
-/// General purpose extractor type.
-pub struct Extract<T>(T);
-
-impl<T> Extract<T> {
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
-impl<T> Deref for Extract<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> DerefMut for Extract<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+pub use self::body::Body;
+pub use self::path::PathRef;
+pub use self::request::RequestRef;
+pub use self::state::StateRef;
+pub use self::uri::UriRef;
