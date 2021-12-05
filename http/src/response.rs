@@ -18,12 +18,12 @@ pub trait ResponseError<Req, Res>: fmt::Debug {
         StatusCode::INTERNAL_SERVER_ERROR
     }
 
-    fn response_error(&mut self, req: &mut Req) -> Res;
+    fn response_error(self, req: &mut Req) -> Res;
 }
 
 // implement ResponseError for common error types.
 impl<Req, B> ResponseError<Req, Response<ResponseBody<B>>> for () {
-    fn response_error(&mut self, _: &mut Req) -> Response<ResponseBody<B>> {
+    fn response_error(self, _: &mut Req) -> Response<ResponseBody<B>> {
         status_only(<Self as ResponseError<Req, Response<ResponseBody<B>>>>::status_code())
     }
 }
@@ -31,7 +31,7 @@ impl<Req, B> ResponseError<Req, Response<ResponseBody<B>>> for () {
 macro_rules! internal_impl {
     ($ty: ty) => {
         impl<B, Req> ResponseError<Req, Response<ResponseBody<B>>> for $ty {
-            fn response_error(&mut self, _: &mut Req) -> Response<ResponseBody<B>> {
+            fn response_error(self, _: &mut Req) -> Response<ResponseBody<B>> {
                 let mut bytes = BytesMut::new();
                 write!(BufMutWriter(&mut bytes), "{}", self).unwrap();
                 Response::builder()

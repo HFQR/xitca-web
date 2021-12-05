@@ -2,14 +2,14 @@ pub use xitca_http::util::service::HandlerService;
 
 #[cfg(test)]
 mod test {
-    use crate::extract::State;
+    use crate::extract::StateRef;
     use crate::request::WebRequest;
 
     use super::HandlerService;
 
     use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
 
-    async fn handler(state: State<'_, String>) -> String {
+    async fn handler(state: StateRef<'_, String>) -> String {
         assert_eq!("123", state.as_str());
         state.to_string()
     }
