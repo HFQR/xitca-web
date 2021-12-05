@@ -12,7 +12,7 @@ use xitca_io::bytes::BytesMut;
 
 use crate::request::WebRequest;
 
-use super::Body;
+use super::{Body, HeaderName, HeaderRef};
 
 /// Extract type for Json object. const generic param LIMIT is for max size of the object in bytes.
 /// Object larger than limit would be treated as error.
@@ -54,12 +54,23 @@ where
 
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
         async move {
+            // TODO: check if is json value.
+            HeaderRef::<'a, { HeaderName::CONTENT_TYPE }>::from_request(req).await?;
+
+            let limit = match HeaderRef::<'a, { HeaderName::CONTENT_LENGTH }>::from_request(req).await {
+                Ok(header) => {
+                    let len = header.try_parse()?;
+                    std::cmp::min(len, LIMIT)
+                }
+                Err(_) => LIMIT,
+            };
+
             let Body(mut body) = Body::from_request(req).await?;
 
             let mut buf = BytesMut::new();
 
             while let Some(Ok(chunk)) = body.next().await {
-                if buf.len() + chunk.len() >= LIMIT {
+                if buf.len() + chunk.len() >= limit {
                     panic!("error handling");
                 }
                 buf.extend_from_slice(&chunk);
