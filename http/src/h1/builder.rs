@@ -34,7 +34,7 @@ impl<St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
     where
         FA: ServiceFactory<xitca_io::net::UnixStream>,
     {
-        H1ServiceBuilder {
+        HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             tls_factory: self.tls_factory,
