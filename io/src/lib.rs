@@ -92,6 +92,36 @@ pub mod net {
         #[cfg(unix)]
         Unix(UnixStream),
     }
+
+    impl From<Stream> for TcpStream {
+        fn from(stream: Stream) -> Self {
+            match stream {
+                Stream::Tcp(tcp) => tcp,
+                #[cfg(any(not(windows), feature = "http3"))]
+                _ => unreachable!("Can not be casted to TcpStream"),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    impl From<Stream> for UnixStream {
+        fn from(stream: Stream) -> Self {
+            match stream {
+                Stream::Unix(unix) => unix,
+                _ => unreachable!("Can not be casted to UnixStream"),
+            }
+        }
+    }
+
+    #[cfg(feature = "http3")]
+    impl From<Stream> for UdpStream {
+        fn from(stream: Stream) -> Self {
+            match stream {
+                Stream::Udp(udp) => udp,
+                _ => unreachable!("Can not be casted to UdpStream"),
+            }
+        }
+    }
 }
 
 /// re-export of [tokio::io] types and extended AsyncIo trait on top of it.

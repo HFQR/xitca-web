@@ -1,8 +1,8 @@
 use std::{collections::HashMap, future::Future, io, net, pin::Pin, time::Duration};
 
-use xitca_io::net::TcpSocket;
+use xitca_io::net::{Stream, TcpSocket};
 
-use crate::net::{AsListener, FromStream};
+use crate::net::AsListener;
 use crate::server::{AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone};
 
 pub struct Builder {
@@ -162,7 +162,7 @@ impl Builder {
         N: AsRef<str>,
         A: net::ToSocketAddrs,
         F: AsServiceFactoryClone<St>,
-        St: FromStream + Send + 'static,
+        St: From<Stream> + Send + 'static,
     {
         let addr = addr
             .to_socket_addrs()?
@@ -186,7 +186,7 @@ impl Builder {
     where
         N: AsRef<str>,
         F: AsServiceFactoryClone<St>,
-        St: FromStream + Send + 'static,
+        St: From<Stream> + Send + 'static,
     {
         self.listeners
             .entry(name.as_ref().to_string())
@@ -220,7 +220,7 @@ impl Builder {
         N: AsRef<str>,
         P: AsRef<std::path::Path>,
         F: AsServiceFactoryClone<St>,
-        St: FromStream + Send + 'static,
+        St: From<Stream> + Send + 'static,
     {
         // The path must not exist when we try to bind.
         // Try to remove it to avoid bind error.
@@ -245,7 +245,7 @@ impl Builder {
     where
         N: AsRef<str>,
         F: AsServiceFactoryClone<St>,
-        St: FromStream + Send + 'static,
+        St: From<Stream> + Send + 'static,
     {
         self.listeners
             .entry(name.as_ref().to_string())
