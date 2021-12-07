@@ -6,7 +6,7 @@ use xitca_service::ServiceFactory;
 
 use crate::{
     body::ResponseBody,
-    builder::HttpServiceBuilder,
+    builder::{marker, HttpServiceBuilder},
     bytes::Bytes,
     error::{BodyError, HttpServiceError},
     http::{Request, Response},
@@ -14,34 +14,27 @@ use crate::{
 
 use super::{body::RequestBody, service::H1Service};
 
-#[doc(hidden)]
-/// a marker type for separate HttpServerBuilders' ServiceFactory implement with speicialized trait method.
-pub struct H1;
-
-/// Http/1 Builder type.
-/// Take in generic types of ServiceFactory for http and tls.
-pub type H1ServiceBuilder<
-    St,
-    F,
-    FE,
-    FA,
-    const HEADER_LIMIT: usize,
-    const READ_BUF_LIMIT: usize,
-    const WRITE_BUF_LIMIT: usize,
-> = HttpServiceBuilder<H1, St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
-
+#[cfg(unix)]
 impl<St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    H1ServiceBuilder<St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    HttpServiceBuilder<marker::Http1, St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
-    #[cfg(unix)]
     /// Transform Self to a Http1 service builder that able to take in [xitca_io::net::UnixStream] IO type.
     pub fn unix(
         self,
-    ) -> H1ServiceBuilder<xitca_io::net::UnixStream, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<
+        marker::Http1,
+        xitca_io::net::UnixStream,
+        F,
+        FE,
+        FA,
+        HEADER_LIMIT,
+        READ_BUF_LIMIT,
+        WRITE_BUF_LIMIT,
+    >
     where
         FA: ServiceFactory<xitca_io::net::UnixStream>,
     {
-        H1ServiceBuilder {
+        HttpServiceBuilder {
             factory: self.factory,
             expect: self.expect,
             tls_factory: self.tls_factory,
@@ -62,7 +55,8 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > ServiceFactory<St> for H1ServiceBuilder<St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > ServiceFactory<St>
+    for HttpServiceBuilder<marker::Http1, St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
