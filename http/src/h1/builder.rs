@@ -21,7 +21,16 @@ impl<St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
     /// Transform Self to a Http1 service builder that able to take in [xitca_io::net::UnixStream] IO type.
     pub fn unix(
         self,
-    ) -> H1ServiceBuilder<xitca_io::net::UnixStream, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<
+        marker::Http1,
+        xitca_io::net::UnixStream,
+        F,
+        FE,
+        FA,
+        HEADER_LIMIT,
+        READ_BUF_LIMIT,
+        WRITE_BUF_LIMIT,
+    >
     where
         FA: ServiceFactory<xitca_io::net::UnixStream>,
     {
