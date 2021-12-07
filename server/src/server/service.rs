@@ -1,16 +1,12 @@
 use std::marker::PhantomData;
 
 use futures_core::future::LocalBoxFuture;
+use xitca_io::net::Stream;
 use xitca_service::ServiceFactory;
 
-use crate::net::FromStream;
 use crate::worker::{RcWorkerService, WorkerService};
 
-pub(crate) struct Factory<F, Req>
-where
-    F: AsServiceFactoryClone<Req>,
-    Req: FromStream + Send,
-{
+pub(crate) struct Factory<F, Req> {
     inner: F,
     _t: PhantomData<Req>,
 }
@@ -18,7 +14,7 @@ where
 impl<F, Req> Factory<F, Req>
 where
     F: AsServiceFactoryClone<Req>,
-    Req: FromStream + Send + 'static,
+    Req: From<Stream> + Send + 'static,
 {
     pub(crate) fn new_boxed(inner: F) -> Box<dyn ServiceFactoryClone> {
         Box::new(Self { inner, _t: PhantomData })
@@ -34,7 +30,7 @@ pub(crate) trait ServiceFactoryClone: Send {
 impl<F, Req> ServiceFactoryClone for Factory<F, Req>
 where
     F: AsServiceFactoryClone<Req>,
-    Req: FromStream + Send + 'static,
+    Req: From<Stream> + Send + 'static,
 {
     fn clone_factory(&self) -> Box<dyn ServiceFactoryClone> {
         Box::new(Self {
@@ -57,7 +53,7 @@ where
 /// to a trait object that is `Send` and `Clone`.
 pub trait AsServiceFactoryClone<Req>
 where
-    Req: FromStream,
+    Req: From<Stream>,
     Self: Send + Clone + 'static,
 {
     type ServiceFactoryClone: ServiceFactory<Req, Config = ()>;
@@ -69,7 +65,7 @@ impl<F, T, Req> AsServiceFactoryClone<Req> for F
 where
     F: Fn() -> T + Send + Clone + 'static,
     T: ServiceFactory<Req, Config = ()>,
-    Req: FromStream,
+    Req: From<Stream>,
 {
     type ServiceFactoryClone = T;
 

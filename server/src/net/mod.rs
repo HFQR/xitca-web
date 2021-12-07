@@ -1,51 +1,12 @@
 use std::{io, net};
 
-use xitca_io::net::{Listener, Stream, TcpListener, TcpStream};
 #[cfg(feature = "http3")]
-use xitca_io::net::{UdpListenerBuilder, UdpStream};
+use xitca_io::net::UdpListenerBuilder;
 #[cfg(unix)]
-use xitca_io::net::{UnixListener, UnixStream};
+use xitca_io::net::UnixListener;
+use xitca_io::net::{Listener, TcpListener};
 
 use tracing::info;
-
-pub trait FromStream {
-    fn from_stream(stream: Stream) -> Self;
-}
-
-impl FromStream for Stream {
-    fn from_stream(stream: Stream) -> Self {
-        stream
-    }
-}
-
-impl FromStream for TcpStream {
-    fn from_stream(stream: Stream) -> Self {
-        match stream {
-            Stream::Tcp(tcp) => tcp,
-            _ => unreachable!("Can not be casted to TcpStream"),
-        }
-    }
-}
-
-#[cfg(unix)]
-impl FromStream for UnixStream {
-    fn from_stream(stream: Stream) -> Self {
-        match stream {
-            Stream::Unix(unix) => unix,
-            _ => unreachable!("Can not be casted to UnixStream"),
-        }
-    }
-}
-
-#[cfg(feature = "http3")]
-impl FromStream for UdpStream {
-    fn from_stream(stream: Stream) -> Self {
-        match stream {
-            Stream::Udp(udp) => udp,
-            _ => unreachable!("Can not be casted to UdpStream"),
-        }
-    }
-}
 
 /// Helper trait for convert listener types to tokio types.
 /// This is to delay the conversion and make it happen in server thread(s).
