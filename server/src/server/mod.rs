@@ -60,11 +60,11 @@ impl Server {
                     let res = rt.block_on(async {
                         listeners
                             .into_iter()
-                            .map(|(name, listeners)| listeners.into_iter().map(move |l| (name.to_owned(), l)))
-                            .flatten()
-                            .map(|(name, mut l)| {
-                                let l = l.as_listener()?;
-                                Ok((name, Arc::new(l)))
+                            .flat_map(|(name, listeners)| {
+                                listeners.into_iter().map(move |mut l| {
+                                    let l = l.as_listener()?;
+                                    Ok((name.to_owned(), Arc::new(l)))
+                                })
                             })
                             .collect::<Result<Vec<_>, io::Error>>()
                     })?;

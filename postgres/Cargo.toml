@@ -1,0 +1,13 @@
+[package]
+name = "xitca-postgres"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+xitca-io = "0.1"
+xitca-service = "0.1"
+
+pin-project-lite = "0.2.7"
+postgres-protocol = "0.6.2"
+postgres-types = "0.2.2"
+tokio = { version = "1.14", features = ["sync", "time"] }

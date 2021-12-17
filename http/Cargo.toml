@@ -16,7 +16,7 @@ native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "toki
 xitca-io = "0.1"
 xitca-service = "0.1"
 
-futures-core = "0.3.18"
+futures-core = "0.3.17"
 http = "0.2.5"
 httpdate = "1.0"
 matchit = "0.4.4"
