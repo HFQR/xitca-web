@@ -1,9 +1,19 @@
 use std::{collections::HashMap, error, fmt, future::Future};
 
 use matchit::{MatchError, Node};
-use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject};
+use xitca_service::{
+    Request as ReqTrait, RequestSpecs, Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject,
+    ServiceObjectTrait,
+};
 
 use crate::http::Request;
+
+pub trait Routable {
+    type Path<'a>: AsRef<str>
+    where
+        Self: 'a;
+    fn path(&self) -> Self::Path<'_>;
+}
 
 /// Simple router for matching on [Request]'s path and call according service.
 pub struct Router<Req, Res, Err, Cfg, InitErr> {
@@ -60,23 +70,26 @@ impl<Req, Res, Err, Cfg, InitErr> Router<Req, Res, Err, Cfg, InitErr> {
     pub fn insert<F>(mut self, path: &'static str, factory: F) -> Self
     where
         F: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr> + 'static,
-        F::Service: Clone + 'static,
         F::Future: 'static,
-        Req: 'static,
+        // Bounds to satisfy ServiceObject
+        Req: for<'a, 'b> ReqTrait<'a, &'a &'b ()>,
+        F::Service: for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), Req, F::Response, F::Error>,
     {
         assert!(self.routes.insert(path, factory.into_object()).is_none());
         self
     }
 }
 
-impl<ReqB, Res, Err, Cfg, InitErr> ServiceFactory<Request<ReqB>> for Router<Request<ReqB>, Res, Err, Cfg, InitErr>
+impl<TrueReq, Req, Res, Err, Cfg, InitErr> ServiceFactory<TrueReq> for Router<Req, Res, Err, Cfg, InitErr>
 where
     Cfg: Clone,
+    ServiceObject<Req, Res, Err>: Service<TrueReq, Response = Res, Error = Err>,
+    TrueReq: Routable,
 {
     type Response = Res;
     type Error = RouterError<Err>;
     type Config = Cfg;
-    type Service = RouterService<Request<ReqB>, Res, Err>;
+    type Service = RouterService<Req, Res, Err>;
     type InitError = InitErr;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
@@ -112,7 +125,14 @@ impl<Req, Res, Err> Clone for RouterService<Req, Res, Err> {
     }
 }
 
-impl<ReqB, Res, Err> Service<Request<ReqB>> for RouterService<Request<ReqB>, Res, Err> {
+impl<Req, TrueReq, Res, Err> Service<TrueReq> for RouterService<Req, Res, Err>
+where
+    //Req: RequestSpecs<TrueReq, Lifetime = &'a (), Lifetimes = Lt>,
+    //Req: ReqTrait<'a, Lt, Type = TrueReq>,
+    //ServiceObject<Req, Res, Err>: ServiceObjectTrait<'a, Lt, Req, Res, Err>,
+    ServiceObject<Req, Res, Err>: Service<TrueReq, Response = Res, Error = Err>,
+    TrueReq: Routable,
+{
     type Response = Res;
     type Error = RouterError<Err>;
     type Ready<'f>
@@ -130,11 +150,15 @@ impl<ReqB, Res, Err> Service<Request<ReqB>> for RouterService<Request<ReqB>, Res
     }
 
     #[inline]
-    fn call(&self, req: Request<ReqB>) -> Self::Future<'_> {
+    fn call(&self, req: TrueReq) -> Self::Future<'_> {
         async move {
-            let service = self.routes.at(req.uri().path()).map_err(RouterError::MatchError)?;
+            let service = self
+                .routes
+                .at(req.path().as_ref())
+                .map_err(RouterError::MatchError)?
+                .value;
 
-            service.value.call(req).await.map_err(RouterError::Service)
+            Service::call(service, req).await.map_err(RouterError::Service)
         }
     }
 }

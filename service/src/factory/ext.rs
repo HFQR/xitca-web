@@ -2,7 +2,7 @@ use core::future::Future;
 
 use alloc::boxed::Box;
 
-use crate::transform::Transform;
+use crate::{transform::Transform, Request, Service, ServiceObjectTrait};
 
 use super::{
     boxed::BoxedServiceFactory,
@@ -97,9 +97,14 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
     fn into_object(self) -> ServiceFactoryObject<Req, Self::Response, Self::Error, Self::Config, Self::InitError>
     where
         Self: Sized + 'static,
-        Self::Service: Clone + 'static,
         Self::Future: 'static,
-        Req: 'static,
+        // Bounds to satisfy ServiceObject
+        // TODO consider adding Service<Req> bound in case of inference issues
+        Req: for<'a, 'b> Request<'a, &'a &'b ()>,
+        Self::Service: for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), Req, Self::Response, Self::Error>,
+        //Req: Request,
+        //Self::Service: for<'a> Service<Req::Type<'a>, Response=Self::Response, Error=Self::Error>,
+        //Self::Service: Clone + 'static,
     {
         Box::new(self)
     }

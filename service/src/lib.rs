@@ -14,9 +14,20 @@ pub use self::{
     transform::{middleware, Transform, TransformFactory},
 };
 
+pub use service::ServiceObjectTrait;
+
 use core::{future::Future, pin::Pin};
 
 use alloc::boxed::Box;
+
+pub trait Request<'a, Lt>: 'static {
+    type Type: 'a;
+}
+
+pub trait RequestSpecs<Req>: 'static {
+    type Lifetime;
+    type Lifetimes;
+}
 
 pub(crate) type BoxFuture<'a, Res, Err> = Pin<Box<dyn Future<Output = Result<Res, Err>> + 'a>>;
 

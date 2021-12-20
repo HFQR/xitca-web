@@ -6,7 +6,7 @@ mod map_err;
 mod object;
 mod then;
 
-pub use object::ServiceObject;
+pub use object::{ServiceObject, ServiceObjectTrait};
 
 use core::{future::Future, ops::Deref, pin::Pin};
 
