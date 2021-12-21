@@ -22,9 +22,11 @@ impl<S: 'static> Routable for &mut WebRequest<'_, S> {
     type Path<'a>
     where
         Self: 'a,
-    = String;
-    fn path(&self) -> String {
-        String::from("hello")
+    = &'a str;
+
+    fn path(&self) -> &str {
+        // TODO consider url decoding and Cow
+        self.req().uri().path()
     }
 }
 
@@ -182,7 +184,7 @@ where
     }
 }
 
-//#[cfg(test)]
+#[cfg(test)]
 mod test {
     use xitca_service::{middleware::Cloneable, ServiceFactory};
 
@@ -226,7 +228,7 @@ mod test {
         }
     }
 
-    //#[tokio::test]
+    #[tokio::test]
     async fn test_app() {
         let state = String::from("state");
         let app = App::with_current_thread_state(state).service(TestFactory);
@@ -238,12 +240,11 @@ mod test {
         let _ = service.call(req).await.unwrap();
     }
 
-    //#[tokio::test]
+    #[tokio::test]
     async fn test_handler() {
         use crate::extract::{PathRef, StateRef};
         use crate::service::HandlerService;
         use xitca_http::util::service::Router;
-        use xitca_service::ServiceFactoryExt;
 
         async fn handler(StateRef(state): StateRef<'_, String>, PathRef(path): PathRef<'_>) -> String {
             assert_eq!("state", state);

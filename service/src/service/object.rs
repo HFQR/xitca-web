@@ -34,13 +34,13 @@ impl<'a, Lt, S, ReqS, Res, Err> ServiceObjectTrait<'a, Lt, ReqS, Res, Err> for S
 where
     ReqS: Request<'a, Lt>,
     S: Service<ReqS::Type, Response = Res, Error = Err> + Clone + 'static,
-    S: Service<ReqS>, // inference; TODO remove
+    // S: Service<ReqS>, // Consider in case of failed inference for ReqS
 {
     #[inline]
     fn call(&self, req: ReqS::Type) -> BoxFuture<'a, Res, Err> {
         let this = self.clone();
         Box::pin(async move {
-            //this.ready().await?;
+            this.ready().await?;
             Service::call(&this, req).await
         })
     }
@@ -70,30 +70,6 @@ where
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
-        async move { <G as ServiceObjectTrait<'a, Lt, ReqS, Res, Err>>::call(&self.0, req).await }
+        async move { ServiceObjectTrait::call(&*self.0, req).await }
     }
 }
-
-/*
-#[test]
-mod test_single_lifetime_request {
-    use super::*;
-
-    struct Req<'a>(&'a mut ());
-
-    impl<'a, 'b> Request<'a, &'a &'b ()> for Req<'static> {
-        type Type = Req<'a>;
-    }
-
-    impl<'a> RequestSpecs<Req<'a>> for Req<'static> {
-        type Lifetime = &'a ();
-        type Lifetimes = &'a &'static ();
-    }
-
-    fn check<T: for<'a> Service<Req<'a>>>() {}
-
-    fn test() {
-        check::<ServiceObject<Req<'static>, (), ()>>();
-    }
-}
-*/

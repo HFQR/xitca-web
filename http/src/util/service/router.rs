@@ -1,12 +1,7 @@
 use std::{collections::HashMap, error, fmt, future::Future};
 
 use matchit::{MatchError, Node};
-use xitca_service::{
-    Request as ReqTrait, RequestSpecs, Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject,
-    ServiceFactoryObjectTrait,
-};
-
-use crate::http::Request;
+use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceFactoryObjectTrait};
 
 pub trait Routable {
     type Path<'a>: AsRef<str>
