@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use futures_core::future::LocalBoxFuture;
-use xitca_http::util::service::{Routable, Router};
+use xitca_http::util::service::Routable;
 use xitca_http::{http::Request, RequestBody, ResponseError};
 use xitca_service::{
     Request as ReqTrait, RequestSpecs, Service, ServiceFactory, ServiceFactoryExt, Transform, TransformFactory,
@@ -242,7 +242,7 @@ mod test {
     async fn test_handler() {
         use crate::extract::{PathRef, StateRef};
         use crate::service::HandlerService;
-        use xitca_http::util::service::{Routable, Router};
+        use xitca_http::util::service::Router;
         use xitca_service::ServiceFactoryExt;
 
         async fn handler(StateRef(state): StateRef<'_, String>, PathRef(path): PathRef<'_>) -> String {

@@ -153,7 +153,7 @@ where
                 .map_err(RouterError::MatchError)?
                 .value;
 
-            Service::call(service, req).await.map_err(RouterError::Service)
+            service.call(req).await.map_err(RouterError::Service)
         }
     }
 }

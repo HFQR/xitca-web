@@ -2,7 +2,7 @@ use core::future::Future;
 
 use alloc::boxed::Box;
 
-use crate::{transform::Transform, Request, Service, ServiceObjectTrait};
+use crate::transform::Transform;
 
 use super::{
     boxed::BoxedServiceFactory,
@@ -166,6 +166,17 @@ mod test {
 
     #[tokio::test]
     async fn service_object() {
+        use crate::{Request, RequestSpecs};
+
+        impl<'a, 'b> Request<'a, &'a &'b ()> for &'static str {
+            type Type = &'static str;
+        }
+
+        impl RequestSpecs<&'static str> for &'static str {
+            type Lifetime = &'static ();
+            type Lifetimes = &'static &'static ();
+        }
+
         let factory = fn_service(index).transform(DummyMiddleware).into_object();
 
         let service = factory.new_service(()).await.unwrap();

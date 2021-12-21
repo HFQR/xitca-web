@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use alloc::{boxed::Box, rc::Rc};
 
 use crate::{service::ServiceObject, BoxFuture, Request, Service, ServiceObjectTrait};
@@ -15,7 +13,7 @@ pub struct ServiceFactoryObject<ReqS, Res, Err, Cfg, InitErr, SO>(
 pub trait ServiceFactoryObjectTrait<Req, Res, Err, Cfg, InitErr> {
     type ServiceObj;
 
-    fn new_service(&self, cfg: Cfg) -> BoxFuture<'static, Self::ServiceObj, InitErr>;
+    fn obj_new_service(&self, cfg: Cfg) -> BoxFuture<'static, Self::ServiceObj, InitErr>;
 }
 
 impl<F, ReqS> ServiceFactoryObjectTrait<ReqS, F::Response, F::Error, F::Config, F::InitError> for F
@@ -33,8 +31,8 @@ where
         dyn for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), ReqS, F::Response, F::Error>,
     >;
 
-    fn new_service(&self, cfg: F::Config) -> BoxFuture<'static, Self::ServiceObj, F::InitError> {
-        let fut = ServiceFactory::new_service(self, cfg);
+    fn obj_new_service(&self, cfg: F::Config) -> BoxFuture<'static, Self::ServiceObj, F::InitError> {
+        let fut = self.new_service(cfg);
         Box::pin(async move {
             let service = fut.await?;
             Ok(ServiceObject::new(Rc::new(service) as _))
@@ -55,6 +53,6 @@ where
     type Future = BoxFuture<'static, Self::Service, Self::InitError>;
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
-        ServiceFactoryObjectTrait::new_service(&*self.0, cfg)
+        self.0.obj_new_service(cfg)
     }
 }
