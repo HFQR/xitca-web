@@ -9,12 +9,10 @@ mod service;
 mod transform;
 
 pub use self::{
-    factory::{fn_service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject},
-    service::{Service, ServiceObject},
+    factory::{fn_service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceFactoryObjectTrait},
+    service::{Service, ServiceObject, ServiceObjectTrait},
     transform::{middleware, Transform, TransformFactory},
 };
-
-pub use service::ServiceObjectTrait;
 
 use core::{future::Future, pin::Pin};
 

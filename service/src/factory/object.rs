@@ -7,39 +7,54 @@ use crate::{service::ServiceObject, BoxFuture, Request, Service, ServiceObjectTr
 use super::ServiceFactory;
 
 /// Trait object for constructing [ServiceObject].
-pub type ServiceFactoryObject<Req, Res, Err, Cfg, InitErr> = Box<
-    dyn _ServiceFactoryObject<
-        Req,
-        Res,
-        Err,
-        Cfg,
-        InitErr,
-        Future = BoxFuture<'static, ServiceObject<Req, Res, Err>, InitErr>,
-    >,
->;
+pub struct ServiceFactoryObject<ReqS, Res, Err, Cfg, InitErr, SO>(
+    pub(crate) Box<dyn ServiceFactoryObjectTrait<ReqS, Res, Err, Cfg, InitErr, ServiceObj = SO>>,
+);
 
 #[doc(hidden)]
-pub trait _ServiceFactoryObject<Req, Res, Err, Cfg, InitErr> {
-    type Future: Future<Output = Result<ServiceObject<Req, Res, Err>, InitErr>>;
+pub trait ServiceFactoryObjectTrait<Req, Res, Err, Cfg, InitErr> {
+    type ServiceObj;
 
-    fn new_service(&self, cfg: Cfg) -> Self::Future;
+    fn new_service(&self, cfg: Cfg) -> BoxFuture<'static, Self::ServiceObj, InitErr>;
 }
 
-impl<F, Req> _ServiceFactoryObject<Req, F::Response, F::Error, F::Config, F::InitError> for F
+impl<F, ReqS> ServiceFactoryObjectTrait<ReqS, F::Response, F::Error, F::Config, F::InitError> for F
 where
-    F: ServiceFactory<Req>,
+    F: ServiceFactory<ReqS>,
     F::Future: 'static,
     // Bounds to satisfy ServiceObject
-    Req: for<'a, 'b> Request<'a, &'a &'b ()>,
-    F::Service: for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), Req, F::Response, F::Error>,
+    ReqS: for<'a, 'b> Request<'a, &'a &'b ()>,
+    F::Service: for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), ReqS, F::Response, F::Error>,
 {
-    type Future = BoxFuture<'static, ServiceObject<Req, F::Response, F::Error>, F::InitError>;
+    type ServiceObj = ServiceObject<
+        ReqS,
+        F::Response,
+        F::Error,
+        dyn for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), ReqS, F::Response, F::Error>,
+    >;
 
-    fn new_service(&self, cfg: F::Config) -> Self::Future {
+    fn new_service(&self, cfg: F::Config) -> BoxFuture<'static, Self::ServiceObj, F::InitError> {
         let fut = ServiceFactory::new_service(self, cfg);
         Box::pin(async move {
             let service = fut.await?;
             Ok(ServiceObject::new(Rc::new(service) as _))
         })
+    }
+}
+
+impl<ReqS, Req, Res, Err, Cfg, InitErr, SO> ServiceFactory<Req>
+    for ServiceFactoryObject<ReqS, Res, Err, Cfg, InitErr, SO>
+where
+    SO: Service<Req, Response = Res, Error = Err>,
+{
+    type Response = Res;
+    type Error = Err;
+    type Config = Cfg;
+    type Service = SO;
+    type InitError = InitErr;
+    type Future = BoxFuture<'static, Self::Service, Self::InitError>;
+
+    fn new_service(&self, cfg: Self::Config) -> Self::Future {
+        ServiceFactoryObjectTrait::new_service(&*self.0, cfg)
     }
 }

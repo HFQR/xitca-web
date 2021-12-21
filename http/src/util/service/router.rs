@@ -2,8 +2,8 @@ use std::{collections::HashMap, error, fmt, future::Future};
 
 use matchit::{MatchError, Node};
 use xitca_service::{
-    Request as ReqTrait, RequestSpecs, Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject,
-    ServiceObjectTrait,
+    Request as ReqTrait, RequestSpecs, Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject,
+    ServiceFactoryObjectTrait,
 };
 
 use crate::http::Request;
@@ -12,12 +12,13 @@ pub trait Routable {
     type Path<'a>: AsRef<str>
     where
         Self: 'a;
+
     fn path(&self) -> Self::Path<'_>;
 }
 
 /// Simple router for matching on [Request]'s path and call according service.
-pub struct Router<Req, Res, Err, Cfg, InitErr> {
-    routes: HashMap<&'static str, ServiceFactoryObject<Req, Res, Err, Cfg, InitErr>>,
+pub struct Router<F> {
+    routes: HashMap<&'static str, F>,
 }
 
 /// Error type of Router service.
@@ -51,13 +52,13 @@ impl<E: fmt::Display> fmt::Display for RouterError<E> {
 
 impl<E> error::Error for RouterError<E> where E: fmt::Debug + fmt::Display {}
 
-impl<Req, Res, Err, Cfg, InitErr> Default for Router<Req, Res, Err, Cfg, InitErr> {
+impl<Req, Res, Err, Cfg, InitErr, SO> Default for Router<ServiceFactoryObject<Req, Res, Err, Cfg, InitErr, SO>> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Req, Res, Err, Cfg, InitErr> Router<Req, Res, Err, Cfg, InitErr> {
+impl<Req, Res, Err, Cfg, InitErr, SO> Router<ServiceFactoryObject<Req, Res, Err, Cfg, InitErr, SO>> {
     pub fn new() -> Self {
         Self { routes: HashMap::new() }
     }
@@ -70,27 +71,24 @@ impl<Req, Res, Err, Cfg, InitErr> Router<Req, Res, Err, Cfg, InitErr> {
     pub fn insert<F>(mut self, path: &'static str, factory: F) -> Self
     where
         F: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr> + 'static,
-        F::Future: 'static,
-        // Bounds to satisfy ServiceObject
-        Req: for<'a, 'b> ReqTrait<'a, &'a &'b ()>,
-        F::Service: for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), Req, F::Response, F::Error>,
+        F: ServiceFactoryObjectTrait<Req, Res, Err, Cfg, InitErr, ServiceObj = SO>,
     {
         assert!(self.routes.insert(path, factory.into_object()).is_none());
         self
     }
 }
 
-impl<TrueReq, Req, Res, Err, Cfg, InitErr> ServiceFactory<TrueReq> for Router<Req, Res, Err, Cfg, InitErr>
+impl<Req, F, Cfg> ServiceFactory<Req> for Router<F>
 where
+    Req: Routable,
+    F: ServiceFactory<Req, Config = Cfg>,
     Cfg: Clone,
-    ServiceObject<Req, Res, Err>: Service<TrueReq, Response = Res, Error = Err>,
-    TrueReq: Routable,
 {
-    type Response = Res;
-    type Error = RouterError<Err>;
-    type Config = Cfg;
-    type Service = RouterService<ServiceObject<Req, Res, Err>>;
-    type InitError = InitErr;
+    type Response = F::Response;
+    type Error = RouterError<F::Error>;
+    type Config = F::Config;
+    type Service = RouterService<F::Service>;
+    type InitError = F::InitError;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
@@ -127,8 +125,8 @@ impl<S: Clone> Clone for RouterService<S> {
 
 impl<Req, S> Service<Req> for RouterService<S>
 where
-    S: Service<Req>,
     Req: Routable,
+    S: Service<Req>,
 {
     type Response = S::Response;
     type Error = RouterError<S::Error>;
