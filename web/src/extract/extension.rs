@@ -1,12 +1,17 @@
-use std::{convert::Infallible, future::Future, ops::Deref};
+use std::{convert::Infallible, fmt, future::Future, ops::Deref};
 
-use crate::http::Extensions;
 use xitca_http::util::service::FromRequest;
 
-use crate::request::WebRequest;
+use crate::{http::Extensions, request::WebRequest};
 
 /// Extract immutable reference of element stored inside [Extensions]
 pub struct ExtensionRef<'a, T>(pub &'a T);
+
+impl<T: fmt::Debug> fmt::Debug for ExtensionRef<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ExtensionRef({:?})", self.0)
+    }
+}
 
 impl<T> Deref for ExtensionRef<'_, T> {
     type Target = T;

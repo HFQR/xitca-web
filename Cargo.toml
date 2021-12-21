@@ -4,6 +4,7 @@ members = [
     "http",
     "http-codegen",
     "io",
+    "postgres",
     "server",
     "service",
     "test",
@@ -18,6 +19,7 @@ xitca-client = { path = "./client" }
 xitca-http = { path = "./http" }
 xitca-http-codegen = { path = "./http-codegen" }
 xitca-io = { path = "./io" }
+xitca-postgres = { path = "./postgres" }
 xitca-server = { path = "./server" }
 xitca-service = { path = "./service" }
 xitca-web = { path = "./web" }

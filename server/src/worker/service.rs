@@ -5,8 +5,6 @@ use xitca_service::Service;
 
 use super::limit::LimitGuard;
 
-use crate::net::FromStream;
-
 pub(crate) trait WorkerServiceTrait {
     fn call(self: Rc<Self>, req: (LimitGuard, Stream));
 }
@@ -19,7 +17,7 @@ pub(crate) struct WorkerService<S, Req> {
 impl<S, Req> WorkerService<S, Req>
 where
     S: Service<Req> + 'static,
-    Req: FromStream + 'static,
+    Req: From<Stream> + 'static,
 {
     pub(crate) fn new_rcboxed(service: S) -> RcWorkerService {
         Rc::new(WorkerService {
@@ -34,10 +32,10 @@ pub(crate) type RcWorkerService = Rc<dyn WorkerServiceTrait>;
 impl<S, Req> WorkerServiceTrait for WorkerService<S, Req>
 where
     S: Service<Req> + 'static,
-    Req: FromStream + 'static,
+    Req: From<Stream> + 'static,
 {
     fn call(self: Rc<Self>, (guard, req): (LimitGuard, Stream)) {
-        let stream = FromStream::from_stream(req);
+        let stream = Req::from(req);
 
         tokio::task::spawn_local(async move {
             if self.service.ready().await.is_ok() {

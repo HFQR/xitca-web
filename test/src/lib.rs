@@ -17,8 +17,11 @@ use xitca_http::{
     http::{Request, Response},
     HttpServiceBuilder,
 };
-use xitca_io::{bytes::Bytes, net::TcpStream};
-use xitca_server::{net::FromStream, Builder, ServerFuture, ServerHandle};
+use xitca_io::{
+    bytes::Bytes,
+    net::{Stream as NetStream, TcpStream},
+};
+use xitca_server::{Builder, ServerFuture, ServerHandle};
 use xitca_service::ServiceFactory;
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
@@ -29,7 +32,7 @@ pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> T + Send + Clone + 'static,
     T: ServiceFactory<Req, Config = ()>,
-    Req: FromStream + Send + 'static,
+    Req: From<NetStream> + Send + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;
 

@@ -1,5 +1,6 @@
 use std::{
     convert::Infallible,
+    fmt,
     future::Future,
     ops::{Deref, DerefMut},
 };
@@ -11,6 +12,18 @@ use crate::request::WebRequest;
 /// App state extractor .
 /// S type must be the same with the type passed to App::with_xxx_state(<S>) and impl `Clone`.
 pub struct State<S>(pub S);
+
+impl<S: fmt::Debug> fmt::Debug for State<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "State({:?})", self.0)
+    }
+}
+
+impl<S: fmt::Display> fmt::Display for State<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "State({})", self.0)
+    }
+}
 
 impl<S> Deref for State<S> {
     type Target = S;
@@ -43,6 +56,18 @@ where
 /// App state extractor.
 /// S type must be the same with the type passed to App::with_xxx_state(<S>).
 pub struct StateRef<'a, S>(pub &'a S);
+
+impl<S: fmt::Debug> fmt::Debug for StateRef<'_, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StateRef({:?})", self.0)
+    }
+}
+
+impl<S: fmt::Display> fmt::Display for StateRef<'_, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StateRef({})", self.0)
+    }
+}
 
 impl<S> Deref for StateRef<'_, S> {
     type Target = S;

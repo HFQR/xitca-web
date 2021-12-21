@@ -20,6 +20,17 @@ use super::{
     version::AsVersion,
 };
 
+// marker type for separate HttpServerBuilders' ServiceFactory implement with specialized trait
+// method.
+#[doc(hidden)]
+pub(crate) mod marker {
+    pub struct Http;
+    #[cfg(feature = "http1")]
+    pub struct Http1;
+    #[cfg(feature = "http2")]
+    pub struct Http2;
+}
+
 /// HttpService Builder type.
 /// Take in generic types of ServiceFactory for http and tls.
 pub struct HttpServiceBuilder<
@@ -41,7 +52,7 @@ pub struct HttpServiceBuilder<
 
 impl<F>
     HttpServiceBuilder<
-        Http,
+        marker::Http,
         ServerStream,
         F,
         ExpectHandler<F>,
@@ -61,7 +72,7 @@ impl<F>
         factory: F,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     ) -> HttpServiceBuilder<
-        Http,
+        marker::Http,
         ServerStream,
         F,
         ExpectHandler<F>,
@@ -86,7 +97,8 @@ impl<F>
     /// This is a request type specific for Http/1 request body.
     pub fn h1<ResB, E>(
         factory: F,
-    ) -> super::h1::H1ServiceBuilder<
+    ) -> HttpServiceBuilder<
+        marker::Http1,
         TcpStream,
         F,
         ExpectHandler<F>,
@@ -119,7 +131,8 @@ impl<F>
     /// This is a request type specific for Http/2 request body.
     pub fn h2<ResB, E>(
         factory: F,
-    ) -> super::h2::H2ServiceBuilder<
+    ) -> HttpServiceBuilder<
+        marker::Http2,
         TcpStream,
         F,
         (),
@@ -259,13 +272,9 @@ impl<V, St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
     }
 }
 
-#[doc(hidden)]
-/// a marker type for separate HttpServerBuilders' ServiceFactory implement with speicialized trait method.
-pub struct Http;
-
 impl<F, ResB, E, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     ServiceFactory<ServerStream>
-    for HttpServiceBuilder<Http, ServerStream, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    for HttpServiceBuilder<marker::Http, ServerStream, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,

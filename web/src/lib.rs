@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
-#![feature(generic_associated_types, type_alias_impl_trait)]
+#![allow(incomplete_features)]
+#![feature(generic_associated_types)]
+#![feature(type_alias_impl_trait)]
+#![feature(adt_const_params)]
 
 mod app;
 mod server;
