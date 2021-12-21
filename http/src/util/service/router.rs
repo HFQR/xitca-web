@@ -89,7 +89,7 @@ where
     type Response = Res;
     type Error = RouterError<Err>;
     type Config = Cfg;
-    type Service = RouterService<Req, Res, Err>;
+    type Service = RouterService<ServiceObject<Req, Res, Err>>;
     type InitError = InitErr;
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
@@ -113,11 +113,11 @@ where
     }
 }
 
-pub struct RouterService<Req, Res, Err> {
-    routes: Node<ServiceObject<Req, Res, Err>>,
+pub struct RouterService<S> {
+    routes: Node<S>,
 }
 
-impl<Req, Res, Err> Clone for RouterService<Req, Res, Err> {
+impl<S: Clone> Clone for RouterService<S> {
     fn clone(&self) -> Self {
         Self {
             routes: self.routes.clone(),
@@ -125,16 +125,13 @@ impl<Req, Res, Err> Clone for RouterService<Req, Res, Err> {
     }
 }
 
-impl<Req, TrueReq, Res, Err> Service<TrueReq> for RouterService<Req, Res, Err>
+impl<Req, S> Service<Req> for RouterService<S>
 where
-    //Req: RequestSpecs<TrueReq, Lifetime = &'a (), Lifetimes = Lt>,
-    //Req: ReqTrait<'a, Lt, Type = TrueReq>,
-    //ServiceObject<Req, Res, Err>: ServiceObjectTrait<'a, Lt, Req, Res, Err>,
-    ServiceObject<Req, Res, Err>: Service<TrueReq, Response = Res, Error = Err>,
-    TrueReq: Routable,
+    S: Service<Req>,
+    Req: Routable,
 {
-    type Response = Res;
-    type Error = RouterError<Err>;
+    type Response = S::Response;
+    type Error = RouterError<S::Error>;
     type Ready<'f>
     where
         Self: 'f,
@@ -150,7 +147,7 @@ where
     }
 
     #[inline]
-    fn call(&self, req: TrueReq) -> Self::Future<'_> {
+    fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
             let service = self
                 .routes

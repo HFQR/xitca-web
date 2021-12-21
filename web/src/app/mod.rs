@@ -1,8 +1,8 @@
 use std::future::Future;
 
 use futures_core::future::LocalBoxFuture;
-use xitca_http::{http::Request, RequestBody, ResponseError};
 use xitca_http::util::service::{Routable, Router};
+use xitca_http::{http::Request, RequestBody, ResponseError};
 use xitca_service::{
     Request as ReqTrait, RequestSpecs, Service, ServiceFactory, ServiceFactoryExt, Transform, TransformFactory,
 };

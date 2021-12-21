@@ -11,13 +11,10 @@ use super::Service;
 /// [Service] trait uses GAT which does not offer object safety.
 /// This helper type offers the safety at the cost of tighter trait bound.
 /// (Service type, input Request type and output future type must bound to 'static lifetime.)
-//#[derive(Clone)]
 pub struct ServiceObject<Req, Res, Err, G: ?Sized = DefaultObj<Req, Res, Err>>(
     Rc<G>,
     PhantomData<fn(Req) -> (Res, Err)>,
 );
-//pub struct ServiceObject<ReqX, Res, Err>(Rc<DefaultObj<ReqX, Res, Err>>);
-//pub type ServiceObject<ReqX, Res, Err> = Priv<dyn for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), ReqX, Res, Err>>;
 
 // TODO make ServiceObject generic over DefaultObj
 type DefaultObj<ReqX, Res, Err> = dyn for<'a, 'b> ServiceObjectTrait<'a, &'a &'b (), ReqX, Res, Err>;
@@ -79,44 +76,28 @@ where
 
     #[inline]
     fn call(&self, req: TrueReq) -> Self::Future<'_> {
-        async move {
-            use core::ops::Deref as _;
-            //self.0.deref().call(req).await;
-            <G as ServiceObjectTrait<'a, Lt, Req, Res, Err>>::call(&self.0, req).await
-        }
+        async move { <G as ServiceObjectTrait<'a, Lt, Req, Res, Err>>::call(&self.0, req).await }
     }
 }
 
-mod test {
+#[test]
+mod test_single_lifetime_request {
     use super::*;
 
-    struct Req<'a, 'b>(&'a mut &'b ());
+    struct Req<'a>(&'a mut ());
 
-    impl<'a, 'b> Request<'a, &'a &'b ()> for Req<'static, 'static> {
-        type Type = Req<'a, 'b>;
+    impl<'a, 'b> Request<'a, &'a &'b ()> for Req<'static> {
+        type Type = Req<'a>;
     }
 
-    impl<'a, 'b> RequestSpecs<Req<'a, 'b>> for Req<'static, 'static> {
+    impl<'a> RequestSpecs<Req<'a>> for Req<'static> {
         type Lifetime = &'a ();
-        type Lifetimes = &'a &'b ();
+        type Lifetimes = &'a &'static ();
     }
 
-    fn check<T: for<'a, 'b> Service<Req<'a, 'b>>>() {}
+    fn check<T: for<'a> Service<Req<'a>>>() {}
 
     fn test() {
-        check::<ServiceObject<Req<'static, 'static>, (), ()>>();
+        check::<ServiceObject<Req<'static>, (), ()>>();
     }
 }
-/*
-impl<'a, Lt, S, ReqX, Res, Err> ServiceObjectTrait<'a, Lt, ReqX, Res, Err> for Priv<S>
-where
-    S: ?Sized,
-    ReqX: Request<'a, Lt>,
-    S: ServiceObjectTrait<'a, Lt, ReqX, Res, Err>,
-{
-    #[inline]
-    fn call(&self, req: ReqX::Type) -> BoxFuture<'a, Res, Err> {
-        self.0.call(req)
-    }
-}
-*/
