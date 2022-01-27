@@ -13,7 +13,7 @@ use futures_intrusive::{
     NoopLock,
 };
 use h3::{
-    quic::BidiStream,
+    quic::{RecvStream, SendStream},
     server::{self, RequestStream},
 };
 use pin_project_lite::pin_project;
@@ -22,7 +22,7 @@ use xitca_service::Service;
 
 use crate::{
     body::ResponseBody,
-    bytes::Bytes,
+    bytes::{Buf, Bytes},
     error::{BodyError, HttpServiceError},
     h3::{body::RequestBody, error::Error},
     http::{Request, Response},
@@ -78,8 +78,10 @@ where
                     let sender = stream.clone();
 
                     let body = Box::pin(AsyncStream::new(sender, |stream| async move {
+                        // What the fuck is this API? We need to find another http3 implementation on quinn
+                        // that actually make sense. This is plain stupid.
                         let res = stream.lock().await.recv_data().await?;
-                        Ok(res.map(|bytes| (bytes, stream)))
+                        Ok(res.map(|bytes| (Bytes::copy_from_slice(bytes.chunk()), stream)))
                     }));
 
                     let body = ReqB::from(RequestBody(body));
@@ -108,11 +110,11 @@ where
 
 async fn h3_handler<Fut, C, B, BE, E>(
     fut: Fut,
-    stream: &GenericMutex<NoopLock, RequestStream<C>>,
+    stream: &GenericMutex<NoopLock, RequestStream<C, Bytes>>,
 ) -> Result<(), Error<E>>
 where
     Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
-    C: BidiStream<Bytes>,
+    C: RecvStream + SendStream<Bytes>,
     B: Stream<Item = Result<Bytes, BE>>,
     BodyError: From<BE>,
 {

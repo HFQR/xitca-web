@@ -4,7 +4,11 @@ use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
 
 use crate::http::{Method, Request};
 
-type RouteMethodFactory<Req, R: ServiceFactory<Req>> = impl ServiceFactory<
+type RouteMethodFactory<Req, R>
+where
+    R: ServiceFactory<Req>,
+    R::Service: Clone,
+= impl ServiceFactory<
     Req,
     Response = R::Response,
     Error = RouteError<R::Error>,

@@ -113,7 +113,8 @@ pub trait Handler<'a, Req, T>: Clone {
 impl<'a, Req, T, Res, Err, F> Handler<'a, Req, T> for F
 where
     T: FromRequest<'static, Req, Error = Err>,
-    F: AsyncFn<T::Type<'a>, Output = Res> + Clone,
+    Req: 'a,
+    F: AsyncFn<T::Type<'a>, Output = Res> + Clone + 'a,
     F: AsyncFn<T>, // second bound to assist type inference to pinpoint T
 {
     type Error = Err;
@@ -244,7 +245,7 @@ from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I }
 /// The Output type is what returns from [handler_service] function.
 pub trait Responder<'a, Req> {
     type Output;
-    type Future: Future<Output = Self::Output>;
+    type Future: Future<Output = Self::Output> + 'a;
 
     fn respond_to(self, req: &'a mut Req) -> Self::Future;
 }

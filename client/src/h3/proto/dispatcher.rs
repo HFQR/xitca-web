@@ -4,7 +4,7 @@ use futures_core::stream::Stream;
 use futures_util::future::poll_fn;
 use h3_quinn::quinn::Endpoint;
 use xitca_http::{
-    bytes::Bytes,
+    bytes::{Buf, Bytes},
     date::DateTime,
     error::BodyError,
     http::{
@@ -75,7 +75,7 @@ where
     } else {
         let body = async_stream::stream! {
             while let Some(bytes) = stream.recv_data().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {
-                yield Ok(bytes);
+                yield Ok(Bytes::copy_from_slice(bytes.chunk()));
             }
         };
         let body = crate::h3::body::ResponseBody(Box::pin(body));

@@ -12,7 +12,11 @@ use super::request::WebRequest;
 // TODO: add app state to response type.
 pub type WebResponse = Response<ResponseBody>;
 
-impl<'a, 'r, 's, S> Responder<'a, &'r mut WebRequest<'s, S>> for WebResponse {
+impl<'a, 'r, 's, S> Responder<'a, &'r mut WebRequest<'s, S>> for WebResponse
+where
+    'r: 'a,
+    's: 'a,
+{
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output> + 'a;
 
@@ -27,6 +31,8 @@ macro_rules! text_utf8 {
         impl<'a, 'r, 's, S> Responder<'a, &'r mut WebRequest<'s, S>> for $type
         where
             S: 'static,
+            'r: 'a,
+            's: 'a,
         {
             type Output = WebResponse;
             type Future = impl Future<Output = Self::Output> + 'a;
