@@ -1,30 +1,20 @@
 use std::{error, fmt, future::Future, marker::PhantomData};
 
-use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
+use xitca_service::{MapErrorServiceFactory, Service, ServiceFactory, ServiceFactoryExt};
 
 use crate::http::{Method, Request};
-
-type RouteMethodFactory<Req, R>
-where
-    R: ServiceFactory<Req>,
-    R::Service: Clone,
-= impl ServiceFactory<
-    Req,
-    Response = R::Response,
-    Error = RouteError<R::Error>,
-    Config = R::Config,
-    InitError = R::InitError,
-    Service = impl Service<Req, Response = R::Response, Error = RouteError<R::Error>> + Clone,
->;
 
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {
         pub fn $method_fn<R, Req>(
             route: R,
-        ) -> Route<RouteMethodFactory<Req, R>, MethodNotAllowed<R::Response, R::Error, R::Config, R::InitError>, 1>
+        ) -> Route<
+            MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
+            MethodNotAllowed<R::Response, R::Error, R::Config, R::InitError>,
+            1,
+        >
         where
             R: ServiceFactory<Req>,
-            R::Service: Clone,
         {
             Route::new(route).methods([Method::$method])
         }
@@ -65,10 +55,13 @@ impl Route<(), (), 0> {
     #[allow(clippy::type_complexity)]
     pub fn new<R, Req>(
         route: R,
-    ) -> Route<RouteMethodFactory<Req, R>, MethodNotAllowed<R::Response, R::Error, R::Config, R::InitError>, 0>
+    ) -> Route<
+        MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
+        MethodNotAllowed<R::Response, R::Error, R::Config, R::InitError>,
+        0,
+    >
     where
         R: ServiceFactory<Req>,
-        R::Service: Clone,
     {
         Route {
             methods: [],
@@ -83,27 +76,10 @@ macro_rules! route_method {
         pub fn $method_fn<N1, Req>(
             self,
             $method_fn: N1,
-        ) -> Route<
-            R,
-            Route<
-                impl ServiceFactory<
-                    Req,
-                    Response = N1::Response,
-                    Error = RouteError<N1::Error>,
-                    Config = N1::Config,
-                    InitError = N1::InitError,
-                    Service = impl Service<Req, Response = N1::Response, Error = RouteError<N1::Error>> + Clone,
-                >,
-                N,
-                1,
-            >,
-            M,
-        >
+        ) -> Route<R, Route<MapErrorServiceFactory<N1, impl Fn(N1::Error) -> RouteError<N1::Error> + Clone>, N, 1>, M>
         where
             R: ServiceFactory<Req>,
-            R::Service: Clone,
             N1: ServiceFactory<Req>,
-            N1::Service: Clone,
         {
             self.next(Route::new($method_fn).methods([Method::$method]))
         }
@@ -131,9 +107,7 @@ impl<R, N, const M: usize> Route<R, N, M> {
     pub fn next<Req, R1, N1, const M1: usize>(self, next: Route<R1, N1, M1>) -> Route<R, Route<R1, N, M1>, M>
     where
         R: ServiceFactory<Req>,
-        R::Service: Clone,
         N1: ServiceFactory<Req>,
-        N1::Service: Clone,
     {
         Route {
             methods: self.methods,

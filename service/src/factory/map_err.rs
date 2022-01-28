@@ -7,6 +7,9 @@ use super::{
     ServiceFactory,
 };
 
+// TODO: temporary public type alias that should be removed in the future.
+pub type MapErrorServiceFactory<SF, SF1> = PipelineServiceFactory<SF, SF1, marker::MapErr>;
+
 impl<SF, Req, SF1, E> ServiceFactory<Req> for PipelineServiceFactory<SF, SF1, marker::MapErr>
 where
     SF: ServiceFactory<Req>,

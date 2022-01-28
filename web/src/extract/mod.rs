@@ -6,8 +6,8 @@ mod request;
 mod state;
 mod uri;
 
-#[cfg(feature = "json")]
-mod json;
+// #[cfg(feature = "json")]
+// mod json;
 
 pub use self::body::Body;
 // pub use self::header::{HeaderName, HeaderRef};
@@ -16,8 +16,8 @@ pub use self::request::RequestRef;
 pub use self::state::StateRef;
 pub use self::uri::UriRef;
 
-#[cfg(feature = "json")]
-pub use self::json::Json;
+// #[cfg(feature = "json")]
+// pub use self::json::Json;
 
 use std::{convert::Infallible, future::Future};
 

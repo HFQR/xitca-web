@@ -10,7 +10,9 @@ mod map_init_err;
 mod object;
 mod then;
 
-pub use self::{ext::ServiceFactoryExt, function::fn_service, object::ServiceFactoryObject};
+pub use self::{
+    ext::ServiceFactoryExt, function::fn_service, map_err::MapErrorServiceFactory, object::ServiceFactoryObject,
+};
 
 use core::future::Future;
 
