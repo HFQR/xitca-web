@@ -1,13 +1,20 @@
 //! A postgresql client on top of tokio.
 
 mod futures;
+mod statement;
 
 pub mod error;
+
+pub use statement::Statement;
 
 use std::{collections::VecDeque, future::Future, io};
 
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use xitca_io::{io::Interest, net::TcpStream};
+use xitca_io::{
+    bytes::BytesMut,
+    io::{AsyncIo, Interest},
+    net::TcpStream,
+};
 
 use crate::{
     error::Error,
@@ -42,7 +49,20 @@ impl<'a> Postgres<'a> {
 
     pub async fn connect(self) -> io::Result<(Client, impl Future<Output = Result<(), crate::error::Error>>)> {
         let stream = TcpStream::connect(self.url).await?;
+        Ok(self.start_with_io(stream))
+    }
 
+    #[cfg(unix)]
+    pub async fn connect_unix(self) -> io::Result<(Client, impl Future<Output = Result<(), crate::error::Error>>)> {
+        let stream = xitca_io::net::UnixStream::connect(self.url).await?;
+        Ok(self.start_with_io(stream))
+    }
+
+    // Start client and io task with given io type that impl `AsyncIo` trait.
+    pub fn start_with_io<S>(self, io: S) -> (Client, impl Future<Output = Result<(), crate::error::Error>>)
+    where
+        S: AsyncIo,
+    {
         let (tx, rx) = channel(self.backlog);
 
         let mut receiver = QueryReceiver {
@@ -56,12 +76,14 @@ impl<'a> Postgres<'a> {
             loop {
                 match receiver
                     .recv(batched.len())
-                    .select(stream.ready(Interest::READABLE | Interest::WRITABLE))
+                    .select(io.ready(Interest::READABLE | Interest::WRITABLE))
                     .await
                 {
+                    // batch message and keep polling.
                     SelectOutput::A(Some(msg)) => {
                         batched.push_back(msg);
                     }
+                    // client is gone.
                     SelectOutput::A(None) => break,
                     SelectOutput::B(ready) => {
                         let ready = ready?;
@@ -77,7 +99,7 @@ impl<'a> Postgres<'a> {
             Ok(())
         };
 
-        Ok((Client { tx }, fut))
+        (Client { tx }, fut)
     }
 }
 
@@ -103,9 +125,18 @@ pub struct Client {
 
 impl Client {
     pub async fn prepare(&self) -> Result<(), Error> {
-        self.tx.send(Message).await?;
+        let (tx, rx) = tokio::sync::mpsc::channel::<()>(1);
+        self.tx.send(Message(tx)).await?;
         Ok(())
+    }
+
+    pub async fn query(&self) -> Result<(), Error> {
+        todo!()
+    }
+
+    pub fn closed(&self) -> bool {
+        self.tx.is_closed()
     }
 }
 
-pub struct Message;
+pub struct Message(Sender<()>);
