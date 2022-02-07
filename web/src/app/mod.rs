@@ -105,7 +105,7 @@ where
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
-        let state = (&self.state_factory)();
+        let state = (self.state_factory)();
         let service = self.factory.new_service(cfg);
         async {
             let state = state.await?;

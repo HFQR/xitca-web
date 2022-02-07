@@ -259,7 +259,6 @@ where
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-
         expect: &'a X,
         service: &'a S,
         date: &'a D,
