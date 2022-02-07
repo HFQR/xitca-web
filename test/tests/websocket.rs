@@ -1,10 +1,6 @@
 use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
 use http_ws::{ws, Message};
-use xitca_http::{
-    body::ResponseBody,
-    h1,
-    http::{Request, Response},
-};
+use xitca_http::{body::ResponseBody, h1, http::Response, Request};
 use xitca_io::bytes::Bytes;
 use xitca_service::fn_service;
 use xitca_test::Error;

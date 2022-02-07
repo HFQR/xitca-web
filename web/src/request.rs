@@ -3,10 +3,7 @@ use std::{
     mem,
 };
 
-use xitca_http::{
-    http::{IntoResponse, Request},
-    RequestBody, ResponseBody,
-};
+use xitca_http::{http::IntoResponse, Request, RequestBody, ResponseBody};
 
 use super::response::WebResponse;
 
@@ -19,9 +16,9 @@ pub struct WebRequest<'a, D = ()> {
 impl<'a, D> WebRequest<'a, D> {
     #[doc(hidden)]
     pub fn new(http: Request<RequestBody>, state: &'a D) -> Self {
-        let (parts, body) = http.into_parts();
+        let (req, body) = http.replace_body(());
         Self {
-            req: Request::from_parts(parts, ()),
+            req,
             body: RefCell::new(body),
             state,
         }
@@ -29,7 +26,7 @@ impl<'a, D> WebRequest<'a, D> {
 
     #[cfg(test)]
     pub fn with_state(state: &'a D) -> Self {
-        Self::new(Request::default(), state)
+        Self::new(Request::new(RequestBody::None), state)
     }
 
     /// Get an immutable reference of [Request]
@@ -67,7 +64,7 @@ impl<'a, D> WebRequest<'a, D> {
     pub fn take_request(&mut self) -> Request<RequestBody> {
         let head = mem::take(self.req_mut());
         let body = mem::take(self.body_get_mut());
-        head.map(|_| body)
+        head.map_body(|_| body)
     }
 
     /// Get an immutable reference of App state

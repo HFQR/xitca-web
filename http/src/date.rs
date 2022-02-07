@@ -88,7 +88,7 @@ impl DateTimeState {
             date: [0; DATE_VALUE_LENGTH],
             now: Instant::now(),
         };
-        let _ = write!(&mut date, "{}", HttpDate::from(SystemTime::now()));
+        let _ = write!(date, "{}", HttpDate::from(SystemTime::now()));
         date
     }
 }

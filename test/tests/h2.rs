@@ -6,7 +6,8 @@ use xitca_http::{
     body::ResponseBody,
     bytes::{Bytes, BytesMut},
     h2,
-    http::{header, Method, Request, Response, Version},
+    http::{header, Method, Response, Version},
+    Request,
 };
 use xitca_service::fn_service;
 use xitca_test::{test_h2_server, Error};

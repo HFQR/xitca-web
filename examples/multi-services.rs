@@ -10,9 +10,9 @@ use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 use rustls::{Certificate, PrivateKey};
 use xitca_http::{
     h1, h2, h3,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, Response, Version},
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Response, Version},
     util::middleware::{Logger, TcpConfig},
-    HttpServiceBuilder, ResponseBody,
+    HttpServiceBuilder, Request, ResponseBody,
 };
 use xitca_service::{fn_service, ServiceFactoryExt};
 

@@ -2,7 +2,7 @@ mod router;
 
 use std::future::{ready, Future, Ready};
 
-use xitca_http::{http::Request, RequestBody, ResponseError};
+use xitca_http::{Request, RequestBody, ResponseError};
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, Transform, TransformFactory};
 
 use crate::request::WebRequest;
@@ -105,7 +105,7 @@ where
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
     fn new_service(&self, cfg: Self::Config) -> Self::Future {
-        let state = (&self.state_factory)();
+        let state = (self.state_factory)();
         let service = self.factory.new_service(cfg);
         async {
             let state = state.await?;

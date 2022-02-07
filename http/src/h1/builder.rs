@@ -9,7 +9,8 @@ use crate::{
     builder::{marker, HttpServiceBuilder},
     bytes::Bytes,
     error::{BodyError, HttpServiceError},
-    http::{Request, Response},
+    http::Response,
+    request::Request,
 };
 
 use super::{body::RequestBody, service::H1Service};

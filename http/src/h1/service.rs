@@ -1,7 +1,6 @@
 use std::future::Future;
 
 use futures_core::Stream;
-use http::{Request, Response};
 use tokio::pin;
 use xitca_io::io::AsyncIo;
 use xitca_service::Service;
@@ -10,6 +9,8 @@ use crate::{
     body::ResponseBody,
     bytes::Bytes,
     error::{BodyError, HttpServiceError, TimeoutError},
+    http::Response,
+    request::Request,
     service::HttpService,
     util::futures::Timeout,
 };

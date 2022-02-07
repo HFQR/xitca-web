@@ -3,7 +3,7 @@ use std::{collections::HashMap, error, fmt, future::Future};
 use matchit::{MatchError, Node};
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject};
 
-use crate::http::Request;
+use crate::request::Request;
 
 /// Simple router for matching on [Request]'s path and call according service.
 pub struct Router<Req, Res, Err, Cfg, InitErr> {

@@ -12,8 +12,9 @@ use xitca_http::{
     h1,
     http::{
         header::{self, HeaderValue, CONNECTION},
-        Method, Request, Response,
+        Method, Response,
     },
+    Request,
 };
 use xitca_service::fn_service;
 use xitca_test::{test_h1_server, Error};
@@ -226,6 +227,7 @@ async fn handle(req: Request<h1::RequestBody>) -> Result<Response<ResponseBody>,
         (&Method::POST, "/") => {
             let length = req.headers().get(header::CONTENT_LENGTH).unwrap().clone();
             let ty = req.headers().get(header::CONTENT_TYPE).unwrap().clone();
+
             let body = req.into_body();
             let mut res = Response::new(ResponseBody::stream(Box::pin(body) as _));
 
