@@ -9,6 +9,7 @@
 
 mod builder;
 mod expect;
+mod request;
 mod response;
 mod service;
 mod tls;
@@ -56,7 +57,7 @@ pub mod http {
         }
     }
 
-    impl<ReqB, B, ResB> IntoResponse<B, ResB> for Request<ReqB>
+    impl<ReqB, B, ResB> IntoResponse<B, ResB> for super::request::Request<ReqB>
     where
         B: Into<ResponseBody<ResB>>,
     {
@@ -86,6 +87,7 @@ pub use xitca_io::bytes;
 pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
 pub use error::{BodyError, HttpServiceError};
+pub use request::Request;
 pub use response::ResponseError;
 pub use service::HttpService;
 

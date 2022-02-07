@@ -1,12 +1,11 @@
-// use std::time::{Duration, Instant};
-
 use futures_util::StreamExt;
 use xitca_client::Client;
 use xitca_http::{
     body::ResponseBody,
     bytes::{Bytes, BytesMut},
     h3,
-    http::{header, Method, Request, Response, Version},
+    http::{header, Method, Response, Version},
+    Request,
 };
 use xitca_service::fn_service;
 use xitca_test::{test_h3_server, Error};

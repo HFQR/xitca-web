@@ -2,7 +2,7 @@ mod router;
 
 use std::future::{ready, Future, Ready};
 
-use xitca_http::{http::Request, RequestBody, ResponseError};
+use xitca_http::{Request, RequestBody, ResponseError};
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, Transform, TransformFactory};
 
 use crate::request::WebRequest;

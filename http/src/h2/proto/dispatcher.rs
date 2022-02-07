@@ -25,8 +25,9 @@ use crate::{
     h2::{body::RequestBody, error::Error},
     http::{
         header::{CONNECTION, CONTENT_LENGTH, DATE},
-        HeaderValue, Request, Response, Version,
+        HeaderValue, Response, Version,
     },
+    request::Request,
     util::{
         futures::{poll_fn, Queue, Select, SelectOutput},
         keep_alive::KeepAlive,
@@ -104,9 +105,7 @@ where
                 SelectOutput::A(SelectOutput::A(Some(Ok((req, tx))))) => {
                     // Convert http::Request body type to crate::h2::Body
                     // and reconstruct as HttpRequest.
-                    let (parts, body) = req.into_parts();
-                    let body = ReqB::from(RequestBody::from(body));
-                    let req = Request::from_parts(parts, body);
+                    let req = Request::from_http(req, None).map_body(|body| ReqB::from(RequestBody::from(body)));
 
                     queue.push(async move {
                         let fut = service.call(req);

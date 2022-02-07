@@ -10,12 +10,8 @@ use std::{
 
 use futures_util::Stream;
 use xitca_http::{
-    body::ResponseBody,
-    config::HttpServiceConfig,
-    error::BodyError,
-    h1, h2, h3,
-    http::{Request, Response},
-    HttpServiceBuilder,
+    body::ResponseBody, config::HttpServiceConfig, error::BodyError, h1, h2, h3, http::Response, HttpServiceBuilder,
+    Request,
 };
 use xitca_io::{
     bytes::Bytes,

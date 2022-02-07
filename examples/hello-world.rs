@@ -5,8 +5,8 @@ use std::{fs, io, sync::Arc};
 use h3_quinn::quinn::ServerConfig;
 use rustls::{Certificate, PrivateKey};
 use xitca_http::{
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, Response},
-    HttpServiceBuilder, RequestBody, ResponseBody,
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Response},
+    HttpServiceBuilder, Request, RequestBody, ResponseBody,
 };
 use xitca_service::fn_service;
 

@@ -4,8 +4,8 @@ use futures_core::Stream;
 use xitca_http::{
     bytes::Bytes,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
-    http::{Request, Response},
-    BodyError, HttpServiceBuilder, RequestBody, ResponseBody,
+    http::Response,
+    BodyError, HttpServiceBuilder, Request, RequestBody, ResponseBody,
 };
 use xitca_server::{Builder, ServerFuture};
 use xitca_service::ServiceFactory;

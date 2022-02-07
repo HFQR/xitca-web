@@ -5,9 +5,9 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use xitca_http::{
     body::{RequestBody, ResponseBody},
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, IntoResponse, Request, Response},
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, IntoResponse, Response},
     util::service::{get, Router},
-    HttpServiceBuilder,
+    HttpServiceBuilder, Request,
 };
 use xitca_service::fn_service;
 

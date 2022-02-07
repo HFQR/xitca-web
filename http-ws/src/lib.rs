@@ -212,14 +212,15 @@ pub type WsOutput<B> = (
 
 #[cfg(feature = "stream")]
 /// A shortcut for generating a set of response types with given [Request](http::Request).
-pub fn ws<B, T, E>(req: http::Request<B>) -> Result<WsOutput<B>, HandshakeError>
+pub fn ws<Req, B, T, E>(mut req: Req) -> Result<WsOutput<B>, HandshakeError>
 where
-    B: futures_core::Stream<Item = Result<T, E>>,
+    Req: std::ops::DerefMut<Target = Request<B>>,
+    B: futures_core::Stream<Item = Result<T, E>> + Default,
     T: AsRef<[u8]>,
 {
     let builder = handshake(req.method(), req.headers())?;
 
-    let body = req.into_body();
+    let body = std::mem::take(&mut *req).into_body();
 
     let decode = DecodeStream::new(body);
     let (tx, encode) = decode.encode_stream();

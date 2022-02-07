@@ -25,7 +25,8 @@ use crate::{
     bytes::{Buf, Bytes},
     error::{BodyError, HttpServiceError},
     h3::{body::RequestBody, error::Error},
-    http::{Request, Response},
+    http::Response,
+    request::Request,
     util::futures::{Queue, Select, SelectOutput},
 };
 
@@ -69,9 +70,6 @@ where
         loop {
             match conn.accept().select(queue.next()).await {
                 SelectOutput::A(Ok(Some((req, stream)))) => {
-                    // Reconstruct HttpRequest to attach crate body type.
-                    let (parts, _) = req.into_parts();
-
                     // a hack to split read/write of request stream.
                     // TODO: may deadlock?
                     let stream = Rc::new(LocalMutex::new(stream, true));
@@ -84,8 +82,8 @@ where
                         Ok(res.map(|bytes| (Bytes::copy_from_slice(bytes.chunk()), stream)))
                     }));
 
-                    let body = ReqB::from(RequestBody(body));
-                    let req = Request::from_parts(parts, body);
+                    // Reconstruct Request to attach crate body type.
+                    let req = Request::from_http(req, None).map_body(move |_| ReqB::from(RequestBody(body)));
 
                     queue.push(async move {
                         let fut = self.service.call(req);

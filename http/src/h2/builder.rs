@@ -1,7 +1,6 @@
 use std::{fmt, future::Future};
 
 use futures_core::Stream;
-use http::{Request, Response};
 use xitca_io::io::AsyncIo;
 use xitca_service::ServiceFactory;
 
@@ -10,6 +9,8 @@ use crate::{
     builder::{marker, HttpServiceBuilder},
     bytes::Bytes,
     error::{BodyError, HttpServiceError},
+    http::Response,
+    request::Request,
 };
 
 use super::{body::RequestBody, service::H2Service};

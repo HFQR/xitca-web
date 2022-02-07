@@ -6,8 +6,9 @@ use crate::{
     bytes::{Buf, Bytes, BytesMut},
     http::{
         header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
-        Method, Request, Uri, Version,
+        Method, Uri, Version,
     },
+    request::Request,
 };
 
 use super::{
@@ -73,7 +74,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     decoder.try_set(TransferCoding::upgrade())?;
                 }
 
-                let mut req = Request::new(());
+                let mut req = Request::with_remote_addr((), self.remote_addr());
 
                 let extensions = self.take_extensions();
 

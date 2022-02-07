@@ -2,7 +2,7 @@ use std::{error, fmt, future::Future, marker::PhantomData};
 
 use xitca_service::{MapErrorServiceFactory, Service, ServiceFactory, ServiceFactoryExt};
 
-use crate::http::{Method, Request};
+use crate::{http::Method, request::Request};
 
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {

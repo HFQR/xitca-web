@@ -11,7 +11,8 @@ use super::{
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
     error::{BodyError, HttpServiceError, TimeoutError},
-    http::{Request, Response, Version},
+    http::{Response, Version},
+    request::Request,
     util::{futures::Timeout, keep_alive::KeepAlive},
     version::AsVersion,
 };

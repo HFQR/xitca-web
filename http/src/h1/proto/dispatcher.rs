@@ -1,7 +1,6 @@
 use std::{future::Future, io, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures_core::stream::Stream;
-use http::{response::Parts, Request, Response};
 use tokio::pin;
 use tracing::trace;
 use xitca_io::io::{AsyncIo, AsyncWrite, Interest, Ready};
@@ -17,6 +16,8 @@ use crate::{
         body::{RequestBody, RequestBodySender},
         error::Error,
     },
+    http::{response::Parts, Response},
+    request::Request,
     response,
     util::{
         futures::{never, poll_fn, Select, SelectOutput, Timeout},
@@ -332,8 +333,7 @@ where
             Ok(Some((req, decoder))) => {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 
-                let (parts, _) = req.into_parts();
-                let req = Request::from_parts(parts, body);
+                let req = req.map_body(move |_| body);
 
                 Some(Ok((req, body_handle)))
             }

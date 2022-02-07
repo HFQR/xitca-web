@@ -1,8 +1,8 @@
 //! A UnixDomain server returns Hello World String as Response.
 
 use xitca_http::{
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, Response},
-    RequestBody, ResponseBody,
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Response},
+    Request, RequestBody, ResponseBody,
 };
 use xitca_web::{dev::fn_service, HttpServer};
 
