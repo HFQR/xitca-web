@@ -27,11 +27,11 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let new_transform_impl =
         find_async_method(&input.items, "new_service").expect("new_transform method can not be located");
 
-    // collect ServiceFactory, Config and InitError type from new_transform_impl
+    // collect ServiceFactory type
     let mut inputs = new_transform_impl.sig.inputs.iter();
 
     let (transform_ident, transform_ty) = match inputs.next().unwrap() {
-        FnArg::Receiver(_) => panic!("new_transform method does not accept Self as receiver"),
+        FnArg::Receiver(_) => panic!("new_service method does not accept Self as receiver"),
         FnArg::Typed(ty) => match (ty.pat.as_ref(), ty.ty.as_ref()) {
             (Pat::Wild(_), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
                 (default_pat_ident("_factory"), &ty_ref.elem)
@@ -39,15 +39,15 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             (Pat::Ident(ident), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
                 (ident.to_owned(), &ty_ref.elem)
             }
-            _ => panic!("new_transform must receive ServiceFactory type as immutable reference"),
+            _ => panic!("new_service must receive ServiceFactory type as immutable reference"),
         },
     };
     let (service_ident, service_ty) = match inputs.next().unwrap() {
-        FnArg::Receiver(_) => panic!("new_transform method must not receive Self as receiver"),
+        FnArg::Receiver(_) => panic!("new_service method must not receive Self as receiver"),
         FnArg::Typed(ty) => match ty.pat.as_ref() {
             Pat::Wild(_) => (default_pat_ident("_service"), &*ty.ty),
             Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
-            _ => panic!("new_transform method must use cfg: Config as second function argument"),
+            _ => panic!("new_service method must use cfg: Config as second function argument"),
         },
     };
     // let (_, init_err_ty) = extract_res_ty(&new_transform_impl.sig.output);
