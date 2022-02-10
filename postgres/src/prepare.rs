@@ -1,6 +1,4 @@
-use std::{
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use postgres_protocol::message::frontend;
 use postgres_types::Type;
@@ -19,10 +17,8 @@ impl Client {
         self.tx.send(Message(tx)).await?;
 
         Ok(())
-
     }
 }
-
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -38,7 +34,7 @@ fn prepare_buf(buf: &mut BytesMut, query: &str, types: &[Type]) -> Result<Bytes,
     frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
     frontend::describe(b'S', name, buf)?;
     frontend::sync(buf);
-    
+
     Ok(buf.split().freeze())
 }
 

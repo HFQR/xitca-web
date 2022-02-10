@@ -84,13 +84,7 @@ where
     Fut: Future<Output = Result<State, StateErr>> + 'static,
     State: 'static,
     StateErr: 'static + std::fmt::Debug,
-    F: for<'rb, 'r> ServiceFactory<
-        &'rb mut WebRequest<'r, State>,
-        Arg, 
-        Service = S,
-        Response = Res,
-        Error = Err,
-    >,
+    F: for<'rb, 'r> ServiceFactory<&'rb mut WebRequest<'r, State>, Arg, Service = S, Response = Res, Error = Err>,
     S: for<'rb, 'r> Service<&'rb mut WebRequest<'r, State>, Response = Res, Error = Err> + 'static,
     Err: for<'r> ResponseError<WebRequest<'r, State>, Res>,
 {
