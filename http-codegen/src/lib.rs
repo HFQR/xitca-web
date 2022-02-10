@@ -6,102 +6,7 @@ use syn::{
 
 #[proc_macro_attribute]
 pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = syn::parse_macro_input!(item as syn::ItemImpl);
-
-    // Collect type path from impl.
-    let service_ty = match input.self_ty.as_ref() {
-        Type::Path(path) => path,
-        _ => panic!("service_impl macro must be used on a TypePath"),
-    };
-
-    // collect generics.
-    let generic_ty = &input.generics.params;
-    let where_clause = &input.generics.where_clause;
-
-    // find methods from impl.
-    let new_service_impl =
-        find_async_method(&input.items, "new_service").expect("new_service method can not be located");
-
-    // collect ServiceFactory, Config and InitError type from new_service_impl
-    let mut inputs = new_service_impl.sig.inputs.iter();
-
-    let (factory_ident, factory_ty) = match inputs.next().unwrap() {
-        FnArg::Receiver(_) => panic!("new_service method does not accept Self as receiver"),
-        FnArg::Typed(ty) => match (ty.pat.as_ref(), ty.ty.as_ref()) {
-            (Pat::Wild(_), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
-                (default_pat_ident("_factory"), &ty_ref.elem)
-            }
-            (Pat::Ident(ident), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
-                (ident.to_owned(), &ty_ref.elem)
-            }
-            _ => panic!("new_service must receive ServiceFactory type as immutable reference"),
-        },
-    };
-    let (cfg_ident, cfg_ty) = match inputs.next().unwrap() {
-        FnArg::Receiver(_) => panic!("new_service method must not receive Self as receiver"),
-        FnArg::Typed(ty) => match ty.pat.as_ref() {
-            Pat::Wild(_) => (default_pat_ident("_cfg"), &*ty.ty),
-            Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
-            _ => panic!("new_service method must use cfg: Config as second function argument"),
-        },
-    };
-    let (_, init_err_ty) = extract_res_ty(&new_service_impl.sig.output);
-    let factory_stmts = &new_service_impl.block.stmts;
-
-    let ReadyImpl { ready_stmts } = ReadyImpl::from_items(&input.items);
-
-    let CallImpl {
-        req_ident,
-        req_ty,
-        res_ty,
-        err_ty,
-        call_stmts,
-    } = CallImpl::from_items(&input.items);
-
-    let result = quote! {
-        impl ::xitca_service::ServiceFactory<#req_ty> for #factory_ty {
-            type Response = #res_ty;
-            type Error = #err_ty;
-            type Config = #cfg_ty;
-            type Service = #service_ty;
-            type InitError = #init_err_ty;
-            type Future = impl ::core::future::Future<Output = Result<Self::Service, Self::InitError>>;
-
-            fn new_service(&self, cfg: Self::Config) -> Self::Future {
-                let #factory_ident = self.clone();
-                let #cfg_ident = cfg;
-                async move {
-                    #(#factory_stmts)*
-                }
-            }
-        }
-
-        impl<#generic_ty> ::xitca_service::Service<#req_ty> for #service_ty
-        #where_clause
-        {
-            type Response = #res_ty;
-            type Error = #err_ty;
-            type Ready<'f> where Self: 'f = impl ::core::future::Future<Output = Result<(), Self::Error>>;
-            type Future<'f> where Self: 'f = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>>;
-
-            #[inline]
-            fn ready(&self) -> Self::Ready<'_> {
-                async move {
-                    #(#ready_stmts)*
-                }
-            }
-
-            #[inline]
-            fn call(&self, req: #req_ty) -> Self::Future<'_> {
-                let #req_ident = req;
-                async move {
-                    #(#call_stmts)*
-                }
-            }
-        }
-    };
-
-    result.into()
+    middleware_impl(_attr, item)
 }
 
 #[proc_macro_attribute]
@@ -120,13 +25,13 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // find methods from impl.
     let new_transform_impl =
-        find_async_method(&input.items, "new_transform").expect("new_transform method can not be located");
+        find_async_method(&input.items, "new_service").expect("new_transform method can not be located");
 
-    // collect ServiceFactory, Config and InitError type from new_transform_impl
+    // collect ServiceFactory type
     let mut inputs = new_transform_impl.sig.inputs.iter();
 
     let (transform_ident, transform_ty) = match inputs.next().unwrap() {
-        FnArg::Receiver(_) => panic!("new_transform method does not accept Self as receiver"),
+        FnArg::Receiver(_) => panic!("new_service method does not accept Self as receiver"),
         FnArg::Typed(ty) => match (ty.pat.as_ref(), ty.ty.as_ref()) {
             (Pat::Wild(_), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
                 (default_pat_ident("_factory"), &ty_ref.elem)
@@ -134,18 +39,18 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             (Pat::Ident(ident), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
                 (ident.to_owned(), &ty_ref.elem)
             }
-            _ => panic!("new_transform must receive ServiceFactory type as immutable reference"),
+            _ => panic!("new_service must receive ServiceFactory type as immutable reference"),
         },
     };
     let (service_ident, service_ty) = match inputs.next().unwrap() {
-        FnArg::Receiver(_) => panic!("new_transform method must not receive Self as receiver"),
+        FnArg::Receiver(_) => panic!("new_service method must not receive Self as receiver"),
         FnArg::Typed(ty) => match ty.pat.as_ref() {
             Pat::Wild(_) => (default_pat_ident("_service"), &*ty.ty),
             Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
-            _ => panic!("new_transform method must use cfg: Config as second function argument"),
+            _ => panic!("new_service method must use cfg: Config as second function argument"),
         },
     };
-    let (_, init_err_ty) = extract_res_ty(&new_transform_impl.sig.output);
+    // let (_, init_err_ty) = extract_res_ty(&new_transform_impl.sig.output);
     let tranform_stmts = &new_transform_impl.block.stmts;
 
     let ReadyImpl { ready_stmts } = ReadyImpl::from_items(&input.items);
@@ -159,16 +64,15 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     } = CallImpl::from_items(&input.items);
 
     let result = quote! {
-        impl<#generic_ty> ::xitca_service::Transform<#service_ty, #req_ty> for #transform_ty
+        impl<#generic_ty> ::xitca_service::ServiceFactory<#req_ty, #service_ty> for #transform_ty
         #where_clause
         {
             type Response = #res_ty;
             type Error = #err_ty;
-            type Transform = #middleware_ty;
-            type InitError = #init_err_ty;
-            type Future = impl ::core::future::Future<Output = Result<Self::Transform, Self::InitError>>;
+            type Service = #middleware_ty;
+            type Future = impl ::core::future::Future<Output = Result<Self::Service, Self::Error>>;
 
-            fn new_transform(&self, service: #service_ty) -> Self::Future {
+            fn new_service(&self, service: #service_ty) -> Self::Future {
                 let #transform_ident = self.clone();
                 let #service_ident = service;
                 async move {

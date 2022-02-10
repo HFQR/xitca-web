@@ -22,7 +22,7 @@ pub struct H3ServiceBuilder<F> {
 
 impl<F, B, E> H3ServiceBuilder<F>
 where
-    F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>, Config = ()>,
+    F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
@@ -35,9 +35,9 @@ where
     }
 }
 
-impl<F, B, E> ServiceFactory<UdpStream> for H3ServiceBuilder<F>
+impl<F, Arg, B, E> ServiceFactory<UdpStream, Arg> for H3ServiceBuilder<F>
 where
-    F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<B>>>,
+    F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<B>>>,
     F::Service: 'static,
     F::Error: fmt::Debug,
 
@@ -47,15 +47,13 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<F::Error>;
-    type Config = F::Config;
     type Service = H3Service<F::Service>;
-    type InitError = F::InitError;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, cfg: Self::Config) -> Self::Future {
-        let service = self.factory.new_service(cfg);
+    fn new_service(&self, arg: Arg) -> Self::Future {
+        let service = self.factory.new_service(arg);
         async {
-            let service = service.await?;
+            let service = service.await.map_err(HttpServiceError::Service)?;
             Ok(H3Service::new(service))
         }
     }

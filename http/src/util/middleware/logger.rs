@@ -1,7 +1,7 @@
 use std::{fmt::Debug, future::Future};
 
 use tracing::{error, span, Level, Span};
-use xitca_service::{Service, Transform};
+use xitca_service::{Service, ServiceFactory};
 
 /// A factory for logger service.
 #[derive(Clone)]
@@ -23,18 +23,17 @@ impl Logger {
     }
 }
 
-impl<S, Req> Transform<S, Req> for Logger
+impl<S, Req> ServiceFactory<Req, S> for Logger
 where
     S: Service<Req>,
     S::Error: Debug,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Transform = LoggerService<S>;
-    type InitError = ();
-    type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+    type Service = LoggerService<S>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_transform(&self, service: S) -> Self::Future {
+    fn new_service(&self, service: S) -> Self::Future {
         let span = self.span.clone();
         async move { Ok(LoggerService { service, span }) }
     }

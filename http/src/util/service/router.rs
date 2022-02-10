@@ -6,8 +6,8 @@ use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryOb
 use crate::request::Request;
 
 /// Simple router for matching on [Request]'s path and call according service.
-pub struct Router<Req, Res, Err, Cfg, InitErr> {
-    routes: HashMap<&'static str, ServiceFactoryObject<Req, Res, Err, Cfg, InitErr>>,
+pub struct Router<Req, Arg, Res, Err> {
+    routes: HashMap<&'static str, ServiceFactoryObject<Req, Arg, Res, Err>>,
 }
 
 /// Error type of Router service.
@@ -41,13 +41,13 @@ impl<E: fmt::Display> fmt::Display for RouterError<E> {
 
 impl<E> error::Error for RouterError<E> where E: fmt::Debug + fmt::Display {}
 
-impl<Req, Res, Err, Cfg, InitErr> Default for Router<Req, Res, Err, Cfg, InitErr> {
+impl<Req, Arg, Res, Err> Default for Router<Req, Arg, Res, Err> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Req, Res, Err, Cfg, InitErr> Router<Req, Res, Err, Cfg, InitErr> {
+impl<Req, Arg, Res, Err> Router<Req, Arg, Res, Err> {
     pub fn new() -> Self {
         Self { routes: HashMap::new() }
     }
@@ -59,7 +59,7 @@ impl<Req, Res, Err, Cfg, InitErr> Router<Req, Res, Err, Cfg, InitErr> {
     /// When multiple services inserted with the same path.
     pub fn insert<F>(mut self, path: &'static str, factory: F) -> Self
     where
-        F: ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr> + 'static,
+        F: ServiceFactory<Req, Arg, Response = Res, Error = Err> + 'static,
         F::Service: Clone + 'static,
         F::Future: 'static,
         Req: 'static,
@@ -69,29 +69,27 @@ impl<Req, Res, Err, Cfg, InitErr> Router<Req, Res, Err, Cfg, InitErr> {
     }
 }
 
-impl<ReqB, Res, Err, Cfg, InitErr> ServiceFactory<Request<ReqB>> for Router<Request<ReqB>, Res, Err, Cfg, InitErr>
+impl<ReqB, Arg, Res, Err> ServiceFactory<Request<ReqB>, Arg> for Router<Request<ReqB>, Arg, Res, Err>
 where
-    Cfg: Clone,
+    Arg: Clone,
 {
     type Response = Res;
     type Error = RouterError<Err>;
-    type Config = Cfg;
     type Service = RouterService<Request<ReqB>, Res, Err>;
-    type InitError = InitErr;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, cfg: Self::Config) -> Self::Future {
+    fn new_service(&self, arg: Arg) -> Self::Future {
         let futs = self
             .routes
             .iter()
-            .map(|(path, obj)| (*path, obj.new_service(cfg.clone())))
+            .map(|(path, obj)| (*path, obj.new_service(arg.clone())))
             .collect::<Vec<_>>();
 
         async move {
             let mut routes = matchit::Node::new();
 
             for (path, fut) in futs {
-                let service = fut.await?;
+                let service = fut.await.map_err(RouterError::Service)?;
                 routes.insert(path, service).unwrap();
             }
 

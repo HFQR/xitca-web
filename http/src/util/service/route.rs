@@ -10,7 +10,7 @@ macro_rules! method {
             route: R,
         ) -> Route<
             MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
-            MethodNotAllowed<R::Response, R::Error, R::Config, R::InitError>,
+            MethodNotAllowed<R::Response, R::Error>,
             1,
         >
         where
@@ -57,7 +57,7 @@ impl Route<(), (), 0> {
         route: R,
     ) -> Route<
         MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
-        MethodNotAllowed<R::Response, R::Error, R::Config, R::InitError>,
+        MethodNotAllowed<R::Response, R::Error>,
         0,
     >
     where
@@ -131,28 +131,20 @@ impl<R, N, const M: usize> Route<R, N, M> {
     route_method!(trace, TRACE);
 }
 
-impl<ReqB, R, N, const M: usize> ServiceFactory<Request<ReqB>> for Route<R, N, M>
+impl<ReqB, Arg, R, N, const M: usize> ServiceFactory<Request<ReqB>, Arg> for Route<R, N, M>
 where
-    R: ServiceFactory<Request<ReqB>>,
-    N: ServiceFactory<
-        Request<ReqB>,
-        Response = R::Response,
-        Error = R::Error,
-        Config = R::Config,
-        InitError = R::InitError,
-    >,
-    R::Config: Clone,
+    R: ServiceFactory<Request<ReqB>, Arg>,
+    N: ServiceFactory<Request<ReqB>, Arg, Response = R::Response, Error = R::Error>,
+    Arg: Clone,
 {
     type Response = R::Response;
     type Error = R::Error;
-    type Config = R::Config;
     type Service = Route<R::Service, N::Service, M>;
-    type InitError = R::InitError;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, cfg: Self::Config) -> Self::Future {
-        let route = self.route.new_service(cfg.clone());
-        let next = self.next.new_service(cfg);
+    fn new_service(&self, arg: Arg) -> Self::Future {
+        let route = self.route.new_service(arg.clone());
+        let next = self.next.new_service(arg);
 
         let methods = self.methods.clone();
 
@@ -228,35 +220,33 @@ impl<E: fmt::Display> fmt::Display for RouteError<E> {
 impl<E> error::Error for RouteError<E> where E: fmt::Debug + fmt::Display {}
 
 #[doc(hidden)]
-pub struct MethodNotAllowed<Res, Err, Cfg, InitErr>(PhantomData<(Res, Err, Cfg, InitErr)>);
+pub struct MethodNotAllowed<Res, Err>(PhantomData<(Res, Err)>);
 
-impl<Res, Err, Cfg, InitErr> Default for MethodNotAllowed<Res, Err, Cfg, InitErr> {
+impl<Res, Err> Default for MethodNotAllowed<Res, Err> {
     fn default() -> Self {
         Self(PhantomData)
     }
 }
 
-impl<Res, Err, Cfg, InitErr> Clone for MethodNotAllowed<Res, Err, Cfg, InitErr> {
+impl<Res, Err> Clone for MethodNotAllowed<Res, Err> {
     fn clone(&self) -> Self {
         Self(PhantomData)
     }
 }
 
-impl<Req, Res, Err, Cfg, InitErr> ServiceFactory<Req> for MethodNotAllowed<Res, Err, Cfg, InitErr> {
+impl<Req, Arg, Res, Err> ServiceFactory<Req, Arg> for MethodNotAllowed<Res, Err> {
     type Response = Res;
     type Error = RouteError<Err>;
-    type Config = Cfg;
     type Service = Self;
-    type InitError = InitErr;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: Self::Config) -> Self::Future {
+    fn new_service(&self, _: Arg) -> Self::Future {
         let this = self.clone();
         async { Ok(this) }
     }
 }
 
-impl<Req, Res, Err, Cfg, InitErr> Service<Req> for MethodNotAllowed<Res, Err, Cfg, InitErr> {
+impl<Req, Res, Err> Service<Req> for MethodNotAllowed<Res, Err> {
     type Response = Res;
     type Error = RouteError<Err>;
     type Ready<'f>

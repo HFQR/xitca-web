@@ -3,7 +3,7 @@ use std::{future::Future, io, time::Duration};
 use socket2::{SockRef, TcpKeepalive};
 use tracing::warn;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
-use xitca_service::{Service, Transform};
+use xitca_service::{Service, ServiceFactory};
 
 /// A middleware for socket options config of [TcpStream].
 #[derive(Clone, Debug)]
@@ -62,17 +62,16 @@ impl TcpConfig {
 
 macro_rules! transform_impl {
     ($ty: ty) => {
-        impl<S> Transform<S, $ty> for TcpConfig
+        impl<S> ServiceFactory<$ty, S> for TcpConfig
         where
             S: Service<$ty>,
         {
             type Response = S::Response;
             type Error = S::Error;
-            type Transform = TcpConfigService<S>;
-            type InitError = ();
-            type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+            type Service = TcpConfigService<S>;
+            type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-            fn new_transform(&self, service: S) -> Self::Future {
+            fn new_service(&self, service: S) -> Self::Future {
                 let config = self.clone();
                 async move { Ok(TcpConfigService { config, service }) }
             }

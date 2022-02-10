@@ -27,7 +27,7 @@ pub type Error = Box<dyn error::Error + Send + Sync>;
 pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> T + Send + Clone + 'static,
-    T: ServiceFactory<Req, Config = ()>,
+    T: ServiceFactory<Req>,
     Req: From<NetStream> + Send + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;
@@ -48,8 +48,7 @@ where
 pub fn test_h1_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Clone + 'static,
-    I: ServiceFactory<Request<h1::RequestBody>, Response = Response<ResponseBody<B>>, Config = (), InitError = ()>
-        + 'static,
+    I: ServiceFactory<Request<h1::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
     BodyError: From<E>,
@@ -64,8 +63,7 @@ where
 pub fn test_h2_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Clone + 'static,
-    I: ServiceFactory<Request<h2::RequestBody>, Response = Response<ResponseBody<B>>, Config = (), InitError = ()>
-        + 'static,
+    I: ServiceFactory<Request<h2::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     I::Error: fmt::Debug,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
@@ -85,8 +83,7 @@ where
 pub fn test_h3_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Clone + 'static,
-    I: ServiceFactory<Request<h3::RequestBody>, Response = Response<ResponseBody<B>>, Config = (), InitError = ()>
-        + 'static,
+    I: ServiceFactory<Request<h3::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     I::Error: fmt::Debug,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,

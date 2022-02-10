@@ -23,12 +23,10 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Config = ();
     type Service = Self;
-    type InitError = ();
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: Self::Config) -> Self::Future {
+    fn new_service(&self, _: ()) -> Self::Future {
         let f = self.f.clone();
         async { Ok(Self { f }) }
     }

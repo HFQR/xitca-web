@@ -10,24 +10,23 @@ use super::{
 // TODO: temporary public type alias that should be removed in the future.
 pub type MapErrorServiceFactory<SF, SF1> = PipelineServiceFactory<SF, SF1, marker::MapErr>;
 
-impl<SF, Req, SF1, E> ServiceFactory<Req> for PipelineServiceFactory<SF, SF1, marker::MapErr>
+impl<SF, Req, Arg, SF1, E> ServiceFactory<Req, Arg> for PipelineServiceFactory<SF, SF1, marker::MapErr>
 where
-    SF: ServiceFactory<Req>,
+    SF: ServiceFactory<Req, Arg>,
+
     SF1: Fn(SF::Error) -> E + Clone,
 {
     type Response = SF::Response;
     type Error = E;
-
-    type Config = SF::Config;
     type Service = PipelineService<SF::Service, SF1, marker::MapErr>;
-    type InitError = SF::InitError;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, cfg: SF::Config) -> Self::Future {
-        let service = self.factory.new_service(cfg);
+    fn new_service(&self, arg: Arg) -> Self::Future {
+        let service = self.factory.new_service(arg);
         let mapper = self.factory2.clone();
         async move {
-            let service = service.await?;
+            let service = service.await.map_err(&mapper)?;
+
             Ok(PipelineService::new(service, mapper))
         }
     }

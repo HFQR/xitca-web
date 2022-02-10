@@ -1,6 +1,9 @@
 //! A postgresql client on top of tokio.
 
+mod client;
 mod futures;
+mod message;
+mod prepare;
 mod statement;
 
 pub mod error;
@@ -9,16 +12,16 @@ pub use statement::Statement;
 
 use std::{collections::VecDeque, future::Future, io};
 
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{channel, Receiver};
 use xitca_io::{
-    bytes::BytesMut,
     io::{AsyncIo, Interest},
     net::TcpStream,
 };
 
 use crate::{
-    error::Error,
+    client::Client,
     futures::{never, Select, SelectOutput},
+    message::Message,
 };
 
 #[derive(Debug)]
@@ -99,7 +102,7 @@ impl<'a> Postgres<'a> {
             Ok(())
         };
 
-        (Client { tx }, fut)
+        (Client::new(tx), fut)
     }
 }
 
@@ -117,26 +120,3 @@ impl QueryReceiver {
         }
     }
 }
-
-#[derive(Debug)]
-pub struct Client {
-    tx: Sender<Message>,
-}
-
-impl Client {
-    pub async fn prepare(&self) -> Result<(), Error> {
-        let (tx, rx) = tokio::sync::mpsc::channel::<()>(1);
-        self.tx.send(Message(tx)).await?;
-        Ok(())
-    }
-
-    pub async fn query(&self) -> Result<(), Error> {
-        todo!()
-    }
-
-    pub fn closed(&self) -> bool {
-        self.tx.is_closed()
-    }
-}
-
-pub struct Message(Sender<()>);

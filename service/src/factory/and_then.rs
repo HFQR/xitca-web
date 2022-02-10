@@ -7,25 +7,23 @@ use super::{
     ServiceFactory,
 };
 
-impl<SF, Req, SF1> ServiceFactory<Req> for PipelineServiceFactory<SF, SF1, AndThen>
+impl<SF, Req, SF1, Arg> ServiceFactory<Req, Arg> for PipelineServiceFactory<SF, SF1, AndThen>
 where
-    SF: ServiceFactory<Req>,
-    SF::InitError: From<SF1::InitError>,
-    SF::Config: Clone,
+    SF: ServiceFactory<Req, Arg>,
 
-    SF1: ServiceFactory<SF::Response, Config = SF::Config>,
+    Arg: Clone,
+
+    SF1: ServiceFactory<SF::Response, Arg>,
     SF1::Error: From<SF::Error>,
 {
     type Response = SF1::Response;
     type Error = SF1::Error;
-    type Config = SF::Config;
     type Service = PipelineService<SF::Service, SF1::Service, AndThen>;
-    type InitError = SF::InitError;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, cfg: SF::Config) -> Self::Future {
-        let service = self.factory.new_service(cfg.clone());
-        let then_service = self.factory2.new_service(cfg);
+    fn new_service(&self, arg: Arg) -> Self::Future {
+        let service = self.factory.new_service(arg.clone());
+        let then_service = self.factory2.new_service(arg);
 
         async move {
             let service = service.await?;
