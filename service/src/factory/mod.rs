@@ -6,12 +6,14 @@ mod ext;
 mod function;
 mod map;
 mod map_err;
-mod map_init_err;
 mod object;
 mod then;
+mod transform;
+mod transform_fn;
 
 pub use self::{
     ext::ServiceFactoryExt, function::fn_service, map_err::MapErrorServiceFactory, object::ServiceFactoryObject,
+    transform::TransformFactory,
 };
 
 use core::future::Future;
@@ -20,44 +22,36 @@ use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
 use crate::service::Service;
 
-pub trait ServiceFactory<Req> {
+pub trait ServiceFactory<Req, Arg = ()> {
     /// Responses given by the created services.
     type Response;
 
     /// Errors produced by the created services.
     type Error;
 
-    /// Service factory configuration.
-    type Config;
-
     /// The kind of `Service` created by this factory.
     type Service: Service<Req, Response = Self::Response, Error = Self::Error>;
 
-    /// Errors potentially raised while building a service.
-    type InitError;
-
     /// The future of the `Service` instance.g
-    type Future: Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future: Future<Output = Result<Self::Service, Self::Error>>;
 
     /// Create and return a new service asynchronously.
-    fn new_service(&self, cfg: Self::Config) -> Self::Future;
+    fn new_service(&self, arg: Arg) -> Self::Future;
 }
 
 macro_rules! impl_alloc {
     ($alloc: ident) => {
-        impl<F, Req> ServiceFactory<Req> for $alloc<F>
+        impl<F, Req, Arg> ServiceFactory<Req, Arg> for $alloc<F>
         where
-            F: ServiceFactory<Req> + ?Sized,
+            F: ServiceFactory<Req, Arg> + ?Sized,
         {
             type Response = F::Response;
             type Error = F::Error;
-            type Config = F::Config;
             type Service = F::Service;
-            type InitError = F::InitError;
             type Future = F::Future;
 
-            fn new_service(&self, cfg: Self::Config) -> Self::Future {
-                (**self).new_service(cfg)
+            fn new_service(&self, arg: Arg) -> Self::Future {
+                (**self).new_service(arg)
             }
         }
     };

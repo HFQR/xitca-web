@@ -6,12 +6,14 @@ extern crate alloc;
 
 mod factory;
 mod service;
-mod transform;
+
+pub mod middleware;
 
 pub use self::{
-    factory::{fn_service, MapErrorServiceFactory, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject},
+    factory::{
+        fn_service, MapErrorServiceFactory, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, TransformFactory,
+    },
     service::{Service, ServiceObject},
-    transform::{middleware, Transform, TransformFactory},
 };
 
 use core::{future::Future, pin::Pin};
@@ -88,25 +90,23 @@ macro_rules! enum_service {
             ) +
         }
 
-        impl<Req, Res, Err, Cfg, InitErr, $($factory),*> ::xitca_service::ServiceFactory<Req> for EnumServiceFactory<$($factory),*>
+        impl<Req, Arg, Res, Err, $($factory),*> ::xitca_service::ServiceFactory<Req, Arg> for EnumServiceFactory<$($factory),*>
         where
             $(
-                $factory: ::xitca_service::ServiceFactory<Req, Response = Res, Error = Err, Config = Cfg, InitError = InitErr> + Clone,
+                $factory: ::xitca_service::ServiceFactory<Req, Arg, Response = Res, Error = Err> + Clone,
                 $factory::Future: 'static,
             ) +
         {
             type Response = Res;
             type Error = Err;
-            type Config = Cfg;
             type Service = EnumService<$($factory::Service),*>;
-            type InitError = InitErr;
-            type Future = ::core::pin::Pin<Box<dyn ::core::future::Future<Output = Result<Self::Service, Self::InitError>>>>;
+            type Future = ::core::pin::Pin<Box<dyn ::core::future::Future<Output = Result<Self::Service, Self::Error>>>>;
 
-            fn new_service(&self, cfg: Self::Config) -> Self::Future {
+            fn new_service(&self, arg: Arg) -> Self::Future {
                 match self {
                     $(
                         Self::$factory(ref f) => {
-                            let fut = f.new_service(cfg);
+                            let fut = f.new_service(arg);
                             Box::pin(async move { fut.await.map(EnumService::$factory) })
                         },
                     ) +

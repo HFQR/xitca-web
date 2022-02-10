@@ -1,6 +1,6 @@
 use std::future::{ready, Future, Ready};
 
-use xitca_service::{Service, Transform};
+use xitca_service::{Service, ServiceFactory};
 
 use crate::http::Request;
 
@@ -29,20 +29,20 @@ impl State {
     }
 }
 
-impl<S, ReqB, F, Fut, Res, Err> Transform<S, Request<ReqB>> for State<F>
+impl<S, ReqB, F, Fut, Res, Err> ServiceFactory<Request<ReqB>, S> for State<F>
 where
     S: Service<Request<ReqB>>,
     F: Fn() -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
     Res: Send + Sync + Clone + 'static,
+    S::Error: From<Err>,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Transform = StateService<S, Res>;
-    type InitError = Err;
-    type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+    type Service = StateService<S, Res>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_transform(&self, service: S) -> Self::Future {
+    fn new_service(&self, service: S) -> Self::Future {
         let fut = (self.factory)();
 
         async move {

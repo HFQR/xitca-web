@@ -48,6 +48,7 @@ impl<St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
 impl<
         St,
         F,
+        Arg,
         ResB,
         E,
         FE,
@@ -56,18 +57,17 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > ServiceFactory<St>
+    > ServiceFactory<St, Arg>
     for HttpServiceBuilder<marker::Http1, St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    F: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>>,
+    F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
-    F::InitError: From<FE::InitError> + From<FA::InitError>,
 
     // TODO: use a meaningful config.
-    FE: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>, Config = ()>,
+    FE: ServiceFactory<Request<RequestBody>, Response = Request<RequestBody>>,
     FE::Service: 'static,
 
-    FA: ServiceFactory<St, Response = TlsSt, Config = ()>,
+    FA: ServiceFactory<St, Response = TlsSt>,
     FA::Service: 'static,
 
     HttpServiceError<F::Error>: From<FA::Error>,
@@ -82,20 +82,21 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<F::Error>;
-    type Config = F::Config;
     type Service = H1Service<F::Service, FE::Service, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
-    type InitError = F::InitError;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, cfg: Self::Config) -> Self::Future {
+    fn new_service(&self, arg: Arg) -> Self::Future {
         let expect = self.expect.new_service(());
-        let service = self.factory.new_service(cfg);
+        let service = self.factory.new_service(arg);
         let tls_acceptor = self.tls_factory.new_service(());
         let config = self.config;
 
         async move {
-            let expect = expect.await?;
-            let service = service.await?;
+            // TODO: clean up error types.
+            let expect = expect
+                .await
+                .map_err(|e| HttpServiceError::<F::Error>::Service(e.into()))?;
+            let service = service.await.map_err(HttpServiceError::<F::Error>::Service)?;
             let tls_acceptor = tls_acceptor.await?;
             Ok(H1Service::new(config, service, expect, tls_acceptor))
         }

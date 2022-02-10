@@ -189,10 +189,9 @@ where
 
     pub fn bind<A: ToSocketAddrs, ResB, E>(mut self, addr: A) -> std::io::Result<Self>
     where
-        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
+        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
         I::Service: 'static,
         I::Error: fmt::Debug,
-        I::InitError: From<()>,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
@@ -215,10 +214,9 @@ where
         mut builder: openssl_crate::ssl::SslAcceptorBuilder,
     ) -> std::io::Result<Self>
     where
-        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
+        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
         I::Service: 'static,
         I::Error: fmt::Debug,
-        I::InitError: From<()>,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
@@ -273,10 +271,9 @@ where
         mut config: rustls_crate::ServerConfig,
     ) -> std::io::Result<Self>
     where
-        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
+        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
         I::Service: 'static,
         I::Error: fmt::Debug,
-        I::InitError: From<()>,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
@@ -308,10 +305,9 @@ where
     #[cfg(unix)]
     pub fn bind_unix<P: AsRef<std::path::Path>, ResB, E>(mut self, path: P) -> std::io::Result<Self>
     where
-        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>, Config = ()> + 'static,
+        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
         I::Service: 'static,
         I::Error: fmt::Debug,
-        I::InitError: From<()>,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,

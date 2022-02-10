@@ -5,6 +5,7 @@ mod map;
 mod map_err;
 mod object;
 mod then;
+mod transform_fn;
 
 pub use object::ServiceObject;
 

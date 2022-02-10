@@ -1,10 +1,10 @@
 use core::future::Future;
 
-use crate::factory::pipeline::marker::Then;
+use crate::factory::pipeline::marker;
 
 use super::{pipeline::PipelineService, Service};
 
-impl<S, Req, S1> Service<Req> for PipelineService<S, S1, Then>
+impl<S, Req, S1> Service<Req> for PipelineService<S, S1, marker::Then>
 where
     S: Service<Req>,
     S1: Service<Result<S::Response, S::Error>>,

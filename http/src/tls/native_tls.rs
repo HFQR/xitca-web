@@ -66,15 +66,14 @@ impl TlsAcceptorService {
     }
 }
 
-impl<St: AsyncIo> ServiceFactory<St> for TlsAcceptorService {
+impl<St: AsyncIo, Arg> ServiceFactory<St, Arg> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = NativeTlsError;
-    type Config = ();
     type Service = TlsAcceptorService;
     type InitError = ();
     type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
 
-    fn new_service(&self, _: Self::Config) -> Self::Future {
+    fn new_service(&self, _: Arg) -> Self::Future {
         let this = self.clone();
         async move { Ok(this) }
     }

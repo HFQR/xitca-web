@@ -56,7 +56,7 @@ where
     Req: From<Stream>,
     Self: Send + Clone + 'static,
 {
-    type ServiceFactoryClone: ServiceFactory<Req, Config = ()>;
+    type ServiceFactoryClone: ServiceFactory<Req>;
 
     fn as_factory_clone(&self) -> Self::ServiceFactoryClone;
 }
@@ -64,7 +64,7 @@ where
 impl<F, T, Req> AsServiceFactoryClone<Req> for F
 where
     F: Fn() -> T + Send + Clone + 'static,
-    T: ServiceFactory<Req, Config = ()>,
+    T: ServiceFactory<Req>,
     Req: From<Stream>,
 {
     type ServiceFactoryClone = T;

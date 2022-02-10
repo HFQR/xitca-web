@@ -2,15 +2,13 @@ use core::future::Future;
 
 use alloc::boxed::Box;
 
-use crate::transform::Transform;
-
 use super::{
     boxed::BoxedServiceFactory,
     pipeline::{marker, PipelineServiceFactory},
     ServiceFactory, ServiceFactoryObject,
 };
 
-pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
+pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
     fn map<F, Res>(self, mapper: F) -> PipelineServiceFactory<Self, F, marker::Map>
     where
         F: Fn(Result<Self::Response, Self::Error>) -> Result<Res, Self::Error> + Clone,
@@ -22,14 +20,6 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
     fn map_err<F, E>(self, err: F) -> PipelineServiceFactory<Self, F, marker::MapErr>
     where
         F: Fn(Self::Error) -> E + Clone,
-        Self: Sized,
-    {
-        PipelineServiceFactory::new(self, err)
-    }
-
-    fn map_init_err<F, E>(self, err: F) -> PipelineServiceFactory<Self, F, marker::MapInitErr>
-    where
-        F: Fn(Self::InitError) -> E + Clone,
         Self: Sized,
     {
         PipelineServiceFactory::new(self, err)
@@ -53,7 +43,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
     /// This way the readiness error would be able to be handled by `F`.
     fn then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::Then>
     where
-        F: ServiceFactory<Result<Self::Response, Self::Error>>,
+        F: ServiceFactory<Result<Self::Response, Self::Error>, Arg>,
         Self: Sized,
     {
         PipelineServiceFactory::new(self, factory)
@@ -65,7 +55,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
     /// *. Unlike `then` combinator both `F` and `Self`'s readiness are checked beforehand.
     fn and_then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::AndThen>
     where
-        F: ServiceFactory<Self::Response>,
+        F: ServiceFactory<Self::Response, Arg>,
         Self: Sized,
     {
         PipelineServiceFactory::new(self, factory)
@@ -73,8 +63,8 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
 
     fn transform<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::Transform>
     where
-        T: Transform<Self::Service, Req>,
-        Self: ServiceFactory<Req> + Sized,
+        T: ServiceFactory<Req, Self::Service> + Clone,
+        Self: ServiceFactory<Req, Arg> + Sized,
     {
         PipelineServiceFactory::new(self, transform)
     }
@@ -94,7 +84,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
     /// This would erase `Self::Service` type and it's GAT nature.
     ///
     /// See [crate::service::ServiceObject] for detail.
-    fn into_object(self) -> ServiceFactoryObject<Req, Self::Response, Self::Error, Self::Config, Self::InitError>
+    fn into_object(self) -> ServiceFactoryObject<Req, Arg, Self::Response, Self::Error>
     where
         Self: Sized + 'static,
         Self::Service: Clone + 'static,
@@ -105,7 +95,7 @@ pub trait ServiceFactoryExt<Req>: ServiceFactory<Req> {
     }
 }
 
-impl<F, Req> ServiceFactoryExt<Req> for F where F: ServiceFactory<Req> {}
+impl<F, Req, Arg> ServiceFactoryExt<Req, Arg> for F where F: ServiceFactory<Req, Arg> {}
 
 #[cfg(test)]
 mod test {
@@ -121,17 +111,16 @@ mod test {
     #[derive(Clone)]
     struct DummyMiddlewareService<S: Clone>(S);
 
-    impl<S, Req> Transform<S, Req> for DummyMiddleware
+    impl<S, Req> ServiceFactory<Req, S> for DummyMiddleware
     where
         S: Service<Req> + Clone,
     {
         type Response = S::Response;
         type Error = S::Error;
-        type Transform = DummyMiddlewareService<S>;
-        type InitError = ();
-        type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+        type Service = DummyMiddlewareService<S>;
+        type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-        fn new_transform(&self, service: S) -> Self::Future {
+        fn new_service(&self, service: S) -> Self::Future {
             async { Ok(DummyMiddlewareService(service)) }
         }
     }
@@ -215,18 +204,5 @@ mod test {
 
         let res = service.call("996").await.ok().unwrap();
         assert_eq!(res, "251");
-    }
-
-    #[tokio::test]
-    async fn map_init_err() {
-        let factory = fn_service(index)
-            .map_init_err(|_| "init_err")
-            .map_init_err(|_| ())
-            .transform(DummyMiddleware);
-
-        let service = factory.new_service(()).await.unwrap();
-
-        let res = service.call("996").await.ok().unwrap();
-        assert_eq!(res, "996");
     }
 }

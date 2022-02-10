@@ -45,7 +45,6 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             _ => panic!("new_service method must use cfg: Config as second function argument"),
         },
     };
-    let (_, init_err_ty) = extract_res_ty(&new_service_impl.sig.output);
     let factory_stmts = &new_service_impl.block.stmts;
 
     let ReadyImpl { ready_stmts } = ReadyImpl::from_items(&input.items);
@@ -59,17 +58,15 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     } = CallImpl::from_items(&input.items);
 
     let result = quote! {
-        impl ::xitca_service::ServiceFactory<#req_ty> for #factory_ty {
+        impl ::xitca_service::ServiceFactory<#req_ty, #cfg_ty> for #factory_ty {
             type Response = #res_ty;
             type Error = #err_ty;
-            type Config = #cfg_ty;
             type Service = #service_ty;
-            type InitError = #init_err_ty;
-            type Future = impl ::core::future::Future<Output = Result<Self::Service, Self::InitError>>;
+            type Future = impl ::core::future::Future<Output = Result<Self::Service, Self::Error>>;
 
-            fn new_service(&self, cfg: Self::Config) -> Self::Future {
+            fn new_service(&self, arg: #cfg_ty) -> Self::Future {
                 let #factory_ident = self.clone();
-                let #cfg_ident = cfg;
+                let #cfg_ident = arg;
                 async move {
                     #(#factory_stmts)*
                 }
@@ -120,7 +117,7 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // find methods from impl.
     let new_transform_impl =
-        find_async_method(&input.items, "new_transform").expect("new_transform method can not be located");
+        find_async_method(&input.items, "new_service").expect("new_transform method can not be located");
 
     // collect ServiceFactory, Config and InitError type from new_transform_impl
     let mut inputs = new_transform_impl.sig.inputs.iter();
@@ -145,7 +142,7 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             _ => panic!("new_transform method must use cfg: Config as second function argument"),
         },
     };
-    let (_, init_err_ty) = extract_res_ty(&new_transform_impl.sig.output);
+    // let (_, init_err_ty) = extract_res_ty(&new_transform_impl.sig.output);
     let tranform_stmts = &new_transform_impl.block.stmts;
 
     let ReadyImpl { ready_stmts } = ReadyImpl::from_items(&input.items);
@@ -159,16 +156,15 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     } = CallImpl::from_items(&input.items);
 
     let result = quote! {
-        impl<#generic_ty> ::xitca_service::Transform<#service_ty, #req_ty> for #transform_ty
+        impl<#generic_ty> ::xitca_service::ServiceFactory<#req_ty, #service_ty> for #transform_ty
         #where_clause
         {
             type Response = #res_ty;
             type Error = #err_ty;
-            type Transform = #middleware_ty;
-            type InitError = #init_err_ty;
-            type Future = impl ::core::future::Future<Output = Result<Self::Transform, Self::InitError>>;
+            type Service = #middleware_ty;
+            type Future = impl ::core::future::Future<Output = Result<Self::Service, Self::Error>>;
 
-            fn new_transform(&self, service: #service_ty) -> Self::Future {
+            fn new_service(&self, service: #service_ty) -> Self::Future {
                 let #transform_ident = self.clone();
                 let #service_ident = service;
                 async move {

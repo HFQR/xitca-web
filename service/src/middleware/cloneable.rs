@@ -2,22 +2,21 @@ use core::future::Future;
 
 use alloc::rc::Rc;
 
-use crate::{service::Service, transform::Transform};
+use crate::{service::Service, ServiceFactory};
 
 #[derive(Clone, Copy)]
 pub struct Cloneable;
 
-impl<S, Req> Transform<S, Req> for Cloneable
+impl<S, Req> ServiceFactory<Req, S> for Cloneable
 where
     S: Service<Req>,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Transform = Rc<S>;
-    type InitError = ();
-    type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
+    type Service = Rc<S>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_transform(&self, service: S) -> Self::Future {
+    fn new_service(&self, service: S) -> Self::Future {
         async { Ok(Rc::new(service)) }
     }
 }

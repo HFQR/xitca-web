@@ -1,7 +1,5 @@
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
-use std::convert::Infallible;
-
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt};
 
 struct Test;
@@ -11,7 +9,7 @@ struct TestFactory;
 
 #[xitca_http_codegen::service_impl]
 impl Test {
-    async fn new_service(_: &TestFactory, mut cfg123: String) -> Result<Self, Infallible> {
+    async fn new_service(_: &TestFactory, mut cfg123: String) -> Result<Self, Box<dyn std::error::Error>> {
         cfg123.push_str("+da_gong_ren");
         assert_eq!(cfg123.as_str(), "996+da_gong_ren");
         Ok(Test)
@@ -38,7 +36,7 @@ impl<S> TestMiddlewareService<S>
 where
     S: Service<String, Error = Box<dyn std::error::Error>, Response = usize>,
 {
-    async fn new_transform(_m: &TestMiddleware, service: S) -> Result<Self, Infallible> {
+    async fn new_service(_m: &TestMiddleware, service: S) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(TestMiddlewareService(service))
     }
 

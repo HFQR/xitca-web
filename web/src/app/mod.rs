@@ -3,7 +3,7 @@ mod router;
 use std::future::{ready, Future, Ready};
 
 use xitca_http::{Request, RequestBody, ResponseError};
-use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, Transform, TransformFactory};
+use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, TransformFactory};
 
 use crate::request::WebRequest;
 
@@ -69,8 +69,7 @@ impl<SF, F> App<SF, F> {
     pub fn middleware<Req, T>(self, transform: T) -> App<SF, TransformFactory<F, T>>
     where
         F: ServiceFactory<Req>,
-        T: Transform<F::Service, Req>,
-        F::InitError: From<T::InitError>,
+        T: ServiceFactory<Req, F::Service> + Clone,
     {
         App {
             state_factory: self.state_factory,
@@ -79,36 +78,33 @@ impl<SF, F> App<SF, F> {
     }
 }
 
-impl<SF, Fut, State, StateErr, F, S, Res, Err, Cfg, IntErr> ServiceFactory<Request<RequestBody>> for App<SF, F>
+impl<SF, Fut, State, StateErr, F, S, Arg, Res, Err> ServiceFactory<Request<RequestBody>, Arg> for App<SF, F>
 where
     SF: Fn() -> Fut,
     Fut: Future<Output = Result<State, StateErr>> + 'static,
     State: 'static,
-    StateErr: 'static,
-    IntErr: From<StateErr>,
+    StateErr: 'static + std::fmt::Debug,
     F: for<'rb, 'r> ServiceFactory<
         &'rb mut WebRequest<'r, State>,
+        Arg, 
         Service = S,
         Response = Res,
         Error = Err,
-        Config = Cfg,
-        InitError = IntErr,
     >,
     S: for<'rb, 'r> Service<&'rb mut WebRequest<'r, State>, Response = Res, Error = Err> + 'static,
     Err: for<'r> ResponseError<WebRequest<'r, State>, Res>,
 {
     type Response = Res;
     type Error = Err;
-    type Config = Cfg;
     type Service = AppService<State, S>;
-    type InitError = IntErr;
-    type Future = impl Future<Output = Result<Self::Service, Self::InitError>>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, cfg: Self::Config) -> Self::Future {
+    fn new_service(&self, arg: Arg) -> Self::Future {
         let state = (self.state_factory)();
-        let service = self.factory.new_service(cfg);
+        let service = self.factory.new_service(arg);
         async {
-            let state = state.await?;
+            // TODO: handle state error properly.
+            let state = state.await.unwrap();
             let service = service.await?;
             Ok(AppService { service, state })
         }

@@ -4,6 +4,7 @@ use tokio::sync::mpsc::error::SendError;
 
 #[derive(Debug)]
 pub enum Error {
+    ToDo,
     ConnectionClosed,
     Io(io::Error),
 }
@@ -11,6 +12,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::ToDo => write!(f, "error informant is yet implemented"),
             Self::ConnectionClosed => write!(f, "Connection is closed"),
             Self::Io(ref e) => write!(f, "{}", e),
         }
