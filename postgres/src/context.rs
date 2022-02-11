@@ -31,7 +31,7 @@ impl<const SIZE: usize> Context<SIZE> {
     where
         Io: AsyncIo,
     {
-        while self.req.len() > 0 {
+        while !self.req.is_empty() {
             let mut iovs = [io::IoSlice::new(&[]); SIZE];
             let len = self.chunks_vectored(&mut iovs);
             match io.try_write_vectored(&iovs[..len]) {
@@ -64,7 +64,7 @@ impl<const SIZE: usize> Context<SIZE> {
             {
                 let front = &mut self.req[0];
                 let rem = front.msg.remaining();
-                
+
                 if rem > cnt {
                     // partial message sent. advance and return.
                     front.msg.advance(cnt);
