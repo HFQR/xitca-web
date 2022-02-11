@@ -1,6 +1,7 @@
 //! A postgresql client on top of tokio.
 
 mod client;
+mod context;
 mod futures;
 mod message;
 mod prepare;
@@ -10,7 +11,7 @@ pub mod error;
 
 pub use statement::Statement;
 
-use std::{collections::VecDeque, future::Future, io};
+use std::{future::Future, io};
 
 use tokio::sync::mpsc::{channel, Receiver};
 use xitca_io::{
@@ -20,35 +21,34 @@ use xitca_io::{
 
 use crate::{
     client::Client,
-    error::Error,
+    context::Context,
     futures::{never, Select, SelectOutput},
-    message::{Request, RequestList},
+    message::Request,
 };
 
 #[derive(Debug)]
-pub struct Postgres<'a> {
+pub struct Postgres<'a, const BATCH_LIMIT: usize> {
     url: &'a str,
     backlog: usize,
-    batch_limit: usize,
 }
 
-impl<'a> Postgres<'a> {
+impl<'a> Postgres<'a, 20> {
     pub fn new(url: &'a str) -> Self {
-        Self {
-            url,
-            backlog: 128,
-            batch_limit: 20,
-        }
+        Self { url, backlog: 128 }
     }
+}
 
+impl<'a, const BATCH_LIMIT: usize> Postgres<'a, BATCH_LIMIT> {
     pub fn backlog(mut self, num: usize) -> Self {
         self.backlog = num;
         self
     }
 
-    pub fn batch_limit(mut self, num: usize) -> Self {
-        self.batch_limit = num;
-        self
+    pub fn batch_limit<const BATCH_LIMIT2: usize>(self) -> Postgres<'a, BATCH_LIMIT2> {
+        Postgres {
+            url: self.url,
+            backlog: self.backlog,
+        }
     }
 
     pub async fn connect(self) -> io::Result<(Client, impl Future<Output = Result<(), crate::error::Error>>)> {
@@ -69,25 +69,20 @@ impl<'a> Postgres<'a> {
     {
         let (tx, rx) = channel(self.backlog);
 
-        let mut receiver = QueryReceiver {
-            rx,
-            batch_limit: self.batch_limit,
-        };
+        let mut receiver = QueryReceiver::<BATCH_LIMIT> { rx };
 
-        let mut reqs = crate::message::RequestList::with_capacity(self.batch_limit);
-
-        // let mut res = VecDeque::with_capacity(self.batch_limit);
+        let mut ctx = Context::<BATCH_LIMIT>::new();
 
         let fut = async move {
             loop {
                 match receiver
-                    .recv(reqs.len())
+                    .recv(ctx.req_len())
                     .select(io.ready(Interest::READABLE | Interest::WRITABLE))
                     .await
                 {
                     // batch message and keep polling.
                     SelectOutput::A(Some(msg)) => {
-                        reqs.push(msg);
+                        ctx.push_req(msg);
                     }
                     // client is gone.
                     SelectOutput::A(None) => break,
@@ -98,8 +93,7 @@ impl<'a> Postgres<'a> {
                             // decode
                         }
                         if ready.is_writable() {
-                            // TODO: make batch size const generic and pass it to try_write_io.
-                            try_write_io::<_, 20>(&mut io, &mut reqs)?;
+                            ctx.try_write_io(&mut io)?;
                         }
                     }
                 }
@@ -112,29 +106,13 @@ impl<'a> Postgres<'a> {
     }
 }
 
-fn try_write_io<Io: AsyncIo, const LEN: usize>(io: &mut Io, reqs: &mut RequestList) -> Result<(), Error> {
-    while reqs.len() > 0 {
-        let mut iovs = [io::IoSlice::new(&[]); LEN];
-        // let len = reqs.chunks_vectored(&mut iovs);
-        // match io.try_write_vectored(&iovs[..len]) {
-        //     Ok(0) => return Err(Error::ConnectionClosed),
-        //     Ok(n) => reqs.advance(n),
-        //     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-        //     Err(e) => return Err(e.into()),
-        // }
-    }
-
-    Ok(())
-}
-
-struct QueryReceiver {
+struct QueryReceiver<const BATCH_LIMIT: usize> {
     rx: Receiver<Request>,
-    batch_limit: usize,
 }
 
-impl QueryReceiver {
+impl<const BATCH_LIMIT: usize> QueryReceiver<BATCH_LIMIT> {
     async fn recv(&mut self, batched: usize) -> Option<Request> {
-        if batched == self.batch_limit {
+        if batched == BATCH_LIMIT {
             never().await
         } else {
             self.rx.recv().await
