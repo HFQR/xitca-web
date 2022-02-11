@@ -3,16 +3,16 @@ use std::cell::RefCell;
 use tokio::sync::mpsc::Sender;
 use xitca_io::bytes::BytesMut;
 
-use super::{error::Error, message::Message};
+use super::{error::Error, message::Request};
 
 #[derive(Debug)]
 pub struct Client {
-    pub(crate) tx: Sender<Message>,
+    pub(crate) tx: Sender<Request>,
     pub(crate) buf: RefCell<BytesMut>,
 }
 
 impl Client {
-    pub(crate) fn new(tx: Sender<Message>) -> Self {
+    pub(crate) fn new(tx: Sender<Request>) -> Self {
         Self {
             tx,
             buf: RefCell::new(BytesMut::new()),

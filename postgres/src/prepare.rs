@@ -2,19 +2,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use postgres_protocol::message::frontend;
 use postgres_types::Type;
-use tokio::sync::mpsc::channel;
 use tracing::debug;
 use xitca_io::bytes::{Bytes, BytesMut};
 
-use super::{client::Client, error::Error, message::Message};
+use super::{client::Client, error::Error};
 
 impl Client {
     pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<(), Error> {
         let buf = prepare_buf(&mut *self.buf.borrow_mut(), query, types)?;
 
-        let (tx, rx) = channel::<()>(1);
-
-        self.tx.send(Message(tx)).await?;
+        let res = self.send(buf).await?;
 
         Ok(())
     }
@@ -37,13 +34,3 @@ fn prepare_buf(buf: &mut BytesMut, query: &str, types: &[Type]) -> Result<Bytes,
 
     Ok(buf.split().freeze())
 }
-
-// fn concurrent(c: &mut Client, query: &str, types: &[Type]) {
-//     let mut v = Vec::new();
-
-//     for _ in 0..32 {
-//         let prepare = c.prepare(query, types);
-
-//         v.push(prepare.run())
-//     }
-// }

@@ -20,8 +20,9 @@ use xitca_io::{
 
 use crate::{
     client::Client,
+    error::Error,
     futures::{never, Select, SelectOutput},
-    message::Message,
+    message::{Request, RequestList},
 };
 
 #[derive(Debug)]
@@ -62,7 +63,7 @@ impl<'a> Postgres<'a> {
     }
 
     // Start client and io task with given io type that impl `AsyncIo` trait.
-    pub fn start_with_io<S>(self, io: S) -> (Client, impl Future<Output = Result<(), crate::error::Error>>)
+    pub fn start_with_io<S>(self, mut io: S) -> (Client, impl Future<Output = Result<(), crate::error::Error>>)
     where
         S: AsyncIo,
     {
@@ -73,18 +74,20 @@ impl<'a> Postgres<'a> {
             batch_limit: self.batch_limit,
         };
 
-        let mut batched = VecDeque::with_capacity(self.batch_limit);
+        let mut reqs = crate::message::RequestList::with_capacity(self.batch_limit);
+
+        // let mut res = VecDeque::with_capacity(self.batch_limit);
 
         let fut = async move {
             loop {
                 match receiver
-                    .recv(batched.len())
+                    .recv(reqs.len())
                     .select(io.ready(Interest::READABLE | Interest::WRITABLE))
                     .await
                 {
                     // batch message and keep polling.
                     SelectOutput::A(Some(msg)) => {
-                        batched.push_back(msg);
+                        reqs.push(msg);
                     }
                     // client is gone.
                     SelectOutput::A(None) => break,
@@ -94,7 +97,10 @@ impl<'a> Postgres<'a> {
                         if ready.is_readable() {
                             // decode
                         }
-                        if ready.is_writable() {}
+                        if ready.is_writable() {
+                            // TODO: make batch size const generic and pass it to try_write_io.
+                            try_write_io::<_, 20>(&mut io, &mut reqs)?;
+                        }
                     }
                 }
             }
@@ -106,13 +112,28 @@ impl<'a> Postgres<'a> {
     }
 }
 
+fn try_write_io<Io: AsyncIo, const LEN: usize>(io: &mut Io, reqs: &mut RequestList) -> Result<(), Error> {
+    while reqs.len() > 0 {
+        let mut iovs = [io::IoSlice::new(&[]); LEN];
+        // let len = reqs.chunks_vectored(&mut iovs);
+        // match io.try_write_vectored(&iovs[..len]) {
+        //     Ok(0) => return Err(Error::ConnectionClosed),
+        //     Ok(n) => reqs.advance(n),
+        //     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+        //     Err(e) => return Err(e.into()),
+        // }
+    }
+
+    Ok(())
+}
+
 struct QueryReceiver {
-    rx: Receiver<Message>,
+    rx: Receiver<Request>,
     batch_limit: usize,
 }
 
 impl QueryReceiver {
-    async fn recv(&mut self, batched: usize) -> Option<Message> {
+    async fn recv(&mut self, batched: usize) -> Option<Request> {
         if batched == self.batch_limit {
             never().await
         } else {
