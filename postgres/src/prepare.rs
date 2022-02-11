@@ -5,15 +5,15 @@ use postgres_types::Type;
 use tracing::debug;
 use xitca_io::bytes::{Bytes, BytesMut};
 
-use super::{client::Client, error::Error};
+use super::{client::Client, error::Error, statement::Statement};
 
 impl Client {
-    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<(), Error> {
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
         let buf = prepare_buf(&mut *self.buf.borrow_mut(), query, types)?;
 
         let res = self.send(buf).await?;
 
-        Ok(())
+        todo!()
     }
 }
 

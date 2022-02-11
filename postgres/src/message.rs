@@ -1,12 +1,10 @@
-use std::{collections::VecDeque, io::IoSlice};
-
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use xitca_io::bytes::{Buf, Bytes};
+use xitca_io::bytes::Bytes;
 
 use super::{client::Client, error::Error};
 
 pub struct Request {
-    tx: UnboundedSender<()>,
+    pub(crate) tx: UnboundedSender<()>,
     pub(crate) msg: Bytes,
 }
 
