@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 
-use tokio::sync::mpsc::Sender;
-use xitca_io::bytes::BytesMut;
+use tokio::sync::mpsc::{unbounded_channel, Sender};
+use xitca_io::bytes::{Bytes, BytesMut};
 
-use super::{error::Error, message::Request};
+use super::{error::Error, request::Request, response::Response};
 
 #[derive(Debug)]
 pub struct Client {
@@ -25,6 +25,17 @@ impl Client {
 
     pub fn closed(&self) -> bool {
         self.tx.is_closed()
+    }
+
+    pub(crate) async fn send(&self, msg: Bytes) -> Result<Response, Error> {
+        let (tx, rx) = unbounded_channel();
+
+        self.tx
+            .send(Request { tx, msg })
+            .await
+            .map_err(|_| Error::ConnectionClosed)?;
+
+        Ok(Response::new(rx))
     }
 }
 

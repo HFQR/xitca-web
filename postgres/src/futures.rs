@@ -6,7 +6,6 @@ use std::{
 };
 
 use pin_project_lite::pin_project;
-use tokio::time::Sleep;
 
 pub(crate) async fn never<T>() -> T {
     poll_fn(|_| Poll::Pending).await
@@ -89,37 +88,4 @@ where
 pub(crate) enum SelectOutput<A, B> {
     A(A),
     B(B),
-}
-
-pub(crate) trait Timeout: Sized {
-    fn timeout(self, timer: Pin<&mut Sleep>) -> TimeoutFuture<'_, Self>;
-}
-
-impl<F> Timeout for F
-where
-    F: Future,
-{
-    fn timeout(self, timer: Pin<&mut Sleep>) -> TimeoutFuture<'_, Self> {
-        TimeoutFuture { fut: self, timer }
-    }
-}
-
-pin_project! {
-    pub(crate) struct TimeoutFuture<'a, F> {
-        #[pin]
-        fut: F,
-        timer: Pin<&'a mut Sleep>
-    }
-}
-
-impl<F: Future> Future for TimeoutFuture<'_, F> {
-    type Output = Result<F::Output, ()>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        match this.fut.poll(cx) {
-            Poll::Ready(res) => Poll::Ready(Ok(res)),
-            Poll::Pending => this.timer.as_mut().poll(cx).map(Err),
-        }
-    }
 }
