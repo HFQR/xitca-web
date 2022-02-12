@@ -31,11 +31,11 @@ impl<const LIMIT: usize> Context<LIMIT> {
     }
 
     pub(crate) fn req_is_empty(&self) -> bool {
-        self.req.len() == 0
+        self.req.is_empty()
     }
 
     pub(crate) fn res_is_empty(&self) -> bool {
-        self.res.len() == 0
+        self.res.is_empty()
     }
 
     pub(crate) fn push_req(&mut self, req: Request) {
