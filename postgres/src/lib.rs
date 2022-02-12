@@ -1,29 +1,32 @@
+#![feature(generic_associated_types, type_alias_impl_trait)]
+
 //! A postgresql client on top of tokio.
 
 mod client;
 mod context;
 mod futures;
-mod message;
 mod prepare;
+mod request;
+mod response;
 mod statement;
 
 pub mod error;
 
 pub use statement::Statement;
 
-use std::{future::Future, io};
+use std::{future::Future, io, pin::Pin};
 
 use tokio::sync::mpsc::{channel, Receiver};
 use xitca_io::{
-    io::{AsyncIo, Interest},
+    io::{AsyncIo, AsyncWrite, Interest},
     net::TcpStream,
 };
 
 use crate::{
     client::Client,
     context::Context,
-    futures::{never, Select, SelectOutput},
-    message::Request,
+    futures::{never, poll_fn, Select, SelectOutput},
+    request::Request,
 };
 
 #[derive(Debug)]
@@ -69,31 +72,32 @@ impl<'a, const BATCH_LIMIT: usize> Postgres<'a, BATCH_LIMIT> {
     {
         let (tx, rx) = channel(self.backlog);
 
-        let mut receiver = QueryReceiver::<BATCH_LIMIT> { rx };
+        let mut receiver = QueryReceiver { rx };
 
         let mut ctx = Context::<BATCH_LIMIT>::new();
 
         let fut = async move {
             loop {
                 match receiver
-                    .recv(ctx.req_len())
-                    .select(io.ready(Interest::READABLE | Interest::WRITABLE))
+                    .recv(ctx.req_is_full())
+                    .select(io_ready(&mut io, !ctx.req_is_empty()))
                     .await
                 {
                     // batch message and keep polling.
-                    SelectOutput::A(Some(msg)) => {
-                        ctx.push_req(msg);
-                    }
+                    SelectOutput::A(Some(msg)) => ctx.push_req(msg),
                     // client is gone.
                     SelectOutput::A(None) => break,
                     SelectOutput::B(ready) => {
                         let ready = ready?;
 
                         if ready.is_readable() {
-                            // decode
+                            ctx.try_read_io(&mut io)?;
+                            ctx.try_response()?;
                         }
+
                         if ready.is_writable() {
                             ctx.try_write_io(&mut io)?;
+                            poll_fn(|cx| AsyncWrite::poll_flush(Pin::new(&mut io), cx)).await?;
                         }
                     }
                 }
@@ -106,16 +110,26 @@ impl<'a, const BATCH_LIMIT: usize> Postgres<'a, BATCH_LIMIT> {
     }
 }
 
-struct QueryReceiver<const BATCH_LIMIT: usize> {
+struct QueryReceiver {
     rx: Receiver<Request>,
 }
 
-impl<const BATCH_LIMIT: usize> QueryReceiver<BATCH_LIMIT> {
-    async fn recv(&mut self, batched: usize) -> Option<Request> {
-        if batched == BATCH_LIMIT {
+impl QueryReceiver {
+    async fn recv(&mut self, req_is_full: bool) -> Option<Request> {
+        if req_is_full {
             never().await
         } else {
             self.rx.recv().await
         }
     }
+}
+
+fn io_ready<Io: AsyncIo>(io: &mut Io, can_write: bool) -> Io::ReadyFuture<'_> {
+    let interest = if can_write {
+        Interest::READABLE | Interest::WRITABLE
+    } else {
+        Interest::READABLE
+    };
+
+    io.ready(interest)
 }

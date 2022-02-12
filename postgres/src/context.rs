@@ -1,29 +1,82 @@
 use std::{collections::VecDeque, io};
 
-use tokio::sync::mpsc::UnboundedSender;
-use xitca_io::{bytes::Buf, io::AsyncIo};
+use xitca_io::{
+    bytes::{Buf, BytesMut},
+    io::AsyncIo,
+};
 
-use super::{error::Error, message::Request};
+use super::{
+    error::Error,
+    request::Request,
+    response::{ResponseMessage, ResponseSender},
+};
 
-pub(crate) struct Context<const SIZE: usize> {
+pub(crate) struct Context<const LIMIT: usize> {
     req: VecDeque<Request>,
-    res: VecDeque<UnboundedSender<()>>,
+    res: VecDeque<ResponseSender>,
+    pub(crate) buf: BytesMut,
 }
 
-impl<const SIZE: usize> Context<SIZE> {
+impl<const LIMIT: usize> Context<LIMIT> {
     pub(crate) fn new() -> Self {
         Self {
-            req: VecDeque::with_capacity(SIZE),
-            res: VecDeque::with_capacity(SIZE),
+            req: VecDeque::with_capacity(LIMIT),
+            res: VecDeque::with_capacity(LIMIT),
+            buf: BytesMut::new(),
         }
     }
 
-    pub(crate) fn req_len(&self) -> usize {
-        self.req.len()
+    pub(crate) fn req_is_full(&self) -> bool {
+        self.req.len() != LIMIT
+    }
+
+    pub(crate) fn req_is_empty(&self) -> bool {
+        self.req.len() == 0
+    }
+
+    pub(crate) fn res_is_empty(&self) -> bool {
+        self.res.len() == 0
     }
 
     pub(crate) fn push_req(&mut self, req: Request) {
         self.req.push_back(req)
+    }
+
+    // try read async io until connection error/closed/blocked.
+    pub(crate) fn try_read_io<Io>(&mut self, io: &mut Io) -> Result<(), Error>
+    where
+        Io: AsyncIo,
+    {
+        assert!(
+            !self.res_is_empty(),
+            "If server return anything their must at least one response waiting."
+        );
+
+        loop {
+            match io.try_read_buf(&mut self.buf) {
+                Ok(0) => return Err(Error::ConnectionClosed),
+                Ok(_) => continue,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    pub(crate) fn try_response(&mut self) -> Result<(), Error> {
+        while let Some(res) = ResponseMessage::try_from_buf(&mut self.buf)? {
+            match res {
+                ResponseMessage::Normal { buf, complete } => {
+                    let _ = self.res[0].send(buf);
+
+                    if complete {
+                        let _ = self.res.pop_front();
+                    }
+                }
+                ResponseMessage::Async(msg) => todo!(),
+            }
+        }
+
+        Ok(())
     }
 
     // try write to async io with vectored write enabled.
@@ -32,7 +85,7 @@ impl<const SIZE: usize> Context<SIZE> {
         Io: AsyncIo,
     {
         while !self.req.is_empty() {
-            let mut iovs = [io::IoSlice::new(&[]); SIZE];
+            let mut iovs = [io::IoSlice::new(&[]); LIMIT];
             let len = self.chunks_vectored(&mut iovs);
             match io.try_write_vectored(&iovs[..len]) {
                 Ok(0) => return Err(Error::ConnectionClosed),

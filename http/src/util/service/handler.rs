@@ -10,6 +10,11 @@ use std::{
 use pin_project_lite::pin_project;
 use xitca_service::{Service, ServiceFactory};
 
+/// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
+/// `Req` type and receive them as function argument.
+///
+/// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
+/// output type.
 pub fn handler_service<F, Req, T, O, Res, Err>(func: F) -> HandlerService<F, T, O, Res, Err>
 where
     F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
@@ -301,7 +306,9 @@ mod test {
 
     use xitca_service::{Service, ServiceFactoryExt};
 
-    use crate::http::{Request, Response, StatusCode};
+    use crate::http::{Response, StatusCode};
+    use crate::util::service::{get, Router};
+    use crate::Request;
 
     async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> StatusCode {
         assert_eq!(e1, "996");
@@ -355,10 +362,10 @@ mod test {
     impl<'a> FromRequest<'a, Request<()>> for &'a Request<()> {
         type Type<'f> = &'f Request<()>;
         type Error = Infallible;
-        type Future = Ready<Result<Self, Self::Error>>;
+        type Future = impl Future<Output = Result<Self, Self::Error>>;
 
         fn from_request(req: &'a Request<()>) -> Self::Future {
-            ready(Ok(req))
+            async move { Ok(req) }
         }
     }
 
@@ -366,6 +373,21 @@ mod test {
     async fn concurrent_extract() {
         let service = handler_service(handler)
             .transform_fn(|s, req| async move { s.call(req).await })
+            .new_service(())
+            .await
+            .unwrap();
+
+        let req = Request::new(());
+
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
+    }
+
+    #[tokio::test]
+    async fn handler_in_router() {
+        let service = Router::new()
+            .insert("/", get(handler_service(handler)))
             .new_service(())
             .await
             .unwrap();
