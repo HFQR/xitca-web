@@ -55,7 +55,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
         loop {
             match io.try_read_buf(&mut self.buf) {
                 Ok(0) => return Err(Error::ConnectionClosed),
-                Ok(_) => return Ok(()),
+                Ok(_) => continue,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(e) => return Err(e.into()),
             }
