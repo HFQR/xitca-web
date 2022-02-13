@@ -12,13 +12,9 @@ use super::request::WebRequest;
 // TODO: add app state to response type.
 pub type WebResponse = Response<ResponseBody>;
 
-impl<'a, 'r, 's, S> Responder<'a, &'r mut WebRequest<'s, S>> for WebResponse
-where
-    'r: 'a,
-    's: 'a,
-{
+impl<'a, 'r, 's, S> Responder<'a, &'r mut WebRequest<'s, S>> for WebResponse {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output> + 'a;
+    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
     fn respond_to(self, _: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future {
@@ -31,11 +27,9 @@ macro_rules! text_utf8 {
         impl<'a, 'r, 's, S> Responder<'a, &'r mut WebRequest<'s, S>> for $type
         where
             S: 'static,
-            'r: 'a,
-            's: 'a,
         {
             type Output = WebResponse;
-            type Future = impl Future<Output = Self::Output> + 'a;
+            type Future = impl Future<Output = Self::Output>;
 
             fn respond_to(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future {
                 async move {

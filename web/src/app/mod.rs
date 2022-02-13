@@ -206,23 +206,23 @@ mod test {
         }
     }
 
-    // #[tokio::test]
-    // async fn test_app() {
-    //     let state = String::from("state");
+    #[tokio::test]
+    async fn test_app() {
+        let state = String::from("state");
 
-    //     let service = App::with_current_thread_state(state)
-    //         .service(HandlerService::new(handler))
-    //         .middleware(Middleware)
-    //         .new_service(())
-    //         .await
-    //         .ok()
-    //         .unwrap();
+        let service = App::with_current_thread_state(state)
+            .service(HandlerService::new(handler))
+            .middleware(Middleware)
+            .new_service(())
+            .await
+            .ok()
+            .unwrap();
 
-    //     let req = Request::default();
+        let req = Request::default();
 
-    //     let res = service.call(req).await.unwrap();
+        let res = service.call(req).await.unwrap();
 
-    //     assert_eq!(res.status().as_u16(), 200);
-    //     assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
-    // }
+        assert_eq!(res.status().as_u16(), 200);
+        assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
+    }
 }
