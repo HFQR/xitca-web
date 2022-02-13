@@ -1,6 +1,9 @@
 mod router;
 
-use std::future::{ready, Future, Ready};
+use std::{
+    convert::Infallible,
+    future::{ready, Future, Ready},
+};
 
 use xitca_http::{Request, RequestBody, ResponseError};
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, TransformFactory};
@@ -27,7 +30,7 @@ impl App {
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, ()>>>
+    pub fn with_current_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, Infallible>>>
     where
         State: Clone + 'static,
     {
@@ -37,7 +40,7 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, ()>>>
+    pub fn with_multi_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, Infallible>>>
     where
         State: Send + Sync + Clone + 'static,
     {
@@ -83,10 +86,9 @@ where
     SF: Fn() -> Fut,
     Fut: Future<Output = Result<State, StateErr>> + 'static,
     State: 'static,
-    StateErr: 'static + std::fmt::Debug,
     F: for<'rb, 'r> ServiceFactory<&'rb mut WebRequest<'r, State>, Arg, Service = S, Response = Res, Error = Err>,
     S: for<'rb, 'r> Service<&'rb mut WebRequest<'r, State>, Response = Res, Error = Err> + 'static,
-    Err: for<'r> ResponseError<WebRequest<'r, State>, Res>,
+    Err: for<'r> ResponseError<WebRequest<'r, State>, Res> + From<StateErr>,
 {
     type Response = Res;
     type Error = Err;
@@ -97,8 +99,7 @@ where
         let state = (self.state_factory)();
         let service = self.factory.new_service(arg);
         async {
-            // TODO: handle state error properly.
-            let state = state.await.unwrap();
+            let state = state.await?;
             let service = service.await?;
             Ok(AppService { service, state })
         }
@@ -140,89 +141,88 @@ where
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-//
-//     use crate::{
-//         extract::{PathRef, StateRef},
-//         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
-//         service::HandlerService,
-//     };
-//
-//     async fn handler(
-//         StateRef(state): StateRef<'_, String>,
-//         PathRef(path): PathRef<'_>,
-//         req: &WebRequest<'_, String>,
-//     ) -> String {
-//         assert_eq!("state", state);
-//         assert_eq!(state, req.state());
-//         assert_eq!("/", path);
-//         assert_eq!(path, req.req().uri().path());
-//         state.to_string()
-//     }
-//
-//     #[derive(Clone)]
-//     struct Middleware;
-//
-//     impl<S, State, Res, Err> Transform<S, &mut WebRequest<'_, State>> for Middleware
-//     where
-//         S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
-//     {
-//         type Response = Res;
-//         type Error = Err;
-//         type Transform = MiddlewareService<S>;
-//         type InitError = ();
-//         type Future = impl Future<Output = Result<Self::Transform, Self::InitError>>;
-//
-//         fn new_transform(&self, service: S) -> Self::Future {
-//             async move { Ok(MiddlewareService(service)) }
-//         }
-//     }
-//
-//     struct MiddlewareService<S>(S);
-//
-//     impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
-//     where
-//         S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
-//     {
-//         type Response = Res;
-//         type Error = Err;
-//         type Ready<'f>
-//         where
-//             Self: 'f,
-//         = impl Future<Output = Result<(), Self::Error>>;
-//         type Future<'f>
-//         where
-//             Self: 'f,
-//         = impl Future<Output = Result<Self::Response, Self::Error>>;
-//
-//         fn ready(&self) -> Self::Ready<'_> {
-//             async move { self.0.ready().await }
-//         }
-//
-//         fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
-//             async move { self.0.call(req).await }
-//         }
-//     }
-//
-//     #[tokio::test]
-//     async fn test_app() {
-//         let state = String::from("state");
-//
-//         let service = App::with_current_thread_state(state)
-//             .service(HandlerService::new(handler))
-//             .middleware(Middleware)
-//             .new_service(())
-//             .await
-//             .ok()
-//             .unwrap();
-//
-//         let req = Request::default();
-//
-//         let res = service.call(req).await.unwrap();
-//
-//         assert_eq!(res.status().as_u16(), 200);
-//         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
-//     }
-// }
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use crate::{
+        extract::{PathRef, StateRef},
+        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
+        service::HandlerService,
+    };
+
+    async fn handler(
+        StateRef(state): StateRef<'_, String>,
+        PathRef(path): PathRef<'_>,
+        req: &WebRequest<'_, String>,
+    ) -> String {
+        assert_eq!("state", state);
+        assert_eq!(state, req.state());
+        assert_eq!("/", path);
+        assert_eq!(path, req.req().uri().path());
+        state.to_string()
+    }
+
+    #[derive(Clone)]
+    struct Middleware;
+
+    impl<S, State, Res, Err> ServiceFactory<&mut WebRequest<'_, State>, S> for Middleware
+    where
+        S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
+    {
+        type Response = Res;
+        type Error = Err;
+        type Service = MiddlewareService<S>;
+        type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+
+        fn new_service(&self, service: S) -> Self::Future {
+            async move { Ok(MiddlewareService(service)) }
+        }
+    }
+
+    struct MiddlewareService<S>(S);
+
+    impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
+    where
+        S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
+    {
+        type Response = Res;
+        type Error = Err;
+        type Ready<'f>
+        where
+            Self: 'f,
+        = impl Future<Output = Result<(), Self::Error>>;
+        type Future<'f>
+        where
+            Self: 'f,
+        = impl Future<Output = Result<Self::Response, Self::Error>>;
+
+        fn ready(&self) -> Self::Ready<'_> {
+            async move { self.0.ready().await }
+        }
+
+        fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
+            async move { self.0.call(req).await }
+        }
+    }
+
+    // #[tokio::test]
+    // async fn test_app() {
+    //     let state = String::from("state");
+
+    //     let service = App::with_current_thread_state(state)
+    //         .service(HandlerService::new(handler))
+    //         .middleware(Middleware)
+    //         .new_service(())
+    //         .await
+    //         .ok()
+    //         .unwrap();
+
+    //     let req = Request::default();
+
+    //     let res = service.call(req).await.unwrap();
+
+    //     assert_eq!(res.status().as_u16(), 200);
+    //     assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
+    // }
+}

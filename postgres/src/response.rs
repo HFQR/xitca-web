@@ -6,6 +6,7 @@ use super::error::Error;
 
 pub struct Response {
     rx: ResponseReceiver,
+    buf: BytesMut,
 }
 
 pub type ResponseSender = UnboundedSender<BytesMut>;
@@ -14,7 +15,23 @@ pub type ResponseReceiver = UnboundedReceiver<BytesMut>;
 
 impl Response {
     pub(crate) fn new(rx: UnboundedReceiver<BytesMut>) -> Self {
-        Self { rx }
+        Self {
+            rx,
+            buf: BytesMut::new(),
+        }
+    }
+
+    pub(crate) async fn recv(&mut self) -> Result<backend::Message, Error> {
+        loop {
+            match backend::Message::parse(&mut self.buf)? {
+                Some(backend::Message::ErrorResponse(_body)) => return Err(Error::ToDo),
+                Some(msg) => return Ok(msg),
+                None => match self.rx.recv().await {
+                    Some(buf) => self.buf = buf,
+                    None => return Err(Error::ConnectionClosed),
+                },
+            }
+        }
     }
 }
 
