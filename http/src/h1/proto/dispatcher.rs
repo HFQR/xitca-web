@@ -54,8 +54,8 @@ pub(crate) async fn run<
     date: &'a D,
 ) -> Result<(), Error<S::Error, BE>>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
-    X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
+    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
+    X: Service<Request<ReqB>, Response = Request<ReqB>>,
 
     ReqB: From<RequestBody>,
 
@@ -239,8 +239,8 @@ impl<
         const WRITE_BUF_LIMIT: usize,
     > Dispatcher<'a, St, S, ReqB, BE, X, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
-    X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
+    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
+    X: Service<Request<ReqB>, Response = Request<ReqB>>,
 
     ReqB: From<RequestBody>,
 
@@ -315,6 +315,7 @@ where
                 };
             }
 
+            // TODO: add timeout for drain write?
             self.io.drain_write().await?;
         }
     }

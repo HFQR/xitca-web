@@ -37,8 +37,8 @@ where
 
     A: Service<St, Response = TlsSt> + 'static,
 
-    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-    BE: fmt::Debug + 'static,
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
 
     St: AsyncRead + AsyncWrite + Unpin,
     TlsSt: AsyncRead + AsyncWrite + Unpin,

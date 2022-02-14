@@ -1,14 +1,34 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::HashMap};
 
+use postgres_types::{Oid, Type};
 use tokio::sync::mpsc::{unbounded_channel, Sender};
 use xitca_io::bytes::{Bytes, BytesMut};
 
-use super::{error::Error, request::Request, response::Response};
+use super::{error::Error, request::Request, response::Response, statement::Statement};
 
-#[derive(Debug)]
 pub struct Client {
     pub(crate) tx: Sender<Request>,
     pub(crate) buf: RefCell<BytesMut>,
+    cached_typeinfo: RefCell<CachedTypeInfo>,
+}
+
+/// A cache of type info and prepared statements for fetching type info
+/// (corresponding to the queries in the [prepare](prepare) module).
+struct CachedTypeInfo {
+    /// A statement for basic information for a type from its
+    /// OID. Corresponds to [TYPEINFO_QUERY](prepare::TYPEINFO_QUERY) (or its
+    /// fallback).
+    typeinfo: Option<Statement>,
+    /// A statement for getting information for a composite type from its OID.
+    /// Corresponds to [TYPEINFO_QUERY](prepare::TYPEINFO_COMPOSITE_QUERY).
+    typeinfo_composite: Option<Statement>,
+    /// A statement for getting information for a composite type from its OID.
+    /// Corresponds to [TYPEINFO_QUERY](prepare::TYPEINFO_COMPOSITE_QUERY) (or
+    /// its fallback).
+    typeinfo_enum: Option<Statement>,
+
+    /// Cache of types already looked up.
+    types: HashMap<Oid, Type>,
 }
 
 impl Client {
@@ -16,6 +36,12 @@ impl Client {
         Self {
             tx,
             buf: RefCell::new(BytesMut::new()),
+            cached_typeinfo: RefCell::new(CachedTypeInfo {
+                typeinfo: None,
+                typeinfo_composite: None,
+                typeinfo_enum: None,
+                types: HashMap::new(),
+            }),
         }
     }
 
@@ -36,6 +62,14 @@ impl Client {
             .map_err(|_| Error::ConnectionClosed)?;
 
         Ok(Response::new(rx))
+    }
+
+    pub fn typeinfo(&self) -> Option<Statement> {
+        self.cached_typeinfo.borrow().typeinfo.as_ref().cloned()
+    }
+
+    pub fn set_typeinfo(&self, statement: Statement) {
+        self.cached_typeinfo.borrow_mut().typeinfo = Some(statement);
     }
 }
 

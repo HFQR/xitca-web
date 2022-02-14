@@ -25,8 +25,8 @@ where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
 
-    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-    BE: fmt::Debug + 'static,
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;

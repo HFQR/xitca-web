@@ -46,14 +46,14 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
 
 impl<'a, TlsSt, S, ReqB, ResB, BE> Dispatcher<'a, TlsSt, S, ReqB>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
     S::Error: fmt::Debug,
 
-    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-    BE: fmt::Debug + 'static,
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
 
     TlsSt: AsyncRead + AsyncWrite + Unpin,
-    ReqB: From<RequestBody> + 'static,
+    ReqB: From<RequestBody>,
 {
     pub(crate) fn new(
         io: &'a mut Connection<TlsSt, Bytes>,

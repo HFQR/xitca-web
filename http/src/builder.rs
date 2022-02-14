@@ -298,8 +298,8 @@ where
     HttpServiceError<F::Error, BE>: From<FA::Error>,
     F::Error: From<FE::Error>,
 
-    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-    BE: fmt::Debug + 'static,
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
 {
     type Response = ();
     type Error = HttpServiceError<F::Error, BE>;

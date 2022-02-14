@@ -8,8 +8,8 @@ use xitca_io::bytes::BytesMut;
 
 use super::Client;
 
+#[derive(Clone)]
 pub struct Statement {
-    client: Client,
     name: String,
     params: Vec<Type>,
     columns: Vec<Column>,
@@ -17,16 +17,16 @@ pub struct Statement {
 
 impl Drop for Statement {
     fn drop(&mut self) {
-        if !self.client.closed() {
-            let buf = &mut BytesMut::new();
+        // if !self.client.closed() {
+        //     let buf = &mut BytesMut::new();
 
-            frontend::close(b'S', &self.name, buf).unwrap();
-            frontend::sync(buf);
+        //     frontend::close(b'S', &self.name, buf).unwrap();
+        //     frontend::sync(buf);
 
-            let msg = buf.split().freeze();
+        //     let msg = buf.split().freeze();
 
-            // let _ = client.send(msg);
-        }
+        //     // let _ = client.send(msg);
+        // }
     }
 }
 
@@ -47,6 +47,7 @@ impl Statement {
 }
 
 /// Information about a column of a query.
+#[derive(Clone)]
 pub struct Column {
     name: String,
     type_: Type,

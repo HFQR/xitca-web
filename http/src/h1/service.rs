@@ -40,8 +40,7 @@ where
     S::Error: From<X::Error>,
     HttpServiceError<S::Error, BE>: From<A::Error>,
 
-    B: Stream<Item = Result<Bytes, BE>> + 'static,
-    BE: 'static,
+    B: Stream<Item = Result<Bytes, BE>>,
 
     St: AsyncIo,
     TlsSt: AsyncIo,
