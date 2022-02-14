@@ -21,7 +21,7 @@ use crate::{
     body::{ResponseBody, ResponseBodySize},
     bytes::Bytes,
     date::{DateTime, DateTimeHandle},
-    error::{BodyError, HttpServiceError},
+    error::HttpServiceError,
     h2::{body::RequestBody, error::Error},
     http::{
         header::{CONNECTION, CONTENT_LENGTH, DATE},
@@ -44,14 +44,13 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
     _req_body: PhantomData<ReqB>,
 }
 
-impl<'a, TlsSt, S, ReqB, B, E> Dispatcher<'a, TlsSt, S, ReqB>
+impl<'a, TlsSt, S, ReqB, ResB, BE> Dispatcher<'a, TlsSt, S, ReqB>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<B>>> + 'static,
+    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
 
-    B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: fmt::Debug + 'static,
 
     TlsSt: AsyncRead + AsyncWrite + Unpin,
     ReqB: From<RequestBody> + 'static,
@@ -73,7 +72,7 @@ where
         }
     }
 
-    pub(crate) async fn run(self) -> Result<(), Error<S::Error>> {
+    pub(crate) async fn run(self) -> Result<(), Error<S::Error, BE>> {
         let Self {
             io,
             mut keep_alive,
@@ -192,15 +191,15 @@ enum ConnectionState {
 }
 
 // handle request/response and return if connection should go into graceful shutdown.
-async fn h2_handler<Fut, B, BE, E>(
+async fn h2_handler<Fut, B, SE, BE>(
     fut: Fut,
     mut tx: SendResponse<Bytes>,
     date: &DateTimeHandle,
-) -> Result<ConnectionState, Error<E>>
+) -> Result<ConnectionState, Error<SE, BE>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
+    Fut: Future<Output = Result<Response<ResponseBody<B>>, SE>>,
     B: Stream<Item = Result<Bytes, BE>>,
-    BodyError: From<BE>,
+    BE: fmt::Debug,
 {
     // split response to header and body.
     let (res, body) = fut.await.map_err(Error::Service)?.into_parts();
@@ -248,7 +247,7 @@ where
         pin!(body);
 
         while let Some(res) = body.as_mut().next().await {
-            let mut chunk = res?;
+            let mut chunk = res.map_err(Error::Body)?;
 
             while !chunk.is_empty() {
                 let len = chunk.len();

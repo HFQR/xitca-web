@@ -23,7 +23,7 @@ use xitca_service::Service;
 use crate::{
     body::ResponseBody,
     bytes::{Buf, Bytes},
-    error::{BodyError, HttpServiceError},
+    error::HttpServiceError,
     h3::{body::RequestBody, error::Error},
     http::Response,
     request::Request,
@@ -37,14 +37,13 @@ pub(crate) struct Dispatcher<'a, S, ReqB> {
     _req_body: PhantomData<ReqB>,
 }
 
-impl<'a, S, ReqB, B, E> Dispatcher<'a, S, ReqB>
+impl<'a, S, ReqB, ResB, BE> Dispatcher<'a, S, ReqB>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<B>>> + 'static,
+    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
 
-    B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: fmt::Debug + 'static,
 
     ReqB: From<RequestBody> + 'static,
 {
@@ -56,7 +55,7 @@ where
         }
     }
 
-    pub(crate) async fn run(self) -> Result<(), Error<S::Error>> {
+    pub(crate) async fn run(self) -> Result<(), Error<S::Error, BE>> {
         // wait for connecting.
         let conn = self.io.connecting().await?;
 
@@ -106,15 +105,14 @@ where
     }
 }
 
-async fn h3_handler<Fut, C, B, BE, E>(
+async fn h3_handler<Fut, C, ResB, SE, BE>(
     fut: Fut,
     stream: &GenericMutex<NoopLock, RequestStream<C, Bytes>>,
-) -> Result<(), Error<E>>
+) -> Result<(), Error<SE, BE>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, E>>,
+    Fut: Future<Output = Result<Response<ResponseBody<ResB>>, SE>>,
     C: RecvStream + SendStream<Bytes>,
-    B: Stream<Item = Result<Bytes, BE>>,
-    BodyError: From<BE>,
+    ResB: Stream<Item = Result<Bytes, BE>>,
 {
     let (res, body) = fut.await.map_err(Error::Service)?.into_parts();
     let res = Response::from_parts(res, ());
@@ -124,7 +122,7 @@ where
     tokio::pin!(body);
 
     while let Some(res) = body.as_mut().next().await {
-        let bytes = res?;
+        let bytes = res.map_err(Error::Body)?;
         stream.lock().await.send_data(bytes).await?;
     }
 

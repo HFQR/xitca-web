@@ -10,25 +10,29 @@ use tracing::error;
 use super::{http::Version, tls::TlsError};
 
 /// HttpService layer error.
-pub enum HttpServiceError<E> {
+pub enum HttpServiceError<S, B> {
     Ignored,
     ServiceReady,
-    Service(E),
+    Service(S),
+    Body(B),
     Timeout(TimeoutError),
     UnSupportedVersion(Version),
-    Body(BodyError),
     Tls(TlsError),
     #[cfg(feature = "http1")]
-    H1(super::h1::Error<E>),
+    H1(super::h1::Error<S, B>),
     // Http/2 error happen in HttpService handle.
     #[cfg(feature = "http2")]
-    H2(super::h2::Error<E>),
+    H2(super::h2::Error<S, B>),
     // Http/3 error happen in HttpService handle.
     #[cfg(feature = "http3")]
-    H3(super::h3::Error<E>),
+    H3(super::h3::Error<S, B>),
 }
 
-impl<E: Debug> Debug for HttpServiceError<E> {
+impl<S, B> Debug for HttpServiceError<S, B>
+where
+    S: Debug,
+    B: Debug,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Ignored => write!(f, "Error detail is ignored."),
@@ -48,7 +52,11 @@ impl<E: Debug> Debug for HttpServiceError<E> {
     }
 }
 
-impl<E: Debug> HttpServiceError<E> {
+impl<S, B> HttpServiceError<S, B>
+where
+    S: Debug,
+    B: Debug,
+{
     pub fn log(self, target: &str) {
         // TODO: add logging for different error types.
         error!(target = target, ?self);
@@ -101,19 +109,13 @@ impl From<Infallible> for BodyError {
     }
 }
 
-impl<E> From<BodyError> for HttpServiceError<E> {
-    fn from(e: BodyError) -> Self {
-        Self::Body(e)
-    }
-}
-
-impl<E> From<()> for HttpServiceError<E> {
+impl<S, B> From<()> for HttpServiceError<S, B> {
     fn from(_: ()) -> Self {
         Self::Ignored
     }
 }
 
-impl<E> From<Infallible> for HttpServiceError<E> {
+impl<S, B> From<Infallible> for HttpServiceError<S, B> {
     fn from(_: Infallible) -> Self {
         unreachable!("Infallible error should never happen")
     }

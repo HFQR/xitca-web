@@ -4,13 +4,7 @@ use futures_core::Stream;
 use xitca_io::net::UdpStream;
 use xitca_service::ServiceFactory;
 
-use crate::{
-    body::ResponseBody,
-    bytes::Bytes,
-    error::{BodyError, HttpServiceError},
-    http::Response,
-    request::Request,
-};
+use crate::{body::ResponseBody, bytes::Bytes, error::HttpServiceError, http::Response, request::Request};
 
 use super::{body::RequestBody, service::H3Service};
 
@@ -27,7 +21,6 @@ where
 
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: 'static,
-    BodyError: From<E>,
 {
     /// Construct a new Service Builder with given service factory.
     pub fn new(factory: F) -> Self {
@@ -35,18 +28,17 @@ where
     }
 }
 
-impl<F, Arg, B, E> ServiceFactory<UdpStream, Arg> for H3ServiceBuilder<F>
+impl<F, Arg, ResB, BE> ServiceFactory<UdpStream, Arg> for H3ServiceBuilder<F>
 where
-    F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<B>>>,
+    F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
     F::Error: fmt::Debug,
 
-    B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: fmt::Debug + 'static,
 {
     type Response = ();
-    type Error = HttpServiceError<F::Error>;
+    type Error = HttpServiceError<F::Error, BE>;
     type Service = H3Service<F::Service>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 

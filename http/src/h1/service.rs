@@ -8,7 +8,7 @@ use xitca_service::Service;
 use crate::{
     body::ResponseBody,
     bytes::Bytes,
-    error::{BodyError, HttpServiceError, TimeoutError},
+    error::{HttpServiceError, TimeoutError},
     http::Response,
     request::Request,
     service::HttpService,
@@ -25,7 +25,7 @@ impl<
         S,
         X,
         B,
-        E,
+        BE,
         A,
         TlsSt,
         const HEADER_LIMIT: usize,
@@ -38,17 +38,16 @@ where
     A: Service<St, Response = TlsSt> + 'static,
 
     S::Error: From<X::Error>,
-    HttpServiceError<S::Error>: From<A::Error>,
+    HttpServiceError<S::Error, BE>: From<A::Error>,
 
-    B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    B: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: 'static,
 
     St: AsyncIo,
     TlsSt: AsyncIo,
 {
     type Response = ();
-    type Error = HttpServiceError<S::Error>;
+    type Error = HttpServiceError<S::Error, BE>;
     type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 

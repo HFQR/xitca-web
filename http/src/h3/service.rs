@@ -4,13 +4,7 @@ use futures_core::Stream;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
 
-use crate::{
-    body::ResponseBody,
-    bytes::Bytes,
-    error::{BodyError, HttpServiceError},
-    http::Response,
-    request::Request,
-};
+use crate::{body::ResponseBody, bytes::Bytes, error::HttpServiceError, http::Response, request::Request};
 
 use super::{body::RequestBody, proto::Dispatcher};
 
@@ -26,17 +20,16 @@ impl<S> H3Service<S> {
     }
 }
 
-impl<S, B, E> Service<UdpStream> for H3Service<S>
+impl<S, ResB, BE> Service<UdpStream> for H3Service<S>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
 
-    B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: fmt::Debug + 'static,
 {
     type Response = ();
-    type Error = HttpServiceError<S::Error>;
+    type Error = HttpServiceError<S::Error, BE>;
     type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 

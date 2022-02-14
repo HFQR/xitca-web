@@ -5,7 +5,7 @@ use xitca_http::{
     bytes::Bytes,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::Response,
-    BodyError, HttpServiceBuilder, Request, RequestBody, ResponseBody,
+    HttpServiceBuilder, Request, RequestBody, ResponseBody,
 };
 use xitca_server::{Builder, ServerFuture};
 use xitca_service::ServiceFactory;
@@ -187,15 +187,14 @@ where
         self
     }
 
-    pub fn bind<A: ToSocketAddrs, ResB, E>(mut self, addr: A) -> std::io::Result<Self>
+    pub fn bind<A: ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
         I::Service: 'static,
         I::Error: fmt::Debug,
 
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
-        BodyError: From<E>,
+        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+        BE: fmt::Debug + 'static,
     {
         let factory = self.factory.clone();
         let config = self.config;
@@ -208,7 +207,7 @@ where
     }
 
     #[cfg(feature = "openssl")]
-    pub fn bind_openssl<A: ToSocketAddrs, ResB, E>(
+    pub fn bind_openssl<A: ToSocketAddrs, ResB, BE>(
         mut self,
         addr: A,
         mut builder: openssl_crate::ssl::SslAcceptorBuilder,
@@ -218,9 +217,8 @@ where
         I::Service: 'static,
         I::Error: fmt::Debug,
 
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
-        BodyError: From<E>,
+        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+        BE: fmt::Debug + 'static,
     {
         let factory = self.factory.clone();
         let config = self.config;
@@ -265,7 +263,7 @@ where
     }
 
     #[cfg(feature = "rustls")]
-    pub fn bind_rustls<A: ToSocketAddrs, ResB, E>(
+    pub fn bind_rustls<A: ToSocketAddrs, ResB, BE>(
         mut self,
         addr: A,
         mut config: rustls_crate::ServerConfig,
@@ -275,9 +273,8 @@ where
         I::Service: 'static,
         I::Error: fmt::Debug,
 
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
-        BodyError: From<E>,
+        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+        BE: fmt::Debug + 'static,
     {
         let factory = self.factory.clone();
         let service_config = self.config;
@@ -303,15 +300,14 @@ where
     }
 
     #[cfg(unix)]
-    pub fn bind_unix<P: AsRef<std::path::Path>, ResB, E>(mut self, path: P) -> std::io::Result<Self>
+    pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
         I::Service: 'static,
         I::Error: fmt::Debug,
 
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
-        BodyError: From<E>,
+        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+        BE: fmt::Debug + 'static,
     {
         let factory = self.factory.clone();
         let config = self.config;

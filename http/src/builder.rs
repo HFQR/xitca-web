@@ -11,7 +11,7 @@ use super::{
     body::{RequestBody, ResponseBody},
     bytes::Bytes,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
-    error::{BodyError, HttpServiceError},
+    error::HttpServiceError,
     expect::ExpectHandler,
     http::Response,
     request::Request,
@@ -114,7 +114,6 @@ impl<F>
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
-        BodyError: From<E>,
     {
         HttpServiceBuilder {
             factory,
@@ -148,7 +147,6 @@ impl<F>
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
-        BodyError: From<E>,
     {
         HttpServiceBuilder {
             factory,
@@ -171,7 +169,6 @@ impl<F>
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
-        BodyError: From<E>,
     {
         super::h3::H3ServiceBuilder::new(factory)
     }
@@ -273,8 +270,17 @@ impl<V, St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
     }
 }
 
-impl<F, Arg, ResB, E, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    ServiceFactory<ServerStream, Arg>
+impl<
+        F,
+        Arg,
+        ResB,
+        BE,
+        FE,
+        FA,
+        const HEADER_LIMIT: usize,
+        const READ_BUF_LIMIT: usize,
+        const WRITE_BUF_LIMIT: usize,
+    > ServiceFactory<ServerStream, Arg>
     for HttpServiceBuilder<marker::Http, ServerStream, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<ResB>>>,
@@ -289,15 +295,14 @@ where
     FA::Service: 'static,
     FA::Response: AsyncIo + AsVersion,
 
-    HttpServiceError<F::Error>: From<FA::Error>,
+    HttpServiceError<F::Error, BE>: From<FA::Error>,
     F::Error: From<FE::Error>,
 
-    ResB: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: fmt::Debug + 'static,
 {
     type Response = ();
-    type Error = HttpServiceError<F::Error>;
+    type Error = HttpServiceError<F::Error, BE>;
     type Service =
         HttpService<F::Service, RequestBody, FE::Service, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
@@ -310,10 +315,8 @@ where
 
         async move {
             // TODO: clean up error types.
-            let expect = expect
-                .await
-                .map_err(|e| HttpServiceError::<F::Error>::Service(e.into()))?;
-            let service = service.await.map_err(HttpServiceError::<F::Error>::Service)?;
+            let expect = expect.await.map_err(|e| HttpServiceError::Service(e.into()))?;
+            let service = service.await.map_err(HttpServiceError::Service)?;
             let tls_acceptor = tls_acceptor.await?;
             Ok(HttpService::new(config, service, expect, tls_acceptor))
         }

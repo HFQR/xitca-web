@@ -78,7 +78,7 @@ where
         tokio::pin!(body);
 
         while let Some(res) = body.as_mut().next().await {
-            let mut chunk = res?;
+            let mut chunk = res.map_err(BodyError::from)?;
 
             while !chunk.is_empty() {
                 let len = chunk.len();

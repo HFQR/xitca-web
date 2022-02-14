@@ -8,7 +8,7 @@ use crate::{
     body::ResponseBody,
     builder::{marker, HttpServiceBuilder},
     bytes::Bytes,
-    error::{BodyError, HttpServiceError},
+    error::HttpServiceError,
     http::Response,
     request::Request,
 };
@@ -50,7 +50,7 @@ impl<
         F,
         Arg,
         ResB,
-        E,
+        BE,
         FE,
         FA,
         TlsSt,
@@ -70,18 +70,17 @@ where
     FA: ServiceFactory<St, Response = TlsSt>,
     FA::Service: 'static,
 
-    HttpServiceError<F::Error>: From<FA::Error>,
+    HttpServiceError<F::Error, BE>: From<FA::Error>,
     F::Error: From<FE::Error>,
 
-    ResB: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: 'static,
 
     St: AsyncIo,
     TlsSt: AsyncIo,
 {
     type Response = ();
-    type Error = HttpServiceError<F::Error>;
+    type Error = HttpServiceError<F::Error, BE>;
     type Service = H1Service<F::Service, FE::Service, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
@@ -93,10 +92,8 @@ where
 
         async move {
             // TODO: clean up error types.
-            let expect = expect
-                .await
-                .map_err(|e| HttpServiceError::<F::Error>::Service(e.into()))?;
-            let service = service.await.map_err(HttpServiceError::<F::Error>::Service)?;
+            let expect = expect.await.map_err(|e| HttpServiceError::Service(e.into()))?;
+            let service = service.await.map_err(HttpServiceError::Service)?;
             let tls_acceptor = tls_acceptor.await?;
             Ok(H1Service::new(config, service, expect, tls_acceptor))
         }

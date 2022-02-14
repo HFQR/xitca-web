@@ -8,7 +8,7 @@ use xitca_service::Service;
 use crate::{
     body::ResponseBody,
     bytes::Bytes,
-    error::{BodyError, HttpServiceError, TimeoutError},
+    error::{HttpServiceError, TimeoutError},
     http::Response,
     request::Request,
     service::HttpService,
@@ -20,25 +20,33 @@ use super::{body::RequestBody, proto::Dispatcher};
 pub type H2Service<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
     HttpService<S, RequestBody, (), A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<St, S, B, E, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<St> for H2Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<
+        St,
+        S,
+        ResB,
+        BE,
+        A,
+        TlsSt,
+        const HEADER_LIMIT: usize,
+        const READ_BUF_LIMIT: usize,
+        const WRITE_BUF_LIMIT: usize,
+    > Service<St> for H2Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
 
     A: Service<St, Response = TlsSt> + 'static,
 
-    B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: fmt::Debug + 'static,
 
     St: AsyncRead + AsyncWrite + Unpin,
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 
-    HttpServiceError<S::Error>: From<A::Error>,
+    HttpServiceError<S::Error, BE>: From<A::Error>,
 {
     type Response = ();
-    type Error = HttpServiceError<S::Error>;
+    type Error = HttpServiceError<S::Error, BE>;
     type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 

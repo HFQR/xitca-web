@@ -11,7 +11,6 @@ use crate::{
     bytes::Bytes,
     config::HttpServiceConfig,
     date::DateTime,
-    error::BodyError,
     h1::{
         body::{RequestBody, RequestBodySender},
         error::Error,
@@ -40,7 +39,7 @@ pub(crate) async fn run<
     S,
     ReqB,
     ResB,
-    E,
+    BE,
     X,
     D,
     const HEADER_LIMIT: usize,
@@ -53,15 +52,14 @@ pub(crate) async fn run<
     expect: &'a X,
     service: &'a S,
     date: &'a D,
-) -> Result<(), Error<S::Error>>
+) -> Result<(), Error<S::Error, BE>>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
 
     ReqB: From<RequestBody>,
 
-    ResB: Stream<Item = Result<Bytes, E>>,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>>,
 
     S::Error: From<X::Error>,
 
@@ -98,6 +96,7 @@ struct Dispatcher<
     St,
     S,
     ReqB,
+    BE,
     X,
     W,
     D,
@@ -107,7 +106,7 @@ struct Dispatcher<
 > where
     S: Service<Request<ReqB>>,
 {
-    io: Io<'a, St, W, S::Error, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+    io: Io<'a, St, W, S::Error, BE, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
@@ -116,15 +115,15 @@ struct Dispatcher<
     _phantom: PhantomData<ReqB>,
 }
 
-struct Io<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+struct Io<'a, St, W, SE, BE, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     io: &'a mut St,
     read_buf: FlatBuf<READ_BUF_LIMIT>,
     write_buf: W,
-    _err: PhantomData<E>,
+    _err: PhantomData<(SE, BE)>,
 }
 
-impl<'a, St, W, E, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Io<'a, St, W, E, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<'a, St, W, SE, BE, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Io<'a, St, W, SE, BE, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     St: AsyncIo,
     W: WriteBuf,
@@ -139,7 +138,7 @@ where
     }
 
     /// read until blocked/read backpressure and advance readbuf.
-    fn try_read(&mut self) -> Result<(), Error<E>> {
+    fn try_read(&mut self) -> Result<(), Error<SE, BE>> {
         loop {
             match self.io.try_read_buf(&mut *self.read_buf) {
                 Ok(0) => return Err(Error::Closed),
@@ -156,25 +155,25 @@ where
     }
 
     /// Return when write is blocked and need wait.
-    fn try_write(&mut self) -> Result<(), Error<E>> {
+    fn try_write(&mut self) -> Result<(), Error<SE, BE>> {
         self.write_buf.try_write_io(self.io)
     }
 
     /// Block task and read.
-    async fn read(&mut self) -> Result<(), Error<E>> {
+    async fn read(&mut self) -> Result<(), Error<SE, BE>> {
         self.io.ready(Interest::READABLE).await?;
         self.try_read()
     }
 
     /// Flush io
-    async fn flush(&mut self) -> Result<(), Error<E>> {
+    async fn flush(&mut self) -> Result<(), Error<SE, BE>> {
         poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx))
             .await
             .map_err(Error::from)
     }
 
     /// drain write buffer and flush the io.
-    async fn drain_write(&mut self) -> Result<(), Error<E>> {
+    async fn drain_write(&mut self) -> Result<(), Error<SE, BE>> {
         while !self.write_buf.is_empty() {
             self.try_write()?;
             let _ = self.io.ready(Interest::WRITABLE).await?;
@@ -184,7 +183,7 @@ where
 
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for `crate::util::futures::Select`.
-    async fn writable(&self) -> Result<(), Error<E>> {
+    async fn writable(&self) -> Result<(), Error<SE, BE>> {
         if self.write_buf.is_empty() {
             never().await
         } else {
@@ -217,7 +216,7 @@ where
     }
 
     #[inline(never)]
-    async fn shutdown(&mut self) -> Result<(), Error<E>> {
+    async fn shutdown(&mut self) -> Result<(), Error<SE, BE>> {
         self.drain_write().await?;
         poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx))
             .await
@@ -231,22 +230,21 @@ impl<
         S,
         ReqB,
         ResB,
-        E,
+        BE,
         X,
         W,
         D,
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, X, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Dispatcher<'a, St, S, ReqB, BE, X, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>> + 'static,
     X: Service<Request<ReqB>, Response = Request<ReqB>> + 'static,
 
     ReqB: From<RequestBody>,
 
-    ResB: Stream<Item = Result<Bytes, E>>,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>>,
 
     S::Error: From<X::Error>,
 
@@ -275,7 +273,7 @@ where
         }
     }
 
-    async fn run(mut self) -> Result<(), Error<S::Error>> {
+    async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
             match self.ctx.ctype() {
                 ConnectionType::Init | ConnectionType::KeepAlive => {
@@ -341,7 +339,7 @@ where
         }
     }
 
-    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<TransferCoding, Error<S::Error>> {
+    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<TransferCoding, Error<S::Error, BE>> {
         self.ctx
             .encode_head(parts, body.size(), &mut self.io.write_buf)
             .map_err(Into::into)
@@ -351,7 +349,7 @@ where
         &mut self,
         mut req: Request<ReqB>,
         body_handle: &mut Option<RequestBodyHandle>,
-    ) -> Result<S::Response, Error<S::Error>> {
+    ) -> Result<S::Response, Error<S::Error, BE>> {
         if self.ctx.is_expect_header() {
             let expect_res = self.expect.call(req).await.map_err(|e| Error::Service(e.into()))?;
 
@@ -378,7 +376,7 @@ where
     async fn request_body_handler(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
-    ) -> Result<S::Response, Error<S::Error>> {
+    ) -> Result<S::Response, Error<S::Error, BE>> {
         // decode request body and read more if needed.
         if let Some(handle) = body_handle {
             // Check the readiness of RequestBodyHandle
@@ -402,7 +400,7 @@ where
         body: ResponseBody<ResB>,
         encoder: &mut TransferCoding,
         mut body_handle: Option<RequestBodyHandle>,
-    ) -> Result<(), Error<S::Error>> {
+    ) -> Result<(), Error<S::Error, BE>> {
         pin!(body);
         loop {
             match self
@@ -411,7 +409,7 @@ where
                 .await
             {
                 SelectOutput::A(Some(res)) => {
-                    let bytes = res?;
+                    let bytes = res.map_err(Error::Body)?;
                     encoder.encode(bytes, &mut self.io.write_buf);
                 }
                 SelectOutput::A(None) => {
@@ -434,7 +432,7 @@ where
     fn try_poll_body<'b>(
         &self,
         body: Pin<&'b mut ResponseBody<ResB>>,
-    ) -> impl Future<Output = Option<Result<Bytes, BodyError>>> + 'b {
+    ) -> impl Future<Output = Option<Result<Bytes, BE>>> + 'b {
         let write_backpressure = self.io.write_buf.backpressure();
         async move {
             if write_backpressure {
@@ -448,7 +446,7 @@ where
     async fn response_body_handler(
         &mut self,
         body_handle: &mut Option<RequestBodyHandle>,
-    ) -> Result<(), Error<S::Error>> {
+    ) -> Result<(), Error<S::Error, BE>> {
         match body_handle.as_mut() {
             Some(handle) => match handle.decode(&mut self.io.read_buf)? {
                 DecodeState::Continue => {
@@ -484,7 +482,7 @@ where
 
     #[cold]
     #[inline(never)]
-    fn request_error<F>(&mut self, func: F) -> Result<(), Error<S::Error>>
+    fn request_error<F>(&mut self, func: F) -> Result<(), Error<S::Error, BE>>
     where
         F: Fn() -> Response<ResponseBody<ResB>>,
     {

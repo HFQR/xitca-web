@@ -1,24 +1,25 @@
 use std::{fmt, io};
 
-use crate::{
-    error::{BodyError, HttpServiceError},
-    util::keep_alive::KeepAliveExpired,
-};
+use crate::{error::HttpServiceError, util::keep_alive::KeepAliveExpired};
 
 use super::proto::error::ProtoError;
 
-pub enum Error<E> {
+pub enum Error<S, B> {
     /// KeepAlive error should be treated as success and transform to Ok(())
     KeepAliveExpire,
     /// Closed error should be treated as success and transform to Ok(())
     Closed,
-    Service(E),
-    Body(BodyError),
+    Service(S),
+    Body(B),
     Io(io::Error),
     Proto(ProtoError),
 }
 
-impl<E: fmt::Debug> fmt::Debug for Error<E> {
+impl<S, B> fmt::Debug for Error<S, B>
+where
+    S: fmt::Debug,
+    B: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::KeepAliveExpire => write!(f, "Keep-Alive time expired"),
@@ -31,19 +32,13 @@ impl<E: fmt::Debug> fmt::Debug for Error<E> {
     }
 }
 
-impl<E> From<BodyError> for Error<E> {
-    fn from(e: BodyError) -> Self {
-        Self::Body(e)
-    }
-}
-
-impl<E> From<ProtoError> for Error<E> {
+impl<S, B> From<ProtoError> for Error<S, B> {
     fn from(e: ProtoError) -> Self {
         Self::Proto(e)
     }
 }
 
-impl<E> From<io::Error> for Error<E> {
+impl<S, B> From<io::Error> for Error<S, B> {
     fn from(e: io::Error) -> Self {
         match e.kind() {
             io::ErrorKind::ConnectionReset => Self::Closed,
@@ -53,14 +48,14 @@ impl<E> From<io::Error> for Error<E> {
     }
 }
 
-impl<E> From<KeepAliveExpired> for Error<E> {
+impl<S, B> From<KeepAliveExpired> for Error<S, B> {
     fn from(_: KeepAliveExpired) -> Self {
         Self::KeepAliveExpire
     }
 }
 
-impl<E> From<Error<E>> for HttpServiceError<E> {
-    fn from(e: Error<E>) -> Self {
+impl<S, B> From<Error<S, B>> for HttpServiceError<S, B> {
+    fn from(e: Error<S, B>) -> Self {
         match e {
             Error::Service(e) => HttpServiceError::Service(e),
             e => Self::H1(e),

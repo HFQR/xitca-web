@@ -69,7 +69,6 @@ pin_project! {
 impl<B, E> ResponseBody<B>
 where
     B: Stream<Item = Result<Bytes, E>>,
-    BodyError: From<E>,
 {
     // TODO: use std::stream::Stream::next when it's added.
     #[doc(hidden)]
@@ -115,9 +114,8 @@ pub struct Next<'a, B: Stream> {
 impl<B, E> Future for Next<'_, B>
 where
     B: Stream<Item = Result<Bytes, E>>,
-    BodyError: From<E>,
 {
-    type Output = Option<Result<Bytes, BodyError>>;
+    type Output = Option<Result<Bytes, E>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.get_mut().stream.as_mut().poll_next(cx)
@@ -127,9 +125,8 @@ where
 impl<B, E> Stream for ResponseBody<B>
 where
     B: Stream<Item = Result<Bytes, E>>,
-    BodyError: From<E>,
 {
-    type Item = Result<Bytes, BodyError>;
+    type Item = Result<Bytes, E>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project() {
@@ -138,7 +135,7 @@ where
                 ResponseBodyProjReplace::Bytes { bytes } => Poll::Ready(Some(Ok(bytes))),
                 _ => unreachable!(),
             },
-            ResponseBodyProj::Stream { stream } => stream.poll_next(cx).map_err(From::from),
+            ResponseBodyProj::Stream { stream } => stream.poll_next(cx),
         }
     }
 }
