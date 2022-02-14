@@ -73,8 +73,7 @@ where
     HttpServiceError<F::Error, BE>: From<FA::Error>,
     F::Error: From<FE::Error>,
 
-    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-    BE: 'static,
+    ResB: Stream<Item = Result<Bytes, BE>>,
 
     St: AsyncIo,
     TlsSt: AsyncIo,

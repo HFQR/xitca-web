@@ -34,8 +34,8 @@ where
     F::Service: 'static,
     F::Error: fmt::Debug,
 
-    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-    BE: fmt::Debug + 'static,
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
 {
     type Response = ();
     type Error = HttpServiceError<F::Error, BE>;

@@ -102,8 +102,8 @@ where
 
     S::Error: fmt::Debug + From<X::Error>,
 
-    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-    BE: fmt::Debug + 'static,
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
