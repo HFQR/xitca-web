@@ -10,8 +10,7 @@ use std::{
 
 use futures_util::Stream;
 use xitca_http::{
-    body::ResponseBody, config::HttpServiceConfig, error::BodyError, h1, h2, h3, http::Response, HttpServiceBuilder,
-    Request,
+    body::ResponseBody, config::HttpServiceConfig, h1, h2, h3, http::Response, HttpServiceBuilder, Request,
 };
 use xitca_io::{
     bytes::Bytes,
@@ -50,8 +49,7 @@ where
     F: Fn() -> I + Send + Clone + 'static,
     I: ServiceFactory<Request<h1::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    E: fmt::Debug + 'static,
 {
     test_server::<_, _, TcpStream>(move || {
         let f = factory();
@@ -66,8 +64,7 @@ where
     I: ServiceFactory<Request<h2::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     I::Error: fmt::Debug,
     B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    E: fmt::Debug + 'static,
 {
     test_server::<_, _, TcpStream>(move || {
         let f = factory();
@@ -86,8 +83,7 @@ where
     I: ServiceFactory<Request<h3::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
     I::Error: fmt::Debug,
     B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    E: fmt::Debug + 'static,
 {
     let addr = std::net::UdpSocket::bind("127.0.0.1:0")?.local_addr()?;
 

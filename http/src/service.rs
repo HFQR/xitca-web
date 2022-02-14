@@ -10,7 +10,7 @@ use super::{
     bytes::Bytes,
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
-    error::{BodyError, HttpServiceError, TimeoutError},
+    error::{HttpServiceError, TimeoutError},
     http::{Response, Version},
     request::Request,
     util::{futures::Timeout, keep_alive::KeepAlive},
@@ -56,7 +56,7 @@ impl<S, ReqB, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
     }
 
     /// Service readiness check
-    pub(super) async fn _ready<ReqS, ReqX, ReqA, E>(&self) -> Result<(), HttpServiceError<E>>
+    pub(super) async fn _ready<ReqS, ReqX, ReqA, SE, BE>(&self) -> Result<(), HttpServiceError<SE, BE>>
     where
         S: Service<ReqS>,
         X: Service<ReqX>,
@@ -90,24 +90,23 @@ impl<S, ReqB, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
     }
 }
 
-impl<S, X, B, E, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+impl<S, X, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     Service<ServerStream> for HttpService<S, RequestBody, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     A: Service<TcpStream> + 'static,
     A::Response: AsyncIo + AsVersion,
 
-    HttpServiceError<S::Error>: From<A::Error>,
+    HttpServiceError<S::Error, BE>: From<A::Error>,
 
     S::Error: fmt::Debug + From<X::Error>,
 
-    B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: fmt::Debug + 'static,
 {
     type Response = ();
-    type Error = HttpServiceError<S::Error>;
+    type Error = HttpServiceError<S::Error, BE>;
     type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 

@@ -26,28 +26,28 @@ impl fmt::Debug for TlsError {
     }
 }
 
-impl<E> From<TlsError> for HttpServiceError<E> {
+impl<S, B> From<TlsError> for HttpServiceError<S, B> {
     fn from(e: TlsError) -> Self {
         Self::Tls(e)
     }
 }
 
 #[cfg(feature = "openssl")]
-impl<E> From<super::openssl::OpensslError> for HttpServiceError<E> {
+impl<S, B> From<super::openssl::OpensslError> for HttpServiceError<S, B> {
     fn from(e: super::openssl::OpensslError) -> Self {
         Self::Tls(e.into())
     }
 }
 
 #[cfg(feature = "rustls")]
-impl<E> From<super::rustls::RustlsError> for HttpServiceError<E> {
+impl<S, B> From<super::rustls::RustlsError> for HttpServiceError<S, B> {
     fn from(e: super::rustls::RustlsError) -> Self {
         Self::Tls(e.into())
     }
 }
 
 #[cfg(feature = "native-tls")]
-impl<E> From<super::native_tls::NativeTlsError> for HttpServiceError<E> {
+impl<S, B> From<super::native_tls::NativeTlsError> for HttpServiceError<S, B> {
     fn from(e: super::native_tls::NativeTlsError) -> Self {
         Self::Tls(e.into())
     }

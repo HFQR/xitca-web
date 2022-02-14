@@ -122,7 +122,7 @@ where
 
         // poll request body and encode.
         while let Some(bytes) = body.as_mut().next().await {
-            let bytes = bytes?;
+            let bytes = bytes.map_err(BodyError::from)?;
             encoder.encode(bytes, buf);
             // we are not in a hurry here so read and flush before next chunk
             stream.write_all_buf(&mut **buf).await?;

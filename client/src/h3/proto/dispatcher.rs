@@ -61,7 +61,7 @@ where
     if !is_eof {
         tokio::pin!(body);
         while let Some(bytes) = body.as_mut().next().await {
-            let bytes = bytes?;
+            let bytes = bytes.map_err(BodyError::from)?;
             stream.send_data(bytes).await?;
         }
     }

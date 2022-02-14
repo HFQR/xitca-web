@@ -8,7 +8,7 @@ use crate::{
     body::ResponseBody,
     builder::{marker, HttpServiceBuilder},
     bytes::Bytes,
-    error::{BodyError, HttpServiceError},
+    error::HttpServiceError,
     http::Response,
     request::Request,
 };
@@ -19,8 +19,8 @@ impl<
         St,
         F,
         Arg,
-        B,
-        E,
+        ResB,
+        BE,
         FE,
         FA,
         TlsSt,
@@ -30,23 +30,22 @@ impl<
     > ServiceFactory<St, Arg>
     for HttpServiceBuilder<marker::Http2, St, F, FE, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<B>>>,
+    F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
     F::Error: fmt::Debug,
 
     FA: ServiceFactory<St, Response = TlsSt>,
     FA::Service: 'static,
-    HttpServiceError<F::Error>: From<FA::Error>,
+    HttpServiceError<F::Error, BE>: From<FA::Error>,
 
-    B: Stream<Item = Result<Bytes, E>> + 'static,
-    E: 'static,
-    BodyError: From<E>,
+    ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+    BE: fmt::Debug + 'static,
 
     St: AsyncIo,
     TlsSt: AsyncIo,
 {
     type Response = ();
-    type Error = HttpServiceError<F::Error>;
+    type Error = HttpServiceError<F::Error, BE>;
     type Service = H2Service<F::Service, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
