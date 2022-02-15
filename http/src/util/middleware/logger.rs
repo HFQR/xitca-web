@@ -17,9 +17,12 @@ impl Default for Logger {
 
 impl Logger {
     pub fn new() -> Self {
-        Self {
-            span: span!(Level::TRACE, "xitca-logger"),
-        }
+        Self::with_span(span!(Level::TRACE, "xitca-logger"))
+    }
+
+    #[inline]
+    pub fn with_span(span: Span) -> Self {
+        Self { span }
     }
 }
 
