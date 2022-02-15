@@ -20,7 +20,6 @@ impl Logger {
         Self::with_span(span!(Level::TRACE, "xitca-logger"))
     }
 
-    #[inline]
     pub fn with_span(span: Span) -> Self {
         Self { span }
     }

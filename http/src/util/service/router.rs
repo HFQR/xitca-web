@@ -1,13 +1,14 @@
-use std::{collections::HashMap, error, fmt, future::Future};
+use std::{borrow::Borrow, collections::HashMap, error, fmt, future::Future, marker::PhantomData};
 
 use matchit::{MatchError, Node};
 use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject};
 
-use crate::request::Request;
+use crate::http;
 
 /// Simple router for matching on [Request]'s path and call according service.
-pub struct Router<Req, Arg, Res, Err> {
+pub struct Router<Req, ReqB, Arg, Res, Err> {
     routes: HashMap<&'static str, ServiceFactoryObject<Req, Arg, Res, Err>>,
+    _req_body: PhantomData<ReqB>,
 }
 
 /// Error type of Router service.
@@ -41,15 +42,18 @@ impl<E: fmt::Display> fmt::Display for RouterError<E> {
 
 impl<E> error::Error for RouterError<E> where E: fmt::Debug + fmt::Display {}
 
-impl<Req, Arg, Res, Err> Default for Router<Req, Arg, Res, Err> {
+impl<Req, ReqB, Arg, Res, Err> Default for Router<Req, ReqB, Arg, Res, Err> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Req, Arg, Res, Err> Router<Req, Arg, Res, Err> {
+impl<Req, ReqB, Arg, Res, Err> Router<Req, ReqB, Arg, Res, Err> {
     pub fn new() -> Self {
-        Self { routes: HashMap::new() }
+        Self {
+            routes: HashMap::new(),
+            _req_body: PhantomData,
+        }
     }
 
     /// Insert a new service factory to given path.
@@ -69,13 +73,14 @@ impl<Req, Arg, Res, Err> Router<Req, Arg, Res, Err> {
     }
 }
 
-impl<ReqB, Arg, Res, Err> ServiceFactory<Request<ReqB>, Arg> for Router<Request<ReqB>, Arg, Res, Err>
+impl<Req, ReqB, Arg, Res, Err> ServiceFactory<Req, Arg> for Router<Req, ReqB, Arg, Res, Err>
 where
+    Req: Borrow<http::Request<ReqB>>,
     Arg: Clone,
 {
     type Response = Res;
     type Error = RouterError<Err>;
-    type Service = RouterService<Request<ReqB>, Res, Err>;
+    type Service = RouterService<Req, ReqB, Res, Err>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
@@ -93,24 +98,32 @@ where
                 routes.insert(path, service).unwrap();
             }
 
-            Ok(RouterService { routes })
+            Ok(RouterService {
+                routes,
+                _req_body: PhantomData,
+            })
         }
     }
 }
 
-pub struct RouterService<Req, Res, Err> {
+pub struct RouterService<Req, ReqB, Res, Err> {
     routes: Node<ServiceObject<Req, Res, Err>>,
+    _req_body: PhantomData<ReqB>,
 }
 
-impl<Req, Res, Err> Clone for RouterService<Req, Res, Err> {
+impl<Req, ReqB, Res, Err> Clone for RouterService<Req, ReqB, Res, Err> {
     fn clone(&self) -> Self {
         Self {
             routes: self.routes.clone(),
+            _req_body: PhantomData,
         }
     }
 }
 
-impl<ReqB, Res, Err> Service<Request<ReqB>> for RouterService<Request<ReqB>, Res, Err> {
+impl<Req, ReqB, Res, Err> Service<Req> for RouterService<Req, ReqB, Res, Err>
+where
+    Req: Borrow<http::Request<ReqB>>,
+{
     type Response = Res;
     type Error = RouterError<Err>;
     type Ready<'f>
@@ -128,11 +141,58 @@ impl<ReqB, Res, Err> Service<Request<ReqB>> for RouterService<Request<ReqB>, Res
     }
 
     #[inline]
-    fn call(&self, req: Request<ReqB>) -> Self::Future<'_> {
+    fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
-            let service = self.routes.at(req.uri().path()).map_err(RouterError::MatchError)?;
+            let service = self
+                .routes
+                .at(req.borrow().uri().path())
+                .map_err(RouterError::MatchError)?;
 
             service.value.call(req).await.map_err(RouterError::Service)
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::convert::Infallible;
+
+    use xitca_service::fn_service;
+
+    use crate::{
+        http::{self, Response},
+        request::Request,
+    };
+
+    #[tokio::test]
+    async fn router_accept_crate_request() {
+        Router::new()
+            .insert(
+                "/",
+                fn_service(|_: Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
+            )
+            .new_service(())
+            .await
+            .unwrap()
+            .call(Request::new(()))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn router_accept_http_request() {
+        Router::new()
+            .insert(
+                "/",
+                fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
+            )
+            .new_service(())
+            .await
+            .unwrap()
+            .call(http::Request::new(()))
+            .await
+            .unwrap();
     }
 }

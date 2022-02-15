@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     net::SocketAddr,
     ops::{Deref, DerefMut},
 };
@@ -93,6 +94,18 @@ impl<B> Deref for Request<B> {
 
 impl<B> DerefMut for Request<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.req
+    }
+}
+
+impl<B> Borrow<http::Request<B>> for Request<B> {
+    fn borrow(&self) -> &http::Request<B> {
+        &self.req
+    }
+}
+
+impl<B> AsMut<http::Request<B>> for Request<B> {
+    fn as_mut(&mut self) -> &mut http::Request<B> {
         &mut self.req
     }
 }
