@@ -1,5 +1,5 @@
 use std::{
-    borrow::Borrow,
+    borrow::{Borrow, BorrowMut},
     net::SocketAddr,
     ops::{Deref, DerefMut},
 };
@@ -8,8 +8,10 @@ use super::http;
 
 /// Extened request type for xitca-http.
 ///
-/// It extends on [http::Rquest] type with additional fields that it does not provided.
-/// It dereference to [http::Request].
+/// It extends on [http::Request] type with additional state.
+///
+/// Request impls [Borrow]/[BorrowMut]/[Deref]/[DerefMut] trait and they can be used to
+/// get a direct reference to [http::Request] type.
 pub struct Request<B> {
     req: http::Request<B>,
     remote_addr: Option<SocketAddr>,
@@ -29,7 +31,7 @@ impl<B> Request<B> {
         }
     }
 
-    /// Construct from [http::Request]
+    /// Construct from existing `http::Request` and optional `SocketAddr`.
     #[inline(always)]
     pub fn from_http(req: http::Request<B>, remote_addr: Option<SocketAddr>) -> Self {
         Self { req, remote_addr }
@@ -104,8 +106,8 @@ impl<B> Borrow<http::Request<B>> for Request<B> {
     }
 }
 
-impl<B> AsMut<http::Request<B>> for Request<B> {
-    fn as_mut(&mut self) -> &mut http::Request<B> {
+impl<B> BorrowMut<http::Request<B>> for Request<B> {
+    fn borrow_mut(&mut self) -> &mut http::Request<B> {
         &mut self.req
     }
 }
