@@ -6,6 +6,7 @@ use tracing::info;
 use xitca_web::{
     dev::fn_service,
     error::BodyError,
+    http,
     request::WebRequest,
     response::{ResponseBody, WebResponse},
     App, HttpServer,
@@ -38,10 +39,11 @@ async fn handler(req: &mut WebRequest<'_, &'static str>) -> Result<WebResponse, 
     assert_eq!(*state, "app_state");
 
     // take ownership of request.
-    let req = req.take_request();
+    let (parts, body) = req.take_request().into_parts();
+    let req = http::Request::from_parts(parts, ());
 
     // construct websocket handler types.
-    let (mut decode, res, tx) = ws(req)?;
+    let (mut decode, res, tx) = ws(req, body)?;
 
     // spawn websocket message handling logic task.
     tokio::task::spawn_local(async move {

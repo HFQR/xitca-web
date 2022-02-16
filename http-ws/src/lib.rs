@@ -7,10 +7,9 @@
 //!
 //! # Examples:
 //! ```rust
-//! # use std::pin::Pin;
-//! # use std::task::{Context, Poll};
-//! use http::{Request, Response, header, Method};
-//! use http_ws::{handshake, DecodeStream, Message};
+//! # use std::{pin::Pin, task::{Context, Poll}};
+//! # use http::{Request, Response, header, Method};
+//! # use http_ws::{handshake, DecodeStream, Message};
 //! # use futures_core::Stream;
 //! #
 //! # fn ws() -> Response<http_ws::EncodeStream> {
@@ -29,6 +28,7 @@
 //!     .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
 //!     .header(header::CONNECTION, header::HeaderValue::from_static("upgrade"))
 //!     .header(header::SEC_WEBSOCKET_VERSION, header::HeaderValue::from_static("13"))
+//!     .header(header::SEC_WEBSOCKET_KEY, header::HeaderValue::from_static("some_key"))
 //!     .body(DummyRequestBody)
 //!     .unwrap();
 //!
@@ -211,16 +211,46 @@ pub type WsOutput<B> = (
 );
 
 #[cfg(feature = "stream")]
-/// A shortcut for generating a set of response types with given [Request](http::Request).
-pub fn ws<Req, B, T, E>(mut req: Req) -> Result<WsOutput<B>, HandshakeError>
+/// A shortcut for generating a set of response types with given [Request] and `<Body>` type.
+///
+/// `<Body>` must be a type impl [futures_core::Stream] trait with `Result<T: AsRef<[u8]>, E>`
+/// as `Stream::Item` associated type.
+///
+/// # Examples:
+/// ```rust
+/// # use std::pin::Pin;
+/// # use std::task::{Context, Poll};
+/// # use http::{header, Request};
+/// # use futures_core::Stream;
+/// # #[derive(Default)]
+/// # struct DummyRequestBody;
+/// #
+/// # impl Stream for DummyRequestBody {
+/// #   type Item = Result<Vec<u8>, ()>;
+/// #   fn poll_next(self:Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+/// #        Poll::Ready(Some(Ok(vec![1, 2, 3])))
+/// #    }
+/// # }
+/// // an incoming http request.
+/// let mut req = Request::get("/")
+///     .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
+///     .header(header::CONNECTION, header::HeaderValue::from_static("upgrade"))
+///     .header(header::SEC_WEBSOCKET_VERSION, header::HeaderValue::from_static("13"))
+///     .header(header::SEC_WEBSOCKET_KEY, header::HeaderValue::from_static("some_key"))
+///     .body(())
+///     .unwrap();
+///
+/// let (decoded_stream, http_response, encode_stream_sink) = http_ws::ws(&mut req, DummyRequestBody).unwrap();
+/// ```
+pub fn ws<Req, B, T, E>(mut req: Req, body: B) -> Result<WsOutput<B>, HandshakeError>
 where
-    Req: std::ops::DerefMut<Target = Request<B>>,
-    B: futures_core::Stream<Item = Result<T, E>> + Default,
+    Req: std::borrow::BorrowMut<Request<()>>,
+    B: futures_core::Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
 {
-    let builder = handshake(req.method(), req.headers())?;
+    let req = req.borrow_mut();
 
-    let body = std::mem::take(&mut *req).into_body();
+    let builder = handshake(req.method(), req.headers())?;
 
     let decode = DecodeStream::new(body);
     let (tx, encode) = decode.encode_stream();
