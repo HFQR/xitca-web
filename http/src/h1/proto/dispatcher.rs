@@ -195,7 +195,7 @@ where
     /// Check readable and writable state of IO and ready state of request payload sender.
     /// Remove readable state if request payload is not ready(Read ahead backpressure).
     async fn ready<D, const HEADER_LIMIT: usize>(
-        &self,
+        &mut self,
         handle: &mut RequestBodyHandle,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {

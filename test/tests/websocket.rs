@@ -1,4 +1,4 @@
-use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use http_ws::{ws, Message};
 use xitca_http::{body::ResponseBody, h1, http::Response, Request};
 use xitca_io::bytes::Bytes;
@@ -39,8 +39,9 @@ async fn message() -> Result<(), Error> {
 
 async fn handler(
     req: Request<h1::RequestBody>,
-) -> Result<Response<ResponseBody<impl Stream<Item = Result<Bytes, Error>>>>, Error> {
-    let (mut decode, res, tx) = ws(req)?;
+) -> Result<Response<ResponseBody<impl Stream<Item = Result<Bytes, impl std::fmt::Debug>>>>, Error> {
+    let (req, body) = req.replace_body(());
+    let (mut decode, res, tx) = ws(req, body)?;
 
     // spawn websocket message handling logic task.
     tokio::task::spawn_local(async move {
@@ -61,10 +62,5 @@ async fn handler(
         }
     });
 
-    let (parts, body) = res.into_parts();
-    let body = body.map_err(|e| Box::new(e) as _);
-    let body = ResponseBody::stream(body);
-    let res = Response::from_parts(parts, body);
-
-    Ok(res)
+    Ok(res.map(ResponseBody::stream))
 }
