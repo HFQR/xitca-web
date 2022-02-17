@@ -1,10 +1,11 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 use futures_core::future::LocalBoxFuture;
-use xitca_io::net::Stream;
+use tokio::task::JoinHandle;
+use xitca_io::net::{Listener, Stream};
 use xitca_service::ServiceFactory;
 
-use crate::worker::{RcWorkerService, WorkerService};
+use crate::worker::{self, Limit};
 
 pub(crate) struct Factory<F, Req> {
     inner: F,
@@ -24,7 +25,14 @@ where
 pub(crate) trait ServiceFactoryClone: Send {
     fn clone_factory(&self) -> Box<dyn ServiceFactoryClone>;
 
-    fn new_service(&self) -> LocalBoxFuture<'static, Result<RcWorkerService, ()>>;
+    fn spawn_handle<'s, 'f>(
+        &'s self,
+        name: &'f str,
+        listeners: &'f [(String, Arc<Listener>)],
+        limit: &'f Limit,
+    ) -> LocalBoxFuture<'f, Result<Vec<JoinHandle<()>>, ()>>
+    where
+        's: 'f;
 }
 
 impl<F, Req> ServiceFactoryClone for Factory<F, Req>
@@ -39,12 +47,26 @@ where
         })
     }
 
-    fn new_service(&self) -> LocalBoxFuture<'static, Result<RcWorkerService, ()>> {
-        let fut = self.inner.as_factory_clone().new_service(());
+    fn spawn_handle<'s, 'f>(
+        &'s self,
+        name: &'f str,
+        listeners: &'f [(String, Arc<Listener>)],
+        limit: &'f Limit,
+    ) -> LocalBoxFuture<'f, Result<Vec<JoinHandle<()>>, ()>>
+    where
+        's: 'f,
+    {
         Box::pin(async move {
-            let service = fut.await.map_err(|_| ())?;
+            let service = self.inner.as_factory_clone().new_service(()).await.map_err(|_| ())?;
+            let service = Rc::new(service);
 
-            Ok(WorkerService::new_rcboxed(service))
+            let handles = listeners
+                .into_iter()
+                .filter(|(n, _)| n == name)
+                .map(|(_, listener)| worker::start(listener, &service, limit))
+                .collect::<Vec<_>>();
+
+            Ok(handles)
         })
     }
 }
