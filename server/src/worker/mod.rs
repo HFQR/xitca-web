@@ -1,8 +1,7 @@
 mod limit;
-mod service;
 mod shutdown;
 
-pub(crate) use self::service::{RcWorkerService, WorkerService};
+pub(crate) use self::limit::Limit;
 
 use std::{
     io,
@@ -13,68 +12,54 @@ use std::{
 
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
-use xitca_io::net::Listener;
+use xitca_io::net::{Listener, Stream};
+use xitca_service::Service;
 
-use self::limit::Limit;
 use self::shutdown::ShutdownHandle;
 
-struct WorkerInner {
-    listener: Arc<Listener>,
-    service: RcWorkerService,
-    limit: Limit,
-}
+pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S, limit: &Limit) -> JoinHandle<()>
+where
+    S: Service<Req> + Clone + 'static,
+    Req: From<Stream>,
+{
+    let listener = listener.clone();
+    let limit = limit.clone();
+    let service = service.clone();
 
-impl WorkerInner {
-    fn spawn_handling(self) -> JoinHandle<()> {
-        tokio::task::spawn_local(async move {
-            loop {
-                let guard = self.limit.ready().await;
+    tokio::task::spawn_local(async move {
+        loop {
+            let guard = limit.ready().await;
 
-                match self.listener.accept().await {
-                    Ok(stream) => self.service.clone().call((guard, stream)),
-                    Err(ref e) if connection_error(e) => continue,
-                    // TODO: This error branch is used to detect Accept thread exit.
-                    // Should use other notifier other than error.
-                    Err(ref e) if fatal_error(e) => return,
-                    Err(e) => {
-                        error!("Error accepting connection: {}", e);
-                        sleep(Duration::from_secs(1)).await;
-                    }
+            // TODO: What if service return Error when ready.
+            let _ = service.ready().await;
+
+            match listener.accept().await {
+                Ok(stream) => {
+                    let service = service.clone();
+                    tokio::task::spawn_local(async move {
+                        let _ = service.call(From::from(stream)).await;
+                        drop(guard);
+                    });
+                }
+                Err(ref e) if connection_error(e) => continue,
+                // TODO: This error branch is used to detect Accept thread exit.
+                // Should use other notifier other than error.
+                Err(ref e) if fatal_error(e) => return,
+                Err(e) => {
+                    error!("Error accepting connection: {}", e);
+                    sleep(Duration::from_secs(1)).await;
                 }
             }
-        })
-    }
+        }
+    })
 }
 
-pub(crate) async fn run(
-    listeners: Vec<(String, Arc<Listener>)>,
-    services: Vec<(String, RcWorkerService)>,
-    connection_limit: usize,
+pub(crate) async fn wait_for_stop(
+    handles: Vec<JoinHandle<()>>,
     shutdown_timeout: Duration,
+    limit: Limit,
     is_graceful_shutdown: Arc<AtomicBool>,
 ) {
-    let limit = Limit::new(connection_limit);
-
-    let handles = listeners
-        .into_iter()
-        .map(|(name, listener)| {
-            let service = services
-                .iter()
-                .find_map(|(n, service)| if n == &name { Some(service.clone()) } else { None })
-                .unwrap();
-
-            let listener = WorkerInner {
-                listener,
-                service,
-                limit: limit.clone(),
-            };
-            listener.spawn_handling()
-        })
-        .collect::<Vec<_>>();
-
-    // Drop services early as they are cloned and held by WorkerInner
-    drop(services);
-
     info!("Started {}", worker_name());
 
     let shutdown_handle = ShutdownHandle::new(shutdown_timeout, limit, is_graceful_shutdown);

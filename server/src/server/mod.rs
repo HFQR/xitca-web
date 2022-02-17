@@ -22,7 +22,10 @@ use tokio::sync::{
 };
 use tracing::{error, info};
 
-use crate::builder::Builder;
+use crate::{
+    builder::Builder,
+    worker::{self, Limit},
+};
 
 pub struct Server {
     is_graceful_shutdown: Arc<AtomicBool>,
@@ -118,28 +121,30 @@ impl Server {
 
                             // TODO: max blocking thread configure is needed.
                             let _ = worker_max_blocking_threads;
-                            let fut = async {
-                                let mut services = Vec::new();
+
+                            // async move is IMPORTANT here.
+                            // `Listener` may do extra work with `Drop` trait and in order to prevent `Arc<Listener>` holding more reference
+                            // counts than necessary all extra clone need to be dropped asap.
+                            let fut = async move {
+                                let limit = Limit::new(connection_limit);
+
+                                let mut handles = Vec::new();
 
                                 for (name, factory) in factories {
-                                    let service = factory.new_service().await?;
-                                    services.push((name, service));
+                                    let h = factory.spawn_handle(&name, &listeners, &limit).await?;
+                                    handles.extend(h);
                                 }
 
-                                Ok::<_, ()>(services)
+                                // See above reason for `async move`
+                                drop(listeners);
+
+                                Ok::<_, ()>((handles, limit))
                             };
 
                             match fut.await {
-                                Ok(services) => {
+                                Ok((handles, limit)) => {
                                     tx.send(Ok(())).unwrap();
-                                    crate::worker::run(
-                                        listeners,
-                                        services,
-                                        connection_limit,
-                                        shutdown_timeout,
-                                        is_graceful_shutdown,
-                                    )
-                                    .await;
+                                    worker::wait_for_stop(handles, shutdown_timeout, limit, is_graceful_shutdown).await;
                                 }
                                 Err(_) => tx
                                     .send(Err(io::Error::new(

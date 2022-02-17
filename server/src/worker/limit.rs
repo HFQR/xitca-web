@@ -7,7 +7,7 @@ use std::{
 };
 
 #[derive(Clone)]
-pub(super) struct Limit {
+pub(crate) struct Limit {
     limit: usize,
     inner: Rc<LimitInner>,
 }
@@ -32,7 +32,7 @@ impl Drop for LimitGuard {
 }
 
 impl Limit {
-    pub(super) fn new(limit: usize) -> Self {
+    pub(crate) fn new(limit: usize) -> Self {
         Self {
             limit,
             inner: Rc::new(LimitInner {
@@ -42,7 +42,7 @@ impl Limit {
         }
     }
 
-    pub(super) fn ready(&self) -> LimitReady<'_> {
+    pub(crate) fn ready(&self) -> LimitReady<'_> {
         LimitReady(self)
     }
 
@@ -51,7 +51,7 @@ impl Limit {
     }
 }
 
-pub(super) struct LimitReady<'a>(&'a Limit);
+pub(crate) struct LimitReady<'a>(&'a Limit);
 
 impl Future for LimitReady<'_> {
     type Output = LimitGuard;
