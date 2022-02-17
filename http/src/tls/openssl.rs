@@ -79,14 +79,7 @@ impl<St: AsyncIo, Arg> ServiceFactory<St, Arg> for TlsAcceptorService {
 impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = OpensslError;
-
-    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        async { Ok(()) }
-    }
 
     fn call(&self, io: St) -> Self::Future<'_> {
         async move {

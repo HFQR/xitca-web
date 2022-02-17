@@ -1,7 +1,9 @@
 use std::{borrow::Borrow, collections::HashMap, error, fmt, future::Future, marker::PhantomData};
 
 use matchit::{MatchError, Node};
-use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject};
+use xitca_service::{
+    ready::ReadyService, Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject,
+};
 
 use crate::http;
 
@@ -126,19 +128,10 @@ where
 {
     type Response = Res;
     type Error = RouterError<Err>;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline(always)]
-    fn ready(&self) -> Self::Ready<'_> {
-        async { Ok(()) }
-    }
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
@@ -150,6 +143,22 @@ where
 
             service.value.call(req).await.map_err(RouterError::Service)
         }
+    }
+}
+
+impl<Req, ReqB, Res, Err> ReadyService<Req> for RouterService<Req, ReqB, Res, Err>
+where
+    Req: Borrow<http::Request<ReqB>>,
+{
+    type Ready = ();
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<Self::Ready, Self::Error>>;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async { Ok(()) }
     }
 }
 

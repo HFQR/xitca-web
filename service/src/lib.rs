@@ -8,6 +8,7 @@ mod factory;
 mod service;
 
 pub mod middleware;
+pub mod ready;
 
 pub use self::{
     factory::{
@@ -56,19 +57,7 @@ macro_rules! enum_service {
         {
             type Response = Res;
             type Error = Err;
-            type Ready<'f> where Self: 'f = impl ::core::future::Future<Output = Result<(), Self::Error>>;
             type Future<'f> where Self: 'f = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>>;
-
-            #[inline]
-            fn ready(&self) -> Self::Ready<'_> {
-                async move {
-                    match self {
-                        $(
-                            Self::$factory(ref s) => s.ready().await,
-                        ) +
-                    }
-                }
-            }
 
             #[inline]
             fn call(&self, req: Req) -> Self::Future<'_> {

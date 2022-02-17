@@ -13,13 +13,14 @@ use std::{
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
 use xitca_io::net::{Listener, Stream};
-use xitca_service::Service;
+use xitca_service::ready::ReadyService;
 
 use self::shutdown::ShutdownHandle;
 
 pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S, limit: &Limit) -> JoinHandle<()>
 where
-    S: Service<Req> + Clone + 'static,
+    S: ReadyService<Req> + Clone + 'static,
+    S::Ready: 'static,
     Req: From<Stream>,
 {
     let listener = listener.clone();
@@ -31,7 +32,7 @@ where
             let guard = limit.ready().await;
 
             // TODO: What if service return Error when ready.
-            let _ = service.ready().await;
+            let ready = service.ready().await.ok();
 
             match listener.accept().await {
                 Ok(stream) => {
@@ -39,6 +40,7 @@ where
                     tokio::task::spawn_local(async move {
                         let _ = service.call(From::from(stream)).await;
                         drop(guard);
+                        drop(ready);
                     });
                 }
                 Err(ref e) if connection_error(e) => continue,

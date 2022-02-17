@@ -3,7 +3,7 @@ use std::{marker::PhantomData, rc::Rc, sync::Arc};
 use futures_core::future::LocalBoxFuture;
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
-use xitca_service::ServiceFactory;
+use xitca_service::{ready::ReadyService, ServiceFactory};
 
 use crate::worker::{self, Limit};
 
@@ -38,6 +38,7 @@ pub(crate) trait ServiceFactoryClone: Send {
 impl<F, Req> ServiceFactoryClone for Factory<F, Req>
 where
     F: AsServiceFactoryClone<Req>,
+    F::Service: ReadyService<Req>,
     Req: From<Stream> + Send + 'static,
 {
     fn clone_factory(&self) -> Box<dyn ServiceFactoryClone> {
@@ -78,7 +79,8 @@ where
     Req: From<Stream>,
     Self: Send + Clone + 'static,
 {
-    type ServiceFactoryClone: ServiceFactory<Req>;
+    type ServiceFactoryClone: ServiceFactory<Req, Service = Self::Service>;
+    type Service: ReadyService<Req>;
 
     fn as_factory_clone(&self) -> Self::ServiceFactoryClone;
 }
@@ -87,9 +89,11 @@ impl<F, T, Req> AsServiceFactoryClone<Req> for F
 where
     F: Fn() -> T + Send + Clone + 'static,
     T: ServiceFactory<Req>,
+    T::Service: ReadyService<Req>,
     Req: From<Stream>,
 {
     type ServiceFactoryClone = T;
+    type Service = T::Service;
 
     fn as_factory_clone(&self) -> T {
         (self)()

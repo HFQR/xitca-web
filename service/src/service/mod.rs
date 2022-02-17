@@ -4,7 +4,6 @@ mod and_then;
 mod map;
 mod map_err;
 mod object;
-mod then;
 mod transform_fn;
 
 pub use object::ServiceObject;
@@ -18,15 +17,9 @@ pub trait Service<Req> {
 
     type Error;
 
-    type Ready<'f>: Future<Output = Result<(), Self::Error>>
-    where
-        Self: 'f;
-
     type Future<'f>: Future<Output = Result<Self::Response, Self::Error>>
     where
         Self: 'f;
-
-    fn ready(&self) -> Self::Ready<'_>;
 
     fn call(&self, req: Req) -> Self::Future<'_>;
 }
@@ -39,19 +32,10 @@ macro_rules! impl_alloc {
         {
             type Response = S::Response;
             type Error = S::Error;
-            type Ready<'f>
-            where
-                Self: 'f,
-            = S::Ready<'f>;
             type Future<'f>
             where
                 Self: 'f,
             = S::Future<'f>;
-
-            #[inline]
-            fn ready(&self) -> Self::Ready<'_> {
-                (**self).ready()
-            }
 
             #[inline]
             fn call(&self, req: Req) -> Self::Future<'_> {
@@ -72,19 +56,10 @@ where
 {
     type Response = <S::Target as Service<Req>>::Response;
     type Error = <S::Target as Service<Req>>::Error;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = <S::Target as Service<Req>>::Ready<'f>;
     type Future<'f>
     where
         Self: 'f,
     = <S::Target as Service<Req>>::Future<'f>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self.as_ref().get_ref().ready()
-    }
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
@@ -114,12 +89,7 @@ mod test {
     {
         type Response = Res;
         type Error = Err;
-        type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-        fn ready(&self) -> Self::Ready<'_> {
-            async move { self.service.ready().await }
-        }
 
         fn call(&self, req: &'r str) -> Self::Future<'_> {
             async move {
@@ -135,12 +105,7 @@ mod test {
     {
         type Response = Res;
         type Error = Err;
-        type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-        fn ready(&self) -> Self::Ready<'_> {
-            async move { self.service.ready().await }
-        }
 
         fn call(&self, req: (&'r str, &'r str)) -> Self::Future<'_> {
             async move {
@@ -155,12 +120,7 @@ mod test {
     impl<'r> Service<(&'r str, &'r str, &'r str)> for DummyService {
         type Response = String;
         type Error = ();
-        type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-        fn ready(&self) -> Self::Ready<'_> {
-            async move { Ok(()) }
-        }
 
         fn call(&self, req: (&'r str, &'r str, &'r str)) -> Self::Future<'_> {
             async move {

@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, error, fmt, future::Future, marker::PhantomData};
 
-use xitca_service::{MapErrorServiceFactory, Service, ServiceFactory, ServiceFactoryExt};
+use xitca_service::{ready::ReadyService, MapErrorServiceFactory, Service, ServiceFactory, ServiceFactoryExt};
 
 use crate::http::{self, Method};
 
@@ -191,30 +191,38 @@ where
 {
     type Response = R::Response;
     type Error = R::Error;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    #[inline(always)]
-    fn ready(&self) -> Self::Ready<'_> {
-        async { Ok(()) }
-    }
-
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
             if self.methods.contains(req.borrow().method()) {
-                self.route.ready().await?;
                 self.route.call(req).await
             } else {
                 self.next.call(req).await
             }
         }
+    }
+}
+
+impl<Req, ReqB, R, N, const M: usize> ReadyService<Req> for Route<R, N, ReqB, M>
+where
+    R: Service<Req>,
+    N: Service<Req, Response = R::Response, Error = R::Error>,
+    Req: Borrow<http::Request<ReqB>>,
+{
+    type Ready = ();
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<Self::Ready, Self::Error>>;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async { Ok(()) }
     }
 }
 
@@ -276,20 +284,10 @@ impl<Req, Arg, Res, Err> ServiceFactory<Req, Arg> for MethodNotAllowed<Res, Err>
 impl<Req, Res, Err> Service<Req> for MethodNotAllowed<Res, Err> {
     type Response = Res;
     type Error = RouteError<Err>;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[cold]
-    #[inline(never)]
-    fn ready(&self) -> Self::Ready<'_> {
-        async { Ok(()) }
-    }
 
     #[cold]
     #[inline(never)]

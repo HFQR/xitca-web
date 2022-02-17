@@ -24,9 +24,6 @@ where
     #[inline]
     fn call(&self, req: Req) -> BoxFuture<'static, S::Response, S::Error> {
         let this = self.clone();
-        Box::pin(async move {
-            this.ready().await?;
-            Service::call(&this, req).await
-        })
+        Box::pin(async move { Service::call(&this, req).await })
     }
 }

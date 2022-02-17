@@ -38,19 +38,10 @@ where
 {
     type Response = Req;
     type Error = F::Error;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        async { Ok(()) }
-    }
 
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move { Ok(req) }

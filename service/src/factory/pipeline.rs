@@ -12,7 +12,6 @@ pub struct PipelineServiceFactory<SF, SF1, M> {
 pub(crate) mod marker {
     pub struct Map;
     pub struct MapErr;
-    pub struct Then;
     pub struct AndThen;
     pub struct Transform;
     pub struct TransformFn;

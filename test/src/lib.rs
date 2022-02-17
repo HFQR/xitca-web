@@ -17,7 +17,7 @@ use xitca_io::{
     net::{Stream as NetStream, TcpStream},
 };
 use xitca_server::{Builder, ServerFuture, ServerHandle};
-use xitca_service::ServiceFactory;
+use xitca_service::{ready::ReadyService, ServiceFactory};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -27,6 +27,7 @@ pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> T + Send + Clone + 'static,
     T: ServiceFactory<Req>,
+    T::Service: ReadyService<Req>,
     Req: From<NetStream> + Send + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;
@@ -48,6 +49,7 @@ pub fn test_h1_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Clone + 'static,
     I: ServiceFactory<Request<h1::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    I::Service: ReadyService<Request<h1::RequestBody>> + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
@@ -62,6 +64,7 @@ pub fn test_h2_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Clone + 'static,
     I: ServiceFactory<Request<h2::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    I::Service: ReadyService<Request<h2::RequestBody>> + 'static,
     I::Error: fmt::Debug,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
@@ -81,6 +84,7 @@ pub fn test_h3_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Clone + 'static,
     I: ServiceFactory<Request<h3::RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    I::Service: ReadyService<Request<h3::RequestBody>> + 'static,
     I::Error: fmt::Debug,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,

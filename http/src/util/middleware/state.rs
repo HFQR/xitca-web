@@ -1,37 +1,47 @@
-use std::future::{ready, Future, Ready};
+use std::{
+    borrow::BorrowMut,
+    future::{ready, Future, Ready},
+    marker::PhantomData,
+};
 
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{ready::ReadyService, Service, ServiceFactory};
 
-use crate::http::Request;
+use crate::http;
 
 #[derive(Clone)]
-pub struct State<F: Clone = ()> {
+pub struct State<ReqB, F: Clone = ()> {
     factory: F,
+    _req_body: PhantomData<ReqB>,
 }
 
-impl State {
-    pub fn new<S, Err>(state: S) -> State<impl Fn() -> Ready<Result<S, Err>> + Clone>
+impl<ReqB> State<ReqB> {
+    pub fn new<S, Err>(state: S) -> State<ReqB, impl Fn() -> Ready<Result<S, Err>> + Clone>
     where
         S: Send + Sync + Clone + 'static,
     {
         State {
             factory: move || ready(Ok(state.clone())),
+            _req_body: PhantomData,
         }
     }
 
-    pub fn factory<F, Fut, Res, Err>(factory: F) -> State<F>
+    pub fn factory<F, Fut, Res, Err>(factory: F) -> State<ReqB, F>
     where
         F: Fn() -> Fut + Clone,
         Fut: Future<Output = Result<Res, Err>>,
         Res: Send + Sync + Clone + 'static,
     {
-        State { factory }
+        State {
+            factory,
+            _req_body: PhantomData,
+        }
     }
 }
 
-impl<S, ReqB, F, Fut, Res, Err> ServiceFactory<Request<ReqB>, S> for State<F>
+impl<S, Req, ReqB, F, Fut, Res, Err> ServiceFactory<Req, S> for State<ReqB, F>
 where
-    S: Service<Request<ReqB>>,
+    S: Service<Req>,
+    Req: BorrowMut<http::Request<ReqB>>,
     F: Fn() -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
     Res: Send + Sync + Clone + 'static,
@@ -39,7 +49,7 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Service = StateService<S, Res>;
+    type Service = StateService<S, ReqB, Res>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, service: S) -> Self::Future {
@@ -47,17 +57,22 @@ where
 
         async move {
             let state = fut.await?;
-            Ok(StateService { service, state })
+            Ok(StateService {
+                service,
+                state,
+                _req_body: PhantomData,
+            })
         }
     }
 }
 
-pub struct StateService<S, St> {
+pub struct StateService<S, ReqB, St> {
     service: S,
     state: St,
+    _req_body: PhantomData<ReqB>,
 }
 
-impl<S, St> Clone for StateService<S, St>
+impl<S, ReqB, St> Clone for StateService<S, ReqB, St>
 where
     S: Clone,
     St: Clone,
@@ -66,35 +81,49 @@ where
         Self {
             service: self.service.clone(),
             state: self.state.clone(),
+            _req_body: PhantomData,
         }
     }
 }
 
-impl<S, ReqB, St> Service<Request<ReqB>> for StateService<S, St>
+impl<S, Req, ReqB, St> Service<Req> for StateService<S, ReqB, St>
 where
-    S: Service<Request<ReqB>>,
+    S: Service<Req>,
+    Req: BorrowMut<http::Request<ReqB>>,
     St: Send + Sync + Clone + 'static,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Ready<'f>
-    where
-        S: 'f,
-    = S::Ready<'f>;
     type Future<'f>
     where
         S: 'f,
+        ReqB: 'f,
     = S::Future<'f>;
 
     #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self.service.ready()
+    fn call(&self, mut req: Req) -> Self::Future<'_> {
+        req.borrow_mut().extensions_mut().insert(self.state.clone());
+        self.service.call(req)
     }
+}
+
+impl<S, Req, ReqB, St> ReadyService<Req> for StateService<S, ReqB, St>
+where
+    S: ReadyService<Req>,
+    Req: BorrowMut<http::Request<ReqB>>,
+    St: Send + Sync + Clone + 'static,
+{
+    type Ready = S::Ready;
+
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+        ReqB: 'f,
+    = S::ReadyFuture<'f>;
 
     #[inline]
-    fn call(&self, mut req: Request<ReqB>) -> Self::Future<'_> {
-        req.extensions_mut().insert(self.state.clone());
-        self.service.call(req)
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        self.service.ready()
     }
 }
 
@@ -103,6 +132,8 @@ mod test {
     use super::*;
 
     use xitca_service::{fn_service, ServiceFactory, ServiceFactoryExt};
+
+    use crate::request::Request;
 
     #[tokio::test]
     async fn state_middleware() {
@@ -132,6 +163,22 @@ mod test {
         .unwrap();
 
         let res = service.call(Request::new(())).await.unwrap();
+
+        assert_eq!("996", res);
+    }
+
+    #[tokio::test]
+    async fn state_middleware_http_request() {
+        let service = fn_service(|req: http::Request<()>| async move {
+            assert_eq!("state", req.extensions().get::<String>().unwrap());
+            Ok::<_, ()>("996")
+        })
+        .transform(State::new(String::from("state")))
+        .new_service(())
+        .await
+        .unwrap();
+
+        let res = service.call(http::Request::new(())).await.unwrap();
 
         assert_eq!("996", res);
     }

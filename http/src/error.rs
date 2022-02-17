@@ -12,7 +12,6 @@ use super::{http::Version, tls::TlsError};
 /// HttpService layer error.
 pub enum HttpServiceError<S, B> {
     Ignored,
-    ServiceReady,
     Service(S),
     Body(B),
     Timeout(TimeoutError),
@@ -36,7 +35,6 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Ignored => write!(f, "Error detail is ignored."),
-            Self::ServiceReady => write!(f, "Service is not ready"),
             Self::Service(ref e) => write!(f, "{:?}", e),
             Self::Timeout(ref timeout) => write!(f, "{:?} is timed out", timeout),
             Self::UnSupportedVersion(ref protocol) => write!(f, "Protocol: {:?} is not supported", protocol),

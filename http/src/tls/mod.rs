@@ -37,14 +37,7 @@ impl<St, Arg> ServiceFactory<St, Arg> for NoOpTlsAcceptorService {
 impl<St> Service<St> for NoOpTlsAcceptorService {
     type Response = St;
     type Error = TlsError;
-
-    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline(always)]
-    fn ready(&self) -> Self::Ready<'_> {
-        async { Ok(()) }
-    }
 
     #[inline(always)]
     fn call(&self, io: St) -> Self::Future<'_> {

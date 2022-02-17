@@ -11,19 +11,10 @@ where
 {
     type Response = Res;
     type Error = S::Error;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = S::Ready<'f>;
     type Future<'f>
     where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self.service.ready()
-    }
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {

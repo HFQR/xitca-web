@@ -3,7 +3,7 @@ use std::{fmt, future::Future};
 use futures_core::Stream;
 use tokio::pin;
 use xitca_io::io::{AsyncRead, AsyncWrite};
-use xitca_service::Service;
+use xitca_service::{ready::ReadyService, Service};
 
 use crate::{
     body::ResponseBody,
@@ -47,20 +47,7 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        async move {
-            self.tls_acceptor
-                .ready()
-                .await
-                .map_err(|_| HttpServiceError::ServiceReady)?;
-
-            self.service.ready().await.map_err(|_| HttpServiceError::ServiceReady)
-        }
-    }
 
     fn call(&self, io: St) -> Self::Future<'_> {
         async move {
@@ -95,5 +82,42 @@ where
 
             Ok(())
         }
+    }
+}
+
+impl<
+        St,
+        S,
+        ResB,
+        BE,
+        A,
+        TlsSt,
+        const HEADER_LIMIT: usize,
+        const READ_BUF_LIMIT: usize,
+        const WRITE_BUF_LIMIT: usize,
+    > ReadyService<St> for H2Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+where
+    S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S::Error: fmt::Debug,
+
+    A: Service<St, Response = TlsSt> + 'static,
+
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
+
+    St: AsyncRead + AsyncWrite + Unpin,
+    TlsSt: AsyncRead + AsyncWrite + Unpin,
+
+    HttpServiceError<S::Error, BE>: From<A::Error>,
+{
+    type Ready = S::Ready;
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<Self::Ready, Self::Error>>;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async move { self.service.ready().await.map_err(HttpServiceError::Service) }
     }
 }
