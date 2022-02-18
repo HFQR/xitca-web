@@ -300,14 +300,10 @@ mod test {
     use crate::util::service::{get, Router};
     use crate::Request;
 
-    async fn handler(
-        e1: String,
-        e2: u32,
-        // (_, e3): (&Request<()>, u64)
-    ) -> StatusCode {
+    async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> StatusCode {
         assert_eq!(e1, "996");
         assert_eq!(e2, 996);
-        // assert_eq!(e3, 996);
+        assert_eq!(e3, 996);
 
         StatusCode::MULTI_STATUS
     }
@@ -353,15 +349,15 @@ mod test {
         }
     }
 
-    // impl<'a> FromRequest<'a, Request<()>> for &'a Request<()> {
-    //     type Type<'f> = &'f Request<()>;
-    //     type Error = Infallible;
-    //     type Future = impl Future<Output = Result<Self, Self::Error>>;
+    impl<'a> FromRequest<'a, Request<()>> for &'a Request<()> {
+        type Type<'f> = &'f Request<()>;
+        type Error = Infallible;
+        type Future = impl Future<Output = Result<Self, Self::Error>>;
 
-    //     fn from_request(req: &'a Request<()>) -> Self::Future {
-    //         async move { Ok(req) }
-    //     }
-    // }
+        fn from_request(req: &'a Request<()>) -> Self::Future {
+            async move { Ok(req) }
+        }
+    }
 
     #[tokio::test]
     async fn concurrent_extract() {
