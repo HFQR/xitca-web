@@ -35,20 +35,6 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
         BoxedServiceFactory::new(self)
     }
 
-    /// Chain another service factory who's service takes `Self`'s `Service::Future` output as
-    /// `Service::Request`.
-    ///
-    /// *. Only `F`'s readiness is checked beforehand.
-    /// `Self::Service`'s readiness is checked inside `<F::Service as Service>::call`.
-    /// This way the readiness error would be able to be handled by `F`.
-    fn then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::Then>
-    where
-        F: ServiceFactory<Result<Self::Response, Self::Error>, Arg>,
-        Self: Sized,
-    {
-        PipelineServiceFactory::new(self, factory)
-    }
-
     /// Chain another service factory who's service takes `Self`'s `Service::Response` output as
     /// `Service::Request`.
     ///
@@ -131,18 +117,10 @@ mod test {
     {
         type Response = S::Response;
         type Error = S::Error;
-        type Ready<'f>
-        where
-            S: 'f,
-        = impl Future<Output = Result<(), Self::Error>>;
         type Future<'f>
         where
             S: 'f,
         = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-        fn ready(&self) -> Self::Ready<'_> {
-            async move { self.0.ready().await }
-        }
 
         fn call(&self, req: Req) -> Self::Future<'_> {
             async move { self.0.call(req).await }
@@ -186,19 +164,6 @@ mod test {
             assert_eq!(res, "996");
             Ok::<&'static str, ()>("251")
         });
-
-        let service = factory.new_service(()).await.unwrap();
-
-        let res = service.call("996").await.ok().unwrap();
-        assert_eq!(res, "251");
-    }
-
-    #[tokio::test]
-    async fn then() {
-        let factory = fn_service(index).then(fn_service(|res: Result<&'static str, ()>| async move {
-            assert_eq!(res.ok().unwrap(), "996");
-            Ok::<_, ()>("251")
-        }));
 
         let service = factory.new_service(()).await.unwrap();
 

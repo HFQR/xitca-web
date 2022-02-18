@@ -3,7 +3,7 @@ use std::{future::Future, io, time::Duration};
 use socket2::{SockRef, TcpKeepalive};
 use tracing::warn;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{ready::ReadyService, Service, ServiceFactory};
 
 /// A middleware for socket options config of [TcpStream].
 #[derive(Clone, Debug)]
@@ -88,24 +88,31 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Ready<'f>
-    where
-        S: 'f,
-    = S::Ready<'f>;
     type Future<'f>
     where
         S: 'f,
     = S::Future<'f>;
 
     #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self.service.ready()
-    }
-
-    #[inline]
     fn call(&self, req: TcpStream) -> Self::Future<'_> {
         self.try_apply_config(&req);
         self.service.call(req)
+    }
+}
+
+impl<S> ReadyService<TcpStream> for TcpConfigService<S>
+where
+    S: ReadyService<TcpStream>,
+{
+    type Ready = S::Ready;
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+    = S::ReadyFuture<'f>;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        self.service.ready()
     }
 }
 
@@ -115,19 +122,10 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Ready<'f>
-    where
-        S: 'f,
-    = S::Ready<'f>;
     type Future<'f>
     where
         S: 'f,
     = S::Future<'f>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self.service.ready()
-    }
 
     #[inline]
     fn call(&self, req: ServerStream) -> Self::Future<'_> {
@@ -138,6 +136,22 @@ where
         }
 
         self.service.call(req)
+    }
+}
+
+impl<S> ReadyService<ServerStream> for TcpConfigService<S>
+where
+    S: ReadyService<ServerStream>,
+{
+    type Ready = S::Ready;
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+    = S::ReadyFuture<'f>;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        self.service.ready()
     }
 }
 

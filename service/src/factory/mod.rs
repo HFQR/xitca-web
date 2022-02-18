@@ -1,13 +1,12 @@
+pub(crate) mod function;
 pub(crate) mod pipeline;
 
 mod and_then;
 mod boxed;
 mod ext;
-mod function;
 mod map;
 mod map_err;
 mod object;
-mod then;
 mod transform;
 mod transform_fn;
 

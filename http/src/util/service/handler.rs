@@ -73,19 +73,10 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline(always)]
-    fn ready(&self) -> Self::Ready<'_> {
-        async { Ok(()) }
-    }
 
     #[inline]
     fn call(&self, mut req: Req) -> Self::Future<'_> {
@@ -294,107 +285,111 @@ async_fn_impl! { A, B, C, D, E, F, G }
 async_fn_impl! { A, B, C, D, E, F, G, H }
 async_fn_impl! { A, B, C, D, E, F, G, H, I }
 
-// #[cfg(test)]
-// mod test {
-//     use super::*;
+#[cfg(test)]
+mod test {
+    use super::*;
 
-//     use std::{
-//         convert::Infallible,
-//         future::{ready, Ready},
-//     };
+    use std::{
+        convert::Infallible,
+        future::{ready, Ready},
+    };
 
-//     use xitca_service::{Service, ServiceFactoryExt};
+    use xitca_service::{Service, ServiceFactoryExt};
 
-//     use crate::http::{Response, StatusCode};
-//     use crate::util::service::{get, Router};
-//     use crate::Request;
+    use crate::http::{Response, StatusCode};
+    use crate::util::service::{get, Router};
+    use crate::Request;
 
-//     async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> StatusCode {
-//         assert_eq!(e1, "996");
-//         assert_eq!(e2, 996);
-//         assert_eq!(e3, 996);
+    async fn handler(
+        e1: String,
+        e2: u32,
+        // (_, e3): (&Request<()>, u64)
+    ) -> StatusCode {
+        assert_eq!(e1, "996");
+        assert_eq!(e2, 996);
+        // assert_eq!(e3, 996);
 
-//         StatusCode::MULTI_STATUS
-//     }
+        StatusCode::MULTI_STATUS
+    }
 
-//     impl<'a> Responder<'a, Request<()>> for StatusCode {
-//         type Output = Response<()>;
-//         type Future = Ready<Self::Output>;
+    impl<'a> Responder<'a, Request<()>> for StatusCode {
+        type Output = Response<()>;
+        type Future = Ready<Self::Output>;
 
-//         fn respond_to(self, _: &'a mut Request<()>) -> Self::Future {
-//             let mut res = Response::new(());
-//             *res.status_mut() = self;
-//             ready(res)
-//         }
-//     }
+        fn respond_to(self, _: &'a mut Request<()>) -> Self::Future {
+            let mut res = Response::new(());
+            *res.status_mut() = self;
+            ready(res)
+        }
+    }
 
-//     impl<'a> FromRequest<'a, Request<()>> for String {
-//         type Type<'f> = Self;
-//         type Error = Infallible;
-//         type Future = Ready<Result<Self, Self::Error>>;
+    impl<'a> FromRequest<'a, Request<()>> for String {
+        type Type<'f> = Self;
+        type Error = Infallible;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-//         fn from_request(_: &'a Request<()>) -> Self::Future {
-//             ready(Ok(String::from("996")))
-//         }
-//     }
+        fn from_request(_: &'a Request<()>) -> Self::Future {
+            ready(Ok(String::from("996")))
+        }
+    }
 
-//     impl<'a> FromRequest<'a, Request<()>> for u32 {
-//         type Type<'f> = Self;
-//         type Error = Infallible;
-//         type Future = Ready<Result<Self, Self::Error>>;
+    impl<'a> FromRequest<'a, Request<()>> for u32 {
+        type Type<'f> = Self;
+        type Error = Infallible;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-//         fn from_request(_: &'a Request<()>) -> Self::Future {
-//             ready(Ok(996))
-//         }
-//     }
+        fn from_request(_: &'a Request<()>) -> Self::Future {
+            ready(Ok(996))
+        }
+    }
 
-//     impl<'a> FromRequest<'a, Request<()>> for u64 {
-//         type Type<'f> = Self;
-//         type Error = Infallible;
-//         type Future = Ready<Result<Self, Self::Error>>;
+    impl<'a> FromRequest<'a, Request<()>> for u64 {
+        type Type<'f> = Self;
+        type Error = Infallible;
+        type Future = Ready<Result<Self, Self::Error>>;
 
-//         fn from_request(_: &'a Request<()>) -> Self::Future {
-//             ready(Ok(996))
-//         }
-//     }
+        fn from_request(_: &'a Request<()>) -> Self::Future {
+            ready(Ok(996))
+        }
+    }
 
-//     impl<'a> FromRequest<'a, Request<()>> for &'a Request<()> {
-//         type Type<'f> = &'f Request<()>;
-//         type Error = Infallible;
-//         type Future = impl Future<Output = Result<Self, Self::Error>>;
+    // impl<'a> FromRequest<'a, Request<()>> for &'a Request<()> {
+    //     type Type<'f> = &'f Request<()>;
+    //     type Error = Infallible;
+    //     type Future = impl Future<Output = Result<Self, Self::Error>>;
 
-//         fn from_request(req: &'a Request<()>) -> Self::Future {
-//             async move { Ok(req) }
-//         }
-//     }
+    //     fn from_request(req: &'a Request<()>) -> Self::Future {
+    //         async move { Ok(req) }
+    //     }
+    // }
 
-//     #[tokio::test]
-//     async fn concurrent_extract() {
-//         let service = handler_service(handler)
-//             .transform_fn(|s, req| async move { s.call(req).await })
-//             .new_service(())
-//             .await
-//             .unwrap();
+    #[tokio::test]
+    async fn concurrent_extract() {
+        let service = handler_service(handler)
+            .transform_fn(|s, req| async move { s.call(req).await })
+            .new_service(())
+            .await
+            .unwrap();
 
-//         let req = Request::new(());
+        let req = Request::new(());
 
-//         let res = service.call(req).await.unwrap();
+        let res = service.call(req).await.unwrap();
 
-//         assert_eq!(res.status(), StatusCode::MULTI_STATUS);
-//     }
+        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
+    }
 
-//     #[tokio::test]
-//     async fn handler_in_router() {
-//         let service = Router::new()
-//             .insert("/", get(handler_service(handler)))
-//             .new_service(())
-//             .await
-//             .unwrap();
+    #[tokio::test]
+    async fn handler_in_router() {
+        let service = Router::new()
+            .insert("/", get(handler_service(handler)))
+            .new_service(())
+            .await
+            .unwrap();
 
-//         let req = Request::new(());
+        let req = Request::new(());
 
-//         let res = service.call(req).await.unwrap();
+        let res = service.call(req).await.unwrap();
 
-//         assert_eq!(res.status(), StatusCode::MULTI_STATUS);
-//     }
-// }
+        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
+    }
+}

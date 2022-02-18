@@ -8,7 +8,7 @@ use xitca_http::{
     HttpServiceBuilder, Request, RequestBody, ResponseBody,
 };
 use xitca_server::{Builder, ServerFuture};
-use xitca_service::ServiceFactory;
+use xitca_service::{ready::ReadyService, ServiceFactory};
 
 pub struct HttpServer<F, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     factory: F,
@@ -190,7 +190,7 @@ where
     pub fn bind<A: ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Service: 'static,
+        I::Service: ReadyService<Request<RequestBody>> + 'static,
         I::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -214,7 +214,7 @@ where
     ) -> std::io::Result<Self>
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Service: 'static,
+        I::Service: ReadyService<Request<RequestBody>> + 'static,
         I::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -270,7 +270,7 @@ where
     ) -> std::io::Result<Self>
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Service: 'static,
+        I::Service: ReadyService<Request<RequestBody>> + 'static,
         I::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -303,7 +303,7 @@ where
     pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
     where
         I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Service: 'static,
+        I::Service: ReadyService<Request<RequestBody>> + 'static,
         I::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,

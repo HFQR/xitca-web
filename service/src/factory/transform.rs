@@ -11,7 +11,6 @@ pub type TransformFactory<F, T> = PipelineServiceFactory<F, T, marker::Transform
 impl<F, Req, Arg, T> ServiceFactory<Req, Arg> for PipelineServiceFactory<F, T, marker::Transform>
 where
     F: ServiceFactory<Req, Arg>,
-
     T: ServiceFactory<Req, F::Service> + Clone,
     T::Error: From<F::Error>,
 {

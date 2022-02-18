@@ -53,7 +53,7 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let factory_stmts = &new_service_impl.block.stmts;
 
-    let ReadyImpl { ready_stmts } = ReadyImpl::from_items(&input.items);
+    let ready_impl = ReadyImpl::try_from_items(&input.items);
 
     let CallImpl {
         req_ident,
@@ -63,7 +63,7 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
         call_stmts,
     } = CallImpl::from_items(&input.items);
 
-    quote! {
+    let base = quote! {
         impl<#generic_ty> ::xitca_service::ServiceFactory<#req_ty, #arg_ty> for #factory_ty
         #where_clause
         {
@@ -85,15 +85,8 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
         {
             type Response = #res_ty;
             type Error = #err_ty;
-            type Ready<'f> where Self: 'f = impl ::core::future::Future<Output = Result<(), Self::Error>>;
             type Future<'f> where Self: 'f = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>>;
 
-            #[inline]
-            fn ready(&self) -> Self::Ready<'_> {
-                async move {
-                    #(#ready_stmts)*
-                }
-            }
 
             #[inline]
             fn call(&self, #req_ident: #req_ty) -> Self::Future<'_> {
@@ -102,8 +95,29 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
             }
         }
+    };
+
+    match ready_impl {
+        Some(ReadyImpl { ready_stmts, ready_res_ty}) => {
+            quote! {
+                #base
+
+                impl<#generic_ty> ::xitca_service::ready::ReadyService<#req_ty> for #service_ty
+                #where_clause
+                {
+                    type Ready = #ready_res_ty;
+                    type ReadyFuture<'f> where Self: 'f = impl ::core::future::Future<Output = Result<Self::Ready, Self::Error>>;
+                    #[inline]
+                    fn ready(&self) -> Self::ReadyFuture<'_> {
+                        async move {
+                            #(#ready_stmts)*
+                        }
+                    }
+                }
+            }.into()
+        }
+        None => base.into()
     }
-    .into()
 }
 
 fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &'a str) -> Option<&'a ImplItemMethod> {
@@ -157,17 +171,20 @@ impl<'a> CallImpl<'a> {
 
 struct ReadyImpl<'a> {
     ready_stmts: &'a [Stmt],
+    ready_res_ty: &'a Type,
 }
 
 impl<'a> ReadyImpl<'a> {
-    fn from_items(items: &'a [ImplItem]) -> Self {
-        // make sure async fn ready is there and move on.
-        // TODO: Check the first fn arg and make sure it's a Receiver of &Self.
+    fn try_from_items(items: &'a [ImplItem]) -> Option<Self> {
+        find_async_method(items, "ready").map(|ready_impl| {
+            let (ready_res_ty, _) = extract_res_ty(&ready_impl.sig.output);
+            let ready_stmts = &ready_impl.block.stmts;
 
-        let ready_impl = find_async_method(items, "ready").expect("ready method can not be located");
-        let ready_stmts = &ready_impl.block.stmts;
-
-        Self { ready_stmts }
+            Self {
+                ready_stmts,
+                ready_res_ty,
+            }
+        })
     }
 }
 

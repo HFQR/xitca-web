@@ -1,7 +1,7 @@
 use std::{fmt::Debug, future::Future};
 
 use tracing::{error, span, Level, Span};
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{ready::ReadyService, Service, ServiceFactory};
 
 /// A factory for logger service.
 #[derive(Clone)]
@@ -55,19 +55,10 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Ready<'f>
-    where
-        S: 'f,
-    = S::Ready<'f>;
     type Future<'f>
     where
         S: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self.service.ready()
-    }
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
@@ -78,5 +69,23 @@ where
                 e
             })
         }
+    }
+}
+
+impl<S, Req> ReadyService<Req> for LoggerService<S>
+where
+    S: ReadyService<Req>,
+    S::Error: Debug,
+{
+    type Ready = S::Ready;
+
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+    = S::ReadyFuture<'f>;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        self.service.ready()
     }
 }

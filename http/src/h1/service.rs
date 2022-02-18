@@ -3,7 +3,7 @@ use std::future::Future;
 use futures_core::Stream;
 use tokio::pin;
 use xitca_io::io::AsyncIo;
-use xitca_service::Service;
+use xitca_service::{ready::ReadyService, Service};
 
 use crate::{
     body::ResponseBody,
@@ -47,13 +47,7 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self._ready()
-    }
 
     fn call(&self, io: St) -> Self::Future<'_> {
         async move {
@@ -82,5 +76,42 @@ where
             .await
             .map_err(Into::into)
         }
+    }
+}
+
+impl<
+        St,
+        S,
+        X,
+        B,
+        BE,
+        A,
+        TlsSt,
+        const HEADER_LIMIT: usize,
+        const READ_BUF_LIMIT: usize,
+        const WRITE_BUF_LIMIT: usize,
+    > ReadyService<St> for H1Service<S, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+where
+    S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
+    A: Service<St, Response = TlsSt> + 'static,
+
+    S::Error: From<X::Error>,
+    HttpServiceError<S::Error, BE>: From<A::Error>,
+
+    B: Stream<Item = Result<Bytes, BE>>,
+
+    St: AsyncIo,
+    TlsSt: AsyncIo,
+{
+    type Ready = S::Ready;
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<Self::Ready, Self::Error>>;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async move { self.service.ready().await.map_err(HttpServiceError::Service) }
     }
 }

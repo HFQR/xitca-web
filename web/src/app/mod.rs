@@ -6,7 +6,7 @@ use std::{
 };
 
 use xitca_http::{Request, RequestBody, ResponseError};
-use xitca_service::{Service, ServiceFactory, ServiceFactoryExt, TransformFactory};
+use xitca_service::{ready::ReadyService, Service, ServiceFactory, ServiceFactoryExt, TransformFactory};
 
 use crate::request::WebRequest;
 
@@ -119,13 +119,7 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self.service.ready()
-    }
 
     fn call(&self, req: Request<RequestBody>) -> Self::Future<'_> {
         async move {
@@ -139,6 +133,20 @@ where
 
             Ok(res)
         }
+    }
+}
+
+impl<State, S, R, Res, Err> ReadyService<Request<RequestBody>> for AppService<State, S>
+where
+    State: 'static,
+    S: for<'r, 's> ReadyService<&'r mut WebRequest<'s, State>, Response = Res, Error = Err, Ready = R> + 'static,
+    Err: for<'r> ResponseError<WebRequest<'r, State>, Res>,
+{
+    type Ready = R;
+    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>>;
+
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async move { self.service.ready().await }
     }
 }
 

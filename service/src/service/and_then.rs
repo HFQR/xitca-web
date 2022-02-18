@@ -12,22 +12,10 @@ where
 {
     type Response = S1::Response;
     type Error = S1::Error;
-    type Ready<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f>
     where
         Self: 'f,
     = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        async move {
-            self.service.ready().await?;
-            self.service2.ready().await
-        }
-    }
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {

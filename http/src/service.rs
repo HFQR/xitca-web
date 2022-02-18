@@ -3,7 +3,7 @@ use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
 use futures_core::Stream;
 use tokio::pin;
 use xitca_io::{io::AsyncIo, net::Stream as ServerStream, net::TcpStream};
-use xitca_service::Service;
+use xitca_service::{ready::ReadyService, Service};
 
 use super::{
     body::{RequestBody, ResponseBody},
@@ -55,23 +55,6 @@ impl<S, ReqB, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
         }
     }
 
-    /// Service readiness check
-    pub(super) async fn _ready<ReqS, ReqX, ReqA, SE, BE>(&self) -> Result<(), HttpServiceError<SE, BE>>
-    where
-        S: Service<ReqS>,
-        X: Service<ReqX>,
-        A: Service<ReqA>,
-    {
-        self.expect.ready().await.map_err(|_| HttpServiceError::ServiceReady)?;
-
-        self.tls_acceptor
-            .ready()
-            .await
-            .map_err(|_| HttpServiceError::ServiceReady)?;
-
-        self.service.ready().await.map_err(|_| HttpServiceError::ServiceReady)
-    }
-
     pub(crate) fn update_first_request_deadline(&self, timer: Pin<&mut KeepAlive>) {
         let request_dur = self.config.first_request_timeout;
         let deadline = self.date.get().now() + request_dur;
@@ -107,13 +90,7 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Ready<'f> = impl Future<Output = Result<(), Self::Error>>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
-
-    #[inline]
-    fn ready(&self) -> Self::Ready<'_> {
-        self._ready()
-    }
 
     fn call(&self, io: ServerStream) -> Self::Future<'_> {
         async move {
@@ -208,5 +185,32 @@ where
                 }
             }
         }
+    }
+}
+
+impl<S, X, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    ReadyService<ServerStream> for HttpService<S, RequestBody, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+where
+    S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
+    A: Service<TcpStream> + 'static,
+    A::Response: AsyncIo + AsVersion,
+
+    HttpServiceError<S::Error, BE>: From<A::Error>,
+
+    S::Error: fmt::Debug + From<X::Error>,
+
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
+{
+    type Ready = S::Ready;
+    type ReadyFuture<'f>
+    where
+        Self: 'f,
+    = impl Future<Output = Result<Self::Ready, Self::Error>>;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async move { self.service.ready().await.map_err(HttpServiceError::Service) }
     }
 }
