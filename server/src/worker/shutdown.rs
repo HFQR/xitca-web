@@ -8,12 +8,12 @@ use std::{
 
 use tracing::info;
 
-use super::limit::Limit;
+use super::counter::Counter;
 use super::worker_name;
 
 pub(super) struct ShutdownHandle {
     shutdown_timeout: Duration,
-    limit: Limit,
+    counter: Counter,
     is_graceful_shutdown: Arc<AtomicBool>,
     fulfilled: bool,
 }
@@ -26,17 +26,17 @@ impl Drop for ShutdownHandle {
             info!(
                 "Force stopped {}. {:?} connections left.",
                 worker_name(),
-                self.limit.get()
+                self.counter.get()
             );
         }
     }
 }
 
 impl ShutdownHandle {
-    pub(super) fn new(shutdown_timeout: Duration, limit: Limit, is_graceful_shutdown: Arc<AtomicBool>) -> Self {
+    pub(super) fn new(shutdown_timeout: Duration, counter: Counter, is_graceful_shutdown: Arc<AtomicBool>) -> Self {
         Self {
             shutdown_timeout,
-            limit,
+            counter,
             is_graceful_shutdown,
             fulfilled: false,
         }
@@ -47,7 +47,7 @@ impl ShutdownHandle {
             let start = Instant::now();
             let mut interval = tokio::time::interval(Duration::from_millis(500));
             while start.elapsed() < self.shutdown_timeout {
-                if self.limit.get() == 0 {
+                if self.counter.get() == 0 {
                     return self.fulfilled = true;
                 }
                 let _ = interval.tick().await;
