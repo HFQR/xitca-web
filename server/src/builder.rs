@@ -8,7 +8,6 @@ use crate::server::{AsServiceFactoryClone, Factory, Server, ServerFuture, Server
 pub struct Builder {
     pub(crate) server_threads: usize,
     pub(crate) worker_threads: usize,
-    pub(crate) connection_limit: usize,
     pub(crate) worker_max_blocking_threads: usize,
     pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener>>>,
     pub(crate) factories: HashMap<String, Box<dyn ServiceFactoryClone>>,
@@ -30,7 +29,6 @@ impl Builder {
         Self {
             server_threads: 1,
             worker_threads: num_cpus::get(),
-            connection_limit: 25600,
             worker_max_blocking_threads: 512,
             listeners: HashMap::new(),
             factories: HashMap::new(),
@@ -66,6 +64,7 @@ impl Builder {
         self
     }
 
+    #[deprecated(note = "server connection limit is removed")]
     /// Set limit of connection count for a single worker thread.
     ///
     /// When reaching limit a worker thread would enter backpressure state and stop
@@ -79,10 +78,8 @@ impl Builder {
     ///
     /// # Panics:
     /// When received 0 as number of connection limit.
-    pub fn connection_limit(mut self, num: usize) -> Self {
+    pub fn connection_limit(self, num: usize) -> Self {
         assert_ne!(num, 0, "Connection limit must be higher than 0");
-
-        self.connection_limit = num;
         self
     }
 

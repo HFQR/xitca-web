@@ -24,7 +24,7 @@ use tracing::{error, info};
 
 use crate::{
     builder::Builder,
-    worker::{self, Limit},
+    worker::{self, Counter},
 };
 
 pub struct Server {
@@ -42,7 +42,6 @@ impl Server {
             server_threads,
             worker_threads,
             worker_max_blocking_threads,
-            connection_limit,
             listeners,
             factories,
             shutdown_timeout,
@@ -126,25 +125,26 @@ impl Server {
                             // `Listener` may do extra work with `Drop` trait and in order to prevent `Arc<Listener>` holding more reference
                             // counts than necessary all extra clone need to be dropped asap.
                             let fut = async move {
-                                let limit = Limit::new(connection_limit);
+                                let counter = Counter::new();
 
                                 let mut handles = Vec::new();
 
                                 for (name, factory) in factories {
-                                    let h = factory.spawn_handle(&name, &listeners, &limit).await?;
+                                    let h = factory.spawn_handle(&name, &listeners, &counter).await?;
                                     handles.extend(h);
                                 }
 
                                 // See above reason for `async move`
                                 drop(listeners);
 
-                                Ok::<_, ()>((handles, limit))
+                                Ok::<_, ()>((handles, counter))
                             };
 
                             match fut.await {
-                                Ok((handles, limit)) => {
+                                Ok((handles, counter)) => {
                                     tx.send(Ok(())).unwrap();
-                                    worker::wait_for_stop(handles, shutdown_timeout, limit, is_graceful_shutdown).await;
+                                    worker::wait_for_stop(handles, shutdown_timeout, counter, is_graceful_shutdown)
+                                        .await;
                                 }
                                 Err(_) => tx
                                     .send(Err(io::Error::new(

@@ -64,6 +64,7 @@ where
         self
     }
 
+    #[deprecated(note = "server connection limit is removed")]
     /// Set limit of connection count for a single worker thread.
     ///
     /// When reaching limit a worker thread would enter backpressure state and stop
@@ -77,8 +78,7 @@ where
     ///
     /// # Panics:
     /// When received 0 as number of connection limit.
-    pub fn connection_limit(mut self, num: usize) -> Self {
-        self.builder = self.builder.connection_limit(num);
+    pub fn connection_limit(self, _: usize) -> Self {
         self
     }
 

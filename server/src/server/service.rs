@@ -5,7 +5,7 @@ use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
 use xitca_service::{ready::ReadyService, ServiceFactory};
 
-use crate::worker::{self, Limit};
+use crate::worker::{self, Counter};
 
 pub(crate) struct Factory<F, Req> {
     inner: F,
@@ -29,7 +29,7 @@ pub(crate) trait ServiceFactoryClone: Send {
         &'s self,
         name: &'f str,
         listeners: &'f [(String, Arc<Listener>)],
-        limit: &'f Limit,
+        counter: &'f Counter,
     ) -> LocalBoxFuture<'f, Result<Vec<JoinHandle<()>>, ()>>
     where
         's: 'f;
@@ -52,7 +52,7 @@ where
         &'s self,
         name: &'f str,
         listeners: &'f [(String, Arc<Listener>)],
-        limit: &'f Limit,
+        counter: &'f Counter,
     ) -> LocalBoxFuture<'f, Result<Vec<JoinHandle<()>>, ()>>
     where
         's: 'f,
@@ -64,7 +64,7 @@ where
             let handles = listeners
                 .into_iter()
                 .filter(|(n, _)| n == name)
-                .map(|(_, listener)| worker::start(listener, &service, limit))
+                .map(|(_, listener)| worker::start(listener, &service, counter))
                 .collect::<Vec<_>>();
 
             Ok(handles)

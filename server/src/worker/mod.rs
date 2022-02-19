@@ -1,7 +1,7 @@
-mod limit;
+mod counter;
 mod shutdown;
 
-pub(crate) use self::limit::Limit;
+pub(crate) use self::counter::Counter;
 
 use std::{
     io,
@@ -17,26 +17,25 @@ use xitca_service::ready::ReadyService;
 
 use self::shutdown::ShutdownHandle;
 
-pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S, limit: &Limit) -> JoinHandle<()>
+pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S, counter: &Counter) -> JoinHandle<()>
 where
     S: ReadyService<Req> + Clone + 'static,
     S::Ready: 'static,
     Req: From<Stream>,
 {
     let listener = listener.clone();
-    let limit = limit.clone();
+    let counter = counter.clone();
     let service = service.clone();
 
     tokio::task::spawn_local(async move {
         loop {
-            let guard = limit.ready().await;
-
             // TODO: What if service return Error when ready.
             let ready = service.ready().await.ok();
 
             match listener.accept().await {
                 Ok(stream) => {
                     let service = service.clone();
+                    let guard = counter.guard();
                     tokio::task::spawn_local(async move {
                         let _ = service.call(From::from(stream)).await;
                         drop(guard);
@@ -59,12 +58,12 @@ where
 pub(crate) async fn wait_for_stop(
     handles: Vec<JoinHandle<()>>,
     shutdown_timeout: Duration,
-    limit: Limit,
+    counter: Counter,
     is_graceful_shutdown: Arc<AtomicBool>,
 ) {
     info!("Started {}", worker_name());
 
-    let shutdown_handle = ShutdownHandle::new(shutdown_timeout, limit, is_graceful_shutdown);
+    let shutdown_handle = ShutdownHandle::new(shutdown_timeout, counter, is_graceful_shutdown);
 
     for handle in handles {
         handle
