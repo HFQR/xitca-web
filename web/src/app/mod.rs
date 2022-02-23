@@ -69,14 +69,14 @@ impl<SF, F> App<SF, F> {
         }
     }
 
-    pub fn middleware<Req, T>(self, transform: T) -> App<SF, TransformFactory<F, T>>
+    pub fn enclosed<Req, T>(self, transform: T) -> App<SF, TransformFactory<F, T>>
     where
         F: ServiceFactory<Req>,
         T: ServiceFactory<Req, F::Service> + Clone,
     {
         App {
             state_factory: self.state_factory,
-            factory: self.factory.transform(transform),
+            factory: self.factory.enclosed(transform),
         }
     }
 }
@@ -213,7 +213,7 @@ mod test {
 
         let service = App::with_current_thread_state(state)
             .service(HandlerService::new(handler))
-            .middleware(Middleware)
+            .enclosed(Middleware)
             .new_service(())
             .await
             .ok()

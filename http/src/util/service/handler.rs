@@ -362,7 +362,7 @@ mod test {
     #[tokio::test]
     async fn concurrent_extract() {
         let service = handler_service(handler)
-            .transform_fn(|s, req| async move { s.call(req).await })
+            .enclosed_fn(|s, req| async move { s.call(req).await })
             .new_service(())
             .await
             .unwrap();

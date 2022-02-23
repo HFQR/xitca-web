@@ -231,7 +231,7 @@ impl<V, St, F, FE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, c
         Self: ServiceFactory<Req>,
         <Self as ServiceFactory<Req>>::Error: fmt::Debug,
     {
-        self.transform(Logger::new())
+        self.enclosed(Logger::new())
     }
 
     #[cfg(feature = "openssl")]
