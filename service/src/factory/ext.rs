@@ -47,7 +47,7 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
         PipelineServiceFactory::new(self, factory)
     }
 
-    fn transform<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::Transform>
+    fn enclosed<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::Transform>
     where
         T: ServiceFactory<Req, Self::Service> + Clone,
         Self: ServiceFactory<Req, Arg> + Sized,
@@ -55,7 +55,7 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
         PipelineServiceFactory::new(self, transform)
     }
 
-    fn transform_fn<T, Fut>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::TransformFn>
+    fn enclosed_fn<T, Fut>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::TransformFn>
     where
         T: Fn(Self::Service, Req) -> Fut + Clone,
         Fut: Future,
@@ -133,7 +133,7 @@ mod test {
 
     #[tokio::test]
     async fn service_object() {
-        let factory = fn_service(index).transform(DummyMiddleware).into_object();
+        let factory = fn_service(index).enclosed(DummyMiddleware).into_object();
 
         let service = factory.new_service(()).await.unwrap();
 
@@ -159,7 +159,7 @@ mod test {
 
     #[tokio::test]
     async fn transform_fn() {
-        let factory = fn_service(index).transform_fn(|service, req| async move {
+        let factory = fn_service(index).enclosed_fn(|service, req| async move {
             let res = service.call(req).await?;
             assert_eq!(res, "996");
             Ok::<&'static str, ()>("251")

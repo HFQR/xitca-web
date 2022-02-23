@@ -319,7 +319,7 @@ mod test {
         let route = get(fn_service(index))
             .post(fn_service(index))
             .trace(fn_service(index))
-            .transform_fn(|s, req| async move { s.call(req).await });
+            .enclosed_fn(|s, req| async move { s.call(req).await });
 
         let service = route.new_service(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);

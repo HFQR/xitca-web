@@ -81,7 +81,7 @@ async fn http_codegen() {
     let res = Service::call(&service, String::from("007")).await.unwrap();
     assert_eq!(res, 233);
 
-    let transform = factory.transform(TestMiddleware);
+    let transform = factory.enclosed(TestMiddleware);
     let middlware = ServiceFactory::new_service(&transform, cfg.clone()).await.unwrap();
 
     let res = Service::call(&middlware, String::from("007")).await.unwrap();

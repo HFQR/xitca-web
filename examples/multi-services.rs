@@ -30,15 +30,15 @@ async fn main() -> io::Result<()> {
 
     let h1_factory = || {
         HttpServiceBuilder::h1(fn_service(handler_h1))
-            .transform(TcpConfig::new())
-            .transform(Logger::default())
+            .enclosed(TcpConfig::new())
+            .enclosed(Logger::default())
     };
     let h2_factory = move || {
         HttpServiceBuilder::h2(fn_service(handler_h2))
             .openssl(acceptor.clone())
             .with_logger()
     };
-    let h3_factory = || HttpServiceBuilder::h3(fn_service(handler_h3)).transform(Logger::default());
+    let h3_factory = || HttpServiceBuilder::h3(fn_service(handler_h3)).enclosed(Logger::default());
 
     // construct server
     xitca_server::Builder::new()

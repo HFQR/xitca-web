@@ -141,7 +141,7 @@ mod test {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
-        .transform(State::new(String::from("state")))
+        .enclosed(State::new(String::from("state")))
         .new_service(())
         .await
         .unwrap();
@@ -157,7 +157,7 @@ mod test {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
-        .transform(State::factory(|| async move { Ok::<_, ()>(String::from("state")) }))
+        .enclosed(State::factory(|| async move { Ok::<_, ()>(String::from("state")) }))
         .new_service(())
         .await
         .unwrap();
@@ -173,7 +173,7 @@ mod test {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
-        .transform(State::new(String::from("state")))
+        .enclosed(State::new(String::from("state")))
         .new_service(())
         .await
         .unwrap();
