@@ -37,8 +37,6 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
 
     /// Chain another service factory who's service takes `Self`'s `Service::Response` output as
     /// `Service::Request`.
-    ///
-    /// *. Unlike `then` combinator both `F` and `Self`'s readiness are checked beforehand.
     fn and_then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::AndThen>
     where
         F: ServiceFactory<Self::Response, Arg>,
