@@ -147,7 +147,7 @@ where
                     }
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             }
         }
     }
@@ -273,6 +273,7 @@ where
                 ConnectionType::Init => {}
                 ConnectionType::KeepAlive => self.update_timer(),
                 ConnectionType::Upgrade | ConnectionType::Close => {
+                    unlikely();
                     return self.io.shutdown().await.map_err(Into::into);
                 }
                 ConnectionType::CloseForce => {
