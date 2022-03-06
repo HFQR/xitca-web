@@ -26,7 +26,7 @@ use crate::{
 };
 
 use super::{
-    buf::{FlatBuf, ListBuf, BufBound, BufWrite},
+    buf::{BufBound, BufWrite, FlatBuf, ListBuf},
     codec::TransferCoding,
     context::{ConnectionType, Context},
     error::{Parse, ProtoError},
@@ -122,7 +122,7 @@ struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT:
 }
 
 impl<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    BufferedIo<'a, St, W,  READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    BufferedIo<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     St: AsyncIo,
     W: BufWrite,
@@ -136,7 +136,7 @@ where
     }
 
     /// read until blocked/read backpressure and advance readbuf.
-    fn try_read(&mut self) -> io::Result<(),> {
+    fn try_read(&mut self) -> io::Result<()> {
         loop {
             match self.io.try_read_buf(&mut *self.read_buf) {
                 Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
@@ -165,8 +165,7 @@ where
 
     /// Flush io
     async fn flush(&mut self) -> io::Result<()> {
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx))
-            .await
+        poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await
     }
 
     /// drain write buffer and flush the io.
@@ -211,12 +210,11 @@ where
             }
         }
     }
-    
+
     #[inline(never)]
     async fn shutdown(&mut self) -> io::Result<()> {
         self.drain_write().await?;
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx))
-            .await
+        poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx)).await
     }
 }
 
@@ -272,7 +270,7 @@ where
     async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
             match self.ctx.ctype() {
-                ConnectionType::Init => {},
+                ConnectionType::Init => {}
                 ConnectionType::KeepAlive => self.update_timer(),
                 ConnectionType::Upgrade | ConnectionType::Close => {
                     return self.io.shutdown().await.map_err(Into::into);
@@ -538,10 +536,7 @@ impl RequestBodyHandle {
         Ok(DecodeState::Continue)
     }
 
-    async fn ready<D, const HEADER_LIMIT: usize>(
-        &self,
-        ctx: &mut Context<'_, D, HEADER_LIMIT>,
-    ) -> io::Result<()> {
+    async fn ready<D, const HEADER_LIMIT: usize>(&self, ctx: &mut Context<'_, D, HEADER_LIMIT>) -> io::Result<()> {
         self.sender.ready().await.map_err(|e| {
             // RequestBodySender's only error case is when service future drop the request
             // body half way. In this case notify Context to close connection afterwards.

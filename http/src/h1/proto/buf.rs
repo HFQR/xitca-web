@@ -80,7 +80,6 @@ impl<const BUF_LIMIT: usize> BufBound for FlatBuf<BUF_LIMIT> {
 }
 
 impl<const BUF_LIMIT: usize> BufWrite for FlatBuf<BUF_LIMIT> {
-
     #[inline]
     fn buf_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
