@@ -26,7 +26,7 @@ use crate::{
 };
 
 use super::{
-    buf::{FlatBuf, ListBuf, WriteBuf},
+    buf::{FlatBuf, ListBuf, BufBound, BufWrite},
     codec::TransferCoding,
     context::{ConnectionType, Context},
     error::{Parse, ProtoError},
@@ -106,42 +106,40 @@ struct Dispatcher<
 > where
     S: Service<Request<ReqB>>,
 {
-    io: Io<'a, St, W, S::Error, BE, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+    io: BufferedIo<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
     expect: &'a X,
     service: &'a S,
-    _phantom: PhantomData<ReqB>,
+    _phantom: PhantomData<(ReqB, BE)>,
 }
 
-struct Io<'a, St, W, SE, BE, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     io: &'a mut St,
     read_buf: FlatBuf<READ_BUF_LIMIT>,
     write_buf: W,
-    _err: PhantomData<(SE, BE)>,
 }
 
-impl<'a, St, W, SE, BE, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Io<'a, St, W, SE, BE, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    BufferedIo<'a, St, W,  READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     St: AsyncIo,
-    W: WriteBuf,
+    W: BufWrite,
 {
     fn new(io: &'a mut St, write_buf: W) -> Self {
         Self {
             io,
             read_buf: FlatBuf::new(),
             write_buf,
-            _err: PhantomData,
         }
     }
 
     /// read until blocked/read backpressure and advance readbuf.
-    fn try_read(&mut self) -> Result<(), Error<SE, BE>> {
+    fn try_read(&mut self) -> io::Result<(),> {
         loop {
             match self.io.try_read_buf(&mut *self.read_buf) {
-                Ok(0) => return Err(Error::Closed),
+                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
                 Ok(_) => {
                     if self.read_buf.backpressure() {
                         trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", self.read_buf.len());
@@ -155,25 +153,24 @@ where
     }
 
     /// Return when write is blocked and need wait.
-    fn try_write(&mut self) -> Result<(), Error<SE, BE>> {
-        self.write_buf.try_write_io(self.io)
+    fn try_write(&mut self) -> io::Result<()> {
+        self.write_buf.try_write(self.io)
     }
 
     /// Block task and read.
-    async fn read(&mut self) -> Result<(), Error<SE, BE>> {
+    async fn read(&mut self) -> io::Result<()> {
         self.io.ready(Interest::READABLE).await?;
         self.try_read()
     }
 
     /// Flush io
-    async fn flush(&mut self) -> Result<(), Error<SE, BE>> {
+    async fn flush(&mut self) -> io::Result<()> {
         poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx))
             .await
-            .map_err(Error::from)
     }
 
     /// drain write buffer and flush the io.
-    async fn drain_write(&mut self) -> Result<(), Error<SE, BE>> {
+    async fn drain_write(&mut self) -> io::Result<()> {
         while !self.write_buf.is_empty() {
             self.try_write()?;
             let _ = self.io.ready(Interest::WRITABLE).await?;
@@ -183,7 +180,7 @@ where
 
     /// A specialized writable check that always pending when write buffer is empty.
     /// This is a hack for `crate::util::futures::Select`.
-    async fn writable(&self) -> Result<(), Error<SE, BE>> {
+    async fn writable(&self) -> io::Result<()> {
         if self.write_buf.is_empty() {
             never().await
         } else {
@@ -200,12 +197,12 @@ where
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {
         if self.write_buf.is_empty() {
-            handle.sender_ready(ctx).await?;
+            handle.ready(ctx).await?;
             self.io.ready(Interest::READABLE).await
         } else {
             // for readable event the RequestBodyHandle must always be checked before polling
             // it's Interest.
-            match handle.sender_ready(ctx).select(self.io.ready(Interest::WRITABLE)).await {
+            match handle.ready(ctx).select(self.io.ready(Interest::WRITABLE)).await {
                 SelectOutput::A(res) => {
                     res?;
                     self.io.ready(Interest::READABLE | Interest::WRITABLE).await
@@ -214,13 +211,12 @@ where
             }
         }
     }
-
+    
     #[inline(never)]
-    async fn shutdown(&mut self) -> Result<(), Error<SE, BE>> {
+    async fn shutdown(&mut self) -> io::Result<()> {
         self.drain_write().await?;
         poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx))
             .await
-            .map_err(Into::into)
     }
 }
 
@@ -249,7 +245,7 @@ where
     S::Error: From<X::Error>,
 
     St: AsyncIo,
-    W: WriteBuf,
+    W: BufWrite,
 
     D: DateTime,
 {
@@ -263,7 +259,7 @@ where
         write_buf: W,
     ) -> Self {
         Self {
-            io: Io::new(io, write_buf),
+            io: BufferedIo::new(io, write_buf),
             timer,
             ka_dur: config.keep_alive_timeout,
             ctx: Context::new(date),
@@ -276,17 +272,18 @@ where
     async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
             match self.ctx.ctype() {
-                ConnectionType::Init | ConnectionType::KeepAlive => {
-                    self.io.read().timeout(self.timer.as_mut()).await??;
-                }
+                ConnectionType::Init => {},
+                ConnectionType::KeepAlive => self.update_timer(),
                 ConnectionType::Upgrade | ConnectionType::Close => {
-                    return self.io.shutdown().timeout(self.timer.as_mut()).await?;
+                    return self.io.shutdown().await.map_err(Into::into);
                 }
                 ConnectionType::CloseForce => {
                     unlikely();
                     return Ok(());
                 }
             }
+
+            self.io.read().timeout(self.timer.as_mut()).await??;
 
             'req: while let Some(res) = self.decode_head() {
                 match res {
@@ -299,8 +296,6 @@ where
                         if self.ctx.is_connection_closed() {
                             break 'req;
                         }
-
-                        self.update_timer();
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         self.request_error(response::header_too_large)?;
@@ -382,7 +377,7 @@ where
         if let Some(handle) = body_handle {
             // Check the readiness of RequestBodyHandle
             // so read ahead does not buffer too much data.
-            while handle.sender_ready(&mut self.ctx).await.is_ok() {
+            while handle.ready(&mut self.ctx).await.is_ok() {
                 match handle.decode(&mut self.io.read_buf)? {
                     DecodeState::Continue => self.io.read().await?,
                     DecodeState::Eof => break,
@@ -543,7 +538,7 @@ impl RequestBodyHandle {
         Ok(DecodeState::Continue)
     }
 
-    async fn sender_ready<D, const HEADER_LIMIT: usize>(
+    async fn ready<D, const HEADER_LIMIT: usize>(
         &self,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<()> {

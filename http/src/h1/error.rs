@@ -40,9 +40,10 @@ impl<S, B> From<ProtoError> for Error<S, B> {
 
 impl<S, B> From<io::Error> for Error<S, B> {
     fn from(e: io::Error) -> Self {
+        use io::ErrorKind;
         match e.kind() {
-            io::ErrorKind::ConnectionReset => Self::Closed,
-            io::ErrorKind::WouldBlock => panic!("WouldBlock error should never be treated as error."),
+            ErrorKind::ConnectionReset | ErrorKind::UnexpectedEof | ErrorKind::WriteZero => Self::Closed,
+            ErrorKind::WouldBlock => panic!("WouldBlock error should never be treated as error."),
             _ => Self::Io(e),
         }
     }

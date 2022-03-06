@@ -8,31 +8,28 @@ use xitca_io::io::AsyncIo;
 
 use crate::{
     bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut},
-    h1::error::Error,
     util::buf_list::BufList,
 };
 
-// buf list is forced to go in backpressure when it reaches this length.
-// 32 is chosen for max of 16 pipelined http requests with a single body item.
-const BUF_LIST_CNT: usize = 32;
+/// Trait for bound check different types of read/write buffer strategy.
+pub trait BufBound {
+    fn backpressure(&self) -> bool;
+    fn is_empty(&self) -> bool;
+}
 
 /// Trait to generic over different types of write buffer strategy.
-pub trait WriteBuf {
-    fn backpressure(&self) -> bool;
-
-    fn is_empty(&self) -> bool;
-
-    fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+pub trait BufWrite: BufBound {
+    fn buf_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>;
 
-    fn write_static(&mut self, bytes: &'static [u8]);
+    fn buf_static(&mut self, bytes: &'static [u8]);
 
-    fn write_buf(&mut self, bytes: Bytes);
+    fn buf_bytes(&mut self, bytes: Bytes);
 
-    fn write_chunk(&mut self, bytes: Bytes);
+    fn buf_chunked(&mut self, bytes: Bytes);
 
-    fn try_write_io<Io: AsyncIo, S, B>(&mut self, io: &mut Io) -> Result<(), Error<S, B>>;
+    fn try_write<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()>;
 }
 
 pub struct FlatBuf<const BUF_LIMIT: usize>(BytesMut);
@@ -70,7 +67,7 @@ impl<const BUF_LIMIT: usize> DerefMut for FlatBuf<BUF_LIMIT> {
     }
 }
 
-impl<const BUF_LIMIT: usize> WriteBuf for FlatBuf<BUF_LIMIT> {
+impl<const BUF_LIMIT: usize> BufBound for FlatBuf<BUF_LIMIT> {
     #[inline]
     fn backpressure(&self) -> bool {
         self.remaining() >= BUF_LIMIT
@@ -80,9 +77,12 @@ impl<const BUF_LIMIT: usize> WriteBuf for FlatBuf<BUF_LIMIT> {
     fn is_empty(&self) -> bool {
         self.remaining() == 0
     }
+}
+
+impl<const BUF_LIMIT: usize> BufWrite for FlatBuf<BUF_LIMIT> {
 
     #[inline]
-    fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+    fn buf_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
@@ -90,16 +90,16 @@ impl<const BUF_LIMIT: usize> WriteBuf for FlatBuf<BUF_LIMIT> {
     }
 
     #[inline]
-    fn write_static(&mut self, bytes: &'static [u8]) {
+    fn buf_static(&mut self, bytes: &'static [u8]) {
         self.put_slice(bytes);
     }
 
     #[inline]
-    fn write_buf(&mut self, bytes: Bytes) {
+    fn buf_bytes(&mut self, bytes: Bytes) {
         self.put_slice(bytes.as_ref());
     }
 
-    fn write_chunk(&mut self, bytes: Bytes) {
+    fn buf_chunked(&mut self, bytes: Bytes) {
         write!(BufMutWriter(&mut **self), "{:X}\r\n", bytes.len()).unwrap();
 
         self.reserve(bytes.len() + 2);
@@ -107,19 +107,19 @@ impl<const BUF_LIMIT: usize> WriteBuf for FlatBuf<BUF_LIMIT> {
         self.put_slice(b"\r\n");
     }
 
-    fn try_write_io<Io: AsyncIo, S, B>(&mut self, io: &mut Io) -> Result<(), Error<S, B>> {
+    fn try_write<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
         let mut written = 0;
         let len = self.remaining();
 
         while written < len {
             match io.try_write(&self[written..]) {
-                Ok(0) => return Err(Error::Closed),
+                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(n) => written += n,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     self.advance(written);
                     return Ok(());
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             }
         }
 
@@ -156,7 +156,7 @@ impl<B: Buf, const BUF_LIMIT: usize> ListBuf<B, BUF_LIMIT> {
 
 impl<B: Buf, const BUF_LIMIT: usize> fmt::Debug for ListBuf<B, BUF_LIMIT> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WriteBuf")
+        f.debug_struct("ListBuf")
             .field("remaining", &self.list.remaining())
             .finish()
     }
@@ -209,7 +209,11 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
 // as special type for eof chunk when using transfer-encoding: chunked
 type Eof = Chain<Chain<Bytes, Bytes>, &'static [u8]>;
 
-impl<const BUF_LIMIT: usize> WriteBuf for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LIMIT> {
+// buf list is forced to go in backpressure when it reaches this length.
+// 32 is chosen for max of 16 pipelined http requests with a single body item.
+const BUF_LIST_CNT: usize = 32;
+
+impl<const BUF_LIMIT: usize> BufBound for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LIMIT> {
     #[inline]
     fn backpressure(&self) -> bool {
         self.list.remaining() >= BUF_LIMIT || self.list.cnt() == BUF_LIST_CNT
@@ -219,8 +223,10 @@ impl<const BUF_LIMIT: usize> WriteBuf for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
     fn is_empty(&self) -> bool {
         self.list.remaining() == 0
     }
+}
 
-    fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LIMIT> {
+    fn buf_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
@@ -232,16 +238,16 @@ impl<const BUF_LIMIT: usize> WriteBuf for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
     }
 
     #[inline]
-    fn write_static(&mut self, bytes: &'static [u8]) {
+    fn buf_static(&mut self, bytes: &'static [u8]) {
         self.buffer(EncodedBuf::Static(bytes));
     }
 
-    fn write_buf(&mut self, bytes: Bytes) {
+    fn buf_bytes(&mut self, bytes: Bytes) {
         self.buffer(EncodedBuf::Buf(bytes));
     }
 
     #[inline]
-    fn write_chunk(&mut self, bytes: Bytes) {
+    fn buf_chunked(&mut self, bytes: Bytes) {
         let eof = Bytes::from(format!("{:X}\r\n", bytes.len()))
             .chain(bytes)
             .chain(b"\r\n" as &'static [u8]);
@@ -249,16 +255,16 @@ impl<const BUF_LIMIT: usize> WriteBuf for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
         self.buffer(EncodedBuf::Chunk(eof));
     }
 
-    fn try_write_io<Io: AsyncIo, S, B>(&mut self, io: &mut Io) -> Result<(), Error<S, B>> {
+    fn try_write<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
         let queue = &mut self.list;
         while queue.remaining() > 0 {
             let mut iovs = [io::IoSlice::new(&[]); BUF_LIST_CNT];
             let len = queue.chunks_vectored(&mut iovs);
             match io.try_write_vectored(&iovs[..len]) {
-                Ok(0) => return Err(Error::Closed),
+                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(n) => queue.advance(n),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             }
         }
 
