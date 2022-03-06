@@ -1,5 +1,3 @@
-mod router;
-
 use std::{
     convert::Infallible,
     future::{ready, Future, Ready},
