@@ -191,10 +191,7 @@ where
 {
     type Response = R::Response;
     type Error = R::Error;
-    type Future<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
@@ -215,10 +212,7 @@ where
     Req: Borrow<http::Request<ReqB>>,
 {
     type Ready = ();
-    type ReadyFuture<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Ready, Self::Error>>;
+    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
@@ -284,10 +278,7 @@ impl<Req, Arg, Res, Err> ServiceFactory<Req, Arg> for MethodNotAllowed<Res, Err>
 impl<Req, Res, Err> Service<Req> for MethodNotAllowed<Res, Err> {
     type Response = Res;
     type Error = RouteError<Err>;
-    type Future<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[cold]
     #[inline(never)]

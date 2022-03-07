@@ -130,10 +130,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStream<S> {
 }
 
 impl<S: AsyncIo> AsyncIo for TlsStream<S> {
-    type ReadyFuture<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = io::Result<Ready>>;
+    type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> where Self: 'f;
 
     #[inline]
     fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {

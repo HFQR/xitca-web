@@ -177,8 +177,8 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
     /// Public API for test purpose.
     ///
     /// Used for testing server implementation to make sure it follows spec.
-    pub fn is_close_connection(&mut self) -> bool {
-        self.res.body_mut().is_destroy_on_drop()
+    pub fn can_close_connection(&mut self) -> bool {
+        self.res.body_mut().can_destroy_on_drop()
     }
 }
 

@@ -88,10 +88,7 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f>
-    where
-        S: 'f,
-    = S::Future<'f>;
+    type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
     fn call(&self, req: TcpStream) -> Self::Future<'_> {
@@ -105,10 +102,7 @@ where
     S: ReadyService<TcpStream>,
 {
     type Ready = S::Ready;
-    type ReadyFuture<'f>
-    where
-        Self: 'f,
-    = S::ReadyFuture<'f>;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
@@ -122,10 +116,7 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f>
-    where
-        S: 'f,
-    = S::Future<'f>;
+    type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
     fn call(&self, req: ServerStream) -> Self::Future<'_> {
@@ -144,10 +135,7 @@ where
     S: ReadyService<ServerStream>,
 {
     type Ready = S::Ready;
-    type ReadyFuture<'f>
-    where
-        Self: 'f,
-    = S::ReadyFuture<'f>;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

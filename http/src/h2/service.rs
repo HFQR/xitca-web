@@ -111,10 +111,7 @@ where
     HttpServiceError<S::Error, BE>: From<A::Error>,
 {
     type Ready = S::Ready;
-    type ReadyFuture<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Ready, Self::Error>>;
+    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

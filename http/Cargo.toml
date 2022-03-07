@@ -12,6 +12,10 @@ openssl = ["futures-task", "openssl-crate", "tokio-openssl", "tokio-util/io"]
 rustls = ["futures-task", "tokio-rustls", "tokio-util/io"]
 native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "tokio-util/io"]
 
+# unstable features that are subject to be changed at anytime.
+util-service = ["matchit"]
+handler-service-impl = []
+
 [dependencies]
 xitca-io = "0.1"
 xitca-service = "0.1"
@@ -19,7 +23,6 @@ xitca-service = "0.1"
 futures-core = "0.3.17"
 http = "0.2.5"
 httpdate = "1.0"
-matchit = "0.4.4"
 pin-project-lite = "0.2.7"
 socket2 = { version = "0.4.2", features = ["all"] }
 tokio = { version = "1.12", features = ["io-util", "time"] }
@@ -52,6 +55,9 @@ futures-util = { version = "0.3.17", default-features = false, optional = true }
 futures-intrusive = { version = "0.4", optional = true }
 h3 = { version = "0.0.0", optional = true }
 h3-quinn = { version = "0.0.0", optional = true }
+
+# util service support
+matchit = { version = "0.4.4", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.12", features = ["macros", "rt"] }

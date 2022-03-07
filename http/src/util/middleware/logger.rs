@@ -55,10 +55,7 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f>
-    where
-        S: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
@@ -79,10 +76,7 @@ where
 {
     type Ready = S::Ready;
 
-    type ReadyFuture<'f>
-    where
-        Self: 'f,
-    = S::ReadyFuture<'f>;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

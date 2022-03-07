@@ -12,10 +12,7 @@ where
 {
     type Response = S1::Response;
     type Error = S1::Error;
-    type Future<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {

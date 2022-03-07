@@ -42,7 +42,7 @@ impl ResponseBody<'_> {
         }
     }
 
-    pub(crate) fn is_destroy_on_drop(&mut self) -> bool {
+    pub(crate) fn can_destroy_on_drop(&mut self) -> bool {
         if let Self::H1(ref mut body) = *self {
             body.conn().is_destroy_on_drop()
         } else {

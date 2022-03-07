@@ -1,4 +1,6 @@
 pub mod middleware;
+
+#[cfg(feature = "util-service")]
 pub mod service;
 
 pub use self::buf_list::BufList;

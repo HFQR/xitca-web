@@ -23,7 +23,7 @@ async fn h2_get() -> Result<(), Error> {
     for _ in 0..3 {
         let mut res = c.get(&server_url)?.version(Version::HTTP_2).send().await?;
         assert_eq!(res.status().as_u16(), 200);
-        assert!(!res.is_close_connection());
+        assert!(!res.can_close_connection());
         let body = res.string().await?;
         assert_eq!("GET Response", body);
     }
@@ -50,7 +50,7 @@ async fn h2_post() -> Result<(), Error> {
         }
         let mut res = c.post(&server_url)?.version(Version::HTTP_2).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
-        assert!(!res.is_close_connection());
+        assert!(!res.can_close_connection());
         let _ = res.body().await;
     }
 
@@ -79,7 +79,7 @@ async fn h2_keepalive() -> Result<(), Error> {
 
                 let mut res = c.get(&server_url)?.version(Version::HTTP_2).send().await?;
                 assert_eq!(res.status().as_u16(), 200);
-                assert!(!res.is_close_connection());
+                assert!(!res.can_close_connection());
                 let body = res.string().await?;
                 assert_eq!("GET Response", body);
 

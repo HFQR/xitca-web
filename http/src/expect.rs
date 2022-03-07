@@ -38,10 +38,7 @@ where
 {
     type Response = Req;
     type Error = F::Error;
-    type Future<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move { Ok(req) }

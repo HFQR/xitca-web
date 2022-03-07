@@ -11,10 +11,7 @@ where
     S1::Error: From<S::Error>,
 {
     type Ready = PipelineReady<S::Ready, S1::Ready>;
-    type ReadyFuture<'f>
-    where
-        Self: 'f,
-    = impl Future<Output = Result<Self::Ready, Self::Error>>;
+    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
 
     fn ready(&self) -> Self::ReadyFuture<'_> {
         async move {

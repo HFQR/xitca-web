@@ -8,10 +8,7 @@ where
     F: Fn(Result<S::Response, S::Error>) -> Result<Res, S::Error>,
 {
     type Ready = S::Ready;
-    type ReadyFuture<'f>
-    where
-        Self: 'f,
-    = S::ReadyFuture<'f>;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

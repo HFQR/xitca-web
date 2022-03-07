@@ -39,10 +39,7 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f>
-    where
-        Self: 'f,
-    = Fut;
+    type Future<'f> = Fut where Self: 'f;
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {

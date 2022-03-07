@@ -195,10 +195,7 @@ mod test {
     {
         type Response = Res;
         type Error = Err;
-        type Future<'f>
-        where
-            Self: 'f,
-        = impl Future<Output = Result<Self::Response, Self::Error>>;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
         fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
             async move { self.0.call(req).await }

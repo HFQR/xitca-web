@@ -30,7 +30,7 @@ async fn h1_get() -> Result<(), Error> {
     for _ in 0..3 {
         let mut res = c.get(&server_url)?.send().await?;
         assert_eq!(res.status().as_u16(), 200);
-        assert!(!res.is_close_connection());
+        assert!(!res.can_close_connection());
         let body = res.string().await?;
         assert_eq!("GET Response", body);
     }
@@ -59,7 +59,7 @@ async fn h1_post() -> Result<(), Error> {
 
         let mut res = c.post(&server_url)?.text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
-        assert!(!res.is_close_connection());
+        assert!(!res.can_close_connection());
         let body = res.limit::<{ 12 * 1024 }>().string().await?;
         assert_eq!(body.len(), body_len);
     }
@@ -87,7 +87,7 @@ async fn h1_drop_body_read() -> Result<(), Error> {
 
         let mut res = c.post(&server_url)?.text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
-        assert!(res.is_close_connection());
+        assert!(res.can_close_connection());
     }
 
     handle.try_handle()?.stop(true);
@@ -113,7 +113,7 @@ async fn h1_partial_body_read() -> Result<(), Error> {
 
         let mut res = c.post(&server_url)?.text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
-        assert!(res.is_close_connection());
+        assert!(res.can_close_connection());
     }
 
     handle.try_handle()?.stop(true);
@@ -133,7 +133,7 @@ async fn h1_close_connection() -> Result<(), Error> {
 
     let mut res = c.get(&server_url)?.send().await?;
     assert_eq!(res.status().as_u16(), 200);
-    assert!(res.is_close_connection());
+    assert!(res.can_close_connection());
 
     handle.try_handle()?.stop(true);
 
@@ -170,7 +170,7 @@ async fn h1_request_too_large() -> Result<(), Error> {
 
     let mut res = req.send().await?;
     assert_eq!(res.status().as_u16(), 431);
-    assert!(res.is_close_connection());
+    assert!(res.can_close_connection());
 
     handle.try_handle()?.stop(true);
 

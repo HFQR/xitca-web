@@ -32,10 +32,7 @@ macro_rules! impl_alloc {
         {
             type Response = S::Response;
             type Error = S::Error;
-            type Future<'f>
-            where
-                Self: 'f,
-            = S::Future<'f>;
+            type Future<'f> = S::Future<'f> where Self: 'f;
 
             #[inline]
             fn call(&self, req: Req) -> Self::Future<'_> {
@@ -56,10 +53,7 @@ where
 {
     type Response = <S::Target as Service<Req>>::Response;
     type Error = <S::Target as Service<Req>>::Error;
-    type Future<'f>
-    where
-        Self: 'f,
-    = <S::Target as Service<Req>>::Future<'f>;
+    type Future<'f> = <S::Target as Service<Req>>::Future<'f> where Self: 'f;
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {

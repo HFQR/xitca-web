@@ -1,4 +1,6 @@
 mod handler;
+#[cfg(feature = "handler-service-impl")]
+mod handler_impl;
 mod route;
 mod router;
 

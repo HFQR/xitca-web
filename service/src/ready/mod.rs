@@ -93,10 +93,7 @@ macro_rules! impl_alloc {
             S: ReadyService<Req> + ?Sized,
         {
             type Ready = S::Ready;
-            type ReadyFuture<'f>
-            where
-                Self: 'f,
-            = S::ReadyFuture<'f>;
+            type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
 
             #[inline]
             fn ready(&self) -> Self::ReadyFuture<'_> {
@@ -116,10 +113,9 @@ where
     S::Target: ReadyService<Req>,
 {
     type Ready = <S::Target as ReadyService<Req>>::Ready;
-    type ReadyFuture<'f>
+    type ReadyFuture<'f> = <S::Target as ReadyService<Req>>::ReadyFuture<'f>
     where
-        Self: 'f,
-    = <S::Target as ReadyService<Req>>::ReadyFuture<'f>;
+        Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

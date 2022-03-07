@@ -115,10 +115,7 @@ mod test {
     {
         type Response = S::Response;
         type Error = S::Error;
-        type Future<'f>
-        where
-            S: 'f,
-        = impl Future<Output = Result<Self::Response, Self::Error>>;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
 
         fn call(&self, req: Req) -> Self::Future<'_> {
             async move { self.0.call(req).await }
