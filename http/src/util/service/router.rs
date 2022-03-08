@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap, error, fmt, future::Future, marker::PhantomData};
+use std::{borrow::BorrowMut, collections::HashMap, error, fmt, future::Future, marker::PhantomData};
 
 use matchit::{MatchError, Node};
 use xitca_service::{
@@ -66,9 +66,8 @@ impl<Req, ReqB, Arg, Res, Err> Router<Req, ReqB, Arg, Res, Err> {
     pub fn insert<F>(mut self, path: &'static str, factory: F) -> Self
     where
         F: ServiceFactory<Req, Arg, Response = Res, Error = Err> + 'static,
-        F::Service: Clone + 'static,
+        F::Service: 'static,
         F::Future: 'static,
-        Req: 'static,
     {
         assert!(self.routes.insert(path, factory.into_object()).is_none());
         self
@@ -77,7 +76,7 @@ impl<Req, ReqB, Arg, Res, Err> Router<Req, ReqB, Arg, Res, Err> {
 
 impl<Req, ReqB, Arg, Res, Err> ServiceFactory<Req, Arg> for Router<Req, ReqB, Arg, Res, Err>
 where
-    Req: Borrow<http::Request<ReqB>>,
+    Req: BorrowMut<http::Request<ReqB>>,
     Arg: Clone,
 {
     type Response = Res;
@@ -124,7 +123,7 @@ impl<Req, ReqB, Res, Err> Clone for RouterService<Req, ReqB, Res, Err> {
 
 impl<Req, ReqB, Res, Err> Service<Req> for RouterService<Req, ReqB, Res, Err>
 where
-    Req: Borrow<http::Request<ReqB>>,
+    Req: BorrowMut<http::Request<ReqB>>,
 {
     type Response = Res;
     type Error = RouterError<Err>;
@@ -145,7 +144,7 @@ where
 
 impl<Req, ReqB, Res, Err> ReadyService<Req> for RouterService<Req, ReqB, Res, Err>
 where
-    Req: Borrow<http::Request<ReqB>>,
+    Req: BorrowMut<http::Request<ReqB>>,
 {
     type Ready = ();
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;

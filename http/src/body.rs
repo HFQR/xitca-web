@@ -171,9 +171,16 @@ macro_rules! from_impl {
 }
 
 from_impl!(&'static [u8]);
-from_impl!(&'static str);
 from_impl!(Vec<u8>);
 from_impl!(String);
+
+impl<B> From<&'_ str> for ResponseBody<B> {
+    fn from(str: &str) -> Self {
+        Self::Bytes {
+            bytes: Bytes::copy_from_slice(str.as_bytes()),
+        }
+    }
+}
 
 /// Body size hint.
 #[derive(Debug, Clone, Copy, PartialEq)]
