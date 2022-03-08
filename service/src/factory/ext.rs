@@ -71,9 +71,8 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
     fn into_object(self) -> ServiceFactoryObject<Req, Arg, Self::Response, Self::Error>
     where
         Self: Sized + 'static,
-        Self::Service: Clone + 'static,
+        Self::Service: 'static,
         Self::Future: 'static,
-        Req: 'static,
     {
         Box::new(self)
     }

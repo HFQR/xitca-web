@@ -7,23 +7,26 @@ use super::Service;
 /// Trait object for type impls [Service] trait.
 ///
 /// [Service] trait uses GAT which does not offer object safety.
-/// This helper type offers the safety at the cost of tighter trait bound.
-/// (Service type, input Request type and output future type must bound to 'static lifetime.)
 pub type ServiceObject<Req, Res, Err> = Rc<dyn _ServiceObject<Req, Res, Err>>;
 
 #[doc(hidden)]
 pub trait _ServiceObject<Req, Res, Err> {
-    fn call(&self, req: Req) -> BoxFuture<'static, Res, Err>;
+    fn call<'s, 'f>(&'s self, req: Req) -> BoxFuture<'f, Res, Err>
+    where
+        Req: 'f,
+        's: 'f;
 }
 
 impl<S, Req> _ServiceObject<Req, S::Response, S::Error> for S
 where
-    S: Service<Req> + Clone + 'static,
-    Req: 'static,
+    S: Service<Req>,
 {
     #[inline]
-    fn call(&self, req: Req) -> BoxFuture<'static, S::Response, S::Error> {
-        let this = self.clone();
-        Box::pin(async move { Service::call(&this, req).await })
+    fn call<'s, 'f>(&'s self, req: Req) -> BoxFuture<'f, S::Response, S::Error>
+    where
+        Req: 'f,
+        's: 'f,
+    {
+        Box::pin(async move { Service::call(self, req).await })
     }
 }

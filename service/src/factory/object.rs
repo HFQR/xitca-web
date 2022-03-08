@@ -15,9 +15,8 @@ pub trait _ServiceFactoryObject<Req, Arg, Res, Err> {
 impl<F, Req, Arg> _ServiceFactoryObject<Req, Arg, F::Response, F::Error> for F
 where
     F: ServiceFactory<Req, Arg>,
-    F::Service: Clone + 'static,
+    F::Service: 'static,
     F::Future: 'static,
-    Req: 'static,
 {
     fn new_service(&self, arg: Arg) -> BoxFuture<'static, ServiceObject<Req, F::Response, F::Error>, F::Error> {
         let fut = ServiceFactory::new_service(self, arg);

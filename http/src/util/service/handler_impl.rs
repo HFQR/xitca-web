@@ -21,7 +21,16 @@ impl<'a, Req> FromRequest<'a, Req> for () {
     }
 }
 
-impl<'a> Responder<'a, Request<RequestBody>> for &'static str {
+impl<'a> Responder<'a, Request<RequestBody>> for () {
+    type Output = Response<ResponseBody>;
+    type Future = impl Future<Output = Self::Output>;
+
+    fn respond_to(self, req: &'a mut Request<RequestBody>) -> Self::Future {
+        async move { req.as_response(Bytes::new()) }
+    }
+}
+
+impl<'a> Responder<'a, Request<RequestBody>> for &'_ str {
     type Output = Response<ResponseBody>;
     type Future = impl Future<Output = Self::Output>;
 
@@ -32,14 +41,5 @@ impl<'a> Responder<'a, Request<RequestBody>> for &'static str {
                 .insert(header::CONTENT_TYPE, const_header_value::TEXT_UTF8);
             res
         }
-    }
-}
-
-impl<'a> Responder<'a, Request<RequestBody>> for () {
-    type Output = Response<ResponseBody>;
-    type Future = impl Future<Output = Self::Output>;
-
-    fn respond_to(self, req: &'a mut Request<RequestBody>) -> Self::Future {
-        async move { req.as_response(Bytes::new()) }
     }
 }
