@@ -3,16 +3,16 @@ pub(crate) mod pipeline;
 
 mod and_then;
 mod boxed;
+mod enclosed;
+mod enclosed_fn;
 mod ext;
 mod map;
 mod map_err;
 mod object;
-mod transform;
-mod transform_fn;
 
 pub use self::{
-    ext::ServiceFactoryExt, function::fn_service, map_err::MapErrorServiceFactory, object::ServiceFactoryObject,
-    transform::TransformFactory,
+    enclosed::TransformFactory, ext::ServiceFactoryExt, function::fn_service, map_err::MapErrorServiceFactory,
+    object::ServiceFactoryObject,
 };
 
 use core::future::Future;

@@ -6,9 +6,9 @@ use super::{
 };
 
 /// Type alias for specialized [PipelineServiceFactory].
-pub type TransformFactory<F, T> = PipelineServiceFactory<F, T, marker::Transform>;
+pub type TransformFactory<F, T> = PipelineServiceFactory<F, T, marker::Enclosed>;
 
-impl<F, Req, Arg, T> ServiceFactory<Req, Arg> for PipelineServiceFactory<F, T, marker::Transform>
+impl<F, Req, Arg, T> ServiceFactory<Req, Arg> for PipelineServiceFactory<F, T, marker::Enclosed>
 where
     F: ServiceFactory<Req, Arg>,
     T: ServiceFactory<Req, F::Service> + Clone,
