@@ -67,7 +67,7 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
 
     fn enclosed_fn2<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::EnclosedFn2>
     where
-        T: for<'s> AsyncClosure<'s, Self::Service, Req> + Clone,
+        T: for<'s> AsyncClosure<(&'s Self::Service, Req)> + Clone,
         Self: ServiceFactory<Req, Arg> + Sized,
     {
         PipelineServiceFactory::new(self, transform)

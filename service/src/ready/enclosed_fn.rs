@@ -23,7 +23,7 @@ where
 impl<S, Req, T, Res, Err> ReadyService<Req> for PipelineService<S, T, marker::EnclosedFn2>
 where
     S: ReadyService<Req>,
-    T: for<'s> AsyncClosure<'s, S, Req, Output = Result<Res, Err>>,
+    T: for<'s> AsyncClosure<(&'s S, Req), Output = Result<Res, Err>>,
     Err: From<S::Error>,
 {
     type Ready = S::Ready;
