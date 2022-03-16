@@ -161,7 +161,7 @@ mod test {
 
     use std::convert::Infallible;
 
-    use xitca_service::fn_service;
+    use xitca_service::{fn_service, Service};
 
     use crate::{
         http::{self, Response},
@@ -190,6 +190,29 @@ mod test {
                 "/",
                 fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
+            .new_service(())
+            .await
+            .unwrap()
+            .call(http::Request::new(()))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn router_enclosed_fn2() {
+        async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
+        where
+            S: Service<Req>,
+        {
+            service.call(req).await
+        }
+
+        Router::new()
+            .insert(
+                "/",
+                fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
+            )
+            .enclosed_fn2(enclosed)
             .new_service(())
             .await
             .unwrap()

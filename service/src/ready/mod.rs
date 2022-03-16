@@ -1,9 +1,9 @@
 mod and_then;
+mod enclosed_fn;
 mod function;
 mod map;
 mod map_err;
 mod pipeline;
-mod transform_fn;
 
 use core::{future::Future, ops::Deref, pin::Pin};
 

@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+mod async_closure;
 mod factory;
 mod service;
 

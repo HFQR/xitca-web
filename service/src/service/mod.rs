@@ -1,10 +1,10 @@
 pub(crate) mod pipeline;
 
 mod and_then;
+mod enclosed_fn;
 mod map;
 mod map_err;
 mod object;
-mod transform_fn;
 
 pub use object::ServiceObject;
 

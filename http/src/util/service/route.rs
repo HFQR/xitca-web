@@ -293,7 +293,7 @@ mod test {
 
     use std::convert::Infallible;
 
-    use xitca_service::fn_service;
+    use xitca_service::{fn_service, Service};
 
     use crate::{
         body::{RequestBody, ResponseBody},
@@ -311,6 +311,36 @@ mod test {
             .post(fn_service(index))
             .trace(fn_service(index))
             .enclosed_fn(|s, req| async move { s.call(req).await });
+
+        let service = route.new_service(()).await.ok().unwrap();
+        let req = Request::new(RequestBody::None);
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::POST;
+        let res = service.call(req).await.ok().unwrap();
+        assert_eq!(res.status().as_u16(), 200);
+
+        let mut req = Request::new(RequestBody::None);
+        *req.method_mut() = Method::PUT;
+        let err = service.call(req).await.err().unwrap();
+        assert!(matches!(err, RouteError::MethodNotAllowed));
+    }
+
+    #[tokio::test]
+    async fn route_enclosed_fn2() {
+        async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
+        where
+            S: Service<Req>,
+        {
+            service.call(req).await
+        }
+
+        let route = get(fn_service(index))
+            .post(fn_service(index))
+            .trace(fn_service(index))
+            .enclosed_fn2(enclosed);
 
         let service = route.new_service(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);

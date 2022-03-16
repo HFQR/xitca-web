@@ -13,8 +13,9 @@ pub(crate) mod marker {
     pub struct Map;
     pub struct MapErr;
     pub struct AndThen;
-    pub struct Transform;
-    pub struct TransformFn;
+    pub struct Enclosed;
+    pub struct EnclosedFn;
+    pub struct EnclosedFn2;
 }
 
 impl<SF, SF1, M> Clone for PipelineServiceFactory<SF, SF1, M>
