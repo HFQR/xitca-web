@@ -37,7 +37,7 @@ where
 impl<SF, Req, Arg, T, Res, Err> ServiceFactory<Req, Arg> for PipelineServiceFactory<SF, T, marker::EnclosedFn2>
 where
     SF: ServiceFactory<Req, Arg>,
-    T: for<'s> AsyncClosure<'s, SF::Service, Req, Output = Result<Res, Err>> + Clone,
+    T: for<'s> AsyncClosure<(&'s SF::Service, Req), Output = Result<Res, Err>> + Clone,
     Err: From<SF::Error>,
 {
     type Response = Res;

@@ -159,7 +159,7 @@ macro_rules! from_req_impl {
         }
 
         pin_project! {
-            struct $fut<'f, Req, Err, $($req: FromRequest<'f, Req, Error = Err>),+>
+            struct $fut<'f, Req, $($req: FromRequest<'f, Req>),+>
             {
                 $(
                     #[pin]
@@ -168,7 +168,7 @@ macro_rules! from_req_impl {
             }
         }
 
-        impl<'f, Req, Err, $($req: FromRequest<'f, Req, Error = Err>),+> Future for $fut<'f, Req, Err, $($req),+>
+        impl<'f, Req, Err, $($req: FromRequest<'f, Req, Error = Err>),+> Future for $fut<'f, Req, $($req),+>
         {
             type Output = Result<($($req,)+), Err>;
 
@@ -375,6 +375,28 @@ mod test {
     async fn handler_in_router() {
         let service = Router::new()
             .insert("/", get(handler_service(handler)))
+            .new_service(())
+            .await
+            .unwrap();
+
+        let req = Request::new(());
+
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
+    }
+
+    #[tokio::test]
+    async fn handler_enclosed_fn() {
+        async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
+        where
+            S: Service<Req>,
+        {
+            service.call(req).await
+        }
+
+        let service = handler_service(handler)
+            .enclosed_fn2(enclosed)
             .new_service(())
             .await
             .unwrap();

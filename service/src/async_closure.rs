@@ -1,23 +1,21 @@
 use core::future::Future;
 
-pub trait AsyncClosure<'s, S, Req> {
+pub trait AsyncClosure<Args> {
     type Output;
-    type Future: Future<Output = Self::Output> + 's;
+    type Future: Future<Output = Self::Output>;
 
-    fn call(&self, service: &'s S, req: Req) -> Self::Future;
+    fn call(&self, arg: Args) -> Self::Future;
 }
 
-impl<'s, F, Fut, S, Req> AsyncClosure<'s, S, Req> for F
+impl<F, Arg1, Arg2, Fut> AsyncClosure<(Arg1, Arg2)> for F
 where
-    F: Fn(&'s S, Req) -> Fut + 's,
-    S: 's,
-    Fut: Future + 's,
-    Req: 's,
+    F: Fn(Arg1, Arg2) -> Fut,
+    Fut: Future,
 {
     type Output = Fut::Output;
-    type Future = impl Future<Output = Self::Output> + 's;
+    type Future = impl Future<Output = Self::Output>;
 
-    fn call(&self, service: &'s S, req: Req) -> Self::Future {
-        (self)(service, req)
+    fn call(&self, (arg1, arg2): (Arg1, Arg2)) -> Self::Future {
+        (self)(arg1, arg2)
     }
 }
