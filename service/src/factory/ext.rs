@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use alloc::boxed::Box;
 
 use crate::async_closure::AsyncClosure;
@@ -55,17 +53,7 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
         PipelineServiceFactory::new(self, transform)
     }
 
-    fn enclosed_fn<T, Fut>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::EnclosedFn>
-    where
-        T: Fn(Self::Service, Req) -> Fut + Clone,
-        Fut: Future,
-        Self: Sized,
-        Self::Service: Clone,
-    {
-        PipelineServiceFactory::new(self, transform)
-    }
-
-    fn enclosed_fn2<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::EnclosedFn2>
+    fn enclosed_fn<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::EnclosedFn>
     where
         T: for<'s> AsyncClosure<(&'s Self::Service, Req)> + Clone,
         Self: ServiceFactory<Req, Arg> + Sized,
@@ -163,20 +151,6 @@ mod test {
 
     #[tokio::test]
     async fn enclosed_fn() {
-        let factory = fn_service(index).enclosed_fn(|service, req| async move {
-            let res = service.call(req).await?;
-            assert_eq!(res, "996");
-            Ok::<&'static str, ()>("251")
-        });
-
-        let service = factory.new_service(()).await.unwrap();
-
-        let res = service.call("996").await.ok().unwrap();
-        assert_eq!(res, "251");
-    }
-
-    #[tokio::test]
-    async fn enclosed_fn2() {
         async fn enclosed<S>(service: &S, req: &'static str) -> Result<&'static str, ()>
         where
             S: Service<&'static str, Response = &'static str, Error = ()>,
@@ -186,11 +160,16 @@ mod test {
             Ok("251")
         }
 
-        let factory = fn_service(index).enclosed_fn2(enclosed);
+        let res = fn_service(index)
+            .enclosed_fn(enclosed)
+            .new_service(())
+            .await
+            .unwrap()
+            .call("996")
+            .await
+            .ok()
+            .unwrap();
 
-        let service = factory.new_service(()).await.unwrap();
-
-        let res = service.call("996").await.ok().unwrap();
         assert_eq!(res, "251");
     }
 }

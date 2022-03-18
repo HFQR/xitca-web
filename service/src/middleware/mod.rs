@@ -1,4 +1,4 @@
-//! Useful Service types that can be used with [crate::ServiceFactoryExt::transform] method.
+//! Useful Service types that can be used with [crate::ServiceFactoryExt::enclosed] method.
 
 mod cloneable;
 

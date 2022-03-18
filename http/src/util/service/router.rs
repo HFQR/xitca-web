@@ -112,15 +112,6 @@ pub struct RouterService<Req, ReqB, Res, Err> {
     _req_body: PhantomData<ReqB>,
 }
 
-impl<Req, ReqB, Res, Err> Clone for RouterService<Req, ReqB, Res, Err> {
-    fn clone(&self) -> Self {
-        Self {
-            routes: self.routes.clone(),
-            _req_body: PhantomData,
-        }
-    }
-}
-
 impl<Req, ReqB, Res, Err> Service<Req> for RouterService<Req, ReqB, Res, Err>
 where
     Req: BorrowMut<http::Request<ReqB>>,
@@ -199,7 +190,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn router_enclosed_fn2() {
+    async fn router_enclosed_fn() {
         async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
         where
             S: Service<Req>,
@@ -212,7 +203,7 @@ mod test {
                 "/",
                 fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
-            .enclosed_fn2(enclosed)
+            .enclosed_fn(enclosed)
             .new_service(())
             .await
             .unwrap()

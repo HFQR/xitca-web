@@ -40,21 +40,6 @@ pub struct Route<R, N, ReqB, const M: usize> {
     _req_body: PhantomData<ReqB>,
 }
 
-impl<R, N, ReqB, const M: usize> Clone for Route<R, N, ReqB, M>
-where
-    R: Clone,
-    N: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            methods: self.methods.clone(),
-            route: self.route.clone(),
-            next: self.next.clone(),
-            _req_body: PhantomData,
-        }
-    }
-}
-
 impl<ReqB> Route<(), (), ReqB, 0> {
     #[allow(clippy::type_complexity)]
     pub fn new<R, Req>(
@@ -257,12 +242,6 @@ impl<Res, Err> Default for MethodNotAllowed<Res, Err> {
     }
 }
 
-impl<Res, Err> Clone for MethodNotAllowed<Res, Err> {
-    fn clone(&self) -> Self {
-        Self(PhantomData)
-    }
-}
-
 impl<Req, Arg, Res, Err> ServiceFactory<Req, Arg> for MethodNotAllowed<Res, Err> {
     type Response = Res;
     type Error = RouteError<Err>;
@@ -270,8 +249,7 @@ impl<Req, Arg, Res, Err> ServiceFactory<Req, Arg> for MethodNotAllowed<Res, Err>
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, _: Arg) -> Self::Future {
-        let this = self.clone();
-        async { Ok(this) }
+        async { Ok(MethodNotAllowed::default()) }
     }
 }
 
@@ -306,29 +284,6 @@ mod test {
     }
 
     #[tokio::test]
-    async fn route_fn() {
-        let route = get(fn_service(index))
-            .post(fn_service(index))
-            .trace(fn_service(index))
-            .enclosed_fn(|s, req| async move { s.call(req).await });
-
-        let service = route.new_service(()).await.ok().unwrap();
-        let req = Request::new(RequestBody::None);
-        let res = service.call(req).await.ok().unwrap();
-        assert_eq!(res.status().as_u16(), 200);
-
-        let mut req = Request::new(RequestBody::None);
-        *req.method_mut() = Method::POST;
-        let res = service.call(req).await.ok().unwrap();
-        assert_eq!(res.status().as_u16(), 200);
-
-        let mut req = Request::new(RequestBody::None);
-        *req.method_mut() = Method::PUT;
-        let err = service.call(req).await.err().unwrap();
-        assert!(matches!(err, RouteError::MethodNotAllowed));
-    }
-
-    #[tokio::test]
     async fn route_enclosed_fn2() {
         async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
         where
@@ -340,7 +295,7 @@ mod test {
         let route = get(fn_service(index))
             .post(fn_service(index))
             .trace(fn_service(index))
-            .enclosed_fn2(enclosed);
+            .enclosed_fn(enclosed);
 
         let service = route.new_service(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);

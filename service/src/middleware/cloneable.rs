@@ -2,7 +2,7 @@ use core::future::Future;
 
 use alloc::rc::Rc;
 
-use crate::{service::Service, ServiceFactory};
+use crate::{factory::ServiceFactory, service::Service};
 
 #[derive(Clone, Copy)]
 pub struct Cloneable;

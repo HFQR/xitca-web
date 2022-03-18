@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, rc::Rc};
+use alloc::boxed::Box;
 
 use crate::{service::ServiceObject, BoxFuture};
 
@@ -22,7 +22,7 @@ where
         let fut = ServiceFactory::new_service(self, arg);
         Box::pin(async move {
             let service = fut.await?;
-            Ok(Rc::new(service) as _)
+            Ok(Box::new(service) as _)
         })
     }
 }
