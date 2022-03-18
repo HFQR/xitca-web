@@ -357,37 +357,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn concurrent_extract() {
-        let service = handler_service(handler)
-            .enclosed_fn(|s, req| async move { s.call(req).await })
-            .new_service(())
-            .await
-            .unwrap();
-
-        let req = Request::new(());
-
-        let res = service.call(req).await.unwrap();
-
-        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
-    }
-
-    #[tokio::test]
-    async fn handler_in_router() {
-        let service = Router::new()
-            .insert("/", get(handler_service(handler)))
-            .new_service(())
-            .await
-            .unwrap();
-
-        let req = Request::new(());
-
-        let res = service.call(req).await.unwrap();
-
-        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
-    }
-
-    #[tokio::test]
-    async fn handler_enclosed_fn() {
+    async fn concurrent_extract_with_enclosed_fn() {
         async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
         where
             S: Service<Req>,
@@ -395,15 +365,28 @@ mod test {
             service.call(req).await
         }
 
-        let service = handler_service(handler)
-            .enclosed_fn2(enclosed)
+        let res = handler_service(handler)
+            .enclosed_fn(enclosed)
             .new_service(())
+            .await
+            .unwrap()
+            .call(Request::new(()))
             .await
             .unwrap();
 
-        let req = Request::new(());
+        assert_eq!(res.status(), StatusCode::MULTI_STATUS);
+    }
 
-        let res = service.call(req).await.unwrap();
+    #[tokio::test]
+    async fn handler_in_router() {
+        let res = Router::new()
+            .insert("/", get(handler_service(handler)))
+            .new_service(())
+            .await
+            .unwrap()
+            .call(Request::new(()))
+            .await
+            .unwrap();
 
         assert_eq!(res.status(), StatusCode::MULTI_STATUS);
     }
