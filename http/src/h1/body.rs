@@ -92,25 +92,45 @@ impl RequestBodySender {
         }
     }
 
-    pub(super) async fn ready(&self) -> io::Result<()> {
-        poll_fn(|cx| self.poll_ready(cx)).await
+    pub(super) async fn ready(&mut self) -> io::Result<()> {
+        poll_fn(|cx| {
+            // Check backpressure only if Payload (other side) is alive,
+            // Otherwise always return io error.
+            if self.payload_alive() {
+                let mut borrow = self.0.borrow_mut();
+                // when payload is backpressure register current task waker and wait.
+                if borrow.backpressure() {
+                    borrow.register_io(cx);
+                    Poll::Pending
+                } else {
+                    Poll::Ready(Ok(()))
+                }
+            } else {
+                Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()))
+            }
+        })
+        .await
     }
 
-    pub(super) fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // we check backpressure only if Payload (other side) is alive,
-        // otherwise always return io error.
-        if self.payload_alive() {
-            let mut borrow = self.0.borrow_mut();
-            // when payload is backpressure register current task waker and wait.
-            if borrow.backpressure() {
-                borrow.register_io(cx);
-                Poll::Pending
+    // Lazily wait until RequestBody is already polled.
+    // For specific use case body must not be eagerly polled.
+    // For example: Request with Expect: Continue header.
+    pub(super) async fn wait_for_poll(&mut self) -> io::Result<()> {
+        poll_fn(|cx| {
+            if self.payload_alive() {
+                let mut borrow = self.0.borrow_mut();
+                // when payload is polled and waiting for data it's considered ready.
+                if borrow.waiting() {
+                    Poll::Ready(Ok(()))
+                } else {
+                    borrow.register_io(cx);
+                    Poll::Pending
+                }
             } else {
-                Poll::Ready(Ok(()))
+                Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()))
             }
-        } else {
-            Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()))
-        }
+        })
+        .await
     }
 
     /// Payload share the same `Rc` with Sender.
@@ -156,6 +176,11 @@ impl Inner {
         if let Some(waker) = self.io_task.take() {
             waker.wake();
         }
+    }
+
+    /// true when a future is waiting for payload data.
+    fn waiting(&self) -> bool {
+        self.task.is_some()
     }
 
     /// Register future waiting data from payload.

@@ -18,7 +18,7 @@ use crate::{
 use super::{body::RequestBody, proto::Dispatcher};
 
 pub type H2Service<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
-    HttpService<S, RequestBody, (), A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+    HttpService<S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
 impl<
         St,
@@ -34,12 +34,9 @@ impl<
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
-
     A: Service<St, Response = TlsSt> + 'static,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
-
     St: AsyncRead + AsyncWrite + Unpin,
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 
@@ -99,15 +96,11 @@ impl<
 where
     S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
-
     A: Service<St, Response = TlsSt> + 'static,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
-
     St: AsyncRead + AsyncWrite + Unpin,
     TlsSt: AsyncRead + AsyncWrite + Unpin,
-
     HttpServiceError<S::Error, BE>: From<A::Error>,
 {
     type Ready = S::Ready;
