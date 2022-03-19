@@ -37,11 +37,12 @@ jobs:
       if: matrix.target.os == 'ubuntu-latest'
       run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
-    - name: tests
+    - name: tests-non-linux
       if: matrix.target.os != 'ubuntu-latest'
       run: |
         cargo ci-test-exclude-io-uring
 
+    - name: tests-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
         sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test"  
