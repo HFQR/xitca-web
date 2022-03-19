@@ -18,10 +18,6 @@ jobs:
     runs-on: ${{ matrix.target.os }}  
     
     steps:
-    - name: Free up disk space
-      if: matrix.target.os == 'ubuntu-latest'
-      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
     - uses: actions/checkout@master
 
     - name: Install ${{ matrix.version }}
@@ -37,16 +33,19 @@ jobs:
         command: install
         args: cargo-hack
 
+    - name: Free up disk space
+      if: matrix.target.os == 'ubuntu-latest'
+      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
     - name: tests
       if: matrix.target.os != 'ubuntu-latest'
       run: |
         cargo ci-test-exclude-io-uring
 
-    - name: tests
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test"
-    
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test"  
+
     - name: Clear the cargo caches
       run: |
         cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
