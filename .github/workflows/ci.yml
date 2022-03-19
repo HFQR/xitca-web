@@ -18,6 +18,10 @@ jobs:
     runs-on: ${{ matrix.target.os }}  
     
     steps:
+    - name: Free up disk space
+      if: matrix.target.os == 'ubuntu-latest'
+      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
     - uses: actions/checkout@master
 
     - name: Install ${{ matrix.version }}
