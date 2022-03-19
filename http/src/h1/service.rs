@@ -17,31 +17,16 @@ use crate::{
 
 use super::{body::RequestBody, proto};
 
-pub type H1Service<S, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
-    HttpService<S, RequestBody, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+pub type H1Service<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
+    HttpService<S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<
-        St,
-        S,
-        X,
-        B,
-        BE,
-        A,
-        TlsSt,
-        const HEADER_LIMIT: usize,
-        const READ_BUF_LIMIT: usize,
-        const WRITE_BUF_LIMIT: usize,
-    > Service<St> for H1Service<S, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<St> for H1Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
-    X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     A: Service<St, Response = TlsSt> + 'static,
-
-    S::Error: From<X::Error>,
     HttpServiceError<S::Error, BE>: From<A::Error>,
-
     B: Stream<Item = Result<Bytes, BE>>,
-
     St: AsyncIo,
     TlsSt: AsyncIo,
 {
@@ -65,42 +50,20 @@ where
             // update timer to first request timeout.
             self.update_first_request_deadline(timer.as_mut());
 
-            proto::run(
-                &mut io,
-                timer.as_mut(),
-                self.config,
-                &self.expect,
-                &self.service,
-                self.date.get(),
-            )
-            .await
-            .map_err(Into::into)
+            proto::run(&mut io, timer.as_mut(), self.config, &self.service, self.date.get())
+                .await
+                .map_err(Into::into)
         }
     }
 }
 
-impl<
-        St,
-        S,
-        X,
-        B,
-        BE,
-        A,
-        TlsSt,
-        const HEADER_LIMIT: usize,
-        const READ_BUF_LIMIT: usize,
-        const WRITE_BUF_LIMIT: usize,
-    > ReadyService<St> for H1Service<S, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    ReadyService<St> for H1Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
-    X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     A: Service<St, Response = TlsSt> + 'static,
-
-    S::Error: From<X::Error>,
     HttpServiceError<S::Error, BE>: From<A::Error>,
-
     B: Stream<Item = Result<Bytes, BE>>,
-
     St: AsyncIo,
     TlsSt: AsyncIo,
 {

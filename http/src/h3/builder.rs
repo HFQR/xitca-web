@@ -33,7 +33,6 @@ where
     F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<ResB>>>,
     F::Service: 'static,
     F::Error: fmt::Debug,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
 {

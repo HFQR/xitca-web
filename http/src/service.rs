@@ -18,37 +18,27 @@ use super::{
 };
 
 /// General purpose http service
-pub struct HttpService<
-    S,
-    ReqB,
-    X,
-    A,
-    const HEADER_LIMIT: usize,
-    const READ_BUF_LIMIT: usize,
-    const WRITE_BUF_LIMIT: usize,
-> {
+pub struct HttpService<S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+{
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     pub(crate) date: DateTimeService,
-    pub(crate) expect: X,
     pub(crate) service: S,
     pub(crate) tls_acceptor: A,
     _body: PhantomData<ReqB>,
 }
 
-impl<S, ReqB, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpService<S, ReqB, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpService<S, ReqB, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     /// Construct new Http Service.
     pub fn new(
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         service: S,
-        expect: X,
         tls_acceptor: A,
     ) -> Self {
         Self {
             config,
             date: DateTimeService::new(),
-            expect,
             service,
             tls_acceptor,
             _body: PhantomData,
@@ -73,18 +63,14 @@ impl<S, ReqB, X, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, cons
     }
 }
 
-impl<S, X, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<ServerStream> for HttpService<S, RequestBody, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<ServerStream> for HttpService<S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-    X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     A: Service<TcpStream> + 'static,
     A::Response: AsyncIo + AsVersion,
-
     HttpServiceError<S::Error, BE>: From<A::Error>,
-
-    S::Error: fmt::Debug + From<X::Error>,
-
+    S::Error: fmt::Debug,
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
 {
@@ -130,7 +116,6 @@ where
                             &mut tls_stream,
                             timer.as_mut(),
                             self.config,
-                            &self.expect,
                             &self.service,
                             self.date.get(),
                         )
@@ -171,16 +156,9 @@ where
                         // update timer to first request timeout.
                         self.update_first_request_deadline(timer.as_mut());
 
-                        super::h1::proto::run(
-                            &mut io,
-                            timer.as_mut(),
-                            self.config,
-                            &self.expect,
-                            &self.service,
-                            self.date.get(),
-                        )
-                        .await
-                        .map_err(From::from)
+                        super::h1::proto::run(&mut io, timer.as_mut(), self.config, &self.service, self.date.get())
+                            .await
+                            .map_err(From::from)
                     }
                 }
             }
@@ -188,18 +166,14 @@ where
     }
 }
 
-impl<S, X, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    ReadyService<ServerStream> for HttpService<S, RequestBody, X, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    ReadyService<ServerStream> for HttpService<S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-    X: Service<Request<RequestBody>, Response = Request<RequestBody>> + 'static,
     A: Service<TcpStream> + 'static,
     A::Response: AsyncIo + AsVersion,
-
     HttpServiceError<S::Error, BE>: From<A::Error>,
-
-    S::Error: fmt::Debug + From<X::Error>,
-
+    S::Error: fmt::Debug,
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
 {

@@ -40,7 +40,6 @@ pub(crate) async fn run<
     ReqB,
     ResB,
     BE,
-    X,
     D,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
@@ -49,20 +48,13 @@ pub(crate) async fn run<
     io: &'a mut St,
     timer: Pin<&'a mut KeepAlive>,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    expect: &'a X,
     service: &'a S,
     date: &'a D,
 ) -> Result<(), Error<S::Error, BE>>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
-    X: Service<Request<ReqB>, Response = Request<ReqB>>,
-
     ReqB: From<RequestBody>,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
-
-    S::Error: From<X::Error>,
-
     St: AsyncIo,
     D: DateTime,
 {
@@ -70,14 +62,10 @@ where
 
     let res = if is_vectored {
         let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();
-        Dispatcher::new(io, timer, config, expect, service, date, write_buf)
-            .run()
-            .await
+        Dispatcher::new(io, timer, config, service, date, write_buf).run().await
     } else {
         let write_buf = FlatBuf::<WRITE_BUF_LIMIT>::default();
-        Dispatcher::new(io, timer, config, expect, service, date, write_buf)
-            .run()
-            .await
+        Dispatcher::new(io, timer, config, service, date, write_buf).run().await
     };
 
     match res {
@@ -97,7 +85,6 @@ struct Dispatcher<
     S,
     ReqB,
     BE,
-    X,
     W,
     D,
     const HEADER_LIMIT: usize,
@@ -110,7 +97,6 @@ struct Dispatcher<
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
-    expect: &'a X,
     service: &'a S,
     _phantom: PhantomData<(ReqB, BE)>,
 }
@@ -225,33 +211,24 @@ impl<
         ReqB,
         ResB,
         BE,
-        X,
         W,
         D,
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, BE, X, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Dispatcher<'a, St, S, ReqB, BE, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
-    X: Service<Request<ReqB>, Response = Request<ReqB>>,
-
     ReqB: From<RequestBody>,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
-
-    S::Error: From<X::Error>,
-
     St: AsyncIo,
     W: BufWrite,
-
     D: DateTime,
 {
     fn new(
         io: &'a mut St,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-        expect: &'a X,
         service: &'a S,
         date: &'a D,
         write_buf: W,
@@ -261,7 +238,6 @@ where
             timer,
             ka_dur: config.keep_alive_timeout,
             ctx: Context::new(date),
-            expect,
             service,
             _phantom: PhantomData,
         }
@@ -342,21 +318,9 @@ where
 
     async fn request_handler(
         &mut self,
-        mut req: Request<ReqB>,
+        req: Request<ReqB>,
         body_handle: &mut Option<RequestBodyHandle>,
     ) -> Result<S::Response, Error<S::Error, BE>> {
-        if self.ctx.is_expect_header() {
-            let expect_res = self.expect.call(req).await.map_err(|e| Error::Service(e.into()))?;
-
-            // encode continue
-            self.ctx.encode_continue(&mut self.io.write_buf);
-
-            // use drain write to make sure continue is sent to client. the world can wait until it happens.
-            self.io.drain_write().await?;
-
-            req = expect_res;
-        };
-
         match self
             .service
             .call(req)
@@ -374,20 +338,40 @@ where
     ) -> Result<S::Response, Error<S::Error, BE>> {
         // decode request body and read more if needed.
         if let Some(handle) = body_handle {
-            // Check the readiness of RequestBodyHandle
-            // so read ahead does not buffer too much data.
-            while handle.ready(&mut self.ctx).await.is_ok() {
-                match handle.decode(&mut self.io.read_buf)? {
-                    DecodeState::Continue => self.io.read().await?,
-                    DecodeState::Eof => break,
-                }
-            }
+            self._request_body_handler(handle).await?;
         }
 
         *body_handle = None;
 
         // pending and do nothing when RequestBodyHandle is gone.
         never().await
+    }
+
+    async fn _request_body_handler(&mut self, handle: &mut RequestBodyHandle) -> io::Result<()> {
+        if self.ctx.is_expect_header() {
+            // Wait for body polled for expect header request.
+            match handle.wait_for_poll().await {
+                Ok(_) => {
+                    // encode continue
+                    self.ctx.encode_continue(&mut self.io.write_buf);
+                    // use drain write to make sure continue is sent to client.
+                    self.io.drain_write().await?;
+                }
+                // If body is already dropped then ignore sending 100 continue.
+                Err(_) => return Ok(()),
+            }
+        }
+
+        // Check the readiness of RequestBodyHandle
+        // so read ahead does not buffer too much data.
+        while handle.ready(&mut self.ctx).await.is_ok() {
+            match handle.decode(&mut self.io.read_buf)? {
+                DecodeState::Continue => self.io.read().await?,
+                DecodeState::Eof => break,
+            }
+        }
+
+        Ok(())
     }
 
     async fn response_handler(
@@ -537,7 +521,7 @@ impl RequestBodyHandle {
         Ok(DecodeState::Continue)
     }
 
-    async fn ready<D, const HEADER_LIMIT: usize>(&self, ctx: &mut Context<'_, D, HEADER_LIMIT>) -> io::Result<()> {
+    async fn ready<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) -> io::Result<()> {
         self.sender.ready().await.map_err(|e| {
             // RequestBodySender's only error case is when service future drop the request
             // body half way. In this case notify Context to close connection afterwards.
@@ -547,5 +531,13 @@ impl RequestBodyHandle {
             ctx.set_force_close_on_error();
             e
         })
+    }
+
+    async fn wait_for_poll(&mut self) -> io::Result<()> {
+        // The error case is the same condition as Self::ready method.
+        //
+        // Remote should not have sent any body until 100 continue is received
+        // which means it's safe to keep the connection open(possibly) on error path.
+        self.sender.wait_for_poll().await
     }
 }
