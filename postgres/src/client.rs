@@ -1,5 +1,6 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::collections::HashMap;
 
+use parking_lot::Mutex;
 use postgres_types::{Oid, Type};
 use tokio::sync::mpsc::{unbounded_channel, Sender};
 use xitca_io::bytes::{Bytes, BytesMut};
@@ -8,8 +9,8 @@ use super::{error::Error, request::Request, response::Response, statement::State
 
 pub struct Client {
     pub(crate) tx: Sender<Request>,
-    pub(crate) buf: RefCell<BytesMut>,
-    cached_typeinfo: RefCell<CachedTypeInfo>,
+    pub(crate) buf: Mutex<BytesMut>,
+    cached_typeinfo: Mutex<CachedTypeInfo>,
 }
 
 /// A cache of type info and prepared statements for fetching type info
@@ -35,8 +36,8 @@ impl Client {
     pub(crate) fn new(tx: Sender<Request>) -> Self {
         Self {
             tx,
-            buf: RefCell::new(BytesMut::new()),
-            cached_typeinfo: RefCell::new(CachedTypeInfo {
+            buf: Mutex::new(BytesMut::new()),
+            cached_typeinfo: Mutex::new(CachedTypeInfo {
                 typeinfo: None,
                 typeinfo_composite: None,
                 typeinfo_enum: None,
@@ -65,11 +66,25 @@ impl Client {
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
-        self.cached_typeinfo.borrow().typeinfo.as_ref().cloned()
+        self.cached_typeinfo.lock().typeinfo.as_ref().cloned()
     }
 
     pub fn set_typeinfo(&self, statement: Statement) {
-        self.cached_typeinfo.borrow_mut().typeinfo = Some(statement);
+        self.cached_typeinfo.lock().typeinfo = Some(statement);
+    }
+
+    pub fn type_(&self, oid: Oid) -> Option<Type> {
+        self.cached_typeinfo.lock().types.get(&oid).cloned()
+    }
+
+    pub(crate) fn with_buf<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut BytesMut) -> R,
+    {
+        let mut buf = self.buf.lock();
+        let r = f(&mut buf);
+        buf.clear();
+        r
     }
 }
 
