@@ -79,15 +79,15 @@ impl Drop for Client {
         // this is to cancel the statement on client go away.
 
         if let Some(stmt) = self.cached_typeinfo.get_mut().typeinfo.take() {
-            drop(stmt.into_guarded(&self));
+            drop(stmt.into_guarded(self));
         }
 
         if let Some(stmt) = self.cached_typeinfo.get_mut().typeinfo_composite.take() {
-            drop(stmt.into_guarded(&self));
+            drop(stmt.into_guarded(self));
         }
 
         if let Some(stmt) = self.cached_typeinfo.get_mut().typeinfo_enum.take() {
-            drop(stmt.into_guarded(&self));
+            drop(stmt.into_guarded(self));
         }
     }
 }

@@ -67,7 +67,7 @@ impl TestWithoutReady {
     async fn call(&self, req: String) -> Result<usize, Box<dyn std::error::Error>> {
         assert_eq!(req.as_str(), "007");
 
-        Ok(007)
+        Ok(7)
     }
 }
 
@@ -90,5 +90,5 @@ async fn http_codegen() {
     let factory = TestWithoutReadyFactory;
     let service = ServiceFactory::new_service(&factory, cfg).await.unwrap();
     let res = Service::call(&service, String::from("007")).await.unwrap();
-    assert_eq!(res, 007);
+    assert_eq!(res, 7);
 }

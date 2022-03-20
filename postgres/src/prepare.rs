@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid, Type};
-use tokio::pin;
 use tracing::debug;
 use xitca_io::bytes::{Bytes, BytesMut};
 

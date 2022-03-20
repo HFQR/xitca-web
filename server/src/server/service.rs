@@ -62,7 +62,7 @@ where
             let service = Rc::new(service);
 
             let handles = listeners
-                .into_iter()
+                .iter()
                 .filter(|(n, _)| n == name)
                 .map(|(_, listener)| worker::start(listener, &service, counter))
                 .collect::<Vec<_>>();
