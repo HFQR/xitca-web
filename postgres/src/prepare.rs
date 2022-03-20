@@ -10,11 +10,54 @@ use xitca_io::bytes::{Bytes, BytesMut};
 use super::{
     client::Client,
     error::Error,
-    statement::{Column, Statement},
+    statement::{Column, Statement, StatementGuarded},
 };
 
 impl Client {
-    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<'_>, Error> {
+        let buf = prepare_buf(&mut *self.buf.borrow_mut(), query, types)?;
+
+        let mut res = self.send(buf).await?;
+
+        match res.recv().await? {
+            backend::Message::ParseComplete => {}
+            _ => return Err(Error::ToDo),
+        }
+
+        let parameter_description = match res.recv().await? {
+            backend::Message::ParameterDescription(body) => body,
+            _ => return Err(Error::ToDo),
+        };
+
+        let row_description = match res.recv().await? {
+            backend::Message::RowDescription(body) => Some(body),
+            backend::Message::NoData => None,
+            _ => return Err(Error::ToDo),
+        };
+
+        let mut parameters = vec![];
+        let mut it = parameter_description.parameters();
+        while let Some(oid) = it.next().map_err(|_| Error::ToDo)? {
+            let ty = get_type(self, oid).await?;
+            parameters.push(ty);
+        }
+
+        let mut columns = vec![];
+        if let Some(row_description) = row_description {
+            let mut it = row_description.fields();
+            while let Some(field) = it.next().map_err(|_| Error::ToDo)? {
+                let type_ = get_type(self, field.type_oid()).await?;
+                let column = Column::new(field.name().to_string(), type_);
+                columns.push(column);
+            }
+        }
+
+        todo!()
+
+        // Ok(Statement::new(client, name, parameters, columns))
+    }
+
+    async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
         let buf = prepare_buf(&mut *self.buf.borrow_mut(), query, types)?;
 
         let mut res = self.send(buf).await?;
@@ -134,7 +177,7 @@ impl Client {
             return Ok(stmt);
         }
 
-        let stmt = match Box::pin(self.prepare(TYPEINFO_QUERY, &[])).await {
+        let stmt = match Box::pin(self._prepare(TYPEINFO_QUERY, &[])).await {
             Ok(stmt) => stmt,
             // TODO: add fallback handling.
             // Err(ref e) if e.code() == Some(&SqlState::UNDEFINED_TABLE) => {
