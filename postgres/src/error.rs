@@ -1,4 +1,4 @@
-use std::{error, fmt, io};
+use std::{convert::Infallible, error, fmt, io};
 
 use tokio::sync::mpsc::error::SendError;
 
@@ -20,6 +20,12 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {}
+
+impl From<Infallible> for Error {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
+    }
+}
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {

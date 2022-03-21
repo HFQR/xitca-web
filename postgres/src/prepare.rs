@@ -148,6 +148,7 @@ impl Client {
         Ok(stmt)
     }
 
+    #[inline(never)]
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
@@ -158,6 +159,7 @@ impl Client {
             .await
     }
 
+    #[inline(never)]
     async fn typeinfo_enum_statement(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
@@ -177,6 +179,7 @@ impl Client {
         Ok(stmt)
     }
 
+    #[inline(never)]
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
@@ -197,6 +200,7 @@ impl Client {
         Ok(fields)
     }
 
+    #[inline(never)]
     async fn typeinfo_composite_statement(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo_composite() {
             return Ok(stmt);
