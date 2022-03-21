@@ -72,7 +72,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
                         let _ = self.res.pop_front();
                     }
                 }
-                ResponseMessage::Async(msg) => todo!(),
+                ResponseMessage::Async(_) => todo!(),
             }
         }
 

@@ -1,8 +1,12 @@
+use std::task::{Context, Poll};
+
+use futures_util::ready;
 use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
 use super::error::Error;
+use super::futures::poll_fn;
 
 pub struct Response {
     rx: ResponseReceiver,
@@ -22,14 +26,22 @@ impl Response {
     }
 
     pub(crate) async fn recv(&mut self) -> Result<backend::Message, Error> {
+        poll_fn(|cx| self.poll_recv(cx)).await
+    }
+
+    pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
         loop {
-            match backend::Message::parse(&mut self.buf)? {
-                Some(backend::Message::ErrorResponse(_body)) => return Err(Error::ToDo),
-                Some(msg) => return Ok(msg),
-                None => match self.rx.recv().await {
+            if self.buf.is_empty() {
+                match ready!(self.rx.poll_recv(cx)) {
                     Some(buf) => self.buf = buf,
-                    None => return Err(Error::ConnectionClosed),
-                },
+                    None => return Poll::Ready(Err(Error::ConnectionClosed)),
+                }
+            } else {
+                match backend::Message::parse(&mut self.buf)? {
+                    Some(backend::Message::ErrorResponse(_body)) => return Poll::Ready(Err(Error::ToDo)),
+                    Some(msg) => return Poll::Ready(Ok(msg)),
+                    None => assert!(self.buf.is_empty()),
+                }
             }
         }
     }

@@ -6,12 +6,15 @@ mod client;
 mod context;
 mod futures;
 mod prepare;
+mod query;
 mod request;
 mod response;
+mod row;
 mod statement;
 
 pub mod error;
 
+pub use row::Row;
 pub use statement::Statement;
 
 use std::{future::Future, io, pin::Pin};
@@ -132,4 +135,10 @@ fn io_ready<Io: AsyncIo>(io: &mut Io, can_write: bool) -> Io::ReadyFuture<'_> {
     };
 
     io.ready(interest)
+}
+
+fn slice_iter<'a>(
+    s: &'a [&'a (dyn postgres_types::ToSql + Sync)],
+) -> impl ExactSizeIterator<Item = &'a dyn postgres_types::ToSql> + 'a {
+    s.iter().map(|s| *s as _)
 }
