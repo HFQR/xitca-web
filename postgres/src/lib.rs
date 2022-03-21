@@ -1,8 +1,10 @@
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
-//! A postgresql client on top of tokio.
+//! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/).
 
 mod client;
+mod config;
+mod connect;
 mod context;
 mod futures;
 mod prepare;
@@ -14,65 +16,61 @@ mod statement;
 
 pub mod error;
 
+pub use config::Config;
 pub use row::Row;
 pub use statement::Statement;
 
-use std::{future::Future, io, pin::Pin};
+use std::{future::Future, pin::Pin};
 
 use tokio::sync::mpsc::{channel, Receiver};
-use xitca_io::{
-    io::{AsyncIo, AsyncWrite, Interest},
-    net::TcpStream,
-};
+use xitca_io::io::{AsyncIo, AsyncWrite, Interest};
 
 use crate::{
     client::Client,
     context::Context,
+    error::Error,
     futures::{never, poll_fn, Select, SelectOutput},
     request::Request,
 };
 
 #[derive(Debug)]
-pub struct Postgres<'a, const BATCH_LIMIT: usize> {
-    url: &'a str,
+pub struct Postgres<C, const BATCH_LIMIT: usize> {
+    cfg: C,
     backlog: usize,
 }
 
-impl<'a> Postgres<'a, 20> {
-    pub fn new(url: &'a str) -> Self {
-        Self { url, backlog: 128 }
+impl<C> Postgres<C, 20>
+where
+    Config: TryFrom<C>,
+    Error: From<<Config as TryFrom<C>>::Error>,
+{
+    pub fn new(cfg: C) -> Self {
+        Self { cfg, backlog: 128 }
     }
 }
 
-impl<'a, const BATCH_LIMIT: usize> Postgres<'a, BATCH_LIMIT> {
+impl<C, const BATCH_LIMIT: usize> Postgres<C, BATCH_LIMIT>
+where
+    Config: TryFrom<C>,
+    Error: From<<Config as TryFrom<C>>::Error>,
+{
     pub fn backlog(mut self, num: usize) -> Self {
         self.backlog = num;
         self
     }
 
-    pub fn batch_limit<const BATCH_LIMIT2: usize>(self) -> Postgres<'a, BATCH_LIMIT2> {
+    pub fn batch_limit<const BATCH_LIMIT2: usize>(self) -> Postgres<C, BATCH_LIMIT2> {
         Postgres {
-            url: self.url,
+            cfg: self.cfg,
             backlog: self.backlog,
         }
     }
 
-    pub async fn connect(self) -> io::Result<(Client, impl Future<Output = Result<(), crate::error::Error>>)> {
-        let stream = TcpStream::connect(self.url).await?;
-        Ok(self.start_with_io(stream))
-    }
+    pub async fn connect(self) -> Result<(Client, impl Future<Output = Result<(), Error>>), Error> {
+        let cfg = Config::try_from(self.cfg)?;
 
-    #[cfg(unix)]
-    pub async fn connect_unix(self) -> io::Result<(Client, impl Future<Output = Result<(), crate::error::Error>>)> {
-        let stream = xitca_io::net::UnixStream::connect(self.url).await?;
-        Ok(self.start_with_io(stream))
-    }
+        let mut io = crate::connect::connect(cfg).await?;
 
-    // Start client and io task with given io type that impl `AsyncIo` trait.
-    pub fn start_with_io<S>(self, mut io: S) -> (Client, impl Future<Output = Result<(), crate::error::Error>>)
-    where
-        S: AsyncIo,
-    {
         let (tx, rx) = channel(self.backlog);
 
         let mut receiver = QueryReceiver { rx };
@@ -109,7 +107,7 @@ impl<'a, const BATCH_LIMIT: usize> Postgres<'a, BATCH_LIMIT> {
             Ok(())
         };
 
-        (Client::new(tx), fut)
+        Ok((Client::new(tx), fut))
     }
 }
 
@@ -141,4 +139,15 @@ fn slice_iter<'a>(
     s: &'a [&'a (dyn postgres_types::ToSql + Sync)],
 ) -> impl ExactSizeIterator<Item = &'a dyn postgres_types::ToSql> + 'a {
     s.iter().map(|s| *s as _)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn postgres() {
+        let _ = Postgres::new("abc");
+        let _ = Postgres::new(Config::default());
+    }
 }
