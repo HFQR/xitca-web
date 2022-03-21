@@ -58,6 +58,10 @@ pub struct Statement {
 }
 
 impl Statement {
+    pub(crate) fn new(name: String, params: Vec<Type>, columns: Vec<Column>) -> Self {
+        Self { name, params, columns }
+    }
+
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
