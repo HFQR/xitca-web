@@ -46,10 +46,6 @@ impl Client {
         }
     }
 
-    pub async fn query(&self) -> Result<(), Error> {
-        todo!()
-    }
-
     pub fn closed(&self) -> bool {
         self.tx.is_closed()
     }
@@ -66,15 +62,39 @@ impl Client {
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().typeinfo.as_ref().cloned()
+        self.cached_typeinfo.lock().typeinfo.clone()
     }
 
-    pub fn set_typeinfo(&self, statement: Statement) {
-        self.cached_typeinfo.lock().typeinfo = Some(statement);
+    pub fn set_typeinfo(&self, statement: &Statement) {
+        self.cached_typeinfo.lock().typeinfo = Some(statement.clone());
+    }
+
+    pub fn typeinfo_composite(&self) -> Option<Statement> {
+        self.cached_typeinfo.lock().typeinfo_composite.clone()
+    }
+
+    pub fn set_typeinfo_composite(&self, statement: &Statement) {
+        self.cached_typeinfo.lock().typeinfo_composite = Some(statement.clone());
+    }
+
+    pub fn typeinfo_enum(&self) -> Option<Statement> {
+        self.cached_typeinfo.lock().typeinfo_enum.clone()
+    }
+
+    pub fn set_typeinfo_enum(&self, statement: &Statement) {
+        self.cached_typeinfo.lock().typeinfo_enum = Some(statement.clone());
     }
 
     pub fn type_(&self, oid: Oid) -> Option<Type> {
         self.cached_typeinfo.lock().types.get(&oid).cloned()
+    }
+
+    pub fn set_type(&self, oid: Oid, type_: &Type) {
+        self.cached_typeinfo.lock().types.insert(oid, type_.clone());
+    }
+
+    pub fn clear_type_cache(&self) {
+        self.cached_typeinfo.lock().types.clear();
     }
 
     pub(crate) fn with_buf<F, R>(&self, f: F) -> R

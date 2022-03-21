@@ -5,14 +5,16 @@ use std::{
 };
 
 use fallible_iterator::FallibleIterator;
+use futures_util::stream::TryStreamExt;
 use postgres_protocol::message::{backend, frontend};
-use postgres_types::{Oid, Type};
+use postgres_types::{Field, Kind, Oid, Type};
 use tracing::debug;
 use xitca_io::bytes::Bytes;
 
 use super::{
     client::Client,
     error::Error,
+    slice_iter,
     statement::{Column, Statement, StatementGuarded},
 };
 
@@ -24,17 +26,6 @@ impl Client {
 }
 
 impl Client {
-    fn _prepare_boxed<'s, 'q>(
-        &'s self,
-        query: &'q str,
-        types: &'q [Type],
-    ) -> Pin<Box<dyn Future<Output = Result<Statement, Error>> + Send + 'q>>
-    where
-        's: 'q,
-    {
-        Box::pin(self._prepare(query, types))
-    }
-
     async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
         let name = format!("s{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
 
@@ -78,79 +69,142 @@ impl Client {
         Ok(Statement::new(name, parameters, columns))
     }
 
-    async fn get_type(&self, oid: Oid) -> Result<Type, Error> {
-        if let Some(type_) = Type::from_oid(oid) {
-            return Ok(type_);
-        }
+    // get type is called recursively so a boxed future is needed.
+    #[inline(never)]
+    fn get_type(&self, oid: Oid) -> Pin<Box<dyn Future<Output = Result<Type, Error>> + Send + '_>> {
+        Box::pin(async move {
+            if let Some(type_) = Type::from_oid(oid) {
+                return Ok(type_);
+            }
 
-        if let Some(type_) = self.type_(oid) {
-            return Ok(type_);
-        }
+            if let Some(type_) = self.type_(oid) {
+                return Ok(type_);
+            }
 
-        todo!()
+            let stmt = self.typeinfo_statement().await?;
 
-        // let stmt = typeinfo_statement(client).await?;
+            let mut rows = self.query(&stmt, slice_iter(&[&oid])).await?;
 
-        // let rows = query::query(client, stmt, slice_iter(&[&oid])).await?;
-        // pin!(rows);
+            let row = match rows.try_next().await? {
+                Some(row) => row,
+                None => return Err(Error::ToDo),
+            };
 
-        // let row = match rows.try_next().await? {
-        //     Some(row) => row,
-        //     None => return Err(Error::unexpected_message()),
-        // };
+            let name: String = row.try_get(0)?;
+            let type_: i8 = row.try_get(1)?;
+            let elem_oid: Oid = row.try_get(2)?;
+            let rngsubtype: Option<Oid> = row.try_get(3)?;
+            let basetype: Oid = row.try_get(4)?;
+            let schema: String = row.try_get(5)?;
+            let relid: Oid = row.try_get(6)?;
 
-        // let name: String = row.try_get(0)?;
-        // let type_: i8 = row.try_get(1)?;
-        // let elem_oid: Oid = row.try_get(2)?;
-        // let rngsubtype: Option<Oid> = row.try_get(3)?;
-        // let basetype: Oid = row.try_get(4)?;
-        // let schema: String = row.try_get(5)?;
-        // let relid: Oid = row.try_get(6)?;
+            let kind = if type_ == b'e' as i8 {
+                let variants = self.get_enum_variants(oid).await?;
+                Kind::Enum(variants)
+            } else if type_ == b'p' as i8 {
+                Kind::Pseudo
+            } else if basetype != 0 {
+                let type_ = self.get_type(basetype).await?;
+                Kind::Domain(type_)
+            } else if elem_oid != 0 {
+                let type_ = self.get_type(elem_oid).await?;
+                Kind::Array(type_)
+            } else if relid != 0 {
+                let fields = self.get_composite_fields(relid).await?;
+                Kind::Composite(fields)
+            } else if let Some(rngsubtype) = rngsubtype {
+                let type_ = self.get_type(rngsubtype).await?;
+                Kind::Range(type_)
+            } else {
+                Kind::Simple
+            };
 
-        // let kind = if type_ == b'e' as i8 {
-        //     let variants = get_enum_variants(client, oid).await?;
-        //     Kind::Enum(variants)
-        // } else if type_ == b'p' as i8 {
-        //     Kind::Pseudo
-        // } else if basetype != 0 {
-        //     let type_ = get_type_rec(client, basetype).await?;
-        //     Kind::Domain(type_)
-        // } else if elem_oid != 0 {
-        //     let type_ = get_type_rec(client, elem_oid).await?;
-        //     Kind::Array(type_)
-        // } else if relid != 0 {
-        //     let fields = get_composite_fields(client, relid).await?;
-        //     Kind::Composite(fields)
-        // } else if let Some(rngsubtype) = rngsubtype {
-        //     let type_ = get_type_rec(client, rngsubtype).await?;
-        //     Kind::Range(type_)
-        // } else {
-        //     Kind::Simple
-        // };
+            let type_ = Type::new(name, oid, kind, schema);
+            self.set_type(oid, &type_);
 
-        // let type_ = Type::new(name, oid, kind, schema);
-        // client.set_type(oid, &type_);
-
-        // Ok(type_)
+            Ok(type_)
+        })
     }
 
+    #[inline(never)]
     async fn typeinfo_statement(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
         }
 
-        let stmt = match Box::pin(self._prepare(TYPEINFO_QUERY, &[])).await {
+        let stmt = match self._prepare(TYPEINFO_QUERY, &[]).await {
             Ok(stmt) => stmt,
             Err(_) => {
-                Box::pin(self._prepare(TYPEINFO_FALLBACK_QUERY, &[])).await?
+                self._prepare(TYPEINFO_FALLBACK_QUERY, &[]).await?
             }
             // Err(ref e) if e.code() == Some(&SqlState::UNDEFINED_TABLE) => {
-            //     Box::pin(self._prepare(TYPEINFO_FALLBACK_QUERY, &[])).await?
+            //     self._prepare_boxed(TYPEINFO_FALLBACK_QUERY, &[]).await?
             // }
             // Err(e) => return Err(e),
         };
 
-        self.set_typeinfo(stmt.clone());
+        self.set_typeinfo(&stmt);
+
+        Ok(stmt)
+    }
+
+    async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
+        let stmt = self.typeinfo_enum_statement().await?;
+
+        self.query(&stmt, slice_iter(&[&oid]))
+            .await?
+            .and_then(|row| async move { row.try_get(0) })
+            .try_collect()
+            .await
+    }
+
+    async fn typeinfo_enum_statement(&self) -> Result<Statement, Error> {
+        if let Some(stmt) = self.typeinfo_enum() {
+            return Ok(stmt);
+        }
+
+        let stmt = match self._prepare(TYPEINFO_ENUM_QUERY, &[]).await {
+            Ok(stmt) => stmt,
+            Err(_) => self._prepare(TYPEINFO_ENUM_FALLBACK_QUERY, &[]).await?,
+            // Err(ref e) if e.code() == Some(&SqlState::UNDEFINED_COLUMN) => {
+            //     prepare_rec(client, TYPEINFO_ENUM_FALLBACK_QUERY, &[]).await?
+            // }
+            // Err(e) => return Err(e),
+        };
+
+        self.set_typeinfo_enum(&stmt);
+
+        Ok(stmt)
+    }
+
+    async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
+        let stmt = self.typeinfo_composite_statement().await?;
+
+        let rows = self
+            .query(&stmt, slice_iter(&[&oid]))
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        let mut fields = vec![];
+        for row in rows {
+            let name = row.try_get(0)?;
+            let oid = row.try_get(1)?;
+            let type_ = self.get_type(oid).await?;
+            fields.push(Field::new(name, type_));
+        }
+
+        Ok(fields)
+    }
+
+    async fn typeinfo_composite_statement(&self) -> Result<Statement, Error> {
+        if let Some(stmt) = self.typeinfo_composite() {
+            return Ok(stmt);
+        }
+
+        let stmt = self._prepare(TYPEINFO_COMPOSITE_QUERY, &[]).await?;
+
+        self.set_typeinfo_composite(&stmt);
 
         Ok(stmt)
     }
