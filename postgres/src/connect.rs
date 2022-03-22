@@ -1,7 +1,7 @@
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::{io::AsyncIo, net::TcpStream};
 
-use super::{config::Config, context::Context, error::Error};
+use super::{config::Config, error::Error, io::BufferedIo};
 
 pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
     let host = cfg.get_hosts().first().unwrap();
@@ -20,8 +20,7 @@ pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
 }
 
 pub(crate) async fn authenticate<Io, const BATCH_LIMIT: usize>(
-    io: &mut Io,
-    ctx: &mut Context<BATCH_LIMIT>,
+    io: &mut BufferedIo<Io, BATCH_LIMIT>,
     cfg: Config,
 ) -> Result<(), Error>
 where
@@ -41,17 +40,15 @@ where
         params.push(("application_name", &**application_name));
     }
 
-    let mut res = ctx
-        .query_once(io, |buf| {
-            frontend::startup_message(params, buf).map_err(|_| Error::ToDo)
-        })
+    let mut res = io
+        .linear_request(|buf| frontend::startup_message(params, buf).map_err(|_| Error::ToDo))
         .await?;
 
     match res.recv().await? {
         backend::Message::AuthenticationOk => {}
         backend::Message::AuthenticationCleartextPassword => {
-            let res = ctx
-                .query_once(io, |buf| {
+            let res = io
+                .linear_request(|buf| {
                     frontend::password_message(cfg.get_password().unwrap(), buf).map_err(|_| Error::ToDo)
                 })
                 .await?;

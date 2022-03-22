@@ -1,7 +1,10 @@
-use std::pin::Pin;
+use std::{io, pin::Pin};
 
 use tokio::sync::mpsc::{channel, Receiver};
-use xitca_io::io::{AsyncIo, AsyncWrite, Interest};
+use xitca_io::{
+    bytes::BytesMut,
+    io::{AsyncIo, AsyncWrite, Interest},
+};
 
 use super::{
     client::Client,
@@ -9,6 +12,7 @@ use super::{
     error::Error,
     futures::{never, poll_fn, Select, SelectOutput},
     request::Request,
+    response::Response,
 };
 
 pub(crate) struct BufferedIo<Io, const BATCH_LIMIT: usize> {
@@ -21,38 +25,100 @@ impl<Io, const BATCH_LIMIT: usize> BufferedIo<Io, BATCH_LIMIT>
 where
     Io: AsyncIo,
 {
-    pub(crate) fn new_pair(io: Io, backlog: usize, ctx: Context<BATCH_LIMIT>) -> (Client, Self) {
+    pub(crate) fn new_pair(io: Io, backlog: usize) -> (Client, Self) {
+        let ctx = Context::<BATCH_LIMIT>::new();
+
         let (tx, rx) = channel(backlog);
 
         (Client::new(tx), Self { io, rx, ctx })
     }
 
-    pub(crate) async fn run(self) -> Result<(), Error> {
-        let Self {
-            mut io,
-            mut rx,
-            mut ctx,
-        } = self;
+    // send request in self blocking manner. this call would not utilize concurrent read/write nor
+    // pipeline/batch. A single response is returned.
+    pub(crate) async fn linear_request<F>(&mut self, encoder: F) -> Result<Response, Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
+        let mut buf = BytesMut::new();
 
+        encoder(&mut buf)?;
+
+        let msg = buf.freeze();
+
+        let (req, res) = Request::new_pair(msg);
+
+        self.ctx.push_req(req);
+
+        while !self.ctx.req_is_empty() {
+            let _ = self.io.ready(Interest::WRITABLE).await?;
+            self.try_write()?;
+        }
+
+        while !self.ctx.res_is_empty() {
+            let _ = self.io.ready(Interest::READABLE).await?;
+            self.try_read()?;
+            self.ctx.try_response()?;
+        }
+
+        Ok(res)
+    }
+
+    pub(crate) async fn run(mut self) -> Result<(), Error> {
         loop {
-            match try_rx(&mut rx, &ctx).select(try_io(&mut io, &ctx)).await {
+            match try_rx(&mut self.rx, &self.ctx)
+                .select(try_io(&mut self.io, &self.ctx))
+                .await
+            {
                 // batch message and keep polling.
-                SelectOutput::A(Some(msg)) => ctx.push_req(msg),
+                SelectOutput::A(Some(msg)) => self.ctx.push_req(msg),
                 // client is gone.
                 SelectOutput::A(None) => break,
                 SelectOutput::B(ready) => {
                     let ready = ready?;
 
                     if ready.is_readable() {
-                        ctx.try_read_io(&mut io)?;
-                        ctx.try_response()?;
+                        self.try_read()?;
+                        self.ctx.try_response()?;
                     }
 
                     if ready.is_writable() {
-                        ctx.try_write_io(&mut io)?;
-                        poll_fn(|cx| AsyncWrite::poll_flush(Pin::new(&mut io), cx)).await?;
+                        self.try_write()?;
+                        poll_fn(|cx| AsyncWrite::poll_flush(Pin::new(&mut self.io), cx)).await?;
                     }
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    // try read async io until connection error/closed/blocked.
+    fn try_read(&mut self) -> Result<(), Error> {
+        assert!(
+            !self.ctx.res_is_empty(),
+            "If server return anything their must at least one response waiting."
+        );
+
+        loop {
+            match self.io.try_read_buf(&mut self.ctx.buf) {
+                Ok(0) => return Err(Error::ConnectionClosed),
+                Ok(_) => continue,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    // try write to async io with vectored write enabled.
+    fn try_write(&mut self) -> Result<(), Error> {
+        while !self.ctx.req_is_empty() {
+            let mut iovs = [io::IoSlice::new(&[]); BATCH_LIMIT];
+            let len = self.ctx.chunks_vectored(&mut iovs);
+            match self.io.try_write_vectored(&iovs[..len]) {
+                Ok(0) => return Err(Error::ConnectionClosed),
+                Ok(n) => self.ctx.advance(n),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(e.into()),
             }
         }
 
