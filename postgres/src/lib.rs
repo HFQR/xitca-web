@@ -23,7 +23,7 @@ pub use statement::Statement;
 
 use std::future::Future;
 
-use crate::{client::Client, context::Context, error::Error};
+use crate::{client::Client, error::Error};
 
 #[derive(Debug)]
 pub struct Postgres<C, const BATCH_LIMIT: usize> {
@@ -61,13 +61,11 @@ where
     pub async fn connect(self) -> Result<(Client, impl Future<Output = Result<(), Error>>), Error> {
         let cfg = Config::try_from(self.cfg)?;
 
-        let mut io = crate::connect::connect(&cfg).await?;
+        let io = crate::connect::connect(&cfg).await?;
 
-        let mut ctx = Context::<BATCH_LIMIT>::new();
+        let (cli, mut io) = crate::io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io, self.backlog);
 
-        crate::connect::authenticate(&mut io, &mut ctx, cfg).await?;
-
-        let (cli, io) = crate::io::BufferedIo::new_pair(io, self.backlog, ctx);
+        crate::connect::authenticate(&mut io, cfg).await?;
 
         Ok((cli, io.run()))
     }
