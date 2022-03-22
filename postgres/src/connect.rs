@@ -1,4 +1,7 @@
-use postgres_protocol::message::{backend, frontend};
+use postgres_protocol::{
+    authentication,
+    message::{backend, frontend},
+};
 use xitca_io::{io::AsyncIo, net::TcpStream};
 
 use super::{config::Config, error::Error, io::BufferedIo};
@@ -47,15 +50,37 @@ where
     match res.recv().await? {
         backend::Message::AuthenticationOk => {}
         backend::Message::AuthenticationCleartextPassword => {
-            let res = io
-                .linear_request(|buf| {
-                    frontend::password_message(cfg.get_password().unwrap(), buf).map_err(|_| Error::ToDo)
-                })
-                .await?;
+            let pass = cfg.get_password().unwrap();
+            password(io, pass).await?
         }
-        backend::Message::AuthenticationMd5Password(_body) => {}
+        backend::Message::AuthenticationMd5Password(body) => {
+            let user = cfg.get_user().unwrap().as_bytes();
+            let pass = cfg.get_password().unwrap();
+            let pass = authentication::md5_hash(user, pass, body.salt());
+
+            password(io, pass).await?
+        }
         _ => {}
     };
+
+    Ok(())
+}
+
+async fn password<Io, P, const BATCH_LIMIT: usize>(io: &mut BufferedIo<Io, BATCH_LIMIT>, pass: P) -> Result<(), Error>
+where
+    Io: AsyncIo,
+    P: AsRef<[u8]>,
+{
+    let msg = io
+        .linear_request(|buf| frontend::password_message(pass.as_ref(), buf).map_err(|_| Error::ToDo))
+        .await?
+        .recv()
+        .await?;
+
+    match msg {
+        backend::Message::AuthenticationOk => {}
+        _ => panic!("password authentication failed"),
+    }
 
     Ok(())
 }
