@@ -7,6 +7,7 @@ mod config;
 mod connect;
 mod context;
 mod futures;
+mod io;
 mod prepare;
 mod query;
 mod request;
@@ -20,18 +21,9 @@ pub use config::Config;
 pub use row::Row;
 pub use statement::Statement;
 
-use std::{future::Future, pin::Pin};
+use std::future::Future;
 
-use tokio::sync::mpsc::{channel, Receiver};
-use xitca_io::io::{AsyncIo, AsyncWrite, Interest};
-
-use crate::{
-    client::Client,
-    context::Context,
-    error::Error,
-    futures::{never, poll_fn, Select, SelectOutput},
-    request::Request,
-};
+use crate::{client::Client, context::Context, error::Error};
 
 #[derive(Debug)]
 pub struct Postgres<C, const BATCH_LIMIT: usize> {
@@ -69,70 +61,16 @@ where
     pub async fn connect(self) -> Result<(Client, impl Future<Output = Result<(), Error>>), Error> {
         let cfg = Config::try_from(self.cfg)?;
 
-        let mut io = crate::connect::connect(cfg).await?;
-
-        let (tx, rx) = channel(self.backlog);
-
-        let mut receiver = QueryReceiver { rx };
+        let mut io = crate::connect::connect(&cfg).await?;
 
         let mut ctx = Context::<BATCH_LIMIT>::new();
 
-        let fut = async move {
-            loop {
-                match receiver
-                    .recv(ctx.req_is_full())
-                    .select(io_ready(&mut io, !ctx.req_is_empty()))
-                    .await
-                {
-                    // batch message and keep polling.
-                    SelectOutput::A(Some(msg)) => ctx.push_req(msg),
-                    // client is gone.
-                    SelectOutput::A(None) => break,
-                    SelectOutput::B(ready) => {
-                        let ready = ready?;
+        crate::connect::authenticate(&mut io, &mut ctx, cfg).await?;
 
-                        if ready.is_readable() {
-                            ctx.try_read_io(&mut io)?;
-                            ctx.try_response()?;
-                        }
+        let (cli, io) = crate::io::BufferedIo::new_pair(io, self.backlog, ctx);
 
-                        if ready.is_writable() {
-                            ctx.try_write_io(&mut io)?;
-                            poll_fn(|cx| AsyncWrite::poll_flush(Pin::new(&mut io), cx)).await?;
-                        }
-                    }
-                }
-            }
-
-            Ok(())
-        };
-
-        Ok((Client::new(tx), fut))
+        Ok((cli, io.run()))
     }
-}
-
-struct QueryReceiver {
-    rx: Receiver<Request>,
-}
-
-impl QueryReceiver {
-    async fn recv(&mut self, req_is_full: bool) -> Option<Request> {
-        if req_is_full {
-            never().await
-        } else {
-            self.rx.recv().await
-        }
-    }
-}
-
-fn io_ready<Io: AsyncIo>(io: &mut Io, can_write: bool) -> Io::ReadyFuture<'_> {
-    let interest = if can_write {
-        Interest::READABLE | Interest::WRITABLE
-    } else {
-        Interest::READABLE
-    };
-
-    io.ready(interest)
 }
 
 fn slice_iter<'a>(
