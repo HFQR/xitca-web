@@ -24,7 +24,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
     }
 
     pub(crate) fn req_is_full(&self) -> bool {
-        self.req.len() != LIMIT
+        self.req.len() == LIMIT
     }
 
     pub(crate) fn req_is_empty(&self) -> bool {
@@ -49,7 +49,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
                         let _ = self.res.pop_front();
                     }
                 }
-                ResponseMessage::Async(_) => todo!(),
+                ResponseMessage::Async(_) => {}
             }
         }
 

@@ -6,6 +6,8 @@ use xitca_io::{io::AsyncIo, net::TcpStream};
 
 use super::{config::Config, error::Error, io::BufferedIo};
 
+#[cold]
+#[inline(never)]
 pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
     let host = cfg.get_hosts().first().unwrap();
     let port = cfg.get_ports().first().unwrap();
@@ -22,6 +24,8 @@ pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
     }
 }
 
+#[cold]
+#[inline(never)]
 pub(crate) async fn authenticate<Io, const BATCH_LIMIT: usize>(
     io: &mut BufferedIo<Io, BATCH_LIMIT>,
     cfg: Config,
@@ -66,6 +70,8 @@ where
     Ok(())
 }
 
+#[cold]
+#[inline(never)]
 async fn password<Io, P, const BATCH_LIMIT: usize>(io: &mut BufferedIo<Io, BATCH_LIMIT>, pass: P) -> Result<(), Error>
 where
     Io: AsyncIo,
