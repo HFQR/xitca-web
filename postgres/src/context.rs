@@ -2,13 +2,13 @@ use std::{collections::VecDeque, io};
 
 use xitca_io::{
     bytes::{Buf, BytesMut},
-    io::AsyncIo,
+    io::{AsyncIo, Interest},
 };
 
 use super::{
     error::Error,
     request::Request,
-    response::{ResponseMessage, ResponseSender},
+    response::{Response, ResponseMessage, ResponseSender},
 };
 
 pub(crate) struct Context<const LIMIT: usize> {
@@ -132,5 +132,38 @@ impl<const LIMIT: usize> Context<LIMIT> {
 
             self.res.push_back(req.tx);
         }
+    }
+}
+
+impl<const BATCH_LIMIT: usize> Context<BATCH_LIMIT> {
+    // send request in self blocking manner. this call would not utilize concurrent read/write nor
+    // pipeline/batch. A single response is returned.
+    pub(crate) async fn query_once<Io, F>(&mut self, io: &mut Io, encoder: F) -> Result<Response, Error>
+    where
+        Io: AsyncIo,
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
+        let mut buf = BytesMut::new();
+
+        encoder(&mut buf)?;
+
+        let msg = buf.freeze();
+
+        let (req, res) = Request::new_pair(msg);
+
+        self.push_req(req);
+
+        while !self.req_is_empty() {
+            let _ = io.ready(Interest::WRITABLE).await?;
+            self.try_write_io(io)?;
+        }
+
+        while !self.res_is_empty() {
+            let _ = io.ready(Interest::READABLE).await?;
+            self.try_read_io(io)?;
+            self.try_response()?;
+        }
+
+        Ok(res)
     }
 }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use parking_lot::Mutex;
 use postgres_types::{Oid, Type};
-use tokio::sync::mpsc::{unbounded_channel, Sender};
+use tokio::sync::mpsc::Sender;
 use xitca_io::bytes::{Bytes, BytesMut};
 
 use super::{error::Error, request::Request, response::Response, statement::Statement};
@@ -51,14 +51,11 @@ impl Client {
     }
 
     pub(crate) async fn send(&self, msg: Bytes) -> Result<Response, Error> {
-        let (tx, rx) = unbounded_channel();
+        let (req, res) = Request::new_pair(msg);
 
-        self.tx
-            .send(Request { tx, msg })
-            .await
-            .map_err(|_| Error::ConnectionClosed)?;
+        self.tx.send(req).await.map_err(|_| Error::ConnectionClosed)?;
 
-        Ok(Response::new(rx))
+        Ok(res)
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
