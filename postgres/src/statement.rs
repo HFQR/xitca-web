@@ -1,6 +1,6 @@
 //! Statement module is mostly copy/paste from `tokio_postgres::statement`
 
-use std::{fmt, ops::Deref};
+use std::fmt;
 
 use postgres_protocol::message::frontend;
 use postgres_types::Type;
@@ -14,10 +14,8 @@ pub struct StatementGuarded<'a> {
     client: &'a Client,
 }
 
-impl Deref for StatementGuarded<'_> {
-    type Target = Statement;
-
-    fn deref(&self) -> &Self::Target {
+impl AsRef<Statement> for StatementGuarded<'_> {
+    fn as_ref(&self) -> &Statement {
         self.statement.as_ref().unwrap()
     }
 }
