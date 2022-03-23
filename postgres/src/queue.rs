@@ -59,15 +59,6 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<&T> {
-        if index < self.len() {
-            let idx = Self::wrap_add(self.head, index);
-            unsafe { Some(&*self.ptr().add(idx)) }
-        } else {
-            None
-        }
-    }
-
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index < self.len() {
             let idx = Self::wrap_add(self.head, index);

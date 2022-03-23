@@ -132,7 +132,7 @@ where
 }
 
 async fn try_rx<const BATCH_LIMIT: usize>(rx: &mut Receiver<Request>, ctx: &Context<BATCH_LIMIT>) -> Option<Request> {
-    if ctx.req_is_full() || ctx.res_is_full() {
+    if ctx.req_is_full() {
         never().await
     } else {
         rx.recv().await

@@ -1,4 +1,4 @@
-use std::io;
+use std::{collections::VecDeque, io};
 
 use xitca_io::bytes::{Buf, BytesMut};
 
@@ -11,7 +11,7 @@ use super::{
 
 pub(crate) struct Context<const LIMIT: usize> {
     req: ArrayQueue<Request, LIMIT>,
-    res: ArrayQueue<ResponseSender, LIMIT>,
+    res: VecDeque<ResponseSender>,
     pub(crate) buf: BytesMut,
 }
 
@@ -19,17 +19,13 @@ impl<const LIMIT: usize> Context<LIMIT> {
     pub(crate) fn new() -> Self {
         Self {
             req: ArrayQueue::new(),
-            res: ArrayQueue::new(),
+            res: VecDeque::with_capacity(LIMIT * 2),
             buf: BytesMut::new(),
         }
     }
 
     pub(crate) fn req_is_full(&self) -> bool {
-        self.req.len() == LIMIT
-    }
-
-    pub(crate) fn res_is_full(&self) -> bool {
-        self.res.len() == LIMIT
+        self.req.is_full()
     }
 
     pub(crate) fn req_is_empty(&self) -> bool {
@@ -114,7 +110,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
             // whole message written. pop the request. drop message and move tx to res queue.
             let req = self.req.pop_front().unwrap();
 
-            self.res.push_back(req.tx).expect("Out of bound push must not happen");
+            self.res.push_back(req.tx);
         }
     }
 }
