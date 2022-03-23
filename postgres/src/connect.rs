@@ -14,12 +14,21 @@ pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
 
     match host {
         crate::config::Host::Tcp(host) => {
-            use std::net::ToSocketAddrs;
+            let addrs = tokio::net::lookup_host((host.as_str(), *port)).await?;
 
-            // use blocking dns resolve as it's not performance critical for connecting to db.
-            let addr = (host.as_str(), *port).to_socket_addrs().unwrap().next().unwrap();
+            let mut err = None;
 
-            Ok(TcpStream::connect(addr).await?)
+            for addr in addrs {
+                match TcpStream::connect(addr).await {
+                    Ok(stream) => {
+                        let _ = stream.set_nodelay(true);
+                        return Ok(stream);
+                    }
+                    Err(e) => err = Some(e),
+                }
+            }
+
+            Err(err.unwrap().into())
         }
     }
 }
