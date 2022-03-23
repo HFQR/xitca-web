@@ -1,12 +1,12 @@
-use std::{collections::VecDeque, io};
+use std::{collections::VecDeque, io, mem::MaybeUninit};
 
 use xitca_io::bytes::{Buf, BytesMut};
 
 use super::{
     error::Error,
-    queue::ArrayQueue,
     request::Request,
     response::{ResponseMessage, ResponseSender},
+    util::queue::ArrayQueue,
 };
 
 pub(crate) struct Context<const LIMIT: usize> {
@@ -78,17 +78,24 @@ impl<const LIMIT: usize> Context<LIMIT> {
         }
     }
 
-    // fill given &mut [IoSlice] with Request's msg bytes. and return the total number of bytes.
-    pub(crate) fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
-        assert!(!dst.is_empty());
-        let mut vecs = 0;
+    // fill given &mut [MaybeUninit<IoSlice>] with Request's msg bytes
+    // and return the total length of written slice.
+    pub(crate) fn chunks_vectored<'a>(&'a self, dst: &mut [MaybeUninit<io::IoSlice<'a>>]) -> usize {
+        assert!(
+            self.req.len() <= dst.len(),
+            "Request queue length must not bigger than IoSlice buffer queue"
+        );
+
+        let mut num = 0;
+
         for req in self.req.iter() {
-            vecs += req.msg.chunks_vectored(&mut dst[vecs..]);
-            if vecs == dst.len() {
-                break;
+            if req.msg.has_remaining() {
+                dst[num].write(io::IoSlice::new(req.msg.chunk()));
+                num += 1;
             }
         }
-        vecs
+
+        num
     }
 
     // remove requests that are sent and move the their tx fields to res queue.

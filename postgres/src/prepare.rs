@@ -14,8 +14,8 @@ use xitca_io::bytes::Bytes;
 use super::{
     client::Client,
     error::Error,
-    futures::poll_fn,
     statement::{Column, Statement, StatementGuarded},
+    util::futures::poll_fn,
 };
 
 impl Client {
