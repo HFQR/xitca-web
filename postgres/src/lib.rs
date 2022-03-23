@@ -6,15 +6,14 @@ mod client;
 mod config;
 mod connect;
 mod context;
-mod futures;
 mod io;
 mod prepare;
 mod query;
-mod queue;
 mod request;
 mod response;
 mod row;
 mod statement;
+mod util;
 
 pub mod error;
 

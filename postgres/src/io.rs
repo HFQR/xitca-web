@@ -1,4 +1,8 @@
-use std::{io, pin::Pin};
+use std::{
+    io,
+    mem::{self, MaybeUninit},
+    pin::Pin,
+};
 
 use tokio::sync::mpsc::{channel, Receiver};
 use xitca_io::{
@@ -10,9 +14,9 @@ use super::{
     client::Client,
     context::Context,
     error::Error,
-    futures::{never, poll_fn, Select, SelectOutput},
     request::Request,
     response::Response,
+    util::futures::{never, poll_fn, Select, SelectOutput},
 };
 
 pub(crate) struct BufferedIo<Io, const BATCH_LIMIT: usize> {
@@ -117,9 +121,17 @@ where
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
         while !self.ctx.req_is_empty() {
-            let mut iovs = [io::IoSlice::new(&[]); BATCH_LIMIT];
+            // SAFETY:
+            // initialize MaybeUninit array is safe.
+            let mut iovs: [MaybeUninit<io::IoSlice<'_>>; BATCH_LIMIT] = unsafe { MaybeUninit::uninit().assume_init() };
+
             let len = self.ctx.chunks_vectored(&mut iovs);
-            match self.io.try_write_vectored(&iovs[..len]) {
+
+            // SAFETY:
+            // chunks_vectored is tasked with record and return the length of initialized IoSlice.
+            let slice = unsafe { mem::transmute::<_, &[io::IoSlice<'_>]>(&iovs[..len]) };
+
+            match self.io.try_write_vectored(slice) {
                 Ok(0) => return Err(Error::ConnectionClosed),
                 Ok(n) => self.ctx.advance(n),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),

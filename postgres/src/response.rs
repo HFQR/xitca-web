@@ -5,8 +5,7 @@ use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
-use super::error::Error;
-use super::futures::poll_fn;
+use super::{error::Error, util::futures::poll_fn};
 
 pub struct Response {
     rx: ResponseReceiver,
