@@ -18,13 +18,16 @@ mod statement;
 
 pub mod error;
 
-pub use config::Config;
-pub use row::Row;
-pub use statement::Statement;
+pub use self::client::Client;
+pub use self::config::Config;
+pub use self::row::Row;
+pub use self::statement::Statement;
+
+pub use postgres_types::ToSql;
 
 use std::future::Future;
 
-use crate::{client::Client, error::Error};
+use crate::error::Error;
 
 #[derive(Debug)]
 pub struct Postgres<C, const BATCH_LIMIT: usize> {
@@ -59,7 +62,17 @@ where
         }
     }
 
-    pub async fn connect(self) -> Result<(Client, impl Future<Output = Result<(), Error>>), Error> {
+    pub async fn connect(
+        self,
+    ) -> Result<
+        (
+            Client,
+            // TODO: This is a rust compiler bug.
+            // if impl Future opaque type used the 'static lifetime would be removed from trait bound.
+            std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'static>>,
+        ),
+        Error,
+    > {
         let cfg = Config::try_from(self.cfg)?;
 
         let io = crate::connect::connect(&cfg).await?;
@@ -68,7 +81,7 @@ where
 
         crate::connect::authenticate(&mut io, cfg).await?;
 
-        Ok((cli, io.run()))
+        Ok((cli, Box::pin(io.run())))
     }
 }
 

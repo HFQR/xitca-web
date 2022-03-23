@@ -14,9 +14,8 @@ use xitca_io::bytes::Bytes;
 use super::{
     client::Client,
     error::Error,
-    slice_iter,
+    futures::poll_fn,
     statement::{Column, Statement, StatementGuarded},
-    futures::poll_fn
 };
 
 impl Client {
@@ -84,7 +83,7 @@ impl Client {
 
             let stmt = self.typeinfo_statement().await?;
 
-            let mut rows = self.query(&stmt, slice_iter(&[&oid])).await?;
+            let mut rows = self.query_raw(&stmt, &[&oid]).await?;
 
             let row = poll_fn(|cx| Stream::poll_next(Pin::new(&mut rows), cx))
                 .await
@@ -152,7 +151,7 @@ impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
-        let mut rows = self.query(&stmt, slice_iter(&[&oid])).await?;
+        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
 
         let mut res = vec![];
 
@@ -188,7 +187,7 @@ impl Client {
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
-        let mut stream = self.query(&stmt, slice_iter(&[&oid])).await?;
+        let mut stream = self.query_raw(&stmt, &[&oid]).await?;
 
         let mut rows = vec![];
 
