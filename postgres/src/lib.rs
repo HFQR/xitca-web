@@ -1,4 +1,3 @@
-#![forbid(unsafe_code)]
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 //! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/).
@@ -11,6 +10,7 @@ mod futures;
 mod io;
 mod prepare;
 mod query;
+mod queue;
 mod request;
 mod response;
 mod row;
