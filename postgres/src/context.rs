@@ -39,6 +39,12 @@ impl<const LIMIT: usize> Context<LIMIT> {
         self.req.push_back(req)
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.req.clear();
+        self.res.clear();
+        self.buf.clear();
+    }
+
     pub(crate) fn try_response(&mut self) -> Result<(), Error> {
         while let Some(res) = ResponseMessage::try_from_buf(&mut self.buf)? {
             match res {
@@ -54,6 +60,21 @@ impl<const LIMIT: usize> Context<LIMIT> {
         }
 
         Ok(())
+    }
+
+    // only try parse response for once and return true when success.
+    pub(crate) fn try_response_once(&mut self) -> Result<bool, Error> {
+        match ResponseMessage::try_from_buf(&mut self.buf)? {
+            Some(ResponseMessage::Normal { buf, complete }) => {
+                let _ = self.res[0].send(buf);
+                if complete {
+                    let _ = self.res.pop_front();
+                }
+                Ok(true)
+            }
+            Some(ResponseMessage::Async(_)) => unreachable!("async message handling is not implemented"),
+            None => Ok(false),
+        }
     }
 
     // fill given &mut [IoSlice] with Request's msg bytes. and return the total number of bytes.

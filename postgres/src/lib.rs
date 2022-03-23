@@ -81,6 +81,9 @@ where
 
         crate::connect::authenticate(&mut io, cfg).await?;
 
+        // clear context before continue.
+        io.clear_ctx();
+
         Ok((cli, Box::pin(io.run())))
     }
 }

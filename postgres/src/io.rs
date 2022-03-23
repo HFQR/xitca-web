@@ -54,13 +54,18 @@ where
             self.try_write()?;
         }
 
-        while !self.ctx.res_is_empty() {
+        loop {
             let _ = self.io.ready(Interest::READABLE).await?;
             self.try_read()?;
-            self.ctx.try_response()?;
-        }
 
-        Ok(res)
+            if self.ctx.try_response_once()? {
+                return Ok(res);
+            }
+        }
+    }
+
+    pub(crate) fn clear_ctx(&mut self) {
+        self.ctx.clear();
     }
 
     pub(crate) async fn run(mut self) -> Result<(), Error> {

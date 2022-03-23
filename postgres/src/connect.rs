@@ -4,7 +4,7 @@ use postgres_protocol::{
 };
 use xitca_io::{io::AsyncIo, net::TcpStream};
 
-use super::{config::Config, error::Error, io::BufferedIo};
+use super::{config::Config, error::Error, io::BufferedIo, response::Response};
 
 #[cold]
 #[inline(never)]
@@ -64,38 +64,70 @@ where
         backend::Message::AuthenticationOk => {}
         backend::Message::AuthenticationCleartextPassword => {
             let pass = cfg.get_password().unwrap();
-            password(io, pass).await?
+            password(&mut res, io, pass).await?
         }
         backend::Message::AuthenticationMd5Password(body) => {
             let user = cfg.get_user().unwrap().as_bytes();
             let pass = cfg.get_password().unwrap();
             let pass = authentication::md5_hash(user, pass, body.salt());
 
-            password(io, pass).await?
+            password(&mut res, io, pass).await?
         }
         _ => {}
     };
+
+    // let (process_id, secret_key) = read_info(res).await?;
+    //
+    // println!("process_id: {}", process_id);
+    // println!("secret_key: {}", secret_key);
 
     Ok(())
 }
 
 #[cold]
 #[inline(never)]
-async fn password<Io, P, const BATCH_LIMIT: usize>(io: &mut BufferedIo<Io, BATCH_LIMIT>, pass: P) -> Result<(), Error>
+async fn password<Io, P, const BATCH_LIMIT: usize>(
+    res: &mut Response,
+    io: &mut BufferedIo<Io, BATCH_LIMIT>,
+    pass: P,
+) -> Result<(), Error>
 where
     Io: AsyncIo,
     P: AsRef<[u8]>,
 {
-    let msg = io
+    let _ = io
         .linear_request(|buf| frontend::password_message(pass.as_ref(), buf).map_err(|_| Error::ToDo))
-        .await?
-        .recv()
         .await?;
 
-    match msg {
-        backend::Message::AuthenticationOk => {}
+    match res.recv().await? {
+        backend::Message::AuthenticationOk => println!("authenticated successful"),
         _ => panic!("password authentication failed"),
     }
 
     Ok(())
 }
+
+// #[cold]
+// #[inline(never)]
+// async fn read_info(mut res: Response) -> Result<(i32, i32), Error> {
+//     let mut process_id = 0;
+//     let mut secret_key = 0;
+//
+//     loop {
+//         match res.recv().await? {
+//             backend::Message::BackendKeyData(body) => {
+//                 process_id = body.process_id();
+//                 secret_key = body.secret_key();
+//             }
+//             backend::Message::ParameterStatus(_) => {
+//                 // TODO: do not ignore parameter status.
+//             }
+//             _msg @ backend::Message::NoticeResponse(_) => {
+//                 // TODO: do not ignore notice response status.
+//             }
+//             backend::Message::ReadyForQuery(_) => return Ok((process_id, secret_key)),
+//             backend::Message::ErrorResponse(_) => return Err(Error::ToDo),
+//             _ => return Err(Error::ToDo),
+//         }
+//     }
+// }
