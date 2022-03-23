@@ -5,7 +5,7 @@ use std::{
 };
 
 use fallible_iterator::FallibleIterator;
-use futures_util::stream::TryStreamExt;
+use futures_core::Stream;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid, Type};
 use tracing::debug;
@@ -16,6 +16,7 @@ use super::{
     error::Error,
     slice_iter,
     statement::{Column, Statement, StatementGuarded},
+    futures::poll_fn
 };
 
 impl Client {
@@ -85,10 +86,9 @@ impl Client {
 
             let mut rows = self.query(&stmt, slice_iter(&[&oid])).await?;
 
-            let row = match rows.try_next().await? {
-                Some(row) => row,
-                None => return Err(Error::ToDo),
-            };
+            let row = poll_fn(|cx| Stream::poll_next(Pin::new(&mut rows), cx))
+                .await
+                .ok_or(Error::ToDo)??;
 
             let name: String = row.try_get(0)?;
             let type_: i8 = row.try_get(1)?;
@@ -152,11 +152,16 @@ impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
-        self.query(&stmt, slice_iter(&[&oid]))
-            .await?
-            .and_then(|row| async move { row.try_get(0) })
-            .try_collect()
-            .await
+        let mut rows = self.query(&stmt, slice_iter(&[&oid])).await?;
+
+        let mut res = vec![];
+
+        while let Some(row) = poll_fn(|cx| Stream::poll_next(Pin::new(&mut rows), cx)).await {
+            let variant = row?.try_get(0)?;
+            res.push(variant);
+        }
+
+        Ok(res)
     }
 
     #[inline(never)]
@@ -183,11 +188,13 @@ impl Client {
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
-        let rows = self
-            .query(&stmt, slice_iter(&[&oid]))
-            .await?
-            .try_collect::<Vec<_>>()
-            .await?;
+        let mut stream = self.query(&stmt, slice_iter(&[&oid])).await?;
+
+        let mut rows = vec![];
+
+        while let Some(row) = poll_fn(|cx| Stream::poll_next(Pin::new(&mut stream), cx)).await {
+            rows.push(row?);
+        }
 
         let mut fields = vec![];
         for row in rows {

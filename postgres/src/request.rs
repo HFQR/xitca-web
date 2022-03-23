@@ -1,8 +1,7 @@
-use crate::response::Response;
 use tokio::sync::mpsc::unbounded_channel;
 use xitca_io::bytes::Bytes;
 
-use super::response::ResponseSender;
+use super::{response::Response, response::ResponseSender};
 
 pub struct Request {
     pub(crate) tx: ResponseSender,

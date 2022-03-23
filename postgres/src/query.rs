@@ -3,7 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures_util::{ready, stream::Stream};
+use futures_core::{ready, stream::Stream};
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{BorrowToSql, IsNull};
 use xitca_io::bytes::{Bytes, BytesMut};

@@ -1,6 +1,6 @@
 use std::task::{Context, Poll};
 
-use futures_util::ready;
+use futures_core::ready;
 use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
