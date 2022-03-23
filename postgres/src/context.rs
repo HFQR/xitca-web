@@ -28,6 +28,10 @@ impl<const LIMIT: usize> Context<LIMIT> {
         self.req.len() == LIMIT
     }
 
+    pub(crate) fn res_is_full(&self) -> bool {
+        self.res.len() == LIMIT
+    }
+
     pub(crate) fn req_is_empty(&self) -> bool {
         self.req.is_empty()
     }
