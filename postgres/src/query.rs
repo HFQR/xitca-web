@@ -5,13 +5,18 @@ use std::{
 
 use futures_core::{ready, stream::Stream};
 use postgres_protocol::message::{backend, frontend};
-use postgres_types::{BorrowToSql, IsNull};
+use postgres_types::{BorrowToSql, IsNull, ToSql};
 use xitca_io::bytes::{Bytes, BytesMut};
 
-use super::{client::Client, error::Error, response::Response, row::Row, statement::Statement};
+use super::{client::Client, error::Error, response::Response, row::Row, slice_iter, statement::Statement};
 
 impl Client {
-    pub async fn query<'a, P, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    #[inline]
+    pub async fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+        self.query_raw(stmt, slice_iter(params)).await
+    }
+
+    pub async fn query_raw<'a, P, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         P: BorrowToSql,
         I: IntoIterator<Item = P>,
