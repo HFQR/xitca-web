@@ -1,24 +1,25 @@
-use std::{collections::VecDeque, io};
+use std::io;
 
 use xitca_io::bytes::{Buf, BytesMut};
 
 use super::{
     error::Error,
+    queue::ArrayQueue,
     request::Request,
     response::{ResponseMessage, ResponseSender},
 };
 
 pub(crate) struct Context<const LIMIT: usize> {
-    req: VecDeque<Request>,
-    res: VecDeque<ResponseSender>,
+    req: ArrayQueue<Request, LIMIT>,
+    res: ArrayQueue<ResponseSender, LIMIT>,
     pub(crate) buf: BytesMut,
 }
 
 impl<const LIMIT: usize> Context<LIMIT> {
     pub(crate) fn new() -> Self {
         Self {
-            req: VecDeque::with_capacity(LIMIT),
-            res: VecDeque::with_capacity(LIMIT),
+            req: ArrayQueue::new(),
+            res: ArrayQueue::new(),
             buf: BytesMut::new(),
         }
     }
@@ -36,7 +37,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
     }
 
     pub(crate) fn push_req(&mut self, req: Request) {
-        self.req.push_back(req)
+        self.req.push_back(req).expect("Out of bound must not happen.");
     }
 
     pub(crate) fn clear(&mut self) {
@@ -49,7 +50,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
         while let Some(res) = ResponseMessage::try_from_buf(&mut self.buf)? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    let _ = self.res[0].send(buf);
+                    let _ = self.res.get(0).expect("Out of bound must not happen").send(buf);
 
                     if complete {
                         let _ = self.res.pop_front();
@@ -66,7 +67,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
     pub(crate) fn try_response_once(&mut self) -> Result<bool, Error> {
         match ResponseMessage::try_from_buf(&mut self.buf)? {
             Some(ResponseMessage::Normal { buf, complete }) => {
-                let _ = self.res[0].send(buf);
+                let _ = self.res.get(0).expect("Out of bound must not happen").send(buf);
                 if complete {
                     let _ = self.res.pop_front();
                 }
@@ -81,7 +82,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
     pub(crate) fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
         assert!(!dst.is_empty());
         let mut vecs = 0;
-        for req in &self.req {
+        for req in self.req.iter() {
             vecs += req.msg.chunks_vectored(&mut dst[vecs..]);
             if vecs == dst.len() {
                 break;
@@ -94,7 +95,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
     pub(crate) fn advance(&mut self, mut cnt: usize) {
         while cnt > 0 {
             {
-                let front = &mut self.req[0];
+                let front = self.req.get_mut(0).expect("Out of bound must not happen");
                 let rem = front.msg.remaining();
 
                 if rem > cnt {
@@ -109,7 +110,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
             // whole message written. pop the request. drop message and move tx to res queue.
             let req = self.req.pop_front().unwrap();
 
-            self.res.push_back(req.tx);
+            self.res.push_back(req.tx).expect("Out of bound push must not happen");
         }
     }
 }
