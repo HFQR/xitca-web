@@ -2,9 +2,8 @@ use std::{fmt, mem::MaybeUninit};
 
 pub struct ArrayQueue<T, const N: usize> {
     inner: [MaybeUninit<T>; N],
-    head: usize,
     tail: usize,
-    is_full: bool,
+    len: usize,
 }
 
 impl<T, const N: usize> ArrayQueue<T, N> {
@@ -13,31 +12,24 @@ impl<T, const N: usize> ArrayQueue<T, N> {
             // SAFETY:
             // initialize MaybeUninit array is safe.
             inner: unsafe { MaybeUninit::uninit().assume_init() },
-            head: 0,
             tail: 0,
-            is_full: false,
+            len: 0,
         }
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        self.head == self.tail && !self.is_full
+        self.len == 0
     }
 
+    #[inline]
     pub fn is_full(&self) -> bool {
-        self.is_full
+        self.len == N
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
-        let head = self.head;
-        let tail = self.tail;
-
-        if self.is_full() {
-            N
-        } else if tail >= head {
-            tail - head
-        } else {
-            N - head + tail
-        }
+        self.len
     }
 
     // SAFETY:
@@ -77,43 +69,33 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         if self.is_empty() {
             None
         } else {
-            Some(unsafe { self.get_unchecked_mut(self.head) })
+            let idx = self.front_idx();
+
+            Some(unsafe { self.get_unchecked_mut(idx) })
         }
     }
 
     pub fn clear(&mut self) {
-        // SAFETY:
-        // head tail track the initialized items and only drop the occupied slots with initialized
-        // value.
-        if self.tail >= self.head && !self.is_full {
-            for t in &mut self.inner[self.head..self.tail] {
-                unsafe { t.assume_init_drop() };
-            }
-        } else {
-            for t in &mut self.inner[self.head..] {
-                unsafe { t.assume_init_drop() };
-            }
-
-            for t in &mut self.inner[..self.tail] {
-                unsafe { t.assume_init_drop() };
-            }
-        }
-
+        while self.pop_front().is_some() {}
         self.tail = 0;
-        self.head = 0;
-        self.is_full = false;
     }
 
     pub fn pop_front(&mut self) -> Option<T> {
         if self.is_empty() {
             None
         } else {
-            let head = self.head;
-            self.head = Self::wrap_add(self.head, 1);
-            if self.is_full {
-                self.is_full = false;
-            }
-            unsafe { Some(self.read(head)) }
+            let idx = self.front_idx();
+            self.len -= 1;
+
+            unsafe { Some(self.read(idx)) }
+        }
+    }
+
+    fn front_idx(&self) -> usize {
+        if self.tail >= self.len {
+            self.tail - self.len
+        } else {
+            N + self.tail - self.len
         }
     }
 
@@ -122,11 +104,10 @@ impl<T, const N: usize> ArrayQueue<T, N> {
             return Err(PushError);
         }
 
-        self.is_full = self.len() == N - 1;
-
         unsafe { self.write(self.tail, value) };
 
         self.tail = Self::wrap_add(self.tail, 1);
+        self.len += 1;
 
         Ok(())
     }
@@ -134,7 +115,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
     pub fn iter(&self) -> Iter<'_, T, N> {
         Iter {
             queue: self,
-            head: self.head,
+            tail: self.tail,
             len: self.len(),
         }
     }
@@ -164,7 +145,7 @@ impl<T, const N: usize> Drop for ArrayQueue<T, N> {
 #[derive(Clone)]
 pub struct Iter<'a, T, const N: usize> {
     queue: &'a ArrayQueue<T, N>,
-    head: usize,
+    tail: usize,
     len: usize,
 }
 
@@ -177,13 +158,15 @@ impl<'a, T, const N: usize> Iterator for Iter<'a, T, N> {
             return None;
         }
 
-        let head = self.head;
-
-        self.head = ArrayQueue::<T, N>::wrap_add(self.head, 1);
+        let idx = if self.tail >= self.len {
+            self.tail - self.len
+        } else {
+            N + self.tail - self.len
+        };
 
         self.len -= 1;
 
-        unsafe { Some(self.queue.get_unchecked(head)) }
+        unsafe { Some(self.queue.get_unchecked(idx)) }
     }
 
     #[inline]
