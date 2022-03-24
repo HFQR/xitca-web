@@ -9,19 +9,14 @@ use crate::{
     util::queue::ArrayQueue,
 };
 
-pub struct Context<const LIMIT: usize> {
+pub(super) struct Context<const LIMIT: usize> {
     req: ArrayQueue<Request, LIMIT>,
     res: VecDeque<ResponseSender>,
     pub buf: BytesMut,
 }
 
 impl<const LIMIT: usize> Context<LIMIT> {
-    pub fn new() -> Self {
-        println!(
-            "size of req queue is {:?}",
-            std::mem::size_of::<ArrayQueue<Request, LIMIT>>()
-        );
-
+    pub(super) fn new() -> Self {
         Self {
             req: ArrayQueue::new(),
             res: VecDeque::with_capacity(LIMIT * 2),
@@ -29,25 +24,25 @@ impl<const LIMIT: usize> Context<LIMIT> {
         }
     }
 
-    pub fn req_is_full(&self) -> bool {
+    pub(super) fn req_is_full(&self) -> bool {
         self.req.is_full()
     }
 
-    pub fn req_is_empty(&self) -> bool {
+    pub(super) fn req_is_empty(&self) -> bool {
         self.req.is_empty()
     }
 
-    pub fn push_req(&mut self, req: Request) {
+    pub(super) fn push_req(&mut self, req: Request) {
         self.req.push_back(req).expect("Out of bound must not happen.");
     }
 
-    pub fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.req.clear();
         self.res.clear();
         self.buf.clear();
     }
 
-    pub fn try_response(&mut self) -> Result<(), Error> {
+    pub(super) fn try_response(&mut self) -> Result<(), Error> {
         while let Some(res) = ResponseMessage::try_from_buf(&mut self.buf)? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
@@ -65,7 +60,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
     }
 
     // only try parse response for once and return true when success.
-    pub fn try_response_once(&mut self) -> Result<bool, Error> {
+    pub(super) fn try_response_once(&mut self) -> Result<bool, Error> {
         match ResponseMessage::try_from_buf(&mut self.buf)? {
             Some(ResponseMessage::Normal { buf, complete }) => {
                 let _ = self.res.get(0).expect("Out of bound must not happen").send(buf);
@@ -81,7 +76,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
 
     // fill given &mut [MaybeUninit<IoSlice>] with Request's msg bytes
     // and return the total length of written slice.
-    pub fn chunks_vectored<'a>(&'a self, dst: &mut [MaybeUninit<io::IoSlice<'a>>]) -> usize {
+    pub(super) fn chunks_vectored<'a>(&'a self, dst: &mut [MaybeUninit<io::IoSlice<'a>>]) -> usize {
         assert!(
             self.req.len() <= dst.len(),
             "Request queue length must not bigger than IoSlice buffer queue"
@@ -100,7 +95,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
     }
 
     // remove requests that are sent and move the their tx fields to res queue.
-    pub fn advance(&mut self, mut cnt: usize) {
+    pub(super) fn advance(&mut self, mut cnt: usize) {
         while cnt > 0 {
             {
                 let front = self.req.get_mut(0).expect("Out of bound must not happen");
