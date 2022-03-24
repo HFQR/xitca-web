@@ -98,7 +98,11 @@ impl<const LIMIT: usize> Context<LIMIT> {
     pub(super) fn advance(&mut self, mut cnt: usize) {
         while cnt > 0 {
             {
-                let front = self.req.get_mut(0).expect("Out of bound must not happen");
+                let front = self
+                    .req
+                    .front_mut()
+                    .expect("Context::advance MUST be called when request is not empty");
+
                 let rem = front.msg.remaining();
 
                 if rem > cnt {

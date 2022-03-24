@@ -73,12 +73,11 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         }
     }
 
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        if index < self.len() {
-            let idx = Self::wrap_add(self.head, index);
-            unsafe { Some(self.get_unchecked_mut(idx)) }
-        } else {
+    pub fn front_mut(&mut self) -> Option<&mut T> {
+        if self.is_empty() {
             None
+        } else {
+            Some(unsafe { self.get_unchecked_mut(self.head) })
         }
     }
 
@@ -233,10 +232,36 @@ mod test {
     }
 
     #[test]
+    fn front_mut() {
+        let mut queue = ArrayQueue::<_, 3>::new();
+
+        assert_eq!(None, queue.front_mut());
+
+        queue.push_back(996).ok().unwrap();
+        queue.push_back(231).ok().unwrap();
+        queue.push_back(007).ok().unwrap();
+
+        assert_eq!(Some(&mut 996), queue.front_mut());
+
+        queue.pop_front();
+        assert_eq!(Some(&mut 231), queue.front_mut());
+
+        queue.pop_front();
+        assert_eq!(Some(&mut 007), queue.front_mut());
+
+        queue.pop_front();
+        assert_eq!(None, queue.front_mut());
+    }
+
+    #[test]
     fn drop() {
         use std::sync::Arc;
 
         let item = Arc::new(123);
+
+        {
+            let _queue = ArrayQueue::<u8, 3>::new();
+        }
 
         {
             let mut queue = ArrayQueue::<_, 3>::new();
@@ -270,25 +295,5 @@ mod test {
         }
 
         assert_eq!(Arc::strong_count(&item), 1);
-    }
-
-    #[test]
-    fn reference() {
-        let mut queue = ArrayQueue::<_, 4>::new();
-
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(996).ok().unwrap();
-
-        for i in 0..4 {
-            *queue.get_mut(i).unwrap() += i;
-        }
-
-        assert!(queue.get_mut(4).is_none());
-
-        for (idx, num) in queue.iter().enumerate() {
-            assert_eq!(*num, 996 + idx);
-        }
     }
 }
