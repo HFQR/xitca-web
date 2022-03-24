@@ -4,7 +4,9 @@ use postgres_protocol::{
 };
 use xitca_io::{io::AsyncIo, net::TcpStream};
 
-use super::{config::Config, error::Error, io::BufferedIo, response::Response};
+use crate::io::buffered_io::BufferedIo;
+
+use super::{config::Config, error::Error, response::Response};
 
 #[cold]
 #[inline(never)]

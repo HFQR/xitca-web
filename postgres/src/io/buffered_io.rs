@@ -10,16 +10,17 @@ use xitca_io::{
     io::{AsyncIo, AsyncWrite, Interest},
 };
 
-use super::{
+use crate::{
     client::Client,
-    context::Context,
     error::Error,
     request::Request,
     response::Response,
-    util::futures::{never, poll_fn, Select, SelectOutput},
+    util::futures::{never, poll_fn, Select as _, SelectOutput},
 };
 
-pub(crate) struct BufferedIo<Io, const BATCH_LIMIT: usize> {
+use super::context::Context;
+
+pub struct BufferedIo<Io, const BATCH_LIMIT: usize> {
     io: Io,
     rx: Receiver<Request>,
     ctx: Context<BATCH_LIMIT>,
@@ -29,7 +30,7 @@ impl<Io, const BATCH_LIMIT: usize> BufferedIo<Io, BATCH_LIMIT>
 where
     Io: AsyncIo,
 {
-    pub(crate) fn new_pair(io: Io, backlog: usize) -> (Client, Self) {
+    pub fn new_pair(io: Io, backlog: usize) -> (Client, Self) {
         let ctx = Context::<BATCH_LIMIT>::new();
 
         let (tx, rx) = channel(backlog);
@@ -39,7 +40,7 @@ where
 
     // send request in self blocking manner. this call would not utilize concurrent read/write nor
     // pipeline/batch. A single response is returned.
-    pub(crate) async fn linear_request<F>(&mut self, encoder: F) -> Result<Response, Error>
+    pub async fn linear_request<F>(&mut self, encoder: F) -> Result<Response, Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
@@ -68,11 +69,11 @@ where
         }
     }
 
-    pub(crate) fn clear_ctx(&mut self) {
+    pub fn clear_ctx(&mut self) {
         self.ctx.clear();
     }
 
-    pub(crate) async fn run(mut self) -> Result<(), Error> {
+    pub async fn run(mut self) -> Result<(), Error> {
         loop {
             match try_rx(&mut self.rx, &self.ctx)
                 .select(try_io(&mut self.io, &self.ctx))
@@ -103,11 +104,6 @@ where
 
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
-        assert!(
-            !self.ctx.res_is_empty(),
-            "If server return anything their must at least one response waiting."
-        );
-
         loop {
             match self.io.try_read_buf(&mut self.ctx.buf) {
                 Ok(0) => return Err(Error::ConnectionClosed),

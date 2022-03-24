@@ -5,7 +5,6 @@
 mod client;
 mod config;
 mod connect;
-mod context;
 mod io;
 mod prepare;
 mod query;
@@ -76,7 +75,7 @@ where
 
         let io = crate::connect::connect(&cfg).await?;
 
-        let (cli, mut io) = crate::io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io, self.backlog);
+        let (cli, mut io) = crate::io::buffered_io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io, self.backlog);
 
         crate::connect::authenticate(&mut io, cfg).await?;
 
