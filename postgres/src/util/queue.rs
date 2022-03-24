@@ -1,7 +1,7 @@
-use std::{fmt, mem::MaybeUninit, ptr, slice};
+use std::{fmt, mem::MaybeUninit};
 
 pub struct ArrayQueue<T, const N: usize> {
-    inner: MaybeUninit<[T; N]>,
+    inner: [MaybeUninit<T>; N],
     tail: usize,
     head: usize,
     is_full: bool,
@@ -10,15 +10,13 @@ pub struct ArrayQueue<T, const N: usize> {
 impl<T, const N: usize> ArrayQueue<T, N> {
     pub const fn new() -> Self {
         ArrayQueue {
-            inner: MaybeUninit::uninit(),
+            // SAFETY:
+            // initialize MaybeUninit array is safe.
+            inner: unsafe { MaybeUninit::uninit().assume_init() },
             tail: 0,
             head: 0,
             is_full: false,
         }
-    }
-
-    fn ptr(&self) -> *mut T {
-        self.inner.as_ptr() as *mut T
     }
 
     pub fn is_empty(&self) -> bool {
@@ -42,12 +40,28 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         }
     }
 
-    unsafe fn buffer_read(&mut self, off: usize) -> T {
-        ptr::read(self.ptr().add(off))
+    // SAFETY:
+    // caller must make sure given index is not out of bound and properly initialized.
+    unsafe fn read(&mut self, idx: usize) -> T {
+        self.inner.get_unchecked(idx).assume_init_read()
     }
 
-    unsafe fn buffer_write(&mut self, off: usize, value: T) {
-        ptr::write(self.ptr().add(off), value);
+    // SAFETY:
+    // caller must make sure given index is not out of bound and properly initialized.
+    unsafe fn get_unchecked(&self, idx: usize) -> &T {
+        self.inner.get_unchecked(idx).assume_init_ref()
+    }
+
+    // SAFETY:
+    // caller must make sure given index is not out of bound and properly initialized.
+    unsafe fn get_unchecked_mut(&mut self, idx: usize) -> &mut T {
+        self.inner.get_unchecked_mut(idx).assume_init_mut()
+    }
+
+    // SAFETY:
+    // caller must make sure given index is not out of bound.
+    unsafe fn write(&mut self, idx: usize, value: T) {
+        self.inner.get_unchecked_mut(idx).write(value);
     }
 
     fn wrap_add(idx: usize, addend: usize) -> usize {
@@ -62,31 +76,30 @@ impl<T, const N: usize> ArrayQueue<T, N> {
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index < self.len() {
             let idx = Self::wrap_add(self.head, index);
-            unsafe { Some(&mut *self.ptr().add(idx)) }
+            unsafe { Some(self.get_unchecked_mut(idx)) }
         } else {
             None
         }
     }
 
-    fn as_mut_slices(&mut self) -> (&mut [T], &mut [T]) {
-        let ptr = self.ptr();
-        if self.tail >= self.head && !self.is_full {
-            (
-                unsafe { slice::from_raw_parts_mut(ptr.add(self.head), self.tail - self.head) },
-                &mut [],
-            )
-        } else {
-            (
-                unsafe { slice::from_raw_parts_mut(ptr.add(self.head), N - self.head) },
-                unsafe { slice::from_raw_parts_mut(ptr, self.tail) },
-            )
-        }
-    }
-
     pub fn clear(&mut self) {
-        let (a, b) = self.as_mut_slices();
-        unsafe { ptr::drop_in_place(a) };
-        unsafe { ptr::drop_in_place(b) };
+        // SAFETY:
+        // head tail track the initialized items and only drop the occupied slots with initialized
+        // value.
+        if self.tail >= self.head && !self.is_full {
+            for t in &mut self.inner[self.head..self.tail - self.head] {
+                unsafe { t.assume_init_drop() };
+            }
+        } else {
+            for t in &mut self.inner[self.head..N - self.head] {
+                unsafe { t.assume_init_drop() };
+            }
+
+            for t in &mut self.inner[..self.tail] {
+                unsafe { t.assume_init_drop() };
+            }
+        }
+
         self.tail = 0;
         self.head = 0;
         self.is_full = false;
@@ -101,7 +114,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
             if self.is_full {
                 self.is_full = false;
             }
-            unsafe { Some(self.buffer_read(head)) }
+            unsafe { Some(self.read(head)) }
         }
     }
 
@@ -112,7 +125,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
 
         self.is_full = self.len() == N - 1;
 
-        unsafe { self.buffer_write(self.tail, value) };
+        unsafe { self.write(self.tail, value) };
 
         self.tail = Self::wrap_add(self.tail, 1);
 
@@ -171,7 +184,7 @@ impl<'a, T, const N: usize> Iterator for Iter<'a, T, N> {
 
         self.len -= 1;
 
-        unsafe { Some(&*self.queue.ptr().add(head)) }
+        unsafe { Some(self.queue.get_unchecked(head)) }
     }
 
     #[inline]
@@ -229,10 +242,53 @@ mod test {
             let mut queue = ArrayQueue::<_, 3>::new();
 
             queue.push_back(item.clone()).ok().unwrap();
+            queue.push_back(item.clone()).ok().unwrap();
+
+            assert_eq!(Arc::strong_count(&item), 3);
+        }
+
+        assert_eq!(Arc::strong_count(&item), 1);
+
+        {
+            let mut queue = ArrayQueue::<_, 3>::new();
+
+            queue.push_back(item.clone()).ok().unwrap();
 
             assert_eq!(Arc::strong_count(&item), 2);
         }
 
         assert_eq!(Arc::strong_count(&item), 1);
+
+        {
+            let mut queue = ArrayQueue::<_, 3>::new();
+
+            queue.push_back(item.clone()).ok().unwrap();
+            queue.push_back(item.clone()).ok().unwrap();
+            queue.push_back(item.clone()).ok().unwrap();
+
+            assert_eq!(Arc::strong_count(&item), 4);
+        }
+
+        assert_eq!(Arc::strong_count(&item), 1);
+    }
+
+    #[test]
+    fn reference() {
+        let mut queue = ArrayQueue::<_, 4>::new();
+
+        queue.push_back(996).ok().unwrap();
+        queue.push_back(996).ok().unwrap();
+        queue.push_back(996).ok().unwrap();
+        queue.push_back(996).ok().unwrap();
+
+        for i in 0..4 {
+            *queue.get_mut(i).unwrap() += i;
+        }
+
+        assert!(queue.get_mut(4).is_none());
+
+        for (idx, num) in queue.iter().enumerate() {
+            assert_eq!(*num, 996 + idx);
+        }
     }
 }

@@ -17,6 +17,11 @@ pub struct Context<const LIMIT: usize> {
 
 impl<const LIMIT: usize> Context<LIMIT> {
     pub fn new() -> Self {
+        println!(
+            "size of req queue is {:?}",
+            std::mem::size_of::<ArrayQueue<Request, LIMIT>>()
+        );
+
         Self {
             req: ArrayQueue::new(),
             res: VecDeque::with_capacity(LIMIT * 2),
