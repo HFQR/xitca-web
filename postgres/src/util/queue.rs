@@ -2,8 +2,8 @@ use std::{fmt, mem::MaybeUninit};
 
 pub struct ArrayQueue<T, const N: usize> {
     inner: [MaybeUninit<T>; N],
-    tail: usize,
     head: usize,
+    tail: usize,
     is_full: bool,
 }
 
@@ -13,8 +13,8 @@ impl<T, const N: usize> ArrayQueue<T, N> {
             // SAFETY:
             // initialize MaybeUninit array is safe.
             inner: unsafe { MaybeUninit::uninit().assume_init() },
-            tail: 0,
             head: 0,
+            tail: 0,
             is_full: false,
         }
     }
@@ -86,11 +86,11 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         // head tail track the initialized items and only drop the occupied slots with initialized
         // value.
         if self.tail >= self.head && !self.is_full {
-            for t in &mut self.inner[self.head..self.tail - self.head] {
+            for t in &mut self.inner[self.head..self.tail] {
                 unsafe { t.assume_init_drop() };
             }
         } else {
-            for t in &mut self.inner[self.head..N - self.head] {
+            for t in &mut self.inner[self.head..] {
                 unsafe { t.assume_init_drop() };
             }
 
@@ -251,6 +251,24 @@ mod test {
 
         queue.pop_front();
         assert_eq!(None, queue.front_mut());
+    }
+
+    #[test]
+    fn wrap() {
+        let mut queue = ArrayQueue::<_, 4>::new();
+
+        for i in 0..4 {
+            assert!(queue.push_back(i).is_ok());
+        }
+
+        assert!(queue.is_full());
+
+        assert!(queue.pop_front().is_some());
+        assert!(queue.pop_front().is_some());
+
+        assert!(queue.push_back(1).is_ok());
+
+        queue.clear();
     }
 
     #[test]
