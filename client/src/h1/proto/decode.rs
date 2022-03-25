@@ -33,7 +33,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
 
                 // record the index of headers from the buffer.
                 let mut header_idx = HeaderIndex::new_array::<HEADER_LIMIT>();
-                HeaderIndex::record(buf, parsed.headers, &mut header_idx);
+                let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, parsed.headers);
 
                 let headers_len = parsed.headers.len();
 
@@ -46,9 +46,8 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
                 let mut decoder = TransferCoding::eof();
 
                 // write headers to headermap and update request states.
-                header_idx
+                header_idx_slice
                     .iter()
-                    .take(headers_len)
                     .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
 
                 let mut res = Response::new(());

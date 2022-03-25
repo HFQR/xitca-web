@@ -1,16 +1,12 @@
-use std::{
-    collections::VecDeque,
-    io::IoSlice,
-    mem::{self, MaybeUninit},
-};
+use std::{collections::VecDeque, io::IoSlice, mem::MaybeUninit};
 
 use xitca_io::bytes::{Buf, BytesMut};
+use xitca_unsafe_collection::{array_queue::ArrayQueue, uninit::PartialInit};
 
 use crate::{
     error::Error,
     request::Request,
     response::{ResponseMessage, ResponseSender},
-    util::queue::ArrayQueue,
 };
 
 pub(super) struct Context<const LIMIT: usize> {
@@ -80,32 +76,9 @@ impl<const LIMIT: usize> Context<LIMIT> {
 
     // fill given &mut [MaybeUninit<IoSlice>] with Request's msg bytes and return the initialized
     // slice.
-    pub(super) fn chunks_vectored<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> &[IoSlice<'a>] {
-        let len = self._chunks_vectored(dst);
-
-        // SAFETY:
-        // This operation is safe as Self::_chunks_vectored return the length of initialized slices.
-        unsafe { mem::transmute(&dst[..len]) }
-    }
-
-    fn _chunks_vectored<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> usize {
-        assert!(
-            self.req.len() <= dst.len(),
-            "Request queue length must not bigger than IoSlice array"
-        );
-
-        let mut num = 0;
-
-        for req in self.req.iter() {
-            // SAFETY:
-            //
-            // This operation is safe as num can never grow out of bound of dst slice.
-            // See assert! macro at beginning of this function for reason.
-            unsafe { dst.get_unchecked_mut(num) }.write(IoSlice::new(req.msg.chunk()));
-            num += 1;
-        }
-
-        num
+    pub(super) fn chunks_vectored<'a>(&'a self, dst: &'a mut [MaybeUninit<IoSlice<'a>>]) -> &[IoSlice<'a>] {
+        dst.init_from(self.req.iter())
+            .into_init_with(|req| IoSlice::new(req.msg.chunk()))
     }
 
     // remove requests that are sent and move the their tx fields to res queue.

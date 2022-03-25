@@ -19,6 +19,7 @@ handler-service-impl = []
 [dependencies]
 xitca-io = "0.1"
 xitca-service = "0.1"
+xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3.17"
 http = "0.2.5"

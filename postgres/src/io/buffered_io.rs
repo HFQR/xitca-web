@@ -1,10 +1,11 @@
-use std::{io, mem::MaybeUninit, pin::Pin};
+use std::{io, pin::Pin};
 
 use tokio::sync::mpsc::{channel, Receiver};
 use xitca_io::{
     bytes::BytesMut,
     io::{AsyncIo, AsyncWrite, Interest},
 };
+use xitca_unsafe_collection::uninit;
 
 use crate::{
     client::Client,
@@ -113,9 +114,7 @@ where
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
         while !self.ctx.req_is_empty() {
-            // SAFETY:
-            // initialize MaybeUninit array is safe.
-            let mut iovs: [MaybeUninit<io::IoSlice<'_>>; BATCH_LIMIT] = unsafe { MaybeUninit::uninit().assume_init() };
+            let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
 
             let slice = self.ctx.chunks_vectored(&mut iovs);
 

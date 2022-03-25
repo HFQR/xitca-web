@@ -1,6 +1,5 @@
-use std::mem;
-
 use httparse::Status;
+use xitca_unsafe_collection::uninit;
 
 use crate::{
     bytes::{Buf, Bytes, BytesMut},
@@ -25,7 +24,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
         buf: &mut BytesMut,
     ) -> Result<Option<(Request<()>, TransferCoding)>, ProtoError> {
         let mut req = httparse::Request::new(&mut []);
-        let mut headers = [mem::MaybeUninit::uninit(); MAX_HEADERS];
+        let mut headers = uninit::uninit_array::<_, MAX_HEADERS>();
 
         match req.parse_with_uninit_headers(buf, &mut headers)? {
             Status::Complete(len) => {
@@ -45,9 +44,10 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     Version::HTTP_10
                 };
 
-                // record the index of headers from the buffer.
+                // record indices of headers from bytes buffer.
                 let mut header_idx = HeaderIndex::new_array::<MAX_HEADERS>();
-                HeaderIndex::record(buf, req.headers, &mut header_idx);
+
+                let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, req.headers);
 
                 let headers_len = req.headers.len();
 
@@ -62,9 +62,8 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 headers.reserve(headers_len);
 
                 // write headers to headermap and update request states.
-                header_idx
+                header_idx_slice
                     .iter()
-                    .take(headers_len)
                     .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
 
                 if method == Method::CONNECT {

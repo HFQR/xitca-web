@@ -12,6 +12,7 @@ members = [
     "examples",
     "http-encoding",
     "http-ws",
+    "unsafe_collection"
 ]
 
 [patch.crates-io]
@@ -23,6 +24,7 @@ xitca-postgres = { path = "./postgres" }
 xitca-server = { path = "./server" }
 xitca-service = { path = "./service" }
 xitca-web = { path = "./web" }
+xitca-unsafe-collection = { path = "./unsafe_collection" }
 http-encoding = { path = "./http-encoding" }
 http-ws = { path = "./http-ws" }
 

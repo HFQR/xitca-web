@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 xitca-io = "0.1"
 xitca-service = "0.1"
+xitca-unsafe-collection = "0.1"
 
 fallible-iterator = "0.2"
 futures-core = { version = "0.3", default-features = false }

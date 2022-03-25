@@ -1,4 +1,8 @@
-use std::{fmt, mem::MaybeUninit};
+//! A simple stack ring buffer with FIFO queue.
+
+use core::{fmt, mem::MaybeUninit};
+
+use super::uninit::uninit_array;
 
 pub struct ArrayQueue<T, const N: usize> {
     inner: [MaybeUninit<T>; N],
@@ -9,9 +13,7 @@ pub struct ArrayQueue<T, const N: usize> {
 impl<T, const N: usize> ArrayQueue<T, N> {
     pub const fn new() -> Self {
         ArrayQueue {
-            // SAFETY:
-            // initialize MaybeUninit array is safe.
-            inner: unsafe { MaybeUninit::uninit().assume_init() },
+            inner: uninit_array(),
             tail: 0,
             len: 0,
         }
@@ -62,6 +64,16 @@ impl<T, const N: usize> ArrayQueue<T, N> {
             index.wrapping_sub(N)
         } else {
             index
+        }
+    }
+
+    pub fn front(&self) -> Option<&T> {
+        if self.is_empty() {
+            None
+        } else {
+            let idx = self.front_idx();
+
+            Some(unsafe { self.get_unchecked(idx) })
         }
     }
 
@@ -256,7 +268,9 @@ mod test {
 
     #[test]
     fn drop() {
-        use std::sync::Arc;
+        extern crate alloc;
+
+        use alloc::sync::Arc;
 
         let item = Arc::new(123);
 
