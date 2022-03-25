@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    io::{self, IoSlice},
+    io::IoSlice,
     mem::{self, MaybeUninit},
 };
 
@@ -101,7 +101,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
             //
             // This operation is safe as num can never grow out of bound of dst slice.
             // See assert! macro at beginning of this function for reason.
-            unsafe { dst.get_unchecked_mut(num) }.write(io::IoSlice::new(req.msg.chunk()));
+            unsafe { dst.get_unchecked_mut(num) }.write(IoSlice::new(req.msg.chunk()));
             num += 1;
         }
 

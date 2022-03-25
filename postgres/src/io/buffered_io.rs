@@ -1,8 +1,4 @@
-use std::{
-    io,
-    mem::{self, MaybeUninit},
-    pin::Pin,
-};
+use std::{io, mem::MaybeUninit, pin::Pin};
 
 use tokio::sync::mpsc::{channel, Receiver};
 use xitca_io::{
