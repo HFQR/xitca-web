@@ -121,11 +121,7 @@ where
             // initialize MaybeUninit array is safe.
             let mut iovs: [MaybeUninit<io::IoSlice<'_>>; BATCH_LIMIT] = unsafe { MaybeUninit::uninit().assume_init() };
 
-            let len = self.ctx.chunks_vectored(&mut iovs);
-
-            // SAFETY:
-            // chunks_vectored is tasked with record and return the length of initialized IoSlice.
-            let slice = unsafe { mem::transmute::<_, &[io::IoSlice<'_>]>(&iovs[..len]) };
+            let slice = self.ctx.chunks_vectored(&mut iovs);
 
             match self.io.try_write_vectored(slice) {
                 Ok(0) => return Err(Error::ConnectionClosed),

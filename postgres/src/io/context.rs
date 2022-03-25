@@ -1,4 +1,8 @@
-use std::{collections::VecDeque, io, mem::MaybeUninit};
+use std::{
+    collections::VecDeque,
+    io::{self, IoSlice},
+    mem::{self, MaybeUninit},
+};
 
 use xitca_io::bytes::{Buf, BytesMut};
 
@@ -74,21 +78,31 @@ impl<const LIMIT: usize> Context<LIMIT> {
         }
     }
 
-    // fill given &mut [MaybeUninit<IoSlice>] with Request's msg bytes
-    // and return the total length of written slice.
-    pub(super) fn chunks_vectored<'a>(&'a self, dst: &mut [MaybeUninit<io::IoSlice<'a>>]) -> usize {
+    // fill given &mut [MaybeUninit<IoSlice>] with Request's msg bytes and return the initialized
+    // slice.
+    pub(super) fn chunks_vectored<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> &[IoSlice<'a>] {
+        let len = self._chunks_vectored(dst);
+
+        // SAFETY:
+        // This operation is safe as Self::_chunks_vectored return the length of initialized slices.
+        unsafe { mem::transmute(&dst[..len]) }
+    }
+
+    fn _chunks_vectored<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> usize {
         assert!(
             self.req.len() <= dst.len(),
-            "Request queue length must not bigger than IoSlice buffer queue"
+            "Request queue length must not bigger than IoSlice array"
         );
 
         let mut num = 0;
 
         for req in self.req.iter() {
-            if req.msg.has_remaining() {
-                dst[num].write(io::IoSlice::new(req.msg.chunk()));
-                num += 1;
-            }
+            // SAFETY:
+            //
+            // This operation is safe as num can never grow out of bound of dst slice.
+            // See assert! macro at beginning of this function for reason.
+            unsafe { dst.get_unchecked_mut(num) }.write(io::IoSlice::new(req.msg.chunk()));
+            num += 1;
         }
 
         num
@@ -114,8 +128,11 @@ impl<const LIMIT: usize> Context<LIMIT> {
                 }
             }
 
-            // whole message written. pop the request. drop message and move tx to res queue.
-            let req = self.req.pop_front().unwrap();
+            // SAFETY:
+            //
+            // This operation is safe. ArrayQueue::front_mut method was called at the beginning.
+            // When this line reached there must be at least one item in queue.
+            let req = unsafe { self.req.pop_front().unwrap_unchecked() };
 
             self.res.push_back(req.tx);
         }
