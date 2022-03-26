@@ -10,12 +10,12 @@ use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid, Type};
 use tracing::debug;
 use xitca_io::bytes::Bytes;
+use xitca_unsafe_collection::futures::poll_fn;
 
 use super::{
     client::Client,
     error::Error,
     statement::{Column, Statement, StatementGuarded},
-    util::futures::poll_fn,
 };
 
 impl Client {

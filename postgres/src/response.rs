@@ -4,8 +4,9 @@ use futures_core::ready;
 use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
+use xitca_unsafe_collection::futures::poll_fn;
 
-use super::{error::Error, util::futures::poll_fn};
+use super::error::Error;
 
 pub struct Response {
     rx: ResponseReceiver,

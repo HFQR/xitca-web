@@ -12,7 +12,6 @@ mod request;
 mod response;
 mod row;
 mod statement;
-mod util;
 
 pub mod error;
 

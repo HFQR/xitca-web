@@ -6,4 +6,5 @@
 #![no_std]
 
 pub mod array_queue;
+pub mod futures;
 pub mod uninit;
