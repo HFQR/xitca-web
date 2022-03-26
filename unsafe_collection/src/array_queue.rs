@@ -195,23 +195,23 @@ mod test {
     fn iterate() {
         let mut queue = ArrayQueue::<_, 5>::new();
 
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(231).ok().unwrap();
-        queue.push_back(007).ok().unwrap();
+        queue.push_back("996").ok().unwrap();
+        queue.push_back("231").ok().unwrap();
+        queue.push_back("007").ok().unwrap();
 
         let mut iter = queue.iter();
 
-        assert_eq!(iter.next(), Some(&996));
-        assert_eq!(iter.next(), Some(&231));
-        assert_eq!(iter.next(), Some(&007));
+        assert_eq!(iter.next(), Some(&"996"));
+        assert_eq!(iter.next(), Some(&"231"));
+        assert_eq!(iter.next(), Some(&"007"));
         assert_eq!(iter.next(), None);
 
-        assert_eq!(queue.pop_front(), Some(996));
+        assert_eq!(queue.pop_front(), Some("996"));
 
         let mut iter = queue.iter();
 
-        assert_eq!(iter.next(), Some(&231));
-        assert_eq!(iter.next(), Some(&007));
+        assert_eq!(iter.next(), Some(&"231"));
+        assert_eq!(iter.next(), Some(&"007"));
         assert_eq!(iter.next(), None);
     }
 
@@ -219,11 +219,11 @@ mod test {
     fn cap() {
         let mut queue = ArrayQueue::<_, 3>::new();
 
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(231).ok().unwrap();
-        queue.push_back(007).ok().unwrap();
+        queue.push_back("996").ok().unwrap();
+        queue.push_back("231").ok().unwrap();
+        queue.push_back("007").ok().unwrap();
 
-        assert!(queue.push_back(123).is_err());
+        assert!(queue.push_back("123").is_err());
     }
 
     #[test]
@@ -232,17 +232,17 @@ mod test {
 
         assert_eq!(None, queue.front_mut());
 
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(231).ok().unwrap();
-        queue.push_back(007).ok().unwrap();
+        queue.push_back("996").ok().unwrap();
+        queue.push_back("231").ok().unwrap();
+        queue.push_back("007").ok().unwrap();
 
-        assert_eq!(Some(&mut 996), queue.front_mut());
-
-        queue.pop_front();
-        assert_eq!(Some(&mut 231), queue.front_mut());
+        assert_eq!(Some(&mut "996"), queue.front_mut());
 
         queue.pop_front();
-        assert_eq!(Some(&mut 007), queue.front_mut());
+        assert_eq!(Some(&mut "231"), queue.front_mut());
+
+        queue.pop_front();
+        assert_eq!(Some(&mut "007"), queue.front_mut());
 
         queue.pop_front();
         assert_eq!(None, queue.front_mut());
