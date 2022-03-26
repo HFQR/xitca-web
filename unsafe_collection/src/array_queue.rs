@@ -111,9 +111,9 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         }
     }
 
-    pub fn push_back(&mut self, value: T) -> Result<(), PushError> {
+    pub fn push_back(&mut self, value: T) -> Result<(), PushError<T>> {
         if self.is_full() {
-            return Err(PushError);
+            return Err(PushError(value));
         }
 
         unsafe { self.write(self.tail, value) };
@@ -133,11 +133,17 @@ impl<T, const N: usize> ArrayQueue<T, N> {
     }
 }
 
-pub struct PushError;
+pub struct PushError<T>(T);
 
-impl fmt::Debug for PushError {
+impl<T> PushError<T> {
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> fmt::Debug for PushError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PushError")
+        write!(f, "PushError(..)")
     }
 }
 
