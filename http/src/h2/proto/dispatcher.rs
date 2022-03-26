@@ -16,6 +16,7 @@ use tokio::pin;
 use tracing::trace;
 use xitca_io::io::{AsyncRead, AsyncWrite};
 use xitca_service::Service;
+use xitca_unsafe_collection::futures::{poll_fn, Select as _, SelectOutput};
 
 use crate::{
     body::{ResponseBody, ResponseBodySize},
@@ -28,10 +29,7 @@ use crate::{
         HeaderValue, Response, Version,
     },
     request::Request,
-    util::{
-        futures::{poll_fn, Queue, Select, SelectOutput},
-        keep_alive::KeepAlive,
-    },
+    util::{futures::Queue, keep_alive::KeepAlive},
 };
 
 /// Http/2 dispatcher

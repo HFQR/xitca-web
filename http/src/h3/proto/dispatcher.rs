@@ -19,6 +19,7 @@ use h3::{
 use pin_project_lite::pin_project;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
+use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
     body::ResponseBody,
@@ -27,7 +28,7 @@ use crate::{
     h3::{body::RequestBody, error::Error},
     http::Response,
     request::Request,
-    util::futures::{Queue, Select, SelectOutput},
+    util::futures::Queue,
 };
 
 /// Http/3 dispatcher

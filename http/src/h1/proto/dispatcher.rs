@@ -5,6 +5,7 @@ use tokio::pin;
 use tracing::trace;
 use xitca_io::io::{AsyncIo, AsyncWrite, Interest, Ready};
 use xitca_service::Service;
+use xitca_unsafe_collection::futures::{never, poll_fn, Select as _, SelectOutput};
 
 use crate::{
     body::ResponseBody,
@@ -18,11 +19,7 @@ use crate::{
     http::{response::Parts, Response},
     request::Request,
     response,
-    util::{
-        futures::{never, poll_fn, Select, SelectOutput, Timeout},
-        hint::unlikely,
-        keep_alive::KeepAlive,
-    },
+    util::{futures::Timeout, hint::unlikely, keep_alive::KeepAlive},
 };
 
 use super::{
