@@ -8,8 +8,9 @@ use std::{
 };
 
 use futures_core::Stream;
+use xitca_unsafe_collection::futures::poll_fn;
 
-use crate::{bytes::Bytes, error::BodyError, util::futures::poll_fn};
+use crate::{bytes::Bytes, error::BodyError};
 
 /// max buffer size 32k
 pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;

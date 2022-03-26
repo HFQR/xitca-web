@@ -5,15 +5,12 @@ use xitca_io::{
     bytes::BytesMut,
     io::{AsyncIo, AsyncWrite, Interest},
 };
-use xitca_unsafe_collection::uninit;
-
-use crate::{
-    client::Client,
-    error::Error,
-    request::Request,
-    response::Response,
-    util::futures::{never, poll_fn, Select as _, SelectOutput},
+use xitca_unsafe_collection::{
+    futures::{never, poll_fn, Select as _, SelectOutput},
+    uninit,
 };
+
+use crate::{client::Client, error::Error, request::Request, response::Response};
 
 use super::context::Context;
 
