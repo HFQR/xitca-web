@@ -1,4 +1,8 @@
-use std::{fmt, mem::MaybeUninit};
+//! A simple stack ring buffer with FIFO queue.
+
+use core::{fmt, mem::MaybeUninit};
+
+use super::uninit::uninit_array;
 
 pub struct ArrayQueue<T, const N: usize> {
     inner: [MaybeUninit<T>; N],
@@ -9,9 +13,7 @@ pub struct ArrayQueue<T, const N: usize> {
 impl<T, const N: usize> ArrayQueue<T, N> {
     pub const fn new() -> Self {
         ArrayQueue {
-            // SAFETY:
-            // initialize MaybeUninit array is safe.
-            inner: unsafe { MaybeUninit::uninit().assume_init() },
+            inner: uninit_array(),
             tail: 0,
             len: 0,
         }
@@ -65,6 +67,16 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         }
     }
 
+    pub fn front(&self) -> Option<&T> {
+        if self.is_empty() {
+            None
+        } else {
+            let idx = self.front_idx();
+
+            Some(unsafe { self.get_unchecked(idx) })
+        }
+    }
+
     pub fn front_mut(&mut self) -> Option<&mut T> {
         if self.is_empty() {
             None
@@ -99,9 +111,9 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         }
     }
 
-    pub fn push_back(&mut self, value: T) -> Result<(), PushError> {
+    pub fn push_back(&mut self, value: T) -> Result<(), PushError<T>> {
         if self.is_full() {
-            return Err(PushError);
+            return Err(PushError(value));
         }
 
         unsafe { self.write(self.tail, value) };
@@ -121,11 +133,17 @@ impl<T, const N: usize> ArrayQueue<T, N> {
     }
 }
 
-pub struct PushError;
+pub struct PushError<T>(T);
 
-impl fmt::Debug for PushError {
+impl<T> PushError<T> {
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> fmt::Debug for PushError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PushError")
+        write!(f, "PushError(..)")
     }
 }
 
@@ -183,23 +201,23 @@ mod test {
     fn iterate() {
         let mut queue = ArrayQueue::<_, 5>::new();
 
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(231).ok().unwrap();
-        queue.push_back(007).ok().unwrap();
+        queue.push_back("996").ok().unwrap();
+        queue.push_back("231").ok().unwrap();
+        queue.push_back("007").ok().unwrap();
 
         let mut iter = queue.iter();
 
-        assert_eq!(iter.next(), Some(&996));
-        assert_eq!(iter.next(), Some(&231));
-        assert_eq!(iter.next(), Some(&007));
+        assert_eq!(iter.next(), Some(&"996"));
+        assert_eq!(iter.next(), Some(&"231"));
+        assert_eq!(iter.next(), Some(&"007"));
         assert_eq!(iter.next(), None);
 
-        assert_eq!(queue.pop_front(), Some(996));
+        assert_eq!(queue.pop_front(), Some("996"));
 
         let mut iter = queue.iter();
 
-        assert_eq!(iter.next(), Some(&231));
-        assert_eq!(iter.next(), Some(&007));
+        assert_eq!(iter.next(), Some(&"231"));
+        assert_eq!(iter.next(), Some(&"007"));
         assert_eq!(iter.next(), None);
     }
 
@@ -207,11 +225,11 @@ mod test {
     fn cap() {
         let mut queue = ArrayQueue::<_, 3>::new();
 
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(231).ok().unwrap();
-        queue.push_back(007).ok().unwrap();
+        queue.push_back("996").ok().unwrap();
+        queue.push_back("231").ok().unwrap();
+        queue.push_back("007").ok().unwrap();
 
-        assert!(queue.push_back(123).is_err());
+        assert!(queue.push_back("123").is_err());
     }
 
     #[test]
@@ -220,17 +238,17 @@ mod test {
 
         assert_eq!(None, queue.front_mut());
 
-        queue.push_back(996).ok().unwrap();
-        queue.push_back(231).ok().unwrap();
-        queue.push_back(007).ok().unwrap();
+        queue.push_back("996").ok().unwrap();
+        queue.push_back("231").ok().unwrap();
+        queue.push_back("007").ok().unwrap();
 
-        assert_eq!(Some(&mut 996), queue.front_mut());
-
-        queue.pop_front();
-        assert_eq!(Some(&mut 231), queue.front_mut());
+        assert_eq!(Some(&mut "996"), queue.front_mut());
 
         queue.pop_front();
-        assert_eq!(Some(&mut 007), queue.front_mut());
+        assert_eq!(Some(&mut "231"), queue.front_mut());
+
+        queue.pop_front();
+        assert_eq!(Some(&mut "007"), queue.front_mut());
 
         queue.pop_front();
         assert_eq!(None, queue.front_mut());
@@ -256,7 +274,9 @@ mod test {
 
     #[test]
     fn drop() {
-        use std::sync::Arc;
+        extern crate alloc;
+
+        use alloc::sync::Arc;
 
         let item = Arc::new(123);
 

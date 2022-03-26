@@ -1,11 +1,13 @@
 //! Copied from `hyper::common::buf`. A vectored buffer.
 
-use std::{collections::VecDeque, io::IoSlice};
+use std::io::IoSlice;
+
+use xitca_unsafe_collection::array_queue::ArrayQueue;
 
 use crate::bytes::{Buf, BufMut, Bytes, BytesMut};
 
-pub struct BufList<B> {
-    bufs: VecDeque<B>,
+pub struct BufList<B, const LEN: usize = 8> {
+    bufs: ArrayQueue<B, LEN>,
     remaining: usize,
 }
 
@@ -15,34 +17,29 @@ impl<B: Buf> Default for BufList<B> {
     }
 }
 
-impl<B: Buf> BufList<B> {
-    #[inline]
-    pub fn with_capacity(cap: usize) -> Self {
-        Self {
-            bufs: VecDeque::with_capacity(cap),
-            remaining: 0,
-        }
-    }
-
+impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     #[inline]
     pub fn new() -> Self {
-        Self::with_capacity(0)
+        Self {
+            bufs: ArrayQueue::new(),
+            remaining: 0,
+        }
     }
 
     #[inline]
     pub fn push(&mut self, buf: B) {
         debug_assert!(buf.has_remaining());
         self.remaining += buf.remaining();
-        self.bufs.push_back(buf);
+        self.bufs.push_back(buf).expect("BufList overflown");
     }
 
     #[inline]
-    pub fn cnt(&self) -> usize {
-        self.bufs.len()
+    pub fn is_full(&self) -> bool {
+        self.bufs.is_full()
     }
 }
 
-impl<B: Buf> Buf for BufList<B> {
+impl<B: Buf, const LEN: usize> Buf for BufList<B, LEN> {
     #[inline]
     fn remaining(&self) -> usize {
         self.remaining
@@ -57,7 +54,7 @@ impl<B: Buf> Buf for BufList<B> {
     fn chunks_vectored<'a>(&'a self, dst: &mut [IoSlice<'a>]) -> usize {
         assert!(!dst.is_empty());
         let mut vecs = 0;
-        for buf in &self.bufs {
+        for buf in self.bufs.iter() {
             vecs += buf.chunks_vectored(&mut dst[vecs..]);
             if vecs == dst.len() {
                 break;
@@ -72,7 +69,10 @@ impl<B: Buf> Buf for BufList<B> {
         self.remaining -= cnt;
         while cnt > 0 {
             {
-                let front = &mut self.bufs[0];
+                let front = self
+                    .bufs
+                    .front_mut()
+                    .expect("BufList::advance must be called after BufList::chunks_vectored returns non zero length.");
                 let rem = front.remaining();
                 if rem > cnt {
                     front.advance(cnt);
@@ -118,12 +118,13 @@ mod tests {
     use super::*;
 
     fn hello_world_buf() -> BufList<Bytes> {
-        let bufs = vec![Bytes::from("Hello"), Bytes::from(" "), Bytes::from("World")];
-        let remaining = bufs.iter().map(Buf::remaining).sum();
-        BufList {
-            bufs: bufs.into(),
-            remaining,
-        }
+        let mut lst = BufList::default();
+
+        lst.push(Bytes::from("Hello"));
+        lst.push(Bytes::from(" "));
+        lst.push(Bytes::from("World"));
+
+        lst
     }
 
     #[test]
@@ -159,7 +160,7 @@ mod tests {
 
     #[test]
     fn one_long_buf_to_bytes() {
-        let mut buf = BufList::new();
+        let mut buf = BufList::default();
         buf.push(b"Hello World" as &[_]);
         assert_eq!(buf.copy_to_bytes(5), "Hello");
         assert_eq!(buf.chunk(), b" World");

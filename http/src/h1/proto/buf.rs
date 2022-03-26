@@ -134,14 +134,14 @@ pub(super) struct ListBuf<B, const BUF_LIMIT: usize> {
     /// After head writing finished it's split and pushed to list.
     buf: BytesMut,
     /// Deque of user buffers if strategy is Queue
-    list: BufList<B>,
+    list: BufList<B, BUF_LIST_CNT>,
 }
 
 impl<B: Buf, const BUF_LIMIT: usize> Default for ListBuf<B, BUF_LIMIT> {
     fn default() -> Self {
         Self {
             buf: BytesMut::new(),
-            list: BufList::with_capacity(BUF_LIST_CNT),
+            list: BufList::new(),
         }
     }
 }
@@ -215,7 +215,7 @@ const BUF_LIST_CNT: usize = 32;
 impl<const BUF_LIMIT: usize> BufBound for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LIMIT> {
     #[inline]
     fn backpressure(&self) -> bool {
-        self.list.remaining() >= BUF_LIMIT || self.list.cnt() == BUF_LIST_CNT
+        self.list.remaining() >= BUF_LIMIT || self.list.is_full()
     }
 
     #[inline]
