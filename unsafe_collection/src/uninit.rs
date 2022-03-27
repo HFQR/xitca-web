@@ -42,6 +42,14 @@ where
     where
         F: Fn(I::Item) -> T,
     {
+        self.into_init_mut_with(func)
+    }
+
+    /// A closure used to construct the initialized type.
+    pub fn into_init_mut_with<F>(self, func: F) -> &'a mut [T]
+    where
+        F: Fn(I::Item) -> T,
+    {
         let Self { uninit, init } = self;
 
         let len = uninit
@@ -54,7 +62,7 @@ where
             .count();
 
         // SAFETY: The total initialized items are counted by iterator.
-        unsafe { mem::transmute(&uninit[..len]) }
+        unsafe { mem::transmute(&mut uninit[..len]) }
     }
 }
 
