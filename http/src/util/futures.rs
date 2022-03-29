@@ -5,7 +5,6 @@ use std::{
 };
 
 use pin_project_lite::pin_project;
-use xitca_unsafe_collection::futures::never;
 
 use super::keep_alive::{KeepAlive, KeepAliveExpired};
 
@@ -50,6 +49,7 @@ mod queue {
     use super::*;
 
     use futures_util::stream::{FuturesUnordered, StreamExt};
+    use xitca_unsafe_collection::futures::never;
 
     pub(crate) struct Queue<F>(FuturesUnordered<F>);
 
