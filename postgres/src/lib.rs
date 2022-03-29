@@ -47,11 +47,13 @@ where
     Config: TryFrom<C>,
     Error: From<<Config as TryFrom<C>>::Error>,
 {
+    /// Set backlog of pending async queries.
     pub fn backlog(mut self, num: usize) -> Self {
         self.backlog = num;
         self
     }
 
+    /// Set upper bound of batched queries.
     pub fn batch_limit<const BATCH_LIMIT2: usize>(self) -> Postgres<C, BATCH_LIMIT2> {
         Postgres {
             cfg: self.cfg,
@@ -59,6 +61,21 @@ where
         }
     }
 
+    /// Connect to database. The returned values are [Client] and a detached async task
+    /// that drives the client communication to db and it needs to spawn on an async runtime.
+    ///
+    /// # Examples:
+    /// ```rust
+    /// # use xitca_postgres::Postgres;
+    /// # async fn connect() {
+    /// let (cli, task) = Postgres::new("postgres://user:pass@localhost/db").connect().await.unwrap();
+    ///
+    /// tokio::spawn(task);
+    ///
+    /// let stmt = cli.prepare("SELECT *", &[]).await.unwrap();
+    /// # }
+    ///
+    /// ```
     pub async fn connect(
         self,
     ) -> Result<
