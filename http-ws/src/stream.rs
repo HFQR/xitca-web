@@ -102,7 +102,12 @@ where
 
         while let Some(stream) = this.stream.as_mut().as_pin_mut() {
             match stream.poll_next(cx) {
-                Poll::Ready(Some(Ok(item))) => this.buf.extend_from_slice(item.as_ref()),
+                Poll::Ready(Some(Ok(item))) => {
+                    this.buf.extend_from_slice(item.as_ref());
+                    if this.buf.len() >= this.codec.get_max_size() {
+                        break;
+                    }
+                }
                 Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(DecodeError::Stream(e)))),
                 Poll::Ready(None) => this.stream.set(None),
                 Poll::Pending => break,

@@ -114,6 +114,10 @@ impl Codec {
         self
     }
 
+    pub(crate) fn get_max_size(&self) -> usize {
+        self.max_size
+    }
+
     fn with_flags<F, O>(&self, f: F) -> O
     where
         F: FnOnce(&mut Flags) -> O,
