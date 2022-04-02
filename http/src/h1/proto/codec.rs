@@ -12,6 +12,9 @@ use super::{
 /// Coder for different Transfer-Decoding/Transfer-Encoding.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransferCoding {
+    /// Default coder indicates the Request/Response does not have a body.
+    Eof,
+
     /// Coder used when a Content-Length header is passed with a positive integer.
     Length(u64),
 
@@ -21,23 +24,7 @@ pub enum TransferCoding {
     /// Encoder for when Transfer-Encoding includes `chunked`.
     EncodeChunked,
 
-    /// Coder used when coder that don't indicate a length or chunked.
-    ///
-    /// Note: This should only used for `Response`s. It is illegal for a
-    /// `Request` to be made with both `Content-Length` and
-    /// `Transfer-Encoding: chunked` missing, as explained from the spec:
-    ///
-    /// > If a Transfer-Encoding header field is present in a response and
-    /// > the chunked transfer coding is not the final encoding, the
-    /// > message body length is determined by reading the connection until
-    /// > it is closed by the server.  If a Transfer-Encoding header field
-    /// > is present in a request and the chunked transfer coding is not
-    /// > the final encoding, the message body length cannot be determined
-    /// > reliably; the server MUST respond with the 400 (Bad Request)
-    /// > status code and then close the connection.
-    Eof,
-
-    /// Upgrade type coding that pass through data as is without transforming.
+    /// Upgrade type coder that pass through body as is without transforming.
     Upgrade,
 }
 
