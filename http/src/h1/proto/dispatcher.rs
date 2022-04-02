@@ -249,10 +249,6 @@ where
                     unlikely();
                     return self.io.shutdown().await.map_err(Into::into);
                 }
-                ConnectionType::CloseForce => {
-                    unlikely();
-                    return Ok(());
-                }
             }
 
             self.io.read().timeout(self.timer.as_mut()).await??;
@@ -393,7 +389,7 @@ where
                     // Close connection in case there are bytes remain in socket.
                     if let Some(handle) = body_handle.take() {
                         if !handle.sender.is_eof() {
-                            self.ctx.set_force_close_on_non_eof();
+                            self.ctx.set_close_on_non_upgrade();
                         }
                     }
 
@@ -465,7 +461,7 @@ where
         // Header is too large to be parsed.
         // Close the connection after sending error response as it's pointless
         // to read the remaining bytes inside connection.
-        self.ctx.set_force_close_on_error();
+        self.ctx.set_close_on_error();
 
         let (parts, res_body) = func().into_parts();
 
@@ -525,7 +521,7 @@ impl RequestBodyHandle {
             //
             // Service future is trusted to produce a meaningful response after it drops
             // the request body.
-            ctx.set_force_close_on_error();
+            ctx.set_close_on_error();
             e
         })
     }

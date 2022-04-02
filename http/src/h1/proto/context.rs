@@ -50,9 +50,6 @@ pub enum ConnectionType {
     /// Close connection after response with flush and shutdown IO.
     Close,
 
-    /// Close connection after response without flush and shutdown IO.
-    CloseForce,
-
     /// Keep connection alive after response
     KeepAlive,
 
@@ -125,19 +122,19 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state.insert(ContextState::CONNECT)
     }
 
-    /// Set connection type to [ConnectionType::CloseForce] in case error happens.
+    /// Set connection type to [ConnectionType::Close] in case error happens.
     #[inline]
-    pub fn set_force_close_on_error(&mut self) {
-        self.ctype = ConnectionType::CloseForce;
+    pub fn set_close_on_error(&mut self) {
+        self.ctype = ConnectionType::Close;
     }
 
     /// Set connection type to [ConnectionType::CloseForce] in case [crate::h1::RequestBody]
     /// is not in eof state after response generated.
     #[inline]
-    pub fn set_force_close_on_non_eof(&mut self) {
+    pub fn set_close_on_non_upgrade(&mut self) {
         // skip Upgrade connection type because it does not have eof state.
         if self.ctype != ConnectionType::Upgrade {
-            self.ctype = ConnectionType::CloseForce;
+            self.ctype = ConnectionType::Close;
         }
     }
 
@@ -162,7 +159,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     /// Return true if connection type is [ConnectionType::Close] or [ConnectionType::CloseForce].
     #[inline]
     pub fn is_connection_closed(&self) -> bool {
-        matches!(self.ctype, ConnectionType::Close | ConnectionType::CloseForce)
+        matches!(self.ctype, ConnectionType::Close)
     }
 
     /// Get connection type.

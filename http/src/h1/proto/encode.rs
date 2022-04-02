@@ -146,7 +146,7 @@ where
                 CONNECTION => match self.ctype() {
                     // skip write header on close condition.
                     // the header is checked again and written properly afterwards.
-                    ConnectionType::Close | ConnectionType::CloseForce => continue,
+                    ConnectionType::Close => continue,
                     _ => {
                         for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
                             let val = val.trim();
@@ -176,7 +176,7 @@ where
             buf.extend_from_slice(b"\r\n");
         }
 
-        if matches!(self.ctype(), ConnectionType::Close | ConnectionType::CloseForce) {
+        if matches!(self.ctype(), ConnectionType::Close) {
             buf.extend_from_slice(b"connection: close\r\n");
         }
 

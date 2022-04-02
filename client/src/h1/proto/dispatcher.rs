@@ -66,7 +66,7 @@ where
     // continue to read response no matter the outcome.
     if send_inner(stream, encoder, body, &mut buf).await.is_err() {
         // an error indicate connection should be closed.
-        ctx.set_force_close_on_error();
+        ctx.set_close_on_error();
         // clear the buffer as there could be unfinished request data inside.
         buf.clear();
     }
