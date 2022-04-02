@@ -194,9 +194,9 @@ where
         }
     }
 
+    #[cold]
     #[inline(never)]
     async fn shutdown(&mut self) -> io::Result<()> {
-        self.drain_write().await?;
         poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx)).await
     }
 }
