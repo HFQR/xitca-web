@@ -32,7 +32,7 @@ impl<B> Request<B> {
     }
 
     /// Construct from existing `http::Request` and optional `SocketAddr`.
-    #[inline(always)]
+    #[inline]
     pub fn from_http(req: http::Request<B>, remote_addr: Option<SocketAddr>) -> Self {
         Self { req, remote_addr }
     }
@@ -43,35 +43,39 @@ impl<B> Request<B> {
         self.remote_addr.as_ref()
     }
 
+    #[inline]
     pub fn map_body<F, B1>(self, func: F) -> Request<B1>
     where
         F: FnOnce(B) -> B1,
     {
-        let Self { req, remote_addr } = self;
-
-        let (parts, body) = req.into_parts();
-        let req = http::Request::from_parts(parts, func(body));
-
-        Request { req, remote_addr }
+        Request {
+            req: self.req.map(func),
+            remote_addr: self.remote_addr,
+        }
     }
 
+    #[inline]
     pub fn replace_body<B1>(self, b1: B1) -> (Request<B1>, B) {
-        let Self { req, remote_addr } = self;
-
-        let (parts, b) = req.into_parts();
+        let (parts, b) = self.req.into_parts();
         let req = http::Request::from_parts(parts, b1);
 
-        (Request { req, remote_addr }, b)
+        (
+            Request {
+                req,
+                remote_addr: self.remote_addr,
+            },
+            b,
+        )
     }
 
     /// Forward to [http::Request::into_body]
-    #[inline(always)]
+    #[inline]
     pub fn into_body(self) -> B {
         self.req.into_body()
     }
 
     /// Forward to [http::Request::into_parts].
-    #[inline(always)]
+    #[inline]
     pub fn into_parts(self) -> (http::request::Parts, B) {
         self.req.into_parts()
     }
