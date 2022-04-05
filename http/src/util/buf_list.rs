@@ -39,6 +39,11 @@ impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.bufs.is_empty()
+    }
+
+    #[inline]
     pub fn chunks_vectored_uninit<'a>(&'a self, dst: &'a mut [MaybeUninit<IoSlice<'a>>]) -> &[IoSlice<'a>] {
         dst.init_from(self.bufs.iter())
             .into_init_with(|buf| IoSlice::new(buf.chunk()))

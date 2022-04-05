@@ -257,7 +257,7 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
 
     fn try_write<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
         let queue = &mut self.list;
-        while queue.remaining() > 0 {
+        while !queue.is_empty() {
             let mut buf = uninit_array::<_, BUF_LIST_CNT>();
             let buf = queue.chunks_vectored_uninit(&mut buf);
 
