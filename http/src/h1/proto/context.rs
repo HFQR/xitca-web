@@ -119,12 +119,6 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state.insert(ContextState::CONNECT)
     }
 
-    /// Set connection type to [ConnectionType::Close] in case error happens.
-    #[inline]
-    pub fn set_ctype_close(&mut self) {
-        self.ctype = ConnectionType::Close;
-    }
-
     /// Set connection type.
     #[inline]
     pub fn set_ctype(&mut self, ctype: ConnectionType) {
