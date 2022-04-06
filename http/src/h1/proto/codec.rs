@@ -58,6 +58,11 @@ impl TransferCoding {
     pub const fn upgrade() -> Self {
         Self::Upgrade
     }
+
+    #[inline]
+    pub fn is_upgrade(&self) -> bool {
+        matches!(self, Self::Upgrade)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

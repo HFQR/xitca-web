@@ -5,7 +5,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use xitca_http::{
     bytes::{Bytes, BytesMut},
     error::BodyError,
-    h1::proto::{buf::FlatBuf, codec::TransferCoding},
+    h1::proto::{buf::FlatBuf, codec::TransferCoding, context::ConnectionType},
     http::{
         self,
         header::{HeaderValue, HOST},
@@ -66,7 +66,7 @@ where
     // continue to read response no matter the outcome.
     if send_inner(stream, encoder, body, &mut buf).await.is_err() {
         // an error indicate connection should be closed.
-        ctx.set_close_on_error();
+        ctx.set_ctype(ConnectionType::Close);
         // clear the buffer as there could be unfinished request data inside.
         buf.clear();
     }
