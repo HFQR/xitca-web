@@ -155,7 +155,6 @@ where
                             } else if val.eq_ignore_ascii_case("keep-alive") {
                                 self.set_ctype(ConnectionType::KeepAlive);
                             } else if val.eq_ignore_ascii_case("upgrade") {
-                                self.set_ctype(ConnectionType::Upgrade);
                                 encoding = TransferCoding::upgrade();
                                 break;
                             }

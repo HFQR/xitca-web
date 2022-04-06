@@ -52,9 +52,6 @@ pub enum ConnectionType {
 
     /// Keep connection alive after response
     KeepAlive,
-
-    /// Connection is upgraded to different type
-    Upgrade,
 }
 
 impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
@@ -124,18 +121,8 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
 
     /// Set connection type to [ConnectionType::Close] in case error happens.
     #[inline]
-    pub fn set_close_on_error(&mut self) {
+    pub fn set_ctype_close(&mut self) {
         self.ctype = ConnectionType::Close;
-    }
-
-    /// Set connection type to [ConnectionType::CloseForce] in case [crate::h1::RequestBody]
-    /// is not in eof state after response generated.
-    #[inline]
-    pub fn set_close_on_non_upgrade(&mut self) {
-        // skip Upgrade connection type because it does not have eof state.
-        if self.ctype != ConnectionType::Upgrade {
-            self.ctype = ConnectionType::Close;
-        }
     }
 
     /// Set connection type.

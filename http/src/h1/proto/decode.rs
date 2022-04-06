@@ -67,7 +67,6 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
 
                 if method == Method::CONNECT {
-                    self.set_ctype(ConnectionType::Upgrade);
                     // set method to context so it can pass method to response.
                     self.set_connect_method();
                     decoder.try_set(TransferCoding::upgrade())?;
@@ -148,7 +147,6 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 } else if v.eq_ignore_ascii_case(b"upgrade") {
                     // set decoder to upgrade variant.
                     decoder.try_set(TransferCoding::upgrade())?;
-                    self.set_ctype(ConnectionType::Upgrade);
                 } else {
                     // Treat all other value as close connection.
                     // Please report for issue if this behavior is not correct.
@@ -157,7 +155,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
             }
             EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
             // Upgrades are only allowed with HTTP/1.1
-            UPGRADE if version == Version::HTTP_11 => self.set_ctype(ConnectionType::Upgrade),
+            UPGRADE if version != Version::HTTP_11 => return Err(ProtoError::Parse(Parse::HeaderName)),
             _ => {}
         }
 

@@ -245,7 +245,7 @@ where
             match self.ctx.ctype() {
                 ConnectionType::Init => {}
                 ConnectionType::KeepAlive => self.update_timer(),
-                ConnectionType::Upgrade | ConnectionType::Close => {
+                ConnectionType::Close => {
                     unlikely();
                     return self.io.shutdown().await.map_err(Into::into);
                 }
@@ -385,11 +385,13 @@ where
                     encoder.encode(bytes, &mut self.io.write_buf);
                 }
                 SelectOutput::A(None) => {
-                    // Request body is partial consumed.
-                    // Close connection in case there are bytes remain in socket.
                     if let Some(handle) = body_handle.take() {
-                        if !handle.sender.is_eof() {
-                            self.ctx.set_close_on_non_upgrade();
+                        // Request body is partial consumed.
+                        // Close connection in case there are bytes remain in socket.
+                        // Treat upgrade decoder as special case because it does not have
+                        // an eof state.
+                        if !handle.sender.is_eof() && !handle.decoder.is_upgrade() {
+                            self.ctx.set_ctype(ConnectionType::Close);
                         }
                     }
 
@@ -461,7 +463,7 @@ where
         // Header is too large to be parsed.
         // Close the connection after sending error response as it's pointless
         // to read the remaining bytes inside connection.
-        self.ctx.set_close_on_error();
+        self.ctx.set_ctype_close();
 
         let (parts, res_body) = func().into_parts();
 
@@ -521,7 +523,7 @@ impl RequestBodyHandle {
             //
             // Service future is trusted to produce a meaningful response after it drops
             // the request body.
-            ctx.set_close_on_error();
+            ctx.set_ctype_close();
             e
         })
     }
