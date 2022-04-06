@@ -5,6 +5,7 @@ use std::{
 };
 
 use xitca_io::io::AsyncIo;
+use xitca_unsafe_collection::uninit::uninit_array;
 
 use crate::{
     bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut},
@@ -148,7 +149,6 @@ impl<B: Buf, const BUF_LIMIT: usize> Default for ListBuf<B, BUF_LIMIT> {
 
 impl<B: Buf, const BUF_LIMIT: usize> ListBuf<B, BUF_LIMIT> {
     pub(super) fn buffer<BB: Buf + Into<B>>(&mut self, buf: BB) {
-        debug_assert!(buf.has_remaining());
         self.list.push(buf.into());
     }
 }
@@ -183,15 +183,6 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
             Self::Buf(ref buf) => buf.chunk(),
             Self::Chunk(ref buf) => buf.chunk(),
             Self::Static(ref buf) => buf.chunk(),
-        }
-    }
-
-    #[inline]
-    fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
-        match *self {
-            Self::Buf(ref buf) => buf.chunks_vectored(dst),
-            Self::Chunk(ref buf) => buf.chunks_vectored(dst),
-            Self::Static(ref buf) => buf.chunks_vectored(dst),
         }
     }
 
@@ -241,6 +232,7 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
         self.buffer(EncodedBuf::Static(bytes));
     }
 
+    #[inline]
     fn buf_bytes(&mut self, bytes: Bytes) {
         self.buffer(EncodedBuf::Buf(bytes));
     }
@@ -256,10 +248,11 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
 
     fn try_write<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
         let queue = &mut self.list;
-        while queue.remaining() > 0 {
-            let mut iovs = [io::IoSlice::new(&[]); BUF_LIST_CNT];
-            let len = queue.chunks_vectored(&mut iovs);
-            match io.try_write_vectored(&iovs[..len]) {
+        while !queue.is_empty() {
+            let mut buf = uninit_array::<_, BUF_LIST_CNT>();
+            let buf = queue.chunks_vectored_uninit(&mut buf);
+
+            match io.try_write_vectored(buf) {
                 Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(n) => queue.advance(n),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
