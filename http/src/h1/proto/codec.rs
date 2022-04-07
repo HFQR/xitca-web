@@ -1,4 +1,4 @@
-use std::{cmp, io, mem};
+use std::{io, mem};
 
 use tracing::{trace, warn};
 
@@ -291,10 +291,13 @@ impl TransferCoding {
             Self::Upgrade => buf.buf_bytes(bytes),
             Self::EncodeChunked => buf.buf_chunked(bytes),
             Self::Length(ref mut remaining) => {
-                if *remaining > 0 {
-                    let len = cmp::min(*remaining, bytes.len() as u64);
-                    buf.buf_bytes(bytes.split_to(len as usize));
-                    *remaining -= len as u64;
+                let len = bytes.len() as u64;
+                if *remaining >= len {
+                    buf.buf_bytes(bytes);
+                    *remaining -= len;
+                } else {
+                    buf.buf_bytes(bytes.split_to(*remaining as usize));
+                    *remaining = 0;
                 }
             }
             Self::Eof => warn!(target: "h1_encode", "TransferCoding::Eof should not encode response body"),
