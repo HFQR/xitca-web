@@ -18,7 +18,10 @@ impl<T> sealed::Sealed for &mut [MaybeUninit<T>] {}
 /// Trait for safely initialize an unit slice.
 pub trait PartialInit: sealed::Sealed + Sized {
     /// Uninitialized slice is coming from input slice.
-    fn init_from<I>(self, slice: I) -> PartialInitWith<Self, I> {
+    fn init_from<I>(self, slice: I) -> PartialInitWith<Self, I>
+    where
+        I: Iterator,
+    {
         PartialInitWith {
             uninit: self,
             init: slice,
@@ -26,7 +29,7 @@ pub trait PartialInit: sealed::Sealed + Sized {
     }
 }
 
-impl<T> PartialInit for &mut [MaybeUninit<T>] {}
+impl<T: Copy> PartialInit for &mut [MaybeUninit<T>] {}
 
 pub struct PartialInitWith<A, B> {
     uninit: A,
@@ -35,6 +38,7 @@ pub struct PartialInitWith<A, B> {
 
 impl<'a, T, I> PartialInitWith<&'a mut [MaybeUninit<T>], I>
 where
+    T: Copy,
     I: Iterator,
 {
     /// A closure used to construct the initialized type.

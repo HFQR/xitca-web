@@ -154,7 +154,6 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 }
             }
             EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
-            // Upgrades are only allowed with HTTP/1.1
             UPGRADE if version != Version::HTTP_11 => return Err(ProtoError::Parse(Parse::HeaderName)),
             _ => {}
         }
