@@ -1,8 +1,8 @@
 //! Copied from `hyper::common::buf`. A vectored buffer.
 
-use std::{io::IoSlice, mem::MaybeUninit};
+use std::io::IoSlice;
 
-use xitca_unsafe_collection::{array_queue::ArrayQueue, uninit::PartialInit};
+use xitca_unsafe_collection::array_queue::ArrayQueue;
 
 use crate::bytes::{Buf, BufMut, Bytes, BytesMut};
 
@@ -41,12 +41,6 @@ impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.bufs.is_empty()
-    }
-
-    #[inline]
-    pub fn chunks_vectored_uninit<'a>(&'a self, dst: &'a mut [MaybeUninit<IoSlice<'a>>]) -> &[IoSlice<'a>] {
-        dst.init_from(self.bufs.iter())
-            .into_init_with(|buf| IoSlice::new(buf.chunk()))
     }
 }
 

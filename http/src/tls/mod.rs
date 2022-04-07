@@ -41,6 +41,6 @@ impl<St> Service<St> for NoOpTlsAcceptorService {
 
     #[inline(always)]
     fn call(&self, io: St) -> Self::Future<'_> {
-        async move { Ok(io) }
+        async { Ok(io) }
     }
 }

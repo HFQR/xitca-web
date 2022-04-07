@@ -5,7 +5,6 @@ use std::{
 };
 
 use xitca_io::io::AsyncIo;
-use xitca_unsafe_collection::uninit::uninit_array;
 
 use crate::{
     bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut},
@@ -187,6 +186,15 @@ impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
     }
 
     #[inline]
+    fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
+        match *self {
+            Self::Buf(ref buf) => buf.chunks_vectored(dst),
+            Self::Chunk(ref buf) => buf.chunks_vectored(dst),
+            Self::Static(ref buf) => buf.chunks_vectored(dst),
+        }
+    }
+
+    #[inline]
     fn advance(&mut self, cnt: usize) {
         match *self {
             Self::Buf(ref mut buf) => buf.advance(cnt),
@@ -249,10 +257,10 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
     fn try_write<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
         let queue = &mut self.list;
         while !queue.is_empty() {
-            let mut buf = uninit_array::<_, BUF_LIST_CNT>();
-            let buf = queue.chunks_vectored_uninit(&mut buf);
+            let mut buf = [io::IoSlice::new(&[]); BUF_LIST_CNT];
+            let n = queue.chunks_vectored(&mut buf);
 
-            match io.try_write_vectored(buf) {
+            match io.try_write_vectored(&buf[..n]) {
                 Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(n) => queue.advance(n),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
