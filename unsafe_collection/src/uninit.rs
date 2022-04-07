@@ -29,6 +29,7 @@ pub trait PartialInit: sealed::Sealed + Sized {
     }
 }
 
+/// T must be `Copy` so the initializer don't worry about dropping the value.
 impl<T: Copy> PartialInit for &mut [MaybeUninit<T>] {}
 
 pub struct PartialInitWith<A, B> {
@@ -42,6 +43,7 @@ where
     I: Iterator,
 {
     /// A closure used to construct the initialized type.
+    #[inline]
     pub fn into_init_with<F>(self, func: F) -> &'a [T]
     where
         F: Fn(I::Item) -> T,
