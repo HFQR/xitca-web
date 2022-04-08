@@ -7,6 +7,9 @@ use super::{
     ServiceFactory,
 };
 
+/// Type alias for specialized [PipelineServiceFactory].
+pub type EnclosedFnFactory<F, T> = PipelineServiceFactory<F, T, marker::EnclosedFn>;
+
 impl<SF, Req, Arg, T, Res, Err> ServiceFactory<Req, Arg> for PipelineServiceFactory<SF, T, marker::EnclosedFn>
 where
     SF: ServiceFactory<Req, Arg>,

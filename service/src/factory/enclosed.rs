@@ -6,7 +6,7 @@ use super::{
 };
 
 /// Type alias for specialized [PipelineServiceFactory].
-pub type TransformFactory<F, T> = PipelineServiceFactory<F, T, marker::Enclosed>;
+pub type EnclosedFactory<F, T> = PipelineServiceFactory<F, T, marker::Enclosed>;
 
 impl<F, Req, Arg, T> ServiceFactory<Req, Arg> for PipelineServiceFactory<F, T, marker::Enclosed>
 where

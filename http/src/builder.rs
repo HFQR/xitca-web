@@ -5,7 +5,7 @@ use xitca_io::{
     io::AsyncIo,
     net::{Stream as ServerStream, TcpStream},
 };
-use xitca_service::{ServiceFactory, ServiceFactoryExt, TransformFactory};
+use xitca_service::{EnclosedFactory, ServiceFactory, ServiceFactoryExt};
 
 use super::{
     body::{RequestBody, ResponseBody},
@@ -196,7 +196,7 @@ impl<V, St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
     /// Finish builder with default logger.
     ///
     /// Would consume input.
-    pub fn with_logger<Req>(self) -> TransformFactory<Self, Logger>
+    pub fn with_logger<Req>(self) -> EnclosedFactory<Self, Logger>
     where
         Self: ServiceFactory<Req>,
         <Self as ServiceFactory<Req>>::Error: fmt::Debug,
