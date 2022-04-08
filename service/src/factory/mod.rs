@@ -11,8 +11,8 @@ mod map_err;
 mod object;
 
 pub use self::{
-    enclosed::TransformFactory, ext::ServiceFactoryExt, function::fn_service, map_err::MapErrorServiceFactory,
-    object::ServiceFactoryObject,
+    enclosed::EnclosedFactory, enclosed_fn::EnclosedFnFactory, ext::ServiceFactoryExt, function::fn_service,
+    map_err::MapErrorServiceFactory, object::ServiceFactoryObject,
 };
 
 use core::future::Future;

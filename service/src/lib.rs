@@ -12,8 +12,10 @@ pub mod middleware;
 pub mod ready;
 
 pub use self::{
+    async_closure::AsyncClosure,
     factory::{
-        fn_service, MapErrorServiceFactory, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, TransformFactory,
+        fn_service, EnclosedFactory, EnclosedFnFactory, MapErrorServiceFactory, ServiceFactory, ServiceFactoryExt,
+        ServiceFactoryObject,
     },
     service::{Service, ServiceObject},
 };
