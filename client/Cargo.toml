@@ -20,6 +20,7 @@ dangerous = ["tokio-rustls/dangerous_configuration"]
 [dependencies]
 xitca-http = "0.1"
 xitca-io = "0.1"
+xitca-unsafe-collection = "0.1"
 
 futures-core = { version = "0.3.17", default-features = false, features =["alloc"] }
 futures-util = { version = "0.3.17", default-features = false, features =["alloc"] }

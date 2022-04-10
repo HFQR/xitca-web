@@ -9,6 +9,7 @@ use xitca_http::{
     },
     http::{Response, StatusCode, Version},
 };
+use xitca_unsafe_collection::uninit;
 
 use super::context::Context;
 
@@ -32,7 +33,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
                 let status = StatusCode::from_u16(parsed.code.unwrap()).map_err(|_| Parse::StatusCode)?;
 
                 // record the index of headers from the buffer.
-                let mut header_idx = HeaderIndex::new_array::<HEADER_LIMIT>();
+                let mut header_idx = uninit::uninit_array::<_, HEADER_LIMIT>();
                 let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, parsed.headers);
 
                 let headers_len = parsed.headers.len();
