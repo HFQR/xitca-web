@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use xitca_unsafe_collection::uninit::{self, PartialInit};
+use xitca_unsafe_collection::uninit::PartialInit;
 
 use httparse::Header;
 
@@ -11,11 +11,6 @@ pub struct HeaderIndex {
 }
 
 impl HeaderIndex {
-    #[inline]
-    pub const fn new_array<const MAX_HEADERS: usize>() -> [MaybeUninit<Self>; MAX_HEADERS] {
-        uninit::uninit_array()
-    }
-
     pub fn record<'i, 'b, 'h>(
         indices: &'i mut [MaybeUninit<Self>],
         buf: &'b [u8],

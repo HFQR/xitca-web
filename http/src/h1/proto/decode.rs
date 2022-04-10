@@ -45,8 +45,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 };
 
                 // record indices of headers from bytes buffer.
-                let mut header_idx = HeaderIndex::new_array::<MAX_HEADERS>();
-
+                let mut header_idx = uninit::uninit_array::<_, MAX_HEADERS>();
                 let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, req.headers);
 
                 let headers_len = req.headers.len();
