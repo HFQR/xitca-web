@@ -106,6 +106,8 @@ where
     T: FromRequest<'static, Req, Error = Err>,
     F: AsyncFn<T::Type<'a>, Output = Res> + Clone,
     F: AsyncFn<T>, // second bound to assist type inference to pinpoint T
+    F: 'a,
+    Req: 'a,
 {
     type Error = Err;
     type Response = Res;
