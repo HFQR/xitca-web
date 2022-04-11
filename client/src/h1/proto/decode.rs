@@ -1,4 +1,4 @@
-use httparse::{Status, EMPTY_HEADER};
+use httparse::{ParserConfig, Status};
 
 use xitca_http::{
     bytes::BytesMut,
@@ -18,25 +18,27 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Response<()>, TransferCoding)>, ProtoError> {
-        let mut headers = [EMPTY_HEADER; HEADER_LIMIT];
+        let mut res = httparse::Response::new(&mut []);
+        let mut headers = uninit::uninit_array::<_, HEADER_LIMIT>();
 
-        let mut parsed = httparse::Response::new(&mut headers);
-
-        match parsed.parse(buf.as_ref())? {
+        match ParserConfig::default()
+            .allow_spaces_after_header_name_in_responses(true)
+            .parse_response_with_uninit_headers(&mut res, buf.as_ref(), &mut headers)?
+        {
             Status::Complete(len) => {
-                let version = if parsed.version.unwrap() == 1 {
+                let version = if res.version.unwrap() == 1 {
                     Version::HTTP_11
                 } else {
                     Version::HTTP_10
                 };
 
-                let status = StatusCode::from_u16(parsed.code.unwrap()).map_err(|_| Parse::StatusCode)?;
+                let status = StatusCode::from_u16(res.code.unwrap()).map_err(|_| Parse::StatusCode)?;
 
                 // record the index of headers from the buffer.
                 let mut header_idx = uninit::uninit_array::<_, HEADER_LIMIT>();
-                let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, parsed.headers);
+                let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, res.headers);
 
-                let headers_len = parsed.headers.len();
+                let headers_len = res.headers.len();
 
                 // split the headers from buffer.
                 let slice = buf.split_to(len).freeze();
