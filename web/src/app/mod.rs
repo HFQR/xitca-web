@@ -183,37 +183,37 @@ mod test {
         state.to_string()
     }
 
-    #[derive(Clone)]
-    struct Middleware;
+    // #[derive(Clone)]
+    // struct Middleware;
 
-    impl<S, State, Res, Err> ServiceFactory<&mut WebRequest<'_, State>, S> for Middleware
-    where
-        S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
-    {
-        type Response = Res;
-        type Error = Err;
-        type Service = MiddlewareService<S>;
-        type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    // impl<S, State, Res, Err> ServiceFactory<&mut WebRequest<'_, State>, S> for Middleware
+    // where
+    //     S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
+    // {
+    //     type Response = Res;
+    //     type Error = Err;
+    //     type Service = MiddlewareService<S>;
+    //     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-        fn new_service(&self, service: S) -> Self::Future {
-            async move { Ok(MiddlewareService(service)) }
-        }
-    }
+    //     fn new_service(&self, service: S) -> Self::Future {
+    //         async move { Ok(MiddlewareService(service)) }
+    //     }
+    // }
 
-    struct MiddlewareService<S>(S);
+    // struct MiddlewareService<S>(S);
 
-    impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
-    where
-        S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
-    {
-        type Response = Res;
-        type Error = Err;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    // impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
+    // where
+    //     S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
+    // {
+    //     type Response = Res;
+    //     type Error = Err;
+    //     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-        fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
-            async move { self.0.call(req).await }
-        }
-    }
+    //     fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
+    //         async move { self.0.call(req).await }
+    //     }
+    // }
 
     #[tokio::test]
     async fn test_app() {
@@ -228,7 +228,7 @@ mod test {
 
         let service = App::with_current_thread_state(state)
             .service(HandlerService::new(handler).enclosed_fn(middleware_fn))
-            .enclosed(Middleware)
+            // .enclosed(Middleware)
             .enclosed_fn(middleware_fn)
             .new_service(())
             .await

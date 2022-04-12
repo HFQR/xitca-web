@@ -44,13 +44,13 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
     }
 }
 
-impl<'a, 'r, 's, S, T, const LIMIT: usize> FromRequest<'a, &'r mut WebRequest<'s, S>> for Json<T, LIMIT>
+impl<'a, 'r, 's, S:'s, T, const LIMIT: usize> FromRequest<'a, &'r mut WebRequest<'s, S>> for Json<T, LIMIT>
 where
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> + 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
 
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
         async move {

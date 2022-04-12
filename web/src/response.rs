@@ -12,31 +12,26 @@ use super::request::WebRequest;
 // TODO: add app state to response type.
 pub type WebResponse = Response<ResponseBody>;
 
-impl<'a, 'r, 's, S> Responder<'a, &'r mut WebRequest<'s, S>> for WebResponse {
+impl<'r, 's, S> Responder<&'r mut WebRequest<'s, S>> for WebResponse {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
+    type Future<'a> = impl Future<Output = Self::Output> where &'r mut WebRequest<'s, S>: 'a;
 
     #[inline]
-    fn respond_to(self, _: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future {
+    fn respond_to<'a>(self, _: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future<'a> {
         async { self }
     }
 }
 
 macro_rules! text_utf8 {
     ($type: ty) => {
-        impl<'a, 'r, 's, S> Responder<'a, &'r mut WebRequest<'s, S>> for $type
-        where
-            S: 'static,
-        {
+        impl<'r, 's, S> Responder<&'r mut WebRequest<'s, S>> for $type {
             type Output = WebResponse;
-            type Future = impl Future<Output = Self::Output>;
+            type Future<'a> = impl Future<Output = Self::Output> where &'r mut WebRequest<'s, S>: 'a;
 
-            fn respond_to(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future {
-                async move {
-                    let mut res = req.as_response(self);
-                    res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-                    res
-                }
+            fn respond_to<'a>(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future<'a> {
+                let mut res = req.as_response(self);
+                res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
+                async move { res }
             }
         }
     };
