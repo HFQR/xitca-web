@@ -156,7 +156,7 @@ where
 
 impl<S, Req, ReqB> ReadyService<Req> for RouterService<S, ReqB>
 where
-    S: ReadyService<Req>,
+    S: Service<Req>,
     Req: BorrowMut<http::Request<ReqB>>,
 {
     type Ready = ();
