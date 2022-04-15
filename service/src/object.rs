@@ -5,9 +5,9 @@ use crate::{fn_factory, Service, ServiceFactory};
 
 use self::helpers::{ServiceFactoryObject, ServiceObject, Wrapper};
 
-/// Constructs a type-erased [Self::Object] from the generic input type, `I`.
+/// An object constructor represents a one of possibly many ways to create a trait object from `I`.
 ///
-/// A [Service] type, for example, may be type-earsed into `Box<dyn Service<&'static str>>`,
+/// A [Service] type, for example, may be type-erased into `Box<dyn Service<&'static str>>`,
 /// `Box<dyn for<'a> Service<&'a str>>`, `Box<dyn Service<&'static str> + Service<u8>>`, etc.
 /// Each would be a separate impl for [ObjectConstructor].
 pub trait ObjectConstructor<I> {
@@ -20,12 +20,17 @@ pub trait ObjectConstructor<I> {
 
 /// The most trivial [ObjectConstructor] for [ServiceFactory] types.
 ///
-/// Polymorphism over `Req` or `Arg` is *not* preserved.
+/// Its main limitation is that the trait object is not polymorphic over `Req`.
+/// So if the original service type is `impl for<'r> Service<&'r str>`,
+/// the resulting object type would only be `impl Service<&'r str>`
+/// for some specific lifetime `'r`.
 pub struct DefaultObjectConstructor<Req, Arg>(PhantomData<(Req, Arg)>);
 
+/// [ServiceFactory] object created by the [DefaultObjectConstructor]
 pub type DefaultFactoryObject<Req, Arg, Res, Err> =
     impl ServiceFactory<Req, Arg, Response = Res, Error = Err, Service = DefaultServiceObject<Req, Res, Err>>;
 
+/// [Service] object created by the [DefaultObjectConstructor]
 pub type DefaultServiceObject<Req, Res, Err> = impl Service<Req, Response = Res, Error = Err>;
 
 impl<T, Req, Arg, Res, Err> ObjectConstructor<T> for DefaultObjectConstructor<Req, Arg>

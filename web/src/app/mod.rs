@@ -234,7 +234,7 @@ mod test {
 
         let service = App::with_current_thread_state(state)
             .service(
-                GenericRouter::<WebObjectConstructor<_>, _, _>::new()
+                GenericRouter::with_custom_object::<WebObjectConstructor<_>>()
                     .insert("/", HandlerService::new(handler).enclosed(Middleware))
                     .map_err(|e| -> Infallible { panic!("error {}", e) }),
             )

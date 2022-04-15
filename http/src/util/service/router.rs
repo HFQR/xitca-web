@@ -59,6 +59,18 @@ impl<ObjCons, SF, ReqB> Default for GenericRouter<ObjCons, SF, ReqB> {
     }
 }
 
+impl<SF, ReqB> GenericRouter<(), SF, ReqB> {
+    /// Creates a new router with the [default object constructor](DefaultObjectConstructor).
+    pub fn with_default_object<Req, Arg>() -> GenericRouter<DefaultObjectConstructor<Req, Arg>, SF, ReqB> {
+        GenericRouter::new()
+    }
+
+    /// Creates a new router with a custom [object constructor](ObjectConstructor).
+    pub fn with_custom_object<ObjCons>() -> GenericRouter<ObjCons, SF, ReqB> {
+        GenericRouter::new()
+    }
+}
+
 impl<ObjCons, SF, ReqB> GenericRouter<ObjCons, SF, ReqB> {
     pub fn new() -> Self {
         Self {
