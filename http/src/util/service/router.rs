@@ -2,15 +2,24 @@ use std::{borrow::BorrowMut, collections::HashMap, error, fmt, future::Future, m
 
 use matchit::{MatchError, Node};
 use xitca_service::{
-    ready::ReadyService, Service, ServiceFactory, ServiceFactoryExt, ServiceFactoryObject, ServiceObject,
+    object::{DefaultFactoryObject, DefaultObjectConstructor, ObjectConstructor},
+    ready::ReadyService,
+    Service, ServiceFactory,
 };
 
 use crate::http;
 
+/// A [GenericRouter] specialized with [DefaultObjectConstructor]
+pub type Router<Req, Arg, Res, Err, ReqB> =
+    GenericRouter<DefaultObjectConstructor<Req, Arg>, DefaultFactoryObject<Req, Arg, Res, Err>, ReqB>;
+
 /// Simple router for matching on [Request]'s path and call according service.
-pub struct Router<Req, ReqB, Arg, Res, Err> {
-    routes: HashMap<&'static str, ServiceFactoryObject<Req, Arg, Res, Err>>,
-    _req_body: PhantomData<ReqB>,
+///
+/// An [ObjectConstructor] must be specified as a type prameter
+/// in order to determine how the router type-erases node services.
+pub struct GenericRouter<ObjCons, SF, ReqB> {
+    routes: HashMap<&'static str, SF>,
+    _req_body: PhantomData<(ObjCons, ReqB)>,
 }
 
 /// Error type of Router service.
@@ -44,13 +53,13 @@ impl<E: fmt::Display> fmt::Display for RouterError<E> {
 
 impl<E> error::Error for RouterError<E> where E: fmt::Debug + fmt::Display {}
 
-impl<Req, ReqB, Arg, Res, Err> Default for Router<Req, ReqB, Arg, Res, Err> {
+impl<ObjCons, SF, ReqB> Default for GenericRouter<ObjCons, SF, ReqB> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Req, ReqB, Arg, Res, Err> Router<Req, ReqB, Arg, Res, Err> {
+impl<ObjCons, SF, ReqB> GenericRouter<ObjCons, SF, ReqB> {
     pub fn new() -> Self {
         Self {
             routes: HashMap::new(),
@@ -65,23 +74,22 @@ impl<Req, ReqB, Arg, Res, Err> Router<Req, ReqB, Arg, Res, Err> {
     /// When multiple services inserted with the same path.
     pub fn insert<F>(mut self, path: &'static str, factory: F) -> Self
     where
-        F: ServiceFactory<Req, Arg, Response = Res, Error = Err> + 'static,
-        F::Service: 'static,
-        F::Future: 'static,
+        ObjCons: ObjectConstructor<F, Object = SF>,
     {
-        assert!(self.routes.insert(path, factory.into_object()).is_none());
+        assert!(self.routes.insert(path, ObjCons::into_object(factory)).is_none());
         self
     }
 }
 
-impl<Req, ReqB, Arg, Res, Err> ServiceFactory<Req, Arg> for Router<Req, ReqB, Arg, Res, Err>
+impl<ObjCons, SF, Req, ReqB, Arg> ServiceFactory<Req, Arg> for GenericRouter<ObjCons, SF, ReqB>
 where
+    SF: ServiceFactory<Req, Arg>,
     Req: BorrowMut<http::Request<ReqB>>,
     Arg: Clone,
 {
-    type Response = Res;
-    type Error = RouterError<Err>;
-    type Service = RouterService<Req, ReqB, Res, Err>;
+    type Response = SF::Response;
+    type Error = RouterError<SF::Error>;
+    type Service = RouterService<SF::Service, ReqB>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
@@ -107,17 +115,18 @@ where
     }
 }
 
-pub struct RouterService<Req, ReqB, Res, Err> {
-    routes: Node<ServiceObject<Req, Res, Err>>,
+pub struct RouterService<S, ReqB> {
+    routes: Node<S>,
     _req_body: PhantomData<ReqB>,
 }
 
-impl<Req, ReqB, Res, Err> Service<Req> for RouterService<Req, ReqB, Res, Err>
+impl<S, Req, ReqB> Service<Req> for RouterService<S, ReqB>
 where
+    S: Service<Req>,
     Req: BorrowMut<http::Request<ReqB>>,
 {
-    type Response = Res;
-    type Error = RouterError<Err>;
+    type Response = S::Response;
+    type Error = RouterError<S::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[inline]
@@ -133,8 +142,9 @@ where
     }
 }
 
-impl<Req, ReqB, Res, Err> ReadyService<Req> for RouterService<Req, ReqB, Res, Err>
+impl<S, Req, ReqB> ReadyService<Req> for RouterService<S, ReqB>
 where
+    S: ReadyService<Req>,
     Req: BorrowMut<http::Request<ReqB>>,
 {
     type Ready = ();
@@ -152,7 +162,7 @@ mod test {
 
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, Service};
+    use xitca_service::{fn_service, Service, ServiceFactoryExt};
 
     use crate::{
         http::{self, Response},

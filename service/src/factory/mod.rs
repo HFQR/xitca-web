@@ -8,11 +8,13 @@ mod enclosed_fn;
 mod ext;
 mod map;
 mod map_err;
-mod object;
 
 pub use self::{
-    enclosed::EnclosedFactory, enclosed_fn::EnclosedFnFactory, ext::ServiceFactoryExt, function::fn_service,
-    map_err::MapErrorServiceFactory, object::ServiceFactoryObject,
+    enclosed::EnclosedFactory,
+    enclosed_fn::EnclosedFnFactory,
+    ext::ServiceFactoryExt,
+    function::{fn_factory, fn_service},
+    map_err::MapErrorServiceFactory,
 };
 
 use core::future::Future;

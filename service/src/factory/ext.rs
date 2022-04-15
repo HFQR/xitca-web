@@ -1,11 +1,12 @@
-use alloc::boxed::Box;
-
-use crate::async_closure::AsyncClosure;
+use crate::{
+    async_closure::AsyncClosure,
+    object::{DefaultObjectConstructor, ObjectConstructor},
+};
 
 use super::{
     boxed::BoxedServiceFactory,
     pipeline::{marker, PipelineServiceFactory},
-    ServiceFactory, ServiceFactoryObject,
+    ServiceFactory,
 };
 
 pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
@@ -65,14 +66,13 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
     ///
     /// This would erase `Self::Service` type and it's GAT nature.
     ///
-    /// See [crate::service::ServiceObject] for detail.
-    fn into_object(self) -> ServiceFactoryObject<Req, Arg, Self::Response, Self::Error>
+    /// See [crate::object::DefaultObjectConstructor] for detail.
+    fn into_object(self) -> <DefaultObjectConstructor<Req, Arg> as ObjectConstructor<Self>>::Object
     where
-        Self: Sized + 'static,
-        Self::Service: 'static,
-        Self::Future: 'static,
+        Self: Sized,
+        DefaultObjectConstructor<Req, Arg>: ObjectConstructor<Self>,
     {
-        Box::new(self)
+        DefaultObjectConstructor::into_object(self)
     }
 }
 
