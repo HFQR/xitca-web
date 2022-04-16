@@ -18,7 +18,7 @@ impl Deref for PathRef<'_> {
 impl<'a, 'r, 's, S> FromRequest<'a, &'r mut WebRequest<'s, S>> for PathRef<'a> {
     type Type<'b> = PathRef<'b>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>>;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
 
     #[inline]
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {

@@ -13,7 +13,7 @@ use crate::{
 impl<'a, Req> FromRequest<'a, Req> for () {
     type Type<'b> = ();
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>>;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where Req: 'a;
 
     #[inline(always)]
     fn from_request(_: &'a Req) -> Self::Future {
@@ -21,20 +21,20 @@ impl<'a, Req> FromRequest<'a, Req> for () {
     }
 }
 
-impl<'a> Responder<'a, Request<RequestBody>> for () {
+impl Responder<Request<RequestBody>> for () {
     type Output = Response<ResponseBody>;
-    type Future = impl Future<Output = Self::Output>;
+    type Future<'a> = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: &'a mut Request<RequestBody>) -> Self::Future {
+    fn respond_to(self, req: &mut Request<RequestBody>) -> Self::Future<'_> {
         async move { req.as_response(Bytes::new()) }
     }
 }
 
-impl<'a> Responder<'a, Request<RequestBody>> for &'_ str {
+impl Responder<Request<RequestBody>> for &'_ str {
     type Output = Response<ResponseBody>;
-    type Future = impl Future<Output = Self::Output>;
+    type Future<'a> = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: &'a mut Request<RequestBody>) -> Self::Future {
+    fn respond_to(self, req: &mut Request<RequestBody>) -> Self::Future<'_> {
         async move {
             let mut res = req.as_response(self);
             res.headers_mut()

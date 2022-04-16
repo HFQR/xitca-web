@@ -50,7 +50,7 @@ where
 {
     type Type<'b> = Json<T, LIMIT>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> + 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
 
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
         async move {
