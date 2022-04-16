@@ -45,7 +45,7 @@ where
 {
     type Type<'b> = State<S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>>;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
 
     #[inline]
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
@@ -83,7 +83,7 @@ where
 {
     type Type<'b> = StateRef<'b, S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>>;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
 
     #[inline]
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {

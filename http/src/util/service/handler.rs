@@ -18,7 +18,7 @@ use xitca_service::{Service, ServiceFactory};
 pub fn handler_service<F, Req, T, O, Res, Err>(func: F) -> HandlerService<F, T, O, Res, Err>
 where
     F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
-    O: for<'a> Responder<'a, Req, Output = Res>,
+    O: Responder<Req, Output = Res>,
 {
     HandlerService::new(func)
 }
@@ -32,7 +32,7 @@ impl<F, T, O, Res, Err> HandlerService<F, T, O, Res, Err> {
     pub fn new<Req>(func: F) -> Self
     where
         F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
-        O: for<'a> Responder<'a, Req, Output = Res>,
+        O: Responder<Req, Output = Res>,
     {
         Self { func, _p: PhantomData }
     }
@@ -53,7 +53,7 @@ where
 impl<F, Req, T, O, Res, Err> ServiceFactory<Req> for HandlerService<F, T, O, Res, Err>
 where
     F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
-    O: for<'a> Responder<'a, Req, Output = Res>,
+    O: Responder<Req, Output = Res>,
 {
     type Response = Res;
     type Error = Err;
@@ -69,7 +69,7 @@ where
 impl<F, Req, T, O, Res, Err> Service<Req> for HandlerService<F, T, O, Res, Err>
 where
     F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
-    O: for<'a> Responder<'a, Req, Output = Res>,
+    O: Responder<Req, Output = Res>,
 {
     type Response = Res;
     type Error = Err;
@@ -93,10 +93,12 @@ where
 ///     `F: for<'a> FnArgs<<T as FromRequest>::Type<'a>>,`
 ///     `for<'a> FnArgs<T::Type<'a>>::Output: Future`
 /// But these are known to be buggy. See https://github.com/rust-lang/rust/issues/56556
-pub trait Handler<'a, Req, T>: Clone {
+pub trait Handler<'a, Req, T>: Clone + 'static {
     type Error;
     type Response;
-    type Future: Future<Output = Result<Self::Response, Self::Error>>;
+    type Future: Future<Output = Result<Self::Response, Self::Error>>
+    where
+        Req: 'a;
 
     fn handle(&'a self, req: &'a mut Req) -> Self::Future;
 }
@@ -104,12 +106,12 @@ pub trait Handler<'a, Req, T>: Clone {
 impl<'a, Req, T, Res, Err, F> Handler<'a, Req, T> for F
 where
     T: FromRequest<'static, Req, Error = Err>,
-    F: AsyncFn<T::Type<'a>, Output = Res> + Clone,
+    F: AsyncFn<T::Type<'a>, Output = Res> + Clone + 'static,
     F: AsyncFn<T>, // second bound to assist type inference to pinpoint T
 {
     type Error = Err;
     type Response = Res;
-    type Future = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future = impl Future<Output = Result<Self::Response, Self::Error>> where Req: 'a;
 
     #[inline]
     fn handle(&'a self, req: &'a mut Req) -> Self::Future {
@@ -130,7 +132,9 @@ pub trait FromRequest<'a, Req>: Sized {
     type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
 
     type Error;
-    type Future: Future<Output = Result<Self, Self::Error>>;
+    type Future: Future<Output = Result<Self, Self::Error>>
+    where
+        Req: 'a;
 
     fn from_request(req: &'a Req) -> Self::Future;
 }
@@ -145,7 +149,7 @@ macro_rules! from_req_impl {
         {
             type Type<'r> = ($($req::Type<'r>,)*);
             type Error = Err;
-            type Future = impl Future<Output = Result<Self, Self::Error>>;
+            type Future = impl Future<Output = Result<Self, Self::Error>> where Req: 'a;
 
             fn from_request(req: &'a Req) -> Self::Future {
                 $fut {
@@ -159,7 +163,7 @@ macro_rules! from_req_impl {
         }
 
         pin_project! {
-            struct $fut<'f, Req, $($req: FromRequest<'f, Req>),+>
+            struct $fut<'f, Req: 'f, $($req: FromRequest<'f, Req>),+>
             {
                 $(
                     #[pin]
@@ -168,7 +172,7 @@ macro_rules! from_req_impl {
             }
         }
 
-        impl<'f, Req, Err, $($req: FromRequest<'f, Req, Error = Err>),+> Future for $fut<'f, Req, $($req),+>
+        impl<'f, Req: 'f, Err, $($req: FromRequest<'f, Req, Error = Err>),+> Future for $fut<'f, Req, $($req),+>
         {
             type Output = Result<($($req,)+), Err>;
 
@@ -233,11 +237,13 @@ from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I }
 
 /// Make Response with reference of Req.
 /// The Output type is what returns from [handler_service] function.
-pub trait Responder<'a, Req> {
+pub trait Responder<Req> {
     type Output;
-    type Future: Future<Output = Self::Output>;
+    type Future<'a>: Future<Output = Self::Output>
+    where
+        Req: 'a;
 
-    fn respond_to(self, req: &'a mut Req) -> Self::Future;
+    fn respond_to(self, req: &mut Req) -> Self::Future<'_>;
 }
 
 #[doc(hidden)]
@@ -305,14 +311,16 @@ mod test {
         StatusCode::MULTI_STATUS
     }
 
-    impl<'a> Responder<'a, Request<()>> for StatusCode {
+    impl Responder<Request<()>> for StatusCode {
         type Output = Response<()>;
-        type Future = Ready<Self::Output>;
+        type Future<'a> = impl Future<Output = Self::Output>;
 
-        fn respond_to(self, _: &'a mut Request<()>) -> Self::Future {
-            let mut res = Response::new(());
-            *res.status_mut() = self;
-            ready(res)
+        fn respond_to(self, _: &mut Request<()>) -> Self::Future<'_> {
+            async move {
+                let mut res = Response::new(());
+                *res.status_mut() = self;
+                res
+            }
         }
     }
 

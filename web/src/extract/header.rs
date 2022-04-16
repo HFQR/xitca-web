@@ -69,7 +69,7 @@ impl<'a, 'r, 's, S, const HEADER_NAME: HeaderName> FromRequest<'a, &'r mut WebRe
 {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> + 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
 
     #[inline]
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {

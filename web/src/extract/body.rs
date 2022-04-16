@@ -9,7 +9,7 @@ pub struct Body(pub RequestBody);
 impl<'a, 'r, 's, S> FromRequest<'a, &'r mut WebRequest<'s, S>> for Body {
     type Type<'b> = Body;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>>;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
 
     #[inline]
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
