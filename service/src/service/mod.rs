@@ -4,9 +4,6 @@ mod and_then;
 mod enclosed_fn;
 mod map;
 mod map_err;
-mod object;
-
-pub use object::ServiceObject;
 
 use core::{future::Future, ops::Deref, pin::Pin};
 

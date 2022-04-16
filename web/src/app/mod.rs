@@ -62,7 +62,10 @@ impl App {
 }
 
 impl<SF, F> App<SF, F> {
-    pub fn service<F1>(self, factory: F1) -> App<SF, F1> {
+    pub fn service<F1>(self, factory: F1) -> App<SF, F1>
+    where
+        App<SF, F1>: ServiceFactory<Request<RequestBody>, ()>,
+    {
         App {
             state_factory: self.state_factory,
             factory,
@@ -165,9 +168,12 @@ where
 mod test {
     use super::*;
 
+    use xitca_http::util::service::GenericRouter;
+
     use crate::{
         extract::{PathRef, StateRef},
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
+        object::WebObjectConstructor,
         service::HandlerService,
     };
 
@@ -227,7 +233,11 @@ mod test {
         let state = String::from("state");
 
         let service = App::with_current_thread_state(state)
-            .service(HandlerService::new(handler).enclosed_fn(middleware_fn))
+            .service(
+                GenericRouter::with_custom_object::<WebObjectConstructor<_>>()
+                    .insert("/", HandlerService::new(handler).enclosed(Middleware))
+                    .map_err(|e| -> Infallible { panic!("error {}", e) }),
+            )
             .enclosed(Middleware)
             .enclosed_fn(middleware_fn)
             .new_service(())
