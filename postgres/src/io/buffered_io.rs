@@ -1,31 +1,29 @@
 use std::{io, pin::Pin};
 
 use tokio::sync::mpsc::{channel, Receiver};
+use xitca_io::bytes::Buf;
 use xitca_io::{
     bytes::BytesMut,
     io::{AsyncIo, AsyncWrite, Interest},
 };
-use xitca_unsafe_collection::{
-    futures::{never, poll_fn, Select as _, SelectOutput},
-    uninit,
-};
+use xitca_unsafe_collection::futures::{poll_fn, Select as _, SelectOutput};
 
 use crate::{client::Client, error::Error, request::Request, response::Response};
 
 use super::context::Context;
 
-pub struct BufferedIo<Io, const BATCH_LIMIT: usize> {
+pub struct BufferedIo<Io> {
     io: Io,
     rx: Receiver<Request>,
-    ctx: Context<BATCH_LIMIT>,
+    ctx: Context,
 }
 
-impl<Io, const BATCH_LIMIT: usize> BufferedIo<Io, BATCH_LIMIT>
+impl<Io> BufferedIo<Io>
 where
     Io: AsyncIo,
 {
     pub fn new_pair(io: Io, backlog: usize) -> (Client, Self) {
-        let ctx = Context::<BATCH_LIMIT>::new();
+        let ctx = Context::new();
 
         let (tx, rx) = channel(backlog);
 
@@ -69,10 +67,7 @@ where
 
     pub async fn run(mut self) -> Result<(), Error> {
         loop {
-            match try_rx(&mut self.rx, &self.ctx)
-                .select(try_io(&mut self.io, &self.ctx))
-                .await
-            {
+            match self.rx.recv().select(try_io(&mut self.io, &self.ctx)).await {
                 // batch message and keep polling.
                 SelectOutput::A(Some(msg)) => self.ctx.push_req(msg),
                 // client is gone.
@@ -99,7 +94,7 @@ where
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
         loop {
-            match self.io.try_read_buf(&mut self.ctx.buf) {
+            match self.io.try_read_buf(&mut self.ctx.read_buf) {
                 Ok(0) => return Err(Error::ConnectionClosed),
                 Ok(_) => continue,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
@@ -111,13 +106,9 @@ where
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
         while !self.ctx.req_is_empty() {
-            let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
-
-            let slice = self.ctx.chunks_vectored(&mut iovs);
-
-            match self.io.try_write_vectored(slice) {
+            match self.io.try_write(self.ctx.write_buf.chunk()) {
                 Ok(0) => return Err(Error::ConnectionClosed),
-                Ok(n) => self.ctx.advance(n),
+                Ok(n) => self.ctx.write_buf.advance(n),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(e) => return Err(e.into()),
             }
@@ -127,15 +118,7 @@ where
     }
 }
 
-async fn try_rx<const BATCH_LIMIT: usize>(rx: &mut Receiver<Request>, ctx: &Context<BATCH_LIMIT>) -> Option<Request> {
-    if ctx.req_is_full() {
-        never().await
-    } else {
-        rx.recv().await
-    }
-}
-
-fn try_io<'i, Io, const BATCH_LIMIT: usize>(io: &'i mut Io, ctx: &'i Context<BATCH_LIMIT>) -> Io::ReadyFuture<'i>
+fn try_io<'i, Io>(io: &'i mut Io, ctx: &'i Context) -> Io::ReadyFuture<'i>
 where
     Io: AsyncIo,
 {

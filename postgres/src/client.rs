@@ -138,14 +138,8 @@ impl Drop for Client {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+fn _is_send_sync<C: Send + Sync>() {}
 
-    fn assert_send<C: Send>() {}
-
-    #[test]
-    fn is_send() {
-        assert_send::<Client>();
-    }
+fn _client_send_sync_check() {
+    _is_send_sync::<Client>()
 }

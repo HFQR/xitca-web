@@ -27,12 +27,12 @@ use std::future::Future;
 use crate::error::Error;
 
 #[derive(Debug)]
-pub struct Postgres<C, const BATCH_LIMIT: usize> {
+pub struct Postgres<C> {
     cfg: C,
     backlog: usize,
 }
 
-impl<C> Postgres<C, 20>
+impl<C> Postgres<C>
 where
     Config: TryFrom<C>,
     Error: From<<Config as TryFrom<C>>::Error>,
@@ -42,7 +42,7 @@ where
     }
 }
 
-impl<C, const BATCH_LIMIT: usize> Postgres<C, BATCH_LIMIT>
+impl<C> Postgres<C>
 where
     Config: TryFrom<C>,
     Error: From<<Config as TryFrom<C>>::Error>,
@@ -51,14 +51,6 @@ where
     pub fn backlog(mut self, num: usize) -> Self {
         self.backlog = num;
         self
-    }
-
-    /// Set upper bound of batched queries.
-    pub fn batch_limit<const BATCH_LIMIT2: usize>(self) -> Postgres<C, BATCH_LIMIT2> {
-        Postgres {
-            cfg: self.cfg,
-            backlog: self.backlog,
-        }
     }
 
     /// Connect to database. The returned values are [Client] and a detached async task
@@ -91,7 +83,7 @@ where
 
         let io = crate::connect::connect(&cfg).await?;
 
-        let (cli, mut io) = crate::io::buffered_io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io, self.backlog);
+        let (cli, mut io) = crate::io::buffered_io::BufferedIo::new_pair(io, self.backlog);
 
         crate::connect::authenticate(&mut io, cfg).await?;
 
