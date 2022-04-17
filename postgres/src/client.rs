@@ -58,46 +58,46 @@ impl Client {
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().typeinfo.clone()
+        self.cached_typeinfo.lock().unwrap().typeinfo.clone()
     }
 
     pub fn set_typeinfo(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().typeinfo = Some(statement.clone());
+        self.cached_typeinfo.lock().unwrap().typeinfo = Some(statement.clone());
     }
 
     pub fn typeinfo_composite(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().typeinfo_composite.clone()
+        self.cached_typeinfo.lock().unwrap().typeinfo_composite.clone()
     }
 
     pub fn set_typeinfo_composite(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().typeinfo_composite = Some(statement.clone());
+        self.cached_typeinfo.lock().unwrap().typeinfo_composite = Some(statement.clone());
     }
 
     pub fn typeinfo_enum(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().typeinfo_enum.clone()
+        self.cached_typeinfo.lock().unwrap().typeinfo_enum.clone()
     }
 
     pub fn set_typeinfo_enum(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().typeinfo_enum = Some(statement.clone());
+        self.cached_typeinfo.lock().unwrap().typeinfo_enum = Some(statement.clone());
     }
 
     pub fn type_(&self, oid: Oid) -> Option<Type> {
-        self.cached_typeinfo.lock().types.get(&oid).cloned()
+        self.cached_typeinfo.lock().unwrap().types.get(&oid).cloned()
     }
 
     pub fn set_type(&self, oid: Oid, type_: &Type) {
-        self.cached_typeinfo.lock().types.insert(oid, type_.clone());
+        self.cached_typeinfo.lock().unwrap().types.insert(oid, type_.clone());
     }
 
     pub fn clear_type_cache(&self) {
-        self.cached_typeinfo.lock().types.clear();
+        self.cached_typeinfo.lock().unwrap().types.clear();
     }
 
     pub(crate) fn with_buf<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut BytesMut) -> R,
     {
-        let mut buf = self.buf.lock();
+        let mut buf = self.buf.lock().unwrap();
         let r = f(&mut buf);
         buf.clear();
         r
@@ -109,15 +109,30 @@ impl Drop for Client {
         // convert leaked statements to guarded statements.
         // this is to cancel the statement on client go away.
 
-        if let Some(stmt) = self.cached_typeinfo.get_mut().typeinfo.take() {
+        if let Some(stmt) = self
+            .cached_typeinfo
+            .get_mut()
+            .ok()
+            .and_then(|info| info.typeinfo.take())
+        {
             drop(stmt.into_guarded(self));
         }
 
-        if let Some(stmt) = self.cached_typeinfo.get_mut().typeinfo_composite.take() {
+        if let Some(stmt) = self
+            .cached_typeinfo
+            .get_mut()
+            .ok()
+            .and_then(|info| info.typeinfo_composite.take())
+        {
             drop(stmt.into_guarded(self));
         }
 
-        if let Some(stmt) = self.cached_typeinfo.get_mut().typeinfo_enum.take() {
+        if let Some(stmt) = self
+            .cached_typeinfo
+            .get_mut()
+            .ok()
+            .and_then(|info| info.typeinfo_enum.take())
+        {
             drop(stmt.into_guarded(self));
         }
     }
