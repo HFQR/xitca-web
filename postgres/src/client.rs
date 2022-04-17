@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Mutex};
 
-use parking_lot::Mutex;
 use postgres_types::{Oid, Type};
 use tokio::sync::mpsc::Sender;
 use xitca_io::bytes::{Bytes, BytesMut};
