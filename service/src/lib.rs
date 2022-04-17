@@ -9,15 +9,16 @@ mod factory;
 mod service;
 
 pub mod middleware;
+pub mod object;
 pub mod ready;
 
 pub use self::{
     async_closure::AsyncClosure,
     factory::{
-        fn_service, EnclosedFactory, EnclosedFnFactory, MapErrorServiceFactory, ServiceFactory, ServiceFactoryExt,
-        ServiceFactoryObject,
+        fn_factory, fn_service, EnclosedFactory, EnclosedFnFactory, MapErrorServiceFactory, ServiceFactory,
+        ServiceFactoryExt,
     },
-    service::{Service, ServiceObject},
+    service::Service,
 };
 
 use core::{future::Future, pin::Pin};

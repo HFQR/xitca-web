@@ -3,7 +3,10 @@ use std::{
     mem,
 };
 
-use xitca_http::{http::IntoResponse, Request, RequestBody, ResponseBody};
+use xitca_http::{
+    http::{self, IntoResponse},
+    Request, RequestBody, ResponseBody,
+};
 
 use super::response::WebResponse;
 
@@ -87,5 +90,17 @@ impl<'a, D> WebRequest<'a, D> {
     #[inline]
     pub fn as_response<B: Into<ResponseBody>>(&mut self, body: B) -> WebResponse {
         self.req.as_response(body.into())
+    }
+}
+
+impl<S> std::borrow::Borrow<http::Request<()>> for &mut WebRequest<'_, S> {
+    fn borrow(&self) -> &http::Request<()> {
+        self.req()
+    }
+}
+
+impl<S> std::borrow::BorrowMut<http::Request<()>> for &mut WebRequest<'_, S> {
+    fn borrow_mut(&mut self) -> &mut http::Request<()> {
+        self.req_mut()
     }
 }

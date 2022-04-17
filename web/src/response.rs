@@ -29,9 +29,11 @@ macro_rules! text_utf8 {
             type Future<'a> = impl Future<Output = Self::Output> where &'r mut WebRequest<'s, S>: 'a;
 
             fn respond_to<'a>(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future<'a> {
-                let mut res = req.as_response(self);
-                res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-                async move { res }
+                async move {
+                    let mut res = req.as_response(self);
+                    res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
+                    res
+                }
             }
         }
     };
