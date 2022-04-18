@@ -36,13 +36,15 @@ impl Response {
                     Some(buf) => self.buf = buf,
                     None => return Poll::Ready(Err(Error::ConnectionClosed)),
                 }
-            } else {
-                match backend::Message::parse(&mut self.buf)? {
-                    Some(backend::Message::ErrorResponse(_body)) => return Poll::Ready(Err(Error::ToDo)),
-                    Some(msg) => return Poll::Ready(Ok(msg)),
-                    None => assert!(self.buf.is_empty()),
-                }
             }
+
+            return match backend::Message::parse(&mut self.buf)? {
+                // TODO: error response.
+                Some(backend::Message::ErrorResponse(_body)) => Poll::Ready(Err(Error::ToDo)),
+                Some(msg) => Poll::Ready(Ok(msg)),
+                // TODO: partial response.
+                None => Poll::Ready(Err(Error::ToDo)),
+            };
         }
     }
 }

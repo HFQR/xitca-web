@@ -1,4 +1,4 @@
-use httparse::{Status, EMPTY_HEADER};
+use httparse::{ParserConfig, Status};
 
 use xitca_http::{
     bytes::BytesMut,
@@ -18,11 +18,14 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Response<()>, TransferCoding)>, ProtoError> {
-        let mut headers = [EMPTY_HEADER; HEADER_LIMIT];
+        let mut headers = uninit::uninit_array::<_, HEADER_LIMIT>();
 
-        let mut parsed = httparse::Response::new(&mut headers);
+        let mut parsed = httparse::Response::new(&mut []);
 
-        match parsed.parse(buf.as_ref())? {
+        match ParserConfig::default()
+            .allow_spaces_after_header_name_in_responses(true)
+            .parse_response_with_uninit_headers(&mut parsed, buf.as_ref(), &mut headers)?
+        {
             Status::Complete(len) => {
                 let version = if parsed.version.unwrap() == 1 {
                     Version::HTTP_11
