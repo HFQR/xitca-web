@@ -23,6 +23,7 @@ pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
             for addr in addrs {
                 match TcpStream::connect(addr).await {
                     Ok(stream) => {
+                        let _ = stream.set_nodelay(true);
                         return Ok(stream);
                     }
                     Err(e) => err = Some(e),
