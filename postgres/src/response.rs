@@ -30,21 +30,19 @@ impl Response {
     }
 
     pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
-        loop {
-            if self.buf.is_empty() {
-                match ready!(self.rx.poll_recv(cx)) {
-                    Some(buf) => self.buf = buf,
-                    None => return Poll::Ready(Err(Error::ConnectionClosed)),
-                }
+        if self.buf.is_empty() {
+            match ready!(self.rx.poll_recv(cx)) {
+                Some(buf) => self.buf = buf,
+                None => return Poll::Ready(Err(Error::ConnectionClosed)),
             }
+        }
 
-            return match backend::Message::parse(&mut self.buf)? {
-                // TODO: error response.
-                Some(backend::Message::ErrorResponse(_body)) => Poll::Ready(Err(Error::ToDo)),
-                Some(msg) => Poll::Ready(Ok(msg)),
-                // TODO: partial response.
-                None => Poll::Ready(Err(Error::ToDo)),
-            };
+        match backend::Message::parse(&mut self.buf)? {
+            // TODO: error response.
+            Some(backend::Message::ErrorResponse(_body)) => Poll::Ready(Err(Error::ToDo)),
+            Some(msg) => Poll::Ready(Ok(msg)),
+            // TODO: partial response.
+            None => Poll::Ready(Err(Error::ToDo)),
         }
     }
 }
