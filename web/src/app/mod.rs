@@ -1,9 +1,10 @@
 use std::{
     convert::Infallible,
     future::{ready, Future, Ready},
+    marker::PhantomData,
 };
 
-use xitca_http::{Request, RequestBody, ResponseError};
+use xitca_http::{Request, RequestBody};
 use xitca_service::{
     ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceFactory, ServiceFactoryExt,
 };
@@ -12,9 +13,10 @@ use crate::request::WebRequest;
 
 // App keeps a similar API to xitca-web::App. But in real it can be much simpler.
 
-pub struct App<SF = (), F = ()> {
+pub struct App<SF = (), S = (), F = ()> {
     state_factory: SF,
     factory: F,
+    _state: PhantomData<S>,
 }
 
 impl App {
@@ -22,6 +24,7 @@ impl App {
         App {
             state_factory: || ready(Ok(())),
             factory: (),
+            _state: PhantomData,
         }
     }
 }
@@ -30,7 +33,7 @@ impl App {
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, Infallible>>>
+    pub fn with_current_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, Infallible>>, State>
     where
         State: Clone + 'static,
     {
@@ -40,7 +43,7 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, Infallible>>>
+    pub fn with_multi_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, Infallible>>, State>
     where
         State: Send + Sync + Clone + 'static,
     {
@@ -49,7 +52,7 @@ impl App {
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<SF, Fut, T, E>(state_factory: SF) -> App<SF>
+    pub fn with_async_state<SF, Fut, T, E>(state_factory: SF) -> App<SF, T>
     where
         SF: Fn() -> Fut,
         Fut: Future<Output = Result<T, E>>,
@@ -57,22 +60,24 @@ impl App {
         App {
             state_factory,
             factory: (),
+            _state: PhantomData,
         }
     }
 }
 
-impl<SF, F> App<SF, F> {
-    pub fn service<F1>(self, factory: F1) -> App<SF, F1>
+impl<SF, S, F> App<SF, S, F> {
+    pub fn service<F1>(self, factory: F1) -> App<SF, S, F1>
     where
-        App<SF, F1>: ServiceFactory<Request<RequestBody>, ()>,
+        App<SF, S, F1>: ServiceFactory<Request<RequestBody>, ()>,
     {
         App {
             state_factory: self.state_factory,
             factory,
+            _state: PhantomData,
         }
     }
 
-    pub fn enclosed<Req, T>(self, transform: T) -> App<SF, EnclosedFactory<F, T>>
+    pub fn enclosed<Req, T>(self, transform: T) -> App<SF, S, EnclosedFactory<F, T>>
     where
         F: ServiceFactory<Req>,
         T: ServiceFactory<Req, F::Service> + Clone,
@@ -80,10 +85,11 @@ impl<SF, F> App<SF, F> {
         App {
             state_factory: self.state_factory,
             factory: self.factory.enclosed(transform),
+            _state: PhantomData,
         }
     }
 
-    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<SF, EnclosedFnFactory<F, T>>
+    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<SF, S, EnclosedFnFactory<F, T>>
     where
         F: ServiceFactory<Req>,
         T: for<'s> AsyncClosure<(&'s F::Service, Req)> + Clone,
@@ -91,18 +97,19 @@ impl<SF, F> App<SF, F> {
         App {
             state_factory: self.state_factory,
             factory: self.factory.enclosed_fn(transform),
+            _state: PhantomData,
         }
     }
 }
 
-impl<SF, Fut, State, StateErr, F, S, Arg, Res, Err> ServiceFactory<Request<RequestBody>, Arg> for App<SF, F>
+impl<SF, Fut, State, StateErr, F, S, Arg, Res, Err> ServiceFactory<Request<RequestBody>, Arg> for App<SF, State, F>
 where
     SF: Fn() -> Fut,
     Fut: Future<Output = Result<State, StateErr>> + 'static,
     State: 'static,
     F: for<'rb, 'r> ServiceFactory<&'rb mut WebRequest<'r, State>, Arg, Service = S, Response = Res, Error = Err>,
     S: for<'rb, 'r> Service<&'rb mut WebRequest<'r, State>, Response = Res, Error = Err> + 'static,
-    Err: for<'r> ResponseError<WebRequest<'r, State>, Res> + From<StateErr>,
+    Err: From<StateErr>,
 {
     type Response = Res;
     type Error = Err;
@@ -129,7 +136,6 @@ impl<State, S, Res, Err> Service<Request<RequestBody>> for AppService<State, S>
 where
     State: 'static,
     S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err> + 'static,
-    Err: for<'r> ResponseError<WebRequest<'r, State>, Res>,
 {
     type Response = Res;
     type Error = Err;
@@ -138,14 +144,7 @@ where
     fn call(&self, req: Request<RequestBody>) -> Self::Future<'_> {
         async move {
             let mut req = WebRequest::new(req, &self.state);
-
-            let res = self
-                .service
-                .call(&mut req)
-                .await
-                .unwrap_or_else(|e| ResponseError::response_error(e, &mut req));
-
-            Ok(res)
+            self.service.call(&mut req).await
         }
     }
 }
@@ -154,7 +153,6 @@ impl<State, S, R, Res, Err> ReadyService<Request<RequestBody>> for AppService<St
 where
     State: 'static,
     S: for<'r, 's> ReadyService<&'r mut WebRequest<'s, State>, Response = Res, Error = Err, Ready = R> + 'static,
-    Err: for<'r> ResponseError<WebRequest<'r, State>, Res>,
 {
     type Ready = R;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>>;
