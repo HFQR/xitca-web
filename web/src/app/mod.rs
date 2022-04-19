@@ -151,7 +151,7 @@ where
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>>;
 
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move { self.service.ready().await }
+        self.service.ready()
     }
 }
 
@@ -193,7 +193,7 @@ mod test {
         type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
         fn new_service(&self, service: S) -> Self::Future {
-            async move { Ok(MiddlewareService(service)) }
+            async { Ok(MiddlewareService(service)) }
         }
     }
 
@@ -208,7 +208,7 @@ mod test {
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
         fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
-            async move { self.0.call(req).await }
+            self.0.call(req)
         }
     }
 
