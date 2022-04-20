@@ -22,19 +22,19 @@ use crate::request::{BorrowReq, BorrowReqMut};
 ///
 ///```rust
 /// # use std::convert::Infallible;
-/// # use xitca_http::util::service::state::{State, StateRequest};
+/// # use xitca_http::util::service::context::{ContextBuilder, Context};
 /// # use xitca_service::{fn_service, Service, ServiceFactory};
 ///
 /// // function service.
-/// async fn state_handler(req: StateRequest<'_, String, String>) -> Result<String, Infallible> {
-///    let (state, parent_req) = req.into_parts();
+/// async fn state_handler(req: &mut Context<'_, String, String>) -> Result<String, Infallible> {
+///    let (parent_req, state) = req.borrow_parts_mut();
 ///    assert_eq!(state, "string_state");
 ///    Ok(String::from("string_response"))
 /// }
 ///
 /// # async fn stateful() {
 /// // Construct Stateful service factory with closure.
-/// let service = State::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
+/// let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
 ///    // Stateful service factory would construct given service factory and pass (&State, Req) to it.
 ///    .service(fn_service(state_handler))
 ///    .new_service(())
@@ -48,37 +48,37 @@ use crate::request::{BorrowReq, BorrowReqMut};
 /// # }
 ///```
 ///
-pub struct State<SF, ST, F = ()> {
-    state_factory: SF,
-    factory: F,
-    _state: PhantomData<ST>,
+pub struct ContextBuilder<CF, C, SF = ()> {
+    ctx_factory: CF,
+    service_factory: SF,
+    _ctx: PhantomData<C>,
 }
 
-impl<SF, Fut, ST, E> State<SF, ST>
+impl<CF, Fut, C, CErr> ContextBuilder<CF, C>
 where
-    SF: Fn() -> Fut,
-    Fut: Future<Output = Result<ST, E>>,
+    CF: Fn() -> Fut,
+    Fut: Future<Output = Result<C, CErr>>,
 {
     /// Make a stateful service factory with given future.
-    pub fn new(state_factory: SF) -> Self {
+    pub fn new(ctx_factory: CF) -> Self {
         Self {
-            state_factory,
-            factory: (),
-            _state: PhantomData,
+            ctx_factory,
+            service_factory: (),
+            _ctx: PhantomData,
         }
     }
 }
 
-impl<SF, ST, F> State<SF, ST, F> {
+impl<CF, C, SF> ContextBuilder<CF, C, SF> {
     /// The constructor of service type that would receive state.
-    pub fn service<Req, F1>(self, factory: F1) -> State<SF, ST, F1>
+    pub fn service<Req, SF1>(self, factory: SF1) -> ContextBuilder<CF, C, SF1>
     where
-        State<SF, ST, F1>: ServiceFactory<Req, ()>,
+        ContextBuilder<CF, C, SF1>: ServiceFactory<Req, ()>,
     {
-        State {
-            state_factory: self.state_factory,
-            factory,
-            _state: PhantomData,
+        ContextBuilder {
+            ctx_factory: self.ctx_factory,
+            service_factory: factory,
+            _ctx: PhantomData,
         }
     }
 }
@@ -86,20 +86,20 @@ impl<SF, ST, F> State<SF, ST, F> {
 /// Specialized Request type State service factory.
 ///
 /// This type enables borrow parent service request type as &Req and &mut Req
-pub struct StateRequest<'a, ST, Req> {
-    state: &'a ST,
+pub struct Context<'a, Req, C> {
     req: Req,
+    state: &'a C,
 }
 
-impl<'a, ST, Req> StateRequest<'a, ST, Req> {
+impl<Req, C> Context<'_, Req, C> {
     /// Destruct request into a tuple of (&state, parent_request).
     #[inline]
-    pub fn into_parts(self) -> (&'a ST, Req) {
-        (self.state, self.req)
+    pub fn borrow_parts_mut(&mut self) -> (&mut Req, &C) {
+        (&mut self.req, self.state)
     }
 }
 
-impl<ST, Req, T> BorrowReq<T> for StateRequest<'_, ST, Req>
+impl<Req, C, T> BorrowReq<T> for &mut Context<'_, Req, C>
 where
     Req: BorrowReq<T>,
 {
@@ -108,7 +108,7 @@ where
     }
 }
 
-impl<ST, Req, T> BorrowReqMut<T> for StateRequest<'_, ST, Req>
+impl<Req, C, T> BorrowReqMut<T> for &mut Context<'_, Req, C>
 where
     Req: BorrowReqMut<T>,
 {
@@ -117,58 +117,65 @@ where
     }
 }
 
-impl<SF, Fut, ST, STErr, F, S, Req, Arg, Res, Err> ServiceFactory<Req, Arg> for State<SF, ST, F>
+impl<CF, Fut, C, CErr, F, S, Req, Arg, Res, Err> ServiceFactory<Req, Arg> for ContextBuilder<CF, C, F>
 where
-    SF: Fn() -> Fut,
-    Fut: Future<Output = Result<ST, STErr>> + 'static,
-    ST: 'static,
-    F: for<'r> ServiceFactory<StateRequest<'r, ST, Req>, Arg, Service = S, Response = Res, Error = Err>,
-    S: for<'r> Service<StateRequest<'r, ST, Req>, Response = Res, Error = Err> + 'static,
-    Err: From<STErr>,
+    CF: Fn() -> Fut,
+    Fut: Future<Output = Result<C, CErr>> + 'static,
+    C: 'static,
+    Req: 'static,
+    F: for<'c, 's> ServiceFactory<&'c mut Context<'s, Req, C>, Arg, Service = S, Response = Res, Error = Err>,
+    S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err> + 'static,
+    Err: From<CErr>,
 {
     type Response = Res;
     type Error = Err;
-    type Service = StateService<ST, S>;
+    type Service = ContextService<C, S>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
-        let state = (self.state_factory)();
-        let service = self.factory.new_service(arg);
+        let state = (self.ctx_factory)();
+        let service = self.service_factory.new_service(arg);
         async {
             let state = state.await?;
             let service = service.await?;
-            Ok(StateService { service, state })
+            Ok(ContextService { service, state })
         }
     }
 }
 
 #[doc(hidden)]
-pub struct StateService<ST, S> {
-    state: ST,
+pub struct ContextService<C, S> {
+    state: C,
     service: S,
 }
 
-impl<Req, ST, S, Res, Err> Service<Req> for StateService<ST, S>
+impl<Req, C, S, Res, Err> Service<Req> for ContextService<C, S>
 where
-    ST: 'static,
-    S: for<'r> Service<StateRequest<'r, ST, Req>, Response = Res, Error = Err> + 'static,
+    Req: 'static,
+    C: 'static,
+    S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err> + 'static,
 {
     type Response = Res;
     type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn call(&self, req: Req) -> Self::Future<'_> {
-        self.service.call(StateRequest {
-            state: &self.state,
-            req,
-        })
+        async move {
+            self.service
+                .call(&mut Context {
+                    req,
+                    state: &self.state,
+                })
+                .await
+        }
     }
 }
 
-impl<Req, ST, S, R, Res, Err> ReadyService<Req> for StateService<ST, S>
+impl<Req, C, S, R, Res, Err> ReadyService<Req> for ContextService<C, S>
 where
-    ST: 'static,
-    S: for<'r> ReadyService<StateRequest<'r, ST, Req>, Response = Res, Error = Err, Ready = R> + 'static,
+    Req: 'static,
+    C: 'static,
+    S: for<'c, 's> ReadyService<&'c mut Context<'s, Req, C>, Response = Res, Error = Err, Ready = R> + 'static,
 {
     type Ready = R;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>>;
@@ -192,40 +199,40 @@ mod object {
         Service, ServiceFactory,
     };
 
-    pub struct StateObjectConstructor<S, Req>(PhantomData<(S, Req)>);
+    pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
-    pub type StateFactoryObject<S: 'static, Req: 'static, Res, Err> = impl for<'r> ServiceFactory<
-        StateRequest<'r, S, Req>,
+    pub type ContextFactoryObject<Req: 'static, C: 'static, Res, Err> = impl for<'c, 's> ServiceFactory<
+        &'c mut Context<'s, Req, C>,
         Response = Res,
         Error = Err,
-        Service = StateServiceObject<S, Req, Res, Err>,
+        Service = ContextServiceObject<Req, C, Res, Err>,
     >;
 
-    pub type StateServiceObject<S: 'static, Req: 'static, Res, Err> =
-        impl for<'r> Service<StateRequest<'r, S, Req>, Response = Res, Error = Err>;
+    pub type ContextServiceObject<Req: 'static, C: 'static, Res, Err> =
+        impl for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>;
 
-    impl<S, I, Svc, Req, Res, Err> ObjectConstructor<I> for StateObjectConstructor<S, Req>
+    impl<C, I, Svc, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
     where
-        I: for<'r> ServiceFactory<StateRequest<'r, S, Req>, (), Service = Svc, Response = Res, Error = Err>,
-        Svc: for<'r> Service<StateRequest<'r, S, Req>, Response = Res, Error = Err> + 'static,
+        I: for<'c, 's> ServiceFactory<&'c mut Context<'s, Req, C>, (), Service = Svc, Response = Res, Error = Err>,
+        Svc: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err> + 'static,
         I: 'static,
-        S: 'static,
+        C: 'static,
         Req: 'static,
     {
-        type Object = StateFactoryObject<S, Req, Res, Err>;
+        type Object = ContextFactoryObject<Req, C, Res, Err>;
 
         fn into_object(inner: I) -> Self::Object {
             let factory = fn_factory(move |_arg: ()| {
                 let fut = inner.new_service(());
                 async move {
                     let boxed_service = Box::new(Wrapper(fut.await?))
-                        as Box<dyn for<'r> ServiceObject<StateRequest<'r, S, Req>, Response = _, Error = _>>;
+                        as Box<dyn for<'c, 's> ServiceObject<&'c mut Context<'s, Req, C>, Response = _, Error = _>>;
                     Ok(Wrapper(boxed_service))
                 }
             });
 
             let boxed_factory = Box::new(Wrapper(factory))
-                as Box<dyn for<'r> ServiceFactoryObject<StateRequest<'r, S, Req>, Service = _>>;
+                as Box<dyn for<'c, 's> ServiceFactoryObject<&'c mut Context<'s, Req, C>, Service = _>>;
             Wrapper(boxed_factory)
         }
     }
@@ -242,18 +249,20 @@ mod test {
 
     use super::*;
 
-    struct Context<'a, ST> {
-        req: Request<()>,
+    struct Context2<'a, ST> {
+        req: &'a mut Request<()>,
         state: &'a ST,
     }
 
-    async fn into_context(req: StateRequest<'_, String, Request<()>>) -> Result<Context<'_, String>, Infallible> {
-        let (state, req) = req.into_parts();
+    async fn into_context<'c>(
+        req: &'c mut Context<'_, Request<()>, String>,
+    ) -> Result<Context2<'c, String>, Infallible> {
+        let (req, state) = req.borrow_parts_mut();
         assert_eq!(state, "string_state");
-        Ok(Context { req, state })
+        Ok(Context2 { req, state })
     }
 
-    async fn ctx_handler(ctx: Context<'_, String>) -> Result<Response<()>, Infallible> {
+    async fn ctx_handler(ctx: Context2<'_, String>) -> Result<Response<()>, Infallible> {
         assert_eq!(ctx.state, "string_state");
         assert_eq!(ctx.req.method().as_str(), "GET");
         Ok(Response::new(()))
@@ -261,7 +270,7 @@ mod test {
 
     #[tokio::test]
     async fn test_state_and_then() {
-        let service = State::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
+        let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(fn_service(into_context).and_then(fn_service(ctx_handler)))
             .new_service(())
             .await
@@ -275,18 +284,18 @@ mod test {
         assert_eq!(res.status().as_u16(), 200);
     }
 
-    async fn handler(req: StateRequest<'_, String, Request<()>>) -> Result<Response<()>, Infallible> {
-        let (state, _) = req.into_parts();
+    async fn handler(req: &mut Context<'_, Request<()>, String>) -> Result<Response<()>, Infallible> {
+        let (_, state) = req.borrow_parts_mut();
         assert_eq!(state, "string_state");
         Ok(Response::new(()))
     }
 
     #[tokio::test]
     async fn test_state_in_router() {
-        let router = GenericRouter::with_custom_object::<super::object::StateObjectConstructor<_, _>>()
+        let router = GenericRouter::with_custom_object::<super::object::ContextObjectConstructor<_, _>>()
             .insert("/", get(fn_service(handler)));
 
-        let service = State::new(|| async { Ok(String::from("string_state")) })
+        let service = ContextBuilder::new(|| async { Ok(String::from("string_state")) })
             .service(router)
             .new_service(())
             .await
