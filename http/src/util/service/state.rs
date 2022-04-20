@@ -1,4 +1,8 @@
-use std::{future::Future, marker::PhantomData};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    future::Future,
+    marker::PhantomData,
+};
 
 use xitca_service::{ready::ReadyService, Service, ServiceFactory};
 
@@ -20,11 +24,12 @@ use xitca_service::{ready::ReadyService, Service, ServiceFactory};
 ///
 ///```rust
 /// # use std::convert::Infallible;
-/// # use xitca_http::util::service::State;
+/// # use xitca_http::util::service::state::{State, StateRequest};
 /// # use xitca_service::{fn_service, Service, ServiceFactory};
 ///
 /// // function service.
-/// async fn state_handler((state, _): (&String, String)) -> Result<String, Infallible> {
+/// async fn state_handler(req: StateRequest<'_, String, String>) -> Result<String, Infallible> {
+///    let (state, parent_req) = req.into_parts();
 ///    assert_eq!(state, "string_state");
 ///    Ok(String::from("string_response"))
 /// }
@@ -80,13 +85,41 @@ impl<SF, ST, F> State<SF, ST, F> {
     }
 }
 
+/// Specialized Request type State service factory.
+///
+/// This type enables borrow parent service request type as &Req and &mut Req
+pub struct StateRequest<'a, ST, Req> {
+    state: &'a ST,
+    req: Req,
+}
+
+impl<'a, ST, Req> StateRequest<'a, ST, Req> {
+    /// Destruct request into a tuple of (&state, parent_request).
+    #[inline]
+    pub fn into_parts(self) -> (&'a ST, Req) {
+        (self.state, self.req)
+    }
+}
+
+impl<ST, Req> Borrow<Req> for StateRequest<'_, ST, Req> {
+    fn borrow(&self) -> &Req {
+        &self.req
+    }
+}
+
+impl<ST, Req> BorrowMut<Req> for StateRequest<'_, ST, Req> {
+    fn borrow_mut(&mut self) -> &mut Req {
+        &mut self.req
+    }
+}
+
 impl<SF, Fut, ST, STErr, F, S, Req, Arg, Res, Err> ServiceFactory<Req, Arg> for State<SF, ST, F>
 where
     SF: Fn() -> Fut,
     Fut: Future<Output = Result<ST, STErr>> + 'static,
     ST: 'static,
-    F: for<'r> ServiceFactory<(&'r ST, Req), Arg, Service = S, Response = Res, Error = Err>,
-    S: for<'r> Service<(&'r ST, Req), Response = Res, Error = Err> + 'static,
+    F: for<'r> ServiceFactory<StateRequest<'r, ST, Req>, Arg, Service = S, Response = Res, Error = Err>,
+    S: for<'r> Service<StateRequest<'r, ST, Req>, Response = Res, Error = Err> + 'static,
     Err: From<STErr>,
 {
     type Response = Res;
@@ -105,6 +138,7 @@ where
     }
 }
 
+#[doc(hidden)]
 pub struct StateService<ST, S> {
     state: ST,
     service: S,
@@ -113,21 +147,24 @@ pub struct StateService<ST, S> {
 impl<Req, ST, S, Res, Err> Service<Req> for StateService<ST, S>
 where
     ST: 'static,
-    S: for<'r> Service<(&'r ST, Req), Response = Res, Error = Err> + 'static,
+    S: for<'r> Service<StateRequest<'r, ST, Req>, Response = Res, Error = Err> + 'static,
 {
     type Response = Res;
     type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn call(&self, req: Req) -> Self::Future<'_> {
-        self.service.call((&self.state, req))
+        self.service.call(StateRequest {
+            state: &self.state,
+            req,
+        })
     }
 }
 
 impl<Req, ST, S, R, Res, Err> ReadyService<Req> for StateService<ST, S>
 where
     ST: 'static,
-    S: for<'r> ReadyService<(&'r ST, Req), Response = Res, Error = Err, Ready = R> + 'static,
+    S: for<'r> ReadyService<StateRequest<'r, ST, Req>, Response = Res, Error = Err, Ready = R> + 'static,
 {
     type Ready = R;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>>;
@@ -152,7 +189,8 @@ mod test {
         state: &'a ST,
     }
 
-    async fn into_context((state, req): (&String, Request<()>)) -> Result<Context<'_, String>, Infallible> {
+    async fn into_context(req: StateRequest<'_, String, Request<()>>) -> Result<Context<'_, String>, Infallible> {
+        let (state, req) = req.into_parts();
         assert_eq!(state, "string_state");
         Ok(Context { req, state })
     }
