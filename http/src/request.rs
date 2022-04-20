@@ -115,3 +115,45 @@ impl<B> BorrowMut<http::Request<B>> for Request<B> {
         &mut self.req
     }
 }
+
+/// trait for Borrow &T from &Self.
+/// used for foreign types that can be impl with [Borrow] trait.
+pub trait BorrowReq<T> {
+    fn borrow(&self) -> &T;
+}
+
+/// trait for Borrow &mut T from &mut Self.
+/// used for foreign types that can be impl with [BorrowMut] trait.
+pub trait BorrowReqMut<T> {
+    fn borrow_mut(&mut self) -> &mut T;
+}
+
+impl<B> BorrowReq<http::Uri> for http::Request<B> {
+    fn borrow(&self) -> &http::Uri {
+        self.uri()
+    }
+}
+
+impl<B> BorrowReq<http::Method> for http::Request<B> {
+    fn borrow(&self) -> &http::Method {
+        self.method()
+    }
+}
+
+impl<B, T> BorrowReq<T> for Request<B>
+where
+    http::Request<B>: BorrowReq<T>,
+{
+    fn borrow(&self) -> &T {
+        <http::Request<B> as BorrowReq<T>>::borrow(&self.req)
+    }
+}
+
+impl<B, T> BorrowReqMut<T> for Request<B>
+where
+    http::Request<B>: BorrowReqMut<T>,
+{
+    fn borrow_mut(&mut self) -> &mut T {
+        <http::Request<B> as BorrowReqMut<T>>::borrow_mut(&mut self.req)
+    }
+}

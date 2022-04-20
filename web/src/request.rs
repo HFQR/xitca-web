@@ -4,8 +4,9 @@ use std::{
 };
 
 use xitca_http::{
-    http::{self, IntoResponse},
-    Request, RequestBody, ResponseBody,
+    http::IntoResponse,
+    request::{BorrowReq, Request},
+    RequestBody, ResponseBody,
 };
 
 use super::response::WebResponse;
@@ -93,14 +94,11 @@ impl<'a, D> WebRequest<'a, D> {
     }
 }
 
-impl<S> std::borrow::Borrow<http::Request<()>> for &mut WebRequest<'_, S> {
-    fn borrow(&self) -> &http::Request<()> {
-        self.req()
-    }
-}
-
-impl<S> std::borrow::BorrowMut<http::Request<()>> for &mut WebRequest<'_, S> {
-    fn borrow_mut(&mut self) -> &mut http::Request<()> {
-        self.req_mut()
+impl<S, T> BorrowReq<T> for &mut WebRequest<'_, S>
+where
+    Request<()>: BorrowReq<T>,
+{
+    fn borrow(&self) -> &T {
+        self.req().borrow()
     }
 }

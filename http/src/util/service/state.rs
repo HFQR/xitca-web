@@ -1,10 +1,8 @@
-use std::{
-    borrow::{Borrow, BorrowMut},
-    future::Future,
-    marker::PhantomData,
-};
+use std::{future::Future, marker::PhantomData};
 
 use xitca_service::{ready::ReadyService, Service, ServiceFactory};
+
+use crate::request::{BorrowReq, BorrowReqMut};
 
 /// ServiceFactory type for constructing compile time checked stateful service.
 ///
@@ -101,15 +99,21 @@ impl<'a, ST, Req> StateRequest<'a, ST, Req> {
     }
 }
 
-impl<ST, Req> Borrow<Req> for StateRequest<'_, ST, Req> {
-    fn borrow(&self) -> &Req {
-        &self.req
+impl<ST, Req, T> BorrowReq<T> for StateRequest<'_, ST, Req>
+where
+    Req: BorrowReq<T>,
+{
+    fn borrow(&self) -> &T {
+        self.req.borrow()
     }
 }
 
-impl<ST, Req> BorrowMut<Req> for StateRequest<'_, ST, Req> {
-    fn borrow_mut(&mut self) -> &mut Req {
-        &mut self.req
+impl<ST, Req, T> BorrowReqMut<T> for StateRequest<'_, ST, Req>
+where
+    Req: BorrowReqMut<T>,
+{
+    fn borrow_mut(&mut self) -> &mut T {
+        self.req.borrow_mut()
     }
 }
 
@@ -174,13 +178,67 @@ where
     }
 }
 
+mod object {
+    use super::*;
+
+    use std::{boxed::Box, marker::PhantomData};
+
+    use xitca_service::{
+        fn_factory,
+        object::{
+            helpers::{ServiceFactoryObject, ServiceObject, Wrapper},
+            ObjectConstructor,
+        },
+        Service, ServiceFactory,
+    };
+
+    pub struct StateObjectConstructor<S, Req>(PhantomData<(S, Req)>);
+
+    pub type StateFactoryObject<S: 'static, Req: 'static, Res, Err> = impl for<'r> ServiceFactory<
+        StateRequest<'r, S, Req>,
+        Response = Res,
+        Error = Err,
+        Service = StateServiceObject<S, Req, Res, Err>,
+    >;
+
+    pub type StateServiceObject<S: 'static, Req: 'static, Res, Err> =
+        impl for<'r> Service<StateRequest<'r, S, Req>, Response = Res, Error = Err>;
+
+    impl<S, I, Svc, Req, Res, Err> ObjectConstructor<I> for StateObjectConstructor<S, Req>
+    where
+        I: for<'r> ServiceFactory<StateRequest<'r, S, Req>, (), Service = Svc, Response = Res, Error = Err>,
+        Svc: for<'r> Service<StateRequest<'r, S, Req>, Response = Res, Error = Err> + 'static,
+        I: 'static,
+        S: 'static,
+        Req: 'static,
+    {
+        type Object = StateFactoryObject<S, Req, Res, Err>;
+
+        fn into_object(inner: I) -> Self::Object {
+            let factory = fn_factory(move |_arg: ()| {
+                let fut = inner.new_service(());
+                async move {
+                    let boxed_service = Box::new(Wrapper(fut.await?))
+                        as Box<dyn for<'r> ServiceObject<StateRequest<'r, S, Req>, Response = _, Error = _>>;
+                    Ok(Wrapper(boxed_service))
+                }
+            });
+
+            let boxed_factory = Box::new(Wrapper(factory))
+                as Box<dyn for<'r> ServiceFactoryObject<StateRequest<'r, S, Req>, Service = _>>;
+            Wrapper(boxed_factory)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::convert::Infallible;
 
     use xitca_service::{fn_service, ServiceFactoryExt};
 
-    use crate::{http::Response, request::Request};
+    use crate::util::service::GenericRouter;
+    use crate::{http::Response, request::Request, util::service::get};
 
     use super::*;
 
@@ -205,6 +263,31 @@ mod test {
     async fn test_state_and_then() {
         let service = State::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(fn_service(into_context).and_then(fn_service(ctx_handler)))
+            .new_service(())
+            .await
+            .ok()
+            .unwrap();
+
+        let req = Request::default();
+
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res.status().as_u16(), 200);
+    }
+
+    async fn handler(req: StateRequest<'_, String, Request<()>>) -> Result<Response<()>, Infallible> {
+        let (state, _) = req.into_parts();
+        assert_eq!(state, "string_state");
+        Ok(Response::new(()))
+    }
+
+    #[tokio::test]
+    async fn test_state_in_router() {
+        let router = GenericRouter::with_custom_object::<super::object::StateObjectConstructor<_, _>>()
+            .insert("/", get(fn_service(handler)));
+
+        let service = State::new(|| async { Ok(String::from("string_state")) })
+            .service(router)
             .new_service(())
             .await
             .ok()
