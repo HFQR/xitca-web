@@ -134,29 +134,19 @@ impl<'a> Row<'a> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds or if the value cannot be converted to the specified type.
+    #[inline]
     pub fn get<'f, I, T>(&'a self, idx: I) -> T
     where
         I: RowIndex + fmt::Display,
         T: FromSql<'f>,
         'a: 'f,
     {
-        match self.get_inner(&idx) {
-            Ok(ok) => ok,
-            Err(err) => panic!("error retrieving column {}: {}", idx, err),
-        }
+        self.try_get(&idx)
+            .unwrap_or_else(|e| panic!("error retrieving column {}: {}", idx, e))
     }
 
     /// Like `Row::get`, but returns a `Result` rather than panicking.
     pub fn try_get<'f, I, T>(&'a self, idx: I) -> Result<T, Error>
-    where
-        I: RowIndex + fmt::Display,
-        T: FromSql<'f>,
-        'a: 'f,
-    {
-        self.get_inner(&idx)
-    }
-
-    fn get_inner<'f, I, T>(&'a self, idx: &I) -> Result<T, Error>
     where
         I: RowIndex + fmt::Display,
         T: FromSql<'f>,
