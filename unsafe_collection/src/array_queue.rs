@@ -20,17 +20,17 @@ impl<T, const N: usize> ArrayQueue<T, N> {
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     #[inline]
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.len == N
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len
     }
 

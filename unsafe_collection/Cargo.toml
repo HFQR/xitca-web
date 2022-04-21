@@ -3,4 +3,8 @@ name = "xitca-unsafe-collection"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+bytes = ["bytes_crate"]
+
 [dependencies]
+bytes_crate = { package = "bytes", version = "1", optional = true }
