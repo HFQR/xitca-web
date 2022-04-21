@@ -1,13 +1,13 @@
-//! Copied from `hyper::common::buf`. A vectored buffer.
-
 use std::io::IoSlice;
 
-use xitca_unsafe_collection::array_queue::ArrayQueue;
+use bytes_crate::{Buf, BufMut, Bytes, BytesMut};
 
-use crate::bytes::{Buf, BufMut, Bytes, BytesMut};
+use crate::array_queue::ArrayQueue;
 
+/// A bounded stack buffer array that can hold up to LEN size items.
+/// BufList implement [Buf] trait when it's item is a type implement the same trait.
 pub struct BufList<B, const LEN: usize = 8> {
-    bufs: ArrayQueue<B, LEN>,
+    pub(super) bufs: ArrayQueue<B, LEN>,
     remaining: usize,
 }
 
@@ -19,13 +19,16 @@ impl<B: Buf> Default for BufList<B> {
 
 impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             bufs: ArrayQueue::new(),
             remaining: 0,
         }
     }
 
+    /// # Panic:
+    ///
+    /// push new item when the list is already full.
     #[inline]
     pub fn push(&mut self, buf: B) {
         debug_assert!(buf.has_remaining());
@@ -34,12 +37,12 @@ impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     }
 
     #[inline]
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.bufs.is_full()
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.bufs.is_empty()
     }
 }
@@ -112,6 +115,53 @@ impl<B: Buf, const LEN: usize> Buf for BufList<B, LEN> {
                 bm.put(self.take(len));
                 bm.freeze()
             }
+        }
+    }
+}
+
+/// An enum implement [Buf] trait when both arms are types implement the same trait.
+///
+/// *. Enum would implement [super::uninit::ChunkVectoredUninit] trait when both arms are types
+/// implement the same trait.
+pub enum EitherBuf<L, R> {
+    Left(L),
+    Right(R),
+}
+
+impl<L, R> Buf for EitherBuf<L, R>
+where
+    L: Buf,
+    R: Buf,
+{
+    #[inline]
+    fn remaining(&self) -> usize {
+        match *self {
+            Self::Left(ref buf) => buf.remaining(),
+            Self::Right(ref buf) => buf.remaining(),
+        }
+    }
+
+    #[inline]
+    fn chunk(&self) -> &[u8] {
+        match *self {
+            Self::Left(ref buf) => buf.chunk(),
+            Self::Right(ref buf) => buf.chunk(),
+        }
+    }
+
+    #[inline]
+    fn chunks_vectored<'a>(&'a self, dst: &mut [IoSlice<'a>]) -> usize {
+        match *self {
+            Self::Left(ref buf) => buf.chunks_vectored(dst),
+            Self::Right(ref buf) => buf.chunks_vectored(dst),
+        }
+    }
+
+    #[inline]
+    fn advance(&mut self, cnt: usize) {
+        match *self {
+            Self::Left(ref mut buf) => buf.advance(cnt),
+            Self::Right(ref mut buf) => buf.advance(cnt),
         }
     }
 }

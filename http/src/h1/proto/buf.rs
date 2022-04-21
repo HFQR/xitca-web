@@ -5,11 +5,12 @@ use std::{
 };
 
 use xitca_io::io::AsyncIo;
-
-use crate::{
-    bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut},
-    util::buf_list::BufList,
+use xitca_unsafe_collection::{
+    bytes::{BufList, EitherBuf},
+    uninit,
 };
+
+use crate::bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut};
 
 /// Trait for bound check different types of read/write buffer strategy.
 pub trait BufBound {
@@ -160,52 +161,10 @@ impl<B: Buf, const BUF_LIMIT: usize> fmt::Debug for ListBuf<B, BUF_LIMIT> {
     }
 }
 
-pub(super) enum EncodedBuf<B, BB> {
-    Buf(B),
-    Chunk(BB),
-    Static(&'static [u8]),
-}
-
-impl<B: Buf, BB: Buf> Buf for EncodedBuf<B, BB> {
-    #[inline]
-    fn remaining(&self) -> usize {
-        match *self {
-            Self::Buf(ref buf) => buf.remaining(),
-            Self::Chunk(ref buf) => buf.remaining(),
-            Self::Static(ref buf) => buf.remaining(),
-        }
-    }
-
-    #[inline]
-    fn chunk(&self) -> &[u8] {
-        match *self {
-            Self::Buf(ref buf) => buf.chunk(),
-            Self::Chunk(ref buf) => buf.chunk(),
-            Self::Static(ref buf) => buf.chunk(),
-        }
-    }
-
-    #[inline]
-    fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
-        match *self {
-            Self::Buf(ref buf) => buf.chunks_vectored(dst),
-            Self::Chunk(ref buf) => buf.chunks_vectored(dst),
-            Self::Static(ref buf) => buf.chunks_vectored(dst),
-        }
-    }
-
-    #[inline]
-    fn advance(&mut self, cnt: usize) {
-        match *self {
-            Self::Buf(ref mut buf) => buf.advance(cnt),
-            Self::Chunk(ref mut buf) => buf.advance(cnt),
-            Self::Static(ref mut buf) => buf.advance(cnt),
-        }
-    }
-}
-
 // as special type for eof chunk when using transfer-encoding: chunked
 type Eof = Chain<Chain<Bytes, Bytes>, &'static [u8]>;
+
+type EncodedBuf<B, B2> = EitherBuf<B, EitherBuf<B2, &'static [u8]>>;
 
 // buf list is forced to go in backpressure when it reaches this length.
 // 32 is chosen for max of 16 pipelined http requests with a single body item.
@@ -231,18 +190,18 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
         let buf = &mut self.buf;
         let res = func(buf)?;
         let bytes = buf.split().freeze();
-        self.buffer(EncodedBuf::Buf(bytes));
+        self.buffer(EitherBuf::Left(bytes));
         Ok(res)
     }
 
     #[inline]
     fn buf_static(&mut self, bytes: &'static [u8]) {
-        self.buffer(EncodedBuf::Static(bytes));
+        self.buffer(EitherBuf::Right(EitherBuf::Right(bytes)));
     }
 
     #[inline]
     fn buf_bytes(&mut self, bytes: Bytes) {
-        self.buffer(EncodedBuf::Buf(bytes));
+        self.buffer(EitherBuf::Left(bytes));
     }
 
     #[inline]
@@ -251,16 +210,16 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
             .chain(bytes)
             .chain(b"\r\n" as &'static [u8]);
 
-        self.buffer(EncodedBuf::Chunk(eof));
+        self.buffer(EitherBuf::Right(EitherBuf::Left(eof)));
     }
 
     fn try_write<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
         let queue = &mut self.list;
         while !queue.is_empty() {
-            let mut buf = [io::IoSlice::new(&[]); BUF_LIST_CNT];
-            let n = queue.chunks_vectored(&mut buf);
+            let mut buf = uninit::uninit_array::<_, BUF_LIST_CNT>();
+            let slice = queue.chunks_vectored_uninit_into_init(&mut buf);
 
-            match io.try_write_vectored(&buf[..n]) {
+            match io.try_write_vectored(slice) {
                 Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(n) => queue.advance(n),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),

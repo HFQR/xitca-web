@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["http1"]
-http1 = ["httparse", "itoa"]
+http1 = ["httparse", "itoa", "xitca-unsafe-collection/bytes"]
 http2 = ["h2", "futures-util/alloc"]
 http3 = ["xitca-io/http3", "futures-util/alloc", "futures-intrusive", "h3", "h3-quinn"]
 openssl = ["futures-task", "openssl-crate", "tokio-openssl", "tokio-util/io"]
