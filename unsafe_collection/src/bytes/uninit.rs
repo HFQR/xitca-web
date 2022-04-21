@@ -15,8 +15,8 @@ mod sealed {
 pub trait ChunkVectoredUninit: sealed::Sealed {
     /// # Safety:
     ///
-    /// MUST write to dst slice continuously start from index 0.
-    /// MUST NOT skip to next index without writing initialized item to previous index.
+    /// MUST write to dst slice continuously start from 0 index.
+    /// MUST NOT skip to N + 1 index without writing initialized item to N index.
     /// MAY write to certain index multiple times.
     unsafe fn chunks_vectored_uninit<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> usize;
 }
@@ -63,6 +63,20 @@ impl<B: ChunkVectoredUninit, const LEN: usize> ChunkVectoredUninit for BufList<B
 }
 
 impl<B: ChunkVectoredUninit, const LEN: usize> BufList<B, LEN> {
+    /// Write the item inside BufList in front-end order to given uninitialized slice and return
+    /// the initialized part as a new slice.
+    ///
+    /// # Example:
+    /// ```rust
+    /// let mut lst = xitca_unsafe_collection::bytes::BufList::<&[u8], 6>::new();
+    /// lst.push(&b"996"[..]);
+    /// lst.push(&b"007"[..]);
+    /// let mut dst = xitca_unsafe_collection::uninit::uninit_array::<std::io::IoSlice<'_>, 8>();
+    /// let init_slice = lst.chunks_vectored_uninit_into_init(&mut dst);
+    /// assert_eq!(init_slice.len(), 2);
+    /// assert_eq!(&*init_slice[0], &b"996"[..]);
+    /// assert_eq!(&*init_slice[1], &b"007"[..]);
+    /// ```
     pub fn chunks_vectored_uninit_into_init<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> &mut [IoSlice<'a>] {
         // SAFETY:
         //
