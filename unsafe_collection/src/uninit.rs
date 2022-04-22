@@ -22,8 +22,6 @@ mod sealed {
     pub trait Sealed {}
 }
 
-use std::mem::transmute;
-
 impl<T> sealed::Sealed for &mut [MaybeUninit<T>] {}
 
 /// Trait for safely initialize an unit slice.
