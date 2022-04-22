@@ -1,22 +1,24 @@
-use std::{borrow::Borrow, error, fmt, future::Future, marker::PhantomData};
+use std::{error, fmt, future::Future, marker::PhantomData};
 
 use xitca_service::{ready::ReadyService, MapErrorServiceFactory, Service, ServiceFactory, ServiceFactoryExt};
 
-use crate::http::{self, Method};
+use crate::{
+    http::{self, Method},
+    request::BorrowReq,
+};
 
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {
-        pub fn $method_fn<R, Req, ReqB>(
+        pub fn $method_fn<R, Req>(
             route: R,
         ) -> Route<
             MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
             MethodNotAllowed<R::Response, R::Error>,
-            ReqB,
             1,
         >
         where
             R: ServiceFactory<Req>,
-            Req: Borrow<http::Request<ReqB>>,
+            Req: BorrowReq<http::Method>,
         {
             Route::new(route).methods([Method::$method])
         }
@@ -33,32 +35,29 @@ method!(connect, CONNECT);
 method!(patch, PATCH);
 method!(trace, TRACE);
 
-pub struct Route<R, N, ReqB, const M: usize> {
+pub struct Route<R, N, const M: usize> {
     methods: [Method; M],
     route: R,
     next: N,
-    _req_body: PhantomData<ReqB>,
 }
 
-impl<ReqB> Route<(), (), ReqB, 0> {
+impl Route<(), (), 0> {
     #[allow(clippy::type_complexity)]
     pub fn new<R, Req>(
         route: R,
     ) -> Route<
         MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
         MethodNotAllowed<R::Response, R::Error>,
-        ReqB,
         0,
     >
     where
         R: ServiceFactory<Req>,
-        Req: Borrow<http::Request<ReqB>>,
+        Req: BorrowReq<http::Method>,
     {
         Route {
             methods: [],
             route: route.map_err(RouteError::Service),
             next: MethodNotAllowed::default(),
-            _req_body: PhantomData,
         }
     }
 }
@@ -68,24 +67,19 @@ macro_rules! route_method {
         pub fn $method_fn<N1, Req>(
             self,
             $method_fn: N1,
-        ) -> Route<
-            R,
-            Route<MapErrorServiceFactory<N1, impl Fn(N1::Error) -> RouteError<N1::Error> + Clone>, N, ReqB, 1>,
-            ReqB,
-            M,
-        >
+        ) -> Route<R, Route<MapErrorServiceFactory<N1, impl Fn(N1::Error) -> RouteError<N1::Error> + Clone>, N, 1>, M>
         where
             R: ServiceFactory<Req>,
             N1: ServiceFactory<Req>,
-            Req: Borrow<http::Request<ReqB>>,
+            Req: BorrowReq<http::Method>,
         {
             self.next(Route::new($method_fn).methods([Method::$method]))
         }
     };
 }
 
-impl<R, N, ReqB, const M: usize> Route<R, N, ReqB, M> {
-    pub fn methods<const M1: usize>(self, methods: [Method; M1]) -> Route<R, N, ReqB, M1> {
+impl<R, N, const M: usize> Route<R, N, M> {
+    pub fn methods<const M1: usize>(self, methods: [Method; M1]) -> Route<R, N, M1> {
         assert!(M1 > 0, "Route method can not be empty");
 
         if M != 0 {
@@ -99,18 +93,14 @@ impl<R, N, ReqB, const M: usize> Route<R, N, ReqB, M> {
             methods,
             route: self.route,
             next: self.next,
-            _req_body: PhantomData,
         }
     }
 
-    pub fn next<Req, R1, N1, const M1: usize>(
-        self,
-        next: Route<R1, N1, ReqB, M1>,
-    ) -> Route<R, Route<R1, N, ReqB, M1>, ReqB, M>
+    pub fn next<Req, R1, N1, const M1: usize>(self, next: Route<R1, N1, M1>) -> Route<R, Route<R1, N, M1>, M>
     where
         R: ServiceFactory<Req>,
         N1: ServiceFactory<Req>,
-        Req: Borrow<http::Request<ReqB>>,
+        Req: BorrowReq<http::Method>,
     {
         Route {
             methods: self.methods,
@@ -119,9 +109,7 @@ impl<R, N, ReqB, const M: usize> Route<R, N, ReqB, M> {
                 methods: next.methods,
                 route: next.route,
                 next: self.next,
-                _req_body: PhantomData,
             },
-            _req_body: PhantomData,
         }
     }
 
@@ -136,16 +124,16 @@ impl<R, N, ReqB, const M: usize> Route<R, N, ReqB, M> {
     route_method!(trace, TRACE);
 }
 
-impl<Req, ReqB, Arg, R, N, const M: usize> ServiceFactory<Req, Arg> for Route<R, N, ReqB, M>
+impl<Req, Arg, R, N, const M: usize> ServiceFactory<Req, Arg> for Route<R, N, M>
 where
     R: ServiceFactory<Req, Arg>,
     N: ServiceFactory<Req, Arg, Response = R::Response, Error = R::Error>,
-    Req: Borrow<http::Request<ReqB>>,
+    Req: BorrowReq<http::Method>,
     Arg: Clone,
 {
     type Response = R::Response;
     type Error = R::Error;
-    type Service = Route<R::Service, N::Service, ReqB, M>;
+    type Service = Route<R::Service, N::Service, M>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
@@ -158,21 +146,16 @@ where
             let route = route.await?;
             let next = next.await?;
             // re-use Route for Service trait type.
-            Ok(Route {
-                methods,
-                route,
-                next,
-                _req_body: PhantomData,
-            })
+            Ok(Route { methods, route, next })
         }
     }
 }
 
-impl<Req, ReqB, R, N, const M: usize> Service<Req> for Route<R, N, ReqB, M>
+impl<Req, R, N, const M: usize> Service<Req> for Route<R, N, M>
 where
     R: Service<Req>,
     N: Service<Req, Response = R::Response, Error = R::Error>,
-    Req: Borrow<http::Request<ReqB>>,
+    Req: BorrowReq<http::Method>,
 {
     type Response = R::Response;
     type Error = R::Error;
@@ -181,7 +164,7 @@ where
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
-            if self.methods.contains(req.borrow().method()) {
+            if self.methods.contains(req.borrow()) {
                 self.route.call(req).await
             } else {
                 self.next.call(req).await
@@ -190,11 +173,11 @@ where
     }
 }
 
-impl<Req, ReqB, R, N, const M: usize> ReadyService<Req> for Route<R, N, ReqB, M>
+impl<Req, R, N, const M: usize> ReadyService<Req> for Route<R, N, M>
 where
     R: Service<Req>,
     N: Service<Req, Response = R::Response, Error = R::Error>,
-    Req: Borrow<http::Request<ReqB>>,
+    Req: BorrowReq<http::Method>,
 {
     type Ready = ();
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;

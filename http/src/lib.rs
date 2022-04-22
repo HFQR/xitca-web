@@ -8,7 +8,6 @@
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 mod builder;
-mod request;
 mod response;
 mod service;
 mod tls;
@@ -17,6 +16,7 @@ mod version;
 pub mod body;
 pub mod date;
 pub mod error;
+pub mod request;
 
 #[cfg(feature = "http1")]
 pub mod h1;
