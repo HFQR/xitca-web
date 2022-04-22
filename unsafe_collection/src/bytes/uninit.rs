@@ -1,9 +1,8 @@
-use std::{
-    io::IoSlice,
-    mem::{self, MaybeUninit},
-};
+use std::{io::IoSlice, mem::MaybeUninit};
 
 use bytes_crate::{buf::Chain, Buf, Bytes};
+
+use crate::uninit;
 
 use super::buf_list::{BufList, EitherBuf};
 
@@ -77,14 +76,17 @@ impl<B: ChunkVectoredUninit, const LEN: usize> BufList<B, LEN> {
     /// assert_eq!(&*init_slice[0], &b"996"[..]);
     /// assert_eq!(&*init_slice[1], &b"007"[..]);
     /// ```
-    pub fn chunks_vectored_uninit_into_init<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> &mut [IoSlice<'a>] {
+    pub fn chunks_vectored_uninit_into_init<'a, 's>(
+        &'a self,
+        dst: &'s mut [MaybeUninit<IoSlice<'a>>],
+    ) -> &'s mut [IoSlice<'a>] {
         // SAFETY:
         //
         // ChunkVectoredUninit is only implemented for types inside this module.
         // Every implementation MUST make sure to follow the safety rule.
         unsafe {
             let len = self.chunks_vectored_uninit(dst);
-            mem::transmute(&mut dst[..len])
+            uninit::slice_assume_init_mut(&mut dst[..len])
         }
     }
 }
