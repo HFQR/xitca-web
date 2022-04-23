@@ -9,7 +9,7 @@ use super::{boxed::BoxedServiceFactory, ServiceFactory};
 pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
     fn map<F, Res>(self, mapper: F) -> PipelineT<Self, F, marker::Map>
     where
-        F: Fn(Result<Self::Response, Self::Error>) -> Result<Res, Self::Error> + Clone,
+        F: Fn(Self::Response) -> Res + Clone,
         Self: Sized,
     {
         PipelineT::new(self, mapper)

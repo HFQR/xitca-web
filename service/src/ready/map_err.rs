@@ -13,9 +13,6 @@ where
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
 
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move {
-            let first = self.first.ready().await.map_err(&self.second)?;
-            Ok(first)
-        }
+        async move { self.first.ready().await.map_err(&self.second) }
     }
 }

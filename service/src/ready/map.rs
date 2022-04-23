@@ -5,7 +5,7 @@ use super::ReadyService;
 impl<S, Req, F, Res> ReadyService<Req> for PipelineT<S, F, Map>
 where
     S: ReadyService<Req>,
-    F: Fn(Result<S::Response, S::Error>) -> Result<Res, S::Error>,
+    F: Fn(S::Response) -> Res,
 {
     type Ready = S::Ready;
     type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
