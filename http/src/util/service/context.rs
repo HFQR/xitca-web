@@ -185,7 +185,7 @@ where
     }
 }
 
-mod object {
+pub mod object {
     use super::*;
 
     use std::{boxed::Box, marker::PhantomData};
