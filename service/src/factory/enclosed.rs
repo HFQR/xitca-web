@@ -1,14 +1,10 @@
 use core::future::Future;
 
-use super::{
-    pipeline::{marker, PipelineServiceFactory},
-    ServiceFactory,
-};
+use crate::pipeline::{marker::Enclosed, PipelineT};
 
-/// Type alias for specialized [PipelineServiceFactory].
-pub type EnclosedFactory<F, T> = PipelineServiceFactory<F, T, marker::Enclosed>;
+use super::ServiceFactory;
 
-impl<F, Req, Arg, T> ServiceFactory<Req, Arg> for PipelineServiceFactory<F, T, marker::Enclosed>
+impl<F, Req, Arg, T> ServiceFactory<Req, Arg> for PipelineT<F, T, Enclosed>
 where
     F: ServiceFactory<Req, Arg>,
     T: ServiceFactory<Req, F::Service> + Clone,
@@ -20,8 +16,8 @@ where
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
-        let service = self.factory.new_service(arg);
-        let middleware = self.factory2.clone();
+        let service = self.first.new_service(arg);
+        let middleware = self.second.clone();
         async move {
             let service = service.await?;
             let middleware = middleware.new_service(service).await?;

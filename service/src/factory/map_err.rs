@@ -1,16 +1,10 @@
 use core::future::Future;
 
-use crate::service::pipeline::PipelineService;
+use crate::pipeline::{marker::MapErr, PipelineT};
 
-use super::{
-    pipeline::{marker, PipelineServiceFactory},
-    ServiceFactory,
-};
+use super::ServiceFactory;
 
-// TODO: temporary public type alias that should be removed in the future.
-pub type MapErrorServiceFactory<SF, SF1> = PipelineServiceFactory<SF, SF1, marker::MapErr>;
-
-impl<SF, Req, Arg, SF1, E> ServiceFactory<Req, Arg> for PipelineServiceFactory<SF, SF1, marker::MapErr>
+impl<SF, Req, Arg, SF1, E> ServiceFactory<Req, Arg> for PipelineT<SF, SF1, MapErr>
 where
     SF: ServiceFactory<Req, Arg>,
 
@@ -18,16 +12,15 @@ where
 {
     type Response = SF::Response;
     type Error = E;
-    type Service = PipelineService<SF::Service, SF1, marker::MapErr>;
+    type Service = PipelineT<SF::Service, SF1, MapErr>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
-        let service = self.factory.new_service(arg);
-        let mapper = self.factory2.clone();
+        let service = self.first.new_service(arg);
+        let mapper = self.second.clone();
         async move {
             let service = service.await.map_err(&mapper)?;
-
-            Ok(PipelineService::new(service, mapper))
+            Ok(PipelineT::new(service, mapper))
         }
     }
 }
