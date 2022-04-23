@@ -1,8 +1,8 @@
-use crate::{factory::pipeline::marker, service::pipeline::PipelineService};
+use crate::pipeline::{marker::Map, PipelineT};
 
 use super::ReadyService;
 
-impl<S, Req, F, Res> ReadyService<Req> for PipelineService<S, F, marker::Map>
+impl<S, Req, F, Res> ReadyService<Req> for PipelineT<S, F, Map>
 where
     S: ReadyService<Req>,
     F: Fn(Result<S::Response, S::Error>) -> Result<Res, S::Error>,
@@ -12,6 +12,6 @@ where
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        self.service.ready()
+        self.first.ready()
     }
 }

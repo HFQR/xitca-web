@@ -1,10 +1,10 @@
 use core::future::Future;
 
-use crate::factory::pipeline::marker::AndThen;
+use crate::pipeline::{marker::AndThen, PipelineT};
 
-use super::{pipeline::PipelineService, Service};
+use super::Service;
 
-impl<S, Req, S1> Service<Req> for PipelineService<S, S1, AndThen>
+impl<S, Req, S1> Service<Req> for PipelineT<S, S1, AndThen>
 where
     S: Service<Req>,
     S1: Service<S::Response>,
@@ -17,8 +17,8 @@ where
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
-            let res = self.service.call(req).await?;
-            self.service2.call(res).await
+            let res = self.first.call(req).await?;
+            self.second.call(res).await
         }
     }
 }

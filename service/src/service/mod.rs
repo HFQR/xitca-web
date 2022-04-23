@@ -1,5 +1,3 @@
-pub(crate) mod pipeline;
-
 mod and_then;
 mod enclosed_fn;
 mod map;

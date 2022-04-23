@@ -292,6 +292,13 @@ mod test {
 
     #[tokio::test]
     async fn test_state_in_router() {
+        async fn enclosed<S, Req, C, Res, Err>(service: &S, req: &mut Context<'_, Req, C>) -> Result<Res, Err>
+        where
+            S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>,
+        {
+            service.call(req).await
+        }
+
         let router = GenericRouter::with_custom_object::<super::object::ContextObjectConstructor<_, _>>()
             .insert("/", get(fn_service(handler)));
 

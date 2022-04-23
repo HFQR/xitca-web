@@ -1,5 +1,4 @@
 pub(crate) mod function;
-pub(crate) mod pipeline;
 
 mod and_then;
 mod boxed;
@@ -10,11 +9,8 @@ mod map;
 mod map_err;
 
 pub use self::{
-    enclosed::EnclosedFactory,
-    enclosed_fn::EnclosedFnFactory,
     ext::ServiceFactoryExt,
     function::{fn_factory, fn_service},
-    map_err::MapErrorServiceFactory,
 };
 
 use core::future::Future;
