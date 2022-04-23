@@ -7,8 +7,7 @@ use super::ReadyService;
 impl<S, Req, S1> ReadyService<Req> for PipelineT<S, S1, AndThen>
 where
     S: ReadyService<Req>,
-    S1: ReadyService<S::Response>,
-    S1::Error: From<S::Error>,
+    S1: ReadyService<S::Response, Error = S::Error>,
 {
     type Ready = PipelineT<S::Ready, S1::Ready>;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;

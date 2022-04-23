@@ -19,6 +19,30 @@ where
     }
 }
 
+impl<F, S> Pipeline<F, S>
+where
+    F: From<S>,
+{
+    pub fn into_first(self) -> F {
+        match self {
+            Self::First(f) => f,
+            Self::Second(s) => F::from(s),
+        }
+    }
+}
+
+impl<F, S> Pipeline<F, S>
+where
+    S: From<F>,
+{
+    pub fn into_second(self) -> S {
+        match self {
+            Self::First(f) => S::from(f),
+            Self::Second(s) => s,
+        }
+    }
+}
+
 impl<F, S> Debug for Pipeline<F, S>
 where
     F: Debug,
