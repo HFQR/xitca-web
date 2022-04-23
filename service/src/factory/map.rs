@@ -7,7 +7,7 @@ use super::ServiceFactory;
 impl<SF, Req, Arg, SF1, Res> ServiceFactory<Req, Arg> for PipelineT<SF, SF1, Map>
 where
     SF: ServiceFactory<Req, Arg>,
-    SF1: Fn(Result<SF::Response, SF::Error>) -> Result<Res, SF::Error> + Clone,
+    SF1: Fn(SF::Response) -> Res + Clone,
 {
     type Response = Res;
     type Error = SF::Error;

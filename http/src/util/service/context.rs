@@ -300,7 +300,8 @@ mod test {
         }
 
         let router = GenericRouter::with_custom_object::<super::object::ContextObjectConstructor<_, _>>()
-            .insert("/", get(fn_service(handler)));
+            .insert("/", get(fn_service(handler)))
+            .enclosed_fn(enclosed);
 
         let service = ContextBuilder::new(|| async { Ok(String::from("string_state")) })
             .service(router)

@@ -7,11 +7,8 @@ use super::ServiceFactory;
 impl<SF, Req, SF1, Arg> ServiceFactory<Req, Arg> for PipelineT<SF, SF1, AndThen>
 where
     SF: ServiceFactory<Req, Arg>,
-
     Arg: Clone,
-
-    SF1: ServiceFactory<SF::Response, Arg>,
-    SF1::Error: From<SF::Error>,
+    SF1: ServiceFactory<SF::Response, Arg, Error = SF::Error>,
 {
     type Response = SF1::Response;
     type Error = SF1::Error;

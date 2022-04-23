@@ -9,7 +9,7 @@ use super::{boxed::BoxedServiceFactory, ServiceFactory};
 pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
     fn map<F, Res>(self, mapper: F) -> PipelineT<Self, F, marker::Map>
     where
-        F: Fn(Result<Self::Response, Self::Error>) -> Result<Res, Self::Error> + Clone,
+        F: Fn(Self::Response) -> Res + Clone,
         Self: Sized,
     {
         PipelineT::new(self, mapper)
@@ -132,13 +132,17 @@ mod test {
 
     #[tokio::test]
     async fn map() {
-        let factory = fn_service(index)
-            .map(|res| {
-                let str = res?;
-                assert_eq!(str, "996");
-                Err::<(), _>(())
-            })
-            .map_err(|_| "251");
+        let factory = fn_service(index).map(|_| "251");
+
+        let service = factory.new_service(()).await.unwrap();
+
+        let err = service.call("996").await.ok().unwrap();
+        assert_eq!(err, "251");
+    }
+
+    #[tokio::test]
+    async fn map_err() {
+        let factory = fn_service(|_: &str| async { Err::<(), _>(()) }).map_err(|_| "251");
 
         let service = factory.new_service(()).await.unwrap();
 
