@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData};
 
-use xitca_service::{ready::ReadyService, Service, ServiceFactory};
+use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service, ServiceFactory};
 
 use crate::request::{BorrowReq, BorrowReqMut};
 
@@ -73,7 +73,7 @@ impl<CF, C, SF> ContextBuilder<CF, C, SF> {
     /// The constructor of service type that would receive state.
     pub fn service<Req, SF1>(self, factory: SF1) -> ContextBuilder<CF, C, SF1>
     where
-        ContextBuilder<CF, C, SF1>: ServiceFactory<Req, ()>,
+        ContextBuilder<CF, C, SF1>: ServiceFactory<Req>,
     {
         ContextBuilder {
             ctx_factory: self.ctx_factory,
@@ -117,47 +117,52 @@ where
     }
 }
 
+/// Error type for [ContextBuilder] as [ServiceFactory] and [ContextService] as [Service]
+pub type ContextError<A, B> = PipelineE<A, B>;
+
 impl<CF, Fut, C, CErr, F, S, Req, Arg, Res, Err> ServiceFactory<Req, Arg> for ContextBuilder<CF, C, F>
 where
     CF: Fn() -> Fut,
-    Fut: Future<Output = Result<C, CErr>> + 'static,
-    C: 'static,
+    Fut: Future<Output = Result<C, CErr>>,
     Req: 'static,
+    C: 'static,
     F: for<'c, 's> ServiceFactory<&'c mut Context<'s, Req, C>, Arg, Service = S, Response = Res, Error = Err>,
-    S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err> + 'static,
-    Err: From<CErr>,
+    S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>,
 {
     type Response = Res;
-    type Error = Err;
-    type Service = ContextService<C, S>;
+    type Error = PipelineE<CErr, Err>;
+    type Service = ContextService<C, CErr, S>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
         let state = (self.ctx_factory)();
         let service = self.service_factory.new_service(arg);
         async {
-            let state = state.await?;
-            let service = service.await?;
-            Ok(ContextService { service, state })
+            let state = state.await.map_err(ContextError::First)?;
+            let service = service.await.map_err(ContextError::Second)?;
+            Ok(ContextService {
+                service,
+                state,
+                _ctx_err: PhantomData,
+            })
         }
     }
 }
 
 #[doc(hidden)]
-pub struct ContextService<C, S> {
+pub struct ContextService<C, CErr, S> {
     state: C,
     service: S,
+    _ctx_err: PhantomData<CErr>,
 }
 
-impl<Req, C, S, Res, Err> Service<Req> for ContextService<C, S>
+impl<Req, C, CErr, S, Res, Err> Service<Req> for ContextService<C, CErr, S>
 where
-    Req: 'static,
-    C: 'static,
-    S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err> + 'static,
+    S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>,
 {
     type Response = Res;
-    type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Error = ContextError<CErr, Err>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
@@ -167,21 +172,20 @@ where
                     state: &self.state,
                 })
                 .await
+                .map_err(ContextError::Second)
         }
     }
 }
 
-impl<Req, C, S, R, Res, Err> ReadyService<Req> for ContextService<C, S>
+impl<Req, C, CErr, S, R, Res, Err> ReadyService<Req> for ContextService<C, CErr, S>
 where
-    Req: 'static,
-    C: 'static,
-    S: for<'c, 's> ReadyService<&'c mut Context<'s, Req, C>, Response = Res, Error = Err, Ready = R> + 'static,
+    S: for<'c, 's> ReadyService<&'c mut Context<'s, Req, C>, Response = Res, Error = Err, Ready = R>,
 {
     type Ready = R;
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>>;
+    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
 
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        self.service.ready()
+        async move { self.service.ready().await.map_err(ContextError::Second) }
     }
 }
 
@@ -303,7 +307,7 @@ mod test {
             .insert("/", get(fn_service(handler)))
             .enclosed_fn(enclosed);
 
-        let service = ContextBuilder::new(|| async { Ok(String::from("string_state")) })
+        let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(router)
             .new_service(())
             .await
