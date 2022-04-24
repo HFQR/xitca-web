@@ -2,61 +2,54 @@ use std::{convert::Infallible, fmt, future::Future, ops::Deref, str::FromStr};
 
 use xitca_http::util::service::FromRequest;
 
-use crate::{http::header::HeaderValue, request::WebRequest};
+use crate::{
+    http::header::{self, HeaderValue},
+    request::WebRequest,
+};
 
-// write all header names to given macro.
-macro_rules! apply_header_names {
-    ($header_name: ident; $macro_name: ident) => {
-        $macro_name! {
-            $header_name;
-            ACCEPT,
-            ACCEPT_ENCODING,
-            HOST,
-            CONTENT_TYPE,
-            CONTENT_LENGTH
-        }
+macro_rules! const_header_name {
+    ($n:expr ;) => {};
+    ($n:expr ; $i: ident $(, $rest:ident)*) => {
+        pub const $i: usize = $n;
+        const_header_name!($n + 1; $($rest),*);
     };
+    ($($i:ident), +) => { const_header_name!(0; $($i),*); };
 }
 
-// hgenerate HeaderName enum. header_name ident is not used.
-macro_rules! header_name_enum {
-    ($header_name: ident; $($name: ident),*) => {
-        #[allow(non_camel_case_types)]
-        /// HeaderName enum for Extracting according HeaderValue.
-        #[derive(Debug, Eq, PartialEq)]
-        pub enum HeaderName {
+macro_rules! map_to_header_name {
+    ($($i:ident), +) => {
+        const fn map_to_header_name<const HEADER_NAME: usize>() -> header::HeaderName {
+            match HEADER_NAME  {
             $(
-                $name
-            ),*
+                $i => header::$i,
+            )*
+                _ => unreachable!()
+            }
         }
     }
 }
 
-apply_header_names!(_nah; header_name_enum);
-
-// map HeaderName variant to according http::header::<HeaderName>
-macro_rules! match_header_name {
-    ($name: expr; $($header_name: ident),*) => {
-        match $name {
-             $(
-                HeaderName::$header_name => crate::http::header::$header_name
-            ),*
-        }
+macro_rules! const_header_name_impl {
+    ($($i:ident), +) => {
+        const_header_name!($($i), +);
+        map_to_header_name!($($i), +);
     }
 }
 
-pub struct HeaderRef<'a, const HEADER_NAME: HeaderName>(&'a HeaderValue);
+const_header_name_impl!(ACCEPT, ACCEPT_ENCODING, HOST, CONTENT_TYPE, CONTENT_LENGTH);
 
-impl<const HEADER_NAME: HeaderName> fmt::Debug for HeaderRef<'_, HEADER_NAME> {
+pub struct HeaderRef<'a, const HEADER_NAME: usize>(&'a HeaderValue);
+
+impl<const HEADER_NAME: usize> fmt::Debug for HeaderRef<'_, HEADER_NAME> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Header")
-            .field("name", &HEADER_NAME)
+            .field("name", &map_to_header_name::<HEADER_NAME>())
             .field("value", &self.0)
             .finish()
     }
 }
 
-impl<const HEADER_NAME: HeaderName> Deref for HeaderRef<'_, HEADER_NAME> {
+impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
     type Target = HeaderValue;
 
     fn deref(&self) -> &Self::Target {
@@ -64,7 +57,7 @@ impl<const HEADER_NAME: HeaderName> Deref for HeaderRef<'_, HEADER_NAME> {
     }
 }
 
-impl<'a, 'r, 's, S, const HEADER_NAME: HeaderName> FromRequest<'a, &'r mut WebRequest<'s, S>>
+impl<'a, 'r, 's, S, const HEADER_NAME: usize> FromRequest<'a, &'r mut WebRequest<'s, S>>
     for HeaderRef<'a, HEADER_NAME>
 {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
@@ -74,13 +67,14 @@ impl<'a, 'r, 's, S, const HEADER_NAME: HeaderName> FromRequest<'a, &'r mut WebRe
     #[inline]
     fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
         async move {
-            let header_name = apply_header_names!(HEADER_NAME; match_header_name);
-            Ok(HeaderRef(req.req().headers().get(header_name).unwrap()))
+            Ok(HeaderRef(
+                req.req().headers().get(&map_to_header_name::<HEADER_NAME>()).unwrap(),
+            ))
         }
     }
 }
 
-impl<const HEADER_NAME: HeaderName> HeaderRef<'_, HEADER_NAME> {
+impl<const HEADER_NAME: usize> HeaderRef<'_, HEADER_NAME> {
     // TODO: handle error.
     pub fn try_parse<T>(&self) -> Result<T, Infallible>
     where
