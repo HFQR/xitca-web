@@ -24,11 +24,11 @@ impl<const LIMIT: usize> Context<LIMIT> {
         }
     }
 
-    pub(super) fn req_is_full(&self) -> bool {
+    pub(super) const fn req_is_full(&self) -> bool {
         self.req.is_full()
     }
 
-    pub(super) fn req_is_empty(&self) -> bool {
+    pub(super) const fn req_is_empty(&self) -> bool {
         self.req.is_empty()
     }
 

@@ -1,29 +1,26 @@
 use crate::{
     async_closure::AsyncClosure,
     object::{DefaultObjectConstructor, ObjectConstructor},
+    pipeline::{marker, PipelineT},
 };
 
-use super::{
-    boxed::BoxedServiceFactory,
-    pipeline::{marker, PipelineServiceFactory},
-    ServiceFactory,
-};
+use super::{boxed::BoxedServiceFactory, ServiceFactory};
 
 pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
-    fn map<F, Res>(self, mapper: F) -> PipelineServiceFactory<Self, F, marker::Map>
+    fn map<F, Res>(self, mapper: F) -> PipelineT<Self, F, marker::Map>
     where
-        F: Fn(Result<Self::Response, Self::Error>) -> Result<Res, Self::Error> + Clone,
+        F: Fn(Self::Response) -> Res + Clone,
         Self: Sized,
     {
-        PipelineServiceFactory::new(self, mapper)
+        PipelineT::new(self, mapper)
     }
 
-    fn map_err<F, E>(self, err: F) -> PipelineServiceFactory<Self, F, marker::MapErr>
+    fn map_err<F, E>(self, err: F) -> PipelineT<Self, F, marker::MapErr>
     where
         F: Fn(Self::Error) -> E + Clone,
         Self: Sized,
     {
-        PipelineServiceFactory::new(self, err)
+        PipelineT::new(self, err)
     }
 
     /// Box `<Self as ServiceFactory<_>>::Future` to reduce it's stack size.
@@ -38,28 +35,28 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
 
     /// Chain another service factory who's service takes `Self`'s `Service::Response` output as
     /// `Service::Request`.
-    fn and_then<F>(self, factory: F) -> PipelineServiceFactory<Self, F, marker::AndThen>
+    fn and_then<F>(self, factory: F) -> PipelineT<Self, F, marker::AndThen>
     where
         F: ServiceFactory<Self::Response, Arg>,
         Self: Sized,
     {
-        PipelineServiceFactory::new(self, factory)
+        PipelineT::new(self, factory)
     }
 
-    fn enclosed<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::Enclosed>
+    fn enclosed<T>(self, transform: T) -> PipelineT<Self, T, marker::Enclosed>
     where
         T: ServiceFactory<Req, Self::Service> + Clone,
         Self: ServiceFactory<Req, Arg> + Sized,
     {
-        PipelineServiceFactory::new(self, transform)
+        PipelineT::new(self, transform)
     }
 
-    fn enclosed_fn<T>(self, transform: T) -> PipelineServiceFactory<Self, T, marker::EnclosedFn>
+    fn enclosed_fn<T>(self, transform: T) -> PipelineT<Self, T, marker::EnclosedFn>
     where
         T: for<'s> AsyncClosure<(&'s Self::Service, Req)> + Clone,
         Self: ServiceFactory<Req, Arg> + Sized,
     {
-        PipelineServiceFactory::new(self, transform)
+        PipelineT::new(self, transform)
     }
 
     /// Box self and cast it to a trait object.
@@ -135,13 +132,17 @@ mod test {
 
     #[tokio::test]
     async fn map() {
-        let factory = fn_service(index)
-            .map(|res| {
-                let str = res?;
-                assert_eq!(str, "996");
-                Err::<(), _>(())
-            })
-            .map_err(|_| "251");
+        let factory = fn_service(index).map(|_| "251");
+
+        let service = factory.new_service(()).await.unwrap();
+
+        let err = service.call("996").await.ok().unwrap();
+        assert_eq!(err, "251");
+    }
+
+    #[tokio::test]
+    async fn map_err() {
+        let factory = fn_service(|_: &str| async { Err::<(), _>(()) }).map_err(|_| "251");
 
         let service = factory.new_service(()).await.unwrap();
 

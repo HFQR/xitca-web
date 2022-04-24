@@ -1,13 +1,13 @@
 use core::future::Future;
 
-use crate::factory::pipeline::marker;
+use crate::pipeline::{marker::Map, PipelineT};
 
-use super::{pipeline::PipelineService, Service};
+use super::Service;
 
-impl<S, Req, F, Res> Service<Req> for PipelineService<S, F, marker::Map>
+impl<S, Req, F, Res> Service<Req> for PipelineT<S, F, Map>
 where
     S: Service<Req>,
-    F: Fn(Result<S::Response, S::Error>) -> Result<Res, S::Error>,
+    F: Fn(S::Response) -> Res,
 {
     type Response = Res;
     type Error = S::Error;
@@ -15,9 +15,6 @@ where
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
-        async move {
-            let res = self.service.call(req).await;
-            (self.service2)(res)
-        }
+        async move { self.first.call(req).await.map(&self.second) }
     }
 }

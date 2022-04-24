@@ -1,7 +1,8 @@
 use core::future::Future;
 
+use crate::service::Service;
+
 use super::ServiceFactory;
-use crate::Service;
 
 pub fn fn_service<F, Req, Fut, Res, Err>(f: F) -> FnServiceFactory<F>
 where

@@ -31,7 +31,9 @@ fn main() -> std::io::Result<()> {
             for _ in 0..64 {
                 file.write_all(HELLO).unwrap();
             }
-            App::with_current_thread_state(Rc::new(file)).service(fn_service(handler))
+            App::with_current_thread_state(Rc::new(file))
+                .at("/", fn_service(handler))
+                .finish()
         })
         .bind("127.0.0.1:8080")?
         .run()

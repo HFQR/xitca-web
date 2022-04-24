@@ -3,7 +3,6 @@ mod enclosed_fn;
 mod function;
 mod map;
 mod map_err;
-mod pipeline;
 
 use core::{future::Future, ops::Deref, pin::Pin};
 

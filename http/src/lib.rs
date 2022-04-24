@@ -8,7 +8,6 @@
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 mod builder;
-mod request;
 mod response;
 mod service;
 mod tls;
@@ -17,6 +16,7 @@ mod version;
 pub mod body;
 pub mod date;
 pub mod error;
+pub mod request;
 
 #[cfg(feature = "http1")]
 pub mod h1;
@@ -39,8 +39,20 @@ pub mod http {
     pub mod const_header_value {
         use super::*;
 
-        pub const TEXT_UTF8: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
-        pub const JSON: HeaderValue = HeaderValue::from_static("application/json");
+        macro_rules! const_value {
+            ($(($ident: ident, $expr: expr)), *) => {
+                $(
+                   pub const $ident: HeaderValue = HeaderValue::from_static($expr);
+                )*
+            }
+        }
+
+        const_value!(
+            (TEXT, "text/plain"),
+            (TEXT_UTF8, "text/plain; charset=utf-8"),
+            (JSON, "application/json"),
+            (TEXT_HTML_UTF8, "text/html; charset=utf-8")
+        );
     }
 
     /// Helper trait for convert a [Request] to [Response].

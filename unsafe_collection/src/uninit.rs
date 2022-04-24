@@ -1,12 +1,21 @@
 //! Collection for uninit slices.
 
-use core::mem::{self, MaybeUninit};
+use core::mem::MaybeUninit;
 
 /// A shortcut for create array of uninit type.
-#[inline]
+#[inline(always)]
 pub const fn uninit_array<T, const N: usize>() -> [MaybeUninit<T>; N] {
     // SAFETY: An uninitialized `[MaybeUninit<_>; LEN]` is valid.
     unsafe { MaybeUninit::uninit().assume_init() }
+}
+
+// SAFETY:
+//
+// It is up to the caller to guarantee that the `MaybeUninit<T>` elements
+// really are in an initialized state.
+// Calling this when the content is not yet fully initialized causes undefined behavior.
+pub(crate) unsafe fn slice_assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &mut [T] {
+    &mut *(slice as *mut [MaybeUninit<T>] as *mut [T])
 }
 
 mod sealed {
@@ -68,7 +77,7 @@ where
             .count();
 
         // SAFETY: The total initialized items are counted by iterator.
-        unsafe { mem::transmute(&mut uninit[..len]) }
+        unsafe { slice_assume_init_mut(&mut uninit[..len]) }
     }
 }
 

@@ -138,14 +138,8 @@ impl Drop for Client {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+fn _assert_send<C: Send>() {}
 
-    fn assert_send<C: Send>() {}
-
-    #[test]
-    fn is_send() {
-        assert_send::<Client>();
-    }
+fn _assert_client_send() {
+    _assert_send::<Client>();
 }

@@ -1,16 +1,13 @@
 use core::future::Future;
 
-use crate::{async_closure::AsyncClosure, service::pipeline::PipelineService};
-
-use super::{
-    pipeline::{marker, PipelineServiceFactory},
-    ServiceFactory,
+use crate::{
+    async_closure::AsyncClosure,
+    pipeline::{marker::EnclosedFn, PipelineT},
 };
 
-/// Type alias for specialized [PipelineServiceFactory].
-pub type EnclosedFnFactory<F, T> = PipelineServiceFactory<F, T, marker::EnclosedFn>;
+use super::ServiceFactory;
 
-impl<SF, Req, Arg, T, Res, Err> ServiceFactory<Req, Arg> for PipelineServiceFactory<SF, T, marker::EnclosedFn>
+impl<SF, Req, Arg, T, Res, Err> ServiceFactory<Req, Arg> for PipelineT<SF, T, EnclosedFn>
 where
     SF: ServiceFactory<Req, Arg>,
     T: for<'s> AsyncClosure<(&'s SF::Service, Req), Output = Result<Res, Err>> + Clone,
@@ -18,16 +15,15 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Service = PipelineService<SF::Service, T, marker::EnclosedFn>;
+    type Service = PipelineT<SF::Service, T, EnclosedFn>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
-        let service = self.factory.new_service(arg);
-        let transform = self.factory2.clone();
-
+        let service = self.first.new_service(arg);
+        let transform = self.second.clone();
         async move {
             let service = service.await?;
-            Ok(PipelineService::new(service, transform))
+            Ok(PipelineT::new(service, transform))
         }
     }
 }

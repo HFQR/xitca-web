@@ -1,23 +1,22 @@
 use core::future::Future;
 
-use crate::{factory::pipeline::marker, service::pipeline::PipelineService};
+use crate::pipeline::{marker::AndThen, PipelineT};
 
-use super::{pipeline::PipelineReady, ReadyService};
+use super::ReadyService;
 
-impl<S, Req, S1> ReadyService<Req> for PipelineService<S, S1, marker::AndThen>
+impl<S, Req, S1> ReadyService<Req> for PipelineT<S, S1, AndThen>
 where
     S: ReadyService<Req>,
-    S1: ReadyService<S::Response>,
-    S1::Error: From<S::Error>,
+    S1: ReadyService<S::Response, Error = S::Error>,
 {
-    type Ready = PipelineReady<S::Ready, S1::Ready>;
+    type Ready = PipelineT<S::Ready, S1::Ready>;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
 
     fn ready(&self) -> Self::ReadyFuture<'_> {
         async move {
-            let first = self.service.ready().await?;
-            let second = self.service2.ready().await?;
-            Ok(PipelineReady::new(first, second))
+            let first = self.first.ready().await?;
+            let second = self.second.ready().await?;
+            Ok(PipelineT::new(first, second))
         }
     }
 }

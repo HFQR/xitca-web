@@ -1,10 +1,10 @@
 use core::future::Future;
 
-use crate::factory::pipeline::marker;
+use crate::pipeline::{marker::MapErr, PipelineT};
 
-use super::{pipeline::PipelineService, Service};
+use super::Service;
 
-impl<S, Req, F, E> Service<Req> for PipelineService<S, F, marker::MapErr>
+impl<S, Req, F, E> Service<Req> for PipelineT<S, F, MapErr>
 where
     S: Service<Req>,
     F: Fn(S::Error) -> E,
@@ -15,6 +15,6 @@ where
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
-        async move { self.service.call(req).await.map_err(&self.service2) }
+        async move { self.first.call(req).await.map_err(&self.second) }
     }
 }
