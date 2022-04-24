@@ -12,6 +12,7 @@ use xitca_http::{
     },
     Request, RequestBody,
 };
+use xitca_service::ready::ReadyService;
 use xitca_service::{
     object::ObjectConstructor, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceFactory,
     ServiceFactoryExt,
@@ -154,6 +155,19 @@ where
         let (req, state) = req.borrow_parts_mut();
         let mut req = WebRequest::new(req, state);
         async move { self.service.call(&mut req).await }
+    }
+}
+
+impl<'c, 's, C, S, R, Res, Err> ReadyService<&'c mut Context<'s, Request<RequestBody>, C>> for MapRequestService<S>
+where
+    S: for<'c1, 's1> ReadyService<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err, Ready = R>,
+{
+    type Ready = R;
+    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where S: 'f;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async move { self.service.ready().await }
     }
 }
 

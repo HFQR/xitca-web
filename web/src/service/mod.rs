@@ -1,1 +1,1 @@
-pub use xitca_http::util::service::{handler_service, HandlerService};
+pub use xitca_http::util::service::*;

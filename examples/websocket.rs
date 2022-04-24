@@ -9,6 +9,7 @@ use xitca_web::{
     http,
     request::WebRequest,
     response::{ResponseBody, WebResponse},
+    service::get,
     App, HttpServer,
 };
 
@@ -25,7 +26,9 @@ async fn main() -> std::io::Result<()> {
     // construct http server
     HttpServer::new(move || {
         // construct an app with state and handler.
-        App::with_multi_thread_state(shared_state).service(fn_service(handler))
+        App::with_multi_thread_state(shared_state)
+            .at("/", get(fn_service(handler)))
+            .finish()
     })
     .max_write_buf_size::<16>()
     .bind("127.0.0.1:8080")?
