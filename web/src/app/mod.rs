@@ -1,38 +1,44 @@
+mod object;
+
 use std::{
     convert::Infallible,
     future::{ready, Future, Ready},
 };
 
-use xitca_http::{Request, RequestBody};
+use xitca_http::{
+    util::service::{
+        context::{Context, ContextBuilder},
+        GenericRouter,
+    },
+    Request, RequestBody,
+};
 use xitca_service::{
-    ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceFactory, ServiceFactoryExt,
+    object::ObjectConstructor, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceFactory,
+    ServiceFactoryExt,
 };
 
 use crate::request::WebRequest;
 
-// App keeps a similar API to xitca-web::App. But in real it can be much simpler.
+use self::object::WebObjectConstructor;
 
-pub struct App<SF = (), F = ()> {
-    state_factory: SF,
-    factory: F,
+pub struct App<CF = (), R = ()> {
+    ctx_factory: CF,
+    router: R,
 }
 
+type Router<C, SF> = GenericRouter<WebObjectConstructor<C>, SF>;
+
 impl App {
-    pub fn new() -> App<impl Fn() -> Ready<Result<(), ()>>> {
-        App {
-            state_factory: || ready(Ok(())),
-            factory: (),
-        }
+    pub fn new<SF>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<(), SF>> {
+        Self::with_async_state(|| ready(Ok(())))
     }
-}
 
-impl App {
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, Infallible>>>
+    pub fn with_current_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<C, SF>>
     where
-        State: Clone + 'static,
+        C: Clone + 'static,
     {
         Self::with_async_state(move || ready(Ok(state.clone())))
     }
@@ -40,118 +46,114 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<State>(state: State) -> App<impl Fn() -> Ready<Result<State, Infallible>>>
+    pub fn with_multi_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<C, SF>>
     where
-        State: Send + Sync + Clone + 'static,
+        C: Send + Sync + Clone + 'static,
     {
         Self::with_async_state(move || ready(Ok(state.clone())))
     }
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<SF, Fut, T, E>(state_factory: SF) -> App<SF>
+    pub fn with_async_state<CF, Fut, E, C, SF>(ctx_factory: CF) -> App<CF, Router<C, SF>>
     where
-        SF: Fn() -> Fut,
-        Fut: Future<Output = Result<T, E>>,
+        CF: Fn() -> Fut,
+        Fut: Future<Output = Result<C, E>>,
     {
         App {
-            state_factory,
-            factory: (),
+            ctx_factory,
+            router: GenericRouter::with_custom_object(),
         }
     }
 }
 
-impl<SF, F> App<SF, F> {
-    pub fn service<F1>(self, factory: F1) -> App<SF, F1>
+impl<CF, C, SF> App<CF, Router<C, SF>> {
+    pub fn at<F>(mut self, path: &'static str, factory: F) -> Self
     where
-        App<SF, F1>: ServiceFactory<Request<RequestBody>, ()>,
+        WebObjectConstructor<C>: ObjectConstructor<F, Object = SF>,
     {
-        App {
-            state_factory: self.state_factory,
-            factory,
-        }
-    }
-
-    pub fn enclosed<Req, T>(self, transform: T) -> App<SF, EnclosedFactory<F, T>>
-    where
-        F: ServiceFactory<Req>,
-        T: ServiceFactory<Req, F::Service> + Clone,
-    {
-        App {
-            state_factory: self.state_factory,
-            factory: self.factory.enclosed(transform),
-        }
-    }
-
-    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<SF, EnclosedFnFactory<F, T>>
-    where
-        F: ServiceFactory<Req>,
-        T: for<'s> AsyncClosure<(&'s F::Service, Req)> + Clone,
-    {
-        App {
-            state_factory: self.state_factory,
-            factory: self.factory.enclosed_fn(transform),
-        }
+        self.router = self.router.insert(path, factory);
+        self
     }
 }
 
-impl<SF, Fut, State, StateErr, F, S, Arg, Res, Err> ServiceFactory<Request<RequestBody>, Arg> for App<SF, F>
+impl<CF, R> App<CF, R> {
+    pub fn enclosed<Req, T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
+    where
+        R: ServiceFactory<Req>,
+        T: ServiceFactory<Req, R::Service> + Clone,
+    {
+        App {
+            ctx_factory: self.ctx_factory,
+            router: self.router.enclosed(transform),
+        }
+    }
+
+    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T>>
+    where
+        R: ServiceFactory<Req>,
+        T: for<'s> AsyncClosure<(&'s R::Service, Req)> + Clone,
+    {
+        App {
+            ctx_factory: self.ctx_factory,
+            router: self.router.enclosed_fn(transform),
+        }
+    }
+
+    pub fn finish<Req, Fut, C, CErr>(self) -> ContextBuilder<CF, C, MapRequest<R>>
+    where
+        CF: Fn() -> Fut,
+        Fut: Future<Output = Result<C, CErr>>,
+        ContextBuilder<CF, C, MapRequest<R>>: ServiceFactory<Req>,
+    {
+        let App { ctx_factory, router } = self;
+
+        ContextBuilder::new(ctx_factory).service(MapRequest { factory: router })
+    }
+}
+
+pub struct MapRequest<F> {
+    factory: F,
+}
+
+impl<'c, 's, C, F, Arg, S, Res, Err> ServiceFactory<&'c mut Context<'s, Request<RequestBody>, C>, Arg> for MapRequest<F>
 where
-    SF: Fn() -> Fut,
-    Fut: Future<Output = Result<State, StateErr>> + 'static,
-    State: 'static,
-    F: for<'rb, 'r> ServiceFactory<&'rb mut WebRequest<'r, State>, Arg, Service = S, Response = Res, Error = Err>,
-    S: for<'rb, 'r> Service<&'rb mut WebRequest<'r, State>, Response = Res, Error = Err> + 'static,
-    Err: From<StateErr>,
+    Arg: 'static,
+    C: 'static,
+    F: for<'c1, 's1> ServiceFactory<&'c1 mut WebRequest<'s1, C>, Arg, Service = S, Response = Res, Error = Err>
+        + 'static,
+    S: for<'c1, 's1> Service<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err>,
 {
     type Response = Res;
     type Error = Err;
-    type Service = AppService<State, S>;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Service = MapRequestService<S>;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>> + 'static;
 
     fn new_service(&self, arg: Arg) -> Self::Future {
-        let state = (self.state_factory)();
-        let service = self.factory.new_service(arg);
-        async {
-            let state = state.await?;
-            let service = service.await?;
-            Ok(AppService { service, state })
+        let fut = self.factory.new_service(arg);
+        async move {
+            let service = fut.await?;
+            Ok(MapRequestService { service })
         }
     }
 }
 
-pub struct AppService<State, S> {
-    state: State,
+pub struct MapRequestService<S> {
     service: S,
 }
 
-impl<State, S, Res, Err> Service<Request<RequestBody>> for AppService<State, S>
+impl<'c, 's, C, S, Res, Err> Service<&'c mut Context<'s, Request<RequestBody>, C>> for MapRequestService<S>
 where
-    State: 'static,
-    S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err> + 'static,
+    S: for<'c1, 's1> Service<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err>,
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
 
-    fn call(&self, req: Request<RequestBody>) -> Self::Future<'_> {
-        async move {
-            let mut req = WebRequest::new(req, &self.state);
-            self.service.call(&mut req).await
-        }
-    }
-}
-
-impl<State, S, R, Res, Err> ReadyService<Request<RequestBody>> for AppService<State, S>
-where
-    State: 'static,
-    S: for<'r, 's> ReadyService<&'r mut WebRequest<'s, State>, Response = Res, Error = Err, Ready = R> + 'static,
-{
-    type Ready = R;
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>>;
-
-    fn ready(&self) -> Self::ReadyFuture<'_> {
-        self.service.ready()
+    fn call(&self, req: &'c mut Context<'s, Request<RequestBody>, C>) -> Self::Future<'_> {
+        let (req, state) = req.borrow_parts_mut();
+        let mut req = WebRequest::new(req, state);
+        async move { self.service.call(&mut req).await }
     }
 }
 
@@ -159,13 +161,11 @@ where
 mod test {
     use super::*;
 
-    use xitca_http::util::service::GenericRouter;
-
     use crate::{
+        dev::Service,
         extract::{PathRef, StateRef},
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
-        object::WebObjectConstructor,
-        service::HandlerService,
+        service::handler_service,
     };
 
     async fn handler(
@@ -224,13 +224,10 @@ mod test {
         let state = String::from("state");
 
         let service = App::with_current_thread_state(state)
-            .service(
-                GenericRouter::with_custom_object::<WebObjectConstructor<_>>()
-                    .insert("/", HandlerService::new(handler).enclosed(Middleware))
-                    .map_err(|e| -> Infallible { panic!("error {}", e) }),
-            )
-            .enclosed(Middleware)
+            .at("/", handler_service(handler))
             .enclosed_fn(middleware_fn)
+            .enclosed(Middleware)
+            .finish()
             .new_service(())
             .await
             .ok()

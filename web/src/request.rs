@@ -19,8 +19,8 @@ pub struct WebRequest<'a, D = ()> {
 
 impl<'a, D> WebRequest<'a, D> {
     #[doc(hidden)]
-    pub fn new(http: Request<RequestBody>, state: &'a D) -> Self {
-        let (req, body) = http.replace_body(());
+    pub fn new(req: &mut Request<RequestBody>, state: &'a D) -> Self {
+        let (req, body) = std::mem::take(req).replace_body(());
         Self {
             req,
             body: RefCell::new(body),
@@ -30,7 +30,7 @@ impl<'a, D> WebRequest<'a, D> {
 
     #[cfg(test)]
     pub fn with_state(state: &'a D) -> Self {
-        Self::new(Request::new(RequestBody::None), state)
+        Self::new(&mut Request::new(RequestBody::None), state)
     }
 
     /// Get an immutable reference of [Request]
