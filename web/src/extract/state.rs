@@ -1,9 +1,4 @@
-use std::{
-    convert::Infallible,
-    fmt,
-    future::Future,
-    ops::{Deref, DerefMut},
-};
+use std::{convert::Infallible, fmt, future::Future, ops::Deref};
 
 use xitca_http::util::service::FromRequest;
 
