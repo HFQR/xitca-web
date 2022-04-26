@@ -300,7 +300,7 @@ mod test {
     use xitca_service::{Service, ServiceFactoryExt};
 
     use crate::http::{Response, StatusCode};
-    use crate::util::service::{get, Router};
+    use crate::util::service::{route::get, Router};
     use crate::Request;
 
     async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> StatusCode {

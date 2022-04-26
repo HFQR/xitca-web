@@ -1,8 +1,6 @@
 use std::{convert::Infallible, fmt, future::Future, ops::Deref};
 
-use xitca_http::util::service::FromRequest;
-
-use crate::{http::Extensions, request::WebRequest};
+use crate::{handler::FromRequest, http::Extensions, request::WebRequest};
 
 /// Extract immutable reference of element stored inside [Extensions]
 pub struct ExtensionRef<'a, T>(pub &'a T);

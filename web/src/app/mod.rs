@@ -6,16 +6,16 @@ use std::{
 };
 
 use xitca_http::{
+    body::RequestBody,
+    reqeust::Request,
     util::service::{
         context::{Context, ContextBuilder},
         GenericRouter,
     },
-    Request, RequestBody,
 };
-use xitca_service::ready::ReadyService;
 use xitca_service::{
-    object::ObjectConstructor, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceFactory,
-    ServiceFactoryExt,
+    object::ObjectConstructor, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
+    ServiceFactory, ServiceFactoryExt,
 };
 
 use crate::request::WebRequest;
@@ -177,9 +177,8 @@ mod test {
 
     use crate::{
         dev::Service,
-        extract::{PathRef, StateRef},
+        handler::{handler_service, path::PathRef, state::StateRef},
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
-        service::handler_service,
     };
 
     async fn handler(

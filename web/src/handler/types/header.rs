@@ -1,8 +1,7 @@
 use std::{convert::Infallible, fmt, future::Future, ops::Deref, str::FromStr};
 
-use xitca_http::util::service::FromRequest;
-
 use crate::{
+    handler::FromRequest,
     http::header::{self, HeaderValue},
     request::WebRequest,
 };

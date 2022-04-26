@@ -7,17 +7,18 @@ use std::{
 
 use futures_util::StreamExt;
 use serde::{de::DeserializeOwned, ser::Serialize};
-use xitca_http::{
-    http::{const_header_value::JSON, header::CONTENT_TYPE},
-    util::service::{FromRequest, Responder},
-};
-use xitca_io::bytes::{BufMutWriter, BytesMut};
 
-use crate::{request::WebRequest, response::WebResponse};
+use crate::{
+    dev::bytes::{BufMutWriter, BytesMut},
+    handler::{FromRequest, Responder},
+    http::{const_header_value::JSON, header::CONTENT_TYPE},
+    request::WebRequest,
+    response::WebResponse,
+};
 
 use super::{
+    body::Body,
     header::{self, HeaderRef},
-    Body,
 };
 
 const DEFAULT_LIMIT: usize = 1024 * 1024;

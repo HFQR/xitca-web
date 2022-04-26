@@ -1,6 +1,13 @@
-use std::{error, fmt, future::Future, marker::PhantomData};
+use std::{
+    error,
+    fmt::{self, Debug, Display, Formatter},
+    future::Future,
+    marker::PhantomData,
+};
 
-use xitca_service::{ready::ReadyService, MapErrorServiceFactory, Service, ServiceFactory, ServiceFactoryExt};
+use xitca_service::{
+    pipeline::PipelineE, ready::ReadyService, MapErrorServiceFactory, Service, ServiceFactory, ServiceFactoryExt,
+};
 
 use crate::{
     http::{self, Method},
@@ -13,7 +20,7 @@ macro_rules! method {
             route: R,
         ) -> Route<
             MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
-            MethodNotAllowed<R::Response, R::Error>,
+            MethodNotAllowedService<R::Response, R::Error>,
             1,
         >
         where
@@ -47,7 +54,7 @@ impl Route<(), (), 0> {
         route: R,
     ) -> Route<
         MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
-        MethodNotAllowed<R::Response, R::Error>,
+        MethodNotAllowedService<R::Response, R::Error>,
         0,
     >
     where
@@ -56,8 +63,8 @@ impl Route<(), (), 0> {
     {
         Route {
             methods: [],
-            route: route.map_err(RouteError::Service),
-            next: MethodNotAllowed::default(),
+            route: route.map_err(RouteError::Second),
+            next: MethodNotAllowedService::default(),
         }
     }
 }
@@ -189,54 +196,46 @@ where
 }
 
 /// Error type of Route service.
-pub enum RouteError<E> {
-    /// Method is not allowed for route service.
-    MethodNotAllowed,
-    /// Error type of the inner service.
-    Service(E),
-}
+pub type RouteError<E> = PipelineE<MethodNotAllowed, E>;
 
-impl<E: fmt::Debug> fmt::Debug for RouteError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::MethodNotAllowed => write!(f, "MethodNotAllowed"),
-            Self::Service(ref e) => write!(f, "{:?}", e),
-        }
+/// Error type of Method not allow for route.
+pub struct MethodNotAllowed;
+
+impl Debug for MethodNotAllowed {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Method is not allowed")
     }
 }
 
-impl<E: fmt::Display> fmt::Display for RouteError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::MethodNotAllowed => write!(f, "MethodNotAllowed"),
-            Self::Service(ref e) => write!(f, "{}", e),
-        }
+impl Display for MethodNotAllowed {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Method is not allowed")
     }
 }
 
-impl<E> error::Error for RouteError<E> where E: fmt::Debug + fmt::Display {}
+impl error::Error for MethodNotAllowed {}
 
 #[doc(hidden)]
-pub struct MethodNotAllowed<Res, Err>(PhantomData<(Res, Err)>);
+pub struct MethodNotAllowedService<Res, Err>(PhantomData<(Res, Err)>);
 
-impl<Res, Err> Default for MethodNotAllowed<Res, Err> {
+impl<Res, Err> Default for MethodNotAllowedService<Res, Err> {
     fn default() -> Self {
         Self(PhantomData)
     }
 }
 
-impl<Req, Arg, Res, Err> ServiceFactory<Req, Arg> for MethodNotAllowed<Res, Err> {
+impl<Req, Arg, Res, Err> ServiceFactory<Req, Arg> for MethodNotAllowedService<Res, Err> {
     type Response = Res;
     type Error = RouteError<Err>;
     type Service = Self;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn new_service(&self, _: Arg) -> Self::Future {
-        async { Ok(MethodNotAllowed::default()) }
+        async { Ok(MethodNotAllowedService::default()) }
     }
 }
 
-impl<Req, Res, Err> Service<Req> for MethodNotAllowed<Res, Err> {
+impl<Req, Res, Err> Service<Req> for MethodNotAllowedService<Res, Err> {
     type Response = Res;
     type Error = RouteError<Err>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
@@ -244,7 +243,7 @@ impl<Req, Res, Err> Service<Req> for MethodNotAllowed<Res, Err> {
     #[cold]
     #[inline(never)]
     fn call(&self, _: Req) -> Self::Future<'_> {
-        async { Err(RouteError::MethodNotAllowed) }
+        async { Err(RouteError::First(MethodNotAllowed)) }
     }
 }
 
@@ -293,7 +292,7 @@ mod test {
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
         let err = service.call(req).await.err().unwrap();
-        assert!(matches!(err, RouteError::MethodNotAllowed));
+        assert!(matches!(err, RouteError::First(MethodNotAllowed)));
     }
 
     #[tokio::test]
@@ -313,7 +312,7 @@ mod test {
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::DELETE;
         let err = service.call(req).await.err().unwrap();
-        assert!(matches!(err, RouteError::MethodNotAllowed));
+        assert!(matches!(err, RouteError::First(MethodNotAllowed)));
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
@@ -342,7 +341,7 @@ mod test {
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::DELETE;
         let err = service.call(req).await.err().unwrap();
-        assert!(matches!(err, RouteError::MethodNotAllowed));
+        assert!(matches!(err, RouteError::First(MethodNotAllowed)));
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;

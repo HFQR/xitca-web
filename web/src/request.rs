@@ -1,3 +1,5 @@
+pub use xitca_http::body::RequestBody;
+
 use std::{
     cell::{Ref, RefCell, RefMut},
     mem,
@@ -6,7 +8,7 @@ use std::{
 use xitca_http::{
     http::IntoResponse,
     request::{BorrowReq, Request},
-    RequestBody, ResponseBody,
+    ResponseBody,
 };
 
 use super::response::WebResponse;
