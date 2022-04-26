@@ -41,3 +41,22 @@ macro_rules! text_utf8 {
 
 text_utf8!(String);
 text_utf8!(&'static str);
+
+impl<'r, 's, S, T, E> Responder<&'r mut WebRequest<'s, S>> for Result<T, E>
+where
+    T: Responder<&'r mut WebRequest<'s, S>>,
+    E: Responder<&'r mut WebRequest<'s, S>, Output = T::Output>,
+{
+    type Output = T::Output;
+    type Future<'a> = impl Future<Output = Self::Output> where &'r mut WebRequest<'s, S>: 'a;
+
+    #[inline]
+    fn respond_to<'a>(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future<'a> {
+        async move {
+            match self {
+                Ok(t) => t.respond_to(req).await,
+                Err(e) => e.respond_to(req).await,
+            }
+        }
+    }
+}

@@ -20,9 +20,13 @@ use super::{
     Body,
 };
 
+const DEFAULT_LIMIT: usize = 1024 * 1024;
+
 /// Extract type for Json object. const generic param LIMIT is for max size of the object in bytes.
 /// Object larger than limit would be treated as error.
-pub struct Json<T, const LIMIT: usize>(pub T);
+///
+/// Default limit is [DEFAULT_LIMIT] in bytes.
+pub struct Json<T, const LIMIT: usize = DEFAULT_LIMIT>(pub T);
 
 impl<T, const LIMIT: usize> fmt::Debug for Json<T, LIMIT>
 where
@@ -97,7 +101,7 @@ where
 
     #[inline]
     fn respond_to<'a>(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future<'a> {
-        let mut bytes = BytesMut::with_capacity(LIMIT);
+        let mut bytes = BytesMut::new();
         serde_json::to_writer(BufMutWriter(&mut bytes), &self.0).unwrap();
         let mut res = req.as_response(bytes.freeze());
         res.headers_mut().insert(CONTENT_TYPE, JSON);
