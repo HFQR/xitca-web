@@ -248,8 +248,11 @@ mod test {
 
     use xitca_service::{fn_service, ServiceFactoryExt};
 
-    use crate::util::service::GenericRouter;
-    use crate::{http::Response, request::Request, util::service::get};
+    use crate::{
+        http::Response,
+        request::Request,
+        util::service::{route::get, GenericRouter},
+    };
 
     use super::*;
 

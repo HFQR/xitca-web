@@ -1,8 +1,9 @@
-use std::{collections::HashMap, error, fmt, future::Future, marker::PhantomData};
+use std::{collections::HashMap, future::Future, marker::PhantomData};
 
 use matchit::{MatchError, Node};
 use xitca_service::{
     object::{DefaultFactoryObject, DefaultObjectConstructor, ObjectConstructor},
+    pipeline::PipelineE,
     ready::ReadyService,
     Service, ServiceFactory,
 };
@@ -23,35 +24,7 @@ pub struct GenericRouter<ObjCons, SF> {
 }
 
 /// Error type of Router service.
-pub enum RouterError<E> {
-    /// Error occur on matching service.
-    ///
-    /// [MatchError::tsr] method can be used to hint if a route exists at the same path
-    /// with/without a trailing slash.
-    MatchError(MatchError),
-    /// Error type of the inner service.
-    Service(E),
-}
-
-impl<E: fmt::Debug> fmt::Debug for RouterError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::MatchError(ref e) => write!(f, "{:?}", e),
-            Self::Service(ref e) => write!(f, "{:?}", e),
-        }
-    }
-}
-
-impl<E: fmt::Display> fmt::Display for RouterError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::MatchError(ref e) => write!(f, "{}", e),
-            Self::Service(ref e) => write!(f, "{}", e),
-        }
-    }
-}
-
-impl<E> error::Error for RouterError<E> where E: fmt::Debug + fmt::Display {}
+pub type RouterError<E> = PipelineE<MatchError, E>;
 
 impl<ObjCons, SF> Default for GenericRouter<ObjCons, SF> {
     fn default() -> Self {
@@ -115,7 +88,7 @@ where
             let mut routes = matchit::Node::new();
 
             for (path, fut) in futs {
-                let service = fut.await.map_err(RouterError::Service)?;
+                let service = fut.await.map_err(RouterError::Second)?;
                 routes.insert(path, service).unwrap();
             }
 
@@ -140,9 +113,9 @@ where
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
-            let service = self.routes.at(req.borrow().path()).map_err(RouterError::MatchError)?;
+            let service = self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
 
-            service.value.call(req).await.map_err(RouterError::Service)
+            service.value.call(req).await.map_err(RouterError::Second)
         }
     }
 }

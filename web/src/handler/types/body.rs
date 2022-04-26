@@ -1,8 +1,6 @@
 use std::{convert::Infallible, future::Future};
 
-use xitca_http::{body::RequestBody, util::service::FromRequest};
-
-use crate::request::WebRequest;
+use crate::{handler::FromRequest, request::RequestBody, request::WebRequest};
 
 pub struct Body(pub RequestBody);
 

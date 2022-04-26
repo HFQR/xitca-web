@@ -1,8 +1,6 @@
 use std::{convert::Infallible, fmt, future::Future, ops::Deref};
 
-use xitca_http::util::service::FromRequest;
-
-use crate::request::WebRequest;
+use crate::{handler::FromRequest, request::WebRequest};
 
 /// App state extractor.
 /// S type must be the same with the type passed to App::with_xxx_state(<S>).

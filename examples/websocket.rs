@@ -9,7 +9,7 @@ use xitca_web::{
     http,
     request::WebRequest,
     response::{ResponseBody, WebResponse},
-    service::get,
+    route::get,
     App, HttpServer,
 };
 

@@ -1,8 +1,6 @@
 use std::{convert::Infallible, future::Future, ops::Deref};
 
-use xitca_http::util::service::FromRequest;
-
-use crate::{http::Uri, request::WebRequest};
+use crate::{handler::FromRequest, http::Uri, request::WebRequest};
 
 #[derive(Debug)]
 pub struct UriRef<'a>(pub &'a Uri);
