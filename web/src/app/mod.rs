@@ -6,12 +6,11 @@ use std::{
 };
 
 use xitca_http::{
-    body::RequestBody,
-    reqeust::Request,
     util::service::{
         context::{Context, ContextBuilder},
         GenericRouter,
     },
+    Request, RequestBody,
 };
 use xitca_service::{
     object::ObjectConstructor, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
