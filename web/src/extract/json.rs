@@ -6,11 +6,14 @@ use std::{
 };
 
 use futures_util::StreamExt;
-use serde::de::DeserializeOwned;
-use xitca_http::util::service::FromRequest;
-use xitca_io::bytes::BytesMut;
+use serde::{de::DeserializeOwned, ser::Serialize};
+use xitca_http::{
+    http::{const_header_value::JSON, header::CONTENT_TYPE},
+    util::service::{FromRequest, Responder},
+};
+use xitca_io::bytes::{BufMutWriter, BytesMut};
 
-use crate::request::WebRequest;
+use crate::{request::WebRequest, response::WebResponse};
 
 use super::{
     header::{self, HeaderRef},
@@ -82,5 +85,22 @@ where
 
             Ok(Json(json))
         }
+    }
+}
+
+impl<'r, 's, S, T, const LIMIT: usize> Responder<&'r mut WebRequest<'s, S>> for Json<T, LIMIT>
+where
+    T: Serialize,
+{
+    type Output = WebResponse;
+    type Future<'a> = impl Future<Output = Self::Output> where &'r mut WebRequest<'s, S>: 'a;
+
+    #[inline]
+    fn respond_to<'a>(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future<'a> {
+        let mut bytes = BytesMut::with_capacity(LIMIT);
+        serde_json::to_writer(BufMutWriter(&mut bytes), &self.0).unwrap();
+        let mut res = req.as_response(bytes.freeze());
+        res.headers_mut().insert(CONTENT_TYPE, JSON);
+        async { res }
     }
 }
