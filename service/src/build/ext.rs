@@ -4,20 +4,20 @@ use crate::{
     pipeline::{marker, PipelineT},
 };
 
-use super::{boxed::BoxedServiceFactory, ServiceFactory};
+use super::{boxed::BoxedServiceFactory, BuildService};
 
-pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
-    fn map<F, Res>(self, mapper: F) -> PipelineT<Self, F, marker::Map>
+pub trait ServiceFactoryExt<Arg>: BuildService<Arg> {
+    fn map<F, Res, ResMap>(self, mapper: F) -> PipelineT<Self, F, marker::Map>
     where
-        F: Fn(Self::Response) -> Res + Clone,
+        F: Fn(Res) -> ResMap + Clone,
         Self: Sized,
     {
         PipelineT::new(self, mapper)
     }
 
-    fn map_err<F, E>(self, err: F) -> PipelineT<Self, F, marker::MapErr>
+    fn map_err<F, Err, ErrMap>(self, err: F) -> PipelineT<Self, F, marker::MapErr>
     where
-        F: Fn(Self::Error) -> E + Clone,
+        F: Fn(Err) -> ErrMap + Clone,
         Self: Sized,
     {
         PipelineT::new(self, err)
@@ -37,7 +37,7 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
     /// `Service::Request`.
     fn and_then<F>(self, factory: F) -> PipelineT<Self, F, marker::AndThen>
     where
-        F: ServiceFactory<Self::Response, Arg>,
+        F: BuildService<Arg>,
         Self: Sized,
     {
         PipelineT::new(self, factory)
@@ -45,16 +45,16 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
 
     fn enclosed<T>(self, transform: T) -> PipelineT<Self, T, marker::Enclosed>
     where
-        T: ServiceFactory<Req, Self::Service> + Clone,
-        Self: ServiceFactory<Req, Arg> + Sized,
+        T: BuildService<Self::Service> + Clone,
+        Self: BuildService<Arg> + Sized,
     {
         PipelineT::new(self, transform)
     }
 
-    fn enclosed_fn<T>(self, transform: T) -> PipelineT<Self, T, marker::EnclosedFn>
+    fn enclosed_fn<T, Req>(self, transform: T) -> PipelineT<Self, T, marker::EnclosedFn>
     where
         T: for<'s> AsyncClosure<(&'s Self::Service, Req)> + Clone,
-        Self: ServiceFactory<Req, Arg> + Sized,
+        Self: BuildService<Arg> + Sized,
     {
         PipelineT::new(self, transform)
     }
@@ -64,7 +64,7 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
     /// This would erase `Self::Service` type and it's GAT nature.
     ///
     /// See [crate::object::DefaultObjectConstructor] for detail.
-    fn into_object(self) -> <DefaultObjectConstructor<Req, Arg> as ObjectConstructor<Self>>::Object
+    fn into_object<Req>(self) -> <DefaultObjectConstructor<Req, Arg> as ObjectConstructor<Self>>::Object
     where
         Self: Sized,
         DefaultObjectConstructor<Req, Arg>: ObjectConstructor<Self>,
@@ -73,13 +73,13 @@ pub trait ServiceFactoryExt<Req, Arg>: ServiceFactory<Req, Arg> {
     }
 }
 
-impl<F, Req, Arg> ServiceFactoryExt<Req, Arg> for F where F: ServiceFactory<Req, Arg> {}
+impl<F, Arg> ServiceFactoryExt<Arg> for F where F: BuildService<Arg> {}
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    use core::future::Future;
+    use core::{convert::Infallible, future::Future};
 
     use crate::{fn_service, Service};
 
@@ -89,16 +89,12 @@ mod test {
     #[derive(Clone)]
     struct DummyMiddlewareService<S: Clone>(S);
 
-    impl<S, Req> ServiceFactory<Req, S> for DummyMiddleware
-    where
-        S: Service<Req> + Clone,
-    {
-        type Response = S::Response;
-        type Error = S::Error;
+    impl<S: Clone> BuildService<S> for DummyMiddleware {
         type Service = DummyMiddlewareService<S>;
+        type Error = Infallible;
         type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-        fn new_service(&self, service: S) -> Self::Future {
+        fn build(&self, service: S) -> Self::Future {
             async { Ok(DummyMiddlewareService(service)) }
         }
     }
@@ -122,9 +118,12 @@ mod test {
 
     #[tokio::test]
     async fn service_object() {
-        let factory = fn_service(index).enclosed(DummyMiddleware).into_object();
-
-        let service = factory.new_service(()).await.unwrap();
+        let service = fn_service(index)
+            .enclosed(DummyMiddleware)
+            .into_object()
+            .build(())
+            .await
+            .unwrap();
 
         let res = service.call("996").await.unwrap();
         assert_eq!(res, "996");
@@ -132,9 +131,7 @@ mod test {
 
     #[tokio::test]
     async fn map() {
-        let factory = fn_service(index).map(|_| "251");
-
-        let service = factory.new_service(()).await.unwrap();
+        let service = fn_service(index).map(|_| "251").build(()).await.unwrap();
 
         let err = service.call("996").await.ok().unwrap();
         assert_eq!(err, "251");
@@ -142,9 +139,11 @@ mod test {
 
     #[tokio::test]
     async fn map_err() {
-        let factory = fn_service(|_: &str| async { Err::<(), _>(()) }).map_err(|_| "251");
-
-        let service = factory.new_service(()).await.unwrap();
+        let service = fn_service(|_: &str| async { Err::<(), _>(()) })
+            .map_err(|_| "251")
+            .build(())
+            .await
+            .unwrap();
 
         let err = service.call("996").await.err().unwrap();
         assert_eq!(err, "251");
@@ -163,7 +162,7 @@ mod test {
 
         let res = fn_service(index)
             .enclosed_fn(enclosed)
-            .new_service(())
+            .build(())
             .await
             .unwrap()
             .call("996")

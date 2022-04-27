@@ -1,40 +1,36 @@
 use std::{boxed::Box, marker::PhantomData};
 
 use xitca_service::{
-    fn_factory,
+    fn_build,
     object::{
         helpers::{ServiceFactoryObject, ServiceObject, Wrapper},
         ObjectConstructor,
     },
-    Service, ServiceFactory,
+    BuildService, Service,
 };
 
 use crate::request::WebRequest;
 
 pub struct WebObjectConstructor<S>(PhantomData<S>);
 
-pub type WebFactoryObject<S: 'static, Res, Err> = impl for<'r, 's> ServiceFactory<
-    &'r mut WebRequest<'s, S>,
-    Response = Res,
-    Error = Err,
-    Service = WebServiceObject<S, Res, Err>,
->;
+pub type WebFactoryObject<S: 'static, BErr, Res, Err> =
+    impl BuildService<Error = BErr, Service = WebServiceObject<S, Res, Err>>;
 
 pub type WebServiceObject<S: 'static, Res, Err> =
     impl for<'r, 's> Service<&'r mut WebRequest<'s, S>, Response = Res, Error = Err>;
 
-impl<S, I, Svc, Res, Err> ObjectConstructor<I> for WebObjectConstructor<S>
+impl<S, I, Svc, BErr, Res, Err> ObjectConstructor<I> for WebObjectConstructor<S>
 where
-    I: for<'rb, 'r> ServiceFactory<&'rb mut WebRequest<'r, S>, (), Service = Svc, Response = Res, Error = Err>,
+    I: BuildService<Service = Svc, Error = BErr>,
     Svc: for<'rb, 'r> Service<&'rb mut WebRequest<'r, S>, Response = Res, Error = Err> + 'static,
     I: 'static,
     S: 'static,
 {
-    type Object = WebFactoryObject<S, Res, Err>;
+    type Object = WebFactoryObject<S, BErr, Res, Err>;
 
     fn into_object(inner: I) -> Self::Object {
-        let factory = fn_factory(move |_arg: ()| {
-            let fut = inner.new_service(());
+        let factory = fn_build(move |_arg: ()| {
+            let fut = inner.build(());
             async move {
                 let boxed_service = Box::new(Wrapper(fut.await?))
                     as Box<dyn for<'r, 's> ServiceObject<&'r mut WebRequest<'s, S>, Response = _, Error = _>>;
@@ -42,8 +38,7 @@ where
             }
         });
 
-        let boxed_factory = Box::new(Wrapper(factory))
-            as Box<dyn for<'r, 's> ServiceFactoryObject<&'r mut WebRequest<'s, S>, Service = _>>;
+        let boxed_factory = Box::new(Wrapper(factory)) as Box<dyn ServiceFactoryObject<Service = _, Error = _>>;
         Wrapper(boxed_factory)
     }
 }

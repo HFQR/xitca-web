@@ -4,13 +4,13 @@ use crate::pipeline::{marker::MapErr, PipelineT};
 
 use super::Service;
 
-impl<S, Req, F, E> Service<Req> for PipelineT<S, F, MapErr>
+impl<S, Req, F, Err> Service<Req> for PipelineT<S, F, MapErr>
 where
     S: Service<Req>,
-    F: Fn(S::Error) -> E,
+    F: Fn(S::Error) -> Err,
 {
     type Response = S::Response;
-    type Error = E;
+    type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[inline]

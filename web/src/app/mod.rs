@@ -13,8 +13,8 @@ use xitca_http::{
     Request, RequestBody,
 };
 use xitca_service::{
-    object::ObjectConstructor, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
-    ServiceFactory, ServiceFactoryExt,
+    object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, EnclosedFactory, EnclosedFnFactory,
+    Service, ServiceFactoryExt,
 };
 
 use crate::request::WebRequest;
@@ -78,10 +78,10 @@ impl<CF, C, SF> App<CF, Router<C, SF>> {
 }
 
 impl<CF, R> App<CF, R> {
-    pub fn enclosed<Req, T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
+    pub fn enclosed<T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
     where
-        R: ServiceFactory<Req>,
-        T: ServiceFactory<Req, R::Service> + Clone,
+        R: BuildService,
+        T: BuildService<R::Service> + Clone,
     {
         App {
             ctx_factory: self.ctx_factory,
@@ -91,7 +91,7 @@ impl<CF, R> App<CF, R> {
 
     pub fn enclosed_fn<Req, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T>>
     where
-        R: ServiceFactory<Req>,
+        R: BuildService,
         T: for<'s> AsyncClosure<(&'s R::Service, Req)> + Clone,
     {
         App {
@@ -104,7 +104,7 @@ impl<CF, R> App<CF, R> {
     where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, CErr>>,
-        ContextBuilder<CF, C, MapRequest<R>>: ServiceFactory<Req>,
+        ContextBuilder<CF, C, MapRequest<R>>: BuildService<Req>,
     {
         let App { ctx_factory, router } = self;
 
@@ -116,21 +116,17 @@ pub struct MapRequest<F> {
     factory: F,
 }
 
-impl<'c, 's, C, F, Arg, S, Res, Err> ServiceFactory<&'c mut Context<'s, Request<RequestBody>, C>, Arg> for MapRequest<F>
+impl<F, Arg> BuildService<Arg> for MapRequest<F>
 where
+    F: BuildService<Arg> + 'static,
     Arg: 'static,
-    C: 'static,
-    F: for<'c1, 's1> ServiceFactory<&'c1 mut WebRequest<'s1, C>, Arg, Service = S, Response = Res, Error = Err>
-        + 'static,
-    S: for<'c1, 's1> Service<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err>,
 {
-    type Response = Res;
-    type Error = Err;
-    type Service = MapRequestService<S>;
+    type Service = MapRequestService<F::Service>;
+    type Error = F::Error;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>> + 'static;
 
-    fn new_service(&self, arg: Arg) -> Self::Future {
-        let fut = self.factory.new_service(arg);
+    fn build(&self, arg: Arg) -> Self::Future {
+        let fut = self.factory.build(arg);
         async move {
             let service = fut.await?;
             Ok(MapRequestService { service })
@@ -195,16 +191,12 @@ mod test {
     #[derive(Clone)]
     struct Middleware;
 
-    impl<S, State, Res, Err> ServiceFactory<&mut WebRequest<'_, State>, S> for Middleware
-    where
-        S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
-    {
-        type Response = Res;
-        type Error = Err;
+    impl<S> BuildService<S> for Middleware {
         type Service = MiddlewareService<S>;
+        type Error = Infallible;
         type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-        fn new_service(&self, service: S) -> Self::Future {
+        fn build(&self, service: S) -> Self::Future {
             async { Ok(MiddlewareService(service)) }
         }
     }
@@ -240,7 +232,7 @@ mod test {
             .enclosed_fn(middleware_fn)
             .enclosed(Middleware)
             .finish()
-            .new_service(())
+            .build(())
             .await
             .ok()
             .unwrap();

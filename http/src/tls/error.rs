@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{error, fmt};
 
 use crate::error::HttpServiceError;
 
@@ -25,6 +25,22 @@ impl fmt::Debug for TlsError {
         }
     }
 }
+
+impl fmt::Display for TlsError {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Infallible => unreachable!("Infallible error should never happen"),
+            #[cfg(feature = "openssl")]
+            Self::Openssl(ref e) => write!(_f, "{:?}", e),
+            #[cfg(feature = "rustls")]
+            Self::Rustls(ref e) => write!(_f, "{:?}", e),
+            #[cfg(feature = "native-tls")]
+            Self::NativeTls(ref e) => write!(_f, "{}", e),
+        }
+    }
+}
+
+impl error::Error for TlsError {}
 
 impl<S, B> From<TlsError> for HttpServiceError<S, B> {
     fn from(e: TlsError) -> Self {

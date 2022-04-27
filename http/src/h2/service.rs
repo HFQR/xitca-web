@@ -2,7 +2,7 @@ use std::{fmt, future::Future};
 
 use futures_core::Stream;
 use tokio::pin;
-use xitca_io::io::{AsyncRead, AsyncWrite};
+use xitca_io::io::AsyncIo;
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::{
@@ -17,8 +17,8 @@ use crate::{
 
 use super::{body::RequestBody, proto::Dispatcher};
 
-pub type H2Service<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
-    HttpService<S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+pub type H2Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
+    HttpService<St, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
 impl<
         St,
@@ -30,21 +30,23 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Service<St> for H2Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Service<St> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
+
     A: Service<St, Response = TlsSt> + 'static,
-    ResB: Stream<Item = Result<Bytes, BE>>,
-    BE: fmt::Debug,
-    St: AsyncRead + AsyncWrite + Unpin,
-    TlsSt: AsyncRead + AsyncWrite + Unpin,
+    St: AsyncIo,
+    TlsSt: AsyncIo,
 
     HttpServiceError<S::Error, BE>: From<A::Error>,
+
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     fn call(&self, io: St) -> Self::Future<'_> {
         async move {
@@ -92,16 +94,19 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > ReadyService<St> for H2Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > ReadyService<St> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
+
     A: Service<St, Response = TlsSt> + 'static,
+    St: AsyncIo,
+    TlsSt: AsyncIo,
+
+    HttpServiceError<S::Error, BE>: From<A::Error>,
+
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
-    St: AsyncRead + AsyncWrite + Unpin,
-    TlsSt: AsyncRead + AsyncWrite + Unpin,
-    HttpServiceError<S::Error, BE>: From<A::Error>,
 {
     type Ready = S::Ready;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;

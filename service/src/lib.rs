@@ -5,7 +5,7 @@
 extern crate alloc;
 
 mod async_closure;
-mod factory;
+mod build;
 mod service;
 
 pub mod middleware;
@@ -15,7 +15,7 @@ pub mod ready;
 
 pub use self::{
     async_closure::AsyncClosure,
-    factory::{fn_factory, fn_service, ServiceFactory, ServiceFactoryExt},
+    build::{fn_build, fn_service, BuildService, ServiceFactoryExt},
     pipeline::{EnclosedFactory, EnclosedFnFactory, MapErrorServiceFactory},
     service::Service,
 };

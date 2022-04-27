@@ -1,68 +1,64 @@
-use core::future::Future;
+use core::{convert::Infallible, future::Future};
 
 use crate::service::Service;
 
-use super::ServiceFactory;
+use super::BuildService;
 
-pub fn fn_service<F, Req, Fut, Res, Err>(f: F) -> FnServiceFactory<F>
+pub fn fn_service<F, Req, Fut, Res, Err>(f: F) -> FnService<F>
 where
     F: Fn(Req) -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
 {
-    FnServiceFactory { f }
+    FnService { f }
 }
 
-pub fn fn_factory<F, Arg, Fut, Svc, Err>(f: F) -> FnFactory<F>
+pub fn fn_build<F, Arg, Fut, Svc, Err>(f: F) -> FnBuild<F>
 where
     F: Fn(Arg) -> Fut,
     Fut: Future<Output = Result<Svc, Err>>,
 {
-    FnFactory { f }
+    FnBuild { f }
 }
 
 #[derive(Clone)]
-pub struct FnFactory<F> {
+pub struct FnBuild<F> {
     f: F,
 }
 
-impl<F, Req, Arg, Fut, Svc, Res, Err> ServiceFactory<Req, Arg> for FnFactory<F>
+impl<F, Arg, Fut, Svc, Err> BuildService<Arg> for FnBuild<F>
 where
     F: Fn(Arg) -> Fut,
     Fut: Future<Output = Result<Svc, Err>>,
-    Svc: Service<Req, Response = Res, Error = Err>,
 {
-    type Response = Res;
-    type Error = Err;
     type Service = Svc;
+    type Error = Err;
     type Future = Fut;
 
-    fn new_service(&self, arg: Arg) -> Self::Future {
+    fn build(&self, arg: Arg) -> Self::Future {
         (self.f)(arg)
     }
 }
 
 #[derive(Clone)]
-pub struct FnServiceFactory<F: Clone> {
+pub struct FnService<F: Clone> {
     f: F,
 }
 
-impl<F, Req, Fut, Res, Err> ServiceFactory<Req> for FnServiceFactory<F>
+impl<F> BuildService for FnService<F>
 where
-    F: Fn(Req) -> Fut + Clone,
-    Fut: Future<Output = Result<Res, Err>>,
+    F: Clone,
 {
-    type Response = Res;
-    type Error = Err;
     type Service = Self;
+    type Error = Infallible;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: ()) -> Self::Future {
+    fn build(&self, _: ()) -> Self::Future {
         let f = self.f.clone();
         async { Ok(Self { f }) }
     }
 }
 
-impl<F, Req, Fut, Res, Err> Service<Req> for FnServiceFactory<F>
+impl<F, Req, Fut, Res, Err> Service<Req> for FnService<F>
 where
     F: Fn(Req) -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,

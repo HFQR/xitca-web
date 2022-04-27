@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData};
 
-use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service, ServiceFactory};
+use xitca_service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service};
 
 use crate::request::{BorrowReq, BorrowReqMut};
 
@@ -9,7 +9,7 @@ use crate::request::{BorrowReq, BorrowReqMut};
 /// State is roughly doing the same thing as `move ||` style closure capture. The difference comes
 /// down to:
 ///
-/// - The captured state is constructed lazily when [ServiceFactory::new_service] method is
+/// - The captured state is constructed lazily when [BuildService::build] method is
 /// called.
 ///
 /// - State can be referenced in nested types and beyond closures.
@@ -23,7 +23,7 @@ use crate::request::{BorrowReq, BorrowReqMut};
 ///```rust
 /// # use std::convert::Infallible;
 /// # use xitca_http::util::service::context::{ContextBuilder, Context};
-/// # use xitca_service::{fn_service, Service, ServiceFactory};
+/// # use xitca_service::{fn_service, Service, BuildService};
 ///
 /// // function service.
 /// async fn state_handler(req: &mut Context<'_, String, String>) -> Result<String, Infallible> {
@@ -37,7 +37,7 @@ use crate::request::{BorrowReq, BorrowReqMut};
 /// let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
 ///    // Stateful service factory would construct given service factory and pass (&State, Req) to it.
 ///    .service(fn_service(state_handler))
-///    .new_service(())
+///    .build(())
 ///    .await
 ///    .unwrap();
 ///
@@ -73,7 +73,7 @@ impl<CF, C, SF> ContextBuilder<CF, C, SF> {
     /// The constructor of service type that would receive state.
     pub fn service<Req, SF1>(self, factory: SF1) -> ContextBuilder<CF, C, SF1>
     where
-        ContextBuilder<CF, C, SF1>: ServiceFactory<Req>,
+        ContextBuilder<CF, C, SF1>: BuildService<Req>,
     {
         ContextBuilder {
             ctx_factory: self.ctx_factory,
@@ -120,48 +120,41 @@ where
 /// Error type for [ContextBuilder] as [ServiceFactory] and [ContextService] as [Service]
 pub type ContextError<A, B> = PipelineE<A, B>;
 
-impl<CF, Fut, C, CErr, F, S, Req, Arg, Res, Err> ServiceFactory<Req, Arg> for ContextBuilder<CF, C, F>
+impl<CF, Fut, C, CErr, F, Arg> BuildService<Arg> for ContextBuilder<CF, C, F>
 where
     CF: Fn() -> Fut,
     Fut: Future<Output = Result<C, CErr>>,
-    Req: 'static,
     C: 'static,
-    F: for<'c, 's> ServiceFactory<&'c mut Context<'s, Req, C>, Arg, Service = S, Response = Res, Error = Err>,
-    S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>,
+    F: BuildService<Arg>,
+    F::Error: From<CErr>,
 {
-    type Response = Res;
-    type Error = PipelineE<CErr, Err>;
-    type Service = ContextService<C, CErr, S>;
+    type Service = ContextService<C, F::Service>;
+    type Error = F::Error;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, arg: Arg) -> Self::Future {
+    fn build(&self, arg: Arg) -> Self::Future {
         let state = (self.ctx_factory)();
-        let service = self.service_factory.new_service(arg);
+        let service = self.service_factory.build(arg);
         async {
-            let state = state.await.map_err(ContextError::First)?;
-            let service = service.await.map_err(ContextError::Second)?;
-            Ok(ContextService {
-                service,
-                state,
-                _ctx_err: PhantomData,
-            })
+            let state = state.await?;
+            let service = service.await?;
+            Ok(ContextService { service, state })
         }
     }
 }
 
 #[doc(hidden)]
-pub struct ContextService<C, CErr, S> {
+pub struct ContextService<C, S> {
     state: C,
     service: S,
-    _ctx_err: PhantomData<CErr>,
 }
 
-impl<Req, C, CErr, S, Res, Err> Service<Req> for ContextService<C, CErr, S>
+impl<Req, C, S, Res, Err> Service<Req> for ContextService<C, S>
 where
     S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>,
 {
     type Response = Res;
-    type Error = ContextError<CErr, Err>;
+    type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     fn call(&self, req: Req) -> Self::Future<'_> {
@@ -172,20 +165,20 @@ where
                     state: &self.state,
                 })
                 .await
-                .map_err(ContextError::Second)
         }
     }
 }
 
-impl<Req, C, CErr, S, R, Res, Err> ReadyService<Req> for ContextService<C, CErr, S>
+impl<Req, C, S, R, Res, Err> ReadyService<Req> for ContextService<C, S>
 where
     S: for<'c, 's> ReadyService<&'c mut Context<'s, Req, C>, Response = Res, Error = Err, Ready = R>,
 {
     type Ready = R;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
 
+    #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move { self.service.ready().await.map_err(ContextError::Second) }
+        async move { self.service.ready().await }
     }
 }
 
@@ -195,39 +188,35 @@ pub mod object {
     use std::{boxed::Box, marker::PhantomData};
 
     use xitca_service::{
-        fn_factory,
+        fn_build,
         object::{
             helpers::{ServiceFactoryObject, ServiceObject, Wrapper},
             ObjectConstructor,
         },
-        Service, ServiceFactory,
+        BuildService, Service,
     };
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
-    pub type ContextFactoryObject<Req: 'static, C: 'static, Res, Err> = impl for<'c, 's> ServiceFactory<
-        &'c mut Context<'s, Req, C>,
-        Response = Res,
-        Error = Err,
-        Service = ContextServiceObject<Req, C, Res, Err>,
-    >;
+    pub type ContextFactoryObject<Req: 'static, C: 'static, BErr, Res, Err> =
+        impl BuildService<Error = BErr, Service = ContextServiceObject<Req, C, Res, Err>>;
 
     pub type ContextServiceObject<Req: 'static, C: 'static, Res, Err> =
         impl for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>;
 
-    impl<C, I, Svc, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
+    impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
     where
-        I: for<'c, 's> ServiceFactory<&'c mut Context<'s, Req, C>, (), Service = Svc, Response = Res, Error = Err>,
+        I: BuildService<Service = Svc, Error = BErr>,
         Svc: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err> + 'static,
         I: 'static,
         C: 'static,
         Req: 'static,
     {
-        type Object = ContextFactoryObject<Req, C, Res, Err>;
+        type Object = ContextFactoryObject<Req, C, BErr, Res, Err>;
 
         fn into_object(inner: I) -> Self::Object {
-            let factory = fn_factory(move |_arg: ()| {
-                let fut = inner.new_service(());
+            let factory = fn_build(move |_arg: ()| {
+                let fut = inner.build(());
                 async move {
                     let boxed_service = Box::new(Wrapper(fut.await?))
                         as Box<dyn for<'c, 's> ServiceObject<&'c mut Context<'s, Req, C>, Response = _, Error = _>>;
@@ -235,8 +224,7 @@ pub mod object {
                 }
             });
 
-            let boxed_factory = Box::new(Wrapper(factory))
-                as Box<dyn for<'c, 's> ServiceFactoryObject<&'c mut Context<'s, Req, C>, Service = _>>;
+            let boxed_factory = Box::new(Wrapper(factory)) as Box<dyn ServiceFactoryObject<Service = _, Error = _>>;
             Wrapper(boxed_factory)
         }
     }
@@ -279,7 +267,7 @@ mod test {
     async fn test_state_and_then() {
         let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(fn_service(into_context).and_then(fn_service(ctx_handler)))
-            .new_service(())
+            .build(())
             .await
             .ok()
             .unwrap();
@@ -312,7 +300,7 @@ mod test {
 
         let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(router)
-            .new_service(())
+            .build(())
             .await
             .ok()
             .unwrap();

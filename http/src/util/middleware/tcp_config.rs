@@ -1,9 +1,9 @@
-use std::{future::Future, io, time::Duration};
+use std::{convert::Infallible, future::Future, io, time::Duration};
 
 use socket2::{SockRef, TcpKeepalive};
 use tracing::warn;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
-use xitca_service::{ready::ReadyService, Service, ServiceFactory};
+use xitca_service::{ready::ReadyService, BuildService, Service};
 
 /// A middleware for socket options config of [TcpStream].
 #[derive(Clone, Debug)]
@@ -60,27 +60,16 @@ impl TcpConfig {
     }
 }
 
-macro_rules! transform_impl {
-    ($ty: ty) => {
-        impl<S> ServiceFactory<$ty, S> for TcpConfig
-        where
-            S: Service<$ty>,
-        {
-            type Response = S::Response;
-            type Error = S::Error;
-            type Service = TcpConfigService<S>;
-            type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+impl<S> BuildService<S> for TcpConfig {
+    type Service = TcpConfigService<S>;
+    type Error = Infallible;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-            fn new_service(&self, service: S) -> Self::Future {
-                let config = self.clone();
-                async move { Ok(TcpConfigService { config, service }) }
-            }
-        }
-    };
+    fn build(&self, service: S) -> Self::Future {
+        let config = self.clone();
+        async move { Ok(TcpConfigService { config, service }) }
+    }
 }
-
-transform_impl!(TcpStream);
-transform_impl!(ServerStream);
 
 impl<S> Service<TcpStream> for TcpConfigService<S>
 where

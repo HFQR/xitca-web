@@ -1,4 +1,4 @@
-use std::{fmt, future::Future, net::ToSocketAddrs, time::Duration};
+use std::{error, fmt, future::Future, net::ToSocketAddrs, time::Duration};
 
 use futures_core::Stream;
 use xitca_http::{
@@ -8,7 +8,7 @@ use xitca_http::{
     HttpServiceBuilder, Request, RequestBody, ResponseBody,
 };
 use xitca_server::{Builder, ServerFuture};
-use xitca_service::{ready::ReadyService, ServiceFactory};
+use xitca_service::{ready::ReadyService, BuildService, Service};
 
 pub struct HttpServer<F, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     factory: F,
@@ -189,9 +189,10 @@ where
 
     pub fn bind<A: ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
-        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Service: ReadyService<Request<RequestBody>> + 'static,
-        I::Error: fmt::Debug,
+        I: BuildService + 'static,
+        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+        I::Error: error::Error,
+        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -213,9 +214,10 @@ where
         mut builder: openssl_crate::ssl::SslAcceptorBuilder,
     ) -> std::io::Result<Self>
     where
-        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Service: ReadyService<Request<RequestBody>> + 'static,
-        I::Error: fmt::Debug,
+        I: BuildService + 'static,
+        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+        I::Error: error::Error,
+        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -269,9 +271,10 @@ where
         mut config: rustls_crate::ServerConfig,
     ) -> std::io::Result<Self>
     where
-        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Service: ReadyService<Request<RequestBody>> + 'static,
-        I::Error: fmt::Debug,
+        I: BuildService + 'static,
+        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+        I::Error: error::Error,
+        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -302,9 +305,10 @@ where
     #[cfg(unix)]
     pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
     where
-        I: ServiceFactory<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Service: ReadyService<Request<RequestBody>> + 'static,
-        I::Error: fmt::Debug,
+        I: BuildService + 'static,
+        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+        I::Error: error::Error,
+        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,

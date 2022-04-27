@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::{
     error,
     fmt::{self, Debug, Display, Formatter},
@@ -6,7 +7,7 @@ use std::{
 };
 
 use xitca_service::{
-    pipeline::PipelineE, ready::ReadyService, MapErrorServiceFactory, Service, ServiceFactory, ServiceFactoryExt,
+    pipeline::PipelineE, ready::ReadyService, BuildService, MapErrorServiceFactory, Service, ServiceFactoryExt,
 };
 
 use crate::{
@@ -16,15 +17,16 @@ use crate::{
 
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {
-        pub fn $method_fn<R, Req>(
+        pub fn $method_fn<R, Req, Res, Err>(
             route: R,
         ) -> Route<
-            MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
-            MethodNotAllowedService<R::Response, R::Error>,
+            MapErrorServiceFactory<R, impl Fn(Err) -> RouteError<Err> + Clone>,
+            MethodNotAllowedService<Res, Err>,
             1,
         >
         where
-            R: ServiceFactory<Req>,
+            R: BuildService,
+            R::Service: Service<Req, Response = Res, Error = Err>,
             Req: BorrowReq<http::Method>,
         {
             Route::new(route).methods([Method::$method])
@@ -50,15 +52,12 @@ pub struct Route<R, N, const M: usize> {
 
 impl Route<(), (), 0> {
     #[allow(clippy::type_complexity)]
-    pub fn new<R, Req>(
+    pub fn new<R, Req, Res, Err>(
         route: R,
-    ) -> Route<
-        MapErrorServiceFactory<R, impl Fn(R::Error) -> RouteError<R::Error> + Clone>,
-        MethodNotAllowedService<R::Response, R::Error>,
-        0,
-    >
+    ) -> Route<MapErrorServiceFactory<R, impl Fn(Err) -> RouteError<Err> + Clone>, MethodNotAllowedService<Res, Err>, 0>
     where
-        R: ServiceFactory<Req>,
+        R: BuildService,
+        R::Service: Service<Req, Response = Res, Error = Err>,
         Req: BorrowReq<http::Method>,
     {
         Route {
@@ -71,13 +70,14 @@ impl Route<(), (), 0> {
 
 macro_rules! route_method {
     ($method_fn: ident, $method: ident) => {
-        pub fn $method_fn<N1, Req>(
+        pub fn $method_fn<N1, Req, Err>(
             self,
             $method_fn: N1,
-        ) -> Route<R, Route<MapErrorServiceFactory<N1, impl Fn(N1::Error) -> RouteError<N1::Error> + Clone>, N, 1>, M>
+        ) -> Route<R, Route<MapErrorServiceFactory<N1, impl Fn(Err) -> RouteError<Err> + Clone>, N, 1>, M>
         where
-            R: ServiceFactory<Req>,
-            N1: ServiceFactory<Req>,
+            R: BuildService,
+            N1: BuildService,
+            N1::Service: Service<Req, Error = Err>,
             Req: BorrowReq<http::Method>,
         {
             self.next(Route::new($method_fn).methods([Method::$method]))
@@ -103,11 +103,10 @@ impl<R, N, const M: usize> Route<R, N, M> {
         }
     }
 
-    pub fn next<Req, R1, N1, const M1: usize>(self, next: Route<R1, N1, M1>) -> Route<R, Route<R1, N, M1>, M>
+    pub fn next<R1, N1, const M1: usize>(self, next: Route<R1, N1, M1>) -> Route<R, Route<R1, N, M1>, M>
     where
-        R: ServiceFactory<Req>,
-        N1: ServiceFactory<Req>,
-        Req: BorrowReq<http::Method>,
+        R: BuildService,
+        N1: BuildService,
     {
         Route {
             methods: self.methods,
@@ -131,21 +130,19 @@ impl<R, N, const M: usize> Route<R, N, M> {
     route_method!(trace, TRACE);
 }
 
-impl<Req, Arg, R, N, const M: usize> ServiceFactory<Req, Arg> for Route<R, N, M>
+impl<Arg, R, N, const M: usize> BuildService<Arg> for Route<R, N, M>
 where
-    R: ServiceFactory<Req, Arg>,
-    N: ServiceFactory<Req, Arg, Response = R::Response, Error = R::Error>,
-    Req: BorrowReq<http::Method>,
+    R: BuildService<Arg>,
+    N: BuildService<Arg, Error = R::Error>,
     Arg: Clone,
 {
-    type Response = R::Response;
-    type Error = R::Error;
     type Service = Route<R::Service, N::Service, M>;
+    type Error = R::Error;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, arg: Arg) -> Self::Future {
-        let route = self.route.new_service(arg.clone());
-        let next = self.next.new_service(arg);
+    fn build(&self, arg: Arg) -> Self::Future {
+        let route = self.route.build(arg.clone());
+        let next = self.next.build(arg);
 
         let methods = self.methods.clone();
 
@@ -224,13 +221,12 @@ impl<Res, Err> Default for MethodNotAllowedService<Res, Err> {
     }
 }
 
-impl<Req, Arg, Res, Err> ServiceFactory<Req, Arg> for MethodNotAllowedService<Res, Err> {
-    type Response = Res;
-    type Error = RouteError<Err>;
+impl<Arg, Res, Err> BuildService<Arg> for MethodNotAllowedService<Res, Err> {
     type Service = Self;
+    type Error = Infallible;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: Arg) -> Self::Future {
+    fn build(&self, _: Arg) -> Self::Future {
         async { Ok(MethodNotAllowedService::default()) }
     }
 }
@@ -243,7 +239,7 @@ impl<Req, Res, Err> Service<Req> for MethodNotAllowedService<Res, Err> {
     #[cold]
     #[inline(never)]
     fn call(&self, _: Req) -> Self::Future<'_> {
-        async { Err(RouteError::First(MethodNotAllowed)) }
+        async { Result::Err(RouteError::First(MethodNotAllowed)) }
     }
 }
 
@@ -279,7 +275,7 @@ mod test {
             .trace(fn_service(index))
             .enclosed_fn(enclosed);
 
-        let service = route.new_service(()).await.ok().unwrap();
+        let service = route.build(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);
         let res = service.call(req).await.ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
@@ -299,7 +295,7 @@ mod test {
     async fn route_mixed() {
         let route = get(fn_service(index)).next(Route::new(fn_service(index)).methods([Method::POST, Method::PUT]));
 
-        let service = route.new_service(()).await.ok().unwrap();
+        let service = route.build(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);
         let res = service.call(req).await.ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
@@ -328,7 +324,7 @@ mod test {
             .next(Route::new(fn_service(index)).methods([Method::OPTIONS]))
             .next(trace(fn_service(index)));
 
-        let service = route.new_service(()).await.ok().unwrap();
+        let service = route.build(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);
         let res = service.call(req).await.ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
@@ -367,7 +363,7 @@ mod test {
         get(fn_service(|_: Request<()>| async {
             Ok::<_, Infallible>(Response::new(()))
         }))
-        .new_service(())
+        .build(())
         .await
         .unwrap()
         .call(Request::new(()))
@@ -380,7 +376,7 @@ mod test {
         get(fn_service(|_: http::Request<()>| async {
             Ok::<_, Infallible>(Response::new(()))
         }))
-        .new_service(())
+        .build(())
         .await
         .unwrap()
         .call(http::Request::new(()))

@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use std::convert::Infallible;
 use std::{
     future::Future,
     marker::PhantomData,
@@ -8,7 +9,7 @@ use std::{
 };
 
 use pin_project_lite::pin_project;
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{BuildService, Service};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
@@ -50,17 +51,15 @@ where
     }
 }
 
-impl<F, Req, T, O, Res, Err> ServiceFactory<Req> for HandlerService<F, T, O, Res, Err>
+impl<F, T, O, Res, Err> BuildService for HandlerService<F, T, O, Res, Err>
 where
-    F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
-    O: Responder<Req, Output = Res>,
+    F: Clone,
 {
-    type Response = Res;
-    type Error = Err;
     type Service = Self;
+    type Error = Infallible;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: ()) -> Self::Future {
+    fn build(&self, _: ()) -> Self::Future {
         let this = self.clone();
         async { Ok(this) }
     }
@@ -375,7 +374,7 @@ mod test {
 
         let res = handler_service(handler)
             .enclosed_fn(enclosed)
-            .new_service(())
+            .build(())
             .await
             .unwrap()
             .call(Request::new(()))
@@ -389,7 +388,7 @@ mod test {
     async fn handler_in_router() {
         let res = Router::new()
             .insert("/", get(handler_service(handler)))
-            .new_service(())
+            .build(())
             .await
             .unwrap()
             .call(Request::new(()))

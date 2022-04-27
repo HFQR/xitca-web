@@ -3,7 +3,7 @@ use std::{marker::PhantomData, rc::Rc, sync::Arc};
 use futures_core::future::LocalBoxFuture;
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
-use xitca_service::{ready::ReadyService, ServiceFactory};
+use xitca_service::{ready::ReadyService, BuildService};
 
 use crate::worker::{self, Counter};
 
@@ -58,7 +58,7 @@ where
         's: 'f,
     {
         Box::pin(async move {
-            let service = self.inner.as_factory_clone().new_service(()).await.map_err(|_| ())?;
+            let service = self.inner.as_factory_clone().build(()).await.map_err(|_| ())?;
             let service = Rc::new(service);
 
             let handles = listeners
@@ -79,7 +79,7 @@ where
     Req: From<Stream>,
     Self: Send + Clone + 'static,
 {
-    type ServiceFactoryClone: ServiceFactory<Req, Service = Self::Service>;
+    type ServiceFactoryClone: BuildService<Service = Self::Service>;
     type Service: ReadyService<Req>;
 
     fn as_factory_clone(&self) -> Self::ServiceFactoryClone;
@@ -88,7 +88,7 @@ where
 impl<F, T, Req> AsServiceFactoryClone<Req> for F
 where
     F: Fn() -> T + Send + Clone + 'static,
-    T: ServiceFactory<Req>,
+    T: BuildService,
     T::Service: ReadyService<Req>,
     Req: From<Stream>,
 {

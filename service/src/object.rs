@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use core::marker::PhantomData;
 
-use crate::{fn_factory, Service, ServiceFactory};
+use crate::{fn_build, BuildService, Service};
 
 use self::helpers::{ServiceFactoryObject, ServiceObject, Wrapper};
 
@@ -27,30 +27,30 @@ pub trait ObjectConstructor<I> {
 pub struct DefaultObjectConstructor<Req, Arg>(PhantomData<(Req, Arg)>);
 
 /// [ServiceFactory] object created by the [DefaultObjectConstructor]
-pub type DefaultFactoryObject<Req, Arg, Res, Err> =
-    impl ServiceFactory<Req, Arg, Response = Res, Error = Err, Service = DefaultServiceObject<Req, Res, Err>>;
+pub type DefaultFactoryObject<Req, Arg, BErr, Res, Err> =
+    impl BuildService<Arg, Service = DefaultServiceObject<Req, Res, Err>, Error = BErr>;
 
 /// [Service] object created by the [DefaultObjectConstructor]
 pub type DefaultServiceObject<Req, Res, Err> = impl Service<Req, Response = Res, Error = Err>;
 
-impl<T, Req, Arg, Res, Err> ObjectConstructor<T> for DefaultObjectConstructor<Req, Arg>
+impl<T, Req, Arg, BErr, Res, Err> ObjectConstructor<T> for DefaultObjectConstructor<Req, Arg>
 where
-    T: ServiceFactory<Req, Arg, Response = Res, Error = Err> + 'static,
-    T::Service: 'static,
+    T: BuildService<Arg, Error = BErr> + 'static,
+    T::Service: Service<Req, Response = Res, Error = Err> + 'static,
     T::Future: 'static,
 {
-    type Object = DefaultFactoryObject<Req, Arg, Res, Err>;
+    type Object = DefaultFactoryObject<Req, Arg, BErr, Res, Err>;
 
     fn into_object(inner: T) -> Self::Object {
-        let factory = fn_factory(move |arg: Arg| {
-            let fut = inner.new_service(arg);
+        let factory = fn_build(move |arg: Arg| {
+            let fut = inner.build(arg);
             async move {
                 let svc = Box::new(Wrapper(fut.await?)) as Box<dyn ServiceObject<Req, Response = _, Error = _>>;
-                Ok(Wrapper(svc))
+                Ok::<_, BErr>(Wrapper(svc))
             }
         });
 
-        Wrapper(Box::new(Wrapper(factory)) as Box<dyn ServiceFactoryObject<Req, Arg, Service = _>>)
+        Wrapper(Box::new(Wrapper(factory)) as Box<dyn ServiceFactoryObject<Arg, Service = _, Error = _>>)
     }
 }
 
@@ -61,13 +61,14 @@ pub mod helpers {
     use alloc::boxed::Box;
     use core::future::Future;
 
-    use crate::{BoxFuture, Service, ServiceFactory};
+    use crate::{BoxFuture, BuildService, Service};
 
     /// Object-safe counterpart to [ServiceFactory].
-    pub trait ServiceFactoryObject<Req, Arg = ()> {
-        type Service: Service<Req>;
+    pub trait ServiceFactoryObject<Arg = ()> {
+        type Service;
+        type Error;
 
-        fn new_service(&self, arg: Arg) -> BoxFuture<'static, Self::Service, <Self::Service as Service<Req>>::Error>;
+        fn new_service(&self, arg: Arg) -> BoxFuture<'static, Self::Service, Self::Error>;
     }
 
     /// Object-safe counterpart of [Service].
@@ -84,29 +85,29 @@ pub mod helpers {
     /// Converts between object-safe non-object-safe Service and ServiceFactory. See impls.
     pub struct Wrapper<I>(pub I);
 
-    impl<Inner, Req, Arg> ServiceFactory<Req, Arg> for Wrapper<Box<Inner>>
+    impl<Inner, Arg> BuildService<Arg> for Wrapper<Box<Inner>>
     where
-        Inner: ServiceFactoryObject<Req, Arg> + ?Sized,
+        Inner: ServiceFactoryObject<Arg> + ?Sized,
     {
-        type Response = <Inner::Service as Service<Req>>::Response;
-        type Error = <Inner::Service as Service<Req>>::Error;
         type Service = Inner::Service;
+        type Error = Inner::Error;
         type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-        fn new_service(&self, arg: Arg) -> Self::Future {
+        fn build(&self, arg: Arg) -> Self::Future {
             ServiceFactoryObject::new_service(&*self.0, arg)
         }
     }
 
-    impl<Inner, Req, Arg, Err> ServiceFactoryObject<Req, Arg> for Wrapper<Inner>
+    impl<Inner, Arg> ServiceFactoryObject<Arg> for Wrapper<Inner>
     where
-        Inner: ServiceFactory<Req, Arg, Error = Err>,
+        Inner: BuildService<Arg>,
         Inner::Future: 'static,
     {
         type Service = Inner::Service;
+        type Error = Inner::Error;
 
-        fn new_service(&self, arg: Arg) -> BoxFuture<'static, Self::Service, Err> {
-            let fut = ServiceFactory::new_service(&self.0, arg);
+        fn new_service(&self, arg: Arg) -> BoxFuture<'static, Self::Service, Self::Error> {
+            let fut = BuildService::build(&self.0, arg);
             Box::pin(fut)
         }
     }
