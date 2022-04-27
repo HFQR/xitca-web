@@ -15,7 +15,7 @@ pub mod route {
 
 pub mod dev {
     pub use xitca_http::bytes;
-    pub use xitca_service::{fn_service, Service, ServiceFactory, ServiceFactoryExt};
+    pub use xitca_service::{fn_service, BuildService, Service, ServiceFactoryExt};
 }
 
 pub use app::App;

@@ -1,22 +1,18 @@
-use core::future::Future;
+use core::{convert::Infallible, future::Future};
 
 use alloc::rc::Rc;
 
-use crate::{factory::ServiceFactory, service::Service};
+use crate::build::BuildService;
 
 #[derive(Clone, Copy)]
 pub struct Cloneable;
 
-impl<S, Req> ServiceFactory<Req, S> for Cloneable
-where
-    S: Service<Req>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
+impl<S> BuildService<S> for Cloneable {
     type Service = Rc<S>;
+    type Error = Infallible;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, service: S) -> Self::Future {
+    fn build(&self, service: S) -> Self::Future {
         async { Ok(Rc::new(service)) }
     }
 }
@@ -25,15 +21,13 @@ where
 mod test {
     use super::*;
 
-    use crate::{fn_service, ServiceFactory, ServiceFactoryExt};
+    use crate::{fn_service, BuildService, Service, ServiceFactoryExt};
 
     #[tokio::test]
     async fn cloneable() {
-        let service = fn_service(|_: &'static str| async { Ok::<_, ()>("996") })
-            .enclosed(Cloneable)
-            .new_service(())
-            .await
-            .unwrap();
+        let factory = fn_service(|_: &'static str| async { Ok::<_, ()>("996") }).enclosed(Cloneable);
+
+        let service = BuildService::build(&factory, ()).await.unwrap();
 
         let res = service.clone().call("req").await.unwrap();
 

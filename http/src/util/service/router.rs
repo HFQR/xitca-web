@@ -5,14 +5,14 @@ use xitca_service::{
     object::{DefaultFactoryObject, DefaultObjectConstructor, ObjectConstructor},
     pipeline::PipelineE,
     ready::ReadyService,
-    Service, ServiceFactory,
+    BuildService, Service,
 };
 
 use crate::{http, request::BorrowReq};
 
 /// A [GenericRouter] specialized with [DefaultObjectConstructor]
-pub type Router<Req, Arg, Res, Err> =
-    GenericRouter<DefaultObjectConstructor<Req, Arg>, DefaultFactoryObject<Req, Arg, Res, Err>>;
+pub type Router<Req, Arg, BErr, Res, Err> =
+    GenericRouter<DefaultObjectConstructor<Req, Arg>, DefaultFactoryObject<Req, Arg, BErr, Res, Err>>;
 
 /// Simple router for matching on [Request]'s path and call according service.
 ///
@@ -66,29 +66,27 @@ impl<ObjCons, SF> GenericRouter<ObjCons, SF> {
     }
 }
 
-impl<ObjCons, SF, Req, Arg> ServiceFactory<Req, Arg> for GenericRouter<ObjCons, SF>
+impl<ObjCons, SF, Arg> BuildService<Arg> for GenericRouter<ObjCons, SF>
 where
-    SF: ServiceFactory<Req, Arg>,
-    Req: BorrowReq<http::Uri>,
+    SF: BuildService<Arg>,
     Arg: Clone,
 {
-    type Response = SF::Response;
-    type Error = RouterError<SF::Error>;
     type Service = RouterService<SF::Service>;
+    type Error = SF::Error;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, arg: Arg) -> Self::Future {
+    fn build(&self, arg: Arg) -> Self::Future {
         let futs = self
             .routes
             .iter()
-            .map(|(path, obj)| (*path, obj.new_service(arg.clone())))
+            .map(|(path, obj)| (*path, obj.build(arg.clone())))
             .collect::<Vec<_>>();
 
         async move {
             let mut routes = matchit::Node::new();
 
             for (path, fut) in futs {
-                let service = fut.await.map_err(RouterError::Second)?;
+                let service = fut.await?;
                 routes.insert(path, service).unwrap();
             }
 
@@ -154,7 +152,7 @@ mod test {
                 "/",
                 fn_service(|_: Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
-            .new_service(())
+            .build(())
             .await
             .unwrap()
             .call(Request::new(()))
@@ -169,7 +167,7 @@ mod test {
                 "/",
                 fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
-            .new_service(())
+            .build(())
             .await
             .unwrap()
             .call(http::Request::new(()))
@@ -192,7 +190,7 @@ mod test {
                 fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
             .enclosed_fn(enclosed)
-            .new_service(())
+            .build(())
             .await
             .unwrap()
             .call(http::Request::new(()))

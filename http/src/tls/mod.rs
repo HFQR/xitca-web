@@ -13,23 +13,22 @@ pub(crate) mod rustls;
 
 mod error;
 
-pub(crate) use error::TlsError;
+pub use error::TlsError;
 
 use std::future::Future;
 
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{BuildService, Service};
 
 /// A NoOp Tls Acceptor pass through input Stream type.
 #[derive(Copy, Clone)]
 pub struct NoOpTlsAcceptorService;
 
-impl<St, Arg> ServiceFactory<St, Arg> for NoOpTlsAcceptorService {
-    type Response = St;
-    type Error = TlsError;
+impl<Arg> BuildService<Arg> for NoOpTlsAcceptorService {
     type Service = Self;
+    type Error = TlsError;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: Arg) -> Self::Future {
+    fn build(&self, _: Arg) -> Self::Future {
         async { Ok(Self) }
     }
 }

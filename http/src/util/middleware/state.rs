@@ -1,10 +1,11 @@
 use std::{
     borrow::BorrowMut,
+    convert::Infallible,
     future::{ready, Future, Ready},
     marker::PhantomData,
 };
 
-use xitca_service::{ready::ReadyService, Service, ServiceFactory};
+use xitca_service::{ready::ReadyService, BuildService, Service};
 
 use crate::http;
 
@@ -15,7 +16,7 @@ pub struct State<ReqB, F: Clone = ()> {
 }
 
 impl<ReqB> State<ReqB> {
-    pub fn new<S, Err>(state: S) -> State<ReqB, impl Fn() -> Ready<Result<S, Err>> + Clone>
+    pub fn new<S>(state: S) -> State<ReqB, impl Fn() -> Ready<Result<S, Infallible>> + Clone>
     where
         S: Send + Sync + Clone + 'static,
     {
@@ -38,21 +39,17 @@ impl<ReqB> State<ReqB> {
     }
 }
 
-impl<S, Req, ReqB, F, Fut, Res, Err> ServiceFactory<Req, S> for State<ReqB, F>
+impl<S, ReqB, F, Fut, Res, Err> BuildService<S> for State<ReqB, F>
 where
-    S: Service<Req>,
-    Req: BorrowMut<http::Request<ReqB>>,
     F: Fn() -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
     Res: Send + Sync + Clone + 'static,
-    S::Error: From<Err>,
 {
-    type Response = S::Response;
-    type Error = S::Error;
     type Service = StateService<S, ReqB, Res>;
+    type Error = Err;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, service: S) -> Self::Future {
+    fn build(&self, service: S) -> Self::Future {
         let fut = (self.factory)();
 
         async move {
@@ -123,7 +120,7 @@ where
 mod test {
     use super::*;
 
-    use xitca_service::{fn_service, ServiceFactory, ServiceFactoryExt};
+    use xitca_service::{fn_service, BuildService, ServiceFactoryExt};
 
     use crate::request::Request;
 
@@ -134,7 +131,7 @@ mod test {
             Ok::<_, ()>("996")
         })
         .enclosed(State::new(String::from("state")))
-        .new_service(())
+        .build(())
         .await
         .unwrap();
 
@@ -149,8 +146,10 @@ mod test {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
-        .enclosed(State::factory(|| async move { Ok::<_, ()>(String::from("state")) }))
-        .new_service(())
+        .enclosed(State::factory(
+            || async move { Ok::<_, Infallible>(String::from("state")) },
+        ))
+        .build(())
         .await
         .unwrap();
 
@@ -166,7 +165,7 @@ mod test {
             Ok::<_, ()>("996")
         })
         .enclosed(State::new(String::from("state")))
-        .new_service(())
+        .build(())
         .await
         .unwrap();
 

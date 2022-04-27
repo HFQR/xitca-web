@@ -10,7 +10,7 @@ where
     S1: Service<S::Response, Error = S::Error>,
 {
     type Response = S1::Response;
-    type Error = S1::Error;
+    type Error = S::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[inline]

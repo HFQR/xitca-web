@@ -1,10 +1,10 @@
 use core::future::Future;
 
-use crate::factory::function::FnServiceFactory;
+use crate::build::function::FnService;
 
 use super::ReadyService;
 
-impl<F, Req, Fut, Res, Err> ReadyService<Req> for FnServiceFactory<F>
+impl<F, Req, Fut, Res, Err> ReadyService<Req> for FnService<F>
 where
     F: Fn(Req) -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,

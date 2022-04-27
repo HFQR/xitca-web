@@ -64,15 +64,14 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     } = CallImpl::from_items(&input.items);
 
     let base = quote! {
-        impl<#generic_ty> ::xitca_service::ServiceFactory<#req_ty, #arg_ty> for #factory_ty
+        impl<#generic_ty> ::xitca_service::BuildService<#arg_ty> for #factory_ty
         #where_clause
         {
-            type Response = #res_ty;
-            type Error = #err_ty;
             type Service = #service_ty;
+            type Error = #err_ty;
             type Future = impl ::core::future::Future<Output = Result<Self::Service, Self::Error>>;
 
-            fn new_service(&self, #arg_ident: #arg_ty) -> Self::Future {
+            fn build(&self, #arg_ident: #arg_ty) -> Self::Future {
                 let #factory_ident = self.clone();
                 async move {
                     #(#factory_stmts)*
@@ -86,7 +85,6 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             type Response = #res_ty;
             type Error = #err_ty;
             type Future<'f> where Self: 'f = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>>;
-
 
             #[inline]
             fn call(&self, #req_ident: #req_ty) -> Self::Future<'_> {

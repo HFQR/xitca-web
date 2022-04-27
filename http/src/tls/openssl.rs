@@ -1,6 +1,7 @@
 pub(crate) use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
 
 use std::{
+    convert::Infallible,
     fmt::{self, Debug, Formatter},
     future::Future,
     io,
@@ -16,7 +17,7 @@ use openssl_crate::{
 };
 use tokio_util::io::poll_read_buf;
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{BuildService, Service};
 
 use crate::{bytes::BufMut, http::Version, version::AsVersion};
 
@@ -64,13 +65,12 @@ impl TlsAcceptorService {
     }
 }
 
-impl<St: AsyncIo, Arg> ServiceFactory<St, Arg> for TlsAcceptorService {
-    type Response = TlsStream<St>;
-    type Error = OpensslError;
+impl BuildService for TlsAcceptorService {
     type Service = TlsAcceptorService;
+    type Error = Infallible;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: Arg) -> Self::Future {
+    fn build(&self, _: ()) -> Self::Future {
         let this = self.clone();
         async { Ok(this) }
     }

@@ -7,7 +7,11 @@ use std::{
 
 use tracing::error;
 
-use super::{http::Version, tls::TlsError};
+use super::http::Version;
+
+pub(crate) use super::tls::TlsError;
+
+pub(crate) type BuildError = Box<dyn Error + 'static>;
 
 /// HttpService layer error.
 pub enum HttpServiceError<S, B> {

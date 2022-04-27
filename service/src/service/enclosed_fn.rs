@@ -11,7 +11,6 @@ impl<S, Req, T, Res, Err> Service<Req> for PipelineT<S, T, EnclosedFn>
 where
     S: Service<Req>,
     T: for<'s> AsyncClosure<(&'s S, Req), Output = Result<Res, Err>>,
-    Err: From<S::Error>,
 {
     type Response = Res;
     type Error = Err;

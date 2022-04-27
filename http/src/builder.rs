@@ -1,23 +1,19 @@
-use std::{fmt, future::Future, marker::PhantomData};
+use std::{error, future::Future, marker::PhantomData};
 
 use futures_core::Stream;
-use xitca_io::{
-    io::AsyncIo,
-    net::{Stream as ServerStream, TcpStream},
-};
-use xitca_service::{EnclosedFactory, ServiceFactory, ServiceFactoryExt};
+use xitca_io::net::{Stream as ServerStream, TcpStream};
+use xitca_service::{BuildService, EnclosedFactory, Service, ServiceFactoryExt};
 
 use super::{
     body::{RequestBody, ResponseBody},
     bytes::Bytes,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
-    error::HttpServiceError,
+    error::BuildError,
     http::Response,
     request::Request,
     service::HttpService,
     tls,
     util::middleware::Logger,
-    version::AsVersion,
 };
 
 // marker type for separate HttpServerBuilders' ServiceFactory implement with specialized trait
@@ -102,8 +98,8 @@ impl<F>
         DEFAULT_WRITE_BUF_LIMIT,
     >
     where
-        F: ServiceFactory<Request<super::h1::RequestBody>, Response = Response<ResponseBody<ResB>>>,
-        F::Service: 'static,
+        F: BuildService,
+        F::Service: Service<Request<super::h1::RequestBody>, Response = HResponse<ResB>> + 'static,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
@@ -133,8 +129,8 @@ impl<F>
         DEFAULT_WRITE_BUF_LIMIT,
     >
     where
-        F: ServiceFactory<Request<super::h2::RequestBody>, Response = Response<ResponseBody<ResB>>>,
-        F::Service: 'static,
+        F: BuildService,
+        F::Service: Service<Request<super::h2::RequestBody>, Response = HResponse<ResB>> + 'static,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
@@ -154,8 +150,8 @@ impl<F>
     /// This is a request type specific for Http/3 request body.
     pub fn h3<ResB, E>(factory: F) -> super::h3::H3ServiceBuilder<F>
     where
-        F: ServiceFactory<Request<super::h3::RequestBody>, Response = Response<ResponseBody<ResB>>>,
-        F::Service: 'static,
+        F: BuildService,
+        F::Service: Service<Request<super::h3::RequestBody>, Response = HResponse<ResB>> + 'static,
 
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
@@ -196,10 +192,9 @@ impl<V, St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
     /// Finish builder with default logger.
     ///
     /// Would consume input.
-    pub fn with_logger<Req>(self) -> EnclosedFactory<Self, Logger>
+    pub fn with_logger<Arg>(self) -> EnclosedFactory<Self, Logger>
     where
-        Self: ServiceFactory<Req>,
-        <Self as ServiceFactory<Req>>::Error: fmt::Debug,
+        Self: BuildService<Arg>,
     {
         self.enclosed(Logger::new())
     }
@@ -232,33 +227,28 @@ impl<V, St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
     }
 }
 
-impl<F, Arg, ResB, BE, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    ServiceFactory<ServerStream, Arg>
+type HResponse<B> = Response<ResponseBody<B>>;
+
+impl<F, Arg, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> BuildService<Arg>
     for HttpServiceBuilder<marker::Http, ServerStream, F, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    F: ServiceFactory<Request<RequestBody>, Arg, Response = Response<ResponseBody<ResB>>>,
-    F::Service: 'static,
-    F::Error: fmt::Debug,
-    FA: ServiceFactory<TcpStream>,
-    FA::Service: 'static,
-    FA::Response: AsyncIo + AsVersion,
-    HttpServiceError<F::Error, BE>: From<FA::Error>,
-    ResB: Stream<Item = Result<Bytes, BE>>,
-    BE: fmt::Debug,
+    F: BuildService<Arg>,
+    F::Error: error::Error + 'static,
+
+    FA: BuildService,
+    FA::Error: error::Error + 'static,
 {
-    type Response = ();
-    type Error = HttpServiceError<F::Error, BE>;
     type Service = HttpService<F::Service, RequestBody, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+    type Error = BuildError;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, arg: Arg) -> Self::Future {
-        let service = self.factory.new_service(arg);
-        let tls_acceptor = self.tls_factory.new_service(());
+    fn build(&self, arg: Arg) -> Self::Future {
+        let service = self.factory.build(arg);
+        let tls_acceptor = self.tls_factory.build(());
         let config = self.config;
 
         async move {
-            // TODO: clean up error types.
-            let service = service.await.map_err(HttpServiceError::Service)?;
+            let service = service.await?;
             let tls_acceptor = tls_acceptor.await?;
             Ok(HttpService::new(config, service, tls_acceptor))
         }

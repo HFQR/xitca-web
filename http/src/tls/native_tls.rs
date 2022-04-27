@@ -1,6 +1,7 @@
 pub(crate) use tokio_native_tls::native_tls::{Error as NativeTlsError, TlsAcceptor};
 
 use std::{
+    convert::Infallible,
     future::Future,
     io,
     ops::{Deref, DerefMut},
@@ -11,7 +12,7 @@ use std::{
 use futures_task::noop_waker;
 use tokio_util::io::poll_read_buf;
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{BuildService, Service};
 
 use crate::{bytes::BufMut, http::Version, version::AsVersion};
 
@@ -66,13 +67,12 @@ impl TlsAcceptorService {
     }
 }
 
-impl<St: AsyncIo, Arg> ServiceFactory<St, Arg> for TlsAcceptorService {
-    type Response = TlsStream<St>;
-    type Error = NativeTlsError;
+impl<Arg> BuildService<Arg> for TlsAcceptorService {
     type Service = TlsAcceptorService;
+    type Error = Infallible;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: Arg) -> Self::Future {
+    fn build(&self, _: Arg) -> Self::Future {
         let this = self.clone();
         async move { Ok(this) }
     }

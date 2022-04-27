@@ -1,7 +1,9 @@
 pub(crate) type RustlsConfig = Arc<ServerConfig>;
 
 use std::{
-    fmt::{self, Debug, Formatter},
+    convert::Infallible,
+    error,
+    fmt::{self, Debug, Display, Formatter},
     future::Future,
     io,
     ops::{Deref, DerefMut},
@@ -14,7 +16,7 @@ use futures_task::noop_waker;
 use tokio_rustls::{rustls::ServerConfig, TlsAcceptor};
 use tokio_util::io::poll_read_buf;
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
-use xitca_service::{Service, ServiceFactory};
+use xitca_service::{BuildService, Service};
 
 use crate::{bytes::BufMut, http::Version, version::AsVersion};
 
@@ -65,13 +67,12 @@ impl TlsAcceptorService {
     }
 }
 
-impl<St: AsyncIo, Arg> ServiceFactory<St, Arg> for TlsAcceptorService {
-    type Response = TlsStream<St>;
-    type Error = RustlsError;
+impl BuildService for TlsAcceptorService {
     type Service = TlsAcceptorService;
+    type Error = Infallible;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn new_service(&self, _: Arg) -> Self::Future {
+    fn build(&self, _: ()) -> Self::Future {
         let this = self.clone();
         async { Ok(this) }
     }
@@ -176,6 +177,14 @@ impl Debug for RustlsError {
         write!(f, "{:?}", self.0)
     }
 }
+
+impl Display for RustlsError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl error::Error for RustlsError {}
 
 impl From<io::Error> for RustlsError {
     fn from(e: io::Error) -> Self {
