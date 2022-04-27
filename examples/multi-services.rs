@@ -30,7 +30,6 @@ async fn main() -> io::Result<()> {
 
     let h1_factory = || {
         HttpServiceBuilder::h1(fn_service(handler_h1))
-            .unix()
             .enclosed(TcpConfig::new())
             .enclosed(Logger::default())
     };
