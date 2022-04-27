@@ -30,9 +30,18 @@ async fn main() -> io::Result<()> {
 
     let h1_factory = || {
         HttpServiceBuilder::h1(fn_service(handler_h1))
+            .unix()
             .enclosed(TcpConfig::new())
             .enclosed(Logger::default())
     };
+
+    let h2_factory = move || {
+        HttpServiceBuilder::h2(fn_service(handler_h2))
+            .openssl(acceptor.clone())
+            .with_logger()
+            .enclosed(TcpConfig::new())
+    };
+
     let h3_factory = || HttpServiceBuilder::h3(fn_service(handler_h3)).enclosed(Logger::default());
 
     // construct server
@@ -41,11 +50,7 @@ async fn main() -> io::Result<()> {
         .bind("http/1", "127.0.0.1:8080", h1_factory)?
         // bind to a http/2 service.
         // *. http/1 and http/2 both use tcp listener so it should be using a separate port.
-        .bind::<_, _, _, xitca_io::net::TcpStream>("http/2", "127.0.0.1:8081", move || {
-            HttpServiceBuilder::h2(fn_service(handler_h2))
-                .openssl(acceptor.clone())
-                .with_logger()
-        })?
+        .bind("http/2", "127.0.0.1:8081", h2_factory)?
         // bind to a http/3 service.
         // *. note the service name must be unique.
         //
