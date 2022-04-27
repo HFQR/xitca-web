@@ -24,11 +24,14 @@ impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: us
     Service<St> for H1Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+
     A: Service<St, Response = TlsSt> + 'static,
-    HttpServiceError<S::Error, BE>: From<A::Error>,
-    B: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
     TlsSt: AsyncIo,
+
+    B: Stream<Item = Result<Bytes, BE>>,
+
+    HttpServiceError<S::Error, BE>: From<A::Error>,
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
@@ -61,11 +64,15 @@ impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: us
     ReadyService<St> for H1Service<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+
     A: Service<St, Response = TlsSt> + 'static,
-    HttpServiceError<S::Error, BE>: From<A::Error>,
     B: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
     TlsSt: AsyncIo,
+
+    HttpServiceError<S::Error, BE>: From<A::Error>,
+
+    B: Stream<Item = Result<Bytes, BE>>,
 {
     type Ready = S::Ready;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;

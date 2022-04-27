@@ -26,7 +26,7 @@ impl<St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WR
         WRITE_BUF_LIMIT,
     >
     where
-        FA: BuildService<xitca_io::net::UnixStream>,
+        FA: BuildService,
     {
         HttpServiceBuilder {
             factory: self.factory,

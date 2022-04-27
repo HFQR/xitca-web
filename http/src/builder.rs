@@ -1,16 +1,12 @@
 use std::{error, future::Future, marker::PhantomData};
 
-use futures_core::Stream;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
-use xitca_service::{BuildService, EnclosedFactory, Service, ServiceFactoryExt};
+use xitca_service::{BuildService, EnclosedFactory, ServiceFactoryExt};
 
 use super::{
-    body::{RequestBody, ResponseBody},
-    bytes::Bytes,
+    body::RequestBody,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     error::BuildError,
-    http::Response,
-    request::Request,
     service::HttpService,
     tls,
     util::middleware::Logger,
@@ -86,7 +82,7 @@ impl<F>
     ///
     /// Note factory type F ues `Request<h1::RequestBody>` as Request type.
     /// This is a request type specific for Http/1 request body.
-    pub fn h1<ResB, E>(
+    pub fn h1(
         factory: F,
     ) -> HttpServiceBuilder<
         marker::Http1,
@@ -96,14 +92,7 @@ impl<F>
         DEFAULT_HEADER_LIMIT,
         DEFAULT_READ_BUF_LIMIT,
         DEFAULT_WRITE_BUF_LIMIT,
-    >
-    where
-        F: BuildService,
-        F::Service: Service<Request<super::h1::RequestBody>, Response = HResponse<ResB>> + 'static,
-
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
-    {
+    > {
         HttpServiceBuilder {
             factory,
             tls_factory: tls::NoOpTlsAcceptorService,
@@ -117,7 +106,7 @@ impl<F>
     ///
     /// Note factory type F ues `Request<h2::RequestBody>` as Request type.
     /// This is a request type specific for Http/2 request body.
-    pub fn h2<ResB, E>(
+    pub fn h2(
         factory: F,
     ) -> HttpServiceBuilder<
         marker::Http2,
@@ -127,14 +116,7 @@ impl<F>
         DEFAULT_HEADER_LIMIT,
         DEFAULT_READ_BUF_LIMIT,
         DEFAULT_WRITE_BUF_LIMIT,
-    >
-    where
-        F: BuildService,
-        F::Service: Service<Request<super::h2::RequestBody>, Response = HResponse<ResB>> + 'static,
-
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
-    {
+    > {
         HttpServiceBuilder {
             factory,
             tls_factory: tls::NoOpTlsAcceptorService,
@@ -148,14 +130,7 @@ impl<F>
     ///
     /// Note factory type F ues `Request<h3::RequestBody>` as Request type.
     /// This is a request type specific for Http/3 request body.
-    pub fn h3<ResB, E>(factory: F) -> super::h3::H3ServiceBuilder<F>
-    where
-        F: BuildService,
-        F::Service: Service<Request<super::h3::RequestBody>, Response = HResponse<ResB>> + 'static,
-
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
-    {
+    pub fn h3(factory: F) -> super::h3::H3ServiceBuilder<F> {
         super::h3::H3ServiceBuilder::new(factory)
     }
 }
@@ -226,8 +201,6 @@ impl<V, St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
         self.with_tls(tls::native_tls::TlsAcceptorService::new(acceptor))
     }
 }
-
-type HResponse<B> = Response<ResponseBody<B>>;
 
 impl<F, Arg, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> BuildService<Arg>
     for HttpServiceBuilder<marker::Http, ServerStream, F, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>

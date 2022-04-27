@@ -23,12 +23,12 @@ use xitca_service::{BuildService, Service};
 #[derive(Copy, Clone)]
 pub struct NoOpTlsAcceptorService;
 
-impl<Arg> BuildService<Arg> for NoOpTlsAcceptorService {
+impl BuildService for NoOpTlsAcceptorService {
     type Service = Self;
     type Error = TlsError;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn build(&self, _: Arg) -> Self::Future {
+    fn build(&self, _: ()) -> Self::Future {
         async { Ok(Self) }
     }
 }

@@ -2,7 +2,7 @@ use std::{fmt, future::Future};
 
 use futures_core::Stream;
 use tokio::pin;
-use xitca_io::io::{AsyncRead, AsyncWrite};
+use xitca_io::io::AsyncIo;
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::{
@@ -34,13 +34,15 @@ impl<
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
+
     A: Service<St, Response = TlsSt> + 'static,
-    ResB: Stream<Item = Result<Bytes, BE>>,
-    BE: fmt::Debug,
-    St: AsyncRead + AsyncWrite + Unpin,
-    TlsSt: AsyncRead + AsyncWrite + Unpin,
+    St: AsyncIo,
+    TlsSt: AsyncIo,
 
     HttpServiceError<S::Error, BE>: From<A::Error>,
+
+    ResB: Stream<Item = Result<Bytes, BE>>,
+    BE: fmt::Debug,
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
@@ -96,12 +98,15 @@ impl<
 where
     S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     S::Error: fmt::Debug,
+
     A: Service<St, Response = TlsSt> + 'static,
+    St: AsyncIo,
+    TlsSt: AsyncIo,
+
+    HttpServiceError<S::Error, BE>: From<A::Error>,
+
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
-    St: AsyncRead + AsyncWrite + Unpin,
-    TlsSt: AsyncRead + AsyncWrite + Unpin,
-    HttpServiceError<S::Error, BE>: From<A::Error>,
 {
     type Ready = S::Ready;
     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
