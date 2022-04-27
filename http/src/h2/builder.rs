@@ -18,7 +18,7 @@ where
     FA: BuildService,
     FA::Error: error::Error + 'static,
 {
-    type Service = H2Service<F::Service, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+    type Service = H2Service<St, F::Service, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = BuildError;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 

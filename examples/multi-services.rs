@@ -38,7 +38,6 @@ async fn main() -> io::Result<()> {
         HttpServiceBuilder::h2(fn_service(handler_h2))
             .openssl(acceptor.clone())
             .with_logger()
-            .enclosed(TcpConfig::new())
     };
 
     let h3_factory = || HttpServiceBuilder::h3(fn_service(handler_h3)).enclosed(Logger::default());

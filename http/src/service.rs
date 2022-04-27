@@ -18,17 +18,24 @@ use super::{
 };
 
 /// General purpose http service
-pub struct HttpService<S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-{
+pub struct HttpService<
+    St,
+    S,
+    ReqB,
+    A,
+    const HEADER_LIMIT: usize,
+    const READ_BUF_LIMIT: usize,
+    const WRITE_BUF_LIMIT: usize,
+> {
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     pub(crate) date: DateTimeService,
     pub(crate) service: S,
     pub(crate) tls_acceptor: A,
-    _body: PhantomData<ReqB>,
+    _body: PhantomData<(St, ReqB)>,
 }
 
-impl<S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpService<S, ReqB, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpService<St, S, ReqB, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     /// Construct new Http Service.
     pub fn new(
@@ -64,7 +71,8 @@ impl<S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const W
 }
 
 impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<ServerStream> for HttpService<S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    Service<ServerStream>
+    for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     A: Service<TcpStream> + 'static,
@@ -167,7 +175,8 @@ where
 }
 
 impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    ReadyService<ServerStream> for HttpService<S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ReadyService<ServerStream>
+    for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
     A: Service<TcpStream> + 'static,
