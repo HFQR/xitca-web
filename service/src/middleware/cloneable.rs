@@ -21,7 +21,7 @@ impl<S> BuildService<S> for Cloneable {
 mod test {
     use super::*;
 
-    use crate::{fn_service, BuildService, Service, ServiceFactoryExt};
+    use crate::{fn_service, BuildService, BuildServiceExt, Service};
 
     #[tokio::test]
     async fn cloneable() {

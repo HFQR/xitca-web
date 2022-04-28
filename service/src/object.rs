@@ -107,8 +107,7 @@ pub mod helpers {
         type Error = Inner::Error;
 
         fn new_service(&self, arg: Arg) -> BoxFuture<'static, Self::Service, Self::Error> {
-            let fut = BuildService::build(&self.0, arg);
-            Box::pin(fut)
+            Box::pin(BuildService::build(&self.0, arg))
         }
     }
 
@@ -139,7 +138,7 @@ pub mod helpers {
             Req: 'f,
             's: 'f,
         {
-            Box::pin(async move { Service::call(&self.0, req).await })
+            Box::pin(Service::call(&self.0, req))
         }
     }
 }

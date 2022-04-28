@@ -13,8 +13,8 @@ use xitca_http::{
     Request, RequestBody,
 };
 use xitca_service::{
-    object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, EnclosedFactory, EnclosedFnFactory,
-    Service, ServiceFactoryExt,
+    object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, BuildServiceExt, EnclosedFactory,
+    EnclosedFnFactory, Service,
 };
 
 use crate::request::WebRequest;
@@ -77,10 +77,12 @@ impl<CF, C, SF> App<CF, Router<C, SF>> {
     }
 }
 
-impl<CF, R> App<CF, R> {
+impl<CF, R> App<CF, R>
+where
+    R: BuildService,
+{
     pub fn enclosed<T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
     where
-        R: BuildService,
         T: BuildService<R::Service> + Clone,
     {
         App {
@@ -91,7 +93,6 @@ impl<CF, R> App<CF, R> {
 
     pub fn enclosed_fn<Req, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T>>
     where
-        R: BuildService,
         T: for<'s> AsyncClosure<(&'s R::Service, Req)> + Clone,
     {
         App {
@@ -100,11 +101,13 @@ impl<CF, R> App<CF, R> {
         }
     }
 
-    pub fn finish<Req, Fut, C, CErr>(self) -> ContextBuilder<CF, C, MapRequest<R>>
+    pub fn finish<Fut, C, CErr>(self) -> ContextBuilder<CF, C, MapRequest<R>>
     where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, CErr>>,
-        ContextBuilder<CF, C, MapRequest<R>>: BuildService<Req>,
+        C: 'static,
+        R: 'static,
+        R::Error: From<CErr>,
     {
         let App { ctx_factory, router } = self;
 

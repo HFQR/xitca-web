@@ -1,7 +1,7 @@
 use std::{error, future::Future, marker::PhantomData};
 
 use xitca_io::net::{Stream as ServerStream, TcpStream};
-use xitca_service::{BuildService, EnclosedFactory, ServiceFactoryExt};
+use xitca_service::{BuildService, BuildServiceExt, EnclosedFactory};
 
 use super::{
     body::RequestBody,

@@ -7,7 +7,7 @@ use std::{
 };
 
 use xitca_service::{
-    pipeline::PipelineE, ready::ReadyService, BuildService, MapErrorServiceFactory, Service, ServiceFactoryExt,
+    pipeline::PipelineE, ready::ReadyService, BuildService, BuildServiceExt, MapErrorServiceFactory, Service,
 };
 
 use crate::{

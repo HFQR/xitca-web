@@ -4,17 +4,17 @@ use crate::BoxFuture;
 
 use super::BuildService;
 
-pub struct BoxedServiceFactory<SF> {
+pub struct Boxed<SF> {
     factory: SF,
 }
 
-impl<SF> BoxedServiceFactory<SF> {
+impl<SF> Boxed<SF> {
     pub(super) fn new(factory: SF) -> Self {
         Self { factory }
     }
 }
 
-impl<SF, Arg> BuildService<Arg> for BoxedServiceFactory<SF>
+impl<SF, Arg> BuildService<Arg> for Boxed<SF>
 where
     SF: BuildService<Arg>,
     SF::Future: 'static,

@@ -234,7 +234,7 @@ pub mod object {
 mod test {
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, ServiceFactoryExt};
+    use xitca_service::{fn_service, BuildServiceExt};
 
     use crate::{
         http::Response,

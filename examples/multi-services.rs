@@ -14,7 +14,7 @@ use xitca_http::{
     util::middleware::{Logger, TcpConfig},
     HttpServiceBuilder, Request, ResponseBody,
 };
-use xitca_service::{fn_service, ServiceFactoryExt};
+use xitca_service::{fn_service, BuildServiceExt};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
