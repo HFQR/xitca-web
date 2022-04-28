@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use crate::pipeline::{marker::MapErr, PipelineT};
 
 use super::ReadyService;
@@ -10,9 +8,10 @@ where
     F: Fn(S::Error) -> E,
 {
     type Ready = S::Ready;
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
 
+    #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move { self.first.ready().await.map_err(&self.second) }
+        self.first.ready()
     }
 }

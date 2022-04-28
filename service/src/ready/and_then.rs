@@ -10,13 +10,13 @@ where
     S1: ReadyService<S::Response, Error = S::Error>,
 {
     type Ready = PipelineT<S::Ready, S1::Ready>;
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     fn ready(&self) -> Self::ReadyFuture<'_> {
         async move {
-            let first = self.first.ready().await?;
-            let second = self.second.ready().await?;
-            Ok(PipelineT::new(first, second))
+            let first = self.first.ready().await;
+            let second = self.second.ready().await;
+            PipelineT::new(first, second)
         }
     }
 }

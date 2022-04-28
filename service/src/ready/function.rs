@@ -10,10 +10,10 @@ where
     Fut: Future<Output = Result<Res, Err>>,
 {
     type Ready = ();
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where F: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async { Ok(()) }
+        async { () }
     }
 }

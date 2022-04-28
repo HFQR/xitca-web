@@ -44,8 +44,8 @@ use super::service::Service;
 /// }
 ///
 /// impl ReadyService<()> for Foo {
-///     type Ready = Permit;
-///     type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>>;
+///     type Ready = Result<Permit, Self::Error>;
+///     type ReadyFuture<'f> = impl Future<Output = Self::Ready>;
 ///
 ///     fn ready(&self) -> Self::ReadyFuture<'_> {
 ///         async move {
@@ -78,7 +78,7 @@ use super::service::Service;
 pub trait ReadyService<Req>: Service<Req> {
     type Ready;
 
-    type ReadyFuture<'f>: Future<Output = Result<Self::Ready, Self::Error>>
+    type ReadyFuture<'f>: Future<Output = Self::Ready>
     where
         Self: 'f;
 
@@ -92,7 +92,7 @@ macro_rules! impl_alloc {
             S: ReadyService<Req> + ?Sized,
         {
             type Ready = S::Ready;
-            type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
+            type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
 
             #[inline]
             fn ready(&self) -> Self::ReadyFuture<'_> {
@@ -114,7 +114,7 @@ where
     type Ready = <S::Target as ReadyService<Req>>::Ready;
     type ReadyFuture<'f> = <S::Target as ReadyService<Req>>::ReadyFuture<'f>
     where
-        Self: 'f;
+        S: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
