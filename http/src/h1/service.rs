@@ -75,10 +75,10 @@ where
     B: Stream<Item = Result<Bytes, BE>>,
 {
     type Ready = S::Ready;
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move { self.service.ready().await.map_err(HttpServiceError::Service) }
+        self.service.ready()
     }
 }

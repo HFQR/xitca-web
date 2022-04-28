@@ -40,7 +40,7 @@ where
         Ok(TestMiddlewareService(service))
     }
 
-    async fn ready(&self) -> Result<S::Ready, Box<dyn std::error::Error>> {
+    async fn ready(&self) -> S::Ready {
         self.0.ready().await
     }
 

@@ -96,25 +96,27 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     match ready_impl {
-        Some(ReadyImpl { ready_stmts, ready_res_ty}) => {
-            quote! {
-                #base
+        Some(ReadyImpl {
+            ready_stmts,
+            ready_ret_ty: ready_res_ty,
+        }) => quote! {
+            #base
 
-                impl<#generic_ty> ::xitca_service::ready::ReadyService<#req_ty> for #service_ty
-                #where_clause
-                {
-                    type Ready = #ready_res_ty;
-                    type ReadyFuture<'f> where Self: 'f = impl ::core::future::Future<Output = Result<Self::Ready, Self::Error>>;
-                    #[inline]
-                    fn ready(&self) -> Self::ReadyFuture<'_> {
-                        async move {
-                            #(#ready_stmts)*
-                        }
+            impl<#generic_ty> ::xitca_service::ready::ReadyService<#req_ty> for #service_ty
+            #where_clause
+            {
+                type Ready = #ready_res_ty;
+                type ReadyFuture<'f> = impl ::core::future::Future<Output = Self::Ready> where Self: 'f ;
+                #[inline]
+                fn ready(&self) -> Self::ReadyFuture<'_> {
+                    async move {
+                        #(#ready_stmts)*
                     }
                 }
-            }.into()
+            }
         }
-        None => base.into()
+        .into(),
+        None => base.into(),
     }
 }
 
@@ -169,18 +171,18 @@ impl<'a> CallImpl<'a> {
 
 struct ReadyImpl<'a> {
     ready_stmts: &'a [Stmt],
-    ready_res_ty: &'a Type,
+    ready_ret_ty: &'a Type,
 }
 
 impl<'a> ReadyImpl<'a> {
     fn try_from_items(items: &'a [ImplItem]) -> Option<Self> {
         find_async_method(items, "ready").map(|ready_impl| {
-            let (ready_res_ty, _) = extract_res_ty(&ready_impl.sig.output);
+            let ready_ret_ty = ready_ret_ty(&ready_impl.sig.output);
             let ready_stmts = &ready_impl.block.stmts;
 
             Self {
                 ready_stmts,
-                ready_res_ty,
+                ready_ret_ty,
             }
         })
     }
@@ -203,7 +205,16 @@ fn extract_res_ty(ret: &ReturnType) -> (&Type, &Type) {
         }
     }
 
-    panic!("new_service method must output Result<Self, <Error>>")
+    panic!("build method must output Result<Self, <Error>>")
+}
+
+// Extract types from a return type of function.
+fn ready_ret_ty(ret: &ReturnType) -> &Type {
+    if let ReturnType::Type(_, ty) = ret {
+        return &*ty;
+    }
+
+    panic!("ready method must output ReadyService::Ready type")
 }
 
 // generate a default PatIdent

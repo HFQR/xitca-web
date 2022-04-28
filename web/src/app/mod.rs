@@ -158,7 +158,7 @@ where
     S: for<'c1, 's1> ReadyService<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err, Ready = R>,
 {
     type Ready = R;
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where S: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where S: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

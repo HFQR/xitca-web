@@ -29,8 +29,7 @@ where
 
     tokio::task::spawn_local(async move {
         loop {
-            // TODO: What if service return Error when ready.
-            let ready = service.ready().await.ok();
+            let ready = service.ready().await;
 
             match listener.accept().await {
                 Ok(stream) => {

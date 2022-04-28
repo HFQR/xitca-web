@@ -184,11 +184,11 @@ where
     Req: BorrowReq<http::Method>,
 {
     type Ready = ();
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async { Ok(()) }
+        async {}
     }
 }
 
