@@ -143,6 +143,7 @@ pub struct MapRequestService<S> {
 
 impl<'c, 's, C, S, Res, Err> Service<&'c mut Context<'s, Request<RequestBody>, C>> for MapRequestService<S>
 where
+    C: 'c,
     S: for<'c1, 's1> Service<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err>,
 {
     type Response = Res;
@@ -158,6 +159,7 @@ where
 
 impl<'c, 's, C, S, R, Res, Err> ReadyService<&'c mut Context<'s, Request<RequestBody>, C>> for MapRequestService<S>
 where
+    C: 'c,
     S: for<'c1, 's1> ReadyService<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err, Ready = R>,
 {
     type Ready = R;
@@ -190,7 +192,7 @@ mod test {
         assert_eq!(path, req.req().uri().path());
         state.to_string()
     }
-  
+
     #[derive(Clone)]
     struct Middleware;
 
@@ -206,7 +208,7 @@ mod test {
 
     struct MiddlewareService<S>(S);
 
-    impl<'r, 's, S, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
+    impl<'r, 's, S: 's, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
     where
         S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
     {
