@@ -56,7 +56,7 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
     }
 }
 
-impl<'a, 'r, 's, S, const HEADER_NAME: usize> FromRequest<'a, &'r mut WebRequest<'s, S>>
+impl<'a, 'r, 's, S: 's, const HEADER_NAME: usize> FromRequest<'a, &'r mut WebRequest<'s, S>>
     for HeaderRef<'a, HEADER_NAME>
 {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;

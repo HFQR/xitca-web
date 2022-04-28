@@ -245,6 +245,19 @@ pub trait Responder<Req> {
     fn respond_to(self, req: &mut Req) -> Self::Future<'_>;
 }
 
+impl<R, T, E> Responder<R> for Result<T, E>
+where
+    T: Responder<R>,
+{
+    type Output = Result<T::Output, E>;
+    type Future<'a> = impl Future<Output = Self::Output> where R: 'a;
+
+    #[inline]
+    fn respond_to<'a>(self, req: &'a mut R) -> Self::Future<'a> {
+        async move { Ok(self?.respond_to(req).await) }
+    }
+}
+
 #[doc(hidden)]
 /// Same as `std::ops::Fn` trait but for async output.
 ///
