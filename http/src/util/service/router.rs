@@ -138,7 +138,7 @@ mod test {
 
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, Service, ServiceFactoryExt};
+    use xitca_service::{fn_service, BuildServiceExt, Service};
 
     use crate::{
         http::{self, Response},

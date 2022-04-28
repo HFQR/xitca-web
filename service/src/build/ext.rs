@@ -4,9 +4,9 @@ use crate::{
     pipeline::{marker, PipelineT},
 };
 
-use super::{boxed::BoxedServiceFactory, BuildService};
+use super::{boxed::Boxed, BuildService};
 
-pub trait ServiceFactoryExt<Arg>: BuildService<Arg> {
+pub trait BuildServiceExt<Arg>: BuildService<Arg> {
     fn map<F, Res, ResMap>(self, mapper: F) -> PipelineT<Self, F, marker::Map>
     where
         F: Fn(Res) -> ResMap + Clone,
@@ -26,11 +26,11 @@ pub trait ServiceFactoryExt<Arg>: BuildService<Arg> {
     /// Box `<Self as ServiceFactory<_>>::Future` to reduce it's stack size.
     ///
     /// *. This combinator does not box `Self` or `Self::Service`.
-    fn boxed_future(self) -> BoxedServiceFactory<Self>
+    fn boxed_future(self) -> Boxed<Self>
     where
         Self: Sized,
     {
-        BoxedServiceFactory::new(self)
+        Boxed::new(self)
     }
 
     /// Chain another service factory who's service takes `Self`'s `Service::Response` output as
@@ -73,7 +73,7 @@ pub trait ServiceFactoryExt<Arg>: BuildService<Arg> {
     }
 }
 
-impl<F, Arg> ServiceFactoryExt<Arg> for F where F: BuildService<Arg> {}
+impl<F, Arg> BuildServiceExt<Arg> for F where F: BuildService<Arg> {}
 
 #[cfg(test)]
 mod test {

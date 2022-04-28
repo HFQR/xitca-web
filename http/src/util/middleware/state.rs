@@ -120,7 +120,7 @@ where
 mod test {
     use super::*;
 
-    use xitca_service::{fn_service, BuildService, ServiceFactoryExt};
+    use xitca_service::{fn_service, BuildService, BuildServiceExt};
 
     use crate::request::Request;
 

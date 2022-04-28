@@ -9,7 +9,7 @@ mod map;
 mod map_err;
 
 pub use self::{
-    ext::ServiceFactoryExt,
+    ext::BuildServiceExt,
     function::{fn_build, fn_service},
 };
 

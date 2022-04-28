@@ -296,7 +296,7 @@ mod test {
         future::{ready, Ready},
     };
 
-    use xitca_service::{Service, ServiceFactoryExt};
+    use xitca_service::{BuildServiceExt, Service};
 
     use crate::http::{Response, StatusCode};
     use crate::util::service::{route::get, Router};
