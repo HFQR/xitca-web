@@ -19,7 +19,7 @@ impl<T> Deref for ExtensionRef<'_, T> {
     }
 }
 
-impl<'a, 'r, 's, S, T> FromRequest<'a, &'r mut WebRequest<'s, S>> for ExtensionRef<'a, T>
+impl<'a, 'r, 's, S: 's, T> FromRequest<'a, &'r mut WebRequest<'s, S>> for ExtensionRef<'a, T>
 where
     T: Send + Sync + 'static,
 {
@@ -44,7 +44,7 @@ impl Deref for ExtensionsRef<'_> {
     }
 }
 
-impl<'a, 'r, 's, S> FromRequest<'a, &'r mut WebRequest<'s, S>> for ExtensionsRef<'a> {
+impl<'a, 'r, 's, S: 's> FromRequest<'a, &'r mut WebRequest<'s, S>> for ExtensionsRef<'a> {
     type Type<'b> = ExtensionsRef<'b>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;

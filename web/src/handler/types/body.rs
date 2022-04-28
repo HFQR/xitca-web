@@ -4,7 +4,7 @@ use crate::{handler::FromRequest, request::RequestBody, request::WebRequest};
 
 pub struct Body(pub RequestBody);
 
-impl<'a, 'r, 's, S> FromRequest<'a, &'r mut WebRequest<'s, S>> for Body {
+impl<'a, 'r, 's, S: 's> FromRequest<'a, &'r mut WebRequest<'s, S>> for Body {
     type Type<'b> = Body;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;

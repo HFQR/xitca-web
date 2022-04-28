@@ -55,7 +55,7 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
     }
 }
 
-impl<'a, 'r, 's, S, T, const LIMIT: usize> FromRequest<'a, &'r mut WebRequest<'s, S>> for Json<T, LIMIT>
+impl<'a, 'r, 's, S:'s, T, const LIMIT: usize> FromRequest<'a, &'r mut WebRequest<'s, S>> for Json<T, LIMIT>
 where
     T: DeserializeOwned,
 {

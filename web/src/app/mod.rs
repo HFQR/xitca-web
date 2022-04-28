@@ -190,7 +190,7 @@ mod test {
         assert_eq!(path, req.req().uri().path());
         state.to_string()
     }
-
+  
     #[derive(Clone)]
     struct Middleware;
 

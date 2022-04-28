@@ -13,7 +13,7 @@ impl Deref for RequestRef<'_> {
     }
 }
 
-impl<'a, 'r, 's, S> FromRequest<'a, &'r mut WebRequest<'s, S>> for RequestRef<'a> {
+impl<'a, 'r, 's, S: 's> FromRequest<'a, &'r mut WebRequest<'s, S>> for RequestRef<'a> {
     type Type<'b> = RequestRef<'b>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
