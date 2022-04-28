@@ -14,6 +14,6 @@ where
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async { () }
+        async {}
     }
 }

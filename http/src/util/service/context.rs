@@ -174,7 +174,7 @@ where
     S: for<'c, 's> ReadyService<&'c mut Context<'s, Req, C>, Response = Res, Error = Err, Ready = R>,
 {
     type Ready = R;
-    type ReadyFuture<'f> = impl Future<Output = Result<Self::Ready, Self::Error>> where Self: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
