@@ -253,7 +253,7 @@ where
     type Future<'a> = impl Future<Output = Self::Output> where R: 'a;
 
     #[inline]
-    fn respond_to<'a>(self, req: &'a mut R) -> Self::Future<'a> {
+    fn respond_to(self, req: &mut R) -> Self::Future<'_> {
         async move { Ok(self?.respond_to(req).await) }
     }
 }
