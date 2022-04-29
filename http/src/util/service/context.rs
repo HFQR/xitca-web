@@ -246,7 +246,7 @@ mod test {
         state: &'a ST,
     }
 
-    async fn into_context<'c>(req: Context<'c, Request<()>, String>) -> Result<Context2<'c, String>, Infallible> {
+    async fn into_context(req: Context<'_, Request<()>, String>) -> Result<Context2<'_, String>, Infallible> {
         let (req, state) = req.into_parts();
         assert_eq!(state, "string_state");
         Ok(Context2 { req, state })
