@@ -1,9 +1,9 @@
 use alloc::boxed::Box;
 use core::marker::PhantomData;
 
-use crate::{fn_build, BuildService, Service};
+use crate::{fn_build, BuildService, BuildServiceExt, Service};
 
-use self::helpers::{ServiceFactoryObject, ServiceObject, Wrapper};
+use self::helpers::{ServiceObject, Wrapper};
 
 /// An object constructor represents a one of possibly many ways to create a trait object from `I`.
 ///
@@ -48,9 +48,10 @@ where
                 let svc = Box::new(Wrapper(fut.await?)) as Box<dyn ServiceObject<Req, Response = _, Error = _>>;
                 Ok::<_, BErr>(Wrapper(svc))
             }
-        });
+        })
+        .boxed_future();
 
-        Wrapper(Box::new(Wrapper(factory)) as Box<dyn ServiceFactoryObject<Arg, Service = _, Error = _>>)
+        Box::new(factory) as Box<dyn BuildService<Arg, Service = _, Error = _, Future = _>>
     }
 }
 
@@ -61,15 +62,7 @@ pub mod helpers {
     use alloc::boxed::Box;
     use core::future::Future;
 
-    use crate::{BoxFuture, BuildService, Service};
-
-    /// Object-safe counterpart to [ServiceFactory].
-    pub trait ServiceFactoryObject<Arg = ()> {
-        type Service;
-        type Error;
-
-        fn new_service(&self, arg: Arg) -> BoxFuture<'static, Self::Service, Self::Error>;
-    }
+    use crate::{BoxFuture, Service};
 
     /// Object-safe counterpart of [Service].
     pub trait ServiceObject<Req> {
@@ -84,32 +77,6 @@ pub mod helpers {
 
     /// Converts between object-safe non-object-safe Service and ServiceFactory. See impls.
     pub struct Wrapper<I>(pub I);
-
-    impl<Inner, Arg> BuildService<Arg> for Wrapper<Box<Inner>>
-    where
-        Inner: ServiceFactoryObject<Arg> + ?Sized,
-    {
-        type Service = Inner::Service;
-        type Error = Inner::Error;
-        type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
-
-        fn build(&self, arg: Arg) -> Self::Future {
-            ServiceFactoryObject::new_service(&*self.0, arg)
-        }
-    }
-
-    impl<Inner, Arg> ServiceFactoryObject<Arg> for Wrapper<Inner>
-    where
-        Inner: BuildService<Arg>,
-        Inner::Future: 'static,
-    {
-        type Service = Inner::Service;
-        type Error = Inner::Error;
-
-        fn new_service(&self, arg: Arg) -> BoxFuture<'static, Self::Service, Self::Error> {
-            Box::pin(BuildService::build(&self.0, arg))
-        }
-    }
 
     impl<Inner, Req> Service<Req> for Wrapper<Box<Inner>>
     where

@@ -190,10 +190,10 @@ pub mod object {
     use xitca_service::{
         fn_build,
         object::{
-            helpers::{ServiceFactoryObject, ServiceObject, Wrapper},
+            helpers::{ServiceObject, Wrapper},
             ObjectConstructor,
         },
-        BuildService, Service,
+        BuildService, BuildServiceExt, Service,
     };
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
@@ -219,10 +219,10 @@ pub mod object {
                         as Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = _, Error = _>>;
                     Ok(Wrapper(boxed_service))
                 }
-            });
+            })
+            .boxed_future();
 
-            let boxed_factory = Box::new(Wrapper(factory)) as Box<dyn ServiceFactoryObject<Service = _, Error = _>>;
-            Wrapper(boxed_factory)
+            Box::new(factory) as Box<dyn BuildService<Service = _, Error = _, Future = _>>
         }
     }
 }
