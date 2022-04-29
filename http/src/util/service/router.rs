@@ -8,7 +8,11 @@ use xitca_service::{
     BuildService, Service,
 };
 
-use crate::{http, request::BorrowReq};
+use crate::{
+    http,
+    request::BorrowReq,
+    util::cursed::{Cursed, CursedObjectConstructor},
+};
 
 /// A [GenericRouter] specialized with [DefaultObjectConstructor]
 pub type Router<Req, Arg, BErr, Res, Err> =
@@ -35,6 +39,11 @@ impl<ObjCons, SF> Default for GenericRouter<ObjCons, SF> {
 impl<SF> GenericRouter<(), SF> {
     /// Creates a new router with the [default object constructor](DefaultObjectConstructor).
     pub fn with_default_object<Req, Arg>() -> GenericRouter<DefaultObjectConstructor<Req, Arg>, SF> {
+        GenericRouter::new()
+    }
+
+    /// Creates a new router with a [cursed object constructor](CursedObjectConstructor).
+    pub fn with_cursed_object<Req: Cursed>() -> GenericRouter<CursedObjectConstructor<Req>, SF> {
         GenericRouter::new()
     }
 

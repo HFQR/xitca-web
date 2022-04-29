@@ -246,8 +246,8 @@ mod test {
 
         let service = App::with_current_thread_state(state)
             .at("/", handler_service(handler))
-            .enclosed_fn(middleware_fn)
-            .enclosed(Middleware)
+            //.enclosed_fn(middleware_fn)
+            //.enclosed(Middleware)
             .finish()
             .build(())
             .await
