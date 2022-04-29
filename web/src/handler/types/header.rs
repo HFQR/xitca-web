@@ -83,3 +83,36 @@ impl<const HEADER_NAME: usize> HeaderRef<'_, HEADER_NAME> {
         Ok(self.to_str().unwrap().parse().unwrap())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn extract_header() {
+        let mut req = WebRequest::with_state(&());
+        req.req_mut()
+            .headers_mut()
+            .insert(header::HOST, header::HeaderValue::from_static("996"));
+        req.req_mut()
+            .headers_mut()
+            .insert(header::ACCEPT_ENCODING, header::HeaderValue::from_static("251"));
+
+        assert_eq!(
+            HeaderRef::<'_, { super::ACCEPT_ENCODING }>::from_request(&&mut req)
+                .await
+                .unwrap()
+                .try_parse::<String>()
+                .unwrap(),
+            "251"
+        );
+        assert_eq!(
+            HeaderRef::<'_, { super::HOST }>::from_request(&&mut req)
+                .await
+                .unwrap()
+                .try_parse::<String>()
+                .unwrap(),
+            "996"
+        );
+    }
+}

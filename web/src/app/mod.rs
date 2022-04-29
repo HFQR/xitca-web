@@ -208,15 +208,16 @@ mod test {
 
     struct MiddlewareService<S>(S);
 
-    impl<'r, 's, S: 's, State, Res, Err> Service<&'r mut WebRequest<'s, State>> for MiddlewareService<S>
+    // TODO: specify &'_ mut WebRequest<'_, T> as middleware input request type.
+    impl<Req, S> Service<Req> for MiddlewareService<S>
     where
-        S: for<'r1, 's1> Service<&'r1 mut WebRequest<'s1, State>, Response = Res, Error = Err>,
+        S: Service<Req>,
     {
-        type Response = Res;
-        type Error = Err;
+        type Response = S::Response;
+        type Error = S::Error;
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-        fn call(&self, req: &'r mut WebRequest<'s, State>) -> Self::Future<'_> {
+        fn call(&self, req: Req) -> Self::Future<'_> {
             self.0.call(req)
         }
     }
