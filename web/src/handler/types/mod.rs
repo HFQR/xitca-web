@@ -1,6 +1,7 @@
 pub mod body;
 pub mod extension;
 pub mod header;
+pub mod html;
 pub mod path;
 pub mod request;
 pub mod state;
