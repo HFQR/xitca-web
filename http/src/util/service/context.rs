@@ -26,8 +26,8 @@ use crate::request::{BorrowReq, BorrowReqMut};
 /// # use xitca_service::{fn_service, Service, BuildService};
 ///
 /// // function service.
-/// async fn state_handler(req: &mut Context<'_, String, String>) -> Result<String, Infallible> {
-///    let (parent_req, state) = req.borrow_parts_mut();
+/// async fn state_handler(req: Context<'_, String, String>) -> Result<String, Infallible> {
+///    let (parent_req, state) = req.into_parts();
 ///    assert_eq!(state, "string_state");
 ///    Ok(String::from("string_response"))
 /// }
@@ -91,15 +91,15 @@ pub struct Context<'a, Req, C> {
     state: &'a C,
 }
 
-impl<Req, C> Context<'_, Req, C> {
+impl<'a, Req, C> Context<'a, Req, C> {
     /// Destruct request into a tuple of (&state, parent_request).
     #[inline]
-    pub fn borrow_parts_mut(&mut self) -> (&mut Req, &C) {
-        (&mut self.req, self.state)
+    pub fn into_parts(self) -> (Req, &'a C) {
+        (self.req, self.state)
     }
 }
 
-impl<Req, C, T> BorrowReq<T> for &mut Context<'_, Req, C>
+impl<Req, C, T> BorrowReq<T> for Context<'_, Req, C>
 where
     Req: BorrowReq<T>,
 {
@@ -108,7 +108,7 @@ where
     }
 }
 
-impl<Req, C, T> BorrowReqMut<T> for &mut Context<'_, Req, C>
+impl<Req, C, T> BorrowReqMut<T> for Context<'_, Req, C>
 where
     Req: BorrowReqMut<T>,
 {
@@ -151,7 +151,7 @@ pub struct ContextService<C, S> {
 
 impl<Req, C, S, Res, Err> Service<Req> for ContextService<C, S>
 where
-    S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>,
+    S: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>,
 {
     type Response = Res;
     type Error = Err;
@@ -160,7 +160,7 @@ where
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
             self.service
-                .call(&mut Context {
+                .call(Context {
                     req,
                     state: &self.state,
                 })
@@ -171,7 +171,7 @@ where
 
 impl<Req, C, S, R, Res, Err> ReadyService<Req> for ContextService<C, S>
 where
-    S: for<'c, 's> ReadyService<&'c mut Context<'s, Req, C>, Response = Res, Error = Err, Ready = R>,
+    S: for<'c> ReadyService<Context<'c, Req, C>, Response = Res, Error = Err, Ready = R>,
 {
     type Ready = R;
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
@@ -198,19 +198,16 @@ pub mod object {
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
-    pub type ContextFactoryObject<Req: 'static, C: 'static, BErr, Res, Err> =
+    pub type ContextFactoryObject<Req, C, BErr, Res, Err> =
         impl BuildService<Error = BErr, Service = ContextServiceObject<Req, C, Res, Err>>;
 
-    pub type ContextServiceObject<Req: 'static, C: 'static, Res, Err> =
-        impl for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>;
+    pub type ContextServiceObject<Req, C, Res, Err> =
+        impl for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>;
 
     impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
     where
-        I: BuildService<Service = Svc, Error = BErr>,
-        Svc: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err> + 'static,
-        I: 'static,
-        C: 'static,
-        Req: 'static,
+        I: BuildService<Service = Svc, Error = BErr> + 'static,
+        Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
         type Object = ContextFactoryObject<Req, C, BErr, Res, Err>;
 
@@ -219,7 +216,7 @@ pub mod object {
                 let fut = inner.build(());
                 async move {
                     let boxed_service = Box::new(Wrapper(fut.await?))
-                        as Box<dyn for<'c, 's> ServiceObject<&'c mut Context<'s, Req, C>, Response = _, Error = _>>;
+                        as Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = _, Error = _>>;
                     Ok(Wrapper(boxed_service))
                 }
             });
@@ -245,14 +242,12 @@ mod test {
     use super::*;
 
     struct Context2<'a, ST> {
-        req: &'a mut Request<()>,
+        req: Request<()>,
         state: &'a ST,
     }
 
-    async fn into_context<'c>(
-        req: &'c mut Context<'_, Request<()>, String>,
-    ) -> Result<Context2<'c, String>, Infallible> {
-        let (req, state) = req.borrow_parts_mut();
+    async fn into_context(req: Context<'_, Request<()>, String>) -> Result<Context2<'_, String>, Infallible> {
+        let (req, state) = req.into_parts();
         assert_eq!(state, "string_state");
         Ok(Context2 { req, state })
     }
@@ -279,17 +274,17 @@ mod test {
         assert_eq!(res.status().as_u16(), 200);
     }
 
-    async fn handler(req: &mut Context<'_, Request<()>, String>) -> Result<Response<()>, Infallible> {
-        let (_, state) = req.borrow_parts_mut();
+    async fn handler(req: Context<'_, Request<()>, String>) -> Result<Response<()>, Infallible> {
+        let (_, state) = req.into_parts();
         assert_eq!(state, "string_state");
         Ok(Response::new(()))
     }
 
     #[tokio::test]
     async fn test_state_in_router() {
-        async fn enclosed<S, Req, C, Res, Err>(service: &S, req: &mut Context<'_, Req, C>) -> Result<Res, Err>
+        async fn enclosed<S, Req, C, Res, Err>(service: &S, req: Context<'_, Req, C>) -> Result<Res, Err>
         where
-            S: for<'c, 's> Service<&'c mut Context<'s, Req, C>, Response = Res, Error = Err>,
+            S: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>,
         {
             service.call(req).await
         }

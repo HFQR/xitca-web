@@ -20,15 +20,15 @@ where
     }
 }
 
-impl<'r, 's, S, T> Responder<&'r mut WebRequest<'s, S>> for Html<T>
+impl<'r, S: 'r, T> Responder<WebRequest<'r, S>> for Html<T>
 where
     T: Into<ResponseBody>,
 {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where &'r mut WebRequest<'s, S>: 'a;
+    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn respond_to<'a>(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future<'a> {
+    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
         let mut res = req.as_response(self.0);
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
         async { res }

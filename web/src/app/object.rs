@@ -13,18 +13,14 @@ use crate::request::WebRequest;
 
 pub struct WebObjectConstructor<S>(PhantomData<S>);
 
-pub type WebFactoryObject<S: 'static, BErr, Res, Err> =
-    impl BuildService<Error = BErr, Service = WebServiceObject<S, Res, Err>>;
+pub type WebFactoryObject<S, BErr, Res, Err> = impl BuildService<Error = BErr, Service = WebServiceObject<S, Res, Err>>;
 
-pub type WebServiceObject<S: 'static, Res, Err> =
-    impl for<'r, 's> Service<&'r mut WebRequest<'s, S>, Response = Res, Error = Err>;
+pub type WebServiceObject<S, Res, Err> = impl for<'r> Service<WebRequest<'r, S>, Response = Res, Error = Err>;
 
 impl<S, I, Svc, BErr, Res, Err> ObjectConstructor<I> for WebObjectConstructor<S>
 where
-    I: BuildService<Service = Svc, Error = BErr>,
-    Svc: for<'rb, 'r> Service<&'rb mut WebRequest<'r, S>, Response = Res, Error = Err> + 'static,
-    I: 'static,
-    S: 'static,
+    I: BuildService<Service = Svc, Error = BErr> + 'static,
+    Svc: for<'r> Service<WebRequest<'r, S>, Response = Res, Error = Err> + 'static,
 {
     type Object = WebFactoryObject<S, BErr, Res, Err>;
 
@@ -33,7 +29,7 @@ where
             let fut = inner.build(());
             async move {
                 let boxed_service = Box::new(Wrapper(fut.await?))
-                    as Box<dyn for<'r, 's> ServiceObject<&'r mut WebRequest<'s, S>, Response = _, Error = _>>;
+                    as Box<dyn for<'r> ServiceObject<WebRequest<'r, S>, Response = _, Error = _>>;
                 Ok(Wrapper(boxed_service))
             }
         });

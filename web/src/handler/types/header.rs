@@ -56,15 +56,13 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
     }
 }
 
-impl<'a, 'r, 's, S: 's, const HEADER_NAME: usize> FromRequest<'a, &'r mut WebRequest<'s, S>>
-    for HeaderRef<'a, HEADER_NAME>
-{
+impl<'a, 'r, S: 'r, const HEADER_NAME: usize> FromRequest<'a, WebRequest<'r, S>> for HeaderRef<'a, HEADER_NAME> {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
         async move {
             Ok(HeaderRef(
                 req.req().headers().get(&map_to_header_name::<HEADER_NAME>()).unwrap(),
@@ -90,7 +88,8 @@ mod test {
 
     #[tokio::test]
     async fn extract_header() {
-        let mut req = WebRequest::with_state(&());
+        let mut req = WebRequest::new_test(());
+        let mut req = req.as_web_req();
         req.req_mut()
             .headers_mut()
             .insert(header::HOST, header::HeaderValue::from_static("996"));
@@ -99,7 +98,7 @@ mod test {
             .insert(header::ACCEPT_ENCODING, header::HeaderValue::from_static("251"));
 
         assert_eq!(
-            HeaderRef::<'_, { super::ACCEPT_ENCODING }>::from_request(&&mut req)
+            HeaderRef::<'_, { super::ACCEPT_ENCODING }>::from_request(&req)
                 .await
                 .unwrap()
                 .try_parse::<String>()
@@ -107,7 +106,7 @@ mod test {
             "251"
         );
         assert_eq!(
-            HeaderRef::<'_, { super::HOST }>::from_request(&&mut req)
+            HeaderRef::<'_, { super::HOST }>::from_request(&req)
                 .await
                 .unwrap()
                 .try_parse::<String>()

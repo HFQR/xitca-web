@@ -1,6 +1,7 @@
 mod object;
 
 use std::{
+    cell::RefCell,
     convert::Infallible,
     future::{ready, Future, Ready},
 };
@@ -141,26 +142,30 @@ pub struct MapRequestService<S> {
     service: S,
 }
 
-impl<'c, 's, C, S, Res, Err> Service<&'c mut Context<'s, Request<RequestBody>, C>> for MapRequestService<S>
+impl<'c, C, S, Res, Err> Service<Context<'c, Request<RequestBody>, C>> for MapRequestService<S>
 where
-    C: 'c,
-    S: for<'c1, 's1> Service<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err>,
+    C: 'static,
+    S: for<'r> Service<WebRequest<'r, C>, Response = Res, Error = Err>,
 {
     type Response = Res;
     type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
 
-    fn call(&self, req: &'c mut Context<'s, Request<RequestBody>, C>) -> Self::Future<'_> {
-        let (req, state) = req.borrow_parts_mut();
-        let mut req = WebRequest::new(req, state);
-        async move { self.service.call(&mut req).await }
+    fn call(&self, req: Context<'c, Request<RequestBody>, C>) -> Self::Future<'_> {
+        async move {
+            let (req, state) = req.into_parts();
+            let (mut req, body) = req.replace_body(());
+            let mut body = RefCell::new(body);
+            let req = WebRequest::new(&mut req, &mut body, state);
+            self.service.call(req).await
+        }
     }
 }
 
-impl<'c, 's, C, S, R, Res, Err> ReadyService<&'c mut Context<'s, Request<RequestBody>, C>> for MapRequestService<S>
+impl<'c, C, S, R, Res, Err> ReadyService<Context<'c, Request<RequestBody>, C>> for MapRequestService<S>
 where
-    C: 'c,
-    S: for<'c1, 's1> ReadyService<&'c1 mut WebRequest<'s1, C>, Response = Res, Error = Err, Ready = R>,
+    C: 'static,
+    S: for<'r> ReadyService<WebRequest<'r, C>, Response = Res, Error = Err, Ready = R>,
 {
     type Ready = R;
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where S: 'f;
@@ -177,13 +182,19 @@ mod test {
 
     use crate::{
         dev::Service,
-        handler::{handler_service, path::PathRef, state::StateRef},
+        handler::{
+            extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
+            uri::UriRef,
+        },
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
     };
 
     async fn handler(
         StateRef(state): StateRef<'_, String>,
         PathRef(path): PathRef<'_>,
+        UriRef(_): UriRef<'_>,
+        ExtensionRef(_): ExtensionRef<'_, Foo>,
+        ExtensionsRef(_): ExtensionsRef<'_>,
         req: &WebRequest<'_, String>,
     ) -> String {
         assert_eq!("state", state);
@@ -224,9 +235,9 @@ mod test {
 
     #[tokio::test]
     async fn test_app() {
-        async fn middleware_fn<S, State, Res, Err>(service: &S, req: &mut WebRequest<'_, State>) -> Result<Res, Err>
+        async fn middleware_fn<S, State, Res, Err>(service: &S, req: WebRequest<'_, State>) -> Result<Res, Err>
         where
-            S: for<'r, 's> Service<&'r mut WebRequest<'s, State>, Response = Res, Error = Err>,
+            S: for<'r> Service<WebRequest<'r, State>, Response = Res, Error = Err>,
         {
             service.call(req).await
         }
@@ -243,11 +254,15 @@ mod test {
             .ok()
             .unwrap();
 
-        let req = Request::default();
+        let mut req = Request::default();
+
+        req.extensions_mut().insert(Foo);
 
         let res = service.call(req).await.unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
     }
+
+    struct Foo;
 }

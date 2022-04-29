@@ -41,13 +41,13 @@ fn main() -> std::io::Result<()> {
     })
 }
 
-async fn handler(req: &mut WebRequest<'_, Rc<NamedTempFile>>) -> Result<WebResponse, Box<dyn std::error::Error>> {
+async fn handler(req: WebRequest<'_, Rc<NamedTempFile>>) -> Result<WebResponse, Box<dyn std::error::Error>> {
     let file = File::open(req.state().path()).await?;
     let res = read(&file).await;
     file.close().await?;
     let buf = res?;
 
-    let mut res = req.as_response(buf);
+    let mut res = req.into_response(buf);
     res.headers_mut().append(CONTENT_TYPE, TEXT_UTF8);
 
     Ok(res)
