@@ -4,13 +4,13 @@ use crate::{handler::FromRequest, request::RequestBody, request::WebRequest};
 
 pub struct Body(pub RequestBody);
 
-impl<'a, 'r, 's, S: 's> FromRequest<'a, &'r mut WebRequest<'s, S>> for Body {
+impl<'a, 'r, S: 'r> FromRequest<'a, WebRequest<'r, S>> for Body {
     type Type<'b> = Body;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
         let extract = Body(std::mem::take(&mut *req.body_borrow_mut()));
         async move { Ok(extract) }
     }

@@ -19,16 +19,16 @@ impl<T> Deref for ExtensionRef<'_, T> {
     }
 }
 
-impl<'a, 'r, 's, S: 's, T> FromRequest<'a, &'r mut WebRequest<'s, S>> for ExtensionRef<'a, T>
+impl<'a, 'r, S: 'r, T> FromRequest<'a, WebRequest<'r, S>> for ExtensionRef<'a, T>
 where
     T: Send + Sync + 'static,
 {
     type Type<'b> = ExtensionRef<'b, T>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
         async move { Ok(ExtensionRef(req.req().extensions().get::<T>().unwrap())) }
     }
 }
@@ -44,13 +44,13 @@ impl Deref for ExtensionsRef<'_> {
     }
 }
 
-impl<'a, 'r, 's, S: 's> FromRequest<'a, &'r mut WebRequest<'s, S>> for ExtensionsRef<'a> {
+impl<'a, 'r, S: 'r> FromRequest<'a, WebRequest<'r, S>> for ExtensionsRef<'a> {
     type Type<'b> = ExtensionsRef<'b>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
         async move { Ok(ExtensionsRef(req.req().extensions())) }
     }
 }

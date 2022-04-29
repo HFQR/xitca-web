@@ -55,15 +55,15 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
     }
 }
 
-impl<'a, 'r, 's, S: 's, T, const LIMIT: usize> FromRequest<'a, &'r mut WebRequest<'s, S>> for Json<T, LIMIT>
+impl<'a, 'r, S: 'r, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, S>> for Json<T, LIMIT>
 where
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where &'r mut WebRequest<'s, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
-    fn from_request(req: &'a &'r mut WebRequest<'s, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
         async move {
             HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
 
@@ -93,15 +93,15 @@ where
     }
 }
 
-impl<'r, 's, S, T, const LIMIT: usize> Responder<&'r mut WebRequest<'s, S>> for Json<T, LIMIT>
+impl<'r, S, T, const LIMIT: usize> Responder<WebRequest<'r, S>> for Json<T, LIMIT>
 where
     T: Serialize,
 {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where &'r mut WebRequest<'s, S>: 'a;
+    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn respond_to<'a>(self, req: &'a mut &'r mut WebRequest<'s, S>) -> Self::Future<'a> {
+    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
         let mut bytes = BytesMut::new();
         serde_json::to_writer(BufMutWriter(&mut bytes), &self.0).unwrap();
         let mut res = req.as_response(bytes.freeze());

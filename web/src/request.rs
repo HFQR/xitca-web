@@ -14,31 +14,29 @@ use xitca_http::{
 use super::response::WebResponse;
 
 pub struct WebRequest<'a, D = ()> {
-    pub(crate) req: Request<()>,
-    pub(crate) body: RefCell<RequestBody>,
+    pub(crate) req: &'a mut Request<()>,
+    pub(crate) body: &'a mut RefCell<RequestBody>,
     pub(crate) state: &'a D,
 }
 
 impl<'a, D> WebRequest<'a, D> {
-    #[doc(hidden)]
-    pub fn new(req: &mut Request<RequestBody>, state: &'a D) -> Self {
-        let (req, body) = std::mem::take(req).replace_body(());
-        Self {
-            req,
-            body: RefCell::new(body),
-            state,
-        }
+    pub(crate) fn new(req: &'a mut Request<()>, body: &'a mut RefCell<RequestBody>, state: &'a D) -> Self {
+        Self { req, body, state }
     }
 
     #[cfg(test)]
-    pub fn with_state(state: &'a D) -> Self {
-        Self::new(&mut Request::new(RequestBody::None), state)
+    pub(crate) fn new_test(state: D) -> TestRequest<D> {
+        TestRequest {
+            req: Request::new(()),
+            body: RefCell::new(RequestBody::None),
+            state,
+        }
     }
 
     /// Get an immutable reference of [Request]
     #[inline]
     pub fn req(&self) -> &Request<()> {
-        &self.req
+        self.req
     }
 
     /// Get a mutable reference of [Request]
@@ -84,7 +82,7 @@ impl<'a, D> WebRequest<'a, D> {
     /// The heap allocation of request would be re-used.
     #[inline]
     pub fn into_response<B: Into<ResponseBody>>(self, body: B) -> WebResponse {
-        self.req.into_response(body.into())
+        self.req.as_response(body.into())
     }
 
     /// Transform &mut self to a WebResponse with given body type.
@@ -96,11 +94,29 @@ impl<'a, D> WebRequest<'a, D> {
     }
 }
 
-impl<S, T> BorrowReq<T> for &mut WebRequest<'_, S>
+impl<S, T> BorrowReq<T> for WebRequest<'_, S>
 where
     Request<()>: BorrowReq<T>,
 {
     fn borrow(&self) -> &T {
         self.req().borrow()
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct TestRequest<S> {
+    pub(crate) req: Request<()>,
+    pub(crate) body: RefCell<RequestBody>,
+    pub(crate) state: S,
+}
+
+#[cfg(test)]
+impl<S> TestRequest<S> {
+    pub(crate) fn as_web_req(&mut self) -> WebRequest<'_, S> {
+        WebRequest {
+            req: &mut self.req,
+            body: &mut self.body,
+            state: &self.state,
+        }
     }
 }
