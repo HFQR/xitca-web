@@ -3,10 +3,10 @@ use std::{boxed::Box, marker::PhantomData};
 use xitca_service::{
     fn_build,
     object::{
-        helpers::{ServiceFactoryObject, ServiceObject, Wrapper},
+        helpers::{ServiceObject, Wrapper},
         ObjectConstructor,
     },
-    BuildService, Service,
+    BuildService, BuildServiceExt, Service,
 };
 
 use crate::request::WebRequest;
@@ -32,9 +32,9 @@ where
                     as Box<dyn for<'r> ServiceObject<WebRequest<'r, S>, Response = _, Error = _>>;
                 Ok(Wrapper(boxed_service))
             }
-        });
+        })
+        .boxed_future();
 
-        let boxed_factory = Box::new(Wrapper(factory)) as Box<dyn ServiceFactoryObject<Service = _, Error = _>>;
-        Wrapper(boxed_factory)
+        Box::new(factory) as Box<dyn BuildService<Service = _, Error = _, Future = _>>
     }
 }
