@@ -1,19 +1,11 @@
-use std::{
-    convert::Infallible,
-    error, fmt,
-    io::{self, Write},
-};
+use std::convert::Infallible;
 
-use http::{header, status::StatusCode, Response};
+use http::{status::StatusCode, Response};
 
-use super::{
-    body::ResponseBody,
-    bytes::{BufMutWriter, Bytes, BytesMut},
-};
+use super::{body::ResponseBody, bytes::Bytes};
 
 /// Helper trait for convert Service::Error type to Service::Response.
-// TODO: Add method to modify status code.
-pub trait ResponseError<Req, Res>: fmt::Debug {
+pub trait ResponseError<Req, Res> {
     fn status_code() -> StatusCode {
         StatusCode::INTERNAL_SERVER_ERROR
     }
@@ -21,37 +13,23 @@ pub trait ResponseError<Req, Res>: fmt::Debug {
     fn response_error(self, req: &mut Req) -> Res;
 }
 
-// implement ResponseError for common error types.
-impl<Req, B> ResponseError<Req, Response<ResponseBody<B>>> for () {
-    fn response_error(self, _: &mut Req) -> Response<ResponseBody<B>> {
-        status_only(<Self as ResponseError<Req, Response<ResponseBody<B>>>>::status_code())
+impl<Req, Res, E> ResponseError<Req, Res> for Result<Res, E>
+where
+    E: ResponseError<Req, Res>,
+{
+    fn response_error(self, req: &mut Req) -> Res {
+        match self {
+            Ok(res) => res,
+            Err(e) => e.response_error(req),
+        }
     }
 }
 
-macro_rules! internal_impl {
-    ($ty: ty) => {
-        impl<B, Req> ResponseError<Req, Response<ResponseBody<B>>> for $ty {
-            fn response_error(self, _: &mut Req) -> Response<ResponseBody<B>> {
-                let mut bytes = BytesMut::new();
-                write!(BufMutWriter(&mut bytes), "{}", self).unwrap();
-                Response::builder()
-                    .status(<Self as ResponseError<Req, Response<ResponseBody<B>>>>::status_code())
-                    .header(
-                        header::CONTENT_TYPE,
-                        header::HeaderValue::from_static("text/plain; charset=utf-8"),
-                    )
-                    .body(bytes.into())
-                    .unwrap()
-            }
-        }
-    };
+impl<Req, Res> ResponseError<Req, Res> for Infallible {
+    fn response_error(self, _: &mut Req) -> Res {
+        unreachable!()
+    }
 }
-
-internal_impl!(Box<dyn error::Error>);
-internal_impl!(Box<dyn error::Error + Send>);
-internal_impl!(Box<dyn error::Error + Send + Sync>);
-internal_impl!(io::Error);
-internal_impl!(Infallible);
 
 #[cfg(feature = "http1")]
 pub(super) use h1_impl::*;
