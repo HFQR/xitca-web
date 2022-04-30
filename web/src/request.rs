@@ -25,7 +25,7 @@ impl<'a, S> WebRequest<'a, S> {
     }
 
     #[cfg(test)]
-    pub(crate) fn new_test(state: S) -> TestRequest<D> {
+    pub(crate) fn new_test(state: S) -> TestRequest<S> {
         TestRequest {
             req: Request::new(()),
             body: RefCell::new(RequestBody::None),
