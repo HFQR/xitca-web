@@ -13,23 +13,35 @@ use xitca_http::{
 
 use super::response::WebResponse;
 
-pub struct WebRequest<'a, D = ()> {
+pub struct WebRequest<'a, S = ()> {
     pub(crate) req: &'a mut Request<()>,
     pub(crate) body: &'a mut RefCell<RequestBody>,
-    pub(crate) state: &'a D,
+    pub(crate) state: &'a S,
 }
 
-impl<'a, D> WebRequest<'a, D> {
-    pub(crate) fn new(req: &'a mut Request<()>, body: &'a mut RefCell<RequestBody>, state: &'a D) -> Self {
+impl<'a, S> WebRequest<'a, S> {
+    pub(crate) fn new(req: &'a mut Request<()>, body: &'a mut RefCell<RequestBody>, state: &'a S) -> Self {
         Self { req, body, state }
     }
 
     #[cfg(test)]
-    pub(crate) fn new_test(state: D) -> TestRequest<D> {
+    pub(crate) fn new_test(state: S) -> TestRequest<D> {
         TestRequest {
             req: Request::new(()),
             body: RefCell::new(RequestBody::None),
             state,
+        }
+    }
+
+    /// Construct an owned Self from &mut Self.
+    ///
+    /// This is possible because all fields of `WebRequest` are Copy.
+    #[inline]
+    pub fn reborrow(&mut self) -> WebRequest<'_, S> {
+        WebRequest {
+            req: self.req,
+            body: self.body,
+            state: self.state,
         }
     }
 
@@ -73,7 +85,7 @@ impl<'a, D> WebRequest<'a, D> {
 
     /// Get an immutable reference of App state
     #[inline]
-    pub fn state(&self) -> &D {
+    pub fn state(&self) -> &S {
         self.state
     }
 
