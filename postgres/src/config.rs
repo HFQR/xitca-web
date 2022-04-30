@@ -211,6 +211,14 @@ impl Config {
     }
 }
 
+impl TryFrom<String> for Config {
+    type Error = Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Self::try_from(s.as_str())
+    }
+}
+
 impl TryFrom<&str> for Config {
     type Error = Error;
 

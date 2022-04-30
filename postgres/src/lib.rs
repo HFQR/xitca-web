@@ -68,7 +68,8 @@ where
     /// ```rust
     /// # use xitca_postgres::Postgres;
     /// # async fn connect() {
-    /// let (cli, task) = Postgres::new("postgres://user:pass@localhost/db").connect().await.unwrap();
+    /// let cfg = String::from("postgres://user:pass@localhost/db");
+    /// let (cli, task) = Postgres::new(cfg).connect().await.unwrap();
     ///
     /// tokio::spawn(task);
     ///
@@ -76,19 +77,8 @@ where
     /// # }
     ///
     /// ```
-    pub async fn connect(
-        self,
-    ) -> Result<
-        (
-            Client,
-            // TODO: This is a rust compiler bug.
-            // if impl Future opaque type used the 'static lifetime would be removed from trait bound.
-            std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'static>>,
-        ),
-        Error,
-    > {
+    pub async fn connect(self) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send + 'static), Error> {
         let cfg = Config::try_from(self.cfg)?;
-
         let io = crate::connect::connect(&cfg).await?;
 
         let (cli, mut io) = crate::io::buffered_io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io, self.backlog);
@@ -98,7 +88,7 @@ where
         // clear context before continue.
         io.clear_ctx();
 
-        Ok((cli, Box::pin(io.run())))
+        Ok((cli, io.run()))
     }
 }
 
