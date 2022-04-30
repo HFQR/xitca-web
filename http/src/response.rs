@@ -1,11 +1,11 @@
-use std::{convert::Infallible, fmt};
+use std::convert::Infallible;
 
 use http::{status::StatusCode, Response};
 
 use super::{body::ResponseBody, bytes::Bytes};
 
 /// Helper trait for convert Service::Error type to Service::Response.
-pub trait ResponseError<Req, Res>: fmt::Debug {
+pub trait ResponseError<Req, Res> {
     fn status_code() -> StatusCode {
         StatusCode::INTERNAL_SERVER_ERROR
     }
@@ -13,14 +13,13 @@ pub trait ResponseError<Req, Res>: fmt::Debug {
     fn response_error(self, req: &mut Req) -> Res;
 }
 
-impl<Req, Res, T, E> ResponseError<Req, Res> for Result<T, E>
+impl<Req, Res, E> ResponseError<Req, Res> for Result<Res, E>
 where
-    T: ResponseError<Req, Res>,
     E: ResponseError<Req, Res>,
 {
     fn response_error(self, req: &mut Req) -> Res {
         match self {
-            Ok(t) => t.response_error(req),
+            Ok(res) => res,
             Err(e) => e.response_error(req),
         }
     }
