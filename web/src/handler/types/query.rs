@@ -4,16 +4,14 @@ use serde::Deserialize;
 
 use crate::{handler::FromRequest, request::WebRequest};
 
-const DEFAULT_LIMIT: usize = 1024 * 1024;
+pub struct Query<T>(pub T);
 
-pub struct Query<T, const LIMIT: usize = DEFAULT_LIMIT>(pub T);
-
-impl<'a, 'r, S, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, S>> for Query<T, LIMIT>
+impl<'a, 'r, S, T> FromRequest<'a, WebRequest<'r, S>> for Query<T>
 where
     S: 'r,
     T: for<'de> Deserialize<'de>,
 {
-    type Type<'b> = Query<T, LIMIT>;
+    type Type<'b> = Query<T>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
