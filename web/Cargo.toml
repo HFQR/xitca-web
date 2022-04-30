@@ -11,6 +11,7 @@ io-uring = ["xitca-server/io-uring"]
 openssl = ["xitca-http/openssl", "openssl-crate"]
 rustls = ["xitca-http/rustls", "rustls-crate"]
 json = ["futures-util", "serde", "serde_json"]
+url-encoded = ["serde", "serde_urlencoded"]
 
 [dependencies]
 xitca-http = { version = "0.1", features = ["util-service"] }
@@ -31,5 +32,9 @@ futures-util = { version = "0.3", default-features = false , optional = true }
 serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 
+# url-encoded feature
+serde_urlencoded = { version = "0.7.1", optional = true }
+
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.12", features = ["rt", "macros"] }
