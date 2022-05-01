@@ -7,5 +7,8 @@ pub mod request;
 pub mod state;
 pub mod uri;
 
+#[cfg(feature = "urlencoded")]
+pub mod query;
+
 #[cfg(feature = "json")]
 pub mod json;
