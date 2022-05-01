@@ -114,7 +114,7 @@ impl Codec {
         self
     }
 
-    pub(crate) fn get_max_size(&self) -> usize {
+    pub fn get_max_size(&self) -> usize {
         self.max_size
     }
 

@@ -1,6 +1,6 @@
 use std::{error, future::Future, marker::PhantomData};
 
-use xitca_io::net::{Stream as ServerStream, TcpStream};
+use xitca_io::net;
 use xitca_service::{BuildService, BuildServiceExt, EnclosedFactory};
 
 use super::{
@@ -43,7 +43,7 @@ pub struct HttpServiceBuilder<
 impl<F>
     HttpServiceBuilder<
         marker::Http,
-        ServerStream,
+        net::Stream,
         F,
         tls::NoOpTlsAcceptorService,
         DEFAULT_HEADER_LIMIT,
@@ -62,7 +62,7 @@ impl<F>
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     ) -> HttpServiceBuilder<
         marker::Http,
-        ServerStream,
+        net::Stream,
         F,
         tls::NoOpTlsAcceptorService,
         HEADER_LIMIT,
@@ -86,7 +86,7 @@ impl<F>
         factory: F,
     ) -> HttpServiceBuilder<
         marker::Http1,
-        TcpStream,
+        net::TcpStream,
         F,
         tls::NoOpTlsAcceptorService,
         DEFAULT_HEADER_LIMIT,
@@ -110,7 +110,7 @@ impl<F>
         factory: F,
     ) -> HttpServiceBuilder<
         marker::Http2,
-        TcpStream,
+        net::TcpStream,
         F,
         tls::NoOpTlsAcceptorService,
         DEFAULT_HEADER_LIMIT,
@@ -203,7 +203,7 @@ impl<V, St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
 }
 
 impl<F, Arg, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> BuildService<Arg>
-    for HttpServiceBuilder<marker::Http, ServerStream, F, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    for HttpServiceBuilder<marker::Http, net::Stream, F, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: BuildService<Arg>,
     F::Error: error::Error + 'static,
@@ -212,7 +212,7 @@ where
     FA::Error: error::Error + 'static,
 {
     type Service =
-        HttpService<ServerStream, F::Service, RequestBody, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+        HttpService<net::Stream, F::Service, RequestBody, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = BuildError;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
