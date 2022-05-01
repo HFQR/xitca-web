@@ -1,6 +1,6 @@
 [alias]
-ci-check-exclude-io-uring = "hack --workspace --feature-powerset --exclude-features=io-uring check --tests --examples"
-ci-check = "hack --workspace --feature-powerset check --tests --examples"
+ci-check-exclude-io-uring = "hack check --workspace --feature-powerset --exclude-features=io-uring --lib --tests --examples"
+ci-check = "hack check --workspace --feature-powerset --lib --tests --examples"
 
-ci-test-exclude-io-uring = "hack test --workspace --feature-powerset --exclude=examples --exclude-features=io-uring --lib --tests --no-fail-fast -- --nocapture"
-ci-test = "hack test --workspace --feature-powerset --exclude=examples --lib --tests --no-fail-fast -- --nocapture"
+ci-test-exclude-io-uring = "hack test --workspace --feature-powerset --exclude-features=io-uring --lib --tests --no-fail-fast -- --nocapture"
+ci-test = "test --workspace --all-features --lib --tests --no-fail-fast -- --nocapture"
