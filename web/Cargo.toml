@@ -36,5 +36,7 @@ serde_json = { version = "1", optional = true }
 serde_urlencoded = { version = "0.7.1", optional = true }
 
 [dev-dependencies]
+xitca-http-codegen = { version = "0.1" }
+
 serde = { version = "1.0.137", features = ["derive"] }
 tokio = { version = "1.12", features = ["rt", "macros"] }

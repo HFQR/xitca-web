@@ -5,4 +5,4 @@ ci-check = "hack check --workspace --feature-powerset"
 ci-test-exclude-io-uring = "hack test --workspace --feature-powerset --exclude-features=io-uring --no-fail-fast -- --nocapture"
 ci-test = "test --workspace --all-features --no-fail-fast -- --nocapture"
 
-ci-miri-test = "miri test --package xitca-unsafe-collection --no-fail-fast -- --nocapture"
+ci-miri-test = "miri test --package xitca-unsafe-collection --all-features --no-fail-fast -- --nocapture"

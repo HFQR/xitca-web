@@ -92,3 +92,27 @@ async fn http_codegen() {
     let res = Service::call(&service, String::from("007")).await.unwrap();
     assert_eq!(res, 7);
 }
+
+#[derive(xitca_http_codegen::State)]
+struct MyState {
+    #[borrow]
+    field1: String,
+    #[borrow]
+    field2: u32,
+}
+
+#[test]
+fn state_borrow() {
+    use core::borrow::Borrow;
+
+    let state = MyState {
+        field1: String::from("996"),
+        field2: 251,
+    };
+
+    let string: &String = state.borrow();
+    let num: &u32 = state.borrow();
+
+    assert_eq!(string.as_str(), "996");
+    assert_eq!(num, &251);
+}

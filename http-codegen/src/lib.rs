@@ -1,8 +1,48 @@
 use proc_macro::TokenStream;
 use quote::{__private::Span, quote};
 use syn::{
-    FnArg, GenericArgument, Ident, ImplItem, ImplItemMethod, Pat, PatIdent, PathArguments, ReturnType, Stmt, Type,
+    Data, FnArg, GenericArgument, Ident, ImplItem, ImplItemMethod, Pat, PatIdent, PathArguments, ReturnType, Stmt, Type,
 };
+
+#[proc_macro_derive(State, attributes(borrow))]
+pub fn state_impl(item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::DeriveInput);
+
+    let ty_ident = &input.ident;
+    let _generics = &input.generics;
+    let ty = match input.data {
+        Data::Struct(ref ty) => ty,
+        _ => todo!(),
+    };
+
+    let fields = ty
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| {
+            field.attrs.iter().any(|attr| {
+                attr.path
+                    .segments
+                    .first()
+                    .filter(|seg| seg.ident.to_string().as_str() == "borrow")
+                    .is_some()
+            })
+        })
+        .map(|(_, field)| {
+            let ident = field.ident.as_ref().unwrap();
+            let ty = &field.ty;
+
+            quote! {
+                impl ::core::borrow::Borrow<#ty> for #ty_ident {
+                    fn borrow(&self) -> &#ty {
+                        &self.#ident
+                    }
+                }
+            }
+        });
+
+    quote! { #(#fields)* }.into()
+}
 
 #[proc_macro_attribute]
 pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
