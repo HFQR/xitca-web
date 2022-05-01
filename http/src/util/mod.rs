@@ -59,6 +59,15 @@ pub mod cursed {
         }
     }
 
+    impl Cursed for String {
+        type Type<'a> = Self;
+    }
+    impl CursedMap for String {
+        fn map<'a>(self) -> Self::Type<'a> {
+            self
+        }
+    }
+
     /// An [object constructor](ObjectConstructor) for service with [cursed](Cursed)
     /// request types.
     pub struct CursedObjectConstructor<Req: Cursed>(PhantomData<Req>);
