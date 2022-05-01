@@ -1,8 +1,12 @@
-use std::{convert::Infallible, future::Future};
+use std::{convert::Infallible, error, future::Future, io};
 
-use xitca_http::http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE};
-
-use crate::{request::WebRequest, response::WebResponse};
+use crate::{
+    dev::bytes::Bytes,
+    error::{RouteError, RouterError},
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, StatusCode},
+    request::WebRequest,
+    response::WebResponse,
+};
 
 use super::{FromRequest, Responder};
 
@@ -30,6 +34,25 @@ impl<'r, S> Responder<WebRequest<'r, S>> for WebResponse {
     }
 }
 
+impl<'r, S: 'r> Responder<WebRequest<'r, S>> for () {
+    type Output = WebResponse;
+    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+
+    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+        let res = req.as_response(Bytes::new());
+        async { res }
+    }
+}
+
+impl<'r, S: 'r> Responder<WebRequest<'r, S>> for Infallible {
+    type Output = WebResponse;
+    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+
+    fn respond_to<'a>(self, _: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+        async { unreachable!() }
+    }
+}
+
 macro_rules! text_utf8 {
     ($type: ty) => {
         impl<'r, S: 'r> Responder<WebRequest<'r, S>> for $type {
@@ -47,3 +70,67 @@ macro_rules! text_utf8 {
 
 text_utf8!(String);
 text_utf8!(&'static str);
+
+macro_rules! blank_internal {
+    ($type: ty) => {
+        impl<'r, S: 'r> Responder<WebRequest<'r, S>> for $type {
+            type Output = WebResponse;
+            type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+
+            fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+                let mut res = req.as_response(Bytes::new());
+                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                async { res }
+            }
+        }
+    };
+}
+
+blank_internal!(io::Error);
+blank_internal!(Box<dyn error::Error>);
+blank_internal!(Box<dyn error::Error + Send>);
+blank_internal!(Box<dyn error::Error + Send + Sync>);
+
+impl<'r, S, E> Responder<WebRequest<'r, S>> for RouterError<E>
+where
+    S: 'r,
+    E: Responder<WebRequest<'r, S>, Output = WebResponse>,
+{
+    type Output = WebResponse;
+    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+
+    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+        async move {
+            match self {
+                Self::First(_) => {
+                    let mut res = req.as_response(Bytes::new());
+                    *res.status_mut() = StatusCode::NOT_FOUND;
+                    res
+                }
+                Self::Second(e) => e.respond_to(req).await,
+            }
+        }
+    }
+}
+
+impl<'r, S: 'r, E> Responder<WebRequest<'r, S>> for RouteError<E>
+where
+    S: 'r,
+    E: Responder<WebRequest<'r, S>, Output = WebResponse>,
+{
+    type Output = WebResponse;
+    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+
+    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+        async move {
+            match self {
+                Self::First(_) => {
+                    let mut res = req.as_response(Bytes::new());
+                    *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
+                    res
+                }
+                Self::Second(e) => e.respond_to(req).await,
+            }
+        }
+    }
+}

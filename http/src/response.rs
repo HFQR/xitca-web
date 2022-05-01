@@ -1,28 +1,3 @@
-use std::convert::Infallible;
-
-/// Helper trait for convert Service::Error type to Service::Response.
-pub trait ResponseError<Req, Res> {
-    fn response_error(self, req: &mut Req) -> Res;
-}
-
-impl<Req, Res, E> ResponseError<Req, Res> for Result<Res, E>
-where
-    E: ResponseError<Req, Res>,
-{
-    fn response_error(self, req: &mut Req) -> Res {
-        match self {
-            Ok(res) => res,
-            Err(e) => e.response_error(req),
-        }
-    }
-}
-
-impl<Req, Res> ResponseError<Req, Res> for Infallible {
-    fn response_error(self, _: &mut Req) -> Res {
-        unreachable!()
-    }
-}
-
 #[cfg(feature = "http1")]
 pub(super) use h1_impl::*;
 
