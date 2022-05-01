@@ -19,7 +19,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}  
     
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v3
 
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
@@ -28,20 +28,33 @@ jobs:
         profile: minimal
         override: true
 
+    - name: Free up disk space
+      if: matrix.target.os == 'ubuntu-latest'
+      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@v1.2.0
+
     - name: Install cargo-hack
       uses: actions-rs/cargo@v1
       with:
         command: install
         args: cargo-hack
 
-    - name: Free up disk space
-      if: matrix.target.os == 'ubuntu-latest'
-      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
-    - name: tests-non-linux
+    - name: check-non-linux
       if: matrix.target.os != 'ubuntu-latest'
       run: |
-        cargo ci-test-exclude-io-uring
+        cargo ci-check-exclude-io-uring
+
+    - name: check-linux
+      if: matrix.target.os == 'ubuntu-latest'
+      run: |
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check"     
+
+#    - name: tests-non-linux
+#      if: matrix.target.os != 'ubuntu-latest'
+#      run: |
+#        cargo ci-test-exclude-io-uring
 
     - name: tests-linux
       if: matrix.target.os == 'ubuntu-latest'
@@ -52,3 +65,20 @@ jobs:
       run: |
         cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
         cargo-cache
+
+  miri-test:
+    name: miri-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: miri
+          override: true
+      - name: miri
+        run: cargo ci-miri-test
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-symbolic-alignment-check
+          PROPTEST_CASES: 10

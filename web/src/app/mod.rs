@@ -184,9 +184,10 @@ mod test {
         dev::Service,
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
-            uri::UriRef,
+            uri::UriRef, Responder,
         },
-        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
+        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Method, Uri},
+        route::get,
     };
 
     async fn handler(
@@ -235,11 +236,18 @@ mod test {
 
     #[tokio::test]
     async fn test_app() {
-        async fn middleware_fn<S, State, Res, Err>(service: &S, req: WebRequest<'_, State>) -> Result<Res, Err>
+        async fn middleware_fn<S, State, Res, Err>(
+            service: &S,
+            mut req: WebRequest<'_, State>,
+        ) -> Result<Res, Infallible>
         where
             S: for<'r> Service<WebRequest<'r, State>, Response = Res, Error = Err>,
+            Err: for<'r> Responder<WebRequest<'r, State>, Output = Res>,
         {
-            service.call(req).await
+            match service.call(req.reborrow()).await {
+                Ok(res) => Ok(res),
+                Err(e) => Ok(e.respond_to(&mut req).await),
+            }
         }
 
         let state = String::from("state");
@@ -255,13 +263,26 @@ mod test {
             .unwrap();
 
         let mut req = Request::default();
-
         req.extensions_mut().insert(Foo);
 
         let res = service.call(req).await.unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
+
+        let mut req = Request::default();
+        *req.uri_mut() = Uri::from_static("/abc");
+
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res.status().as_u16(), 404);
+
+        let mut req = Request::default();
+        *req.method_mut() = Method::POST;
+
+        let res = service.call(req).await.unwrap();
+
+        assert_eq!(res.status().as_u16(), 405);
     }
 
     struct Foo;

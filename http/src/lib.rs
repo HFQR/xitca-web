@@ -99,7 +99,6 @@ pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
 pub use error::{BodyError, HttpServiceError};
 pub use request::Request;
-pub use response::ResponseError;
 pub use service::HttpService;
 
 // TODO: enable this conflict feature check.
