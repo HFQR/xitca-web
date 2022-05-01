@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
 
+env:
+  rust_nightly_guaranteed: nightly-2022-04-05
+  rust_nightly: nightly
+
 jobs:
   build_and_test:
     strategy:
@@ -14,12 +18,12 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2022-04-05
+          - ${{ env.rust_nightly_guaranteed }}
     name: ${{ matrix.target.name }} / ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}  
     
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v3
 
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
@@ -65,3 +69,20 @@ jobs:
       run: |
         cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
         cargo-cache
+
+  miri-test:
+    name: miri-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust ${{ env.rust_nightly }}
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.rust_nightly }}
+          components: miri
+          override: true
+      - name: miri
+        run: cargo ci-miri-test
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-symbolic-alignment-check
+          PROPTEST_CASES: 10
