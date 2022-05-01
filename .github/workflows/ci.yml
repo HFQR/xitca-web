@@ -6,10 +6,6 @@ on:
   push:
     branches: [main]
 
-env:
-  rust_nightly_guaranteed: nightly-2022-04-05
-  rust_nightly: nightly
-
 jobs:
   build_and_test:
     strategy:
@@ -18,7 +14,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - ${{ env.rust_nightly_guaranteed }}
+          - nightly-2022-04-05
     name: ${{ matrix.target.name }} / ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}  
     
@@ -75,10 +71,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install Rust ${{ env.rust_nightly }}
+      - name: Install Rust nightly
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ env.rust_nightly }}
+          toolchain: nightly
           components: miri
           override: true
       - name: miri
