@@ -1,15 +1,7 @@
 use std::convert::Infallible;
 
-use http::{status::StatusCode, Response};
-
-use super::{body::ResponseBody, bytes::Bytes};
-
 /// Helper trait for convert Service::Error type to Service::Response.
 pub trait ResponseError<Req, Res> {
-    fn status_code() -> StatusCode {
-        StatusCode::INTERNAL_SERVER_ERROR
-    }
-
     fn response_error(self, req: &mut Req) -> Res;
 }
 
@@ -36,7 +28,11 @@ pub(super) use h1_impl::*;
 
 #[cfg(feature = "http1")]
 mod h1_impl {
-    use super::*;
+    use crate::{
+        body::ResponseBody,
+        bytes::Bytes,
+        http::{status::StatusCode, Response},
+    };
 
     pub fn header_too_large<B>() -> Response<ResponseBody<B>> {
         status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
@@ -45,8 +41,8 @@ mod h1_impl {
     pub fn bad_request<B>() -> Response<ResponseBody<B>> {
         status_only(StatusCode::BAD_REQUEST)
     }
-}
 
-fn status_only<B>(status: StatusCode) -> Response<ResponseBody<B>> {
-    Response::builder().status(status).body(Bytes::new().into()).unwrap()
+    fn status_only<B>(status: StatusCode) -> Response<ResponseBody<B>> {
+        Response::builder().status(status).body(Bytes::new().into()).unwrap()
+    }
 }

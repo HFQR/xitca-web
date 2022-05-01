@@ -41,10 +41,20 @@ jobs:
         command: install
         args: cargo-hack
 
-    - name: tests-non-linux
+    - name: check-non-linux
       if: matrix.target.os != 'ubuntu-latest'
       run: |
-        cargo ci-test-exclude-io-uring
+        cargo ci-check-exclude-io-uring
+
+    - name: check-linux
+      if: matrix.target.os == 'ubuntu-latest'
+      run: |
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check"     
+
+#    - name: tests-non-linux
+#      if: matrix.target.os != 'ubuntu-latest'
+#      run: |
+#        cargo ci-test-exclude-io-uring
 
     - name: tests-linux
       if: matrix.target.os == 'ubuntu-latest'
