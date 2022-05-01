@@ -28,15 +28,18 @@ jobs:
         profile: minimal
         override: true
 
+    - name: Free up disk space
+      if: matrix.target.os == 'ubuntu-latest'
+      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@v1.2.0
+
     - name: Install cargo-hack
       uses: actions-rs/cargo@v1
       with:
         command: install
         args: cargo-hack
-
-    - name: Free up disk space
-      if: matrix.target.os == 'ubuntu-latest'
-      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
     - name: tests-non-linux
       if: matrix.target.os != 'ubuntu-latest'
