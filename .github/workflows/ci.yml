@@ -42,14 +42,14 @@ jobs:
         args: cargo-hack
 
     - name: check-non-linux
-        if: matrix.target.os != 'ubuntu-latest'
-        run: |
-          cargo ci-check-exclude-io-uring
+      if: matrix.target.os != 'ubuntu-latest'
+      run: |
+        cargo ci-check-exclude-io-uring
 
     - name: check-linux
-        if: matrix.target.os == 'ubuntu-latest'
-        run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check"     
+      if: matrix.target.os == 'ubuntu-latest'
+      run: |
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check"     
 
 #    - name: tests-non-linux
 #      if: matrix.target.os != 'ubuntu-latest'
