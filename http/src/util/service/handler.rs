@@ -103,7 +103,7 @@ where
 ///     }
 /// }
 /// ```
-pub trait FromRequest<'a, Req>: Sized + 'a {
+pub trait FromRequest<'a, Req>: Sized {
     // Used to construct the type for any lifetime 'b.
     type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
 
