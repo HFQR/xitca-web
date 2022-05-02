@@ -129,37 +129,19 @@ where
             // TODO: more spec check needed. the current check barely does anything.
             match name {
                 CONTENT_LENGTH => {
-                    if self.is_head_method() {
-                        debug_assert_eq!(
-                            size,
-                            ResponseBodySize::None,
-                            "Response to HEAD method request must not have a body"
-                        );
-                        skip_len = true;
-                    } else {
-                        debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
-                        let value = value
-                            .to_str()
-                            .ok()
-                            .and_then(|v| v.parse().ok())
-                            .ok_or(Parse::HeaderValue)?;
-                        encoding = TransferCoding::length(value);
-                        skip_len = true;
-                    }
+                    debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
+                    let value = value
+                        .to_str()
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .ok_or(Parse::HeaderValue)?;
+                    encoding = TransferCoding::length(value);
+                    skip_len = true;
                 }
                 TRANSFER_ENCODING => {
-                    if self.is_head_method() {
-                        debug_assert_eq!(
-                            size,
-                            ResponseBodySize::None,
-                            "Response to HEAD method request must not have a body"
-                        );
-                        skip_len = true;
-                    } else {
-                        debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
-                        encoding = TransferCoding::encode_chunked();
-                        skip_len = true;
-                    }
+                    debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
+                    encoding = TransferCoding::encode_chunked();
+                    skip_len = true;
                 }
                 CONNECTION => match self.ctype() {
                     // skip write header on close condition.
@@ -219,6 +201,15 @@ where
                     encoding = TransferCoding::length(size as u64);
                 }
             }
+        }
+
+        if self.is_head_method() {
+            debug_assert_eq!(
+                size,
+                ResponseBodySize::None,
+                "Response to request with HEAD method must not have a body"
+            );
+            encoding = TransferCoding::eof();
         }
 
         // set date header if there is not any.
