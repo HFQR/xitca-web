@@ -33,10 +33,6 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
 
-                if method == Method::HEAD {
-                    self.set_head_method();
-                }
-
                 let uri = req.path.unwrap().parse::<Uri>()?;
 
                 // Set connection type when doing version match.
@@ -69,10 +65,14 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     .iter()
                     .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
 
-                if method == Method::CONNECT {
-                    // set method to context so it can pass method to response.
-                    self.set_connect_method();
-                    decoder.try_set(TransferCoding::upgrade())?;
+                // set method to context so it can pass method to response.
+                match method {
+                    Method::CONNECT => {
+                        self.set_connect_method();
+                        decoder.try_set(TransferCoding::upgrade())?;
+                    }
+                    Method::HEAD => self.set_head_method(),
+                    _ => {}
                 }
 
                 let mut req = Request::with_remote_addr((), self.remote_addr());
