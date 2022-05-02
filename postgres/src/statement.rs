@@ -50,14 +50,18 @@ impl<'a> StatementGuarded<'a> {
 
 #[derive(Clone)]
 pub struct Statement {
-    name: String,
-    params: Vec<Type>,
-    columns: Vec<Column>,
+    name: Box<str>,
+    params: Box<[Type]>,
+    columns: Box<[Column]>,
 }
 
 impl Statement {
     pub(crate) fn new(name: String, params: Vec<Type>, columns: Vec<Column>) -> Self {
-        Self { name, params, columns }
+        Self {
+            name: name.into_boxed_str(),
+            params: params.into_boxed_slice(),
+            columns: columns.into_boxed_slice()
+        }
     }
 
     pub(crate) fn name(&self) -> &str {
@@ -86,13 +90,13 @@ impl Statement {
 /// Information about a column of a query.
 #[derive(Clone)]
 pub struct Column {
-    name: String,
+    name: Box<str>,
     type_: Type,
 }
 
 impl Column {
     pub(crate) fn new(name: String, type_: Type) -> Column {
-        Column { name, type_ }
+        Column { name: name.into_boxed_str(), type_ }
     }
 
     /// Returns the name of the column.
