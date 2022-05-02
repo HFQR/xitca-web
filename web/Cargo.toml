@@ -12,6 +12,7 @@ json = ["futures-util", "serde", "serde_json"]
 openssl = ["xitca-http/openssl", "openssl-crate"]
 rustls = ["xitca-http/rustls", "rustls-crate"]
 urlencoded = ["serde", "serde_urlencoded" ]
+codegen = ["xitca-http-codegen"]
 
 [dependencies]
 xitca-http = { version = "0.1", features = ["util-service"] }
@@ -34,6 +35,9 @@ serde_json = { version = "1", optional = true }
 
 # urlencoded feature
 serde_urlencoded = { version = "0.7.1", optional = true }
+
+# codegen feature
+xitca-http-codegen = { version = "0.1", optional = true }
 
 [dev-dependencies]
 xitca-http-codegen = { version = "0.1" }
