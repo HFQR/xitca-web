@@ -14,7 +14,6 @@ native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "toki
 
 # unstable features that are subject to be changed at anytime.
 util-service = ["matchit"]
-handler-service-impl = []
 
 [dependencies]
 xitca-io = "0.1"
