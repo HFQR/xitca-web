@@ -59,7 +59,11 @@ where
 
 impl<F, Req, T, O, Res, Err> Service<Req> for HandlerService<F, T, O, Res, Err>
 where
-    F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
+    // for borrowed extrctors, `T` is the `'static` version of the extractors
+    T: FromRequest<'static, Req, Error = Err>,
+    F: AsyncFn<T>, // just to assist type inference to pinpoint `T`
+
+    F: for<'a> AsyncFn<T::Type<'a>, Output = O> + Clone + 'static,
     O: Responder<Req, Output = Res>,
 {
     type Response = Res;
@@ -67,59 +71,40 @@ where
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[inline]
-    fn call(&self, mut req: Req) -> Self::Future<'_> {
+    fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
-            let res = self.func.handle(&mut req).await?;
+            let extract = T::Type::<'_>::from_request(&req).await?;
+            let res = self.func.call(extract).await;
             Ok(res.respond_to(req).await)
         }
     }
 }
 
-#[doc(hidden)]
-/// Helper trait to make the HRTB bounds in `handler_service` as simple as posible.
-///     `F: for<'a> Handler<'a, Req, T, Output=Out, Error=Err>,`
-/// More precisely, HRTB bounds shouldn't specify any associated type that is bound to the
-/// quantified lifetime.
-/// For example, the following bounds would otherwise be necessary in `fn_service`:
-///     `F: for<'a> FnArgs<<T as FromRequest>::Type<'a>>,`
-///     `for<'a> FnArgs<T::Type<'a>>::Output: Future`
-/// But these are known to be buggy. See https://github.com/rust-lang/rust/issues/56556
-pub trait Handler<'a, Req, T>: Clone + 'static {
-    type Error;
-    type Response;
-    type Future: Future<Output = Result<Self::Response, Self::Error>>
-    where
-        Req: 'a;
-
-    fn handle(&'a self, req: &'a mut Req) -> Self::Future;
-}
-
-impl<'a, Req, T, Res, Err, F> Handler<'a, Req, T> for F
-where
-    T: FromRequest<'static, Req, Error = Err>,
-    F: AsyncFn<T::Type<'a>, Output = Res> + Clone + 'static,
-    F: AsyncFn<T>, // second bound to assist type inference to pinpoint T
-{
-    type Error = Err;
-    type Response = Res;
-    type Future = impl Future<Output = Result<Self::Response, Self::Error>> where Req: 'a;
-
-    #[inline]
-    fn handle(&'a self, req: &'a mut Req) -> Self::Future {
-        async move {
-            let extract = T::Type::<'a>::from_request(req).await?;
-            Ok(self.call(extract).await)
-        }
-    }
-}
-
-/// Extract type from Req and receive them with function passed to [handler_service]
+/// Extract type from Req and receive them with function passed to [handler_service].
+///
+/// `'a` is the lifetime of the extracted type.
+///
+/// When `Req` is also a borrowed type, the lifetimes of `Req` type and of the extracted type
+/// should be kept separate. See the example below.
+///
+/// # Examples
+/// ```
+/// #![feature(generic_associated_types, type_alias_impl_trait)]
+/// # use std::future::Future;
+/// # use xitca_http::util::service::handler::FromRequest;
+/// struct MyExtractor<'a>(&'a str);
+///
+/// impl<'a, 'r> FromRequest<'a, &'r String> for MyExtractor<'a> {
+///     type Type<'b> = MyExtractor<'b>;
+///     type Error = ();
+///     type Future = impl Future<Output = Result<Self, Self::Error>> where 'r: 'a;
+///     fn from_request(req: &'a &'r String) -> Self::Future {
+///         async { Ok(MyExtractor(req)) }
+///     }
+/// }
+/// ```
 pub trait FromRequest<'a, Req>: Sized {
     // Used to construct the type for any lifetime 'b.
-    //
-    // Most extractors should set this to Self.
-    // However extractor types with lifetime paramter that bwrrows from request and wants to to
-    // support being extracted in handler arguments should take care.
     type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
 
     type Error;
