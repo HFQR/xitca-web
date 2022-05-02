@@ -55,8 +55,9 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
     }
 }
 
-impl<'a, 'r, S: 'r, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, S>> for Json<T, LIMIT>
+impl<'a, 'r, S, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, S>> for Json<T, LIMIT>
 where
+    S: 'r,
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;
@@ -95,16 +96,17 @@ where
 
 impl<'r, S, T, const LIMIT: usize> Responder<WebRequest<'r, S>> for Json<T, LIMIT>
 where
+    S: 'r,
     T: Serialize,
 {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
         let mut bytes = BytesMut::new();
         serde_json::to_writer(BufMutWriter(&mut bytes), &self.0).unwrap();
-        let mut res = req.as_response(bytes.freeze());
+        let mut res = req.into_response(bytes.freeze());
         res.headers_mut().insert(CONTENT_TYPE, JSON);
         async { res }
     }
