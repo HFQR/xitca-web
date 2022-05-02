@@ -28,6 +28,9 @@ impl ContextState {
     /// Enable when current request is CONNECT method.
     const CONNECT: u8 = 0b_0010;
 
+    /// Enable when current request is HEAD method.
+    const HEAD: u8 = 0b_0100;
+
     const fn new() -> Self {
         Self(0)
     }
@@ -107,16 +110,22 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state = ContextState::new();
     }
 
-    /// Set Context's state to expect header received.
+    /// Set Context's state to EXPECT header received.
     #[inline]
     pub fn set_expect_header(&mut self) {
         self.state.insert(ContextState::EXPECT)
     }
 
-    /// Set Context's state to connect method received.
+    /// Set Context's state to CONNECT method received.
     #[inline]
     pub fn set_connect_method(&mut self) {
         self.state.insert(ContextState::CONNECT)
+    }
+
+    /// Set Context's state to HEAD method received.
+    #[inline]
+    pub fn set_head_method(&mut self) {
+        self.state.insert(ContextState::HEAD)
     }
 
     /// Set connection type.
@@ -131,10 +140,16 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state.contains(ContextState::EXPECT)
     }
 
-    /// Get connect method state.
+    /// Get CONNECT method state.
     #[inline]
     pub fn is_connect_method(&self) -> bool {
         self.state.contains(ContextState::CONNECT)
+    }
+
+    /// Get HEAD method state.
+    #[inline]
+    pub fn is_head_method(&self) -> bool {
+        self.state.contains(ContextState::HEAD)
     }
 
     /// Return true if connection type is [ConnectionType::Close] or [ConnectionType::CloseForce].

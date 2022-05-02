@@ -33,6 +33,10 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
 
+                if method == Method::HEAD {
+                    self.set_head_method();
+                }
+
                 let uri = req.path.unwrap().parse::<Uri>()?;
 
                 // Set connection type when doing version match.

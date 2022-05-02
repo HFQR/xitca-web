@@ -129,19 +129,37 @@ where
             // TODO: more spec check needed. the current check barely does anything.
             match name {
                 CONTENT_LENGTH => {
-                    debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
-                    let value = value
-                        .to_str()
-                        .ok()
-                        .and_then(|v| v.parse().ok())
-                        .ok_or(Parse::HeaderValue)?;
-                    encoding = TransferCoding::length(value);
-                    skip_len = true;
+                    if self.is_head_method() {
+                        debug_assert_eq!(
+                            size,
+                            ResponseBodySize::None,
+                            "Response to HEAD method request must not have a body"
+                        );
+                        skip_len = true;
+                    } else {
+                        debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
+                        let value = value
+                            .to_str()
+                            .ok()
+                            .and_then(|v| v.parse().ok())
+                            .ok_or(Parse::HeaderValue)?;
+                        encoding = TransferCoding::length(value);
+                        skip_len = true;
+                    }
                 }
                 TRANSFER_ENCODING => {
-                    debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
-                    encoding = TransferCoding::encode_chunked();
-                    skip_len = true;
+                    if self.is_head_method() {
+                        debug_assert_eq!(
+                            size,
+                            ResponseBodySize::None,
+                            "Response to HEAD method request must not have a body"
+                        );
+                        skip_len = true;
+                    } else {
+                        debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
+                        encoding = TransferCoding::encode_chunked();
+                        skip_len = true;
+                    }
                 }
                 CONNECTION => match self.ctype() {
                     // skip write header on close condition.
