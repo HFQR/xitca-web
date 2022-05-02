@@ -1,34 +1,24 @@
-use std::convert::Infallible;
 use std::{
     error,
     fmt::{self, Debug, Display, Formatter},
     future::Future,
-    marker::PhantomData,
 };
 
-use xitca_service::{
-    pipeline::PipelineE, ready::ReadyService, BuildService, BuildServiceExt, MapErrorServiceFactory, Service,
-};
+use xitca_service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service};
 
 use crate::{
     http::{self, Method},
     request::BorrowReq,
 };
 
+mod next {
+    pub struct Exist<S>(pub S);
+    pub struct Empty;
+}
+
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {
-        pub fn $method_fn<R, Req, Res, Err>(
-            route: R,
-        ) -> Route<
-            MapErrorServiceFactory<R, impl Fn(Err) -> RouteError<Err> + Clone>,
-            MethodNotAllowedService<Res, Err>,
-            1,
-        >
-        where
-            R: BuildService,
-            R::Service: Service<Req, Response = Res, Error = Err>,
-            Req: BorrowReq<http::Method>,
-        {
+        pub fn $method_fn<R>(route: R) -> Route<R, next::Empty, 1> {
             Route::new(route).methods([Method::$method])
         }
     };
@@ -51,35 +41,18 @@ pub struct Route<R, N, const M: usize> {
 }
 
 impl Route<(), (), 0> {
-    #[allow(clippy::type_complexity)]
-    pub fn new<R, Req, Res, Err>(
-        route: R,
-    ) -> Route<MapErrorServiceFactory<R, impl Fn(Err) -> RouteError<Err> + Clone>, MethodNotAllowedService<Res, Err>, 0>
-    where
-        R: BuildService,
-        R::Service: Service<Req, Response = Res, Error = Err>,
-        Req: BorrowReq<http::Method>,
-    {
+    pub fn new<R>(route: R) -> Route<R, next::Empty, 0> {
         Route {
             methods: [],
-            route: route.map_err(RouteError::Second),
-            next: MethodNotAllowedService::default(),
+            route,
+            next: next::Empty,
         }
     }
 }
 
 macro_rules! route_method {
     ($method_fn: ident, $method: ident) => {
-        pub fn $method_fn<N1, Req, Err>(
-            self,
-            $method_fn: N1,
-        ) -> Route<R, Route<MapErrorServiceFactory<N1, impl Fn(Err) -> RouteError<Err> + Clone>, N, 1>, M>
-        where
-            R: BuildService,
-            N1: BuildService,
-            N1::Service: Service<Req, Error = Err>,
-            Req: BorrowReq<http::Method>,
-        {
+        pub fn $method_fn<R1>(self, $method_fn: R1) -> Route<R, next::Exist<Route<R1, N, 1>>, M> {
             self.next(Route::new($method_fn).methods([Method::$method]))
         }
     };
@@ -103,19 +76,19 @@ impl<R, N, const M: usize> Route<R, N, M> {
         }
     }
 
-    pub fn next<R1, N1, const M1: usize>(self, next: Route<R1, N1, M1>) -> Route<R, Route<R1, N, M1>, M>
-    where
-        R: BuildService,
-        N1: BuildService,
-    {
+    // TODO is this really the intended behavior? insert `next` between `self` and `self.next`?
+    pub fn next<R1, const M1: usize>(
+        self,
+        next: Route<R1, next::Empty, M1>,
+    ) -> Route<R, next::Exist<Route<R1, N, M1>>, M> {
         Route {
             methods: self.methods,
             route: self.route,
-            next: Route {
+            next: next::Exist(Route {
                 methods: next.methods,
                 route: next.route,
                 next: self.next,
-            },
+            }),
         }
     }
 
@@ -130,48 +103,90 @@ impl<R, N, const M: usize> Route<R, N, M> {
     route_method!(trace, TRACE);
 }
 
-impl<Arg, R, N, const M: usize> BuildService<Arg> for Route<R, N, M>
+impl<Arg, R, N, const M: usize> BuildService<Arg> for Route<R, next::Exist<N>, M>
 where
     R: BuildService<Arg>,
     N: BuildService<Arg, Error = R::Error>,
     Arg: Clone,
 {
-    type Service = Route<R::Service, N::Service, M>;
+    type Service = Route<R::Service, next::Exist<N::Service>, M>;
     type Error = R::Error;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn build(&self, arg: Arg) -> Self::Future {
         let route = self.route.build(arg.clone());
-        let next = self.next.build(arg);
+        let next = self.next.0.build(arg);
 
         let methods = self.methods.clone();
 
         async move {
             let route = route.await?;
-            let next = next.await?;
+            let next = next::Exist(next.await?);
             // re-use Route for Service trait type.
             Ok(Route { methods, route, next })
         }
     }
 }
 
-impl<Req, R, N, const M: usize> Service<Req> for Route<R, N, M>
+impl<Arg, R, const M: usize> BuildService<Arg> for Route<R, next::Empty, M>
 where
-    R: Service<Req>,
-    N: Service<Req, Response = R::Response, Error = R::Error>,
+    R: BuildService<Arg>,
+{
+    type Service = Route<R::Service, next::Empty, M>;
+    type Error = R::Error;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+
+    fn build(&self, arg: Arg) -> Self::Future {
+        let route = self.route.build(arg);
+        let methods = self.methods.clone();
+
+        async move {
+            let route = route.await?;
+            let next = next::Empty;
+            // re-use Route for Service trait type.
+            Ok(Route { methods, route, next })
+        }
+    }
+}
+
+impl<Req, R, N, E, const M: usize> Service<Req> for Route<R, next::Exist<N>, M>
+where
+    R: Service<Req, Error = E>,
+    N: Service<Req, Response = R::Response, Error = RouteError<E>>,
     Req: BorrowReq<http::Method>,
 {
     type Response = R::Response;
-    type Error = R::Error;
+    type Error = RouteError<E>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
             if self.methods.contains(req.borrow()) {
-                self.route.call(req).await
+                self.route.call(req).await.map_err(RouteError::Second)
             } else {
-                self.next.call(req).await
+                self.next.0.call(req).await
+            }
+        }
+    }
+}
+
+impl<Req, R, const M: usize> Service<Req> for Route<R, next::Empty, M>
+where
+    R: Service<Req>,
+    Req: BorrowReq<http::Method>,
+{
+    type Response = R::Response;
+    type Error = RouteError<R::Error>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+
+    #[inline]
+    fn call(&self, req: Req) -> Self::Future<'_> {
+        async move {
+            if self.methods.contains(req.borrow()) {
+                self.route.call(req).await.map_err(RouteError::Second)
+            } else {
+                Err(RouteError::First(MethodNotAllowed))
             }
         }
     }
@@ -179,9 +194,7 @@ where
 
 impl<Req, R, N, const M: usize> ReadyService<Req> for Route<R, N, M>
 where
-    R: Service<Req>,
-    N: Service<Req, Response = R::Response, Error = R::Error>,
-    Req: BorrowReq<http::Method>,
+    Self: Service<Req>,
 {
     type Ready = ();
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
@@ -212,44 +225,13 @@ impl Display for MethodNotAllowed {
 
 impl error::Error for MethodNotAllowed {}
 
-#[doc(hidden)]
-pub struct MethodNotAllowedService<Res, Err>(PhantomData<(Res, Err)>);
-
-impl<Res, Err> Default for MethodNotAllowedService<Res, Err> {
-    fn default() -> Self {
-        Self(PhantomData)
-    }
-}
-
-impl<Arg, Res, Err> BuildService<Arg> for MethodNotAllowedService<Res, Err> {
-    type Service = Self;
-    type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
-
-    fn build(&self, _: Arg) -> Self::Future {
-        async { Ok(MethodNotAllowedService::default()) }
-    }
-}
-
-impl<Req, Res, Err> Service<Req> for MethodNotAllowedService<Res, Err> {
-    type Response = Res;
-    type Error = RouteError<Err>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
-
-    #[cold]
-    #[inline(never)]
-    fn call(&self, _: Req) -> Self::Future<'_> {
-        async { Result::Err(RouteError::First(MethodNotAllowed)) }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, Service};
+    use xitca_service::{fn_service, BuildServiceExt, Service};
 
     use crate::{
         body::{RequestBody, ResponseBody},

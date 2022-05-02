@@ -205,6 +205,11 @@ mod test {
         state.to_string()
     }
 
+    // Handler with no state extractor
+    async fn stateless_handler(_: PathRef<'_>) -> String {
+        String::from("debug")
+    }
+
     #[derive(Clone)]
     struct Middleware;
 
@@ -254,6 +259,10 @@ mod test {
 
         let service = App::with_current_thread_state(state)
             .at("/", get(handler_service(handler)))
+            .at(
+                "/stateless",
+                get(handler_service(stateless_handler)).head(handler_service(stateless_handler)),
+            )
             .enclosed_fn(middleware_fn)
             .enclosed(Middleware)
             .finish()
