@@ -60,7 +60,7 @@ impl Statement {
         Self {
             name: name.into_boxed_str(),
             params: params.into_boxed_slice(),
-            columns: columns.into_boxed_slice()
+            columns: columns.into_boxed_slice(),
         }
     }
 
@@ -96,7 +96,10 @@ pub struct Column {
 
 impl Column {
     pub(crate) fn new(name: String, type_: Type) -> Column {
-        Column { name: name.into_boxed_str(), type_ }
+        Column {
+            name: name.into_boxed_str(),
+            type_,
+        }
     }
 
     /// Returns the name of the column.
