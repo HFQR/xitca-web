@@ -20,7 +20,7 @@ use super::service::Service;
 /// # use std::{cell::Cell, rc::Rc, future::Future};
 /// # use xitca_service::{Service, ready::ReadyService};
 ///
-/// // a service with conditional avalibility based on state of Permit.
+/// // a service with conditional availability based on state of Permit.
 /// struct Foo(Permit);
 ///
 /// // a permit reset the inner boolean to true on drop.
@@ -72,7 +72,7 @@ use super::service::Service;
 ///
 /// async fn throttle(service: &Foo) {
 ///     let permit = service.ready().await.unwrap();
-///     assert!(service.ready().await.is_err());  // service is throttled because permit is still helded in scope.
+///     assert!(service.ready().await.is_err());  // service is throttled because permit is still held in scope.
 /// }
 /// ```
 pub trait ReadyService<Req>: Service<Req> {

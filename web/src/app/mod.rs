@@ -246,7 +246,7 @@ mod test {
         {
             match service.call(req.reborrow()).await {
                 Ok(res) => Ok(res),
-                Err(e) => Ok(e.respond_to(&mut req).await),
+                Err(e) => Ok(e.respond_to(req).await),
             }
         }
 

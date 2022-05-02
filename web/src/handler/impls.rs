@@ -26,29 +26,29 @@ where
 
 impl<'r, S> Responder<WebRequest<'r, S>> for WebResponse {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to<'a>(self, _: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+    fn respond_to(self, _: WebRequest<'r, S>) -> Self::Future {
         async { self }
     }
 }
 
 impl<'r, S: 'r> Responder<WebRequest<'r, S>> for () {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
-        let res = req.as_response(Bytes::new());
+    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+        let res = req.into_response(Bytes::new());
         async { res }
     }
 }
 
 impl<'r, S: 'r> Responder<WebRequest<'r, S>> for Infallible {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to<'a>(self, _: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+    fn respond_to(self, _: WebRequest<'r, S>) -> Self::Future {
         async { unreachable!() }
     }
 }
@@ -57,10 +57,10 @@ macro_rules! text_utf8 {
     ($type: ty) => {
         impl<'r, S: 'r> Responder<WebRequest<'r, S>> for $type {
             type Output = WebResponse;
-            type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+            type Future = impl Future<Output = Self::Output>;
 
-            fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
-                let mut res = req.as_response(self);
+            fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+                let mut res = req.into_response(self);
                 res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
                 async { res }
             }
@@ -75,10 +75,10 @@ macro_rules! blank_internal {
     ($type: ty) => {
         impl<'r, S: 'r> Responder<WebRequest<'r, S>> for $type {
             type Output = WebResponse;
-            type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+            type Future = impl Future<Output = Self::Output>;
 
-            fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
-                let mut res = req.as_response(Bytes::new());
+            fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+                let mut res = req.into_response(Bytes::new());
                 *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                 async { res }
             }
@@ -97,13 +97,13 @@ where
     E: Responder<WebRequest<'r, S>, Output = WebResponse>,
 {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
         async move {
             match self {
                 Self::First(_) => {
-                    let mut res = req.as_response(Bytes::new());
+                    let mut res = req.into_response(Bytes::new());
                     *res.status_mut() = StatusCode::NOT_FOUND;
                     res
                 }
@@ -119,13 +119,13 @@ where
     E: Responder<WebRequest<'r, S>, Output = WebResponse>,
 {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
+    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
         async move {
             match self {
                 Self::First(_) => {
-                    let mut res = req.as_response(Bytes::new());
+                    let mut res = req.into_response(Bytes::new());
                     *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
                     res
                 }

@@ -25,11 +25,11 @@ where
     T: Into<ResponseBody>,
 {
     type Output = WebResponse;
-    type Future<'a> = impl Future<Output = Self::Output> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to<'a>(self, req: &'a mut WebRequest<'r, S>) -> Self::Future<'a> {
-        let mut res = req.as_response(self.0);
+    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+        let mut res = req.into_response(self.0);
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
         async { res }
     }

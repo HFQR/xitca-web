@@ -78,7 +78,7 @@ where
     fn call(&self, mut req: Req) -> Self::Future<'_> {
         async move {
             let res = self.func.handle(&mut req).await?;
-            Ok(res.respond_to(&mut req).await)
+            Ok(res.respond_to(req).await)
         }
     }
 }
@@ -238,11 +238,9 @@ from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I }
 /// The Output type is what returns from [handler_service] function.
 pub trait Responder<Req> {
     type Output;
-    type Future<'a>: Future<Output = Self::Output>
-    where
-        Req: 'a;
+    type Future: Future<Output = Self::Output>;
 
-    fn respond_to(self, req: &mut Req) -> Self::Future<'_>;
+    fn respond_to(self, req: Req) -> Self::Future;
 }
 
 impl<R, T, E> Responder<R> for Result<T, E>
@@ -250,10 +248,10 @@ where
     T: Responder<R>,
 {
     type Output = Result<T::Output, E>;
-    type Future<'a> = impl Future<Output = Self::Output> where R: 'a;
+    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: &mut R) -> Self::Future<'_> {
+    fn respond_to(self, req: R) -> Self::Future {
         async move { Ok(self?.respond_to(req).await) }
     }
 }
@@ -325,9 +323,9 @@ mod test {
 
     impl Responder<Request<()>> for StatusCode {
         type Output = Response<()>;
-        type Future<'a> = impl Future<Output = Self::Output>;
+        type Future = impl Future<Output = Self::Output>;
 
-        fn respond_to(self, _: &mut Request<()>) -> Self::Future<'_> {
+        fn respond_to(self, _: Request<()>) -> Self::Future {
             async move {
                 let mut res = Response::new(());
                 *res.status_mut() = self;
