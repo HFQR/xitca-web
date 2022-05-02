@@ -3,6 +3,7 @@ use std::{future::Future, marker::PhantomData};
 use xitca_service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service};
 
 use crate::request::{BorrowReq, BorrowReqMut};
+use crate::util::cursed::{Cursed, CursedMap};
 
 /// ServiceFactory type for constructing compile time checked stateful service.
 ///
@@ -99,6 +100,29 @@ impl<'a, Req, C> Context<'a, Req, C> {
     }
 }
 
+impl<Req, C> Cursed for Context<'_, Req, C>
+where
+    Req: Cursed,
+    C: 'static,
+{
+    type Type<'a> = Context<'a, Req::Type<'a>, C>;
+}
+impl<Req, C> CursedMap for Context<'_, Req, C>
+where
+    Req: CursedMap,
+    C: 'static,
+{
+    fn map<'a>(self) -> Self::Type<'a>
+    where
+        Self: 'a,
+    {
+        Context {
+            req: self.req.map(),
+            state: self.state,
+        }
+    }
+}
+
 impl<Req, C, T> BorrowReq<T> for Context<'_, Req, C>
 where
     Req: BorrowReq<T>,
@@ -151,7 +175,8 @@ pub struct ContextService<C, S> {
 
 impl<Req, C, S, Res, Err> Service<Req> for ContextService<C, S>
 where
-    S: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>,
+    S: for<'c> Service<Context<'c, Req::Type<'c>, C>, Response = Res, Error = Err>,
+    Req: CursedMap,
 {
     type Response = Res;
     type Error = Err;
@@ -161,7 +186,7 @@ where
         async move {
             self.service
                 .call(Context {
-                    req,
+                    req: req.map(),
                     state: &self.state,
                 })
                 .await
@@ -169,61 +194,17 @@ where
     }
 }
 
-impl<Req, C, S, R, Res, Err> ReadyService<Req> for ContextService<C, S>
+impl<Req, C, S> ReadyService<Req> for ContextService<C, S>
 where
-    S: for<'c> ReadyService<Context<'c, Req, C>, Response = Res, Error = Err, Ready = R>,
+    Self: Service<Req>,
+    S: ReadyService<Req>,
 {
-    type Ready = R;
+    type Ready = S::Ready;
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
         async move { self.service.ready().await }
-    }
-}
-
-pub mod object {
-    use super::*;
-
-    use std::{boxed::Box, marker::PhantomData};
-
-    use xitca_service::{
-        fn_build,
-        object::{
-            helpers::{ServiceObject, Wrapper},
-            ObjectConstructor,
-        },
-        BuildService, BuildServiceExt, Service,
-    };
-
-    pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
-
-    pub type ContextFactoryObject<Req, C, BErr, Res, Err> =
-        impl BuildService<Error = BErr, Service = ContextServiceObject<Req, C, Res, Err>>;
-
-    pub type ContextServiceObject<Req, C, Res, Err> =
-        impl for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>;
-
-    impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
-    where
-        I: BuildService<Service = Svc, Error = BErr> + 'static,
-        Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
-    {
-        type Object = ContextFactoryObject<Req, C, BErr, Res, Err>;
-
-        fn into_object(inner: I) -> Self::Object {
-            let factory = fn_build(move |_arg: ()| {
-                let fut = inner.build(());
-                async move {
-                    let boxed_service = Box::new(Wrapper(fut.await?))
-                        as Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = _, Error = _>>;
-                    Ok(Wrapper(boxed_service))
-                }
-            })
-            .boxed_future();
-
-            Box::new(factory) as Box<dyn BuildService<Service = _, Error = _, Future = _>>
-        }
     }
 }
 
@@ -289,7 +270,8 @@ mod test {
             service.call(req).await
         }
 
-        let router = GenericRouter::with_custom_object::<super::object::ContextObjectConstructor<_, _>>()
+        let router = GenericRouter::with_cursed_object()
+            //let router = GenericRouter::with_custom_object::<super::object::ContextObjectConstructor<_, _>>()
             .insert("/", get(fn_service(handler)))
             .enclosed_fn(enclosed);
 
@@ -303,6 +285,52 @@ mod test {
         let req = Request::default();
 
         let res = service.call(req).await.unwrap();
+
+        assert_eq!(res.status().as_u16(), 200);
+    }
+
+    #[tokio::test]
+    async fn nested_lifetime_request() {
+        struct Req<'a> {
+            _r: &'a str,
+        }
+
+        impl Cursed for Req<'_> {
+            type Type<'a> = Req<'a>;
+        }
+        impl CursedMap for Req<'_> {
+            fn map<'a>(self) -> Self::Type<'a>
+            where
+                Self: 'a,
+            {
+                self
+            }
+        }
+
+        impl BorrowReq<http::Uri> for Req<'_> {
+            fn borrow(&self) -> &http::Uri {
+                Box::leak(Box::new(http::Uri::from_static("http://host.com/")))
+            }
+        }
+
+        async fn handler(req: Context<'_, Req<'_>, String>) -> Result<Response<()>, Infallible> {
+            let (_, state) = req.into_parts();
+            assert_eq!(state, "string_state");
+            Ok(Response::new(()))
+        }
+
+        let router = GenericRouter::with_cursed_object().insert("/", fn_service(handler));
+
+        let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
+            .service(router)
+            .build(())
+            .await
+            .ok()
+            .unwrap();
+
+        let r = String::new();
+
+        let res = service.call(Req { _r: r.as_str() }).await.unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
     }

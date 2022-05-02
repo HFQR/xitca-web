@@ -274,7 +274,7 @@ mod test {
         let mut req = Request::default();
         req.extensions_mut().insert(Foo);
 
-        let res = service.call(req).await.unwrap();
+        let res = Service::<Request<_>>::call(&service, req).await.unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
@@ -282,14 +282,14 @@ mod test {
         let mut req = Request::default();
         *req.uri_mut() = Uri::from_static("/abc");
 
-        let res = service.call(req).await.unwrap();
+        let res = Service::<Request<_>>::call(&service, req).await.unwrap();
 
         assert_eq!(res.status().as_u16(), 404);
 
         let mut req = Request::default();
         *req.method_mut() = Method::POST;
 
-        let res = service.call(req).await.unwrap();
+        let res = Service::<Request<_>>::call(&service, req).await.unwrap();
 
         assert_eq!(res.status().as_u16(), 405);
     }
