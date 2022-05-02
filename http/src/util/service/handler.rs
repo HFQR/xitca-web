@@ -16,11 +16,7 @@ use xitca_service::{BuildService, Service};
 ///
 /// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
 /// output type.
-pub fn handler_service<F, Req, T, O, Res, Err>(func: F) -> HandlerService<F, T, O, Res, Err>
-where
-    F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
-    O: Responder<Req, Output = Res>,
-{
+pub fn handler_service<F, T, O, Res, Err>(func: F) -> HandlerService<F, T, O, Res, Err> {
     HandlerService::new(func)
 }
 
@@ -30,11 +26,7 @@ pub struct HandlerService<F, T, O, Res, Err> {
 }
 
 impl<F, T, O, Res, Err> HandlerService<F, T, O, Res, Err> {
-    pub fn new<Req>(func: F) -> Self
-    where
-        F: for<'a> Handler<'a, Req, T, Response = O, Error = Err>,
-        O: Responder<Req, Output = Res>,
-    {
+    pub fn new(func: F) -> Self {
         Self { func, _p: PhantomData }
     }
 }
