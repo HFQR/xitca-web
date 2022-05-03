@@ -143,7 +143,6 @@ where
     }
 }
 
-#[doc(hidden)]
 pub struct ContextService<C, S> {
     state: C,
     service: S,

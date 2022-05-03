@@ -2,7 +2,7 @@ use std::{convert::Infallible, error, future::Future, io};
 
 use crate::{
     dev::bytes::Bytes,
-    error::{RouteError, RouterError},
+    error::{MatchError, MethodNotAllowed},
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, StatusCode},
     request::WebRequest,
     response::WebResponse,
@@ -91,46 +91,30 @@ blank_internal!(Box<dyn error::Error>);
 blank_internal!(Box<dyn error::Error + Send>);
 blank_internal!(Box<dyn error::Error + Send + Sync>);
 
-impl<'r, S, E> Responder<WebRequest<'r, S>> for RouterError<E>
+impl<'r, S> Responder<WebRequest<'r, S>> for MatchError
 where
     S: 'r,
-    E: Responder<WebRequest<'r, S>, Output = WebResponse>,
 {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
     fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
-        async move {
-            match self {
-                Self::First(_) => {
-                    let mut res = req.into_response(Bytes::new());
-                    *res.status_mut() = StatusCode::NOT_FOUND;
-                    res
-                }
-                Self::Second(e) => e.respond_to(req).await,
-            }
-        }
+        let mut res = req.into_response(Bytes::new());
+        *res.status_mut() = StatusCode::NOT_FOUND;
+        async { res }
     }
 }
 
-impl<'r, S: 'r, E> Responder<WebRequest<'r, S>> for RouteError<E>
+impl<'r, S> Responder<WebRequest<'r, S>> for MethodNotAllowed
 where
     S: 'r,
-    E: Responder<WebRequest<'r, S>, Output = WebResponse>,
 {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
     fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
-        async move {
-            match self {
-                Self::First(_) => {
-                    let mut res = req.into_response(Bytes::new());
-                    *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
-                    res
-                }
-                Self::Second(e) => e.respond_to(req).await,
-            }
-        }
+        let mut res = req.into_response(Bytes::new());
+        *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
+        async { res }
     }
 }
