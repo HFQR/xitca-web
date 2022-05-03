@@ -5,7 +5,7 @@ mod context_priv;
 mod router_priv;
 
 pub mod context {
-    pub use super::context_priv::{Context, ContextBuilder, ContextError};
+    pub use super::context_priv::{object, Context, ContextBuilder, ContextError};
 }
 
 pub mod router {
