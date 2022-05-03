@@ -1,6 +1,12 @@
-use std::{collections::HashMap, future::Future, marker::PhantomData};
+use std::{
+    collections::HashMap,
+    error,
+    fmt::{self, Debug, Display, Formatter},
+    future::Future,
+    marker::PhantomData,
+};
 
-use matchit::{MatchError, Node};
+use matchit::Node;
 use xitca_service::{
     object::{DefaultFactoryObject, DefaultObjectConstructor, ObjectConstructor},
     pipeline::PipelineE,
@@ -24,7 +30,35 @@ pub struct GenericRouter<ObjCons, SF> {
 }
 
 /// Error type of Router service.
+/// `First` variant contains [MatchError] error.
+/// `Second` variant contains error returned by the services passed to Router.
 pub type RouterError<E> = PipelineE<MatchError, E>;
+
+/// Error for request failed to match on services inside Router.
+pub struct MatchError {
+    inner: matchit::MatchError,
+}
+
+impl MatchError {
+    /// Indicates whether a route exists at the same path with/without a trailing slash.
+    pub fn is_trailing_slash(&self) -> bool {
+        self.inner.tsr()
+    }
+}
+
+impl Debug for MatchError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MatchError").field("inner", &self.inner).finish()
+    }
+}
+
+impl Display for MatchError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl error::Error for MatchError {}
 
 impl<ObjCons, SF> Default for GenericRouter<ObjCons, SF> {
     fn default() -> Self {
@@ -111,7 +145,10 @@ where
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
-            let service = self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
+            let service = self
+                .routes
+                .at(req.borrow().path())
+                .map_err(|inner| RouterError::First(MatchError { inner }))?;
 
             service.value.call(req).await.map_err(RouterError::Second)
         }

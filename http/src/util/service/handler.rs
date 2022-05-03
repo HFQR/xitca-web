@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
-use std::convert::Infallible;
 use std::{
+    convert::Infallible,
     future::Future,
     marker::PhantomData,
     pin::Pin,
@@ -9,7 +9,7 @@ use std::{
 };
 
 use pin_project_lite::pin_project;
-use xitca_service::{BuildService, Service};
+use xitca_service::{pipeline::PipelineE, BuildService, Service};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
@@ -230,6 +230,25 @@ where
     #[inline]
     fn respond_to(self, req: R) -> Self::Future {
         async move { Ok(self?.respond_to(req).await) }
+    }
+}
+
+impl<R, F, S> Responder<R> for PipelineE<F, S>
+where
+    F: Responder<R>,
+    S: Responder<R, Output = F::Output>,
+{
+    type Output = F::Output;
+    type Future = impl Future<Output = Self::Output>;
+
+    #[inline]
+    fn respond_to(self, req: R) -> Self::Future {
+        async {
+            match self {
+                Self::First(f) => f.respond_to(req).await,
+                Self::Second(s) => s.respond_to(req).await,
+            }
+        }
     }
 }
 

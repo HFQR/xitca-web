@@ -206,6 +206,8 @@ where
 }
 
 /// Error type of Route service.
+/// `First` variant contains [MethodNotAllowed] error.
+/// `Second` variant contains error returned by the service passed to Route.
 pub type RouteError<E> = PipelineE<MethodNotAllowed, E>;
 
 /// Error type of Method not allow for route.
@@ -213,7 +215,7 @@ pub struct MethodNotAllowed;
 
 impl Debug for MethodNotAllowed {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Method is not allowed")
+        f.debug_struct("MethodNotAllowed").finish()
     }
 }
 

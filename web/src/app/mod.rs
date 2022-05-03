@@ -9,7 +9,7 @@ use std::{
 use xitca_http::{
     util::service::{
         context::{Context, ContextBuilder},
-        GenericRouter,
+        router::GenericRouter,
     },
     Request, RequestBody,
 };

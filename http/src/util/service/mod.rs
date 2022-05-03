@@ -1,7 +1,15 @@
-pub mod context;
 pub mod handler;
 pub mod route;
 
-mod router;
+mod context_priv;
+mod router_priv;
 
-pub use router::{GenericRouter, Router, RouterError};
+pub mod context {
+    pub use super::context_priv::{Context, ContextBuilder, ContextError};
+}
+
+pub mod router {
+    pub use super::router_priv::{GenericRouter, MatchError, Router, RouterError};
+}
+
+pub use router_priv::{GenericRouter, Router, RouterError};
