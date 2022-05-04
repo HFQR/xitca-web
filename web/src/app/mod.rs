@@ -82,6 +82,8 @@ impl<CF, R> App<CF, R>
 where
     R: BuildService,
 {
+    /// Enclose App with middleware type.
+    /// Middleware must impl [BuildService] trait.
     pub fn enclosed<T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
     where
         T: BuildService<R::Service> + Clone,
@@ -92,6 +94,7 @@ where
         }
     }
 
+    /// Enclose App with function as middleware type.
     pub fn enclosed_fn<Req, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T>>
     where
         T: for<'s> AsyncClosure<(&'s R::Service, Req)> + Clone,
@@ -102,6 +105,7 @@ where
         }
     }
 
+    /// Finish App build. No other App method can be called afterwards.
     pub fn finish<Fut, C, CErr>(self) -> ContextBuilder<CF, C, MapRequest<R>>
     where
         CF: Fn() -> Fut,
