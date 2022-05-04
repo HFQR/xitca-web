@@ -1,6 +1,12 @@
 [alias]
-ci-check-exclude-io-uring = "hack check --workspace --feature-powerset --exclude-features=io-uring"
-ci-check = "hack check --workspace --feature-powerset"
+ci-check-http-exclude-io-uring = "hack check --package xitca-http --feature-powerset --exclude-features=io-uring"
+ci-check-http = "hack check --package xitca-http --feature-powerset"
+
+ci-check-web-exclude-io-uring = "hack check --package xitca-web --feature-powerset --exclude-features=io-uring"
+ci-check-web = "hack check --package xitca-web --feature-powerset"
+
+ci-check-other-exclude-io-uring = "hack check --workspace --exclude xitca-http --exclude xitca-web --feature-powerset --exclude-features=io-uring"
+ci-check-other = "hack check --workspace --exclude xitca-http --exclude xitca-web --feature-powerset"
 
 ci-test-exclude-io-uring = "hack test --workspace --feature-powerset --exclude-features=io-uring --no-fail-fast -- --nocapture"
 ci-test = "test --workspace --all-features --no-fail-fast -- --nocapture"
