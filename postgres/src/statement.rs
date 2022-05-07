@@ -35,12 +35,12 @@ impl<'a> StatementGuarded<'a> {
     fn cancel(&mut self) {
         if let Some(statement) = self.statement.take() {
             if !self.client.closed() {
-                let buf = &mut BytesMut::new();
+                let mut buf = BytesMut::new();
 
-                frontend::close(b'S', &statement.name, buf).unwrap();
-                frontend::sync(buf);
+                frontend::close(b'S', &statement.name, &mut buf).unwrap();
+                frontend::sync(&mut buf);
 
-                let msg = buf.split().freeze();
+                let msg = buf.freeze();
 
                 let _ = self.client.send(msg);
             }
@@ -95,9 +95,9 @@ pub struct Column {
 }
 
 impl Column {
-    pub(crate) fn new(name: String, type_: Type) -> Column {
+    pub(crate) fn new(name: &str, type_: Type) -> Column {
         Column {
-            name: name.into_boxed_str(),
+            name: Box::from(name),
             type_,
         }
     }

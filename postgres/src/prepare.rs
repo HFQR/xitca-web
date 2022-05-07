@@ -49,19 +49,19 @@ impl Client {
             _ => return Err(Error::ToDo),
         };
 
-        let mut parameters = vec![];
+        let mut parameters = Vec::new();
         let mut it = parameter_description.parameters();
         while let Some(oid) = it.next().map_err(|_| Error::ToDo)? {
             let ty = self.get_type(oid).await?;
             parameters.push(ty);
         }
 
-        let mut columns = vec![];
+        let mut columns = Vec::new();
         if let Some(row_description) = row_description {
             let mut it = row_description.fields();
             while let Some(field) = it.next().map_err(|_| Error::ToDo)? {
                 let type_ = self.get_type(field.type_oid()).await?;
-                let column = Column::new(field.name().to_string(), type_);
+                let column = Column::new(field.name(), type_);
                 columns.push(column);
             }
         }
@@ -189,13 +189,13 @@ impl Client {
 
         let mut stream = self.query_raw(&stmt, &[&oid]).await?;
 
-        let mut rows = vec![];
+        let mut rows = Vec::new();
 
         while let Some(row) = poll_fn(|cx| Stream::poll_next(Pin::new(&mut stream), cx)).await {
             rows.push(row?);
         }
 
-        let mut fields = vec![];
+        let mut fields = Vec::new();
         for row in rows {
             let name = row.try_get(0)?;
             let oid = row.try_get(1)?;
