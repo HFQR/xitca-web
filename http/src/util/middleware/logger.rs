@@ -32,7 +32,7 @@ impl<S> BuildService<S> for Logger {
 
     fn build(&self, service: S) -> Self::Future {
         let span = self.span.clone();
-        async move { Ok(LoggerService { service, span }) }
+        async { Ok(LoggerService { service, span }) }
     }
 }
 
@@ -52,15 +52,15 @@ where
     type Error = S::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
 
-    #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
+        use tracing::Instrument;
         async move {
-            let _enter = self.span.enter();
             self.service.call(req).await.map_err(|e| {
                 error!("{:?}", e);
                 e
             })
         }
+        .instrument(self.span.clone())
     }
 }
 
