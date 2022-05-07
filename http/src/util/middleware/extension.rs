@@ -10,51 +10,51 @@ use xitca_service::{ready::ReadyService, BuildService, Service};
 use crate::http;
 
 #[derive(Clone)]
-pub struct State<ReqB, F: Clone = ()> {
+pub struct Extension<ReqB, F: Clone = ()> {
     factory: F,
     _req_body: PhantomData<ReqB>,
 }
 
-impl<ReqB> State<ReqB> {
-    pub fn new<S>(state: S) -> State<ReqB, impl Fn() -> Ready<Result<S, Infallible>> + Clone>
+impl<ReqB> Extension<ReqB> {
+    pub fn new<S>(state: S) -> Extension<ReqB, impl Fn() -> Ready<Result<S, Infallible>> + Clone>
     where
         S: Send + Sync + Clone + 'static,
     {
-        State {
+        Extension {
             factory: move || ready(Ok(state.clone())),
             _req_body: PhantomData,
         }
     }
 
-    pub fn factory<F, Fut, Res, Err>(factory: F) -> State<ReqB, F>
+    pub fn factory<F, Fut, Res, Err>(factory: F) -> Extension<ReqB, F>
     where
         F: Fn() -> Fut + Clone,
         Fut: Future<Output = Result<Res, Err>>,
         Res: Send + Sync + Clone + 'static,
     {
-        State {
+        Extension {
             factory,
             _req_body: PhantomData,
         }
     }
 }
 
-impl<S, ReqB, F, Fut, Res, Err> BuildService<S> for State<ReqB, F>
+impl<S, ReqB, F, Fut, Res, Err> BuildService<S> for Extension<ReqB, F>
 where
     F: Fn() -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
     Res: Send + Sync + Clone + 'static,
 {
-    type Service = StateService<S, ReqB, Res>;
+    type Service = ExtensionService<S, ReqB, Res>;
     type Error = Err;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn build(&self, service: S) -> Self::Future {
         let fut = (self.factory)();
 
-        async move {
+        async {
             let state = fut.await?;
-            Ok(StateService {
+            Ok(ExtensionService {
                 service,
                 state,
                 _req_body: PhantomData,
@@ -63,13 +63,13 @@ where
     }
 }
 
-pub struct StateService<S, ReqB, St> {
+pub struct ExtensionService<S, ReqB, St> {
     service: S,
     state: St,
     _req_body: PhantomData<ReqB>,
 }
 
-impl<S, ReqB, St> Clone for StateService<S, ReqB, St>
+impl<S, ReqB, St> Clone for ExtensionService<S, ReqB, St>
 where
     S: Clone,
     St: Clone,
@@ -83,7 +83,7 @@ where
     }
 }
 
-impl<S, Req, ReqB, St> Service<Req> for StateService<S, ReqB, St>
+impl<S, Req, ReqB, St> Service<Req> for ExtensionService<S, ReqB, St>
 where
     S: Service<Req>,
     Req: BorrowMut<http::Request<ReqB>>,
@@ -100,7 +100,7 @@ where
     }
 }
 
-impl<S, Req, ReqB, St> ReadyService<Req> for StateService<S, ReqB, St>
+impl<S, Req, ReqB, St> ReadyService<Req> for ExtensionService<S, ReqB, St>
 where
     S: ReadyService<Req>,
     Req: BorrowMut<http::Request<ReqB>>,
@@ -130,7 +130,7 @@ mod test {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
-        .enclosed(State::new(String::from("state")))
+        .enclosed(Extension::new(String::from("state")))
         .build(())
         .await
         .unwrap();
@@ -146,9 +146,9 @@ mod test {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
-        .enclosed(State::factory(
-            || async move { Ok::<_, Infallible>(String::from("state")) },
-        ))
+        .enclosed(Extension::factory(|| async move {
+            Ok::<_, Infallible>(String::from("state"))
+        }))
         .build(())
         .await
         .unwrap();
@@ -164,7 +164,7 @@ mod test {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
-        .enclosed(State::new(String::from("state")))
+        .enclosed(Extension::new(String::from("state")))
         .build(())
         .await
         .unwrap();
