@@ -156,15 +156,12 @@ where
     type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
+    #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
-        async move {
-            self.service
-                .call(Context {
-                    req,
-                    state: &self.state,
-                })
-                .await
-        }
+        self.service.call(Context {
+            req,
+            state: &self.state,
+        })
     }
 }
 
@@ -177,7 +174,7 @@ where
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move { self.service.ready().await }
+        self.service.ready()
     }
 }
 
