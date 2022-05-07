@@ -1,5 +1,12 @@
-use std::{convert::Infallible, fmt::Debug, future::Future};
+use std::{
+    convert::Infallible,
+    fmt::Debug,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
+use pin_project_lite::pin_project;
 use tracing::{error, span, Level, Span};
 use xitca_service::{ready::ReadyService, BuildService, Service};
 
@@ -32,7 +39,7 @@ impl<S> BuildService<S> for Logger {
 
     fn build(&self, service: S) -> Self::Future {
         let span = self.span.clone();
-        async move { Ok(LoggerService { service, span }) }
+        async { Ok(LoggerService { service, span }) }
     }
 }
 
@@ -52,15 +59,38 @@ where
     type Error = S::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
 
-    #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
-        async move {
-            let _enter = self.span.enter();
-            self.service.call(req).await.map_err(|e| {
-                error!("{:?}", e);
-                e
-            })
+        Instrumented {
+            task: async {
+                self.service.call(req).await.map_err(|e| {
+                    error!("{:?}", e);
+                    e
+                })
+            },
+            span: &self.span,
         }
+    }
+}
+
+pin_project! {
+    #[doc(hidden)]
+    /// a copy of `tracing::Instrumented` with borrowed Span.
+    pub struct Instrumented<'a, T> {
+        #[pin]
+        task: T,
+        span: &'a Span,
+    }
+}
+
+// === impl Instrumented ===
+
+impl<T: Future> Future for Instrumented<'_, T> {
+    type Output = T::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let _enter = this.span.enter();
+        this.task.poll(cx)
     }
 }
 
