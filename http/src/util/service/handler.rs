@@ -229,7 +229,7 @@ where
 
     #[inline]
     fn respond_to(self, req: R) -> Self::Future {
-        async move { Ok(self?.respond_to(req).await) }
+        async { Ok(self?.respond_to(req).await) }
     }
 }
 
