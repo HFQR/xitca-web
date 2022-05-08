@@ -24,6 +24,20 @@ where
     }
 }
 
+impl<'a, 'r, S> FromRequest<'a, WebRequest<'r, S>> for ()
+where
+    S: 'r,
+{
+    type Type<'b> = ();
+    type Error = Infallible;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+
+    #[inline]
+    fn from_request(_: &'a WebRequest<'r, S>) -> Self::Future {
+        async { Ok(()) }
+    }
+}
+
 impl<'r, S> Responder<WebRequest<'r, S>> for WebResponse {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
