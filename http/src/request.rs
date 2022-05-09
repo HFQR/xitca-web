@@ -1,25 +1,26 @@
 use std::{
     borrow::{Borrow, BorrowMut},
-    net::{IpAddr, SocketAddr},
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr},
     ops::{Deref, DerefMut},
 };
 
 use super::http;
 
-// This type has 8 less bytes in size compared to SocketAddr which can ultimately effect
+// This type has 12 less bytes in size compared to SocketAddr which can ultimately effect
 // if Request<B> would be inlined or copied when passing around as Service::call argument.
 /// A simplified version of [SocketAddr] where only [IpAddr] and `Port` information is stored.
 #[derive(Debug, Copy, Clone)]
-pub struct RemoteAddr {
-    pub ip: IpAddr,
-    pub port: u16,
+pub enum RemoteAddr {
+    None,
+    V4(Ipv4Addr, u16),
+    V6(Ipv6Addr, u16),
 }
 
 impl From<SocketAddr> for RemoteAddr {
     fn from(addr: SocketAddr) -> Self {
-        Self {
-            ip: addr.ip(),
-            port: addr.port(),
+        match addr {
+            SocketAddr::V4(v4) => Self::V4(*v4.ip(), v4.port()),
+            SocketAddr::V6(v6) => Self::V6(*v6.ip(), v6.port()),
         }
     }
 }
@@ -32,17 +33,17 @@ impl From<SocketAddr> for RemoteAddr {
 /// get a direct reference to [http::Request] type.
 pub struct Request<B> {
     req: http::Request<B>,
-    remote_addr: Option<RemoteAddr>,
+    remote_addr: RemoteAddr,
 }
 
 impl<B> Request<B> {
     #[inline(always)]
     pub fn new(body: B) -> Self {
-        Self::with_remote_addr(body, None)
+        Self::with_remote_addr(body, RemoteAddr::None)
     }
 
     #[inline]
-    pub fn with_remote_addr(body: B, remote_addr: Option<RemoteAddr>) -> Self {
+    pub fn with_remote_addr(body: B, remote_addr: RemoteAddr) -> Self {
         Self {
             req: http::Request::new(body),
             remote_addr,
@@ -51,14 +52,14 @@ impl<B> Request<B> {
 
     /// Construct from existing `http::Request` and optional `SocketAddr`.
     #[inline]
-    pub fn from_http(req: http::Request<B>, remote_addr: Option<RemoteAddr>) -> Self {
+    pub fn from_http(req: http::Request<B>, remote_addr: RemoteAddr) -> Self {
         Self { req, remote_addr }
     }
 
     /// Get remote socket address of this request's source.
     #[inline]
-    pub fn remote_addr(&self) -> Option<&RemoteAddr> {
-        self.remote_addr.as_ref()
+    pub fn remote_addr(&self) -> &RemoteAddr {
+        &self.remote_addr
     }
 
     #[inline]
