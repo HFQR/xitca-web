@@ -28,7 +28,7 @@ use crate::{
         header::{CONNECTION, CONTENT_LENGTH, DATE},
         HeaderValue, Response, Version,
     },
-    request::Request,
+    request::{RemoteAddr, Request},
     util::{futures::Queue, keep_alive::KeepAlive},
 };
 
@@ -102,7 +102,8 @@ where
                 SelectOutput::A(SelectOutput::A(Some(Ok((req, tx))))) => {
                     // Convert http::Request body type to crate::h2::Body
                     // and reconstruct as HttpRequest.
-                    let req = Request::from_http(req, None).map_body(|body| ReqB::from(RequestBody::from(body)));
+                    let req =
+                        Request::from_http(req, RemoteAddr::None).map_body(|body| ReqB::from(RequestBody::from(body)));
 
                     queue.push(async move {
                         let fut = service.call(req);

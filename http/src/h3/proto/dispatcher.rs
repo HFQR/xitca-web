@@ -27,7 +27,7 @@ use crate::{
     error::HttpServiceError,
     h3::{body::RequestBody, error::Error},
     http::Response,
-    request::Request,
+    request::{RemoteAddr, Request},
     util::futures::Queue,
 };
 
@@ -83,7 +83,8 @@ where
                     }));
 
                     // Reconstruct Request to attach crate body type.
-                    let req = Request::from_http(req, None).map_body(move |_| ReqB::from(RequestBody(body)));
+                    let req =
+                        Request::from_http(req, RemoteAddr::None).map_body(move |_| ReqB::from(RequestBody(body)));
 
                     queue.push(async move {
                         let fut = self.service.call(req);

@@ -8,7 +8,7 @@ use crate::{
 
 /// Context is connection specific struct contain states for processing.
 pub struct Context<'a, D, const HEADER_LIMIT: usize> {
-    remote_addr: Option<RemoteAddr>,
+    remote_addr: RemoteAddr,
     state: ContextState,
     ctype: ConnectionType,
     /// header map reused by next request.
@@ -67,7 +67,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         D: DateTime,
     {
         Self {
-            remote_addr: None,
+            remote_addr: RemoteAddr::None,
             state: ContextState::new(),
             ctype: ConnectionType::Init,
             header: None,
@@ -167,7 +167,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
 
     /// Get remote socket address context associated with.
     #[inline]
-    pub fn remote_addr(&self) -> Option<RemoteAddr> {
+    pub fn remote_addr(&self) -> RemoteAddr {
         self.remote_addr
     }
 }
