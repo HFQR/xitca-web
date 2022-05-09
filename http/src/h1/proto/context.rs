@@ -1,13 +1,14 @@
-use std::{mem, net::SocketAddr};
+use std::mem;
 
 use crate::{
     date::DateTime,
     http::{header::HeaderMap, Extensions},
+    request::RemoteAddr,
 };
 
 /// Context is connection specific struct contain states for processing.
 pub struct Context<'a, D, const HEADER_LIMIT: usize> {
-    remote_addr: Option<SocketAddr>,
+    remote_addr: Option<RemoteAddr>,
     state: ContextState,
     ctype: ConnectionType,
     /// header map reused by next request.
@@ -166,7 +167,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
 
     /// Get remote socket address context associated with.
     #[inline]
-    pub fn remote_addr(&self) -> Option<SocketAddr> {
+    pub fn remote_addr(&self) -> Option<RemoteAddr> {
         self.remote_addr
     }
 }

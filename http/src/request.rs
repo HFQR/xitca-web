@@ -1,12 +1,30 @@
 use std::{
     borrow::{Borrow, BorrowMut},
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     ops::{Deref, DerefMut},
 };
 
 use super::http;
 
-/// Extened request type for xitca-http.
+// This type has 8 less bytes in size compared to SocketAddr which can ultimately effect
+// if Request<B> would be inlined or copied when passing around as Service::call argument.
+/// A simplified version of [SocketAddr] where only [IpAddr] and `Port` information is stored.
+#[derive(Debug, Copy, Clone)]
+pub struct RemoteAddr {
+    pub ip: IpAddr,
+    pub port: u16,
+}
+
+impl From<SocketAddr> for RemoteAddr {
+    fn from(addr: SocketAddr) -> Self {
+        Self {
+            ip: addr.ip(),
+            port: addr.port(),
+        }
+    }
+}
+
+/// Extended request type for xitca-http.
 ///
 /// It extends on [http::Request] type with additional state.
 ///
@@ -14,7 +32,7 @@ use super::http;
 /// get a direct reference to [http::Request] type.
 pub struct Request<B> {
     req: http::Request<B>,
-    remote_addr: Option<SocketAddr>,
+    remote_addr: Option<RemoteAddr>,
 }
 
 impl<B> Request<B> {
@@ -24,7 +42,7 @@ impl<B> Request<B> {
     }
 
     #[inline]
-    pub fn with_remote_addr(body: B, remote_addr: Option<SocketAddr>) -> Self {
+    pub fn with_remote_addr(body: B, remote_addr: Option<RemoteAddr>) -> Self {
         Self {
             req: http::Request::new(body),
             remote_addr,
@@ -33,13 +51,13 @@ impl<B> Request<B> {
 
     /// Construct from existing `http::Request` and optional `SocketAddr`.
     #[inline]
-    pub fn from_http(req: http::Request<B>, remote_addr: Option<SocketAddr>) -> Self {
+    pub fn from_http(req: http::Request<B>, remote_addr: Option<RemoteAddr>) -> Self {
         Self { req, remote_addr }
     }
 
     /// Get remote socket address of this request's source.
     #[inline]
-    pub fn remote_addr(&self) -> Option<&SocketAddr> {
+    pub fn remote_addr(&self) -> Option<&RemoteAddr> {
         self.remote_addr.as_ref()
     }
 
