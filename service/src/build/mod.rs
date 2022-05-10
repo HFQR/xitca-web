@@ -17,17 +17,19 @@ use core::future::Future;
 
 use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
+/// Trait for simulate `Fn<(&Self, Arg)> -> impl Future<Output = Result<(impl Service<Req> + !Send), E>> + Send`.
+/// This trait is used to construct a `!Send` type from a `Send` type.
+/// (From xitca's point of view only)
 pub trait BuildService<Arg = ()> {
-    /// The kind of `Service` created by this factory.
+    /// The Ok part of output future.
     type Service;
 
-    /// Error produced by creating service process.
+    /// The Err part of output future
     type Error;
 
-    /// The future of the `Service` instance.g
+    /// The output future.
     type Future: Future<Output = Result<Self::Service, Self::Error>>;
 
-    /// Create and return a new service asynchronously.
     fn build(&self, arg: Arg) -> Self::Future;
 }
 

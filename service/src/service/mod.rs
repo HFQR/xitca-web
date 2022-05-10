@@ -7,11 +7,16 @@ use core::{future::Future, ops::Deref, pin::Pin};
 
 use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
+/// Trait for simulate `Fn<(&Self, Arg)> -> impl Future<Output = Result<T, E>> + '_`.
+/// The function call come from stateful type that can be referenced within returned opaque future.
 pub trait Service<Req> {
+    /// The Ok part of output future.
     type Response;
 
+    /// The Err part of output future.
     type Error;
 
+    /// The output future that can reference Self with GAT lifetime.
     type Future<'f>: Future<Output = Result<Self::Response, Self::Error>>
     where
         Self: 'f;
