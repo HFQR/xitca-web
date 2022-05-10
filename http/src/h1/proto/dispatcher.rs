@@ -8,7 +8,7 @@ use xitca_service::Service;
 use xitca_unsafe_collection::futures::{never, poll_fn, Select as _, SelectOutput};
 
 use crate::{
-    body::ResponseBody,
+    body::{BodySize, Once},
     bytes::Bytes,
     config::HttpServiceConfig,
     date::DateTime,
@@ -49,7 +49,7 @@ pub(crate) async fn run<
     date: &'a D,
 ) -> Result<(), Error<S::Error, BE>>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
+    S: Service<Request<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
@@ -215,7 +215,7 @@ impl<
         const WRITE_BUF_LIMIT: usize,
     > Dispatcher<'a, St, S, ReqB, BE, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
+    S: Service<Request<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
@@ -257,7 +257,9 @@ where
                 match res {
                     Ok((req, mut body_handle)) => {
                         let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
-                        let encoder = &mut self.encode_head(parts, &res_body)?;
+
+                        let size = BodySize::from_stream(&res_body);
+                        let encoder = &mut self.encode_head(parts, size)?;
 
                         self.response_handler(res_body, encoder, body_handle).await?;
 
@@ -303,9 +305,9 @@ where
         }
     }
 
-    fn encode_head(&mut self, parts: Parts, body: &ResponseBody<ResB>) -> Result<TransferCoding, Error<S::Error, BE>> {
+    fn encode_head(&mut self, parts: Parts, size: BodySize) -> Result<TransferCoding, Error<S::Error, BE>> {
         self.ctx
-            .encode_head(parts, body.size(), &mut self.io.write_buf)
+            .encode_head(parts, size, &mut self.io.write_buf)
             .map_err(Into::into)
     }
 
@@ -369,7 +371,7 @@ where
 
     async fn response_handler(
         &mut self,
-        body: ResponseBody<ResB>,
+        body: ResB,
         encoder: &mut TransferCoding,
         mut body_handle: Option<RequestBodyHandle>,
     ) -> Result<(), Error<S::Error, BE>> {
@@ -403,16 +405,13 @@ where
         }
     }
 
-    fn try_poll_body<'b>(
-        &self,
-        body: Pin<&'b mut ResponseBody<ResB>>,
-    ) -> impl Future<Output = Option<Result<Bytes, BE>>> + 'b {
+    fn try_poll_body<'b>(&self, mut body: Pin<&'b mut ResB>) -> impl Future<Output = Option<Result<Bytes, BE>>> + 'b {
         let write_backpressure = self.io.write_buf.backpressure();
         async move {
             if write_backpressure {
                 never().await
             } else {
-                body.next().await
+                poll_fn(|cx| body.as_mut().poll_next(cx)).await
             }
         }
     }
@@ -458,16 +457,18 @@ where
     #[inline(never)]
     fn request_error<F>(&mut self, func: F) -> Result<(), Error<S::Error, BE>>
     where
-        F: Fn() -> Response<ResponseBody<ResB>>,
+        F: Fn() -> Response<Once<Bytes>>,
     {
         // Header is too large to be parsed.
         // Close the connection after sending error response as it's pointless
         // to read the remaining bytes inside connection.
         self.ctx.set_ctype(ConnectionType::Close);
 
-        let (parts, res_body) = func().into_parts();
+        let (parts, body) = func().into_parts();
 
-        self.encode_head(parts, &res_body).map(|_| ())
+        let size = BodySize::from_stream(&body);
+
+        self.encode_head(parts, size).map(|_| ())
     }
 }
 

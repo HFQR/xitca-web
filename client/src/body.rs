@@ -1,5 +1,5 @@
 pub(crate) use xitca_http::{
-    body::{self, ResponseBodySize},
+    body::{self, BodySize},
     bytes::Bytes,
     error::BodyError,
 };
@@ -21,7 +21,7 @@ pub type StreamBody = BoxStream<'static, Result<Bytes, BodyError>>;
 pub type RequestBody<B = StreamBody> = body::ResponseBody<B>;
 
 /// When used by client [ResponseBodySize] is used as Request body size.
-pub type RequestBodySize = ResponseBodySize;
+pub type RequestBodySize = BodySize;
 
 #[allow(clippy::large_enum_variant)]
 pub enum ResponseBody<'c> {

@@ -6,7 +6,6 @@ use xitca_io::io::AsyncIo;
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::{
-    body::ResponseBody,
     bytes::Bytes,
     error::{HttpServiceError, TimeoutError},
     http::Response,
@@ -23,7 +22,7 @@ pub type H1Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: us
 impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     Service<St> for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<B>> + 'static,
 
     A: Service<St, Response = TlsSt> + 'static,
     St: AsyncIo,
@@ -63,7 +62,7 @@ where
 impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     ReadyService<St> for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<B>>> + 'static,
+    S: ReadyService<Request<RequestBody>, Response = Response<B>> + 'static,
 
     A: Service<St, Response = TlsSt> + 'static,
     B: Stream<Item = Result<Bytes, BE>>,
