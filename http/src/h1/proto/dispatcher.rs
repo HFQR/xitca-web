@@ -146,18 +146,13 @@ where
         self.try_read()
     }
 
-    /// Flush io
-    async fn flush(&mut self) -> io::Result<()> {
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await
-    }
-
     /// drain write buffer and flush the io.
     async fn drain_write(&mut self) -> io::Result<()> {
         while !self.write_buf.is_empty() {
             self.try_write()?;
             let _ = self.io.ready(Interest::WRITABLE).await?;
         }
-        self.flush().await
+        poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await
     }
 
     /// A specialized writable check that always pending when write buffer is empty.
