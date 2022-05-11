@@ -1,5 +1,8 @@
 use std::{
+    convert::Infallible,
     future::Future,
+    marker::PhantomData,
+    mem,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -8,7 +11,7 @@ use futures_core::stream::{LocalBoxStream, Stream};
 use pin_project_lite::pin_project;
 
 use super::{
-    bytes::{Bytes, BytesMut},
+    bytes::{Buf, Bytes, BytesMut},
     error::BodyError,
 };
 
@@ -43,6 +46,65 @@ impl Stream for RequestBody {
             #[cfg(feature = "http3")]
             Self::H3(body) => Pin::new(body).poll_next(_cx),
             Self::None => Poll::Ready(None),
+        }
+    }
+}
+
+/// Empty body type.
+/// B type is used to infer other types of body's output type used together with Empty.
+pub struct Empty<B>(PhantomData<B>);
+
+impl<B> Default for Empty<B> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<B> Stream for Empty<B> {
+    type Item = Result<B, Infallible>;
+
+    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unreachable!("Empty must not be polled. See Empty::size_hint for detail")
+    }
+
+    // use usize::MAX as lower bound.
+    // Which means you can't have a legit value go beyond the lower bound.
+    // Hence hint there is NO body.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (usize::MAX, None)
+    }
+}
+
+/// Full body type that can only be polled once with [Stream::poll_next].
+pub struct Once<B>(Option<B>);
+
+impl<B> Once<B>
+where
+    B: Buf + Unpin,
+{
+    pub const fn new(body: B) -> Self {
+        Self(Some(body))
+    }
+}
+
+impl<B> Stream for Once<B>
+where
+    B: Buf + Unpin,
+{
+    type Item = Result<B, Infallible>;
+
+    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(mem::replace(self.get_mut(), Self(None)).0.map(Ok))
+    }
+
+    // use the length of buffer as both lower bound and upperbound.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self.0 {
+            Some(ref b) => {
+                let len = b.remaining();
+                (len, Some(len))
+            }
+            None => unreachable!("Once must check size_hint before it got polled"),
         }
     }
 }
@@ -98,11 +160,11 @@ where
         Self::Bytes { bytes }
     }
 
-    pub fn size(&self) -> ResponseBodySize {
+    pub fn size(&self) -> BodySize {
         match *self {
-            Self::None => ResponseBodySize::None,
-            Self::Bytes { ref bytes } => ResponseBodySize::Sized(bytes.len()),
-            Self::Stream { .. } => ResponseBodySize::Stream,
+            Self::None => BodySize::None,
+            Self::Bytes { ref bytes } => BodySize::Sized(bytes.len()),
+            Self::Stream { .. } => BodySize::Stream,
         }
     }
 }
@@ -136,6 +198,19 @@ where
                 _ => unreachable!(),
             },
             ResponseBodyProj::Stream { stream } => stream.poll_next(cx),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            // See Empty::size_hint for detail.
+            Self::None => (usize::MAX, None),
+            // See Once::size_hint for detail.
+            Self::Bytes { ref bytes } => {
+                let len = bytes.len();
+                (len, Some(len))
+            }
+            Self::Stream { ref stream } => stream.size_hint(),
         }
     }
 }
@@ -184,7 +259,7 @@ impl<B> From<&'_ str> for ResponseBody<B> {
 
 /// Body size hint.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ResponseBodySize {
+pub enum BodySize {
     /// Absence of body can be assumed from method or status code.
     ///
     /// Will skip writing Content-Length header.
@@ -199,4 +274,18 @@ pub enum ResponseBodySize {
     ///
     /// Will not write Content-Length header. Can be used with chunked Transfer-Encoding.
     Stream,
+}
+
+impl BodySize {
+    pub fn from_stream<S>(stream: &S) -> Self
+    where
+        S: Stream,
+    {
+        match stream.size_hint() {
+            // *. See <Empty as Stream>::size_hint for reason.
+            (usize::MAX, None) => Self::None,
+            (_, Some(size)) => Self::Sized(size),
+            (_, None) => Self::Stream,
+        }
+    }
 }

@@ -19,7 +19,7 @@ use xitca_service::Service;
 use xitca_unsafe_collection::futures::{poll_fn, Select as _, SelectOutput};
 
 use crate::{
-    body::{ResponseBody, ResponseBodySize},
+    body::{BodySize, ResponseBody},
     bytes::Bytes,
     date::{DateTime, DateTimeHandle},
     error::HttpServiceError,
@@ -209,12 +209,12 @@ where
 
     // check eof state of response body and make sure header is valid.
     let is_eof = match body.size() {
-        ResponseBodySize::None => {
+        BodySize::None => {
             debug_assert!(!res.headers().contains_key(CONTENT_LENGTH));
             true
         }
-        ResponseBodySize::Stream => false,
-        ResponseBodySize::Sized(n) => {
+        BodySize::Stream => false,
+        BodySize::Sized(n) => {
             // add an content-length header if there is non provided.
             if !res.headers().contains_key(CONTENT_LENGTH) {
                 res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(n));

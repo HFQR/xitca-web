@@ -1,7 +1,7 @@
 use tracing::{debug, warn};
 
 use crate::{
-    body::ResponseBodySize,
+    body::BodySize,
     bytes::BytesMut,
     date::DateTime,
     http::{
@@ -32,7 +32,7 @@ where
     pub(super) fn encode_head<W>(
         &mut self,
         parts: Parts,
-        size: ResponseBodySize,
+        size: BodySize,
         buf: &mut W,
     ) -> Result<TransferCoding, ProtoError>
     where
@@ -44,7 +44,7 @@ where
     fn encode_head_inner(
         &mut self,
         parts: Parts,
-        size: ResponseBodySize,
+        size: BodySize,
         buf: &mut BytesMut,
     ) -> Result<TransferCoding, ProtoError> {
         let version = parts.version;
@@ -115,7 +115,7 @@ where
         &mut self,
         mut headers: HeaderMap,
         mut extensions: Extensions,
-        size: ResponseBodySize,
+        size: BodySize,
         buf: &mut BytesMut,
         mut skip_len: bool,
     ) -> Result<TransferCoding, ProtoError> {
@@ -182,14 +182,14 @@ where
         // encode transfer-encoding or content-length
         if !skip_len {
             match size {
-                ResponseBodySize::None => {
+                BodySize::None => {
                     encoding = TransferCoding::eof();
                 }
-                ResponseBodySize::Stream => {
+                BodySize::Stream => {
                     buf.extend_from_slice(b"transfer-encoding: chunked\r\n");
                     encoding = TransferCoding::encode_chunked();
                 }
-                ResponseBodySize::Sized(size) => {
+                BodySize::Sized(size) => {
                     let mut buffer = itoa::Buffer::new();
                     let buffer = buffer.format(size).as_bytes();
 
@@ -206,7 +206,7 @@ where
         if self.is_head_method() {
             debug_assert_eq!(
                 size,
-                ResponseBodySize::None,
+                BodySize::None,
                 "Response to request with HEAD method must not have a body"
             );
             encoding = TransferCoding::eof();
