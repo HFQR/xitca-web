@@ -4,7 +4,7 @@ use futures_core::Stream;
 use xitca_io::net::UdpStream;
 use xitca_service::{ready::ReadyService, Service};
 
-use crate::{body::ResponseBody, bytes::Bytes, error::HttpServiceError, http::Response, request::Request};
+use crate::{bytes::Bytes, error::HttpServiceError, http::Response, request::Request};
 
 use super::{body::RequestBody, proto::Dispatcher};
 
@@ -22,7 +22,7 @@ impl<S> H3Service<S> {
 
 impl<S, ResB, BE> Service<UdpStream> for H3Service<S>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
     S::Error: fmt::Debug,
 
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -45,7 +45,7 @@ where
 
 impl<S, ResB, BE> ReadyService<UdpStream> for H3Service<S>
 where
-    S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
     S::Error: fmt::Debug,
 
     ResB: Stream<Item = Result<Bytes, BE>>,

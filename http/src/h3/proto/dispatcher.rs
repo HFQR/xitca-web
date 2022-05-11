@@ -7,22 +7,22 @@ use std::{
     task::{Context, Poll},
 };
 
+use ::h3::{
+    quic::{RecvStream, SendStream},
+    server::{self, RequestStream},
+};
 use futures_core::{ready, Stream};
 use futures_intrusive::{
     sync::{GenericMutex, LocalMutex},
     NoopLock,
 };
-use h3::{
-    quic::{RecvStream, SendStream},
-    server::{self, RequestStream},
-};
 use pin_project_lite::pin_project;
+use tokio::pin;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
-use xitca_unsafe_collection::futures::{Select, SelectOutput};
+use xitca_unsafe_collection::futures::{poll_fn, Select, SelectOutput};
 
 use crate::{
-    body::ResponseBody,
     bytes::{Buf, Bytes},
     error::HttpServiceError,
     h3::{body::RequestBody, error::Error},
@@ -40,7 +40,7 @@ pub(crate) struct Dispatcher<'a, S, ReqB> {
 
 impl<'a, S, ReqB, ResB, BE> Dispatcher<'a, S, ReqB>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
+    S: Service<Request<ReqB>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -112,7 +112,7 @@ async fn h3_handler<Fut, C, ResB, SE, BE>(
     stream: &GenericMutex<NoopLock, RequestStream<C, Bytes>>,
 ) -> Result<(), Error<SE, BE>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<ResB>>, SE>>,
+    Fut: Future<Output = Result<Response<ResB>, SE>>,
     C: RecvStream + SendStream<Bytes>,
     ResB: Stream<Item = Result<Bytes, BE>>,
 {
@@ -121,9 +121,9 @@ where
 
     stream.lock().await.send_response(res).await?;
 
-    tokio::pin!(body);
+    pin!(body);
 
-    while let Some(res) = body.as_mut().next().await {
+    while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
         let bytes = res.map_err(Error::Body)?;
         stream.lock().await.send_data(bytes).await?;
     }
