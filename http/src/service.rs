@@ -6,7 +6,7 @@ use xitca_io::{io::AsyncIo, net::Stream as ServerStream, net::TcpStream};
 use xitca_service::{ready::ReadyService, Service};
 
 use super::{
-    body::{RequestBody, ResponseBody},
+    body::RequestBody,
     bytes::Bytes,
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
@@ -74,7 +74,7 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
     Service<ServerStream>
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
     A: Service<TcpStream> + 'static,
     A::Response: AsyncIo + AsVersion,
     HttpServiceError<S::Error, BE>: From<A::Error>,
@@ -178,7 +178,7 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
     ReadyService<ServerStream>
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
     A: Service<TcpStream> + 'static,
     A::Response: AsyncIo + AsVersion,
     HttpServiceError<S::Error, BE>: From<A::Error>,
