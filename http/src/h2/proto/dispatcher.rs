@@ -19,7 +19,7 @@ use xitca_service::Service;
 use xitca_unsafe_collection::futures::{poll_fn, Select as _, SelectOutput};
 
 use crate::{
-    body::{BodySize, ResponseBody},
+    body::BodySize,
     bytes::Bytes,
     date::{DateTime, DateTimeHandle},
     error::HttpServiceError,
@@ -44,7 +44,7 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
 
 impl<'a, TlsSt, S, ReqB, ResB, BE> Dispatcher<'a, TlsSt, S, ReqB>
 where
-    S: Service<Request<ReqB>, Response = Response<ResponseBody<ResB>>>,
+    S: Service<Request<ReqB>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -196,7 +196,7 @@ async fn h2_handler<Fut, B, SE, BE>(
     date: &DateTimeHandle,
 ) -> Result<ConnectionState, Error<SE, BE>>
 where
-    Fut: Future<Output = Result<Response<ResponseBody<B>>, SE>>,
+    Fut: Future<Output = Result<Response<B>, SE>>,
     B: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
 {
@@ -208,7 +208,7 @@ where
     *res.version_mut() = Version::HTTP_2;
 
     // check eof state of response body and make sure header is valid.
-    let is_eof = match body.size() {
+    let is_eof = match BodySize::from_stream(&body) {
         BodySize::None => {
             debug_assert!(!res.headers().contains_key(CONTENT_LENGTH));
             true
@@ -245,7 +245,7 @@ where
     if !is_eof {
         pin!(body);
 
-        while let Some(res) = body.as_mut().next().await {
+        while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
             let mut chunk = res.map_err(Error::Body)?;
 
             while !chunk.is_empty() {

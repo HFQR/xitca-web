@@ -6,7 +6,6 @@ use xitca_io::io::AsyncIo;
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::{
-    body::ResponseBody,
     bytes::Bytes,
     error::{HttpServiceError, TimeoutError},
     http::Response,
@@ -32,7 +31,7 @@ impl<
         const WRITE_BUF_LIMIT: usize,
     > Service<St> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
     S::Error: fmt::Debug,
 
     A: Service<St, Response = TlsSt> + 'static,
@@ -96,7 +95,7 @@ impl<
         const WRITE_BUF_LIMIT: usize,
     > ReadyService<St> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+    S: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
     S::Error: fmt::Debug,
 
     A: Service<St, Response = TlsSt> + 'static,
