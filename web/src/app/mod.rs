@@ -229,17 +229,17 @@ mod test {
 
     struct MiddlewareService<S>(S);
 
-    impl<'r, S, State> Service<WebRequest<'r, State>> for MiddlewareService<S>
+    impl<'r, S, State, Res, Err> Service<WebRequest<'r, State>> for MiddlewareService<S>
     where
-        S: Service<WebRequest<'r, State>>,
+        S: for<'r2> Service<WebRequest<'r2, State>, Response = Res, Error = Err>,
         State: 'r,
     {
-        type Response = S::Response;
-        type Error = S::Error;
+        type Response = Res;
+        type Error = Err;
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-        fn call(&self, req: WebRequest<'r, State>) -> Self::Future<'_> {
-            async { self.0.call(req).await }
+        fn call(&self, mut req: WebRequest<'r, State>) -> Self::Future<'_> {
+            async move { self.0.call(req.reborrow()).await }
         }
     }
 
