@@ -82,8 +82,18 @@ impl<B> Once<B>
 where
     B: Buf + Unpin,
 {
+    #[inline]
     pub const fn new(body: B) -> Self {
         Self(Some(body))
+    }
+}
+
+impl<B> From<B> for Once<B>
+where
+    B: Buf + Unpin,
+{
+    fn from(b: B) -> Self {
+        Self::new(b)
     }
 }
 
