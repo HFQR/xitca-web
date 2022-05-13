@@ -2,8 +2,10 @@ use std::{collections::HashMap, future::Future, io, net, pin::Pin, time::Duratio
 
 use xitca_io::net::{Stream, TcpSocket};
 
-use crate::net::AsListener;
-use crate::server::{AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone};
+use crate::{
+    net::AsListener,
+    server::{AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone},
+};
 
 pub struct Builder {
     pub(crate) server_threads: usize,
@@ -28,7 +30,7 @@ impl Builder {
     pub fn new() -> Self {
         Self {
             server_threads: 1,
-            worker_threads: num_cpus::get(),
+            worker_threads: std::thread::available_parallelism().unwrap().get(),
             worker_max_blocking_threads: 512,
             listeners: HashMap::new(),
             factories: HashMap::new(),
