@@ -4,7 +4,8 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use xitca_http::{
-    body::{RequestBody, ResponseBody},
+    body::{Once, RequestBody},
+    bytes::Bytes,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, IntoResponse, Response},
     util::service::{route::get, Router},
     HttpServiceBuilder, Request,
@@ -37,14 +38,14 @@ async fn main() -> std::io::Result<()> {
         .await
 }
 
-async fn index(req: Request<RequestBody>) -> Result<Response<ResponseBody>, anyhow::Error> {
-    let mut res = req.into_response("Hello,World!");
+async fn index(req: Request<RequestBody>) -> Result<Response<Once<Bytes>>, anyhow::Error> {
+    let mut res = req.into_response(Bytes::from_static(b"Hello,World!"));
     res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
     Ok(res)
 }
 
-async fn foo(req: Request<RequestBody>) -> Result<Response<ResponseBody>, anyhow::Error> {
-    let mut res = req.into_response("Hello,World from foo!");
+async fn foo(req: Request<RequestBody>) -> Result<Response<Once<Bytes>>, anyhow::Error> {
+    let mut res = req.into_response(Bytes::from_static(b"Hello,World from foo!"));
     res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
     Ok(res)
 }
