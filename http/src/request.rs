@@ -159,6 +159,12 @@ impl<B> BorrowReq<http::Method> for http::Request<B> {
     }
 }
 
+impl<B> BorrowReqMut<http::Extensions> for http::Request<B> {
+    fn borrow_mut(&mut self) -> &mut http::Extensions {
+        self.extensions_mut()
+    }
+}
+
 impl<B, T> BorrowReq<T> for Request<B>
 where
     http::Request<B>: BorrowReq<T>,
