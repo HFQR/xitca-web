@@ -32,8 +32,6 @@ pub mod util;
 pub mod http {
     pub use http::*;
 
-    use crate::body::ResponseBody;
-
     /// Some often used header value.
     #[allow(clippy::declare_interior_mutable_const)]
     pub mod const_header_value {
@@ -58,9 +56,9 @@ pub mod http {
     /// Helper trait for convert a [Request] to [Response].
     /// This is for re-use request's heap allocation and pass down the context data inside [Extensions]
     pub trait IntoResponse<B, ResB> {
-        fn into_response(self, body: B) -> Response<ResponseBody<ResB>>;
+        fn into_response(self, body: B) -> Response<ResB>;
 
-        fn as_response(&mut self, body: B) -> Response<ResponseBody<ResB>>
+        fn as_response(&mut self, body: B) -> Response<ResB>
         where
             Self: Default,
         {
@@ -70,9 +68,9 @@ pub mod http {
 
     impl<ReqB, B, ResB> IntoResponse<B, ResB> for super::request::Request<ReqB>
     where
-        B: Into<ResponseBody<ResB>>,
+        B: Into<ResB>,
     {
-        fn into_response(self, body: B) -> Response<ResponseBody<ResB>> {
+        fn into_response(self, body: B) -> Response<ResB> {
             let (
                 request::Parts {
                     mut headers,
