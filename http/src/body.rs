@@ -1,6 +1,5 @@
 use std::{
     convert::Infallible,
-    future::Future,
     marker::PhantomData,
     mem,
     pin::Pin,
@@ -142,14 +141,6 @@ impl<B, E> ResponseBody<B>
 where
     B: Stream<Item = Result<Bytes, E>>,
 {
-    // TODO: use std::stream::Stream::next when it's added.
-    #[doc(hidden)]
-    #[inline(always)]
-    /// Helper for StreamExt::next method.
-    pub fn next(self: Pin<&mut Self>) -> Next<'_, B> {
-        Next { stream: self }
-    }
-
     pub fn is_eof(&self) -> bool {
         match *self {
             Self::None => true,
@@ -176,21 +167,6 @@ where
             Self::Bytes { ref bytes } => BodySize::Sized(bytes.len()),
             Self::Stream { .. } => BodySize::Stream,
         }
-    }
-}
-
-pub struct Next<'a, B: Stream> {
-    stream: Pin<&'a mut ResponseBody<B>>,
-}
-
-impl<B, E> Future for Next<'_, B>
-where
-    B: Stream<Item = Result<Bytes, E>>,
-{
-    type Output = Option<Result<Bytes, E>>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.get_mut().stream.as_mut().poll_next(cx)
     }
 }
 
