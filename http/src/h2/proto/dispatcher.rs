@@ -25,8 +25,9 @@ use crate::{
     error::HttpServiceError,
     h2::{body::RequestBody, error::Error},
     http::{
-        header::{CONNECTION, CONTENT_LENGTH, DATE},
-        HeaderValue, Response, Version,
+        header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRAILER},
+        response::Response,
+        Version,
     },
     request::{RemoteAddr, Request},
     util::{futures::Queue, keep_alive::KeepAlive},
@@ -213,7 +214,10 @@ where
             debug_assert!(!res.headers().contains_key(CONTENT_LENGTH));
             true
         }
-        BodySize::Stream => false,
+        BodySize::Stream => {
+            debug_assert!(!res.headers().contains_key(CONTENT_LENGTH));
+            false
+        }
         BodySize::Sized(n) => {
             // add an content-length header if there is non provided.
             if !res.headers().contains_key(CONTENT_LENGTH) {
@@ -222,6 +226,14 @@ where
             n == 0
         }
     };
+
+    let mut trailers = HeaderMap::with_capacity(0);
+
+    while let Some(value) = res.headers_mut().remove(TRAILER) {
+        let name = HeaderName::from_bytes(value.as_bytes()).unwrap();
+        let value = res.headers_mut().remove(name.clone()).unwrap();
+        trailers.append(name, value);
+    }
 
     if !res.headers().contains_key(DATE) {
         let date = date.with_date(HeaderValue::from_bytes).unwrap();
@@ -263,9 +275,9 @@ where
                 stream.send_data(bytes, false)?;
             }
         }
-
-        stream.send_data(Bytes::new(), true)?;
     }
+
+    stream.send_trailers(trailers)?;
 
     Ok(state)
 }
