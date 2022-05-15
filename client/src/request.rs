@@ -2,31 +2,28 @@ use std::time::Duration;
 
 use futures_core::Stream;
 use tokio::time::Instant;
-use xitca_http::{
+
+use crate::{
+    body::{BodyError, Once, ResponseBody},
     bytes::Bytes,
-    error::BodyError,
+    client::Client,
+    connect::Connect,
+    connection::Connection,
+    error::{Error, TimeoutError},
     http::{
         self, const_header_value,
         header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE},
         Method, Version,
     },
-};
-
-use crate::{
-    body::{RequestBody, ResponseBody, StreamBody},
-    client::Client,
-    connect::Connect,
-    connection::Connection,
-    error::{Error, TimeoutError},
     response::DefaultResponse,
     timeout::Timeout,
     uri::Uri,
 };
 
 /// crate level HTTP request type.
-pub struct Request<'a, B = StreamBody> {
+pub struct Request<'a, B = Once<Bytes>> {
     /// HTTP request type from [http] crate.
-    req: http::Request<RequestBody<B>>,
+    req: http::Request<B>,
     /// Referece to Client instance.
     client: &'a Client,
     /// Request level timeout setting. When Some(Duration) would override
@@ -34,12 +31,8 @@ pub struct Request<'a, B = StreamBody> {
     timeout: Duration,
 }
 
-impl<'a, B, E> Request<'a, B>
-where
-    B: Stream<Item = Result<Bytes, E>>,
-    BodyError: From<E>,
-{
-    pub(crate) fn new(req: http::Request<RequestBody<B>>, client: &'a Client) -> Self {
+impl<'a, B> Request<'a, B> {
+    pub(crate) fn new(req: http::Request<B>, client: &'a Client) -> Self {
         Self {
             req,
             client,
@@ -87,7 +80,7 @@ where
     /// Use text(utf-8 encoded) as request body.
     ///
     /// [CONTENT_TYPE] header would be set with value: `text/plain; charset=utf-8`.
-    pub fn text<B1>(mut self, text: B1) -> Request<'a, B>
+    pub fn text<B1>(mut self, text: B1) -> Request<'a>
     where
         Bytes: From<B1>,
     {
@@ -98,7 +91,7 @@ where
 
     #[cfg(feature = "json")]
     /// Use json object as request body.
-    pub fn json(mut self, body: impl serde::ser::Serialize) -> Result<Request<'a, B>, Error> {
+    pub fn json(mut self, body: impl serde::ser::Serialize) -> Result<Request<'a>, Error> {
         // TODO: handle serialize error.
         let body = serde_json::to_vec(&body).unwrap();
 
@@ -110,14 +103,14 @@ where
     /// Use pre allocated bytes as request body.
     ///
     /// Input type must implement [From] trait with [Bytes].
-    pub fn body<B1>(mut self, body: B1) -> Request<'a, B>
+    pub fn body<B1>(mut self, body: B1) -> Request<'a>
     where
         Bytes: From<B1>,
     {
         let bytes = Bytes::from(body);
         self.headers_mut()
             .insert(CONTENT_LENGTH, HeaderValue::from(bytes.len()));
-        self.map_body(move |_| RequestBody::bytes(bytes))
+        self.map_body(move |_| Once::new(bytes))
     }
 
     /// Use streaming type as request body.
@@ -127,12 +120,12 @@ where
         B1: Stream<Item = Result<Bytes, E1>>,
         BodyError: From<E1>,
     {
-        self.map_body(move |_| RequestBody::stream(body))
+        self.map_body(move |_| body)
     }
 
     fn map_body<F, B1, E1>(self, f: F) -> Request<'a, B1>
     where
-        F: FnOnce(RequestBody<B>) -> RequestBody<B1>,
+        F: FnOnce(B) -> B1,
         B1: Stream<Item = Result<Bytes, E1>>,
         BodyError: From<E1>,
     {
@@ -146,7 +139,11 @@ where
     }
 
     /// Send the request and return response asynchronously.
-    pub async fn send(self) -> Result<DefaultResponse<'a>, Error> {
+    pub async fn send<E>(self) -> Result<DefaultResponse<'a>, Error>
+    where
+        B: Stream<Item = Result<Bytes, E>>,
+        BodyError: From<E>,
+    {
         let Self { req, client, timeout } = self;
 
         let uri = Uri::try_parse(req.uri())?;

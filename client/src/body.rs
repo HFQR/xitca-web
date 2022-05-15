@@ -1,6 +1,5 @@
 pub(crate) use xitca_http::{
-    body::{self, BodySize},
-    bytes::Bytes,
+    body::{BodySize, Empty, Once},
     error::BodyError,
 };
 
@@ -10,18 +9,9 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures_core::stream::{BoxStream, Stream};
+use futures_core::stream::Stream;
 
-use crate::{connection::ConnectionWithKey, h1};
-
-/// Default stream body type are boxed stream trait object that is `Send`.
-pub type StreamBody = BoxStream<'static, Result<Bytes, BodyError>>;
-
-/// When used by client [body::ResponseBody] is used as Request body.
-pub type RequestBody<B = StreamBody> = body::ResponseBody<B>;
-
-/// When used by client [ResponseBodySize] is used as Request body size.
-pub type RequestBodySize = BodySize;
+use crate::{bytes::Bytes, connection::ConnectionWithKey, h1};
 
 #[allow(clippy::large_enum_variant)]
 pub enum ResponseBody<'c> {
