@@ -7,4 +7,5 @@ pub mod array_queue;
 #[cfg(feature = "bytes")]
 pub mod bytes;
 pub mod futures;
+pub mod no_hash;
 pub mod uninit;
