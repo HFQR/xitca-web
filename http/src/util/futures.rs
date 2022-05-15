@@ -59,11 +59,22 @@ mod queue {
         }
 
         pub(crate) async fn next(&mut self) -> F::Output {
-            if self.0.is_empty() {
+            if self.is_empty() {
                 never().await
             } else {
-                self.0.next().await.unwrap()
+                self.next2().await
             }
+        }
+
+        pub(crate) fn is_empty(&self) -> bool {
+            self.0.is_empty()
+        }
+
+        pub(crate) async fn next2(&mut self) -> F::Output {
+            self.0
+                .next()
+                .await
+                .expect("Queue::next2 must be called when queue is not empty")
         }
 
         pub(crate) fn push(&self, future: F) {
