@@ -99,8 +99,8 @@ where
         let mut queue = Queue::new();
 
         loop {
-            match io.accept().select(queue.next()).select(&mut ping_pong).await {
-                SelectOutput::A(SelectOutput::A(Some(Ok((req, tx))))) => {
+            match io.accept().select(try_poll_queue(&mut queue, &mut ping_pong)).await {
+                SelectOutput::A(Some(Ok((req, tx)))) => {
                     // Convert http::Request body type to crate::h2::Body
                     // and reconstruct as HttpRequest.
                     let req =
@@ -111,26 +111,40 @@ where
                         h2_handler(fut, tx, date).await
                     });
                 }
-                SelectOutput::A(SelectOutput::B(res)) => match res {
+                SelectOutput::B(SelectOutput::A(res)) => match res {
                     Ok(ConnectionState::KeepAlive) => {}
                     Ok(ConnectionState::Close) => io.graceful_shutdown(),
                     Err(e) => HttpServiceError::from(e).log("h2_dispatcher"),
                 },
-                SelectOutput::B(Ok(_)) => {
+                SelectOutput::B(SelectOutput::B(Ok(_))) => {
                     trace!("Connection keep-alive timeout. Shutting down");
                     return Ok(());
                 }
-                SelectOutput::A(SelectOutput::A(None)) => {
+                SelectOutput::A(None) => {
                     trace!("Connection closed by remote. Shutting down");
                     break;
                 }
-                SelectOutput::A(SelectOutput::A(Some(Err(e)))) | SelectOutput::B(Err(e)) => return Err(From::from(e)),
+                SelectOutput::A(Some(Err(e))) | SelectOutput::B(SelectOutput::B(Err(e))) => return Err(From::from(e)),
             }
         }
 
         queue.drain().await;
 
         poll_fn(|cx| io.poll_closed(cx)).await.map_err(From::from)
+    }
+}
+
+async fn try_poll_queue<F>(
+    queue: &mut Queue<F>,
+    ping_ping: &mut H2PingPong<'_>,
+) -> SelectOutput<F::Output, Result<(), ::h2::Error>>
+where
+    F: Future,
+{
+    if queue.is_empty() {
+        SelectOutput::B(ping_ping.await)
+    } else {
+        SelectOutput::A(queue.next2().await)
     }
 }
 
