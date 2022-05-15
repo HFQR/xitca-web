@@ -5,19 +5,16 @@ use tokio::{
     net::{TcpSocket, TcpStream},
     time::{Instant, Sleep},
 };
-use xitca_http::{
-    bytes::Bytes,
-    error::BodyError,
-    http::{self, uri, Method, Version},
-};
 
 use crate::{
-    body::RequestBody,
+    body::{BodyError, Empty},
     builder::ClientBuilder,
+    bytes::Bytes,
     connect::Connect,
     connection::{Connection, ConnectionKey},
     date::DateTimeService,
     error::{Error, TimeoutError},
+    http::{self, uri, Method, Version},
     pool::Pool,
     request::Request,
     resolver::Resolver,
@@ -58,7 +55,7 @@ impl Client {
 
     /// Start a new HTTP request with given [http::Request].
     #[inline]
-    pub fn request<B, E>(&self, req: http::Request<RequestBody<B>>) -> Request<'_, B>
+    pub fn request<B, E>(&self, req: http::Request<B>) -> Request<'_, B>
     where
         B: Stream<Item = Result<Bytes, E>>,
         BodyError: From<E>,
@@ -67,14 +64,14 @@ impl Client {
     }
 
     /// Start a new GET request with empty request body.
-    pub fn get<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    pub fn get<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
         let uri = uri::Uri::try_from(url)?;
 
-        let mut req = http::Request::new(RequestBody::None);
+        let mut req = http::Request::new(Default::default());
         *req.uri_mut() = uri;
 
         Ok(self.request(req))
@@ -82,7 +79,7 @@ impl Client {
 
     /// Start a new POST request with empty request body.
     #[inline]
-    pub fn post<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    pub fn post<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -92,7 +89,7 @@ impl Client {
 
     /// Start a new PUT request with empty request body.
     #[inline]
-    pub fn put<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    pub fn put<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -102,7 +99,7 @@ impl Client {
 
     /// Start a new PATCH request with empty request body.
     #[inline]
-    pub fn patch<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    pub fn patch<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -112,7 +109,7 @@ impl Client {
 
     /// Start a new DELETE request with empty request body.
     #[inline]
-    pub fn delete<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    pub fn delete<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -122,7 +119,7 @@ impl Client {
 
     /// Start a new OPTIONS request with empty request body.
     #[inline]
-    pub fn options<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    pub fn options<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -132,7 +129,7 @@ impl Client {
 
     /// Start a new HEAD request with empty request body.
     #[inline]
-    pub fn head<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    pub fn head<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -142,7 +139,7 @@ impl Client {
 
     /// Start a new CONNECT request with empty request body.
     #[inline]
-    pub fn connect<U>(&self, url: U) -> Result<Request<'_, RequestBody>, Error>
+    pub fn connect<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -152,8 +149,8 @@ impl Client {
 
     #[cfg(feature = "websocket")]
     /// Start a new websocket request.
-    pub fn ws(&self, url: &str) -> Result<Request<'_, RequestBody>, Error> {
-        let req = http_ws::client_request_from_uri(url)?.map(|_| RequestBody::None);
+    pub fn ws(&self, url: &str) -> Result<Request<'_, Empty<Bytes>>, Error> {
+        let req = http_ws::client_request_from_uri(url)?.map(|_| Default::default());
         Ok(Request::new(req, self))
     }
 }

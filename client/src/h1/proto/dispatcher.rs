@@ -1,11 +1,16 @@
 use std::io;
 
 use futures_core::Stream;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use xitca_http::{
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use xitca_http::h1::proto::{buf::FlatBuf, codec::TransferCoding, context::ConnectionType};
+use xitca_io::io::{AsyncRead, AsyncWrite};
+use xitca_unsafe_collection::futures::poll_fn;
+
+use crate::{
+    body::{BodyError, BodySize},
     bytes::{Bytes, BytesMut},
-    error::BodyError,
-    h1::proto::{buf::FlatBuf, codec::TransferCoding, context::ConnectionType},
+    date::DateTimeHandle,
+    h1::Error,
     http::{
         self,
         header::{HeaderValue, HOST},
@@ -13,14 +18,12 @@ use xitca_http::{
     },
 };
 
-use crate::{body::RequestBody, date::DateTimeHandle, h1::Error};
-
 use super::context::Context;
 
 pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
-    mut req: http::Request<RequestBody<B>>,
+    mut req: http::Request<B>,
 ) -> Result<(http::Response<()>, FlatBuf<{ 1024 * 1024 }>, TransferCoding, bool), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -53,7 +56,7 @@ where
     let mut buf = FlatBuf::<{ 1024 * 1024 }>::new();
 
     // encode request head and return transfer encoding for request body
-    let encoder = ctx.encode_head(&mut buf, parts, body.size())?;
+    let encoder = ctx.encode_head(&mut buf, parts, BodySize::from_stream(&body))?;
 
     // send request head for potential intermediate handling like expect header.
     stream.write_all_buf(&mut *buf).await?;
@@ -109,7 +112,7 @@ where
 async fn send_inner<S, B, E, const LIMIT: usize>(
     stream: &mut S,
     mut encoder: TransferCoding,
-    body: RequestBody<B>,
+    body: B,
     buf: &mut FlatBuf<LIMIT>,
 ) -> Result<(), Error>
 where
@@ -121,7 +124,7 @@ where
         tokio::pin!(body);
 
         // poll request body and encode.
-        while let Some(bytes) = body.as_mut().next().await {
+        while let Some(bytes) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
             let bytes = bytes.map_err(BodyError::from)?;
             encoder.encode(bytes, buf);
             // we are not in a hurry here so read and flush before next chunk

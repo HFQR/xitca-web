@@ -1,13 +1,9 @@
 use std::cmp;
 
+use ::h2::client;
 use futures_core::stream::Stream;
-use futures_util::future::poll_fn;
-use h2::client;
-use tokio::io::{AsyncRead, AsyncWrite};
 use xitca_http::{
-    bytes::Bytes,
     date::DateTime,
-    error::BodyError,
     http::{
         self,
         header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING, UPGRADE},
@@ -15,9 +11,12 @@ use xitca_http::{
         version::Version,
     },
 };
+use xitca_io::io::{AsyncRead, AsyncWrite};
+use xitca_unsafe_collection::futures::poll_fn;
 
 use crate::{
-    body::{RequestBody, RequestBodySize, ResponseBody},
+    body::{BodyError, BodySize, ResponseBody},
+    bytes::Bytes,
     date::DateTimeHandle,
     h2::{Connection, Error},
 };
@@ -25,7 +24,7 @@ use crate::{
 pub(crate) async fn send<B, E>(
     stream: &mut crate::h2::Connection,
     date: DateTimeHandle<'_>,
-    mut req: http::Request<RequestBody<B>>,
+    mut req: http::Request<B>,
 ) -> Result<http::Response<ResponseBody<'static>>, Error>
 where
     B: Stream<Item = Result<Bytes, E>>,
@@ -37,20 +36,20 @@ where
     let mut req = http::Request::from_parts(parts, ());
 
     // Content length and is body is in eof state.
-    let is_eof = match body.size() {
-        RequestBodySize::None => {
+    let is_eof = match BodySize::from_stream(&body) {
+        BodySize::None => {
             req.headers_mut().remove(CONTENT_LENGTH);
             true
         }
-        RequestBodySize::Stream => {
+        BodySize::Stream => {
             req.headers_mut().remove(CONTENT_LENGTH);
             false
         }
-        RequestBodySize::Sized(len) if len == 0 => {
+        BodySize::Sized(len) if len == 0 => {
             req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
             true
         }
-        RequestBodySize::Sized(len) => {
+        BodySize::Sized(len) => {
             let mut buf = itoa::Buffer::new();
             req.headers_mut()
                 .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
@@ -77,7 +76,7 @@ where
     if !is_eof {
         tokio::pin!(body);
 
-        while let Some(res) = body.as_mut().next().await {
+        while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
             let mut chunk = res.map_err(BodyError::from)?;
 
             while !chunk.is_empty() {

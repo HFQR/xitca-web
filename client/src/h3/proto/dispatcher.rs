@@ -1,28 +1,25 @@
 use std::net::SocketAddr;
 
+use ::h3_quinn::quinn::Endpoint;
 use futures_core::stream::Stream;
-use futures_util::future::poll_fn;
-use h3_quinn::quinn::Endpoint;
-use xitca_http::{
+use xitca_http::date::DateTime;
+use xitca_unsafe_collection::futures::poll_fn;
+
+use crate::{
+    body::{BodyError, BodySize, ResponseBody},
     bytes::{Buf, Bytes},
-    date::DateTime,
-    error::BodyError,
+    date::DateTimeHandle,
+    h3::{Connection, Error},
     http::{
         header::{HeaderValue, CONTENT_LENGTH, DATE},
         Method, Request, Response, Version,
     },
 };
 
-use crate::{
-    body::{RequestBody, RequestBodySize, ResponseBody},
-    date::DateTimeHandle,
-    h3::{Connection, Error},
-};
-
 pub(crate) async fn send<B, E>(
     stream: &mut Connection,
     date: DateTimeHandle<'_>,
-    mut req: Request<RequestBody<B>>,
+    mut req: Request<B>,
 ) -> Result<Response<ResponseBody<'static>>, Error>
 where
     B: Stream<Item = Result<Bytes, E>>,
@@ -33,18 +30,25 @@ where
     let (parts, body) = req.into_parts();
     let mut req = Request::from_parts(parts, ());
 
-    // Content length
-    match body.size() {
-        RequestBodySize::None | RequestBodySize::Stream => {
+    // Content length and is body is in eof state.
+    let is_eof = match BodySize::from_stream(&body) {
+        BodySize::None => {
             req.headers_mut().remove(CONTENT_LENGTH);
+            true
         }
-        RequestBodySize::Sized(len) if len == 0 => {
+        BodySize::Stream => {
+            req.headers_mut().remove(CONTENT_LENGTH);
+            false
+        }
+        BodySize::Sized(len) if len == 0 => {
             req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
+            true
         }
-        RequestBodySize::Sized(len) => {
+        BodySize::Sized(len) => {
             let mut buf = itoa::Buffer::new();
             req.headers_mut()
                 .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
+            false
         }
     };
 
@@ -53,14 +57,13 @@ where
         req.headers_mut().append(DATE, date);
     }
 
-    let is_eof = body.is_eof();
     let is_head_method = *req.method() == Method::HEAD;
 
     let mut stream = stream.send_request(req).await?;
 
     if !is_eof {
         tokio::pin!(body);
-        while let Some(bytes) = body.as_mut().next().await {
+        while let Some(bytes) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
             let bytes = bytes.map_err(BodyError::from)?;
             stream.send_data(bytes).await?;
         }

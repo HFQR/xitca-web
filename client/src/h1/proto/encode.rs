@@ -1,10 +1,10 @@
-use xitca_http::{
+use xitca_http::h1::proto::{codec::TransferCoding, error::ProtoError};
+
+use crate::{
+    body::BodySize,
     bytes::{BufMut, BytesMut},
-    h1::proto::{codec::TransferCoding, error::ProtoError},
     http::{request::Parts, version::Version},
 };
-
-use crate::body::RequestBodySize;
 
 use super::context::Context;
 
@@ -13,7 +13,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         &mut self,
         buf: &mut BytesMut,
         parts: Parts,
-        size: RequestBodySize,
+        size: BodySize,
     ) -> Result<TransferCoding, ProtoError> {
         let method = parts.method;
         let uri = parts.uri;
