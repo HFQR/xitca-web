@@ -58,6 +58,7 @@ mod queue {
             Self(FuturesUnordered::new())
         }
 
+        #[cfg(feature = "http3")]
         pub(crate) async fn next(&mut self) -> F::Output {
             if self.is_empty() {
                 never().await

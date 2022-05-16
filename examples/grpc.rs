@@ -60,13 +60,16 @@ async fn grpc(mut req: Request<RequestBody>) -> Result<Response<Once<Bytes>>, an
 
     let mut res = req.into_response(buf.freeze());
 
-    const GRPC_STATUS_NAME: HeaderName = HeaderName::from_static("grpc-status");
-    const GRPC_STATUS_VALUE: HeaderValue = HeaderValue::from_static("0");
-    const GRPC_STATUS_NAME_AS_VALUE: HeaderValue = HeaderValue::from_static("grpc-status");
+    #[allow(clippy::declare_interior_mutable_const)]
+    {
+        const GRPC_STATUS_NAME: HeaderName = HeaderName::from_static("grpc-status");
+        const GRPC_STATUS_VALUE: HeaderValue = HeaderValue::from_static("0");
+        const GRPC_STATUS_NAME_AS_VALUE: HeaderValue = HeaderValue::from_static("grpc-status");
 
-    res.headers_mut().insert(CONTENT_TYPE, GRPC);
-    res.headers_mut().insert(GRPC_STATUS_NAME, GRPC_STATUS_VALUE);
-    res.headers_mut().insert(TRAILER, GRPC_STATUS_NAME_AS_VALUE);
+        res.headers_mut().insert(CONTENT_TYPE, GRPC);
+        res.headers_mut().insert(GRPC_STATUS_NAME, GRPC_STATUS_VALUE);
+        res.headers_mut().insert(TRAILER, GRPC_STATUS_NAME_AS_VALUE);
+    }
 
     Ok(res)
 }
