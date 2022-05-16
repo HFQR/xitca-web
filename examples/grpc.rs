@@ -36,7 +36,7 @@ async fn main() -> std::io::Result<()> {
     };
 
     xitca_server::Builder::new()
-        .bind("http/1", "127.0.0.1:8080", factory)?
+        .bind("http/2", "localhost:50051", factory)?
         .build()
         .await
 }
