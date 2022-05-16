@@ -163,8 +163,22 @@ impl Client {
         max_version: Version,
     ) -> Result<Connection, Error> {
         match connect.uri {
-            Uri::Tcp(_) => self.make_tcp(connect, timer).await.map(Into::into),
+            Uri::Tcp(_) => {
+                self.resolver
+                    .resolve(connect)
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| TimeoutError::Resolve)??;
+
+                self.make_tcp(connect, timer).await.map(Into::into)
+            }
             Uri::Tls(_) => {
+                self.resolver
+                    .resolve(connect)
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| TimeoutError::Resolve)??;
+
                 #[cfg(feature = "http3")]
                 {
                     // TODO: find better way to discover http3.
@@ -182,12 +196,6 @@ impl Client {
     }
 
     async fn make_tcp(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<TcpStream, Error> {
-        self.resolver
-            .resolve(connect)
-            .timeout(timer.as_mut())
-            .await
-            .map_err(|_| TimeoutError::Resolve)??;
-
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
@@ -290,12 +298,6 @@ impl Client {
 
     #[cfg(feature = "http3")]
     async fn make_h3(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
-        self.resolver
-            .resolve(connect)
-            .timeout(timer.as_mut())
-            .await
-            .map_err(|_| TimeoutError::Resolve)??;
-
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
