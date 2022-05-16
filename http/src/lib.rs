@@ -49,7 +49,8 @@ pub mod http {
             (TEXT, "text/plain"),
             (TEXT_UTF8, "text/plain; charset=utf-8"),
             (JSON, "application/json"),
-            (TEXT_HTML_UTF8, "text/html; charset=utf-8")
+            (TEXT_HTML_UTF8, "text/html; charset=utf-8"),
+            (GRPC, "application/grpc")
         );
     }
 
