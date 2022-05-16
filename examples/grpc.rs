@@ -50,9 +50,7 @@ async fn grpc(mut req: Request<RequestBody>) -> Result<Response<Once<Bytes>>, an
         buf.extend_from_slice(&*bytes);
     }
 
-    let msg: hello_world::HelloRequest = Message::decode(buf.split().freeze())?;
-
-    buf.put(&b"00000"[..]);
+    let msg: hello_world::HelloRequest = Message::decode(buf.split_off(5))?;
 
     Message::encode(&hello_world::HelloReply { response: msg.request }, &mut buf)?;
 
