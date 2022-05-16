@@ -1,6 +1,6 @@
 use std::{convert::Infallible, future::Future, ops::Deref};
 
-use crate::{handler::FromRequest, http::Uri, request::WebRequest};
+use crate::{handler::Extract, http::Uri, request::WebRequest};
 
 #[derive(Debug)]
 pub struct UriRef<'a>(pub &'a Uri);
@@ -13,7 +13,7 @@ impl Deref for UriRef<'_> {
     }
 }
 
-impl<'a, 'r, S> FromRequest<'a, WebRequest<'r, S>> for UriRef<'a>
+impl<'a, 'r, S> Extract<'a, WebRequest<'r, S>> for UriRef<'a>
 where
     S: 'static,
 {
@@ -22,7 +22,7 @@ where
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+    fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
         async move { Ok(UriRef(req.req().uri())) }
     }
 }

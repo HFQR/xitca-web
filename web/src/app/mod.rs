@@ -188,7 +188,7 @@ mod test {
         dev::Service,
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
-            uri::UriRef, Responder,
+            uri::UriRef, Inject,
         },
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Method, Uri},
         route::get,
@@ -251,11 +251,11 @@ mod test {
         ) -> Result<Res, Infallible>
         where
             S: for<'r> Service<WebRequest<'r, State>, Response = Res, Error = Err>,
-            Err: for<'r> Responder<WebRequest<'r, State>, Output = Res>,
+            Err: for<'r> Inject<WebRequest<'r, State>, Output = Res>,
         {
             match service.call(req.reborrow()).await {
                 Ok(res) => Ok(res),
-                Err(e) => Ok(e.respond_to(req).await),
+                Err(e) => Ok(e.inject(req).await),
             }
         }
 

@@ -3,7 +3,7 @@ use std::{fmt, future::Future};
 use xitca_http::body::ResponseBody;
 
 use crate::{
-    handler::Responder,
+    handler::Inject,
     http::{const_header_value::TEXT_HTML_UTF8, header::CONTENT_TYPE},
     request::WebRequest,
     response::WebResponse,
@@ -20,7 +20,7 @@ where
     }
 }
 
-impl<'r, S: 'r, T> Responder<WebRequest<'r, S>> for Html<T>
+impl<'r, S: 'r, T> Inject<WebRequest<'r, S>> for Html<T>
 where
     T: Into<ResponseBody>,
 {
@@ -28,7 +28,7 @@ where
     type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+    fn inject(self, req: WebRequest<'r, S>) -> Self::Future {
         let mut res = req.into_response(self.0);
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
         async { res }
