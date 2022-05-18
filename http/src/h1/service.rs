@@ -65,13 +65,12 @@ where
     S: ReadyService<Request<RequestBody>, Response = Response<B>> + 'static,
 
     A: Service<St, Response = TlsSt> + 'static,
-    B: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
     TlsSt: AsyncIo,
 
-    HttpServiceError<S::Error, BE>: From<A::Error>,
-
     B: Stream<Item = Result<Bytes, BE>>,
+
+    HttpServiceError<S::Error, BE>: From<A::Error>,
 {
     type Ready = S::Ready;
     type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
