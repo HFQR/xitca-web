@@ -18,7 +18,11 @@ pub const DEFAULT_WRITE_BUF_LIMIT: usize = 8192 + 4096 * 100;
 pub const DEFAULT_HEADER_LIMIT: usize = 64;
 
 #[derive(Copy, Clone)]
-pub struct HttpServiceConfig<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+pub struct HttpServiceConfig<
+    const HEADER_LIMIT: usize = DEFAULT_HEADER_LIMIT,
+    const READ_BUF_LIMIT: usize = DEFAULT_READ_BUF_LIMIT,
+    const WRITE_BUF_LIMIT: usize = DEFAULT_WRITE_BUF_LIMIT,
+> {
     pub(crate) vectored_write: bool,
     pub(crate) keep_alive_timeout: Duration,
     pub(crate) first_request_timeout: Duration,
@@ -26,13 +30,13 @@ pub struct HttpServiceConfig<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: us
     pub(crate) peek_protocol: bool,
 }
 
-impl Default for HttpServiceConfig<DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
+impl Default for HttpServiceConfig {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HttpServiceConfig<DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT> {
+impl HttpServiceConfig {
     pub const fn new() -> Self {
         Self {
             vectored_write: true,
