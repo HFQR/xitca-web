@@ -36,6 +36,7 @@ where
 {
     type Output = T;
 
+    #[inline]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
         (self.f)(cx)
     }
