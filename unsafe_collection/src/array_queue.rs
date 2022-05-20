@@ -6,7 +6,7 @@ use super::uninit::uninit_array;
 
 pub struct ArrayQueue<T, const N: usize> {
     inner: [MaybeUninit<T>; N],
-    tail: usize,
+    next: usize,
     len: usize,
 }
 
@@ -14,7 +14,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
     pub const fn new() -> Self {
         ArrayQueue {
             inner: uninit_array(),
-            tail: 0,
+            next: 0,
             len: 0,
         }
     }
@@ -58,12 +58,12 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         self.inner.get_unchecked_mut(idx).write(value);
     }
 
-    fn wrap_add(idx: usize, addend: usize) -> usize {
-        let (index, overflow) = idx.overflowing_add(addend);
-        if index >= N || overflow {
-            index.wrapping_sub(N)
-        } else {
-            index
+    fn incr_tail_len(&mut self) {
+        self.next += 1;
+        self.len += 1;
+
+        if self.next == N {
+            self.next = 0;
         }
     }
 
@@ -89,7 +89,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
 
     pub fn clear(&mut self) {
         while self.pop_front().is_some() {}
-        self.tail = 0;
+        self.next = 0;
     }
 
     pub fn pop_front(&mut self) -> Option<T> {
@@ -104,10 +104,10 @@ impl<T, const N: usize> ArrayQueue<T, N> {
     }
 
     fn front_idx(&self) -> usize {
-        if self.tail >= self.len {
-            self.tail - self.len
+        if self.next >= self.len {
+            self.next - self.len
         } else {
-            N + self.tail - self.len
+            N + self.next - self.len
         }
     }
 
@@ -116,10 +116,9 @@ impl<T, const N: usize> ArrayQueue<T, N> {
             return Err(PushError(value));
         }
 
-        unsafe { self.write(self.tail, value) };
+        unsafe { self.write(self.next, value) };
 
-        self.tail = Self::wrap_add(self.tail, 1);
-        self.len += 1;
+        self.incr_tail_len();
 
         Ok(())
     }
@@ -127,7 +126,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
     pub fn iter(&self) -> Iter<'_, T, N> {
         Iter {
             queue: self,
-            tail: self.tail,
+            tail: self.next,
             len: self.len(),
         }
     }
@@ -229,6 +228,16 @@ mod test {
         queue.push_back("231").ok().unwrap();
         queue.push_back("007").ok().unwrap();
 
+        assert!(queue.push_back("123").is_err());
+
+        assert_eq!(queue.pop_front(), Some("996"));
+        queue.push_back("123").unwrap();
+        assert!(queue.push_back("123").is_err());
+
+        assert_eq!(queue.pop_front(), Some("231"));
+        assert_eq!(queue.pop_front(), Some("007"));
+        queue.push_back("123").unwrap();
+        queue.push_back("123").unwrap();
         assert!(queue.push_back("123").is_err());
     }
 
