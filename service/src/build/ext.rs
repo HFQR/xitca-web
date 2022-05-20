@@ -6,7 +6,12 @@ use crate::{
 
 use super::{boxed::Boxed, BuildService};
 
+/// Extend trait for [BuildService]
+///
+/// Provide methods for mutation of it's associated types.
 pub trait BuildServiceExt<Arg>: BuildService<Arg> {
+    /// Mutate `<<Self::Service as Service<Req>>::Future as Future>::Output` type with given
+    /// closure.
     fn map<F, Res, ResMap>(self, mapper: F) -> PipelineT<Self, F, marker::Map>
     where
         F: Fn(Res) -> ResMap + Clone,
@@ -15,6 +20,7 @@ pub trait BuildServiceExt<Arg>: BuildService<Arg> {
         PipelineT::new(self, mapper)
     }
 
+    /// Mutate `<Self::Service as Service<Req>>::Error` type with given closure.
     fn map_err<F, Err, ErrMap>(self, err: F) -> PipelineT<Self, F, marker::MapErr>
     where
         F: Fn(Err) -> ErrMap + Clone,
@@ -23,7 +29,7 @@ pub trait BuildServiceExt<Arg>: BuildService<Arg> {
         PipelineT::new(self, err)
     }
 
-    /// Box `<Self as ServiceFactory<_>>::Future` to reduce it's stack size.
+    /// Box `<Self as BuildService<_>>::Future` to reduce it's stack size.
     ///
     /// *. This combinator does not box `Self` or `Self::Service`.
     fn boxed_future(self) -> Boxed<Self>
@@ -43,20 +49,23 @@ pub trait BuildServiceExt<Arg>: BuildService<Arg> {
         PipelineT::new(self, factory)
     }
 
-    fn enclosed<T>(self, transform: T) -> PipelineT<Self, T, marker::Enclosed>
+    /// Enclose Self with given `T as BuildService<<Self as BuildService<_>>::Service>>`.
+    /// In other word T would take Self's Service type it's generic argument of `BuildService<_>`.
+    fn enclosed<T>(self, build: T) -> PipelineT<Self, T, marker::Enclosed>
     where
         T: BuildService<Self::Service> + Clone,
         Self: BuildService<Arg> + Sized,
     {
-        PipelineT::new(self, transform)
+        PipelineT::new(self, build)
     }
 
-    fn enclosed_fn<T, Req>(self, transform: T) -> PipelineT<Self, T, marker::EnclosedFn>
+    /// Function version of [Self::enclosed] method.
+    fn enclosed_fn<T, Req>(self, func: T) -> PipelineT<Self, T, marker::EnclosedFn>
     where
         T: for<'s> AsyncClosure<(&'s Self::Service, Req)> + Clone,
         Self: BuildService<Arg> + Sized,
     {
-        PipelineT::new(self, transform)
+        PipelineT::new(self, func)
     }
 
     /// Box self and cast it to a trait object.
