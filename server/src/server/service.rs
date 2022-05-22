@@ -5,7 +5,7 @@ use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
 use xitca_service::{ready::ReadyService, BuildService};
 
-use crate::worker::{self, Counter};
+use crate::worker::{self, ServiceAny};
 
 pub(crate) struct Factory<F, Req> {
     inner: F,
@@ -22,6 +22,8 @@ where
     }
 }
 
+type ServiceFactoryCloneOpt = Result<(Vec<JoinHandle<()>>, ServiceAny), ()>;
+
 pub(crate) trait ServiceFactoryClone: Send {
     fn clone_factory(&self) -> Box<dyn ServiceFactoryClone>;
 
@@ -29,8 +31,7 @@ pub(crate) trait ServiceFactoryClone: Send {
         &'s self,
         name: &'f str,
         listeners: &'f [(String, Arc<Listener>)],
-        counter: &'f Counter,
-    ) -> LocalBoxFuture<'f, Result<Vec<JoinHandle<()>>, ()>>
+    ) -> LocalBoxFuture<'f, ServiceFactoryCloneOpt>
     where
         's: 'f;
 }
@@ -52,8 +53,7 @@ where
         &'s self,
         name: &'f str,
         listeners: &'f [(String, Arc<Listener>)],
-        counter: &'f Counter,
-    ) -> LocalBoxFuture<'f, Result<Vec<JoinHandle<()>>, ()>>
+    ) -> LocalBoxFuture<'f, ServiceFactoryCloneOpt>
     where
         's: 'f,
     {
@@ -64,10 +64,10 @@ where
             let handles = listeners
                 .iter()
                 .filter(|(n, _)| n == name)
-                .map(|(_, listener)| worker::start(listener, &service, counter))
+                .map(|(_, listener)| worker::start(listener, &service))
                 .collect::<Vec<_>>();
 
-            Ok(handles)
+            Ok((handles, service as _))
         })
     }
 }

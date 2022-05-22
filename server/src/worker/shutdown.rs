@@ -1,4 +1,5 @@
 use std::{
+    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -8,37 +9,42 @@ use std::{
 
 use tracing::info;
 
-use super::counter::Counter;
-use super::worker_name;
+use super::{worker_name, ServiceAny};
 
 pub(super) struct ShutdownHandle {
     shutdown_timeout: Duration,
-    counter: Counter,
+    services: Vec<ServiceAny>,
     is_graceful_shutdown: Arc<AtomicBool>,
-    fulfilled: bool,
 }
 
 impl Drop for ShutdownHandle {
     fn drop(&mut self) {
-        if self.fulfilled {
+        let remaining = std::mem::take(&mut self.services)
+            .into_iter()
+            .fold(0, |total, service| total + Rc::strong_count(&service));
+
+        if remaining == 0 {
             info!("Graceful stopped {}", worker_name());
         } else {
             info!(
-                "Force stopped {}. {:?} connections left.",
+                "Force stopped {}. {:?} connections(estimate) left.",
                 worker_name(),
-                self.counter.get()
+                remaining
             );
         }
     }
 }
 
 impl ShutdownHandle {
-    pub(super) fn new(shutdown_timeout: Duration, counter: Counter, is_graceful_shutdown: Arc<AtomicBool>) -> Self {
+    pub(super) fn new(
+        shutdown_timeout: Duration,
+        services: Vec<ServiceAny>,
+        is_graceful_shutdown: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             shutdown_timeout,
-            counter,
+            services,
             is_graceful_shutdown,
-            fulfilled: false,
         }
     }
 
@@ -47,9 +53,12 @@ impl ShutdownHandle {
             let start = Instant::now();
             let mut interval = tokio::time::interval(Duration::from_millis(500));
             while start.elapsed() < self.shutdown_timeout {
-                if self.counter.get() == 0 {
-                    return self.fulfilled = true;
+                self.services.retain(|service| Rc::strong_count(service) == 1);
+
+                if self.services.is_empty() {
+                    return;
                 }
+
                 let _ = interval.tick().await;
             }
         }

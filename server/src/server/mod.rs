@@ -22,10 +22,7 @@ use tokio::sync::{
 };
 use tracing::{error, info};
 
-use crate::{
-    builder::Builder,
-    worker::{self, Counter},
-};
+use crate::{builder::Builder, worker};
 
 pub struct Server {
     is_graceful_shutdown: Arc<AtomicBool>,
@@ -125,25 +122,25 @@ impl Server {
                             // `Listener` may do extra work with `Drop` trait and in order to prevent `Arc<Listener>` holding more reference
                             // counts than necessary all extra clone need to be dropped asap.
                             let fut = async move {
-                                let counter = Counter::new();
-
                                 let mut handles = Vec::new();
+                                let mut services = Vec::new();
 
                                 for (name, factory) in factories {
-                                    let h = factory.spawn_handle(&name, &listeners, &counter).await?;
+                                    let (h, s) = factory.spawn_handle(&name, &listeners).await?;
                                     handles.extend(h);
+                                    services.push(s);
                                 }
 
                                 // See above reason for `async move`
                                 drop(listeners);
 
-                                Ok::<_, ()>((handles, counter))
+                                Ok::<_, ()>((handles, services))
                             };
 
                             match fut.await {
-                                Ok((handles, counter)) => {
+                                Ok((handles, services)) => {
                                     tx.send(Ok(())).unwrap();
-                                    worker::wait_for_stop(handles, shutdown_timeout, counter, is_graceful_shutdown)
+                                    worker::wait_for_stop(handles, services, shutdown_timeout, is_graceful_shutdown)
                                         .await;
                                 }
                                 Err(_) => tx
