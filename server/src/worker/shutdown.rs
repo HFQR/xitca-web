@@ -19,9 +19,11 @@ pub(super) struct ShutdownHandle {
 
 impl Drop for ShutdownHandle {
     fn drop(&mut self) {
+        self.retain_active_services();
+
         let remaining = std::mem::take(&mut self.services)
             .into_iter()
-            .fold(0, |total, service| total + Rc::strong_count(&service));
+            .fold(0, |total, service| total + Rc::strong_count(&service).saturating_sub(1));
 
         if remaining == 0 {
             info!("Graceful stopped {}", worker_name());
@@ -53,7 +55,7 @@ impl ShutdownHandle {
             let start = Instant::now();
             let mut interval = tokio::time::interval(Duration::from_millis(500));
             while start.elapsed() < self.shutdown_timeout {
-                self.services.retain(|service| Rc::strong_count(service) > 1);
+                self.retain_active_services();
 
                 if self.services.is_empty() {
                     return;
@@ -62,5 +64,10 @@ impl ShutdownHandle {
                 let _ = interval.tick().await;
             }
         }
+    }
+
+    #[inline(never)]
+    fn retain_active_services(&mut self) {
+        self.services.retain(|service| Rc::strong_count(service) > 1);
     }
 }
