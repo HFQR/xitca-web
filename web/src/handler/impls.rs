@@ -10,6 +10,36 @@ use crate::{
 
 use super::{FromRequest, Responder};
 
+impl<'a, 'r, S, T, E> FromRequest<'a, WebRequest<'r, S>> for Result<T, E>
+where
+    S: 'static,
+    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, S>, Error = E>,
+{
+    type Type<'b> = Result<T, E>;
+    type Error = Infallible;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+
+    #[inline]
+    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+        async { Ok(T::from_request(req).await) }
+    }
+}
+
+impl<'a, 'r, S, T> FromRequest<'a, WebRequest<'r, S>> for Option<T>
+where
+    S: 'static,
+    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, S>>,
+{
+    type Type<'b> = Option<T>;
+    type Error = Infallible;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+
+    #[inline]
+    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+        async { Ok(T::from_request(req).await.ok()) }
+    }
+}
+
 impl<'a, 'r, S> FromRequest<'a, WebRequest<'r, S>> for &'a WebRequest<'a, S>
 where
     S: 'static,
@@ -130,5 +160,23 @@ where
         let mut res = req.into_response(Bytes::new());
         *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
         async { res }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use crate::request::WebRequest;
+
+    #[tokio::test]
+    async fn extract_default_impls() {
+        let mut req = WebRequest::new_test(());
+        let req = req.as_web_req();
+
+        Option::<()>::from_request(&req).await.unwrap().unwrap();
+        Result::<(), Infallible>::from_request(&req).await.unwrap().unwrap();
+        <&WebRequest<'_, ()>>::from_request(&req).await.unwrap();
+        <()>::from_request(&req).await.unwrap();
     }
 }
