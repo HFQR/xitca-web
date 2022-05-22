@@ -53,7 +53,7 @@ impl ShutdownHandle {
             let start = Instant::now();
             let mut interval = tokio::time::interval(Duration::from_millis(500));
             while start.elapsed() < self.shutdown_timeout {
-                self.services.retain(|service| Rc::strong_count(service) == 1);
+                self.services.retain(|service| Rc::strong_count(service) > 1);
 
                 if self.services.is_empty() {
                     return;
