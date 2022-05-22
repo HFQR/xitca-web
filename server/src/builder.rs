@@ -168,17 +168,7 @@ impl Builder {
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
-        let socket = if addr.is_ipv4() {
-            TcpSocket::new_v4()?
-        } else {
-            TcpSocket::new_v6()?
-        };
-
-        socket.set_reuseaddr(true)?;
-        socket.bind(addr)?;
-        let listener = socket.listen(self.backlog)?.into_std()?;
-
-        self.listen(name, listener, factory)
+        self._bind(name, addr, factory)
     }
 
     pub fn listen<N, F, St>(mut self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
@@ -209,6 +199,25 @@ impl Builder {
             }),
             Err(e) => ServerFuture::Error(e),
         }
+    }
+
+    fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, factory: F) -> io::Result<Self>
+    where
+        N: AsRef<str>,
+        F: AsServiceFactoryClone<St>,
+        St: From<Stream> + Send + 'static,
+    {
+        let socket = if addr.is_ipv4() {
+            TcpSocket::new_v4()?
+        } else {
+            TcpSocket::new_v6()?
+        };
+
+        socket.set_reuseaddr(true)?;
+        socket.bind(addr)?;
+        let listener = socket.listen(self.backlog)?.into_std()?;
+
+        self.listen(name, listener, factory)
     }
 }
 
@@ -280,20 +289,7 @@ impl Builder {
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
-        let socket = if addr.is_ipv4() {
-            TcpSocket::new_v4()?
-        } else {
-            TcpSocket::new_v6()?
-        };
-
-        socket.set_reuseaddr(true)?;
-        socket.bind(addr)?;
-        let listener = socket.listen(self.backlog)?.into_std()?;
-
-        self.listeners
-            .entry(name.as_ref().to_string())
-            .or_insert_with(Vec::new)
-            .push(Box::new(Some(listener)));
+        self = self._bind(name.as_ref(), addr, factory)?;
 
         let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
 
@@ -301,10 +297,6 @@ impl Builder {
             .entry(name.as_ref().to_string())
             .or_insert_with(Vec::new)
             .push(Box::new(Some(builder)));
-
-        let factory = Factory::new_boxed(factory);
-
-        self.factories.insert(name.as_ref().to_string(), factory);
 
         Ok(self)
     }
