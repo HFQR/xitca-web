@@ -1,8 +1,8 @@
 [workspace]
 members = [
     "client",
+    "codegen",
     "http",
-    "http-codegen",
     "io",
     "postgres",
     "server",
@@ -17,8 +17,8 @@ members = [
 
 [patch.crates-io]
 xitca-client = { path = "./client" }
+xitca-codegen = { path = "./codegen" }
 xitca-http = { path = "./http" }
-xitca-http-codegen = { path = "./http-codegen" }
 xitca-io = { path = "./io" }
 xitca-postgres = { path = "./postgres" }
 xitca-server = { path = "./server" }

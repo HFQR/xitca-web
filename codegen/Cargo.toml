@@ -1,5 +1,5 @@
 [package]
-name = "xitca-http-codegen"
+name = "xitca-codegen"
 version = "0.1.0"
 edition = "2021"
 
