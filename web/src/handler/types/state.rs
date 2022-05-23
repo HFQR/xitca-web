@@ -45,10 +45,10 @@ where
 mod test {
     use super::*;
 
+    use xitca_codegen::State;
     use xitca_http::request::Request;
 
     use crate::{
-        codegen::State,
         dev::{BuildService, Service},
         handler::handler_service,
         request::WebRequest,
