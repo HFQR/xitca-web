@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Mutex};
 use postgres_types::{Oid, Type};
 use tokio::sync::mpsc::Sender;
 use xitca_io::bytes::{Bytes, BytesMut};
+use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{error::Error, request::Request, response::Response, statement::Statement};
 
@@ -28,7 +29,7 @@ struct CachedTypeInfo {
     typeinfo_enum: Option<Statement>,
 
     /// Cache of types already looked up.
-    types: HashMap<Oid, Type>,
+    types: HashMap<Oid, Type, NoHashBuilder>,
 }
 
 impl Client {
@@ -40,7 +41,7 @@ impl Client {
                 typeinfo: None,
                 typeinfo_composite: None,
                 typeinfo_enum: None,
-                types: HashMap::new(),
+                types: HashMap::default(),
             }),
         }
     }

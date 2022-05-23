@@ -10,13 +10,18 @@ use xitca_http::{
 use xitca_server::{Builder, ServerFuture};
 use xitca_service::{ready::ReadyService, BuildService, Service};
 
-pub struct HttpServer<F, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+pub struct HttpServer<
+    F,
+    const HEADER_LIMIT: usize = DEFAULT_HEADER_LIMIT,
+    const READ_BUF_LIMIT: usize = DEFAULT_READ_BUF_LIMIT,
+    const WRITE_BUF_LIMIT: usize = DEFAULT_WRITE_BUF_LIMIT,
+> {
     factory: F,
     builder: Builder,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
 }
 
-impl<F, I> HttpServer<F, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT>
+impl<F, I> HttpServer<F>
 where
     F: Fn() -> I + Send + Clone + 'static,
 {

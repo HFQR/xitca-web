@@ -25,12 +25,12 @@ http = "0.2.5"
 httpdate = "1.0"
 pin-project-lite = "0.2.7"
 socket2 = { version = "0.4.2", features = ["all"] }
-tokio = { version = "1.12", features = ["io-util", "time"] }
+tokio = { version = "1.12", features = ["time"] }
 tracing = { version = "0.1.32", default-features = false }
 
 # tls support shared
 futures-task = { version = "0.3.17", default-features = false, optional = true }
-tokio-util = { version = "0.6", optional = true }
+tokio-util = { version = "0.7", optional = true }
 
 # openssl support
 openssl-crate = { package = "openssl", version = "0.10", optional = true }

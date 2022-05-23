@@ -81,21 +81,18 @@ struct Dispatcher<
     St,
     S,
     ReqB,
-    BE,
     W,
     D,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
     const WRITE_BUF_LIMIT: usize,
-> where
-    S: Service<Request<ReqB>>,
-{
+> {
     io: BufferedIo<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
     service: &'a S,
-    _phantom: PhantomData<(ReqB, BE)>,
+    _phantom: PhantomData<ReqB>,
 }
 
 struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
@@ -208,7 +205,7 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, BE, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,

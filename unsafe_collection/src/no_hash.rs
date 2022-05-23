@@ -1,6 +1,7 @@
-/// A hasher that do hashing by not doing it.
-/// This hasher does not contain unsafe Rust code but it's unsafe to use for general purpose
-/// and panic at runtime for key types that can't be used.
+//! A hasher that do hashing by not doing it.
+//! This hasher does not contain unsafe Rust code but it's not suitable to be use for general purpose.
+//! Panic at runtime for key types that can't be used.
+
 use core::hash::{BuildHasherDefault, Hasher};
 
 /// A simple hasher that do hashing by not doing it.

@@ -17,6 +17,8 @@ pub trait ChunkVectoredUninit: sealed::Sealed {
     /// MUST write to dst slice continuously start from 0 index.
     /// MUST NOT skip to N + 1 index without writing initialized item to N index.
     /// MAY write to certain index multiple times.
+    /// MUST return the total amount of unique items(multiple write to one index count as one)
+    /// that are initialized.
     unsafe fn chunks_vectored_uninit<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> usize;
 }
 

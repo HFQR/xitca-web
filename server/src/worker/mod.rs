@@ -1,10 +1,9 @@
-mod counter;
 mod shutdown;
 
-pub(crate) use self::counter::Counter;
-
 use std::{
+    any::Any,
     io,
+    rc::Rc,
     sync::{atomic::AtomicBool, Arc},
     thread,
     time::Duration,
@@ -17,14 +16,16 @@ use xitca_service::ready::ReadyService;
 
 use self::shutdown::ShutdownHandle;
 
-pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S, counter: &Counter) -> JoinHandle<()>
+// erase Rc<S: ReadyService<_>> type and only use it for counting the reference counter of Rc.
+pub(crate) type ServiceAny = Rc<dyn Any>;
+
+pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S) -> JoinHandle<()>
 where
     S: ReadyService<Req> + Clone + 'static,
     S::Ready: 'static,
     Req: From<Stream>,
 {
     let listener = listener.clone();
-    let counter = counter.clone();
     let service = service.clone();
 
     tokio::task::spawn_local(async move {
@@ -34,10 +35,8 @@ where
             match listener.accept().await {
                 Ok(stream) => {
                     let service = service.clone();
-                    let guard = counter.guard();
                     tokio::task::spawn_local(async move {
                         let _ = service.call(From::from(stream)).await;
-                        drop(guard);
                         drop(ready);
                     });
                 }
@@ -56,13 +55,13 @@ where
 
 pub(crate) async fn wait_for_stop(
     handles: Vec<JoinHandle<()>>,
+    services: Vec<ServiceAny>,
     shutdown_timeout: Duration,
-    counter: Counter,
     is_graceful_shutdown: Arc<AtomicBool>,
 ) {
     info!("Started {}", worker_name());
 
-    let shutdown_handle = ShutdownHandle::new(shutdown_timeout, counter, is_graceful_shutdown);
+    let shutdown_handle = ShutdownHandle::new(shutdown_timeout, services, is_graceful_shutdown);
 
     for handle in handles {
         handle

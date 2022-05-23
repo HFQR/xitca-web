@@ -49,7 +49,6 @@ mod queue {
     use super::*;
 
     use futures_util::stream::{FuturesUnordered, StreamExt};
-    use xitca_unsafe_collection::futures::never;
 
     pub(crate) struct Queue<F>(FuturesUnordered<F>);
 
@@ -61,7 +60,7 @@ mod queue {
         #[cfg(feature = "http3")]
         pub(crate) async fn next(&mut self) -> F::Output {
             if self.is_empty() {
-                never().await
+                xitca_unsafe_collection::futures::never().await
             } else {
                 self.next2().await
             }
