@@ -20,6 +20,6 @@ impl<'a, 'r, S: 'r> FromRequest<'a, WebRequest<'r, S>> for RequestRef<'a> {
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
-        async move { Ok(RequestRef(req.req())) }
+        async { Ok(RequestRef(req.req())) }
     }
 }

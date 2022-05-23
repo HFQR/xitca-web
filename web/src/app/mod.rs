@@ -135,7 +135,7 @@ where
 
     fn build(&self, arg: Arg) -> Self::Future {
         let fut = self.factory.build(arg);
-        async move {
+        async {
             let service = fut.await?;
             Ok(MapRequestService { service })
         }
@@ -176,7 +176,7 @@ where
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move { self.service.ready().await }
+        async { self.service.ready().await }
     }
 }
 

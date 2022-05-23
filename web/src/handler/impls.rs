@@ -50,7 +50,7 @@ where
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
-        async move { Ok(&*req) }
+        async { Ok(&*req) }
     }
 }
 
