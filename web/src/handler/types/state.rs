@@ -45,8 +45,8 @@ where
 mod test {
     use super::*;
 
+    use xitca_codegen::State;
     use xitca_http::request::Request;
-    use xitca_http_codegen::State;
 
     use crate::{
         dev::{BuildService, Service},

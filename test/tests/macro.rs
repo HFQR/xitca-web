@@ -7,7 +7,7 @@ struct Test;
 #[derive(Clone)]
 struct TestFactory;
 
-#[xitca_http_codegen::service_impl]
+#[xitca_codegen::service_impl]
 impl Test {
     async fn new_service(_: &TestFactory, mut cfg123: String) -> Result<Self, Box<dyn std::error::Error>> {
         cfg123.push_str("+da_gong_ren");
@@ -31,7 +31,7 @@ struct TestMiddleware;
 
 struct TestMiddlewareService<S>(S);
 
-#[xitca_http_codegen::middleware_impl]
+#[xitca_codegen::middleware_impl]
 impl<S> TestMiddlewareService<S>
 where
     S: ReadyService<String, Error = Box<dyn std::error::Error>, Response = usize>,
@@ -56,7 +56,7 @@ struct TestWithoutReady;
 #[derive(Clone)]
 struct TestWithoutReadyFactory;
 
-#[xitca_http_codegen::service_impl]
+#[xitca_codegen::service_impl]
 impl TestWithoutReady {
     async fn new_service(_: &TestWithoutReadyFactory, mut cfg123: String) -> Result<Self, Box<dyn std::error::Error>> {
         cfg123.push_str("+da_gong_ren");
@@ -93,7 +93,7 @@ async fn http_codegen() {
     assert_eq!(res, 7);
 }
 
-#[derive(xitca_http_codegen::State)]
+#[derive(xitca_codegen::State)]
 struct MyState {
     #[borrow]
     field1: String,
