@@ -46,9 +46,9 @@ mod test {
     use super::*;
 
     use xitca_http::request::Request;
-    use xitca_http_codegen::State;
 
     use crate::{
+        codegen::State,
         dev::{BuildService, Service},
         handler::handler_service,
         request::WebRequest,
