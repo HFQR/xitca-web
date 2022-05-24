@@ -1,5 +1,5 @@
-use tokio::sync::mpsc::unbounded_channel;
 use xitca_io::bytes::Bytes;
+use xitca_unsafe_collection::spsc::channel;
 
 use super::{response::Response, response::ResponseSender};
 
@@ -10,7 +10,7 @@ pub struct Request {
 
 impl Request {
     pub(crate) fn new_pair(msg: Bytes) -> (Request, Response) {
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = channel(8);
 
         (Request { tx, msg }, Response::new(rx))
     }

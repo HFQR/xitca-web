@@ -42,11 +42,17 @@ impl<const LIMIT: usize> Context<LIMIT> {
         self.buf.clear();
     }
 
-    pub(super) fn try_response(&mut self) -> Result<(), Error> {
+    pub(super) async fn try_response(&mut self) -> Result<(), Error> {
         while let Some(res) = ResponseMessage::try_from_buf(&mut self.buf)? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    let _ = self.res.front().expect("Out of bound must not happen").send(buf);
+                    // TODO: unbounded or now_or_never?
+                    let _ = self
+                        .res
+                        .front_mut()
+                        .expect("Out of bound must not happen")
+                        .send(buf)
+                        .await;
 
                     if complete {
                         let _ = self.res.pop_front();
@@ -60,10 +66,15 @@ impl<const LIMIT: usize> Context<LIMIT> {
     }
 
     // only try parse response for once and return true when success.
-    pub(super) fn try_response_once(&mut self) -> Result<bool, Error> {
+    pub(super) async fn try_response_once(&mut self) -> Result<bool, Error> {
         match ResponseMessage::try_from_buf(&mut self.buf)? {
             Some(ResponseMessage::Normal { buf, complete }) => {
-                let _ = self.res.front().expect("Out of bound must not happen").send(buf);
+                let _ = self
+                    .res
+                    .front_mut()
+                    .expect("Out of bound must not happen")
+                    .send(buf)
+                    .await;
                 if complete {
                     let _ = self.res.pop_front();
                 }

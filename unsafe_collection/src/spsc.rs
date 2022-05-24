@@ -19,6 +19,8 @@ use alloc::{sync::Arc, vec::Vec};
 
 use cache_padded::CachePadded;
 
+use super::futures::poll_fn;
+
 struct Inner<T> {
     head: CachePadded<AtomicUsize>,
     tail: CachePadded<AtomicUsize>,
@@ -127,6 +129,7 @@ pub struct Sender<T> {
 }
 
 unsafe impl<T: Send> Send for Sender<T> {}
+unsafe impl<T: Send + Sync> Sync for Sender<T> {}
 
 impl<T> Sender<T> {
     pub async fn send(&mut self, value: T) -> Result<(), SendError<T>> {
@@ -214,29 +217,17 @@ unsafe impl<T: Send> Send for Receiver<T> {}
 
 impl<T> Receiver<T> {
     pub async fn recv(&mut self) -> Option<T> {
-        struct RecvFuture<'a, T> {
-            consumer: &'a mut Receiver<T>,
-        }
+        poll_fn(|cx| self.poll_recv(cx)).await
+    }
 
-        impl<T> Future for RecvFuture<'_, T> {
-            type Output = Option<T>;
-
-            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-                // SAFETY:
-                // This is safe as Self is not moved in the following code.
-                let this = unsafe { self.get_unchecked_mut() };
-
-                match this.consumer.pop() {
-                    Some(value) => Poll::Ready(Some(value)),
-                    None => {
-                        this.consumer.inner.waker.try_register(cx.waker());
-                        Poll::Pending
-                    }
-                }
+    pub fn poll_recv(&mut self, cx: &mut Context) -> Poll<Option<T>> {
+        match self.pop() {
+            Some(value) => Poll::Ready(Some(value)),
+            None => {
+                self.inner.waker.try_register(cx.waker());
+                Poll::Pending
             }
         }
-
-        RecvFuture { consumer: self }.await
     }
 
     /// Attempts to pop an element from the queue.

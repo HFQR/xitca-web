@@ -57,7 +57,7 @@ where
             let _ = self.io.ready(Interest::READABLE).await?;
             self.try_read()?;
 
-            if self.ctx.try_response_once()? {
+            if self.ctx.try_response_once().await? {
                 return Ok(res);
             }
         }
@@ -82,7 +82,7 @@ where
 
                     if ready.is_readable() {
                         self.try_read()?;
-                        self.ctx.try_response()?;
+                        self.ctx.try_response().await?;
                     }
 
                     if ready.is_writable() {
