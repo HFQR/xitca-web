@@ -8,3 +8,4 @@ bytes = ["bytes_crate"]
 
 [dependencies]
 bytes_crate = { package = "bytes", version = "1", optional = true }
+cache-padded = "1.2.0"

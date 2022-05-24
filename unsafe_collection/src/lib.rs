@@ -8,4 +8,5 @@ pub mod array_queue;
 pub mod bytes;
 pub mod futures;
 pub mod no_hash;
+pub mod spsc;
 pub mod uninit;
