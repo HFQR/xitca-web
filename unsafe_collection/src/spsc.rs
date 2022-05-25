@@ -129,6 +129,17 @@ unsafe impl<T: Send> Send for Sender<T> {}
 unsafe impl<T: Send + Sync> Sync for Sender<T> {}
 
 impl<T> Sender<T> {
+    #[inline]
+    pub fn try_send(&mut self, value: T) -> Result<(), SendError<T>> {
+        match self.push(value) {
+            Ok(_) => {
+                self.inner.waker.try_wake();
+                Ok(())
+            }
+            Err(value) => Err(SendError::Full(value)),
+        }
+    }
+
     pub async fn send(&mut self, value: T) -> Result<(), SendError<T>> {
         struct SendFuture<'a, T> {
             producer: &'a mut Sender<T>,
@@ -145,13 +156,10 @@ impl<T> Sender<T> {
 
                 match this
                     .producer
-                    .push(this.value.take().expect("SendFuture polled after finished"))
+                    .try_send(this.value.take().expect("SendFuture polled after finished"))
                 {
-                    Ok(_) => {
-                        this.producer.inner.waker.try_wake();
-                        Poll::Ready(Ok(()))
-                    }
-                    Err(value) => {
+                    Ok(_) => Poll::Ready(Ok(())),
+                    Err(SendError::Full(value)) | Err(SendError::Closed(value)) => {
                         this.producer.inner.waker.try_register(cx.waker());
                         this.value = Some(value);
                         Poll::Pending
@@ -256,19 +264,28 @@ impl<T> Receiver<T> {
     }
 }
 
-/// Error which occurs when channel is closed from receiver part..
+/// Error which occurs when channel is full or closed from receiver part.
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub struct SendError<T>(pub T);
+pub enum SendError<T> {
+    Full(T),
+    Closed(T),
+}
 
 impl<T> fmt::Debug for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "SendError(..)".fmt(f)
+        match self {
+            Self::Full(..) => write!(f, "SendError::Full(..)"),
+            Self::Closed(..) => write!(f, "SendError::Closed(..)"),
+        }
     }
 }
 
 impl<T> fmt::Display for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "Receiver is closed".fmt(f)
+        match self {
+            Self::Full(..) => write!(f, "SendError::Full(..)"),
+            Self::Closed(..) => write!(f, "SendError::Closed(..)"),
+        }
     }
 }
 
