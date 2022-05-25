@@ -9,7 +9,7 @@ use core::{
     fmt,
     future::Future,
     marker::PhantomData,
-    mem::ManuallyDrop,
+    mem::{self, ManuallyDrop},
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
@@ -317,23 +317,28 @@ impl AtomicWaker {
                 //
                 // only dereference when holding OPERATING state change.
                 unsafe {
-                    *self.waker.get() = Some(waker.clone());
+                    // take old waker to potential wake the other part.
+                    let waker = (*self.waker.get()).replace(waker.clone());
 
-                    if let Err(old) = self
+                    match self
                         .state
                         .compare_exchange(OPERATING, FREE, Ordering::AcqRel, Ordering::Acquire)
                     {
-                        debug_assert_eq!(old, OPERATING | WAKING);
-                        let waker = (*self.waker.get()).take().unwrap();
-                        self.state.swap(FREE, Ordering::AcqRel);
-                        waker.wake();
+                        Ok(_) => {
+                            if let Some(waker) = waker {
+                                waker.wake();
+                            }
+                        }
+                        Err(state) => {
+                            debug_assert_eq!(state, OPERATING | WAKING);
+                            let waker = mem::replace(&mut *self.waker.get(), waker).unwrap();
+                            self.state.swap(FREE, Ordering::AcqRel);
+                            waker.wake();
+                        }
                     }
                 }
             }
-            WAKING => waker.wake_by_ref(),
-            state => {
-                debug_assert!(state == OPERATING || state == OPERATING | WAKING);
-            }
+            _ => waker.wake_by_ref(),
         }
     }
 
@@ -347,7 +352,8 @@ impl AtomicWaker {
                 }
             }
             state => {
-                debug_assert!(state == OPERATING || state == OPERATING | WAKING || state == WAKING);
+                debug_assert_ne!(state, WAKING);
+                debug_assert!(state == OPERATING || state == OPERATING | WAKING);
             }
         }
     }
@@ -406,5 +412,38 @@ mod test {
 
         let mut fut = rx.recv();
         assert!(unsafe { Pin::new_unchecked(&mut fut) }.poll(cx).is_pending());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn race() {
+        let (mut tx, mut rx) = channel(1);
+
+        let h1 = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    for i in 0..1024 {
+                        tx.send(i).await.unwrap();
+                    }
+                })
+        });
+
+        let h2 = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    for i in 0..1024 {
+                        assert_eq!(rx.recv().await.unwrap(), i);
+                    }
+                })
+        });
+
+        h1.join().unwrap();
+        h2.join().unwrap();
     }
 }
