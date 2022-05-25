@@ -9,7 +9,7 @@ use core::{
     fmt,
     future::Future,
     marker::PhantomData,
-    mem,
+    mem::ManuallyDrop,
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
@@ -26,12 +26,11 @@ struct Inner<T> {
     tail: CachePadded<AtomicUsize>,
     buffer: *mut T,
     cap: usize,
-    waker: TryAtomicWaker,
+    waker: AtomicWaker,
     _marker: PhantomData<T>,
 }
 
 impl<T> Inner<T> {
-    #[inline]
     unsafe fn slot(&self, pos: usize) -> *mut T {
         if pos < self.cap {
             self.buffer.add(pos)
@@ -40,7 +39,6 @@ impl<T> Inner<T> {
         }
     }
 
-    #[inline]
     fn increment(&self, pos: usize) -> usize {
         if pos < 2 * self.cap - 1 {
             pos + 1
@@ -49,7 +47,6 @@ impl<T> Inner<T> {
         }
     }
 
-    #[inline]
     fn distance(&self, a: usize, b: usize) -> usize {
         if a <= b {
             b - a
@@ -90,19 +87,12 @@ impl<T> Drop for Inner<T> {
 pub fn channel<T>(cap: usize) -> (Sender<T>, Receiver<T>) {
     assert!(cap > 0, "capacity must be non-zero");
 
-    let buffer = {
-        let mut v = Vec::<T>::with_capacity(cap);
-        let ptr = v.as_mut_ptr();
-        mem::forget(v);
-        ptr
-    };
-
     let inner = Arc::new(Inner {
         head: CachePadded::new(AtomicUsize::new(0)),
         tail: CachePadded::new(AtomicUsize::new(0)),
-        buffer,
+        buffer: ManuallyDrop::new(Vec::with_capacity(cap)).as_mut_ptr(),
         cap,
-        waker: TryAtomicWaker::default(),
+        waker: AtomicWaker::default(),
         _marker: PhantomData,
     });
 
@@ -128,7 +118,14 @@ pub struct Sender<T> {
     tail: usize,
 }
 
+impl<T> fmt::Debug for Sender<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.pad("Sender { .. }")
+    }
+}
+
 unsafe impl<T: Send> Send for Sender<T> {}
+
 unsafe impl<T: Send + Sync> Sync for Sender<T> {}
 
 impl<T> Sender<T> {
@@ -200,22 +197,23 @@ impl<T> Sender<T> {
     }
 }
 
-impl<T> fmt::Debug for Sender<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.pad("Sender { .. }")
-    }
-}
-
-/// The receiver of a bounded single-producer single-consumer queue.
+/// The receiver of a bounded spsc channel.
 pub struct Receiver<T> {
     inner: Arc<Inner<T>>,
     head: usize,
     tail: usize,
 }
 
+impl<T> fmt::Debug for Receiver<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.pad("Receiver { .. }")
+    }
+}
+
 unsafe impl<T: Send> Send for Receiver<T> {}
 
 impl<T> Receiver<T> {
+    #[inline]
     pub async fn recv(&mut self) -> Option<T> {
         poll_fn(|cx| self.poll_recv(cx)).await
     }
@@ -230,9 +228,6 @@ impl<T> Receiver<T> {
         }
     }
 
-    /// Attempts to pop an element from the queue.
-    ///
-    /// If the queue is empty, an error is returned.
     fn pop(&mut self) -> Option<T> {
         let mut head = self.head;
         let mut tail = self.tail;
@@ -261,13 +256,7 @@ impl<T> Receiver<T> {
     }
 }
 
-impl<T> fmt::Debug for Receiver<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.pad("Receiver { .. }")
-    }
-}
-
-/// Error which occurs when pushing into a full queue.
+/// Error which occurs when channel is closed from receiver part..
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct SendError<T>(pub T);
 
@@ -283,98 +272,85 @@ impl<T> fmt::Display for SendError<T> {
     }
 }
 
-// an atomic waker only try to register when there is no other operating on the atomic state.
-struct TryAtomicWaker {
-    state: CachePadded<AtomicUsize>,
+struct AtomicWaker {
+    state: AtomicUsize,
     waker: UnsafeCell<Option<Waker>>,
 }
 
-impl Default for TryAtomicWaker {
-    fn default() -> Self {
-        TryAtomicWaker::new()
-    }
-}
+const FREE: usize = 0;
+const OPERATING: usize = 0b01;
+const WAKING: usize = 0b10;
 
-impl fmt::Debug for TryAtomicWaker {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "AtomicWaker")
-    }
-}
-
-unsafe impl Send for TryAtomicWaker {}
-
-unsafe impl Sync for TryAtomicWaker {}
-
-const NONE: usize = 0;
-const OPERATING: usize = 1;
-const SOME: usize = 1 << 1;
-
-impl TryAtomicWaker {
-    fn new() -> TryAtomicWaker {
-        TryAtomicWaker {
-            state: CachePadded::new(AtomicUsize::new(NONE)),
+impl AtomicWaker {
+    const fn new() -> Self {
+        AtomicWaker {
+            state: AtomicUsize::new(FREE),
             waker: UnsafeCell::new(None),
         }
     }
 
     fn try_register(&self, waker: &Waker) {
-        let mut state = self.state.load(Ordering::Relaxed);
+        match self
+            .state
+            .compare_exchange(FREE, OPERATING, Ordering::Acquire, Ordering::Acquire)
+            .unwrap_or_else(|x| x)
+        {
+            FREE => {
+                // SAFETY:
+                //
+                // only dereference when holding OPERATING state change.
+                unsafe {
+                    *self.waker.get() = Some(waker.clone());
 
-        while state != OPERATING {
-            match self
-                .state
-                .compare_exchange_weak(state, OPERATING, Ordering::Acquire, Ordering::Relaxed)
-            {
-                Ok(_) => {
-                    self.register(waker);
-                    return self.state.store(SOME, Ordering::Release);
+                    if let Err(old) = self
+                        .state
+                        .compare_exchange(OPERATING, FREE, Ordering::AcqRel, Ordering::Acquire)
+                    {
+                        debug_assert_eq!(old, OPERATING | WAKING);
+                        let waker = (*self.waker.get()).take().unwrap();
+                        self.state.swap(FREE, Ordering::AcqRel);
+                        waker.wake();
+                    }
                 }
-                Err(s) => state = s,
+            }
+            WAKING => waker.wake_by_ref(),
+            state => {
+                debug_assert!(state == OPERATING || state == OPERATING | WAKING);
             }
         }
-
-        // schedule task for wake up and try later.
-        waker.wake_by_ref();
     }
 
     fn try_wake(&self) {
-        let mut state = self.state.load(Ordering::Relaxed);
-
-        while state == SOME {
-            match self
-                .state
-                .compare_exchange_weak(state, OPERATING, Ordering::Acquire, Ordering::Relaxed)
-            {
-                Ok(_) => {
-                    self.wake();
-                    self.state.store(NONE, Ordering::Release);
-                    return;
+        match self.state.fetch_or(WAKING, Ordering::AcqRel) {
+            FREE => {
+                let waker = unsafe { (*self.waker.get()).take() };
+                self.state.fetch_and(!WAKING, Ordering::Release);
+                if let Some(waker) = waker {
+                    waker.wake();
                 }
-                Err(s) => state = s,
+            }
+            state => {
+                debug_assert!(state == OPERATING || state == OPERATING | WAKING || state == WAKING);
             }
         }
     }
+}
 
-    fn register(&self, waker: &Waker) {
-        // SAFETY:
-        //
-        // deref is guarded by atomic state and exclusive to the only writer that successfully
-        // write OPERATING state.
-        let set = unsafe { &mut *self.waker.get() };
-        if let Some(waker) = set.replace(waker.clone()) {
-            waker.wake();
-        }
-    }
-
-    fn wake(&self) {
-        // SAFETY:
-        //
-        // deref is guarded by atomic state and exclusive to the only writer that successfully
-        // write OPERATING state.
-        let set = unsafe { &mut *self.waker.get() };
-        set.take().unwrap().wake();
+impl Default for AtomicWaker {
+    fn default() -> Self {
+        AtomicWaker::new()
     }
 }
+
+impl fmt::Debug for AtomicWaker {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "AtomicWaker")
+    }
+}
+
+unsafe impl Send for AtomicWaker {}
+
+unsafe impl Sync for AtomicWaker {}
 
 #[cfg(test)]
 mod test {
