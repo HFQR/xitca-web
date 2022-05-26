@@ -174,9 +174,9 @@ mod test {
         let mut req = WebRequest::new_test(());
         let req = req.as_web_req();
 
-        Option::<()>::from_request(&req).await.unwrap().unwrap();
-        Result::<(), Infallible>::from_request(&req).await.unwrap().unwrap();
-        <&WebRequest<'_, ()>>::from_request(&req).await.unwrap();
-        <()>::from_request(&req).await.unwrap();
+        Option::<()>::extract(&req).await.unwrap().unwrap();
+        Result::<(), Infallible>::extract(&req).await.unwrap().unwrap();
+        <&WebRequest<'_, ()>>::extract(&req).await.unwrap();
+        <()>::extract(&req).await.unwrap();
     }
 }
