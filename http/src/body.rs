@@ -244,7 +244,7 @@ impl<B> From<&'_ str> for ResponseBody<B> {
 }
 
 /// Body size hint.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BodySize {
     /// Absence of body can be assumed from method or status code.
     ///
