@@ -17,10 +17,12 @@ use futures_intrusive::{
     NoopLock,
 };
 use pin_project_lite::pin_project;
-use tokio::pin;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
-use xitca_unsafe_collection::futures::{poll_fn, Select, SelectOutput};
+use xitca_unsafe_collection::{
+    futures::{poll_fn, Select, SelectOutput},
+    pin,
+};
 
 use crate::{
     bytes::{Buf, Bytes},

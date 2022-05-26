@@ -385,6 +385,8 @@ mod test {
 
     use alloc::{sync::Arc, task::Wake};
 
+    use crate::pin;
+
     struct DummyWaker;
 
     impl Wake for DummyWaker {
@@ -402,20 +404,23 @@ mod test {
         let cx = &mut Context::from_waker(&waker);
 
         for i in 0..8 {
-            let mut fut = tx.send(i);
-            assert!(unsafe { Pin::new_unchecked(&mut fut) }.poll(cx).is_ready());
+            let fut = tx.send(i);
+            pin!(fut);
+            assert!(fut.poll(cx).is_ready());
         }
 
         for i in 0..8 {
-            let mut fut = rx.recv();
-            match unsafe { Pin::new_unchecked(&mut fut) }.poll(cx) {
+            let fut = rx.recv();
+            pin!(fut);
+            match fut.poll(cx) {
                 Poll::Ready(Some(i2)) => assert_eq!(i, i2),
                 _ => unreachable!(),
             }
         }
 
-        let mut fut = rx.recv();
-        assert!(unsafe { Pin::new_unchecked(&mut fut) }.poll(cx).is_pending());
+        let fut = rx.recv();
+        pin!(fut);
+        assert!(fut.poll(cx).is_pending());
     }
 
     #[test]
@@ -461,20 +466,23 @@ mod test {
 
         {
             let mut tx = tx;
-            let mut fut = tx.send(996);
-            assert!(unsafe { Pin::new_unchecked(&mut fut) }.poll(cx).is_ready());
+            let fut = tx.send(996);
+            pin!(fut);
+            assert!(fut.poll(cx).is_ready());
         }
 
         {
-            let mut fut = rx.recv();
-            match unsafe { Pin::new_unchecked(&mut fut) }.poll(cx) {
+            let fut = rx.recv();
+            pin!(fut);
+            match fut.poll(cx) {
                 Poll::Ready(Some(i)) => assert_eq!(i, 996),
                 _ => unreachable!(),
             }
         }
 
-        let mut fut = rx.recv();
-        match unsafe { Pin::new_unchecked(&mut fut) }.poll(cx) {
+        let fut = rx.recv();
+        pin!(fut);
+        match fut.poll(cx) {
             Poll::Ready(None) => {}
             _ => unreachable!(),
         }

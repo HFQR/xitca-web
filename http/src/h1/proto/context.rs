@@ -46,7 +46,7 @@ impl ContextState {
 }
 
 /// Represents various types of connection
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ConnectionType {
     /// A connection that has no request yet.
     Init,

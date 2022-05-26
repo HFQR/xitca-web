@@ -12,11 +12,13 @@ use ::h2::{
     Ping, PingPong,
 };
 use futures_core::{ready, Stream};
-use tokio::pin;
 use tracing::trace;
 use xitca_io::io::{AsyncRead, AsyncWrite};
 use xitca_service::Service;
-use xitca_unsafe_collection::futures::{poll_fn, Select as _, SelectOutput};
+use xitca_unsafe_collection::{
+    futures::{poll_fn, Select as _, SelectOutput},
+    pin,
+};
 
 use crate::{
     body::BodySize,

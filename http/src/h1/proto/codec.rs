@@ -10,7 +10,7 @@ use super::{
 };
 
 /// Coder for different Transfer-Decoding/Transfer-Encoding.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TransferCoding {
     /// Default coder indicates the Request/Response does not have a body.
     Eof,
@@ -65,7 +65,7 @@ impl TransferCoding {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChunkedState {
     Size,
     SizeLws,
