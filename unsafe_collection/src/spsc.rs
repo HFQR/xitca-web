@@ -230,8 +230,12 @@ impl<T> Receiver<T> {
         match self.pop() {
             Some(value) => Poll::Ready(Some(value)),
             None => {
-                self.inner.waker.try_register(cx.waker());
-                Poll::Pending
+                if Arc::strong_count(&self.inner) == 1 {
+                    Poll::Ready(None)
+                } else {
+                    self.inner.waker.try_register(cx.waker());
+                    Poll::Pending
+                }
             }
         }
     }
@@ -445,5 +449,34 @@ mod test {
 
         h1.join().unwrap();
         h2.join().unwrap();
+    }
+
+    #[test]
+    fn drop() {
+        let (tx, mut rx) = channel::<usize>(8);
+
+        let waker = Waker::from(Arc::new(DummyWaker));
+
+        let cx = &mut Context::from_waker(&waker);
+
+        {
+            let mut tx = tx;
+            let mut fut = tx.send(996);
+            assert!(unsafe { Pin::new_unchecked(&mut fut) }.poll(cx).is_ready());
+        }
+
+        {
+            let mut fut = rx.recv();
+            match unsafe { Pin::new_unchecked(&mut fut) }.poll(cx) {
+                Poll::Ready(Some(i)) => assert_eq!(i, 996),
+                _ => unreachable!(),
+            }
+        }
+
+        let mut fut = rx.recv();
+        match unsafe { Pin::new_unchecked(&mut fut) }.poll(cx) {
+            Poll::Ready(None) => {}
+            _ => unreachable!(),
+        }
     }
 }
