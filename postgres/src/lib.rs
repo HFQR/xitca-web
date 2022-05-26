@@ -79,11 +79,11 @@ where
     /// ```
     pub async fn connect(self) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send + 'static), Error> {
         let cfg = Config::try_from(self.cfg)?;
-        let io = crate::connect::connect(&cfg).await?;
+        let io = connect::connect(&cfg).await?;
 
-        let (cli, mut io) = crate::io::buffered_io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io, self.backlog);
+        let (cli, mut io) = io::buffered_io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io, self.backlog);
 
-        crate::connect::authenticate(&mut io, cfg).await?;
+        connect::authenticate(&mut io, cfg).await?;
 
         // clear context before continue.
         io.clear_ctx();
@@ -92,9 +92,7 @@ where
     }
 }
 
-fn slice_iter<'a>(
-    s: &'a [&'a (dyn postgres_types::ToSql + Sync)],
-) -> impl ExactSizeIterator<Item = &'a dyn postgres_types::ToSql> + 'a {
+fn slice_iter<'a>(s: &'a [&(dyn ToSql + Sync)]) -> impl ExactSizeIterator<Item = &'a dyn ToSql> {
     s.iter().map(|s| *s as _)
 }
 
