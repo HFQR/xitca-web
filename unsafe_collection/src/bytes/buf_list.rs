@@ -73,24 +73,31 @@ impl<B: Buf, const LEN: usize> Buf for BufList<B, LEN> {
 
     #[inline]
     fn advance(&mut self, mut cnt: usize) {
-        debug_assert!(self.remaining >= cnt);
+        assert!(self.remaining >= cnt);
+
         self.remaining -= cnt;
-        while cnt > 0 {
-            {
-                let front = self
-                    .bufs
-                    .front_mut()
-                    .expect("BufList::advance must be called after BufList::chunks_vectored returns non zero length.");
-                let rem = front.remaining();
-                if rem > cnt {
-                    front.advance(cnt);
-                    return;
-                } else {
-                    front.advance(rem);
-                    cnt -= rem;
+
+        // SAFETY:
+        //
+        // cnt is always in range of self.remaining so there is at least one
+        // item in the buf list.
+        unsafe {
+            while cnt > 0 {
+                {
+                    let front = self.bufs.front_mut().unwrap_unchecked();
+
+                    let rem = front.remaining();
+                    if rem > cnt {
+                        front.advance(cnt);
+                        return;
+                    } else {
+                        front.advance(rem);
+                        cnt -= rem;
+                    }
                 }
+
+                self.bufs.pop_front().unwrap_unchecked();
             }
-            self.bufs.pop_front();
         }
     }
 

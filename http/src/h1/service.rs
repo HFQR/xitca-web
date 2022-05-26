@@ -1,9 +1,9 @@
 use std::future::Future;
 
 use futures_core::Stream;
-use tokio::pin;
 use xitca_io::io::AsyncIo;
 use xitca_service::{ready::ReadyService, Service};
+use xitca_unsafe_collection::pin;
 
 use crate::{
     bytes::Bytes,

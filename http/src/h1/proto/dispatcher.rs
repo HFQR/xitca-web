@@ -1,11 +1,13 @@
 use std::{future::Future, io, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures_core::stream::Stream;
-use tokio::pin;
 use tracing::trace;
 use xitca_io::io::{AsyncIo, AsyncWrite, Interest, Ready};
 use xitca_service::Service;
-use xitca_unsafe_collection::futures::{never, poll_fn, Select as _, SelectOutput};
+use xitca_unsafe_collection::{
+    futures::{never, poll_fn, Select as _, SelectOutput},
+    pin,
+};
 
 use crate::{
     body::{BodySize, Once},

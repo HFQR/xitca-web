@@ -5,6 +5,20 @@ use core::{
     task::{Context, Poll},
 };
 
+#[macro_export]
+macro_rules! pin {
+    ($($x:ident),* $(,)?) => { $(
+        // Move the value to ensure that it is owned
+        let mut $x = $x;
+        // Shadow the original binding so that it can't be directly accessed
+        // ever again.
+        #[allow(unused_mut)]
+        let mut $x = unsafe {
+            core::pin::Pin::new_unchecked(&mut $x)
+        };
+    )* }
+}
+
 #[inline]
 pub async fn never<T>() -> T {
     poll_fn(|_| Poll::Pending).await
@@ -122,7 +136,7 @@ mod test {
 
     #[test]
     fn test_select() {
-        let mut fut = async {
+        let fut = async {
             poll_fn(|cx| {
                 cx.waker().wake_by_ref();
                 Poll::<()>::Pending
@@ -132,7 +146,7 @@ mod test {
         }
         .select(async { 321 });
 
-        let fut = unsafe { Pin::new_unchecked(&mut fut) };
+        pin!(fut);
 
         let waker = Waker::from(Arc::new(DummyWaker));
 

@@ -10,37 +10,37 @@ use crate::{
 
 use super::{Extract, Inject};
 
-impl<'a, 'r, S, T, E> FromRequest<'a, WebRequest<'r, S>> for Result<T, E>
+impl<'a, 'r, S, T, E> Extract<'a, WebRequest<'r, S>> for Result<T, E>
 where
     S: 'static,
-    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, S>, Error = E>,
+    T: for<'a2, 'r2> Extract<'a2, WebRequest<'r2, S>, Error = E>,
 {
     type Type<'b> = Result<T, E>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
-        async { Ok(T::from_request(req).await) }
+    fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
+        async { Ok(T::extract(req).await) }
     }
 }
 
-impl<'a, 'r, S, T> FromRequest<'a, WebRequest<'r, S>> for Option<T>
+impl<'a, 'r, S, T> Extract<'a, WebRequest<'r, S>> for Option<T>
 where
     S: 'static,
-    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, S>>,
+    T: for<'a2, 'r2> Extract<'a2, WebRequest<'r2, S>>,
 {
     type Type<'b> = Option<T>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
-        async { Ok(T::from_request(req).await.ok()) }
+    fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
+        async { Ok(T::extract(req).await.ok()) }
     }
 }
 
-impl<'a, 'r, S> FromRequest<'a, WebRequest<'r, S>> for &'a WebRequest<'a, S>
+impl<'a, 'r, S> Extract<'a, WebRequest<'r, S>> for &'a WebRequest<'a, S>
 where
     S: 'static,
 {
@@ -50,7 +50,7 @@ where
 
     #[inline]
     fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
-        async move { Ok(&*req) }
+        async { Ok(&*req) }
     }
 }
 

@@ -2,9 +2,11 @@ use std::task::{Context, Poll};
 
 use futures_core::ready;
 use postgres_protocol::message::backend;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
-use xitca_unsafe_collection::futures::poll_fn;
+use xitca_unsafe_collection::{
+    futures::poll_fn,
+    spsc::{Receiver, Sender},
+};
 
 use super::error::Error;
 
@@ -13,12 +15,12 @@ pub struct Response {
     buf: BytesMut,
 }
 
-pub type ResponseSender = UnboundedSender<BytesMut>;
+pub type ResponseSender = Sender<BytesMut>;
 
-pub type ResponseReceiver = UnboundedReceiver<BytesMut>;
+pub type ResponseReceiver = Receiver<BytesMut>;
 
 impl Response {
-    pub(crate) fn new(rx: UnboundedReceiver<BytesMut>) -> Self {
+    pub(crate) fn new(rx: Receiver<BytesMut>) -> Self {
         Self {
             rx,
             buf: BytesMut::new(),

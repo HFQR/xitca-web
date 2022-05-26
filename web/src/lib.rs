@@ -35,7 +35,7 @@ pub mod codegen {
     ///     assert_eq!(*num, 996);
     /// }
     /// ```
-    pub use xitca_http_codegen::State;
+    pub use xitca_codegen::State;
 }
 
 pub mod route {

@@ -46,7 +46,12 @@ impl<const LIMIT: usize> Context<LIMIT> {
         while let Some(res) = ResponseMessage::try_from_buf(&mut self.buf)? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    let _ = self.res.front().expect("Out of bound must not happen").send(buf);
+                    // TODO: unbounded?
+                    self.res
+                        .front_mut()
+                        .expect("Out of bound must not happen")
+                        .try_send(buf)
+                        .expect("Response channel is overflown.");
 
                     if complete {
                         let _ = self.res.pop_front();
@@ -63,7 +68,12 @@ impl<const LIMIT: usize> Context<LIMIT> {
     pub(super) fn try_response_once(&mut self) -> Result<bool, Error> {
         match ResponseMessage::try_from_buf(&mut self.buf)? {
             Some(ResponseMessage::Normal { buf, complete }) => {
-                let _ = self.res.front().expect("Out of bound must not happen").send(buf);
+                self.res
+                    .front_mut()
+                    .expect("Out of bound must not happen")
+                    .try_send(buf)
+                    .expect("Response channel is overflown.");
+
                 if complete {
                     let _ = self.res.pop_front();
                 }

@@ -1,9 +1,9 @@
 use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
 
 use futures_core::Stream;
-use tokio::pin;
 use xitca_io::{io::AsyncIo, net::Stream as ServerStream, net::TcpStream};
 use xitca_service::{ready::ReadyService, Service};
+use xitca_unsafe_collection::pin;
 
 use super::{
     body::RequestBody,

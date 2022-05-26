@@ -5,7 +5,7 @@ use std::{borrow::Cow, error, fmt, iter, mem, str};
 use super::error::Error;
 
 /// Properties required of a session.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum TargetSessionAttrs {
     /// No special properties are required.
@@ -15,13 +15,13 @@ pub enum TargetSessionAttrs {
 }
 
 /// A host specification.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Host {
     /// A TCP hostname.
     Tcp(String),
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Config {
     pub(crate) user: Option<String>,
     pub(crate) password: Option<Vec<u8>>,
