@@ -124,6 +124,12 @@ impl<T> fmt::Debug for Sender<T> {
     }
 }
 
+impl<T> Drop for Sender<T> {
+    fn drop(&mut self) {
+        self.inner.waker.try_wake();
+    }
+}
+
 unsafe impl<T: Send> Send for Sender<T> {}
 
 unsafe impl<T: Send + Sync> Sync for Sender<T> {}
@@ -428,6 +434,8 @@ mod test {
     fn race() {
         let (mut tx, mut rx) = channel(1);
 
+        let (tx1, rx1) = tokio::sync::oneshot::channel::<()>();
+
         let h1 = std::thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
                 .build()
@@ -436,19 +444,26 @@ mod test {
                     for i in 0..1024 {
                         tx.send(i).await.unwrap();
                     }
+                    rx1.await.unwrap();
                 })
         });
 
         let h2 = std::thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
-                .enable_time()
                 .build()
                 .unwrap()
                 .block_on(async {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     for i in 0..1024 {
                         assert_eq!(rx.recv().await.unwrap(), i);
                     }
+
+                    let handle = tokio::spawn(async move { rx.recv().await });
+
+                    tokio::task::yield_now().await;
+
+                    tx1.send(()).unwrap();
+
+                    assert_eq!(handle.await.unwrap(), None);
                 })
         });
 
@@ -458,26 +473,34 @@ mod test {
 
     #[test]
     fn drop() {
-        let (tx, mut rx) = channel::<usize>(8);
+        let (mut tx, mut rx) = channel::<usize>(8);
 
         let waker = Waker::from(Arc::new(DummyWaker));
 
         let cx = &mut Context::from_waker(&waker);
 
         {
-            let mut tx = tx;
             let fut = tx.send(996);
             pin!(fut);
             assert!(fut.poll(cx).is_ready());
         }
 
         {
+            {
+                let fut = rx.recv();
+                pin!(fut);
+                match fut.poll(cx) {
+                    Poll::Ready(Some(i)) => assert_eq!(i, 996),
+                    _ => unreachable!(),
+                }
+            }
+
             let fut = rx.recv();
             pin!(fut);
-            match fut.poll(cx) {
-                Poll::Ready(Some(i)) => assert_eq!(i, 996),
-                _ => unreachable!(),
-            }
+
+            assert!(fut.poll(cx).is_pending());
+
+            let _tx = tx;
         }
 
         let fut = rx.recv();
