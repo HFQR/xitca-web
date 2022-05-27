@@ -25,7 +25,7 @@ pub async fn never<T>() -> T {
 }
 
 #[inline]
-pub fn poll_fn<T, F>(f: F) -> PollFn<F>
+pub const fn poll_fn<T, F>(f: F) -> PollFn<F>
 where
     F: FnMut(&mut Context<'_>) -> Poll<T>,
 {

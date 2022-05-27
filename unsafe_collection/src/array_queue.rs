@@ -103,7 +103,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         }
     }
 
-    fn front_idx(&self) -> usize {
+    const fn front_idx(&self) -> usize {
         if self.next >= self.len {
             self.next - self.len
         } else {
@@ -123,7 +123,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         Ok(())
     }
 
-    pub fn iter(&self) -> Iter<'_, T, N> {
+    pub const fn iter(&self) -> Iter<'_, T, N> {
         Iter {
             queue: self,
             tail: self.next,
