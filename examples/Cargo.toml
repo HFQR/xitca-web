@@ -47,7 +47,7 @@ anyhow = "1.0.48"
 bytes = "1"
 futures-util = "0.3"
 h3-quinn = "0.0.0"
-http = "0.2"
+http = "0.2.8"
 mimalloc = { version = "0.1.26", default-features = false }
 prost = "0.10.3"
 rustls = "0.20"
