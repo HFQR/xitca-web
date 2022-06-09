@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 //! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/).

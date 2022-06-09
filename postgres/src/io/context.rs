@@ -111,11 +111,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
                 }
             }
 
-            // SAFETY:
-            //
-            // This operation is safe. ArrayQueue::front_mut method was called at the beginning.
-            // When this line reached there must be at least one item in queue.
-            let req = unsafe { self.req.pop_front().unwrap_unchecked() };
+            let req = self.req.pop_front().unwrap();
 
             self.res.push_back(req.tx);
         }
