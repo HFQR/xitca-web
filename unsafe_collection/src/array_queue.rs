@@ -1,11 +1,11 @@
 //! A simple stack ring buffer with FIFO queue.
 
-use core::{fmt, mem::MaybeUninit};
+use core::fmt;
 
-use super::uninit::uninit_array;
+use super::uninit::UninitArray;
 
 pub struct ArrayQueue<T, const N: usize> {
-    inner: [MaybeUninit<T>; N],
+    inner: UninitArray<T, N>,
     next: usize,
     len: usize,
 }
@@ -13,7 +13,7 @@ pub struct ArrayQueue<T, const N: usize> {
 impl<T, const N: usize> ArrayQueue<T, N> {
     pub const fn new() -> Self {
         ArrayQueue {
-            inner: uninit_array(),
+            inner: UninitArray::new(),
             next: 0,
             len: 0,
         }
@@ -34,30 +34,6 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         self.len
     }
 
-    // SAFETY:
-    // caller must make sure given index is not out of bound and properly initialized.
-    unsafe fn read(&mut self, idx: usize) -> T {
-        self.inner.get_unchecked(idx).assume_init_read()
-    }
-
-    // SAFETY:
-    // caller must make sure given index is not out of bound and properly initialized.
-    unsafe fn get_unchecked(&self, idx: usize) -> &T {
-        self.inner.get_unchecked(idx).assume_init_ref()
-    }
-
-    // SAFETY:
-    // caller must make sure given index is not out of bound and properly initialized.
-    unsafe fn get_unchecked_mut(&mut self, idx: usize) -> &mut T {
-        self.inner.get_unchecked_mut(idx).assume_init_mut()
-    }
-
-    // SAFETY:
-    // caller must make sure given index is not out of bound.
-    unsafe fn write(&mut self, idx: usize, value: T) {
-        self.inner.get_unchecked_mut(idx).write(value);
-    }
-
     fn incr_tail_len(&mut self) {
         self.next += 1;
         self.len += 1;
@@ -73,7 +49,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         } else {
             let idx = self.front_idx();
 
-            Some(unsafe { self.get_unchecked(idx) })
+            Some(unsafe { self.inner.get_unchecked(idx) })
         }
     }
 
@@ -83,7 +59,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
         } else {
             let idx = self.front_idx();
 
-            Some(unsafe { self.get_unchecked_mut(idx) })
+            Some(unsafe { self.inner.get_unchecked_mut(idx) })
         }
     }
 
@@ -99,7 +75,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
             let idx = self.front_idx();
             self.len -= 1;
 
-            unsafe { Some(self.read(idx)) }
+            unsafe { Some(self.inner.read_unchecked(idx)) }
         }
     }
 
@@ -116,7 +92,7 @@ impl<T, const N: usize> ArrayQueue<T, N> {
             return Err(PushError(value));
         }
 
-        unsafe { self.write(self.next, value) };
+        unsafe { self.inner.write_unchecked(self.next, value) };
 
         self.incr_tail_len();
 
@@ -183,7 +159,7 @@ impl<'a, T, const N: usize> Iterator for Iter<'a, T, N> {
 
         self.len -= 1;
 
-        unsafe { Some(self.queue.get_unchecked(idx)) }
+        unsafe { Some(self.queue.inner.get_unchecked(idx)) }
     }
 
     #[inline]
