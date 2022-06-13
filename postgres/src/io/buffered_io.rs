@@ -49,8 +49,6 @@ where
         client.tx.send(req).await;
 
         loop {
-            self.rx.wait().await;
-
             if !self.rx.with_slice(|a, b| a.is_empty() && b.is_empty()) {
                 let _ = self.io.ready(Interest::WRITABLE).await?;
                 self.try_write()?;
@@ -105,7 +103,7 @@ where
         let res = self.rx.with_slice(|a, b| {
             let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
             let slice = iovs
-                .init_from(a.iter().chain(b.iter()))
+                .init_from(a.iter().chain(b))
                 .into_init_with(|req| io::IoSlice::new(req.msg.as_ref()));
 
             self.io.try_write_vectored(slice)
