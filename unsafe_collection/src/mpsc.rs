@@ -156,10 +156,10 @@ impl<T, const N: usize> AtomicArray<T, N> {
 
             match self
                 .len
-                .compare_exchange_weak(len, len + 1, Ordering::Acquire, Ordering::Relaxed)
+                .compare_exchange_weak(len, len + 1, Ordering::SeqCst, Ordering::Relaxed)
             {
                 Ok(_) => {
-                    let t = self.next.fetch_add(1, Ordering::Relaxed);
+                    let t = self.next.fetch_add(1, Ordering::SeqCst);
 
                     let idx = t % N;
 
@@ -169,7 +169,7 @@ impl<T, const N: usize> AtomicArray<T, N> {
                         self.get_inner_mut().write_unchecked(idx, value);
                     }
 
-                    fence(Ordering::Release);
+                    fence(Ordering::SeqCst);
 
                     return Ok(());
                 }
@@ -182,8 +182,8 @@ impl<T, const N: usize> AtomicArray<T, N> {
     where
         F: FnOnce(&[T], &[T]) -> O,
     {
-        let len = self.len.load(Ordering::Relaxed);
-        let idx = self.next.load(Ordering::Relaxed);
+        let len = self.len.load(Ordering::SeqCst);
+        let idx = self.next.load(Ordering::SeqCst);
 
         let tail = idx % N;
 
@@ -209,8 +209,8 @@ impl<T, const N: usize> AtomicArray<T, N> {
         F: FnMut(&mut T) -> bool,
     {
         loop {
-            let len = self.len.load(Ordering::Acquire);
-            let idx = self.next.load(Ordering::Relaxed);
+            let len = self.len.load(Ordering::SeqCst);
+            let idx = self.next.load(Ordering::SeqCst);
 
             let tail = idx % N;
 
@@ -223,13 +223,13 @@ impl<T, const N: usize> AtomicArray<T, N> {
                 let mut value = self.get_inner_mut().read_unchecked(head);
 
                 if func(&mut value) {
-                    self.len.fetch_sub(1, Ordering::Release);
+                    self.len.fetch_sub(1, Ordering::SeqCst);
                     if len == 1 {
                         return;
                     }
                 } else {
                     self.get_inner_mut().write_unchecked(head, value);
-                    fence(Ordering::Release);
+                    fence(Ordering::SeqCst);
                     return;
                 }
             }
