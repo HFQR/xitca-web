@@ -129,6 +129,9 @@ where
                         false
                     } else {
                         n -= rem;
+
+                        trace!("Advancing {} bytes from written bytes, remaining bytes {}", rem, n);
+
                         self.ctx.add_pending_res(req.tx.take().unwrap());
                         true
                     }
