@@ -103,44 +103,42 @@ where
     fn try_write(&mut self) -> Result<(), Error> {
         trace!("Starting write to IO.");
 
-        while !self.rx.is_empty() {
-            let res = self.rx.with_slice(|a, b| {
-                let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
-                let slice = iovs
-                    .init_from(a.iter().chain(b))
-                    .into_init_with(|req| io::IoSlice::new(req.msg.chunk()));
+        let res = self.rx.with_slice(|a, b| {
+            let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
+            let slice = iovs
+                .init_from(a.iter().chain(b))
+                .into_init_with(|req| io::IoSlice::new(req.msg.chunk()));
 
-                self.io.try_write_vectored(slice)
-            });
+            self.io.try_write_vectored(slice)
+        });
 
-            match res {
-                Ok(0) => return Err(Error::ConnectionClosed),
-                Ok(mut n) => {
-                    trace!("Successful written {} bytes to IO", n);
-                    self.rx.advance_until(|req| {
-                        let rem = req.msg.remaining();
+        match res {
+            Ok(0) => Err(Error::ConnectionClosed),
+            Ok(mut n) => {
+                trace!("Successful written {} bytes to IO", n);
+                self.rx.advance_until(|req| {
+                    let rem = req.msg.remaining();
 
-                        if rem > n {
-                            req.msg.advance(n);
+                    if rem > n {
+                        req.msg.advance(n);
 
-                            trace!("Partial IO write operation occur. Potential IO overhead");
+                        trace!("Partial IO write operation occur. Potential IO overhead");
 
-                            false
-                        } else {
-                            n -= rem;
+                        false
+                    } else {
+                        n -= rem;
 
-                            trace!("Advancing {} bytes from written bytes, remaining bytes {}", rem, n);
+                        trace!("Advancing {} bytes from written bytes, remaining bytes {}", rem, n);
 
-                            self.ctx.add_pending_res(req.tx.take().unwrap());
-                            true
-                        }
-                    });
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e.into()),
+                        self.ctx.add_pending_res(req.tx.take().unwrap());
+                        true
+                    }
+                });
+
+                Ok(())
             }
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),
+            Err(e) => Err(e.into()),
         }
-
-        Ok(())
     }
 }

@@ -8,11 +8,13 @@ use core::{
     pin::Pin,
     slice,
     sync::atomic::{fence, AtomicUsize, Ordering},
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 
 use alloc::sync::Arc;
 use cache_padded::CachePadded;
+
+use std::{collections::linked_list::LinkedList, sync::Mutex};
 
 use super::{
     futures::poll_fn,
@@ -22,8 +24,7 @@ use super::{
 
 pub fn async_array<T, const N: usize>() -> (Sender<T, N>, Receiver<T, N>) {
     let array = Arc::new(AsyncArray {
-        // TODO: this is wrong and sender waker need a collection of wakers.
-        sender_waker: AtomicWaker::new(),
+        sender_waker: Mutex::new(LinkedList::new()),
         receiver_waker: AtomicWaker::new(),
         array: AtomicArray::new(),
     });
@@ -58,7 +59,14 @@ impl<T, const N: usize> Sender<T, N> {
                         }
                         Err(value) => {
                             this.value = Some(value);
-                            this.sender.inner.sender_waker.register(cx.waker());
+
+                            let mut waiters = this.sender.inner.sender_waker.lock().unwrap();
+
+                            match waiters.iter_mut().find(|w| w.will_wake(cx.waker())) {
+                                Some(node) => *node = cx.waker().clone(),
+                                None => waiters.push_back(cx.waker().clone()),
+                            }
+
                             Poll::Pending
                         }
                     },
@@ -83,7 +91,6 @@ impl<T, const N: usize> Receiver<T, N> {
     /// wait for items to be available.
     pub fn wait(&mut self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
-            self.inner.sender_waker.wake();
             if self.is_empty() {
                 self.inner.receiver_waker.register(cx.waker());
                 Poll::Pending
@@ -119,11 +126,26 @@ impl<T, const N: usize> Receiver<T, N> {
         F: FnMut(&mut T) -> bool,
     {
         self.inner.array.advance_until(func);
+
+        let free = N - self.with_slice(|a, b| a.len() + b.len());
+
+        {
+            let mut waiters = self.inner.sender_waker.lock().unwrap();
+
+            for _ in 0..free {
+                if let Some(waker) = waiters.pop_front() {
+                    waker.wake();
+                } else {
+                    break;
+                }
+            }
+        }
     }
 }
 
 struct AsyncArray<T, const N: usize> {
-    sender_waker: AtomicWaker,
+    // TODO: use a more efficient list.
+    sender_waker: Mutex<LinkedList<Waker>>,
     receiver_waker: AtomicWaker,
     array: AtomicArray<T, N>,
 }
