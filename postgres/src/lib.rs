@@ -82,9 +82,9 @@ where
         let cfg = Config::try_from(self.cfg)?;
         let io = connect::connect(&cfg).await?;
 
-        let (cli, mut io) = io::buffered_io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io, self.backlog);
+        let (cli, mut io) = io::buffered_io::BufferedIo::<_, BATCH_LIMIT>::new_pair(io);
 
-        connect::authenticate(&mut io, cfg).await?;
+        connect::authenticate(&cli, &mut io, cfg).await?;
 
         // clear context before continue.
         io.clear_ctx();

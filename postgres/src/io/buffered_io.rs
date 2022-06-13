@@ -1,13 +1,13 @@
 use std::{io, pin::Pin};
 
-use tokio::sync::mpsc::{channel, Receiver};
 use xitca_io::{
-    bytes::BytesMut,
+    bytes::{Buf, BytesMut},
     io::{AsyncIo, AsyncWrite, Interest},
 };
 use xitca_unsafe_collection::{
-    futures::{never, poll_fn, Select as _, SelectOutput},
-    uninit,
+    futures::{poll_fn, Select as _, SelectOutput},
+    mpsc::{async_array, Receiver},
+    uninit::{self, PartialInit},
 };
 
 use crate::{client::Client, error::Error, request::Request, response::Response};
@@ -16,7 +16,7 @@ use super::context::Context;
 
 pub struct BufferedIo<Io, const BATCH_LIMIT: usize> {
     io: Io,
-    rx: Receiver<Request>,
+    rx: Receiver<Request, 20>,
     ctx: Context<BATCH_LIMIT>,
 }
 
@@ -24,17 +24,17 @@ impl<Io, const BATCH_LIMIT: usize> BufferedIo<Io, BATCH_LIMIT>
 where
     Io: AsyncIo,
 {
-    pub fn new_pair(io: Io, backlog: usize) -> (Client, Self) {
+    pub fn new_pair(io: Io) -> (Client, Self) {
         let ctx = Context::<BATCH_LIMIT>::new();
 
-        let (tx, rx) = channel(backlog);
+        let (tx, rx) = async_array();
 
         (Client::new(tx), Self { io, rx, ctx })
     }
 
     // send request in self blocking manner. this call would not utilize concurrent read/write nor
     // pipeline/batch. A single response is returned.
-    pub async fn linear_request<F>(&mut self, encoder: F) -> Result<Response, Error>
+    pub async fn linear_request<F>(&mut self, client: &Client, encoder: F) -> Result<Response, Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
@@ -46,14 +46,16 @@ where
 
         let (req, res) = Request::new_pair(msg);
 
-        self.ctx.push_req(req);
-
-        while !self.ctx.req_is_empty() {
-            let _ = self.io.ready(Interest::WRITABLE).await?;
-            self.try_write()?;
-        }
+        client.tx.send(req).await;
 
         loop {
+            self.rx.wait().await;
+
+            if !self.rx.with_slice(|a, b| a.is_empty() && b.is_empty()) {
+                let _ = self.io.ready(Interest::WRITABLE).await?;
+                self.try_write()?;
+            }
+
             let _ = self.io.ready(Interest::READABLE).await?;
             self.try_read()?;
 
@@ -69,37 +71,27 @@ where
 
     pub async fn run(mut self) -> Result<(), Error> {
         loop {
-            match try_rx(&mut self.rx, &self.ctx)
-                .select(try_io(&mut self.io, &self.ctx))
-                .await
-            {
-                // batch message and keep polling.
-                SelectOutput::A(Some(msg)) => self.ctx.push_req(msg),
-                // client is gone.
-                SelectOutput::A(None) => break,
-                SelectOutput::B(ready) => {
-                    let ready = ready?;
+            let ready = match self.rx.wait().select(self.io.ready(Interest::READABLE)).await {
+                SelectOutput::A(_) => self.io.ready(Interest::READABLE | Interest::WRITABLE).await?,
+                SelectOutput::B(ready) => ready?,
+            };
 
-                    if ready.is_readable() {
-                        self.try_read()?;
-                        self.ctx.try_response()?;
-                    }
+            if ready.is_readable() {
+                self.try_read()?;
+                self.ctx.try_response()?;
+            }
 
-                    if ready.is_writable() {
-                        self.try_write()?;
-                        poll_fn(|cx| AsyncWrite::poll_flush(Pin::new(&mut self.io), cx)).await?;
-                    }
-                }
+            if ready.is_writable() {
+                self.try_write()?;
+                poll_fn(|cx| AsyncWrite::poll_flush(Pin::new(&mut self.io), cx)).await?;
             }
         }
-
-        Ok(())
     }
 
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
         loop {
-            match self.io.try_read_buf(&mut self.ctx.buf) {
+            match self.io.try_read_buf(self.ctx.buf_mut()) {
                 Ok(0) => return Err(Error::ConnectionClosed),
                 Ok(_) => continue,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
@@ -110,40 +102,35 @@ where
 
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
-        while !self.ctx.req_is_empty() {
+        let res = self.rx.with_slice(|a, b| {
             let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
+            let slice = iovs
+                .init_from(a.iter().chain(b.iter()))
+                .into_init_with(|req| io::IoSlice::new(req.msg.as_ref()));
 
-            let slice = self.ctx.chunks_vectored(&mut iovs);
+            self.io.try_write_vectored(slice)
+        });
 
-            match self.io.try_write_vectored(slice) {
-                Ok(0) => return Err(Error::ConnectionClosed),
-                Ok(n) => self.ctx.advance(n),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e.into()),
+        match res {
+            Ok(0) => return Err(Error::ConnectionClosed),
+            Ok(mut n) => {
+                self.rx.advance_until(|req| {
+                    let rem = req.msg.remaining();
+
+                    if rem > n {
+                        req.msg.advance(n);
+                        false
+                    } else {
+                        n -= rem;
+                        self.ctx.add_pending_res(req.tx.take().unwrap());
+                        true
+                    }
+                });
+
+                Ok(())
             }
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(e) => return Err(e.into()),
         }
-
-        Ok(())
     }
-}
-
-async fn try_rx<const BATCH_LIMIT: usize>(rx: &mut Receiver<Request>, ctx: &Context<BATCH_LIMIT>) -> Option<Request> {
-    if ctx.req_is_full() {
-        never().await
-    } else {
-        rx.recv().await
-    }
-}
-
-fn try_io<'i, Io, const BATCH_LIMIT: usize>(io: &'i mut Io, ctx: &'i Context<BATCH_LIMIT>) -> Io::ReadyFuture<'i>
-where
-    Io: AsyncIo,
-{
-    let interest = if ctx.req_is_empty() {
-        Interest::READABLE
-    } else {
-        Interest::READABLE | Interest::WRITABLE
-    };
-
-    io.ready(interest)
 }

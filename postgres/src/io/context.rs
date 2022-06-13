@@ -1,45 +1,36 @@
-use std::{collections::VecDeque, io::IoSlice, mem::MaybeUninit};
+use std::collections::VecDeque;
 
-use xitca_io::bytes::{Buf, BytesMut};
-use xitca_unsafe_collection::{array_queue::ArrayQueue, uninit::PartialInit};
+use xitca_io::bytes::BytesMut;
 
 use crate::{
     error::Error,
-    request::Request,
     response::{ResponseMessage, ResponseSender},
 };
 
 pub(super) struct Context<const LIMIT: usize> {
-    req: ArrayQueue<Request, LIMIT>,
     res: VecDeque<ResponseSender>,
-    pub buf: BytesMut,
+    buf: BytesMut,
 }
 
 impl<const LIMIT: usize> Context<LIMIT> {
     pub(super) fn new() -> Self {
         Self {
-            req: ArrayQueue::new(),
             res: VecDeque::with_capacity(LIMIT * 2),
             buf: BytesMut::new(),
         }
     }
 
-    pub(super) const fn req_is_full(&self) -> bool {
-        self.req.is_full()
-    }
-
-    pub(super) const fn req_is_empty(&self) -> bool {
-        self.req.is_empty()
-    }
-
-    pub(super) fn push_req(&mut self, req: Request) {
-        self.req.push_back(req).expect("Out of bound must not happen.");
-    }
-
     pub(super) fn clear(&mut self) {
-        self.req.clear();
         self.res.clear();
         self.buf.clear();
+    }
+
+    pub(super) fn buf_mut(&mut self) -> &mut BytesMut {
+        &mut self.buf
+    }
+
+    pub(super) fn add_pending_res(&mut self, tx: ResponseSender) {
+        self.res.push_back(tx);
     }
 
     pub(super) fn try_response(&mut self) -> Result<(), Error> {
@@ -81,39 +72,6 @@ impl<const LIMIT: usize> Context<LIMIT> {
             }
             Some(ResponseMessage::Async(_)) => unreachable!("async message handling is not implemented"),
             None => Ok(false),
-        }
-    }
-
-    // fill given &mut [MaybeUninit<IoSlice>] with Request's msg bytes and return the initialized
-    // slice.
-    pub(super) fn chunks_vectored<'a>(&'a self, dst: &'a mut [MaybeUninit<IoSlice<'a>>]) -> &[IoSlice<'a>] {
-        dst.init_from(self.req.iter())
-            .into_init_with(|req| IoSlice::new(req.msg.chunk()))
-    }
-
-    // remove requests that are sent and move the their tx fields to res queue.
-    pub(super) fn advance(&mut self, mut cnt: usize) {
-        while cnt > 0 {
-            {
-                let front = self
-                    .req
-                    .front_mut()
-                    .expect("Context::advance MUST be called when request is not empty");
-
-                let rem = front.msg.remaining();
-
-                if rem > cnt {
-                    // partial message sent. advance and return.
-                    front.msg.advance(cnt);
-                    return;
-                } else {
-                    cnt -= rem;
-                }
-            }
-
-            let req = self.req.pop_front().unwrap();
-
-            self.res.push_back(req.tx);
         }
     }
 }
