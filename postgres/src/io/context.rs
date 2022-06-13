@@ -39,7 +39,7 @@ impl<const LIMIT: usize> Context<LIMIT> {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
                     trace!(
-                        "New response message. length: {}. is_complete: {}",
+                        "New response message. length: {:?}. is_complete: {}",
                         buf.as_ref(),
                         complete
                     );
