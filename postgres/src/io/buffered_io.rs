@@ -17,7 +17,7 @@ use super::context::Context;
 
 pub struct BufferedIo<Io, const BATCH_LIMIT: usize> {
     io: Io,
-    rx: Receiver<Request, 20>,
+    rx: Receiver<Request, 32>,
     ctx: Context<BATCH_LIMIT>,
 }
 

@@ -7,7 +7,7 @@ use xitca_unsafe_collection::{mpsc::Sender, no_hash::NoHashBuilder};
 use super::{error::Error, request::Request, response::Response, statement::Statement};
 
 pub struct Client {
-    pub(crate) tx: Sender<Request, 20>,
+    pub(crate) tx: Sender<Request, 32>,
     pub(crate) buf: Mutex<BytesMut>,
     cached_typeinfo: Mutex<CachedTypeInfo>,
 }
@@ -32,7 +32,7 @@ struct CachedTypeInfo {
 }
 
 impl Client {
-    pub(crate) fn new(tx: Sender<Request, 20>) -> Self {
+    pub(crate) fn new(tx: Sender<Request, 32>) -> Self {
         Self {
             tx,
             buf: Mutex::new(BytesMut::new()),
