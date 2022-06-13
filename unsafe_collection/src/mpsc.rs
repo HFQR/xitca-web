@@ -83,6 +83,7 @@ impl<T, const N: usize> Receiver<T, N> {
     /// wait for items to be available.
     pub fn wait(&mut self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
+            self.inner.sender_waker.wake();
             if self.is_empty() {
                 self.inner.receiver_waker.register(cx.waker());
                 Poll::Pending
@@ -118,7 +119,6 @@ impl<T, const N: usize> Receiver<T, N> {
         F: FnMut(&mut T) -> bool,
     {
         self.inner.array.advance_until(func);
-        self.inner.sender_waker.wake();
     }
 }
 
@@ -208,13 +208,9 @@ impl<T, const N: usize> AtomicArray<T, N> {
     where
         F: FnMut(&mut T) -> bool,
     {
+        let mut len = self.len.load(Ordering::Acquire);
+
         loop {
-            let len = self.len.load(Ordering::Acquire);
-
-            if len == 0 {
-                return;
-            }
-
             let idx = self.next.load(Ordering::Relaxed);
 
             let tail = idx % N;
@@ -228,7 +224,11 @@ impl<T, const N: usize> AtomicArray<T, N> {
                 let mut value = self.get_inner_mut().read_unchecked(head);
 
                 if func(&mut value) {
-                    self.len.fetch_sub(1, Ordering::Release);
+                    len = self.len.fetch_sub(1, Ordering::AcqRel) - 1;
+
+                    if len == 0 {
+                        return;
+                    }
                 } else {
                     self.get_inner_mut().write_unchecked(head, value);
                     fence(Ordering::Release);
