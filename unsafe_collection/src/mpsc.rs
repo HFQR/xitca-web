@@ -210,6 +210,11 @@ impl<T, const N: usize> AtomicArray<T, N> {
     {
         loop {
             let len = self.len.load(Ordering::Acquire);
+
+            if len == 0 {
+                return;
+            }
+
             let idx = self.next.load(Ordering::Relaxed);
 
             let tail = idx % N;
@@ -224,9 +229,6 @@ impl<T, const N: usize> AtomicArray<T, N> {
 
                 if func(&mut value) {
                     self.len.fetch_sub(1, Ordering::Release);
-                    if len == 1 {
-                        return;
-                    }
                 } else {
                     self.get_inner_mut().write_unchecked(head, value);
                     fence(Ordering::Release);
