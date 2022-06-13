@@ -39,21 +39,19 @@ where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
         let mut buf = BytesMut::new();
-
         encoder(&mut buf)?;
-
         let msg = buf.freeze();
 
         let (req, res) = Request::new_pair(msg);
 
         client.tx.send(req).await;
 
-        loop {
-            if !self.rx.with_slice(|a, b| a.is_empty() && b.is_empty()) {
-                let _ = self.io.ready(Interest::WRITABLE).await?;
-                self.try_write()?;
-            }
+        while !self.rx.is_empty() {
+            let _ = self.io.ready(Interest::WRITABLE).await?;
+            self.try_write()?;
+        }
 
+        loop {
             let _ = self.io.ready(Interest::READABLE).await?;
             self.try_read()?;
 
@@ -112,14 +110,15 @@ where
         match res {
             Ok(0) => return Err(Error::ConnectionClosed),
             Ok(mut n) => {
+                let n = &mut n;
                 self.rx.advance_until(|req| {
                     let rem = req.msg.remaining();
 
-                    if rem > n {
-                        req.msg.advance(n);
+                    if rem > *n {
+                        req.msg.advance(*n);
                         false
                     } else {
-                        n -= rem;
+                        *n -= rem;
                         self.ctx.add_pending_res(req.tx.take().unwrap());
                         true
                     }

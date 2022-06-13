@@ -83,13 +83,18 @@ impl<T, const N: usize> Receiver<T, N> {
     /// wait for items to be available.
     pub fn wait(&mut self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
-            if self.with_slice(|a, b| a.is_empty() && b.is_empty()) {
+            if self.is_empty() {
                 self.inner.receiver_waker.register(cx.waker());
                 Poll::Pending
             } else {
                 Poll::Ready(())
             }
         })
+    }
+
+    #[inline]
+    pub fn is_empty(&mut self) -> bool {
+        self.with_slice(|a, b| a.is_empty() && b.is_empty())
     }
 
     /// peek into the available items inside array.
