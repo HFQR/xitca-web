@@ -1,5 +1,6 @@
 use std::{io, pin::Pin};
 
+use tracing::trace;
 use xitca_io::{
     bytes::{Buf, BytesMut},
     io::{AsyncIo, AsyncWrite, Interest},
@@ -86,6 +87,8 @@ where
 
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
+        trace!("Starting read from IO.");
+
         loop {
             match self.io.try_read_buf(self.ctx.buf_mut()) {
                 Ok(0) => return Err(Error::ConnectionClosed),
@@ -98,27 +101,34 @@ where
 
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
+        trace!("Starting write to IO.");
+
+        assert!(!self.rx.is_empty());
+
         let res = self.rx.with_slice(|a, b| {
             let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
             let slice = iovs
                 .init_from(a.iter().chain(b))
-                .into_init_with(|req| io::IoSlice::new(req.msg.as_ref()));
+                .into_init_with(|req| io::IoSlice::new(req.msg.chunk()));
 
             self.io.try_write_vectored(slice)
         });
 
         match res {
-            Ok(0) => return Err(Error::ConnectionClosed),
+            Ok(0) => Err(Error::ConnectionClosed),
             Ok(mut n) => {
-                let n = &mut n;
+                trace!("Successful written {} bytes to IO", n);
                 self.rx.advance_until(|req| {
                     let rem = req.msg.remaining();
 
-                    if rem > *n {
-                        req.msg.advance(*n);
+                    if rem > n {
+                        req.msg.advance(n);
+
+                        trace!("Partial IO write operation occur. Potential IO overhead");
+
                         false
                     } else {
-                        *n -= rem;
+                        n -= rem;
                         self.ctx.add_pending_res(req.tx.take().unwrap());
                         true
                     }
@@ -126,8 +136,8 @@ where
 
                 Ok(())
             }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-            Err(e) => return Err(e.into()),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),
+            Err(e) => Err(e.into()),
         }
     }
 }
