@@ -1,14 +1,13 @@
 use std::{collections::HashMap, sync::Mutex};
 
 use postgres_types::{Oid, Type};
-use tokio::sync::mpsc::Sender;
 use xitca_io::bytes::{Bytes, BytesMut};
-use xitca_unsafe_collection::no_hash::NoHashBuilder;
+use xitca_unsafe_collection::{channel::mpsc::Sender, no_hash::NoHashBuilder};
 
 use super::{error::Error, request::Request, response::Response, statement::Statement};
 
 pub struct Client {
-    pub(crate) tx: Sender<Request>,
+    pub(crate) tx: Sender<Request, 32>,
     pub(crate) buf: Mutex<BytesMut>,
     cached_typeinfo: Mutex<CachedTypeInfo>,
 }
@@ -33,7 +32,7 @@ struct CachedTypeInfo {
 }
 
 impl Client {
-    pub(crate) fn new(tx: Sender<Request>) -> Self {
+    pub(crate) fn new(tx: Sender<Request, 32>) -> Self {
         Self {
             tx,
             buf: Mutex::new(BytesMut::new()),
@@ -47,13 +46,15 @@ impl Client {
     }
 
     pub fn closed(&self) -> bool {
-        self.tx.is_closed()
+        // self.tx.is_closed()
+        // TODO: fix sender close condition.
+        false
     }
 
     pub(crate) async fn send(&self, msg: Bytes) -> Result<Response, Error> {
         let (req, res) = Request::new_pair(msg);
 
-        self.tx.send(req).await.map_err(|_| Error::ConnectionClosed)?;
+        self.tx.send(req).await;
 
         Ok(res)
     }

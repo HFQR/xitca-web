@@ -4,7 +4,7 @@ use postgres_protocol::{
 };
 use xitca_io::{io::AsyncIo, net::TcpStream};
 
-use crate::io::buffered_io::BufferedIo;
+use crate::{client::Client, io::buffered_io::BufferedIo};
 
 use super::{config::Config, error::Error, response::Response};
 
@@ -38,6 +38,7 @@ pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
 #[cold]
 #[inline(never)]
 pub(crate) async fn authenticate<Io, const BATCH_LIMIT: usize>(
+    client: &Client,
     io: &mut BufferedIo<Io, BATCH_LIMIT>,
     cfg: Config,
 ) -> Result<(), Error>
@@ -59,21 +60,23 @@ where
     }
 
     let mut res = io
-        .linear_request(|buf| frontend::startup_message(params, buf).map_err(|_| Error::ToDo))
+        .linear_request(client, |buf| {
+            frontend::startup_message(params, buf).map_err(|_| Error::ToDo)
+        })
         .await?;
 
     match res.recv().await? {
         backend::Message::AuthenticationOk => {}
         backend::Message::AuthenticationCleartextPassword => {
             let pass = cfg.get_password().unwrap();
-            password(&mut res, io, pass).await?
+            password(client, &mut res, io, pass).await?
         }
         backend::Message::AuthenticationMd5Password(body) => {
             let user = cfg.get_user().unwrap().as_bytes();
             let pass = cfg.get_password().unwrap();
             let pass = authentication::md5_hash(user, pass, body.salt());
 
-            password(&mut res, io, pass).await?
+            password(client, &mut res, io, pass).await?
         }
         _ => {}
     };
@@ -89,6 +92,7 @@ where
 #[cold]
 #[inline(never)]
 async fn password<Io, P, const BATCH_LIMIT: usize>(
+    client: &Client,
     res: &mut Response,
     io: &mut BufferedIo<Io, BATCH_LIMIT>,
     pass: P,
@@ -98,11 +102,13 @@ where
     P: AsRef<[u8]>,
 {
     let _ = io
-        .linear_request(|buf| frontend::password_message(pass.as_ref(), buf).map_err(|_| Error::ToDo))
+        .linear_request(client, |buf| {
+            frontend::password_message(pass.as_ref(), buf).map_err(|_| Error::ToDo)
+        })
         .await?;
 
     match res.recv().await? {
-        backend::Message::AuthenticationOk => println!("authenticated successful"),
+        backend::Message::AuthenticationOk => tracing::trace!("authenticated successful"),
         _ => panic!("password authentication failed"),
     }
 

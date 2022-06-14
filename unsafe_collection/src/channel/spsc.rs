@@ -19,7 +19,7 @@ use alloc::{sync::Arc, vec::Vec};
 
 use cache_padded::CachePadded;
 
-use super::futures::poll_fn;
+use crate::futures::poll_fn;
 
 struct Inner<T> {
     head: CachePadded<AtomicUsize>,

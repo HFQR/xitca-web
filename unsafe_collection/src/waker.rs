@@ -66,9 +66,6 @@ impl AtomicWaker {
     }
 
     fn take(&self) -> Option<Waker> {
-        // AcqRel ordering is used in order to acquire the value of the `task`
-        // cell as well as to establish a `release` ordering with whatever
-        // memory the `AtomicWaker` is associated with.
         match self.state.fetch_or(WAKING, Ordering::AcqRel) {
             WAITING => {
                 let waker = unsafe { (*self.waker.get()).take() };

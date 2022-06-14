@@ -8,22 +8,24 @@ use core::{
     pin::Pin,
     slice,
     sync::atomic::{fence, AtomicUsize, Ordering},
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 
 use alloc::sync::Arc;
 use cache_padded::CachePadded;
 
-use super::{
+use std::{collections::linked_list::LinkedList, sync::Mutex};
+
+use crate::{
     futures::poll_fn,
     uninit::{self, UninitArray},
     waker::AtomicWaker,
 };
 
+/// An async array that act in mpsc manner. There can be multiple `Sender`s and one `Receiver`.
 pub fn async_array<T, const N: usize>() -> (Sender<T, N>, Receiver<T, N>) {
     let array = Arc::new(AsyncArray {
-        // TODO: this is wrong and sender waker need a collection of wakers.
-        sender_waker: AtomicWaker::new(),
+        sender_waker: Mutex::new(LinkedList::new()),
         receiver_waker: AtomicWaker::new(),
         array: AtomicArray::new(),
     });
@@ -58,7 +60,16 @@ impl<T, const N: usize> Sender<T, N> {
                         }
                         Err(value) => {
                             this.value = Some(value);
-                            this.sender.inner.sender_waker.register(cx.waker());
+
+                            let mut waiters = this.sender.inner.sender_waker.lock().unwrap();
+
+                            let waker = cx.waker().clone();
+                            if let Some(node) = waiters.iter_mut().find(|w| w.will_wake(cx.waker())) {
+                                *node = waker;
+                            } else {
+                                waiters.push_back(waker);
+                            }
+
                             Poll::Pending
                         }
                     },
@@ -79,17 +90,33 @@ pub struct Receiver<T, const N: usize> {
     inner: Arc<AsyncArray<T, N>>,
 }
 
+impl<T, const N: usize> Drop for Receiver<T, N> {
+    fn drop(&mut self) {
+        let mut waiters = self.inner.sender_waker.lock().unwrap();
+
+        while let Some(waker) = waiters.pop_front() {
+            waker.wake();
+        }
+    }
+}
+
 impl<T, const N: usize> Receiver<T, N> {
     /// wait for items to be available.
+    /// When this future yields the receiver can peek into the array and advance it.
     pub fn wait(&mut self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
-            if self.with_slice(|a, b| a.is_empty() && b.is_empty()) {
+            if self.is_empty() {
                 self.inner.receiver_waker.register(cx.waker());
                 Poll::Pending
             } else {
                 Poll::Ready(())
             }
         })
+    }
+
+    #[inline]
+    pub fn is_empty(&mut self) -> bool {
+        self.with_slice(|a, b| a.is_empty() && b.is_empty())
     }
 
     /// peek into the available items inside array.
@@ -107,18 +134,27 @@ impl<T, const N: usize> Receiver<T, N> {
     }
 
     /// Advance the array by iterate the array and pop drop items when given closure returns `true`.
-    #[inline]
     pub fn advance_until<F>(&mut self, func: F)
     where
         F: FnMut(&mut T) -> bool,
     {
-        self.inner.array.advance_until(func);
-        self.inner.sender_waker.wake();
+        let count = self.inner.array.advance_until(func);
+
+        let mut waiters = self.inner.sender_waker.lock().unwrap();
+
+        for _ in 0..count {
+            if let Some(waker) = waiters.pop_front() {
+                waker.wake();
+            } else {
+                return;
+            }
+        }
     }
 }
 
 struct AsyncArray<T, const N: usize> {
-    sender_waker: AtomicWaker,
+    // TODO: use a more efficient list.
+    sender_waker: Mutex<LinkedList<Waker>>,
     receiver_waker: AtomicWaker,
     array: AtomicArray<T, N>,
 }
@@ -127,6 +163,14 @@ struct AtomicArray<T, const N: usize> {
     inner: UnsafeCell<UninitArray<T, N>>,
     next: CachePadded<AtomicUsize>,
     len: CachePadded<AtomicUsize>,
+}
+
+impl<T, const N: usize> Drop for AtomicArray<T, N> {
+    fn drop(&mut self) {
+        while self.len.load(Ordering::Relaxed) > 0 {
+            self.advance_until(|_| true);
+        }
+    }
 }
 
 unsafe impl<T, const N: usize> Send for AtomicArray<T, N> where T: Send {}
@@ -199,12 +243,15 @@ impl<T, const N: usize> AtomicArray<T, N> {
         }
     }
 
-    fn advance_until<F>(&self, mut func: F)
+    fn advance_until<F>(&self, mut func: F) -> usize
     where
         F: FnMut(&mut T) -> bool,
     {
+        let mut count = 0;
+
+        let mut len = self.len.load(Ordering::Acquire);
+
         loop {
-            let len = self.len.load(Ordering::Acquire);
             let idx = self.next.load(Ordering::Relaxed);
 
             let tail = idx % N;
@@ -218,14 +265,17 @@ impl<T, const N: usize> AtomicArray<T, N> {
                 let mut value = self.get_inner_mut().read_unchecked(head);
 
                 if func(&mut value) {
-                    self.len.fetch_sub(1, Ordering::Release);
-                    if len == 1 {
-                        return;
+                    count += 1;
+
+                    len = self.len.fetch_sub(1, Ordering::AcqRel) - 1;
+
+                    if len == 0 {
+                        return count;
                     }
                 } else {
                     self.get_inner_mut().write_unchecked(head, value);
                     fence(Ordering::Release);
-                    return;
+                    return count;
                 }
             }
         }
@@ -304,7 +354,7 @@ mod test {
             assert_eq!(b, &[]);
         });
 
-        array.advance_until(|i| *i != 3);
+        let _ = array.advance_until(|i| *i != 3);
 
         array.with_slice(|a, b| {
             assert_eq!(a, &[3]);
