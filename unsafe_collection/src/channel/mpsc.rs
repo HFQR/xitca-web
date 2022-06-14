@@ -369,6 +369,22 @@ mod test {
         });
     }
 
+    #[test]
+    fn drop() {
+        let counter = Arc::new(());
+
+        {
+            let array = AtomicArray::<_, 3>::new();
+
+            assert!(array.push_back(counter.clone()).is_ok());
+            assert!(array.push_back(counter.clone()).is_ok());
+
+            assert_eq!(Arc::strong_count(&counter), 3);
+        }
+
+        assert_eq!(Arc::strong_count(&counter), 1);
+    }
+
     struct DummyWaker;
 
     impl Wake for DummyWaker {
