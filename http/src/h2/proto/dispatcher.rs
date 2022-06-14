@@ -94,7 +94,7 @@ where
             on_flight: false,
             keep_alive: keep_alive.as_mut(),
             ping_pong,
-            date: &*date,
+            date,
             ka_dur,
         };
 

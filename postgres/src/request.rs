@@ -1,5 +1,5 @@
 use xitca_io::bytes::Bytes;
-use xitca_unsafe_collection::spsc::channel;
+use xitca_unsafe_collection::channel::spsc::channel;
 
 use super::{response::Response, response::ResponseSender};
 

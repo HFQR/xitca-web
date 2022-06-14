@@ -76,7 +76,7 @@ impl<'a> WebSocket<'a> {
     /// message to websocket connection.
     #[inline]
     pub fn split<'s>(&'s self) -> (WebSocketSink<'s, 'a>, WebSocketReader<'s, 'a>) {
-        (WebSocketSink(&*self), WebSocketReader(&*self))
+        (WebSocketSink(self), WebSocketReader(self))
     }
 
     /// Set max message size.

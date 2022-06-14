@@ -16,7 +16,7 @@ use cache_padded::CachePadded;
 
 use std::{collections::linked_list::LinkedList, sync::Mutex};
 
-use super::{
+use crate::{
     futures::poll_fn,
     uninit::{self, UninitArray},
     waker::AtomicWaker,
@@ -163,6 +163,14 @@ struct AtomicArray<T, const N: usize> {
     inner: UnsafeCell<UninitArray<T, N>>,
     next: CachePadded<AtomicUsize>,
     len: CachePadded<AtomicUsize>,
+}
+
+impl<T, const N: usize> Drop for AtomicArray<T, N> {
+    fn drop(&mut self) {
+        while self.len.load(Ordering::Relaxed) > 0 {
+            self.advance_until(|_| true);
+        }
+    }
 }
 
 unsafe impl<T, const N: usize> Send for AtomicArray<T, N> where T: Send {}

@@ -6,10 +6,9 @@
 pub mod array_queue;
 #[cfg(feature = "bytes")]
 pub mod bytes;
+pub mod channel;
 pub mod futures;
-pub mod mpsc;
 pub mod no_hash;
-pub mod spsc;
 pub mod uninit;
 
 mod waker;

@@ -5,8 +5,8 @@ use xitca_io::{
     io::{AsyncIo, AsyncWrite, Interest},
 };
 use xitca_unsafe_collection::{
+    channel::mpsc::{async_array, Receiver},
     futures::{poll_fn, Select as _, SelectOutput},
-    mpsc::{async_array, Receiver},
     uninit::{self, PartialInit},
 };
 

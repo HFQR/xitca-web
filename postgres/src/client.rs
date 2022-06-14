@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use postgres_types::{Oid, Type};
 use xitca_io::bytes::{Bytes, BytesMut};
-use xitca_unsafe_collection::{mpsc::Sender, no_hash::NoHashBuilder};
+use xitca_unsafe_collection::{channel::mpsc::Sender, no_hash::NoHashBuilder};
 
 use super::{error::Error, request::Request, response::Response, statement::Statement};
 
