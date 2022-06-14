@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 
-use tracing::trace;
 use xitca_io::bytes::BytesMut;
 
 use crate::{
@@ -38,12 +37,6 @@ impl<const LIMIT: usize> Context<LIMIT> {
         while let Some(res) = ResponseMessage::try_from_buf(&mut self.buf)? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    trace!(
-                        "New response message. length: {:?}. is_complete: {}",
-                        buf.as_ref().len(),
-                        complete
-                    );
-
                     // TODO: unbounded?
                     self.res
                         .front_mut()

@@ -1,6 +1,5 @@
 use std::{io, pin::Pin};
 
-use tracing::trace;
 use xitca_io::{
     bytes::{Buf, BytesMut},
     io::{AsyncIo, AsyncWrite, Interest},
@@ -87,8 +86,6 @@ where
 
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
-        trace!("Starting read from IO.");
-
         loop {
             match self.io.try_read_buf(self.ctx.buf_mut()) {
                 Ok(0) => return Err(Error::ConnectionClosed),
@@ -101,8 +98,6 @@ where
 
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
-        trace!("Starting write to IO.");
-
         let res = self.rx.with_slice(|a, b| {
             let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
             let slice = iovs
@@ -115,21 +110,14 @@ where
         match res {
             Ok(0) => Err(Error::ConnectionClosed),
             Ok(mut n) => {
-                trace!("Successful written {} bytes to IO", n);
                 self.rx.advance_until(|req| {
                     let rem = req.msg.remaining();
 
                     if rem > n {
                         req.msg.advance(n);
-
-                        trace!("Partial IO write operation occur. Potential IO overhead");
-
                         false
                     } else {
                         n -= rem;
-
-                        trace!("Advancing {} bytes from written bytes, remaining bytes {}", rem, n);
-
                         self.ctx.add_pending_res(req.tx.take().unwrap());
                         true
                     }

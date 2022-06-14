@@ -22,6 +22,7 @@ use super::{
     waker::AtomicWaker,
 };
 
+/// An async array that act in mpsc manner. There can be multiple `Sender`s and one `Receiver`.
 pub fn async_array<T, const N: usize>() -> (Sender<T, N>, Receiver<T, N>) {
     let array = Arc::new(AsyncArray {
         sender_waker: Mutex::new(LinkedList::new()),
@@ -62,9 +63,11 @@ impl<T, const N: usize> Sender<T, N> {
 
                             let mut waiters = this.sender.inner.sender_waker.lock().unwrap();
 
-                            match waiters.iter_mut().find(|w| w.will_wake(cx.waker())) {
-                                Some(node) => *node = cx.waker().clone(),
-                                None => waiters.push_back(cx.waker().clone()),
+                            let waker = cx.waker().clone();
+                            if let Some(node) = waiters.iter_mut().find(|w| w.will_wake(cx.waker())) {
+                                *node = waker;
+                            } else {
+                                waiters.push_back(waker);
                             }
 
                             Poll::Pending
@@ -87,8 +90,19 @@ pub struct Receiver<T, const N: usize> {
     inner: Arc<AsyncArray<T, N>>,
 }
 
+impl<T, const N: usize> Drop for Receiver<T, N> {
+    fn drop(&mut self) {
+        let mut waiters = self.inner.sender_waker.lock().unwrap();
+
+        while let Some(waker) = waiters.pop_front() {
+            waker.wake();
+        }
+    }
+}
+
 impl<T, const N: usize> Receiver<T, N> {
     /// wait for items to be available.
+    /// When this future yields the receiver can peek into the array and advance it.
     pub fn wait(&mut self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
             if self.is_empty() {
@@ -120,24 +134,19 @@ impl<T, const N: usize> Receiver<T, N> {
     }
 
     /// Advance the array by iterate the array and pop drop items when given closure returns `true`.
-    #[inline]
     pub fn advance_until<F>(&mut self, func: F)
     where
         F: FnMut(&mut T) -> bool,
     {
-        self.inner.array.advance_until(func);
+        let count = self.inner.array.advance_until(func);
 
-        let free = N - self.with_slice(|a, b| a.len() + b.len());
+        let mut waiters = self.inner.sender_waker.lock().unwrap();
 
-        {
-            let mut waiters = self.inner.sender_waker.lock().unwrap();
-
-            for _ in 0..free {
-                if let Some(waker) = waiters.pop_front() {
-                    waker.wake();
-                } else {
-                    break;
-                }
+        for _ in 0..count {
+            if let Some(waker) = waiters.pop_front() {
+                waker.wake();
+            } else {
+                return;
             }
         }
     }
@@ -226,10 +235,12 @@ impl<T, const N: usize> AtomicArray<T, N> {
         }
     }
 
-    fn advance_until<F>(&self, mut func: F)
+    fn advance_until<F>(&self, mut func: F) -> usize
     where
         F: FnMut(&mut T) -> bool,
     {
+        let mut count = 0;
+
         let mut len = self.len.load(Ordering::Acquire);
 
         loop {
@@ -246,15 +257,17 @@ impl<T, const N: usize> AtomicArray<T, N> {
                 let mut value = self.get_inner_mut().read_unchecked(head);
 
                 if func(&mut value) {
+                    count += 1;
+
                     len = self.len.fetch_sub(1, Ordering::AcqRel) - 1;
 
                     if len == 0 {
-                        return;
+                        return count;
                     }
                 } else {
                     self.get_inner_mut().write_unchecked(head, value);
                     fence(Ordering::Release);
-                    return;
+                    return count;
                 }
             }
         }
@@ -333,7 +346,7 @@ mod test {
             assert_eq!(b, &[]);
         });
 
-        array.advance_until(|i| *i != 3);
+        let _ = array.advance_until(|i| *i != 3);
 
         array.with_slice(|a, b| {
             assert_eq!(a, &[3]);
