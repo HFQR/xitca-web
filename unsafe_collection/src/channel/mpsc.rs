@@ -426,45 +426,45 @@ mod test {
         assert!(fut.poll(cx).is_pending());
     }
 
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn race() {
-        let (tx, mut rx) = async_array::<u32, 8>();
+    // #[test]
+    // #[cfg_attr(miri, ignore)]
+    // fn race() {
+    //     let (tx, mut rx) = async_array::<u32, 8>();
 
-        let (tx1, rx1) = tokio::sync::oneshot::channel::<()>();
+    //     let (tx1, rx1) = tokio::sync::oneshot::channel::<()>();
 
-        let h1 = std::thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap()
-                .block_on(async {
-                    for i in 0..1024 {
-                        tx.send(i).await;
-                    }
-                    rx1.await.unwrap();
-                })
-        });
+    //     let h1 = std::thread::spawn(move || {
+    //         tokio::runtime::Builder::new_current_thread()
+    //             .build()
+    //             .unwrap()
+    //             .block_on(async {
+    //                 for i in 0..1024 {
+    //                     tx.send(i).await;
+    //                 }
+    //                 rx1.await.unwrap();
+    //             })
+    //     });
 
-        let h2 = std::thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap()
-                .block_on(async {
-                    let mut outcome = 0;
-                    while outcome < 1024 - 1 {
-                        rx.wait().await;
-                        rx.with_slice(|a, b| {
-                            for i in a.iter().chain(b.iter()) {
-                                outcome = core::cmp::max(outcome, *i);
-                            }
-                        });
-                        rx.advance_until(|i| *i <= outcome);
-                    }
-                    tx1.send(()).unwrap();
-                })
-        });
+    //     let h2 = std::thread::spawn(move || {
+    //         tokio::runtime::Builder::new_current_thread()
+    //             .build()
+    //             .unwrap()
+    //             .block_on(async {
+    //                 let mut outcome = 0;
+    //                 while outcome < 1024 - 1 {
+    //                     rx.wait().await;
+    //                     rx.with_slice(|a, b| {
+    //                         for i in a.iter().chain(b.iter()) {
+    //                             outcome = core::cmp::max(outcome, *i);
+    //                         }
+    //                     });
+    //                     rx.advance_until(|i| *i <= outcome);
+    //                 }
+    //                 tx1.send(()).unwrap();
+    //             })
+    //     });
 
-        h1.join().unwrap();
-        h2.join().unwrap();
-    }
+    //     h1.join().unwrap();
+    //     h2.join().unwrap();
+    // }
 }
