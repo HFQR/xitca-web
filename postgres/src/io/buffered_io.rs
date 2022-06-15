@@ -34,7 +34,7 @@ where
 
     // send request in self blocking manner. this call would not utilize concurrent read/write nor
     // pipeline/batch. A single response is returned.
-    pub async fn linear_request<F>(&mut self, client: &Client, encoder: F) -> Result<Response, Error>
+    pub async fn linear_request<F>(&mut self, encoder: F) -> Result<Response, Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
@@ -44,7 +44,7 @@ where
 
         let (req, res) = Request::new_pair(msg);
 
-        client.tx.send(req).await.map_err(|_| Error::ConnectionClosed)?;
+        self.ctx.push_req(req);
 
         while !self.ctx.req_is_empty() {
             let _ = self.io.ready(Interest::WRITABLE).await?;
