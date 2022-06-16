@@ -18,6 +18,12 @@ use super::{
     statement::{Column, Statement, StatementGuarded},
 };
 
+#[cfg(feature = "single-thread")]
+type BoxedFuture<'a> = Pin<Box<dyn Future<Output = Result<Type, Error>> + 'a>>;
+
+#[cfg(not(feature = "single-thread"))]
+type BoxedFuture<'a> = Pin<Box<dyn Future<Output = Result<Type, Error>> + Send + 'a>>;
+
 impl Client {
     pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<'_>, Error> {
         let stmt = self._prepare(query, types).await?;
@@ -71,7 +77,7 @@ impl Client {
 
     // get type is called recursively so a boxed future is needed.
     #[inline(never)]
-    fn get_type(&self, oid: Oid) -> Pin<Box<dyn Future<Output = Result<Type, Error>> + Send + '_>> {
+    fn get_type(&self, oid: Oid) -> BoxedFuture<'_> {
         Box::pin(async move {
             if let Some(type_) = Type::from_oid(oid) {
                 return Ok(type_);

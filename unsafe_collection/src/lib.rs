@@ -10,5 +10,3 @@ pub mod channel;
 pub mod futures;
 pub mod no_hash;
 pub mod uninit;
-
-mod waker;

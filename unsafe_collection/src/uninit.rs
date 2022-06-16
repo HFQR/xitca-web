@@ -18,24 +18,11 @@ pub(crate) unsafe fn slice_assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &
     &mut *(slice as *mut [MaybeUninit<T>] as *mut [T])
 }
 
-// SAFETY:
-//
-// It is up to the caller to guarantee that the `MaybeUninit<T>` elements
-// really are in an initialized state.
-// Calling this when the content is not yet fully initialized causes undefined behavior.
-pub(crate) unsafe fn slice_assume_init<T>(slice: &[MaybeUninit<T>]) -> &[T] {
-    &*(slice as *const [MaybeUninit<T>] as *const [T])
-}
-
 pub(crate) struct UninitArray<T, const N: usize>([MaybeUninit<T>; N]);
 
 impl<T, const N: usize> UninitArray<T, N> {
     pub(crate) const fn new() -> Self {
         Self(uninit_array())
-    }
-
-    pub(crate) fn as_ptr(&self) -> *const MaybeUninit<T> {
-        self.0.as_ptr()
     }
 
     // SAFETY:

@@ -3,6 +3,10 @@ name = "xitca-postgres"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# feature for single thread client that have lower overhead(no lock) at the cost of non thread safe.
+single-thread = []
+
 [dependencies]
 xitca-io = "0.1"
 xitca-service = "0.1"

@@ -13,6 +13,7 @@ mod request;
 mod response;
 mod row;
 mod statement;
+mod util;
 
 pub mod error;
 
@@ -78,7 +79,7 @@ where
     /// # }
     ///
     /// ```
-    pub async fn connect(self) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send + 'static), Error> {
+    pub async fn connect(self) -> Result<(Client, impl task_fut::TaskFut), Error> {
         let cfg = Config::try_from(self.cfg)?;
         let io = connect::connect(&cfg).await?;
 
@@ -91,6 +92,18 @@ where
 
         Ok((cli, io.run()))
     }
+}
+
+mod task_fut {
+    use super::*;
+
+    pub trait TaskFut {}
+
+    #[cfg(not(feature = "single-thread"))]
+    impl<F> TaskFut for F where F: Future + Send + 'static {}
+
+    #[cfg(feature = "single-thread")]
+    impl<F> TaskFut for F where F: Future + 'static {}
 }
 
 fn slice_iter<'a>(s: &'a [&(dyn ToSql + Sync)]) -> impl ExactSizeIterator<Item = &'a dyn ToSql> {
