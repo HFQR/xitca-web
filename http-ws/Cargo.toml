@@ -13,7 +13,7 @@ bytes = "1"
 futures-core = "0.3"
 http = "0.2.8"
 rand = "0.8.4"
-sha-1 = "0.9"
+sha-1 = "0.10"
 tracing = { version = "0.1.26", default-features = false, features = ["std"] }
 
 # stream feature
