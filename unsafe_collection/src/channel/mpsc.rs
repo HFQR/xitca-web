@@ -187,7 +187,7 @@ impl<T> AsyncVec<T> {
     fn iter(&mut self) -> Iter<'_, T> {
         Iter {
             vec: self,
-            tail: self.tail % self.cap,
+            tail: self.tail,
             len: self.len,
         }
     }
@@ -198,12 +198,17 @@ impl<T> AsyncVec<T> {
     {
         let mut count = 0;
 
-        while let Some(front) = self.front_mut() {
-            if func(front) {
-                count += 1;
-                let _ = self.pop_front();
-            } else {
-                break;
+        while let Some(value) = self.front_mut() {
+            match func(value) {
+                true => {
+                    count += 1;
+                    // SAFETY:
+                    // only reachable when front is Some.
+                    unsafe {
+                        self.pop_front_unchecked();
+                    }
+                }
+                false => break,
             }
         }
 
@@ -218,7 +223,7 @@ impl<T> AsyncVec<T> {
         } else {
             // SAFETY:
             // just checked self is not full.
-            unsafe { self.push_back(value) };
+            unsafe { self.push_back_unchecked(value) };
             Ok(())
         }
     }
@@ -258,7 +263,7 @@ impl<T> AsyncVec<T> {
 
             // SAFETY:
             // idx is guaranteed to be in range and contain T.
-            Some(unsafe { self.get_unchecked_mut(idx) })
+            Some(unsafe { self.get_mut_unchecked(idx) })
         }
     }
 
@@ -266,60 +271,59 @@ impl<T> AsyncVec<T> {
         if self.is_empty() {
             None
         } else {
-            let idx = self.front_idx();
-
-            self.len -= 1;
-
             // SAFETY:
-            // idx is guaranteed to be in range and contain T.
-            Some(unsafe { self.read_unchecked(idx) })
+            // just checked self is not empty.
+            unsafe { Some(self.pop_front_unchecked()) }
         }
     }
 
     fn front_idx(&self) -> usize {
-        let tail = self.tail % self.cap;
-
-        if tail >= self.len {
-            tail - self.len
+        if self.tail >= self.len {
+            self.tail - self.len
         } else {
-            self.cap + tail - self.len
+            self.cap + self.tail - self.len
         }
     }
 
     // SAFETY:
-    //
-    // caller must make sure array is not full.
-    unsafe fn push_back(&mut self, value: T) {
-        let tail = self.tail % self.cap;
-        self.write_unchecked(tail, value);
-        self.tail = tail.wrapping_add(1);
-        self.len += 1;
+    // caller must make sure self is not empty.
+    unsafe fn pop_front_unchecked(&mut self) -> T {
+        let idx = self.front_idx();
+        self.len -= 1;
+        self.read_unchecked(idx)
     }
 
     // SAFETY:
-    //
+    // caller must make sure self is not full.
+    unsafe fn push_back_unchecked(&mut self, value: T) {
+        self.write_unchecked(self.tail, value);
+        self.tail += 1;
+        self.len += 1;
+
+        if self.tail == self.cap {
+            self.tail = 0;
+        }
+    }
+
+    // SAFETY:
     // caller must make sure given index is not out of bound and properly initialized.
-    #[inline(always)]
     unsafe fn get_unchecked(&self, idx: usize) -> &T {
         &*self.array.add(idx)
     }
 
     // SAFETY:
-    //
     // caller must make sure given index is not out of bound and properly initialized.
-    unsafe fn get_unchecked_mut(&mut self, idx: usize) -> &mut T {
+    unsafe fn get_mut_unchecked(&mut self, idx: usize) -> &mut T {
         &mut *self.array.add(idx)
     }
 
     // SAFETY:
-    //
     // caller must make sure given index is not out of bound.
     unsafe fn write_unchecked(&mut self, idx: usize, value: T) {
         self.array.add(idx).write(value);
     }
 
     // SAFETY:
-    //
     // caller must make sure given index is not out of bound and properly initialized.
     unsafe fn read_unchecked(&mut self, idx: usize) -> T {
         self.array.add(idx).read()
