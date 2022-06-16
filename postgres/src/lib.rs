@@ -73,7 +73,8 @@ where
     /// let cfg = String::from("postgres://user:pass@localhost/db");
     /// let (cli, task) = Postgres::new(cfg).connect().await.unwrap();
     ///
-    /// tokio::spawn(task);
+    /// // tokio::spawn would work too.
+    /// tokio::task::spawn_local(task);
     ///
     /// let stmt = cli.prepare("SELECT *", &[]).await.unwrap();
     /// # }
@@ -97,13 +98,28 @@ where
 mod task_fut {
     use super::*;
 
-    pub trait TaskFut {}
+    pub trait TaskFut
+    where
+        Self: Future,
+        Self::Output: Send,
+    {
+    }
 
     #[cfg(not(feature = "single-thread"))]
-    impl<F> TaskFut for F where F: Future + Send + 'static {}
+    impl<F> TaskFut for F
+    where
+        F: Future + Send + 'static,
+        F::Output: Send,
+    {
+    }
 
     #[cfg(feature = "single-thread")]
-    impl<F> TaskFut for F where F: Future + 'static {}
+    impl<F> TaskFut for F
+    where
+        F: Future + 'static,
+        F::Output: Send,
+    {
+    }
 }
 
 fn slice_iter<'a>(s: &'a [&(dyn ToSql + Sync)]) -> impl ExactSizeIterator<Item = &'a dyn ToSql> {
