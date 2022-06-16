@@ -145,8 +145,19 @@ mod io_impl {
 
             match res {
                 Ok(0) => Err(Error::ConnectionClosed),
-                Ok(n) => {
-                    self.ctx.advance(n);
+                Ok(mut n) => {
+                    self.rx.advance_until(|req| {
+                        let rem = req.msg.remaining();
+
+                        if rem > n {
+                            req.msg.advance(n);
+                            false
+                        } else {
+                            n -= rem;
+                            self.ctx.push_res(req.tx.take().unwrap());
+                            true
+                        }
+                    });
                     Ok(())
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),

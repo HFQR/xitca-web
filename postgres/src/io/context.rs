@@ -37,6 +37,10 @@ impl<const LIMIT: usize> Context<LIMIT> {
         self.req.push_back(req).expect("Out of bound must not happen.");
     }
 
+    pub(super) fn push_res(&mut self, res: ResponseSender) {
+        self.res.push_back(res);
+    }
+
     pub(super) fn clear(&mut self) {
         self.req.clear();
         self.res.clear();
@@ -112,9 +116,9 @@ impl<const LIMIT: usize> Context<LIMIT> {
                 }
             }
 
-            let req = self.req.pop_front().unwrap();
+            let mut req = self.req.pop_front().unwrap();
 
-            self.res.push_back(req.tx);
+            self.push_res(req.tx.take().unwrap());
         }
     }
 }
