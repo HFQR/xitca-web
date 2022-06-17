@@ -18,42 +18,6 @@ pub(crate) unsafe fn slice_assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &
     &mut *(slice as *mut [MaybeUninit<T>] as *mut [T])
 }
 
-pub(crate) struct UninitArray<T, const N: usize>([MaybeUninit<T>; N]);
-
-impl<T, const N: usize> UninitArray<T, N> {
-    pub(crate) const fn new() -> Self {
-        Self(uninit_array())
-    }
-
-    // SAFETY:
-    //
-    // caller must make sure given index is not out of bound and properly initialized.
-    pub(crate) unsafe fn read_unchecked(&mut self, idx: usize) -> T {
-        self.0.get_unchecked(idx).assume_init_read()
-    }
-
-    // SAFETY:
-    //
-    // caller must make sure given index is not out of bound and properly initialized.
-    pub(crate) unsafe fn get_unchecked(&self, idx: usize) -> &T {
-        self.0.get_unchecked(idx).assume_init_ref()
-    }
-
-    // SAFETY:
-    //
-    // caller must make sure given index is not out of bound and properly initialized.
-    pub(crate) unsafe fn get_unchecked_mut(&mut self, idx: usize) -> &mut T {
-        self.0.get_unchecked_mut(idx).assume_init_mut()
-    }
-
-    // SAFETY:
-    //
-    // caller must make sure given index is not out of bound.
-    pub(crate) unsafe fn write_unchecked(&mut self, idx: usize, value: T) {
-        self.0.get_unchecked_mut(idx).write(value);
-    }
-}
-
 mod sealed {
     pub trait Sealed {}
 }

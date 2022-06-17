@@ -2,12 +2,12 @@ use std::io::IoSlice;
 
 use bytes_crate::{Buf, BufMut, Bytes, BytesMut};
 
-use crate::array_queue::ArrayQueue;
+use crate::bound_queue::stack::StackQueue;
 
 /// A bounded stack buffer array that can hold up to LEN size items.
 /// BufList implement [Buf] trait when it's item is a type implement the same trait.
 pub struct BufList<B, const LEN: usize = 8> {
-    pub(super) bufs: ArrayQueue<B, LEN>,
+    pub(super) bufs: StackQueue<B, LEN>,
     remaining: usize,
 }
 
@@ -21,7 +21,7 @@ impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            bufs: ArrayQueue::new(),
+            bufs: StackQueue::new(),
             remaining: 0,
         }
     }
@@ -37,7 +37,7 @@ impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     }
 
     #[inline]
-    pub const fn is_full(&self) -> bool {
+    pub fn is_full(&self) -> bool {
         self.bufs.is_full()
     }
 

@@ -6,7 +6,6 @@ use core::{
     cell::RefCell,
     fmt,
     future::Future,
-    mem::ManuallyDrop,
     pin::Pin,
     task::{Context, Poll, Waker},
 };
@@ -15,7 +14,10 @@ use alloc::rc::Rc;
 
 use std::collections::linked_list::LinkedList;
 
-use crate::futures::poll_fn;
+use crate::{
+    bound_queue::heap::{HeapQueue, Iter},
+    futures::poll_fn,
+};
 
 /// An async array that act in mpsc manner. There can be multiple `Sender`s and one `Receiver`.
 pub fn async_vec<T>(cap: usize) -> (Sender<T>, Receiver<T>) {
@@ -129,7 +131,7 @@ impl<T> Receiver<T> {
     where
         F: for<'i> FnOnce(Iter<'i, T>) -> O,
     {
-        let mut inner = self.inner.borrow_mut();
+        let inner = self.inner.borrow_mut();
         func(inner.iter())
     }
 
@@ -148,10 +150,7 @@ struct AsyncVec<T> {
     // TODO: use a more efficient list.
     sender_waker: LinkedList<Waker>,
     receiver_waker: Option<Waker>,
-    array: *mut T,
-    cap: usize,
-    len: usize,
-    tail: usize,
+    queue: HeapQueue<T>,
     closed: bool,
 }
 
@@ -160,20 +159,17 @@ impl<T> AsyncVec<T> {
         Self {
             sender_waker: LinkedList::new(),
             receiver_waker: None,
-            array: ManuallyDrop::new(Vec::with_capacity(cap)).as_mut_ptr(),
-            cap,
-            len: 0,
-            tail: 0,
+            queue: HeapQueue::with_capacity(cap),
             closed: false,
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.len == 0
+        self.queue.is_empty()
     }
 
     fn is_full(&self) -> bool {
-        self.len == self.cap
+        self.queue.is_full()
     }
 
     fn set_close(&mut self) {
@@ -184,12 +180,8 @@ impl<T> AsyncVec<T> {
         self.closed
     }
 
-    fn iter(&mut self) -> Iter<'_, T> {
-        Iter {
-            vec: self,
-            tail: self.tail,
-            len: self.len,
-        }
+    fn iter(&self) -> Iter<'_, T> {
+        self.queue.iter()
     }
 
     fn advance_until<F>(&mut self, mut func: F) -> usize
@@ -205,7 +197,7 @@ impl<T> AsyncVec<T> {
                     // SAFETY:
                     // only reachable when front is Some.
                     unsafe {
-                        self.pop_front_unchecked();
+                        self.queue.pop_front_unchecked();
                     }
                 }
                 false => break,
@@ -223,7 +215,7 @@ impl<T> AsyncVec<T> {
         } else {
             // SAFETY:
             // just checked self is not full.
-            unsafe { self.push_back_unchecked(value) };
+            unsafe { self.queue.push_back_unchecked(value) };
             Ok(())
         }
     }
@@ -256,122 +248,12 @@ impl<T> AsyncVec<T> {
     }
 
     fn front_mut(&mut self) -> Option<&mut T> {
-        if self.is_empty() {
-            None
-        } else {
-            let idx = self.front_idx();
-
-            // SAFETY:
-            // idx is guaranteed to be in range and contain T.
-            Some(unsafe { self.get_mut_unchecked(idx) })
-        }
+        self.queue.front_mut()
     }
 
+    #[cfg(test)]
     fn pop_front(&mut self) -> Option<T> {
-        if self.is_empty() {
-            None
-        } else {
-            // SAFETY:
-            // just checked self is not empty.
-            unsafe { Some(self.pop_front_unchecked()) }
-        }
-    }
-
-    fn front_idx(&self) -> usize {
-        if self.tail >= self.len {
-            self.tail - self.len
-        } else {
-            self.cap + self.tail - self.len
-        }
-    }
-
-    // SAFETY:
-    // caller must make sure self is not empty.
-    unsafe fn pop_front_unchecked(&mut self) -> T {
-        let idx = self.front_idx();
-        self.len -= 1;
-        self.read_unchecked(idx)
-    }
-
-    // SAFETY:
-    // caller must make sure self is not full.
-    unsafe fn push_back_unchecked(&mut self, value: T) {
-        self.write_unchecked(self.tail, value);
-        self.tail += 1;
-        self.len += 1;
-
-        if self.tail == self.cap {
-            self.tail = 0;
-        }
-    }
-
-    // SAFETY:
-    // caller must make sure given index is not out of bound and properly initialized.
-    unsafe fn get_unchecked(&self, idx: usize) -> &T {
-        &*self.array.add(idx)
-    }
-
-    // SAFETY:
-    // caller must make sure given index is not out of bound and properly initialized.
-    unsafe fn get_mut_unchecked(&mut self, idx: usize) -> &mut T {
-        &mut *self.array.add(idx)
-    }
-
-    // SAFETY:
-    // caller must make sure given index is not out of bound.
-    unsafe fn write_unchecked(&mut self, idx: usize, value: T) {
-        self.array.add(idx).write(value);
-    }
-
-    // SAFETY:
-    // caller must make sure given index is not out of bound and properly initialized.
-    unsafe fn read_unchecked(&mut self, idx: usize) -> T {
-        self.array.add(idx).read()
-    }
-}
-
-impl<T> Drop for AsyncVec<T> {
-    fn drop(&mut self) {
-        while self.pop_front().is_some() {}
-        // SAFETY:
-        // deallocate the pointer but don't drop anything. (just did by popping everything).
-        unsafe {
-            Vec::from_raw_parts(self.array, 0, self.cap);
-        }
-    }
-}
-
-#[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
-#[derive(Clone)]
-pub struct Iter<'a, T> {
-    vec: &'a AsyncVec<T>,
-    tail: usize,
-    len: usize,
-}
-
-impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = &'a T;
-
-    #[inline]
-    fn next(&mut self) -> Option<&'a T> {
-        if self.len == 0 {
-            return None;
-        }
-
-        let idx = if self.tail >= self.len {
-            self.tail - self.len
-        } else {
-            self.vec.cap + self.tail - self.len
-        };
-
-        self.len -= 1;
-
-        unsafe { Some(self.vec.get_unchecked(idx)) }
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.len, Some(self.len))
+        self.queue.pop_front()
     }
 }
 
