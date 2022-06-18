@@ -193,7 +193,7 @@ impl Config {
                 }
             }
             "target_session_attrs" => {
-                let target_session_attrs = match &*value {
+                let target_session_attrs = match value {
                     "any" => TargetSessionAttrs::Any,
                     "read-write" => TargetSessionAttrs::ReadWrite,
                     _ => {

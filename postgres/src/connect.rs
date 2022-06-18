@@ -102,7 +102,7 @@ where
         .await?;
 
     match res.recv().await? {
-        backend::Message::AuthenticationOk => println!("authenticated successful"),
+        backend::Message::AuthenticationOk => tracing::trace!("authenticated successful"),
         _ => panic!("password authentication failed"),
     }
 

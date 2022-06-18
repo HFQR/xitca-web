@@ -49,8 +49,8 @@ where
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
-        async { Ok(&*req) }
+    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+        async move { Ok(req) }
     }
 }
 

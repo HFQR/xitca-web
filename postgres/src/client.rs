@@ -1,16 +1,21 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::collections::HashMap;
 
 use postgres_types::{Oid, Type};
-use tokio::sync::mpsc::Sender;
 use xitca_io::bytes::{Bytes, BytesMut};
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
-use super::{error::Error, request::Request, response::Response, statement::Statement};
+#[cfg(not(feature = "single-thread"))]
+use tokio::sync::mpsc::Sender;
+
+#[cfg(feature = "single-thread")]
+use xitca_unsafe_collection::channel::mpsc::Sender;
+
+use super::{error::Error, request::Request, response::Response, statement::Statement, util::lock::Lock};
 
 pub struct Client {
     pub(crate) tx: Sender<Request>,
-    pub(crate) buf: Mutex<BytesMut>,
-    cached_typeinfo: Mutex<CachedTypeInfo>,
+    pub(crate) buf: Lock<BytesMut>,
+    cached_typeinfo: Lock<CachedTypeInfo>,
 }
 
 /// A cache of type info and prepared statements for fetching type info
@@ -36,8 +41,8 @@ impl Client {
     pub(crate) fn new(tx: Sender<Request>) -> Self {
         Self {
             tx,
-            buf: Mutex::new(BytesMut::new()),
-            cached_typeinfo: Mutex::new(CachedTypeInfo {
+            buf: Lock::new(BytesMut::new()),
+            cached_typeinfo: Lock::new(CachedTypeInfo {
                 typeinfo: None,
                 typeinfo_composite: None,
                 typeinfo_enum: None,
@@ -52,53 +57,51 @@ impl Client {
 
     pub(crate) async fn send(&self, msg: Bytes) -> Result<Response, Error> {
         let (req, res) = Request::new_pair(msg);
-
         self.tx.send(req).await.map_err(|_| Error::ConnectionClosed)?;
-
         Ok(res)
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().unwrap().typeinfo.clone()
+        self.cached_typeinfo.lock().typeinfo.clone()
     }
 
     pub fn set_typeinfo(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().unwrap().typeinfo = Some(statement.clone());
+        self.cached_typeinfo.lock().typeinfo = Some(statement.clone());
     }
 
     pub fn typeinfo_composite(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().unwrap().typeinfo_composite.clone()
+        self.cached_typeinfo.lock().typeinfo_composite.clone()
     }
 
     pub fn set_typeinfo_composite(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().unwrap().typeinfo_composite = Some(statement.clone());
+        self.cached_typeinfo.lock().typeinfo_composite = Some(statement.clone());
     }
 
     pub fn typeinfo_enum(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().unwrap().typeinfo_enum.clone()
+        self.cached_typeinfo.lock().typeinfo_enum.clone()
     }
 
     pub fn set_typeinfo_enum(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().unwrap().typeinfo_enum = Some(statement.clone());
+        self.cached_typeinfo.lock().typeinfo_enum = Some(statement.clone());
     }
 
     pub fn type_(&self, oid: Oid) -> Option<Type> {
-        self.cached_typeinfo.lock().unwrap().types.get(&oid).cloned()
+        self.cached_typeinfo.lock().types.get(&oid).cloned()
     }
 
     pub fn set_type(&self, oid: Oid, type_: &Type) {
-        self.cached_typeinfo.lock().unwrap().types.insert(oid, type_.clone());
+        self.cached_typeinfo.lock().types.insert(oid, type_.clone());
     }
 
     pub fn clear_type_cache(&self) {
-        self.cached_typeinfo.lock().unwrap().types.clear();
+        self.cached_typeinfo.lock().types.clear();
     }
 
     pub(crate) fn with_buf<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut BytesMut) -> R,
     {
-        let mut buf = self.buf.lock().unwrap();
+        let mut buf = self.buf.lock();
         let r = f(&mut buf);
         buf.clear();
         r
@@ -109,38 +112,25 @@ impl Drop for Client {
     fn drop(&mut self) {
         // convert leaked statements to guarded statements.
         // this is to cancel the statement on client go away.
+        let (type_info, typeinfo_composite, typeinfo_enum) = {
+            let cache = self.cached_typeinfo.get_mut();
+            (
+                cache.typeinfo.take(),
+                cache.typeinfo_composite.take(),
+                cache.typeinfo_enum.take(),
+            )
+        };
 
-        if let Some(stmt) = self
-            .cached_typeinfo
-            .get_mut()
-            .ok()
-            .and_then(|info| info.typeinfo.take())
-        {
+        if let Some(stmt) = type_info {
             drop(stmt.into_guarded(self));
         }
 
-        if let Some(stmt) = self
-            .cached_typeinfo
-            .get_mut()
-            .ok()
-            .and_then(|info| info.typeinfo_composite.take())
-        {
+        if let Some(stmt) = typeinfo_composite {
             drop(stmt.into_guarded(self));
         }
 
-        if let Some(stmt) = self
-            .cached_typeinfo
-            .get_mut()
-            .ok()
-            .and_then(|info| info.typeinfo_enum.take())
-        {
+        if let Some(stmt) = typeinfo_enum {
             drop(stmt.into_guarded(self));
         }
     }
-}
-
-fn _assert_send<C: Send>() {}
-
-fn _assert_client_send() {
-    _assert_send::<Client>();
 }

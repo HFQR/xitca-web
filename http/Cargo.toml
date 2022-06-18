@@ -21,7 +21,7 @@ xitca-service = "0.1"
 xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3.17"
-http = "0.2.5"
+http = "0.2.8"
 httpdate = "1.0"
 pin-project-lite = "0.2.7"
 socket2 = { version = "0.4.2", features = ["all"] }
@@ -57,7 +57,7 @@ h3 = { version = "0.0.0", optional = true }
 h3-quinn = { version = "0.0.0", optional = true }
 
 # util service support
-matchit = { version = "0.4.4", optional = true }
+matchit = { version = "0.6", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.12", features = ["macros", "rt"] }

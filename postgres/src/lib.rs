@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 //! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/).
@@ -12,6 +13,7 @@ mod request;
 mod response;
 mod row;
 mod statement;
+mod util;
 
 pub mod error;
 
@@ -71,13 +73,14 @@ where
     /// let cfg = String::from("postgres://user:pass@localhost/db");
     /// let (cli, task) = Postgres::new(cfg).connect().await.unwrap();
     ///
-    /// tokio::spawn(task);
+    /// // tokio::spawn would work too.
+    /// tokio::task::spawn_local(task);
     ///
     /// let stmt = cli.prepare("SELECT *", &[]).await.unwrap();
     /// # }
     ///
     /// ```
-    pub async fn connect(self) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send + 'static), Error> {
+    pub async fn connect(self) -> Result<(Client, impl task_fut::TaskFut), Error> {
         let cfg = Config::try_from(self.cfg)?;
         let io = connect::connect(&cfg).await?;
 
@@ -89,6 +92,33 @@ where
         io.clear_ctx();
 
         Ok((cli, io.run()))
+    }
+}
+
+mod task_fut {
+    use super::*;
+
+    pub trait TaskFut
+    where
+        Self: Future,
+        Self::Output: Send,
+    {
+    }
+
+    #[cfg(not(feature = "single-thread"))]
+    impl<F> TaskFut for F
+    where
+        F: Future + Send + 'static,
+        F::Output: Send,
+    {
+    }
+
+    #[cfg(feature = "single-thread")]
+    impl<F> TaskFut for F
+    where
+        F: Future + 'static,
+        F::Output: Send,
+    {
     }
 }
 
