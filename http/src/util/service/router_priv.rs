@@ -6,7 +6,6 @@ use std::{
     marker::PhantomData,
 };
 
-use matchit::Node;
 use xitca_service::{
     object::{DefaultFactoryObject, DefaultObjectConstructor, ObjectConstructor},
     pipeline::PipelineE,
@@ -42,7 +41,7 @@ pub struct MatchError {
 impl MatchError {
     /// Indicates whether a route exists at the same path with/without a trailing slash.
     pub fn is_trailing_slash(&self) -> bool {
-        self.inner.tsr()
+        matches!(self.inner, matchit::MatchError::MissingTrailingSlash)
     }
 }
 
@@ -117,7 +116,7 @@ where
             .collect::<Vec<_>>();
 
         async move {
-            let mut routes = matchit::Node::new();
+            let mut routes = matchit::Router::new();
 
             for (path, fut) in futs {
                 let service = fut.await?;
@@ -130,7 +129,7 @@ where
 }
 
 pub struct RouterService<S> {
-    routes: Node<S>,
+    routes: matchit::Router<S>,
 }
 
 impl<S, Req> Service<Req> for RouterService<S>

@@ -3,76 +3,82 @@
 extern crate alloc;
 
 use core::{
-    cell::UnsafeCell,
+    cell::RefCell,
+    fmt,
     future::Future,
     pin::Pin,
-    slice,
-    sync::atomic::{fence, AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
-use alloc::sync::Arc;
-use cache_padded::CachePadded;
+use alloc::rc::Rc;
 
-use std::{collections::linked_list::LinkedList, sync::Mutex};
+use std::collections::linked_list::LinkedList;
 
 use crate::{
+    bound_queue::heap::{HeapQueue, Iter},
     futures::poll_fn,
-    uninit::{self, UninitArray},
-    waker::AtomicWaker,
 };
 
 /// An async array that act in mpsc manner. There can be multiple `Sender`s and one `Receiver`.
-pub fn async_array<T, const N: usize>() -> (Sender<T, N>, Receiver<T, N>) {
-    let array = Arc::new(AsyncArray {
-        sender_waker: Mutex::new(LinkedList::new()),
-        receiver_waker: AtomicWaker::new(),
-        array: AtomicArray::new(),
-    });
+pub fn async_vec<T>(cap: usize) -> (Sender<T>, Receiver<T>) {
+    assert!(cap > 0, "async_vec must have a capacity larger than 0.");
+
+    let array = Rc::new(RefCell::new(AsyncVec::new(cap)));
 
     (Sender { inner: array.clone() }, Receiver { inner: array })
 }
 
-pub struct Sender<T, const N: usize> {
-    inner: Arc<AsyncArray<T, N>>,
+#[derive(Clone)]
+pub struct Sender<T> {
+    inner: Rc<RefCell<AsyncVec<T>>>,
 }
 
-impl<T, const N: usize> Sender<T, N> {
-    pub async fn send(&self, value: T) {
-        struct SendFuture<'a, T, const N: usize> {
-            sender: &'a Sender<T, N>,
+impl<T> Drop for Sender<T> {
+    fn drop(&mut self) {
+        // Last copy of Sender. wake up receiver.
+        if Rc::strong_count(&self.inner) == 2 {
+            let mut inner = self.inner.borrow_mut();
+            inner.set_close();
+            inner.wake_receiver();
+        }
+    }
+}
+
+impl<T> Sender<T> {
+    pub fn is_closed(&self) -> bool {
+        self.inner.borrow_mut().is_closed()
+    }
+
+    pub async fn send(&self, value: T) -> Result<(), Error<T>> {
+        struct SendFuture<'a, T> {
+            sender: &'a Sender<T>,
             value: Option<T>,
         }
 
-        impl<T, const N: usize> Unpin for SendFuture<'_, T, N> {}
+        impl<T> Unpin for SendFuture<'_, T> {}
 
-        impl<T, const N: usize> Future for SendFuture<'_, T, N> {
-            type Output = ();
+        impl<T> Future for SendFuture<'_, T> {
+            type Output = Result<(), Error<T>>;
 
             fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
                 let this = self.get_mut();
 
                 match this.value.take() {
-                    Some(value) => match this.sender.inner.array.push_back(value) {
-                        Ok(_) => {
-                            this.sender.inner.receiver_waker.wake();
-                            Poll::Ready(())
-                        }
-                        Err(value) => {
-                            this.value = Some(value);
-
-                            let mut waiters = this.sender.inner.sender_waker.lock().unwrap();
-
-                            let waker = cx.waker().clone();
-                            if let Some(node) = waiters.iter_mut().find(|w| w.will_wake(cx.waker())) {
-                                *node = waker;
-                            } else {
-                                waiters.push_back(waker);
+                    Some(value) => {
+                        let mut inner = this.sender.inner.borrow_mut();
+                        match inner.try_push(value) {
+                            Ok(_) => {
+                                inner.wake_receiver();
+                                Poll::Ready(Ok(()))
                             }
-
-                            Poll::Pending
+                            Err(Error::Full(value)) => {
+                                this.value = Some(value);
+                                inner.register_sender_waker(cx.waker());
+                                Poll::Pending
+                            }
+                            Err(e) => Poll::Ready(Err(e)),
                         }
-                    },
+                    }
                     None => panic!("SendFuture polled after finish"),
                 }
             }
@@ -86,51 +92,47 @@ impl<T, const N: usize> Sender<T, N> {
     }
 }
 
-pub struct Receiver<T, const N: usize> {
-    inner: Arc<AsyncArray<T, N>>,
+pub struct Receiver<T> {
+    inner: Rc<RefCell<AsyncVec<T>>>,
 }
 
-impl<T, const N: usize> Drop for Receiver<T, N> {
+impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
-        let mut waiters = self.inner.sender_waker.lock().unwrap();
-
-        while let Some(waker) = waiters.pop_front() {
+        let mut inner = self.inner.borrow_mut();
+        inner.set_close();
+        while let Some(waker) = inner.sender_waker.pop_front() {
             waker.wake();
         }
     }
 }
 
-impl<T, const N: usize> Receiver<T, N> {
+impl<T> Receiver<T> {
     /// wait for items to be available.
     /// When this future yields the receiver can peek into the array and advance it.
-    pub fn wait(&mut self) -> impl Future<Output = ()> + '_ {
+    pub fn wait(&mut self) -> impl Future<Output = Result<(), Error<T>>> + '_ {
         poll_fn(|cx| {
-            if self.is_empty() {
-                self.inner.receiver_waker.register(cx.waker());
-                Poll::Pending
+            let mut array = self.inner.borrow_mut();
+            if array.is_empty() {
+                if array.is_closed() {
+                    Poll::Ready(Err(Error::SenderClosed))
+                } else {
+                    array.register_receiver_waker(cx.waker());
+                    Poll::Pending
+                }
             } else {
-                Poll::Ready(())
+                Poll::Ready(Ok(()))
             }
         })
     }
 
+    /// iter through available items inside array.
     #[inline]
-    pub fn is_empty(&mut self) -> bool {
-        self.with_slice(|a, b| a.is_empty() && b.is_empty())
-    }
-
-    /// peek into the available items inside array.
-    ///
-    /// # Order:
-    /// The two slices are presented in FIFO order. The items in first slice are always the ones
-    /// added earlier into the array. The items in each slice follow the same ordering that early
-    /// data always have smaller index than late ones.
-    #[inline]
-    pub fn with_slice<F, O>(&mut self, func: F) -> O
+    pub fn with_iter<F, O>(&mut self, func: F) -> O
     where
-        F: FnOnce(&[T], &[T]) -> O,
+        F: for<'i> FnOnce(Iter<'i, T>) -> O,
     {
-        self.inner.array.with_slice(func)
+        let inner = self.inner.borrow_mut();
+        func(inner.iter())
     }
 
     /// Advance the array by iterate the array and pop drop items when given closure returns `true`.
@@ -138,168 +140,145 @@ impl<T, const N: usize> Receiver<T, N> {
     where
         F: FnMut(&mut T) -> bool,
     {
-        let count = self.inner.array.advance_until(func);
-
-        let mut waiters = self.inner.sender_waker.lock().unwrap();
-
-        for _ in 0..count {
-            if let Some(waker) = waiters.pop_front() {
-                waker.wake();
-            } else {
-                return;
-            }
-        }
+        let mut inner = self.inner.borrow_mut();
+        let count = inner.advance_until(func);
+        inner.wake_sender(count);
     }
 }
 
-struct AsyncArray<T, const N: usize> {
+struct AsyncVec<T> {
     // TODO: use a more efficient list.
-    sender_waker: Mutex<LinkedList<Waker>>,
-    receiver_waker: AtomicWaker,
-    array: AtomicArray<T, N>,
+    sender_waker: LinkedList<Waker>,
+    receiver_waker: Option<Waker>,
+    queue: HeapQueue<T>,
+    closed: bool,
 }
 
-struct AtomicArray<T, const N: usize> {
-    inner: UnsafeCell<UninitArray<T, N>>,
-    next: CachePadded<AtomicUsize>,
-    len: CachePadded<AtomicUsize>,
-}
-
-impl<T, const N: usize> Drop for AtomicArray<T, N> {
-    fn drop(&mut self) {
-        while self.len.load(Ordering::Relaxed) > 0 {
-            self.advance_until(|_| true);
-        }
-    }
-}
-
-unsafe impl<T, const N: usize> Send for AtomicArray<T, N> where T: Send {}
-unsafe impl<T, const N: usize> Sync for AtomicArray<T, N> where T: Sync {}
-
-impl<T, const N: usize> AtomicArray<T, N> {
-    const fn new() -> Self {
+impl<T> AsyncVec<T> {
+    fn new(cap: usize) -> Self {
         Self {
-            inner: UnsafeCell::new(UninitArray::new()),
-            next: CachePadded::new(AtomicUsize::new(0)),
-            len: CachePadded::new(AtomicUsize::new(0)),
+            sender_waker: LinkedList::new(),
+            receiver_waker: None,
+            queue: HeapQueue::with_capacity(cap),
+            closed: false,
         }
     }
 
-    fn push_back(&self, value: T) -> Result<(), T> {
-        let mut len = self.len.load(Ordering::Relaxed);
-
-        loop {
-            if len == N {
-                return Err(value);
-            }
-
-            match self
-                .len
-                .compare_exchange_weak(len, len + 1, Ordering::Acquire, Ordering::Relaxed)
-            {
-                Ok(_) => {
-                    let t = self.next.fetch_add(1, Ordering::Relaxed);
-
-                    let idx = t % N;
-
-                    // SAFETY:
-                    // This is safe because idx is always in bound of N.
-                    unsafe {
-                        self.get_inner_mut().write_unchecked(idx, value);
-                    }
-
-                    fence(Ordering::Release);
-
-                    return Ok(());
-                }
-                Err(l) => len = l,
-            }
-        }
+    fn is_empty(&self) -> bool {
+        self.queue.is_empty()
     }
 
-    fn with_slice<F, O>(&self, func: F) -> O
-    where
-        F: FnOnce(&[T], &[T]) -> O,
-    {
-        let len = self.len.load(Ordering::Relaxed);
-        let idx = self.next.load(Ordering::Relaxed);
-
-        let tail = idx % N;
-
-        // SAFETY:
-        //
-        // tail and len must correctly track the initialized elements inside array.
-        unsafe {
-            if tail >= len {
-                func(self.get_slice_unchecked(tail - len, len), &[])
-            } else {
-                let off = len - tail;
-
-                func(
-                    self.get_slice_unchecked(N - off, off),
-                    self.get_slice_unchecked(0, tail),
-                )
-            }
-        }
+    fn is_full(&self) -> bool {
+        self.queue.is_full()
     }
 
-    fn advance_until<F>(&self, mut func: F) -> usize
+    fn set_close(&mut self) {
+        self.closed = true;
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    fn iter(&self) -> Iter<'_, T> {
+        self.queue.iter()
+    }
+
+    fn advance_until<F>(&mut self, mut func: F) -> usize
     where
         F: FnMut(&mut T) -> bool,
     {
         let mut count = 0;
 
-        let mut len = self.len.load(Ordering::Acquire);
-
-        loop {
-            let idx = self.next.load(Ordering::Relaxed);
-
-            let tail = idx % N;
-
-            let head = if tail >= len { tail - len } else { N + tail - len };
-
-            // SAFETY:
-            //
-            // idx and len must correctly check the initialized items and their index.
-            unsafe {
-                let mut value = self.get_inner_mut().read_unchecked(head);
-
-                if func(&mut value) {
+        while let Some(value) = self.front_mut() {
+            match func(value) {
+                true => {
                     count += 1;
-
-                    len = self.len.fetch_sub(1, Ordering::AcqRel) - 1;
-
-                    if len == 0 {
-                        return count;
+                    // SAFETY:
+                    // only reachable when front is Some.
+                    unsafe {
+                        self.queue.pop_front_unchecked();
                     }
-                } else {
-                    self.get_inner_mut().write_unchecked(head, value);
-                    fence(Ordering::Release);
-                    return count;
                 }
+                false => break,
+            }
+        }
+
+        count
+    }
+
+    fn try_push(&mut self, value: T) -> Result<(), Error<T>> {
+        if self.is_closed() {
+            Err(Error::ReceiverClosed(value))
+        } else if self.is_full() {
+            Err(Error::Full(value))
+        } else {
+            // SAFETY:
+            // just checked self is not full.
+            unsafe { self.queue.push_back_unchecked(value) };
+            Ok(())
+        }
+    }
+
+    fn wake_receiver(&mut self) {
+        if let Some(waker) = self.receiver_waker.take() {
+            waker.wake();
+        }
+    }
+
+    fn wake_sender(&mut self, count: usize) {
+        for _ in 0..count {
+            match self.sender_waker.pop_front() {
+                Some(waker) => waker.wake(),
+                None => return,
             }
         }
     }
 
-    // SAFETY:
-    // UnsafeCell magic.
-    #[allow(clippy::mut_from_ref)]
-    unsafe fn get_inner_mut(&self) -> &mut UninitArray<T, N> {
-        &mut *self.inner.get()
+    fn register_receiver_waker(&mut self, waker: &Waker) {
+        self.receiver_waker = Some(waker.clone());
     }
 
-    // SAFETY:
-    // UnsafeCell magic.
-    unsafe fn get_inner(&self) -> &UninitArray<T, N> {
-        &*self.inner.get()
+    fn register_sender_waker(&mut self, waker: &Waker) {
+        if let Some(node) = self.sender_waker.iter_mut().find(|w| w.will_wake(waker)) {
+            *node = waker.clone();
+        } else {
+            self.sender_waker.push_back(waker.clone());
+        }
     }
 
-    // SAFETY:
-    // caller must make sure given slice info is not out of bound and properly initialized.
-    unsafe fn get_slice_unchecked(&self, start: usize, len: usize) -> &[T] {
-        let ptr = self.get_inner().as_ptr().add(start);
-        let slice = slice::from_raw_parts(ptr, len);
-        uninit::slice_assume_init(slice)
+    fn front_mut(&mut self) -> Option<&mut T> {
+        self.queue.front_mut()
+    }
+
+    #[cfg(test)]
+    fn pop_front(&mut self) -> Option<T> {
+        self.queue.pop_front()
+    }
+}
+
+pub enum Error<T> {
+    SenderClosed,
+    ReceiverClosed(T),
+    Full(T),
+}
+
+impl<T> Error<T> {
+    pub fn into_inner(self) -> T {
+        match self {
+            Self::ReceiverClosed(value) => value,
+            _ => unreachable!("Can not retrieve data from Error"),
+        }
+    }
+}
+
+impl<T> fmt::Debug for Error<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SenderClosed => write!(f, "SenderClosed"),
+            Self::ReceiverClosed(_) => write!(f, "ReceiverClosed(..)"),
+            Self::Full(_) => write!(f, "Full(..)"),
+        }
     }
 }
 
@@ -307,66 +286,60 @@ impl<T, const N: usize> AtomicArray<T, N> {
 mod test {
     use super::*;
 
-    use core::task::Waker;
-
-    use alloc::task::Wake;
+    use alloc::{sync::Arc, task::Wake};
 
     use crate::pin;
 
     #[test]
     fn push() {
-        let array = AtomicArray::<usize, 3>::new();
+        let mut vec = AsyncVec::new(3);
 
-        assert!(array.push_back(1).is_ok());
+        assert!(vec.try_push(1).is_ok());
+        let mut iter = vec.iter();
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), None);
 
-        array.with_slice(|a, b| {
-            assert_eq!(a, &[1]);
-            assert_eq!(b, &[]);
-        });
+        assert!(vec.try_push(2).is_ok());
+        let mut iter = vec.iter();
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), None);
 
-        assert!(array.push_back(2).is_ok());
+        assert!(vec.try_push(3).is_ok());
+        let mut iter = vec.iter();
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.next(), None);
 
-        array.with_slice(|a, b| {
-            assert_eq!(a, &[1, 2]);
-            assert_eq!(b, &[]);
-        });
-
-        assert!(array.push_back(3).is_ok());
-
-        array.with_slice(|a, b| {
-            assert_eq!(a, &[1, 2, 3]);
-            assert_eq!(b, &[]);
-        });
-
-        assert!(array.push_back(4).is_err());
+        assert!(vec.try_push(4).is_err());
+        let mut iter = vec.iter();
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn advance() {
-        let array = AtomicArray::<usize, 3>::new();
+        let mut v = AsyncVec::new(3);
 
-        assert!(array.push_back(1).is_ok());
-        assert!(array.push_back(2).is_ok());
-        assert!(array.push_back(3).is_ok());
+        assert!(v.try_push(1).is_ok());
+        assert!(v.try_push(2).is_ok());
+        assert!(v.try_push(3).is_ok());
 
-        array.with_slice(|a, b| {
-            assert_eq!(a, &[1, 2, 3]);
-            assert_eq!(b, &[]);
-        });
+        let v2 = v.iter().collect::<Vec<&usize>>();
+        assert_eq!(v2, &[&1, &2, &3]);
 
-        let _ = array.advance_until(|i| *i != 3);
+        let count = v.advance_until(|i| *i != 3);
+        assert_eq!(count, 2);
 
-        array.with_slice(|a, b| {
-            assert_eq!(a, &[3]);
-            assert_eq!(b, &[]);
-        });
+        let v2 = v.iter().collect::<Vec<&usize>>();
+        assert_eq!(v2, &[&3]);
 
-        assert!(array.push_back(4).is_ok());
-
-        array.with_slice(|a, b| {
-            assert_eq!(a, &[3]);
-            assert_eq!(b, &[4]);
-        });
+        assert!(v.try_push(4).is_ok());
+        let v2 = v.iter().collect::<Vec<&usize>>();
+        assert_eq!(v2, &[&3, &4]);
     }
 
     #[test]
@@ -374,10 +347,27 @@ mod test {
         let counter = Arc::new(());
 
         {
-            let array = AtomicArray::<_, 3>::new();
+            let mut v = AsyncVec::new(3);
 
-            assert!(array.push_back(counter.clone()).is_ok());
-            assert!(array.push_back(counter.clone()).is_ok());
+            assert!(v.try_push(counter.clone()).is_ok());
+            assert!(v.try_push(counter.clone()).is_ok());
+
+            assert_eq!(Arc::strong_count(&counter), 3);
+        }
+
+        assert_eq!(Arc::strong_count(&counter), 1);
+
+        {
+            let mut v = AsyncVec::new(3);
+
+            assert!(v.try_push(counter.clone()).is_ok());
+            assert!(v.try_push(counter.clone()).is_ok());
+
+            {
+                let _ = v.pop_front();
+            }
+
+            assert!(v.try_push(counter.clone()).is_ok());
 
             assert_eq!(Arc::strong_count(&counter), 3);
         }
@@ -394,8 +384,8 @@ mod test {
     }
 
     #[test]
-    fn spsc() {
-        let (tx, mut rx) = async_array::<usize, 8>();
+    fn mpsc() {
+        let (tx, mut rx) = async_vec(8);
 
         let waker = Waker::from(Arc::new(DummyWaker));
 
@@ -413,10 +403,11 @@ mod test {
             assert!(fut.poll(cx).is_ready());
         }
 
-        rx.with_slice(|a, b| {
-            assert_eq!(a.len(), 8);
-            assert_eq!(b.len(), 0);
-            assert_eq!(a[3], 3);
+        rx.with_iter(|iter| {
+            let items = iter.collect::<Vec<&usize>>();
+
+            assert_eq!(items.len(), 8);
+            assert_eq!(items[3], &3);
         });
 
         rx.advance_until(|i| *i < 8);
@@ -425,46 +416,4 @@ mod test {
         pin!(fut);
         assert!(fut.poll(cx).is_pending());
     }
-
-    // #[test]
-    // #[cfg_attr(miri, ignore)]
-    // fn race() {
-    //     let (tx, mut rx) = async_array::<u32, 8>();
-
-    //     let (tx1, rx1) = tokio::sync::oneshot::channel::<()>();
-
-    //     let h1 = std::thread::spawn(move || {
-    //         tokio::runtime::Builder::new_current_thread()
-    //             .build()
-    //             .unwrap()
-    //             .block_on(async {
-    //                 for i in 0..1024 {
-    //                     tx.send(i).await;
-    //                 }
-    //                 rx1.await.unwrap();
-    //             })
-    //     });
-
-    //     let h2 = std::thread::spawn(move || {
-    //         tokio::runtime::Builder::new_current_thread()
-    //             .build()
-    //             .unwrap()
-    //             .block_on(async {
-    //                 let mut outcome = 0;
-    //                 while outcome < 1024 - 1 {
-    //                     rx.wait().await;
-    //                     rx.with_slice(|a, b| {
-    //                         for i in a.iter().chain(b.iter()) {
-    //                             outcome = core::cmp::max(outcome, *i);
-    //                         }
-    //                     });
-    //                     rx.advance_until(|i| *i <= outcome);
-    //                 }
-    //                 tx1.send(()).unwrap();
-    //             })
-    //     });
-
-    //     h1.join().unwrap();
-    //     h2.join().unwrap();
-    // }
 }

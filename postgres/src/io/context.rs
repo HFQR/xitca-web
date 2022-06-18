@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, io::IoSlice, mem::MaybeUninit};
 
 use xitca_io::bytes::{Buf, BytesMut};
-use xitca_unsafe_collection::{array_queue::ArrayQueue, uninit::PartialInit};
+use xitca_unsafe_collection::{bound_queue::stack::StackQueue, uninit::PartialInit};
 
 use crate::{
     error::Error,
@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub(super) struct Context<const LIMIT: usize> {
-    req: ArrayQueue<Request, LIMIT>,
+    req: StackQueue<Request, LIMIT>,
     res: VecDeque<ResponseSender>,
     pub buf: BytesMut,
 }
@@ -18,13 +18,14 @@ pub(super) struct Context<const LIMIT: usize> {
 impl<const LIMIT: usize> Context<LIMIT> {
     pub(super) fn new() -> Self {
         Self {
-            req: ArrayQueue::new(),
+            req: StackQueue::new(),
             res: VecDeque::with_capacity(LIMIT * 2),
             buf: BytesMut::new(),
         }
     }
 
-    pub(super) const fn req_is_full(&self) -> bool {
+    #[cfg(not(feature = "single-thread"))]
+    pub(super) fn req_is_full(&self) -> bool {
         self.req.is_full()
     }
 
@@ -34,6 +35,10 @@ impl<const LIMIT: usize> Context<LIMIT> {
 
     pub(super) fn push_req(&mut self, req: Request) {
         self.req.push_back(req).expect("Out of bound must not happen.");
+    }
+
+    pub(super) fn push_res(&mut self, res: ResponseSender) {
+        self.res.push_back(res);
     }
 
     pub(super) fn clear(&mut self) {
@@ -111,9 +116,9 @@ impl<const LIMIT: usize> Context<LIMIT> {
                 }
             }
 
-            let req = self.req.pop_front().unwrap();
+            let mut req = self.req.pop_front().unwrap();
 
-            self.res.push_back(req.tx);
+            self.push_res(req.tx.take().unwrap());
         }
     }
 }
