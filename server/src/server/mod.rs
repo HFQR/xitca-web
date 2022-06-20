@@ -48,7 +48,7 @@ impl Server {
             .enable_all()
             // This worker threads is only used for accepting connections.
             // xitca-sever worker does not run task on them.
-            .worker_threads(server_threads + 1)
+            .worker_threads(server_threads)
             .build()?;
 
         let fut = async {
@@ -65,8 +65,8 @@ impl Server {
 
         // use a spawned thread to work around possible nest runtime issue.
         // *. Server::new is most likely already inside a tokio runtime.
-        let handle = rt.handle().clone();
-        let listeners = thread::spawn(move || handle.block_on(fut)).join().unwrap()?;
+        let listeners = thread::scope(|s| s.spawn(|| rt.block_on(fut)).join())
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e)))??;
 
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
 
