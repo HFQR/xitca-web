@@ -1,4 +1,8 @@
-use std::{marker::PhantomData, rc::Rc, sync::{Arc, Mutex}};
+use std::{
+    marker::PhantomData,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use futures_core::future::LocalBoxFuture;
 use tokio::task::JoinHandle;
