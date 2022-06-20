@@ -16,11 +16,10 @@ use std::{
     thread,
 };
 
-use tokio::sync::{
-    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    oneshot,
+use tokio::{
+    runtime::Runtime,
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
-use tracing::{error, info};
 
 use crate::{builder::Builder, worker};
 
@@ -28,8 +27,7 @@ pub struct Server {
     is_graceful_shutdown: Arc<AtomicBool>,
     tx_cmd: UnboundedSender<Command>,
     rx_cmd: UnboundedReceiver<Command>,
-    server_join_handle: Option<thread::JoinHandle<()>>,
-    tx: Option<oneshot::Sender<()>>,
+    rt: Option<Runtime>,
     worker_join_handles: Vec<thread::JoinHandle<()>>,
 }
 
@@ -46,53 +44,29 @@ impl Server {
             ..
         } = builder;
 
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            // This worker threads is only used for accepting connections.
+            // xitca-sever worker does not run task on them.
+            .worker_threads(server_threads)
+            .build()?;
 
-        let server_handle = thread::spawn(move || {
-            let res = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                // This worker threads is only used for accepting connections.
-                // xitca-sever worker does not run task on them.
-                .worker_threads(server_threads)
-                .build()
-                .and_then(|rt| {
-                    let res = rt.block_on(async {
-                        listeners
-                            .into_iter()
-                            .flat_map(|(name, listeners)| {
-                                listeners.into_iter().map(move |mut l| {
-                                    let l = l.as_listener()?;
-                                    Ok((name.to_owned(), Arc::new(l)))
-                                })
-                            })
-                            .collect::<Result<Vec<_>, io::Error>>()
-                    })?;
-
-                    Ok((res, rt))
-                });
-
-            let (tx2, rx2) = oneshot::channel();
-
-            match res {
-                Ok((listeners, rt)) => {
-                    tx.send((tx2, Ok(listeners))).unwrap();
-
-                    rt.block_on(async {
-                        if rx2.await.is_err() {
-                            error!("Force stopped Accept. ServerFuture dropped unexpectedly.");
-                        } else {
-                            info!("Graceful stopped Accept.");
-                        };
+        let fut = async {
+            listeners
+                .into_iter()
+                .flat_map(|(name, listeners)| {
+                    listeners.into_iter().map(move |mut l| {
+                        let l = l.as_listener()?;
+                        Ok((name.to_owned(), Arc::new(l)))
                     })
-                }
-                Err(e) => {
-                    tx.send((tx2, Err(e))).unwrap();
-                }
-            }
-        });
+                })
+                .collect::<Result<Vec<_>, io::Error>>()
+        };
 
-        let (tx, res) = rx.recv().unwrap();
-        let listeners = res?;
+        // use a spawned thread to work around possible nest runtime issue.
+        // *. Server::new is most likely already inside a tokio runtime.
+        let listeners = thread::scope(|s| s.spawn(|| rt.block_on(fut)).join())
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e)))??;
 
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
 
@@ -179,8 +153,7 @@ impl Server {
             is_graceful_shutdown,
             tx_cmd,
             rx_cmd,
-            server_join_handle: Some(server_handle),
-            tx: Some(tx),
+            rt: Some(rt),
             worker_join_handles: worker_handles,
         })
     }
@@ -188,13 +161,7 @@ impl Server {
     pub(crate) fn stop(&mut self, graceful: bool) {
         self.is_graceful_shutdown.store(graceful, Ordering::SeqCst);
 
-        self.tx
-            .take()
-            .unwrap()
-            .send(())
-            .expect("Accept thread exited unexpectedly");
-
-        self.server_join_handle.take().unwrap().join().unwrap();
+        self.rt.take().unwrap().shutdown_background();
 
         mem::take(&mut self.worker_join_handles).into_iter().for_each(|handle| {
             handle.join().unwrap();

@@ -1,7 +1,7 @@
 ## An alternative http library inspired by actix-web.
 
 ### Requirement:
-- rustc 1.62.0-nightly (60e50fc1c 2022-04-04)
+- rustc 1.63.0-nightly (ca122c7eb 2022-06-13)
 
 ### Motivation:
 - 100% safe Rust. All unsafe codes are outsourced to dependencies.

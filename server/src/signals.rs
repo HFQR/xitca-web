@@ -8,7 +8,7 @@ use tokio::signal;
 
 /// Different types of process signals
 #[allow(dead_code)]
-#[derive(PartialEq, Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, Clone, Copy, Debug)]
 pub(crate) enum Signal {
     /// SIGHUP
     Hup,
