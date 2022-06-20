@@ -1,4 +1,8 @@
-use std::{marker::PhantomData, rc::Rc, sync::Arc};
+use std::{
+    marker::PhantomData,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use futures_core::future::LocalBoxFuture;
 use tokio::task::JoinHandle;
@@ -9,7 +13,7 @@ use crate::worker::{self, ServiceAny};
 
 pub(crate) struct Factory<F, Req> {
     inner: F,
-    _t: PhantomData<Req>,
+    _t: PhantomData<Mutex<Req>>,
 }
 
 impl<F, Req> Factory<F, Req>
