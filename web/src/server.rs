@@ -23,7 +23,7 @@ pub struct HttpServer<
 
 impl<F, I> HttpServer<F>
 where
-    F: Fn() -> I + Send + Clone + 'static,
+    F: Fn() -> I + Send + Sync + Clone + 'static,
 {
     pub fn new(factory: F) -> Self {
         Self {
@@ -37,7 +37,7 @@ where
 impl<F, I, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    F: Fn() -> I + Send + Clone + 'static,
+    F: Fn() -> I + Send + Sync + Clone + 'static,
 {
     /// Set number of threads dedicated to accepting connections.
     ///
@@ -185,8 +185,8 @@ where
     #[doc(hidden)]
     pub fn on_worker_start<FS, Fut>(mut self, on_start: FS) -> Self
     where
-        FS: Fn() -> Fut + Send + Clone + 'static,
-        Fut: Future + Send,
+        FS: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future + Send + 'static,
     {
         self.builder = self.builder.on_worker_start(on_start);
         self

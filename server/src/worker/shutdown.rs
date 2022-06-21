@@ -1,9 +1,6 @@
 use std::{
     rc::Rc,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
@@ -11,13 +8,13 @@ use tracing::info;
 
 use super::{worker_name, ServiceAny};
 
-pub(super) struct ShutdownHandle {
+pub(super) struct ShutdownHandle<'a> {
     shutdown_timeout: Duration,
     services: Vec<ServiceAny>,
-    is_graceful_shutdown: Arc<AtomicBool>,
+    is_graceful_shutdown: &'a AtomicBool,
 }
 
-impl Drop for ShutdownHandle {
+impl Drop for ShutdownHandle<'_> {
     fn drop(&mut self) {
         self.retain_active_services();
 
@@ -37,11 +34,11 @@ impl Drop for ShutdownHandle {
     }
 }
 
-impl ShutdownHandle {
+impl<'a> ShutdownHandle<'a> {
     pub(super) fn new(
         shutdown_timeout: Duration,
         services: Vec<ServiceAny>,
-        is_graceful_shutdown: Arc<AtomicBool>,
+        is_graceful_shutdown: &'a AtomicBool,
     ) -> Self {
         Self {
             shutdown_timeout,

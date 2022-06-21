@@ -18,51 +18,42 @@ pub(crate) struct Factory<F, Req> {
 
 impl<F, Req> Factory<F, Req>
 where
-    F: AsServiceFactoryClone<Req>,
+    F: BuildServiceSync<Req>,
     Req: From<Stream> + Send + 'static,
 {
-    pub(crate) fn new_boxed(inner: F) -> Box<dyn ServiceFactoryClone> {
+    pub(crate) fn new_boxed(inner: F) -> Box<dyn _BuildService> {
         Box::new(Self { inner, _t: PhantomData })
     }
 }
 
-type ServiceFactoryCloneOpt = Result<(Vec<JoinHandle<()>>, ServiceAny), ()>;
+type BuildServiceSyncOpt = Result<(Vec<JoinHandle<()>>, ServiceAny), ()>;
 
-pub(crate) trait ServiceFactoryClone: Send {
-    fn clone_factory(&self) -> Box<dyn ServiceFactoryClone>;
-
-    fn spawn_handle<'s, 'f>(
+pub(crate) trait _BuildService: Send + Sync {
+    fn _build<'s, 'f>(
         &'s self,
         name: &'f str,
         listeners: &'f [(String, Arc<Listener>)],
-    ) -> LocalBoxFuture<'f, ServiceFactoryCloneOpt>
+    ) -> LocalBoxFuture<'f, BuildServiceSyncOpt>
     where
         's: 'f;
 }
 
-impl<F, Req> ServiceFactoryClone for Factory<F, Req>
+impl<F, Req> _BuildService for Factory<F, Req>
 where
-    F: AsServiceFactoryClone<Req>,
+    F: BuildServiceSync<Req>,
     F::Service: ReadyService<Req>,
     Req: From<Stream> + Send + 'static,
 {
-    fn clone_factory(&self) -> Box<dyn ServiceFactoryClone> {
-        Box::new(Self {
-            inner: self.inner.clone(),
-            _t: PhantomData,
-        })
-    }
-
-    fn spawn_handle<'s, 'f>(
+    fn _build<'s, 'f>(
         &'s self,
         name: &'f str,
         listeners: &'f [(String, Arc<Listener>)],
-    ) -> LocalBoxFuture<'f, ServiceFactoryCloneOpt>
+    ) -> LocalBoxFuture<'f, BuildServiceSyncOpt>
     where
         's: 'f,
     {
         Box::pin(async move {
-            let service = self.inner.as_factory_clone().build(()).await.map_err(|_| ())?;
+            let service = self.inner.build().build(()).await.map_err(|_| ())?;
             let service = Rc::new(service);
 
             let handles = listeners
@@ -76,30 +67,30 @@ where
     }
 }
 
-/// Helper trait to cast a cloneable type that impl [`ServiceFactory`](xitca_service::ServiceFactory)
-/// to a trait object that is `Send` and `Clone`.
-pub trait AsServiceFactoryClone<Req>
+/// Helper trait to cast a type that impl [`BuildService`](xitca_service::BuildService)
+/// to a trait object that is `Send` and `Sync`.
+pub trait BuildServiceSync<Req>
 where
     Req: From<Stream>,
-    Self: Send + Clone + 'static,
+    Self: Send + Sync + 'static,
 {
-    type ServiceFactoryClone: BuildService<Service = Self::Service>;
+    type BuildService: BuildService<Service = Self::Service>;
     type Service: ReadyService<Req>;
 
-    fn as_factory_clone(&self) -> Self::ServiceFactoryClone;
+    fn build(&self) -> Self::BuildService;
 }
 
-impl<F, T, Req> AsServiceFactoryClone<Req> for F
+impl<F, T, Req> BuildServiceSync<Req> for F
 where
-    F: Fn() -> T + Send + Clone + 'static,
+    F: Fn() -> T + Send + Sync + 'static,
     T: BuildService,
     T::Service: ReadyService<Req>,
     Req: From<Stream>,
 {
-    type ServiceFactoryClone = T;
+    type BuildService = T;
     type Service = T::Service;
 
-    fn as_factory_clone(&self) -> T {
-        (self)()
+    fn build(&self) -> T {
+        self()
     }
 }
