@@ -4,7 +4,7 @@ use xitca_io::net::{Stream, TcpSocket};
 
 use crate::{
     net::AsListener,
-    server::{AsServiceFactoryClone, Factory, Server, ServerFuture, ServerFutureInner, ServiceFactoryClone},
+    server::{BuildServiceSync, Factory, Server, ServerFuture, ServerFutureInner, _BuildService},
 };
 
 pub struct Builder {
@@ -12,10 +12,10 @@ pub struct Builder {
     pub(crate) worker_threads: usize,
     pub(crate) worker_max_blocking_threads: usize,
     pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener>>>,
-    pub(crate) factories: HashMap<String, Box<dyn ServiceFactoryClone>>,
+    pub(crate) factories: HashMap<String, Box<dyn _BuildService>>,
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
-    pub(crate) on_worker_start: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
+    pub(crate) on_worker_start: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
     backlog: u32,
 }
 
@@ -142,14 +142,13 @@ impl Builder {
     /// *. This API is subject to change with no stable guarantee.
     pub fn on_worker_start<F, Fut>(mut self, on_start: F) -> Self
     where
-        F: Fn() -> Fut + Send + Clone + 'static,
-        Fut: Future + Send,
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future + Send + 'static,
     {
         self.on_worker_start = Box::new(move || {
-            let on_start = on_start.clone();
-            Box::pin(async move {
-                let fut = on_start();
-                let _ = fut.await;
+            let fut = on_start();
+            Box::pin(async {
+                fut.await;
             })
         });
 
@@ -160,7 +159,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: AsServiceFactoryClone<St>,
+        F: BuildServiceSync<St>,
         St: From<Stream> + Send + 'static,
     {
         let addr = addr
@@ -174,7 +173,7 @@ impl Builder {
     pub fn listen<N, F, St>(mut self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: AsServiceFactoryClone<St>,
+        F: BuildServiceSync<St>,
         St: From<Stream> + Send + 'static,
     {
         self.listeners
@@ -204,7 +203,7 @@ impl Builder {
     fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: AsServiceFactoryClone<St>,
+        F: BuildServiceSync<St>,
         St: From<Stream> + Send + 'static,
     {
         let socket = if addr.is_ipv4() {
@@ -227,7 +226,7 @@ impl Builder {
     where
         N: AsRef<str>,
         P: AsRef<std::path::Path>,
-        F: AsServiceFactoryClone<St>,
+        F: BuildServiceSync<St>,
         St: From<Stream> + Send + 'static,
     {
         // The path must not exist when we try to bind.
@@ -252,7 +251,7 @@ impl Builder {
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: AsServiceFactoryClone<St>,
+        F: BuildServiceSync<St>,
         St: From<Stream> + Send + 'static,
     {
         self.listeners
@@ -282,7 +281,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: AsServiceFactoryClone<xitca_io::net::Stream>,
+        F: BuildServiceSync<Stream>,
     {
         let addr = addr
             .to_socket_addrs()?
@@ -311,7 +310,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: AsServiceFactoryClone<xitca_io::net::UdpStream>,
+        F: BuildServiceSync<xitca_io::net::UdpStream>,
     {
         let addr = addr
             .to_socket_addrs()?

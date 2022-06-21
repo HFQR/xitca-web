@@ -57,7 +57,7 @@ pub(crate) async fn wait_for_stop(
     handles: Vec<JoinHandle<()>>,
     services: Vec<ServiceAny>,
     shutdown_timeout: Duration,
-    is_graceful_shutdown: Arc<AtomicBool>,
+    is_graceful_shutdown: &AtomicBool,
 ) {
     info!("Started {}", worker_name());
 

@@ -27,7 +27,7 @@ type HResponse<B> = Response<ResponseBody<B>>;
 /// xitca-server
 pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
 where
-    F: Fn() -> T + Send + Clone + 'static,
+    F: Fn() -> T + Send + Sync + 'static,
     T: BuildService,
     T::Service: ReadyService<Req>,
     Req: From<NetStream> + Send + 'static,
@@ -49,7 +49,7 @@ where
 /// A specialized http/1 server on top of [test_server]
 pub fn test_h1_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
-    F: Fn() -> I + Send + Clone + 'static,
+    F: Fn() -> I + Send + Sync + 'static,
     I: BuildService + 'static,
     I::Service: ReadyService<Request<h1::RequestBody>, Response = HResponse<B>> + 'static,
     <I::Service as Service<Request<h1::RequestBody>>>::Error: fmt::Debug,
@@ -66,7 +66,7 @@ where
 /// A specialized http/2 server on top of [test_server]
 pub fn test_h2_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
-    F: Fn() -> I + Send + Clone + 'static,
+    F: Fn() -> I + Send + Sync + 'static,
     I: BuildService + 'static,
     I::Service: ReadyService<Request<h2::RequestBody>, Response = HResponse<B>> + 'static,
     <I::Service as Service<Request<h2::RequestBody>>>::Error: fmt::Debug,
@@ -87,7 +87,7 @@ where
 /// A specialized http/3 server
 pub fn test_h3_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
-    F: Fn() -> I + Send + Clone + 'static,
+    F: Fn() -> I + Send + Sync + 'static,
     I: BuildService + 'static,
     I::Service: ReadyService<Request<h3::RequestBody>, Response = HResponse<B>> + 'static,
     <I::Service as Service<Request<h3::RequestBody>>>::Error: fmt::Debug,

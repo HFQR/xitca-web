@@ -2,10 +2,12 @@ mod future;
 mod handle;
 mod service;
 
-pub use self::future::{ServerFuture, ServerFutureInner};
-pub use self::handle::ServerHandle;
+pub use self::{
+    future::{ServerFuture, ServerFutureInner},
+    handle::ServerHandle,
+};
 
-pub(crate) use self::service::{AsServiceFactoryClone, Factory, ServiceFactoryClone};
+pub(crate) use self::service::{BuildServiceSync, Factory, _BuildService};
 
 use std::{
     io, mem,
@@ -70,82 +72,58 @@ impl Server {
 
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
 
-        let worker_handles = (0..worker_threads)
-            .map(|idx| {
-                let is_graceful_shutdown = is_graceful_shutdown.clone();
-                let listeners = listeners.clone();
-                let factories = factories
-                    .iter()
-                    .map(|(name, factory)| (name.to_owned(), factory.clone_factory()))
-                    .collect::<Vec<_>>();
+        let is_graceful_shutdown2 = is_graceful_shutdown.clone();
+        let worker_handles = thread::spawn(move || {
+            let is_graceful_shutdown = is_graceful_shutdown2;
+            thread::scope(|s| {
+                let handles = (0..worker_threads)
+                    .map(|idx| {
+                        thread::Builder::new()
+                            .name(format!("xitca-server-worker-{}", idx))
+                            .spawn_scoped(s, || {
+                                let on_start_fut = on_worker_start();
 
-                let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                                let fut = async {
+                                    on_start_fut.await;
 
-                let on_start_fut = on_worker_start();
+                                    let mut handles = Vec::new();
+                                    let mut services = Vec::new();
 
-                let handle = thread::Builder::new()
-                    .name(format!("xitca-server-worker-{}", idx))
-                    .spawn(move || {
-                        let fut = async {
-                            on_start_fut.await;
+                                    for (name, factory) in factories.iter() {
+                                        let (h, s) = factory._build(name, &listeners).await?;
+                                        handles.extend(h);
+                                        services.push(s);
+                                    }
 
-                            // TODO: max blocking thread configure is needed.
-                            let _ = worker_max_blocking_threads;
-
-                            // async move is IMPORTANT here.
-                            // `Listener` may do extra work with `Drop` trait and in order to prevent `Arc<Listener>` holding more reference
-                            // counts than necessary all extra clone need to be dropped asap.
-                            let fut = async move {
-                                let mut handles = Vec::new();
-                                let mut services = Vec::new();
-
-                                for (name, factory) in factories {
-                                    let (h, s) = factory.spawn_handle(&name, &listeners).await?;
-                                    handles.extend(h);
-                                    services.push(s);
-                                }
-
-                                // See above reason for `async move`
-                                drop(listeners);
-
-                                Ok::<_, ()>((handles, services))
-                            };
-
-                            match fut.await {
-                                Ok((handles, services)) => {
-                                    tx.send(Ok(())).unwrap();
-                                    worker::wait_for_stop(handles, services, shutdown_timeout, is_graceful_shutdown)
+                                    worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown)
                                         .await;
+
+                                    Ok::<_, ()>(())
+                                };
+
+                                #[cfg(not(feature = "io-uring"))]
+                                {
+                                    tokio::runtime::Builder::new_current_thread()
+                                        .enable_all()
+                                        .max_blocking_threads(worker_max_blocking_threads)
+                                        .build()
+                                        .unwrap()
+                                        .block_on(tokio::task::LocalSet::new().run_until(fut))
                                 }
-                                Err(_) => tx
-                                    .send(Err(io::Error::new(
-                                        io::ErrorKind::Other,
-                                        "Worker Services fail to start",
-                                    )))
-                                    .unwrap(),
-                            }
-                        };
+                                #[cfg(feature = "io-uring")]
+                                {
+                                    let _ = worker_max_blocking_threads;
+                                    tokio_uring::start(fut)
+                                }
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>();
 
-                        #[cfg(not(feature = "io-uring"))]
-                        {
-                            tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .max_blocking_threads(worker_max_blocking_threads)
-                                .build()
-                                .unwrap()
-                                .block_on(tokio::task::LocalSet::new().run_until(fut))
-                        }
-                        #[cfg(feature = "io-uring")]
-                        {
-                            tokio_uring::start(fut)
-                        }
-                    })?;
-
-                rx.recv().unwrap()?;
-
-                Ok(handle)
+                for handle in handles.unwrap() {
+                    handle.join().unwrap().unwrap();
+                }
             })
-            .collect::<io::Result<Vec<_>>>()?;
+        });
 
         let (tx_cmd, rx_cmd) = unbounded_channel();
 
@@ -154,7 +132,7 @@ impl Server {
             tx_cmd,
             rx_cmd,
             rt: Some(rt),
-            worker_join_handles: worker_handles,
+            worker_join_handles: vec![worker_handles],
         })
     }
 

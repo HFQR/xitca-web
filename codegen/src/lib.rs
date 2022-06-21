@@ -251,7 +251,7 @@ fn extract_res_ty(ret: &ReturnType) -> (&Type, &Type) {
 // Extract types from a return type of function.
 fn ready_ret_ty(ret: &ReturnType) -> &Type {
     if let ReturnType::Type(_, ty) = ret {
-        return &*ty;
+        return ty;
     }
 
     panic!("ready method must output ReadyService::Ready type")
