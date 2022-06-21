@@ -49,7 +49,7 @@ impl From<io::Error> for ProtocolError {
 }
 
 /// WebSocket handshake errors
-#[derive(PartialEq, Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum HandshakeError {
     GetMethodRequired,
     NoWebsocketUpgrade,

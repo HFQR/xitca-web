@@ -1,5 +1,5 @@
 /// Represents a supported content encoding.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ContentEncoding {
     /// Automatically select encoding based on encoding negotiation.
     Auto,

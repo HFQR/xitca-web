@@ -10,7 +10,7 @@ use super::frame::Parser;
 use super::proto::{CloseReason, OpCode};
 
 /// A WebSocket message.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Message {
     /// Text message.
     Text(Bytes),
@@ -36,7 +36,7 @@ pub enum Message {
 }
 
 /// A WebSocket continuation item.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Item {
     FirstText(Bytes),
     FirstBinary(Bytes),

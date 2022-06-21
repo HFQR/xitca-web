@@ -42,7 +42,8 @@ where
         let conn = {
             let mut conns = self.conns.lock().unwrap();
 
-            match conns.get_mut(&key) {
+            let opt = conns.get_mut(&key);
+            match opt {
                 Some(Value::NonMultiplexable(queue)) => loop {
                     match queue.pop_front() {
                         // drop connection that are expired.
@@ -147,7 +148,8 @@ where
 
             let mut conns = self.pool.conns.lock().unwrap();
 
-            match conns.get_mut(&self.key) {
+            let opt = conns.get_mut(&self.key);
+            match opt {
                 Some(Value::NonMultiplexable(queue)) => {
                     conn.state.update_idle();
                     queue.push_back(conn);
