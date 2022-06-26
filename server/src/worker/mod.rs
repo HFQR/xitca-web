@@ -45,7 +45,7 @@ where
                 // Should use other notifier other than error.
                 Err(ref e) if fatal_error(e) => return,
                 Err(e) => {
-                    error!("Error accepting connection: {}", e);
+                    error!("Error accepting connection: {e}");
                     sleep(Duration::from_secs(1)).await;
                 }
             }
@@ -59,24 +59,29 @@ pub(crate) async fn wait_for_stop(
     shutdown_timeout: Duration,
     is_graceful_shutdown: &AtomicBool,
 ) {
-    info!("Started {}", worker_name());
+    with_worker_name_str(|name| info!("Started {name}"));
 
     let shutdown_handle = ShutdownHandle::new(shutdown_timeout, services, is_graceful_shutdown);
 
     for handle in handles {
         handle
             .await
-            .unwrap_or_else(|e| error!("{} exit on error: {}", worker_name(), e));
+            .unwrap_or_else(|e| with_worker_name_str(|name| error!("{name} exit on error: {e}")));
     }
 
     shutdown_handle.shutdown().await;
 }
 
-fn worker_name() -> String {
-    thread::current()
-        .name()
-        .map(ToString::to_string)
-        .unwrap_or_else(|| String::from("xitca-server-worker"))
+#[cold]
+#[inline(never)]
+fn with_worker_name_str<F, O>(func: F) -> O
+where
+    F: FnOnce(&str) -> O,
+{
+    match thread::current().name() {
+        Some(name) => func(name),
+        None => func("xitca-server-worker"),
+    }
 }
 
 /// This function defines errors that are per-connection. Which basically

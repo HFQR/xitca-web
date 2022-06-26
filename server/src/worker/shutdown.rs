@@ -6,7 +6,7 @@ use std::{
 
 use tracing::info;
 
-use super::{worker_name, ServiceAny};
+use super::{with_worker_name_str, ServiceAny};
 
 pub(super) struct ShutdownHandle<'a> {
     shutdown_timeout: Duration,
@@ -23,13 +23,9 @@ impl Drop for ShutdownHandle<'_> {
             .fold(0, |total, service| total + Rc::strong_count(&service).saturating_sub(1));
 
         if remaining == 0 {
-            info!("Graceful stopped {}", worker_name());
+            with_worker_name_str(|name| info!("Graceful stopped {name}"));
         } else {
-            info!(
-                "Force stopped {}. {:?} connections(estimate) left.",
-                worker_name(),
-                remaining
-            );
+            with_worker_name_str(|name| info!("Force stopped {name}. {remaining} connections(estimate) left."));
         }
     }
 }

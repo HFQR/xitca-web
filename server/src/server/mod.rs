@@ -79,7 +79,7 @@ impl Server {
                 let handles = (0..worker_threads)
                     .map(|idx| {
                         thread::Builder::new()
-                            .name(format!("xitca-server-worker-{}", idx))
+                            .name(format!("xitca-server-worker-{idx}"))
                             .spawn_scoped(s, || {
                                 let on_start_fut = on_worker_start();
 
