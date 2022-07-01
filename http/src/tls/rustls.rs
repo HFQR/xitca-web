@@ -5,7 +5,7 @@ use std::{
     error,
     fmt::{self, Debug, Display, Formatter},
     future::Future,
-    io,
+    io::{self, Write},
     ops::{Deref, DerefMut},
     pin::Pin,
     sync::Arc,
@@ -13,9 +13,12 @@ use std::{
 };
 
 use futures_task::noop_waker;
-use tokio_rustls::{rustls::ServerConfig, TlsAcceptor};
+use tokio_rustls::{
+    rustls::{ServerConfig, Writer},
+    TlsAcceptor,
+};
 use tokio_util::io::poll_read_buf;
-use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
+use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready, StdIoWriteAdapter};
 use xitca_service::{BuildService, Service};
 
 use crate::{bytes::BufMut, http::Version, version::AsVersion};
@@ -107,7 +110,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStream<S> {
 
     #[inline]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncWrite::poll_flush(Pin::new(&mut self.get_mut().stream), cx)
+        <tokio_rustls::server::TlsStream<S>>::poll_flush(Pin::new(&mut self.get_mut().stream), cx)
     }
 
     #[inline]
@@ -148,25 +151,39 @@ impl<S: AsyncIo> AsyncIo for TlsStream<S> {
         }
     }
 
+    #[inline]
     fn try_write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let waker = noop_waker();
-        let cx = &mut Context::from_waker(&waker);
-
-        match AsyncWrite::poll_write(Pin::new(self), cx, buf) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-        }
+        write_with(self, |writer| writer.write(buf))
     }
 
+    #[inline]
     fn try_write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        let waker = noop_waker();
-        let cx = &mut Context::from_waker(&waker);
-
-        match AsyncWrite::poll_write_vectored(Pin::new(self), cx, bufs) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-        }
+        write_with(self, |writer| writer.write_vectored(bufs))
     }
+}
+
+fn write_with<S, F>(stream: &mut TlsStream<S>, func: F) -> io::Result<usize>
+where
+    S: AsyncIo,
+    F: for<'r> FnOnce(&mut Writer<'r>) -> io::Result<usize>,
+{
+    let (io, conn) = stream.stream.get_mut();
+
+    // drain remaining data left in tls buffer. this part is not included in current write.
+    // (it happens from last try_write call)
+    while conn.wants_write() {
+        conn.write_tls(&mut StdIoWriteAdapter(io))?;
+    }
+
+    // write to tls buffer and try to send them through wire.
+    let n = func(&mut conn.writer())?;
+
+    // there is no guarantee write_tls would be able to send all the n bytes that go into tls buffer.
+    // hence the previous while loop try to drain the data that try to drain the buffer.
+    conn.write_tls(&mut StdIoWriteAdapter(io))?;
+
+    // regardless write_tls written how many bytes must advance n bytes that get into tls buffer.
+    Ok(n)
 }
 
 /// Collection of 'rustls' error types.
