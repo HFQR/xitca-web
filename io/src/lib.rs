@@ -180,4 +180,27 @@ pub mod io {
 
     #[cfg(unix)]
     basic_impl!(tokio::net::UnixStream);
+
+    /// An adapter for [AsyncIo] type to implement [io::Writer] trait for it.
+    pub struct StdIoWriteAdapter<'a, Io>(pub &'a mut Io);
+
+    impl<Io> io::Write for StdIoWriteAdapter<'_, Io>
+    where
+        Io: AsyncIo,
+    {
+        #[inline]
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.try_write(buf)
+        }
+
+        #[inline]
+        fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+            self.0.try_write_vectored(bufs)
+        }
+
+        #[inline]
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 }
