@@ -18,7 +18,7 @@ use tokio_rustls::{
     TlsAcceptor,
 };
 use tokio_util::io::poll_read_buf;
-use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready, StdIoWriteAdapter};
+use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready, StdIoAdapter};
 use xitca_service::{BuildService, Service};
 
 use crate::{bytes::BufMut, http::Version, version::AsVersion};
@@ -110,7 +110,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStream<S> {
 
     #[inline]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        <tokio_rustls::server::TlsStream<S>>::poll_flush(Pin::new(&mut self.get_mut().stream), cx)
+        AsyncWrite::poll_flush(Pin::new(&mut self.get_mut().stream), cx)
     }
 
     #[inline]
@@ -172,15 +172,15 @@ where
     // drain remaining data left in tls buffer. this part is not included in current write.
     // (it happens from last try_write call)
     while conn.wants_write() {
-        conn.write_tls(&mut StdIoWriteAdapter(io))?;
+        conn.write_tls(&mut StdIoAdapter(io))?;
     }
 
     // write to tls buffer and try to send them through wire.
     let n = func(&mut conn.writer())?;
 
     // there is no guarantee write_tls would be able to send all the n bytes that go into tls buffer.
-    // hence the previous while loop try to drain the data that try to drain the buffer.
-    conn.write_tls(&mut StdIoWriteAdapter(io))?;
+    // hence the previous while loop try to drain the data.
+    conn.write_tls(&mut StdIoAdapter(io))?;
 
     // regardless write_tls written how many bytes must advance n bytes that get into tls buffer.
     Ok(n)

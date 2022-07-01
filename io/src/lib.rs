@@ -182,9 +182,9 @@ pub mod io {
     basic_impl!(tokio::net::UnixStream);
 
     /// An adapter for [AsyncIo] type to implement [io::Writer] trait for it.
-    pub struct StdIoWriteAdapter<'a, Io>(pub &'a mut Io);
+    pub struct StdIoAdapter<'a, Io>(pub &'a mut Io);
 
-    impl<Io> io::Write for StdIoWriteAdapter<'_, Io>
+    impl<Io> io::Write for StdIoAdapter<'_, Io>
     where
         Io: AsyncIo,
     {
