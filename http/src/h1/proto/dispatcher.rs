@@ -117,7 +117,7 @@ where
         }
     }
 
-    /// read until blocked/read backpressure and advance readbuf.
+    // read until blocked/read backpressure and advance readbuf.
     fn try_read(&mut self) -> io::Result<()> {
         loop {
             match self.io.try_read_buf(&mut *self.read_buf) {
@@ -134,18 +134,18 @@ where
         }
     }
 
-    /// Return when write is blocked and need wait.
+    // Return when write is blocked and need wait.
     fn try_write(&mut self) -> io::Result<()> {
         self.write_buf.try_write(self.io)
     }
 
-    /// Block task and read.
+    // Block task and read.
     async fn read(&mut self) -> io::Result<()> {
         self.io.ready(Interest::READABLE).await?;
         self.try_read()
     }
 
-    /// drain write buffer and flush the io.
+    // drain write buffer and flush the io.
     async fn drain_write(&mut self) -> io::Result<()> {
         while !self.write_buf.is_empty() {
             self.try_write()?;
@@ -154,8 +154,8 @@ where
         poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await
     }
 
-    /// A specialized writable check that always pending when write buffer is empty.
-    /// This is a hack for `crate::util::futures::Select`.
+    // A specialized writable check that always pending when write buffer is empty.
+    // This is a hack for `crate::util::futures::Select`.
     async fn writable(&self) -> io::Result<()> {
         if self.write_buf.is_empty() {
             never().await
@@ -165,8 +165,8 @@ where
         }
     }
 
-    /// Check readable and writable state of IO and ready state of request payload sender.
-    /// Remove readable state if request payload is not ready(Read ahead backpressure).
+    // Check readable and writable state of IO and ready state of request payload sender.
+    // Remove readable state if request payload is not ready(Read ahead backpressure).
     async fn ready<D, const HEADER_LIMIT: usize>(
         &mut self,
         handle: &mut RequestBodyHandle,
@@ -503,9 +503,8 @@ impl RequestBodyHandle {
             if bytes.is_empty() {
                 self.sender.feed_eof();
                 return Ok(DecodeState::Eof);
-            } else {
-                self.sender.feed_data(bytes);
             }
+            self.sender.feed_data(bytes);
         }
 
         Ok(DecodeState::Continue)
