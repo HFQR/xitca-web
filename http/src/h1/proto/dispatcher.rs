@@ -454,11 +454,8 @@ where
     #[inline(never)]
     fn request_error<F>(&mut self, func: F) -> Result<(), Error<S::Error, BE>>
     where
-        F: Fn() -> Response<Once<Bytes>>,
+        F: FnOnce() -> Response<Once<Bytes>>,
     {
-        // Header is too large to be parsed.
-        // Close the connection after sending error response as it's pointless
-        // to read the remaining bytes inside connection.
         self.ctx.set_ctype(ConnectionType::Close);
 
         let (parts, body) = func().into_parts();
@@ -477,9 +474,9 @@ struct RequestBodyHandle {
 }
 
 enum DecodeState {
-    /// TransferDecoding can continue for more data.
+    // TransferDecoding can continue for more data.
     Continue,
-    /// TransferDecoding is ended with eof.
+    // TransferDecoding is ended with eof.
     Eof,
 }
 
