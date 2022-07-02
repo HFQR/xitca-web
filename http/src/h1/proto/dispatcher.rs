@@ -134,34 +134,40 @@ where
         }
     }
 
-    // Return when write is blocked and need wait.
     fn try_write(&mut self) -> io::Result<()> {
         self.write_buf.try_write(self.io)
     }
 
-    // Block task and read.
     async fn read(&mut self) -> io::Result<()> {
         self.io.ready(Interest::READABLE).await?;
         self.try_read()
     }
 
-    // drain write buffer and flush the io.
-    async fn drain_write(&mut self) -> io::Result<()> {
-        while !self.write_buf.is_empty() {
-            self.try_write()?;
-            let _ = self.io.ready(Interest::WRITABLE).await?;
-        }
+    async fn write(&mut self) -> io::Result<()> {
+        self.io.ready(Interest::WRITABLE).await?;
+        self.try_write()
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
         poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await
     }
 
-    // A specialized writable check that always pending when write buffer is empty.
-    // This is a hack for `crate::util::futures::Select`.
-    async fn writable(&self) -> io::Result<()> {
+    // drain write buffer and flush the io.
+    async fn drain_write(&mut self) -> io::Result<()> {
+        while !self.write_buf.is_empty() {
+            self.write().await?;
+        }
+        self.flush().await
+    }
+
+    // A specialized write check that always flush and pending when write buffer is empty.
+    // This is a hack for `Select`.
+    async fn write_flush(&mut self) -> io::Result<()> {
         if self.write_buf.is_empty() {
+            self.flush().await?;
             never().await
         } else {
-            self.io.ready(Interest::WRITABLE).await?;
-            Ok(())
+            self.write().await
         }
     }
 
@@ -438,10 +444,7 @@ where
                 }
                 DecodeState::Eof => *body_handle = None,
             },
-            None => {
-                self.io.writable().await?;
-                self.io.try_write()?;
-            }
+            None => self.io.write_flush().await?,
         }
 
         Ok(())
