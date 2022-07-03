@@ -8,9 +8,9 @@ default = ["http1"]
 http1 = ["httparse", "itoa", "xitca-unsafe-collection/bytes"]
 http2 = ["h2", "futures-util/alloc"]
 http3 = ["xitca-io/http3", "futures-util/alloc", "futures-intrusive", "h3", "h3-quinn"]
-openssl = ["futures-task", "openssl-crate", "tokio-openssl", "tokio-util/io"]
-rustls = ["futures-task", "tokio-rustls", "tokio-util/io"]
-native-tls = ["futures-task", "native-tls-crate/alpn", "tokio-native-tls", "tokio-util/io"]
+openssl = ["openssl-crate"]
+rustls = ["rustls-crate"]
+native-tls = ["native-tls-crate/alpn"]
 
 # unstable features that are subject to be changed at anytime.
 util-service = ["matchit"]
@@ -28,20 +28,14 @@ socket2 = { version = "0.4.2", features = ["all"] }
 tokio = { version = "1.12", features = ["time"] }
 tracing = { version = "0.1.32", default-features = false }
 
-# tls support shared
-futures-task = { version = "0.3.17", default-features = false, optional = true }
-tokio-util = { version = "0.7", optional = true }
-
 # openssl support
 openssl-crate = { package = "openssl", version = "0.10", optional = true }
-tokio-openssl = { version = "0.6.3", optional = true }
 
 # rustls support
-tokio-rustls = { version = "0.23", optional = true }
+rustls-crate = { package = "rustls", version = "0.20.6", optional = true }
 
 # native tls support
 native-tls-crate = { package = "native-tls", version = "0.2.7", optional = true }
-tokio-native-tls = { version = "0.3", optional = true }
 
 # http/1 support
 httparse = { version = "1.5.1", optional = true }

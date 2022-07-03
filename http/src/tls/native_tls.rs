@@ -1,36 +1,32 @@
-pub(crate) use tokio_native_tls::native_tls::{Error as NativeTlsError, TlsAcceptor};
+pub(crate) use native_tls_crate::TlsAcceptor;
 
 use std::{
     convert::Infallible,
+    fmt,
     future::Future,
     io,
-    ops::{Deref, DerefMut},
     pin::Pin,
     task::{Context, Poll},
 };
 
-use futures_task::noop_waker;
-use tokio_util::io::poll_read_buf;
-use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
+use native_tls_crate::{Error, HandshakeError};
+use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::{BuildService, Service};
 
-use crate::{bytes::BufMut, http::Version, version::AsVersion};
+use crate::{http::Version, version::AsVersion};
 
 use super::error::TlsError;
 
-/// A wrapper type for [TlsStream](tokio_native_tls::TlsStream).
+/// A wrapper type for [TlsStream](native_tls_crate::TlsStream).
 ///
 /// This is to impl new trait for it.
-pub struct TlsStream<S> {
-    stream: tokio_native_tls::TlsStream<S>,
+pub struct TlsStream<Io> {
+    io: native_tls_crate::TlsStream<Io>,
 }
 
-impl<S> AsVersion for TlsStream<S>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
+impl<Io: AsyncIo> AsVersion for TlsStream<Io> {
     fn as_version(&self) -> Version {
-        self.get_ref()
+        self.io
             .negotiated_alpn()
             .ok()
             .and_then(|proto| proto)
@@ -39,31 +35,15 @@ where
     }
 }
 
-impl<S> Deref for TlsStream<S> {
-    type Target = tokio_native_tls::TlsStream<S>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.stream
-    }
-}
-
-impl<S> DerefMut for TlsStream<S> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.stream
-    }
-}
-
-/// Rustls Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
+/// native-tls Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
 #[derive(Clone)]
 pub struct TlsAcceptorService {
-    acceptor: tokio_native_tls::TlsAcceptor,
+    acceptor: TlsAcceptor,
 }
 
 impl TlsAcceptorService {
     pub fn new(acceptor: TlsAcceptor) -> Self {
-        Self {
-            acceptor: tokio_native_tls::TlsAcceptor::from(acceptor),
-        }
+        Self { acceptor }
     }
 }
 
@@ -74,7 +54,7 @@ impl<Arg> BuildService<Arg> for TlsAcceptorService {
 
     fn build(&self, _: Arg) -> Self::Future {
         let this = self.clone();
-        async move { Ok(this) }
+        async { Ok(this) }
     }
 }
 
@@ -86,47 +66,27 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     #[inline]
     fn call(&self, io: St) -> Self::Future<'_> {
         async move {
-            let stream = self.acceptor.accept(io).await?;
-            Ok(TlsStream { stream })
+            let mut interest = Interest::READABLE;
+
+            io.ready(interest).await?;
+
+            let mut res = self.acceptor.accept(io);
+
+            loop {
+                let stream = match res {
+                    Ok(io) => return Ok(TlsStream { io }),
+                    Err(HandshakeError::WouldBlock(stream)) => {
+                        interest = Interest::READABLE;
+                        stream
+                    }
+                    Err(HandshakeError::Failure(e)) => return Err(e.into()),
+                };
+
+                stream.get_ref().ready(interest).await?;
+
+                res = stream.handshake();
+            }
         }
-    }
-}
-
-impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for TlsStream<S> {
-    #[inline]
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        AsyncRead::poll_read(Pin::new(&mut self.get_mut().stream), cx, buf)
-    }
-}
-
-impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStream<S> {
-    #[inline]
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        AsyncWrite::poll_write(Pin::new(&mut self.get_mut().stream), cx, buf)
-    }
-
-    #[inline]
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncWrite::poll_flush(Pin::new(&mut self.get_mut().stream), cx)
-    }
-
-    #[inline]
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncWrite::poll_shutdown(Pin::new(&mut self.get_mut().stream), cx)
-    }
-
-    #[inline]
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        AsyncWrite::poll_write_vectored(Pin::new(&mut self.get_mut().stream), cx, bufs)
-    }
-
-    #[inline]
-    fn is_write_vectored(&self) -> bool {
-        self.stream.is_write_vectored()
     }
 }
 
@@ -135,37 +95,71 @@ impl<S: AsyncIo> AsyncIo for TlsStream<S> {
 
     #[inline]
     fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
-        self.get_ref().get_ref().get_ref().ready(interest)
+        self.io.get_ref().ready(interest)
     }
 
-    fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
-        let waker = noop_waker();
-        let cx = &mut Context::from_waker(&waker);
-
-        match poll_read_buf(Pin::new(self), cx, buf) {
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-            Poll::Ready(res) => res,
-        }
+    fn is_vectored_write(&self) -> bool {
+        self.io.get_ref().is_vectored_write()
     }
 
-    fn try_write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let waker = noop_waker();
-        let cx = &mut Context::from_waker(&waker);
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
 
-        match AsyncWrite::poll_write(Pin::new(self), cx, buf) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-        }
+        this.io.shutdown()?;
+
+        AsyncIo::poll_shutdown(Pin::new(this.io.get_mut()), cx)
+    }
+}
+
+impl<S: AsyncIo> io::Read for TlsStream<S> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        io::Read::read(&mut self.io, buf)
+    }
+}
+
+impl<S: AsyncIo> io::Write for TlsStream<S> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        io::Write::write(&mut self.io, buf)
     }
 
-    fn try_write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        let waker = noop_waker();
-        let cx = &mut Context::from_waker(&waker);
+    fn flush(&mut self) -> io::Result<()> {
+        io::Write::flush(&mut self.io)
+    }
+}
 
-        match AsyncWrite::poll_write_vectored(Pin::new(self), cx, bufs) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+/// Collection of 'native-tls' error types.
+pub enum NativeTlsError {
+    Io(io::Error),
+    Tls(Error),
+}
+
+impl fmt::Debug for NativeTlsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Io(ref e) => write!(f, "{:?}", e),
+            Self::Tls(ref e) => write!(f, "{:?}", e),
         }
+    }
+}
+
+impl fmt::Display for NativeTlsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Io(ref e) => write!(f, "{}", e),
+            Self::Tls(ref e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl From<io::Error> for NativeTlsError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<Error> for NativeTlsError {
+    fn from(e: Error) -> Self {
+        Self::Tls(e)
     }
 }
 

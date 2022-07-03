@@ -5,51 +5,36 @@ use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
     io,
-    ops::{Deref, DerefMut},
     pin::Pin,
     task::{Context, Poll},
 };
 
-use futures_task::noop_waker;
+use openssl_crate::ssl::ShutdownResult;
 use openssl_crate::{
-    error::{Error, ErrorStack},
-    ssl::{self, Ssl},
+    error::ErrorStack,
+    ssl::{Error, ErrorCode, Ssl, SslStream},
 };
-use tokio_util::io::poll_read_buf;
-use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
+use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::{BuildService, Service};
 
-use crate::{bytes::BufMut, http::Version, version::AsVersion};
+use crate::{http::Version, version::AsVersion};
 
 use super::error::TlsError;
 
 /// A wrapper type for [SslStream](tokio_openssl::SslStream).
 ///
 /// This is to impl new trait for it.
-pub struct TlsStream<S> {
-    stream: tokio_openssl::SslStream<S>,
+pub struct TlsStream<Io> {
+    io: SslStream<Io>,
 }
 
-impl<S> AsVersion for TlsStream<S> {
+impl<Io> AsVersion for TlsStream<Io> {
     fn as_version(&self) -> Version {
-        self.ssl()
+        self.io
+            .ssl()
             .selected_alpn_protocol()
             .map(Self::from_alpn)
             .unwrap_or(Version::HTTP_11)
-    }
-}
-
-impl<S> Deref for TlsStream<S> {
-    type Target = tokio_openssl::SslStream<S>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.stream
-    }
-}
-
-impl<S> DerefMut for TlsStream<S> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.stream
     }
 }
 
@@ -76,42 +61,56 @@ impl BuildService for TlsAcceptorService {
     }
 }
 
-impl<St: AsyncIo> Service<St> for TlsAcceptorService {
-    type Response = TlsStream<St>;
+impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
+    type Response = TlsStream<Io>;
     type Error = OpensslError;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call(&self, io: St) -> Self::Future<'_> {
+    fn call(&self, io: Io) -> Self::Future<'_> {
         async move {
             let ctx = self.acceptor.context();
             let ssl = Ssl::new(ctx)?;
-            let mut stream = tokio_openssl::SslStream::new(ssl, io)?;
-            Pin::new(&mut stream).accept().await?;
-            Ok(TlsStream { stream })
+
+            let mut io = SslStream::new(ssl, io)?;
+
+            let mut interest = Interest::READABLE;
+            loop {
+                io.get_mut().ready(interest).await?;
+                match io.accept() {
+                    Ok(_) => return Ok(TlsStream { io }),
+                    Err(ref e) if e.code() == ErrorCode::WANT_READ => {
+                        interest = Interest::READABLE;
+                    }
+                    Err(ref e) if e.code() == ErrorCode::WANT_WRITE => {
+                        interest = Interest::WRITABLE;
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
         }
     }
 }
 
 /// Collection of 'openssl' error types.
 pub enum OpensslError {
-    Tls(ssl::Error),
-    Single(Error),
+    Io(io::Error),
+    Tls(Error),
     Stack(ErrorStack),
 }
 
 impl Debug for OpensslError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::Io(ref e) => write!(f, "{:?}", e),
             Self::Tls(ref e) => write!(f, "{:?}", e),
-            Self::Single(ref e) => write!(f, "{:?}", e),
             Self::Stack(ref e) => write!(f, "{:?}", e),
         }
     }
 }
 
-impl From<Error> for OpensslError {
-    fn from(e: Error) -> Self {
-        Self::Single(e)
+impl From<io::Error> for OpensslError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
     }
 }
 
@@ -121,86 +120,65 @@ impl From<ErrorStack> for OpensslError {
     }
 }
 
-impl From<ssl::Error> for OpensslError {
-    fn from(e: ssl::Error) -> Self {
+impl From<Error> for OpensslError {
+    fn from(e: Error) -> Self {
         Self::Tls(e)
     }
 }
 
-impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for TlsStream<S> {
-    #[inline]
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        AsyncRead::poll_read(Pin::new(&mut self.get_mut().stream), cx, buf)
-    }
-}
-
-impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStream<S> {
-    #[inline]
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        AsyncWrite::poll_write(Pin::new(&mut self.get_mut().stream), cx, buf)
-    }
-
-    #[inline]
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncWrite::poll_flush(Pin::new(&mut self.get_mut().stream), cx)
-    }
-
-    #[inline]
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncWrite::poll_shutdown(Pin::new(&mut self.get_mut().stream), cx)
-    }
-
-    #[inline]
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        AsyncWrite::poll_write_vectored(Pin::new(&mut self.get_mut().stream), cx, bufs)
-    }
-
-    #[inline]
-    fn is_write_vectored(&self) -> bool {
-        self.stream.is_write_vectored()
-    }
-}
-
-impl<S: AsyncIo> AsyncIo for TlsStream<S> {
+impl<Io: AsyncIo> AsyncIo for TlsStream<Io> {
     type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> where Self: 'f;
 
     #[inline]
     fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
-        self.get_ref().ready(interest)
+        self.io.get_ref().ready(interest)
     }
 
-    fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
-        let waker = noop_waker();
-        let cx = &mut Context::from_waker(&waker);
-
-        match poll_read_buf(Pin::new(self), cx, buf) {
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-            Poll::Ready(res) => res,
-        }
+    fn is_vectored_write(&self) -> bool {
+        self.io.get_ref().is_vectored_write()
     }
 
-    fn try_write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let waker = noop_waker();
-        let cx = &mut Context::from_waker(&waker);
-
-        match AsyncWrite::poll_write(Pin::new(self), cx, buf) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        // copied from tokio-openssl crate.
+        match this.io.shutdown() {
+            Ok(ShutdownResult::Sent) | Ok(ShutdownResult::Received) => {}
+            Err(ref e) if e.code() == ErrorCode::ZERO_RETURN => {}
+            Err(ref e) if e.code() == ErrorCode::WANT_READ || e.code() == ErrorCode::WANT_WRITE => {
+                return Poll::Pending;
+            }
+            Err(e) => {
+                return Poll::Ready(Err(e
+                    .into_io_error()
+                    .unwrap_or_else(|e| io::Error::new(io::ErrorKind::Other, e))));
+            }
         }
+
+        AsyncIo::poll_shutdown(Pin::new(this.io.get_mut()), cx)
+    }
+}
+
+impl<Io: AsyncIo> io::Read for TlsStream<Io> {
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        io::Read::read(&mut self.io, buf)
+    }
+}
+
+impl<Io: AsyncIo> io::Write for TlsStream<Io> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        io::Write::write(&mut self.io, buf)
     }
 
-    fn try_write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        let waker = noop_waker();
-        let cx = &mut Context::from_waker(&waker);
+    #[inline]
+    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+        io::Write::write_vectored(&mut self.io, bufs)
+    }
 
-        match AsyncWrite::poll_write_vectored(Pin::new(self), cx, bufs) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-        }
+    #[inline]
+    fn flush(&mut self) -> io::Result<()> {
+        io::Write::flush(&mut self.io)
     }
 }
 

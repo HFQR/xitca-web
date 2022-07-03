@@ -288,15 +288,15 @@ impl TransferCoding {
         }
 
         match *self {
-            Self::Upgrade => buf.buf_bytes(bytes),
-            Self::EncodeChunked => buf.buf_chunked(bytes),
+            Self::Upgrade => buf.write_bytes(bytes),
+            Self::EncodeChunked => buf.write_chunked(bytes),
             Self::Length(ref mut remaining) => {
                 let len = bytes.len() as u64;
                 if *remaining >= len {
-                    buf.buf_bytes(bytes);
+                    buf.write_bytes(bytes);
                     *remaining -= len;
                 } else {
-                    buf.buf_bytes(bytes.split_to(*remaining as usize));
+                    buf.write_bytes(bytes.split_to(*remaining as usize));
                     *remaining = 0;
                 }
             }
@@ -312,7 +312,7 @@ impl TransferCoding {
     {
         match *self {
             Self::Eof | Self::Upgrade | Self::Length(0) => {}
-            Self::EncodeChunked => buf.buf_static(b"0\r\n\r\n"),
+            Self::EncodeChunked => buf.write_static(b"0\r\n\r\n"),
             Self::Length(n) => unreachable!("UnexpectedEof for Length Body with {} remaining", n),
             _ => unreachable!(),
         }
