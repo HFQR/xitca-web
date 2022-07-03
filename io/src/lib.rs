@@ -35,13 +35,17 @@ pub mod bytes {
 
 /// re-export of [tokio::net] types
 pub mod net {
-    pub use tokio::net::{TcpListener, TcpSocket};
+    pub use tokio::net::{TcpListener, TcpSocket, ToSocketAddrs};
 
     use std::io;
 
     pub struct TcpStream(pub(crate) tokio::net::TcpStream);
 
     impl TcpStream {
+        pub async fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
+            tokio::net::TcpStream::connect(addr).await.map(Self)
+        }
+
         pub fn from_std(stream: std::net::TcpStream) -> io::Result<Self> {
             let stream = tokio::net::TcpStream::from_std(stream)?;
             Ok(Self(stream))
@@ -49,6 +53,10 @@ pub mod net {
 
         pub fn into_std(self) -> io::Result<std::net::TcpStream> {
             self.0.into_std()
+        }
+
+        pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
+            self.0.set_nodelay(nodelay)
         }
     }
 

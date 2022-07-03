@@ -1,11 +1,12 @@
-use std::{io, pin::Pin};
+use std::io;
 
 use xitca_io::{
     bytes::BytesMut,
-    io::{AsyncIo, AsyncWrite, Interest},
+    io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::{
-    futures::{poll_fn, Select as _, SelectOutput},
+    bytes::read_buf,
+    futures::{Select as _, SelectOutput},
     uninit,
 };
 
@@ -73,7 +74,7 @@ where
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
         loop {
-            match self.io.try_read_buf(&mut self.ctx.buf) {
+            match read_buf(&mut self.io, &mut self.ctx.buf) {
                 Ok(0) => return Err(Error::ConnectionClosed),
                 Ok(_) => continue,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
@@ -89,7 +90,7 @@ where
 
             let slice = self.ctx.chunks_vectored(&mut iovs);
 
-            match self.io.try_write_vectored(slice) {
+            match self.io.write_vectored(slice) {
                 Ok(0) => return Err(Error::ConnectionClosed),
                 Ok(n) => self.ctx.advance(n),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
@@ -131,7 +132,6 @@ mod io_impl {
 
                 if ready.is_writable() {
                     self.try_write2()?;
-                    poll_fn(|cx| AsyncWrite::poll_flush(Pin::new(&mut self.io), cx)).await?;
                 }
             }
         }
@@ -140,7 +140,7 @@ mod io_impl {
             let res = self.rx.with_iter(|iter| {
                 let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
                 let slice = iovs.init_from(iter).into_init_with(|req| IoSlice::new(req.msg.chunk()));
-                self.io.try_write_vectored(slice)
+                self.io.write_vectored(slice)
             });
 
             match res {
@@ -197,7 +197,6 @@ mod io_impl {
 
                         if ready.is_writable() {
                             self.try_write()?;
-                            poll_fn(|cx| AsyncWrite::poll_flush(Pin::new(&mut self.io), cx)).await?;
                         }
                     }
                 }

@@ -131,21 +131,22 @@ where
                         .map_err(From::from),
                         #[cfg(feature = "http2")]
                         Version::HTTP_2 => {
-                            let mut conn = ::h2::server::handshake(tls_stream)
-                                .timeout(timer.as_mut())
-                                .await
-                                .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
-
-                            super::h2::Dispatcher::new(
-                                &mut conn,
-                                timer.as_mut(),
-                                self.config.keep_alive_timeout,
-                                &self.service,
-                                self.date.get(),
-                            )
-                            .run()
-                            .await
-                            .map_err(Into::into)
+                            todo!()
+                            // let mut conn = ::h2::server::handshake(tls_stream)
+                            //     .timeout(timer.as_mut())
+                            //     .await
+                            //     .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
+                            //
+                            // super::h2::Dispatcher::new(
+                            //     &mut conn,
+                            //     timer.as_mut(),
+                            //     self.config.keep_alive_timeout,
+                            //     &self.service,
+                            //     self.date.get(),
+                            // )
+                            // .run()
+                            // .await
+                            // .map_err(Into::into)
                         }
                         version => Err(HttpServiceError::UnSupportedVersion(version)),
                     }
