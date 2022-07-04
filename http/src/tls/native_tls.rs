@@ -1,4 +1,4 @@
-pub(crate) use native_tls_crate::TlsAcceptor;
+pub(crate) use native_tls::TlsAcceptor;
 
 use std::{
     convert::Infallible,
@@ -9,7 +9,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use native_tls_crate::{Error, HandshakeError};
+use native_tls::{Error, HandshakeError};
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::{BuildService, Service};
 
@@ -17,11 +17,11 @@ use crate::{http::Version, version::AsVersion};
 
 use super::error::TlsError;
 
-/// A wrapper type for [TlsStream](native_tls_crate::TlsStream).
+/// A wrapper type for [TlsStream](native_tls::TlsStream).
 ///
 /// This is to impl new trait for it.
 pub struct TlsStream<Io> {
-    io: native_tls_crate::TlsStream<Io>,
+    io: native_tls::TlsStream<Io>,
 }
 
 impl<Io: AsyncIo> AsVersion for TlsStream<Io> {

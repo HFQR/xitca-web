@@ -10,7 +10,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use rustls_crate::{Error, ServerConfig, ServerConnection, Writer};
+use rustls::{Error, ServerConfig, ServerConnection, Writer};
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::{BuildService, Service};
 

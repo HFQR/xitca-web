@@ -1,4 +1,4 @@
-pub(crate) use openssl_crate::ssl::SslAcceptor as TlsAcceptor;
+pub(crate) use openssl::ssl::SslAcceptor as TlsAcceptor;
 
 use std::{
     convert::Infallible,
@@ -9,10 +9,9 @@ use std::{
     task::{Context, Poll},
 };
 
-use openssl_crate::ssl::ShutdownResult;
-use openssl_crate::{
+use openssl::{
     error::ErrorStack,
-    ssl::{Error, ErrorCode, Ssl, SslStream},
+    ssl::{Error, ErrorCode, ShutdownResult, Ssl, SslStream},
 };
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::{BuildService, Service};
@@ -21,7 +20,7 @@ use crate::{http::Version, version::AsVersion};
 
 use super::error::TlsError;
 
-/// A wrapper type for [SslStream](tokio_openssl::SslStream).
+/// A wrapper type for [SslStream].
 ///
 /// This is to impl new trait for it.
 pub struct TlsStream<Io> {
