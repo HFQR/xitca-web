@@ -171,11 +171,6 @@ impl<Io: AsyncIo> io::Write for TlsStream<Io> {
 
     fn flush(&mut self) -> io::Result<()> {
         self.conn.writer().flush()?;
-
-        while self.conn.wants_write() {
-            self.write_tls()?;
-        }
-
         self.io.flush()
     }
 }
