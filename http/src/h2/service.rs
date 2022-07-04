@@ -1,7 +1,7 @@
 use std::{fmt, future::Future};
 
 use futures_core::Stream;
-use xitca_io::io::AsyncIo;
+use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite};
 use xitca_service::{ready::ReadyService, Service};
 use xitca_unsafe_collection::pin;
 
@@ -36,7 +36,7 @@ where
 
     A: Service<St, Response = TlsSt> + 'static,
     St: AsyncIo,
-    TlsSt: AsyncIo,
+    TlsSt: AsyncRead + AsyncWrite + Unpin,
 
     HttpServiceError<S::Error, BE>: From<A::Error>,
 
@@ -100,7 +100,7 @@ where
 
     A: Service<St, Response = TlsSt> + 'static,
     St: AsyncIo,
-    TlsSt: AsyncIo,
+    TlsSt: AsyncRead + AsyncWrite + Unpin,
 
     HttpServiceError<S::Error, BE>: From<A::Error>,
 

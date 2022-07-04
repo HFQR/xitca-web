@@ -2,9 +2,10 @@ use std::{future::Future, io, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures_core::stream::Stream;
 use tracing::trace;
-use xitca_io::io::{AsyncIo, AsyncWrite, Interest, Ready};
+use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
 use xitca_unsafe_collection::{
+    bytes::read_buf,
     futures::{never, poll_fn, Select as _, SelectOutput},
     pin,
 };
@@ -25,7 +26,7 @@ use crate::{
 };
 
 use super::{
-    buf::{BufBound, BufWrite, FlatBuf, ListBuf},
+    buf::{BufInterest, BufWrite, FlatBuf, ListBuf},
     codec::TransferCoding,
     context::{ConnectionType, Context},
     error::{Parse, ProtoError},
@@ -57,7 +58,7 @@ where
     St: AsyncIo,
     D: DateTime,
 {
-    let is_vectored = config.vectored_write && io.is_write_vectored();
+    let is_vectored = config.vectored_write && io.is_vectored_write();
 
     let res = if is_vectored {
         let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();
@@ -117,10 +118,10 @@ where
         }
     }
 
-    // read until blocked/read backpressure and advance readbuf.
+    // read until blocked/read backpressure and advance read_buf.
     fn try_read(&mut self) -> io::Result<()> {
         loop {
-            match self.io.try_read_buf(&mut *self.read_buf) {
+            match read_buf(self.io, &mut *self.read_buf) {
                 Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
                 Ok(_) => {
                     if self.read_buf.backpressure() {
@@ -135,7 +136,7 @@ where
     }
 
     fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.try_write(self.io)
+        self.write_buf.flush(self.io)
     }
 
     async fn read(&mut self) -> io::Result<()> {
@@ -148,23 +149,18 @@ where
         self.try_write()
     }
 
-    async fn flush(&mut self) -> io::Result<()> {
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_flush(cx)).await
-    }
-
     // drain write buffer and flush the io.
     async fn drain_write(&mut self) -> io::Result<()> {
-        while !self.write_buf.is_empty() {
+        while self.write_buf.want_write() {
             self.write().await?;
         }
-        self.flush().await
+        Ok(())
     }
 
-    // A specialized write check that always flush and pending when write buffer is empty.
+    // A specialized write check that always pending when write buffer is empty.
     // This is a hack for `Select`.
-    async fn write_flush(&mut self) -> io::Result<()> {
-        if self.write_buf.is_empty() {
-            self.flush().await?;
+    async fn write_or_pending(&mut self) -> io::Result<()> {
+        if !self.write_buf.want_write() {
             never().await
         } else {
             self.write().await
@@ -178,7 +174,7 @@ where
         handle: &mut RequestBodyHandle,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {
-        if self.write_buf.is_empty() {
+        if !self.write_buf.want_write() {
             handle.ready(ctx).await?;
             self.io.ready(Interest::READABLE).await
         } else {
@@ -444,7 +440,7 @@ where
                 }
                 DecodeState::Eof => *body_handle = None,
             },
-            None => self.io.write_flush().await?,
+            None => self.io.write_or_pending().await?,
         }
 
         Ok(())

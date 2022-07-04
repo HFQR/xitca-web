@@ -26,7 +26,7 @@ where
     where
         W: BufWrite,
     {
-        buf.buf_static(b"HTTP/1.1 100 Continue\r\n\r\n");
+        buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
 
     pub(super) fn encode_head<W>(
@@ -38,7 +38,7 @@ where
     where
         W: BufWrite,
     {
-        buf.buf_head(|buf| self.encode_head_inner(parts, size, buf))
+        buf.write_head(|buf| self.encode_head_inner(parts, size, buf))
     }
 
     fn encode_head_inner(

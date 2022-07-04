@@ -1,7 +1,11 @@
 use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
 
 use futures_core::Stream;
-use xitca_io::{io::AsyncIo, net::Stream as ServerStream, net::TcpStream};
+use xitca_io::{
+    io::{AsyncIo, AsyncRead, AsyncWrite},
+    net::Stream as ServerStream,
+    net::TcpStream,
+};
 use xitca_service::{ready::ReadyService, Service};
 use xitca_unsafe_collection::pin;
 
@@ -76,7 +80,7 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 where
     S: Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
     A: Service<TcpStream> + 'static,
-    A::Response: AsyncIo + AsVersion,
+    A::Response: AsyncIo + AsVersion + AsyncRead + AsyncWrite + Unpin,
     HttpServiceError<S::Error, BE>: From<A::Error>,
     S::Error: fmt::Debug,
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -180,7 +184,7 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 where
     S: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
     A: Service<TcpStream> + 'static,
-    A::Response: AsyncIo + AsVersion,
+    A::Response: AsyncIo + AsVersion + AsyncRead + AsyncWrite + Unpin,
     HttpServiceError<S::Error, BE>: From<A::Error>,
     S::Error: fmt::Debug,
     ResB: Stream<Item = Result<Bytes, BE>>,

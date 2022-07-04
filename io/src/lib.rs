@@ -35,13 +35,98 @@ pub mod bytes {
 
 /// re-export of [tokio::net] types
 pub mod net {
-    pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
+    pub use tokio::net::{TcpListener, TcpSocket, ToSocketAddrs};
+
+    use std::io;
+
+    pub struct TcpStream(pub(crate) tokio::net::TcpStream);
+
+    impl TcpStream {
+        pub async fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
+            tokio::net::TcpStream::connect(addr).await.map(Self)
+        }
+
+        pub fn from_std(stream: std::net::TcpStream) -> io::Result<Self> {
+            let stream = tokio::net::TcpStream::from_std(stream)?;
+            Ok(Self(stream))
+        }
+
+        pub fn into_std(self) -> io::Result<std::net::TcpStream> {
+            self.0.into_std()
+        }
+
+        pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
+            self.0.set_nodelay(nodelay)
+        }
+    }
 
     #[cfg(unix)]
-    pub use tokio::net::{UnixListener, UnixStream};
+    pub use unix::{UnixListener, UnixStream};
+
+    #[cfg(unix)]
+    mod unix {
+        use std::{
+            io,
+            os::unix::io::{AsRawFd, RawFd},
+        };
+
+        use super::{Stream, TcpStream};
+
+        pub use tokio::net::UnixListener;
+
+        pub struct UnixStream(pub(crate) tokio::net::UnixStream);
+
+        impl UnixStream {
+            pub fn from_std(stream: std::os::unix::net::UnixStream) -> io::Result<Self> {
+                let stream = tokio::net::UnixStream::from_std(stream)?;
+                Ok(Self(stream))
+            }
+
+            pub fn into_std(self) -> io::Result<std::os::unix::net::UnixStream> {
+                self.0.into_std()
+            }
+        }
+
+        impl From<Stream> for UnixStream {
+            fn from(stream: Stream) -> Self {
+                match stream {
+                    Stream::Unix(unix) => unix,
+                    _ => unreachable!("Can not be casted to UnixStream"),
+                }
+            }
+        }
+
+        impl AsRawFd for UnixStream {
+            fn as_raw_fd(&self) -> RawFd {
+                self.0.as_raw_fd()
+            }
+        }
+
+        impl AsRawFd for TcpStream {
+            fn as_raw_fd(&self) -> RawFd {
+                self.0.as_raw_fd()
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    mod windows {
+        use std::{
+            io,
+            os::windows::io::{AsRawSocket, RawSocket},
+        };
+
+        use super::TcpStream;
+
+        impl AsRawSocket for TcpStream {
+            fn as_raw_socket(&self) -> RawSocket {
+                self.0.as_raw_socket
+            }
+        }
+    }
 
     #[cfg(feature = "http3")]
-    pub use crate::h3::*;
+    pub use super::h3::*;
 
     /// A collection of listener types of different protocol.
     #[derive(Debug)]
@@ -54,7 +139,7 @@ pub mod net {
     }
 
     impl Listener {
-        pub async fn accept(&self) -> std::io::Result<Stream> {
+        pub async fn accept(&self) -> io::Result<Stream> {
             match *self {
                 Self::Tcp(ref tcp) => {
                     let (stream, _) = tcp.accept().await?;
@@ -103,16 +188,6 @@ pub mod net {
         }
     }
 
-    #[cfg(unix)]
-    impl From<Stream> for UnixStream {
-        fn from(stream: Stream) -> Self {
-            match stream {
-                Stream::Unix(unix) => unix,
-                _ => unreachable!("Can not be casted to UnixStream"),
-            }
-        }
-    }
-
     #[cfg(feature = "http3")]
     impl From<Stream> for UdpStream {
         fn from(stream: Stream) -> Self {
@@ -128,79 +203,149 @@ pub mod net {
 pub mod io {
     pub use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 
-    use std::{future::Future, io};
+    use core::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll},
+    };
 
-    use crate::bytes::BufMut;
+    use std::io;
 
     /// A wrapper trait for an AsyncRead/AsyncWrite tokio type with additional methods.
-    pub trait AsyncIo: AsyncRead + AsyncWrite + Unpin {
+    pub trait AsyncIo: io::Read + io::Write + Unpin {
         type ReadyFuture<'f>: Future<Output = io::Result<Ready>>
         where
             Self: 'f;
 
-        /// asynchronously wait for the IO type and
+        /// asynchronously wait for the IO type and return it's state as [Ready].
         fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_>;
 
-        fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize>;
+        /// a poll version of ready method. This is a temporary method for backward compat
+        /// of [AsyncRead] and [AsyncWrite] traits.
+        fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>>;
 
-        fn try_write(&mut self, buf: &[u8]) -> io::Result<usize>;
+        /// hint if IO can be vectored write.
+        fn is_vectored_write(&self) -> bool;
 
-        fn try_write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize>;
+        /// poll shutdown the write part of Self.
+        ///
+        /// # Why:
+        /// tokio's network Stream types does not expose other api for shutdown besides
+        /// [AsyncWrite::poll_shutdown].
+        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
     }
 
-    macro_rules! basic_impl {
+    macro_rules! default_aio_impl {
         ($ty: ty) => {
             impl AsyncIo for $ty {
                 type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>>;
 
                 #[inline]
                 fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
-                    Self::ready(self, interest)
+                    self.0.ready(interest)
                 }
 
                 #[inline]
-                fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
-                    Self::try_read_buf(self, buf)
+                fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+                    match interest {
+                        Interest::READABLE => self.0.poll_read_ready(cx).map_ok(|_| Ready::READABLE),
+                        Interest::WRITABLE => self.0.poll_write_ready(cx).map_ok(|_| Ready::WRITABLE),
+                        _ => unimplemented!("tokio does not support poll_ready for BOTH read and write ready"),
+                    }
                 }
 
                 #[inline]
-                fn try_write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                    Self::try_write(self, buf)
+                fn is_vectored_write(&self) -> bool {
+                    self.0.is_write_vectored()
                 }
 
                 #[inline]
-                fn try_write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-                    Self::try_write_vectored(self, bufs)
+                fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                    AsyncWrite::poll_shutdown(Pin::new(&mut self.get_mut().0), cx)
+                }
+            }
+
+            impl io::Read for $ty {
+                #[inline]
+                fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                    self.0.try_read(buf)
+                }
+            }
+
+            impl io::Write for $ty {
+                #[inline]
+                fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                    self.0.try_write(buf)
+                }
+
+                #[inline]
+                fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+                    self.0.try_write_vectored(bufs)
+                }
+
+                #[inline]
+                fn flush(&mut self) -> io::Result<()> {
+                    Ok(())
                 }
             }
         };
     }
 
-    basic_impl!(tokio::net::TcpStream);
+    default_aio_impl!(super::net::TcpStream);
 
     #[cfg(unix)]
-    basic_impl!(tokio::net::UnixStream);
+    default_aio_impl!(super::net::UnixStream);
 
-    /// An adapter for [AsyncIo] type to implement [io::Writer] trait for it.
-    pub struct StdIoAdapter<'a, Io>(pub &'a mut Io);
+    // TODO: remove this macro and implements when a homebrew h2 protocol is introduced.
+    // temporary macro that forward AsyncRead/AsyncWrite trait.
+    // This is only used for h2 crate.
+    macro_rules! default_async_read_write_impl {
+        ($ty: ty) => {
+            impl AsyncRead for $ty {
+                #[inline]
+                fn poll_read(
+                    self: Pin<&mut Self>,
+                    cx: &mut Context<'_>,
+                    buf: &mut ReadBuf<'_>,
+                ) -> Poll<io::Result<()>> {
+                    Pin::new(&mut self.get_mut().0).poll_read(cx, buf)
+                }
+            }
 
-    impl<Io> io::Write for StdIoAdapter<'_, Io>
-    where
-        Io: AsyncIo,
-    {
-        #[inline]
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0.try_write(buf)
-        }
+            impl AsyncWrite for $ty {
+                #[inline]
+                fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+                    Pin::new(&mut self.get_mut().0).poll_write(cx, buf)
+                }
 
-        #[inline]
-        fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-            self.0.try_write_vectored(bufs)
-        }
+                #[inline]
+                fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                    Pin::new(&mut self.get_mut().0).poll_flush(cx)
+                }
 
-        #[inline]
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
+                #[inline]
+                fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                    Pin::new(&mut self.get_mut().0).poll_shutdown(cx)
+                }
+
+                #[inline]
+                fn poll_write_vectored(
+                    self: Pin<&mut Self>,
+                    cx: &mut Context<'_>,
+                    bufs: &[io::IoSlice<'_>],
+                ) -> Poll<io::Result<usize>> {
+                    Pin::new(&mut self.get_mut().0).poll_write_vectored(cx, bufs)
+                }
+
+                fn is_write_vectored(&self) -> bool {
+                    self.0.is_write_vectored()
+                }
+            }
+        };
     }
+
+    default_async_read_write_impl!(super::net::TcpStream);
+
+    #[cfg(unix)]
+    default_async_read_write_impl!(super::net::UnixStream);
 }
