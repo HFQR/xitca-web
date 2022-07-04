@@ -4,7 +4,6 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use xitca_io::io::AsyncIo;
 use xitca_unsafe_collection::{
     bytes::{BufList, EitherBuf},
     uninit,
@@ -36,7 +35,7 @@ pub trait BufWrite: BufInterest {
     fn write_chunked(&mut self, bytes: Bytes);
 
     /// flush buf and write to given async io.
-    fn flush<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()>;
+    fn flush<Io: Write>(&mut self, io: &mut Io) -> io::Result<()>;
 }
 
 pub struct FlatBuf<const BUF_LIMIT: usize> {
@@ -122,7 +121,7 @@ impl<const BUF_LIMIT: usize> BufWrite for FlatBuf<BUF_LIMIT> {
         self.put_slice(b"\r\n");
     }
 
-    fn flush<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
+    fn flush<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
         let mut written = 0;
         let len = self.remaining();
 
@@ -227,7 +226,7 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
         self.buffer(EitherBuf::Right(EitherBuf::Left(eof)));
     }
 
-    fn flush<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
+    fn flush<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
         let queue = &mut self.list;
         while !queue.is_empty() {
             let mut buf = uninit::uninit_array::<_, BUF_LIST_CNT>();
@@ -261,7 +260,7 @@ impl Flush {
     }
 
     // flush io and set self to want_flush when flush is blocked.
-    fn flush<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
+    fn flush<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
         match io.flush() {
             Ok(_) => self.0 = false,
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => self.0 = true,
