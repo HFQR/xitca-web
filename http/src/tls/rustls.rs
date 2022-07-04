@@ -86,14 +86,22 @@ impl TlsAcceptorService {
                 };
             }
 
-            while stream.conn.wants_write() {
-                stream.io.ready(Interest::READABLE).await?;
+            if stream.conn.wants_write() {
+                stream.io.ready(Interest::WRITABLE).await?;
                 match stream.write_tls() {
                     Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into()),
                     Ok(_) => {}
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                     Err(e) => return Err(e.into()),
                 }
+            }
+        }
+
+        while let Err(e) = io::Write::flush(&mut stream) {
+            if matches!(e.kind(), io::ErrorKind::WouldBlock) {
+                stream.io.ready(Interest::WRITABLE).await?;
+            } else {
+                return Err(e.into());
             }
         }
 
