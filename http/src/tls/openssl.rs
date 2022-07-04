@@ -9,11 +9,12 @@ use std::{
     task::{Context, Poll},
 };
 
+use futures_core::ready;
 use openssl::{
     error::ErrorStack,
     ssl::{Error, ErrorCode, ShutdownResult, Ssl, SslStream},
 };
-use xitca_io::io::{AsyncIo, Interest, Ready};
+use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use xitca_service::{BuildService, Service};
 
 use crate::{http::Version, version::AsVersion};
@@ -52,9 +53,7 @@ impl TlsAcceptorService {
     async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<TlsStream<Io>, OpensslError> {
         let ctx = self.acceptor.context();
         let ssl = Ssl::new(ctx)?;
-
         let mut io = SslStream::new(ssl, io)?;
-
         let mut interest = Interest::READABLE;
         loop {
             io.get_mut().ready(interest).await?;
@@ -93,47 +92,17 @@ impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
     }
 }
 
-/// Collection of 'openssl' error types.
-pub enum OpensslError {
-    Io(io::Error),
-    Tls(Error),
-    Stack(ErrorStack),
-}
-
-impl Debug for OpensslError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Io(ref e) => write!(f, "{:?}", e),
-            Self::Tls(ref e) => write!(f, "{:?}", e),
-            Self::Stack(ref e) => write!(f, "{:?}", e),
-        }
-    }
-}
-
-impl From<io::Error> for OpensslError {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-impl From<ErrorStack> for OpensslError {
-    fn from(e: ErrorStack) -> Self {
-        Self::Stack(e)
-    }
-}
-
-impl From<Error> for OpensslError {
-    fn from(e: Error) -> Self {
-        Self::Tls(e)
-    }
-}
-
 impl<Io: AsyncIo> AsyncIo for TlsStream<Io> {
     type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> where Self: 'f;
 
     #[inline]
     fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
         self.io.get_ref().ready(interest)
+    }
+
+    #[inline]
+    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        self.io.get_ref().poll_ready(interest, cx)
     }
 
     fn is_vectored_write(&self) -> bool {
@@ -181,6 +150,109 @@ impl<Io: AsyncIo> io::Write for TlsStream<Io> {
     #[inline]
     fn flush(&mut self) -> io::Result<()> {
         io::Write::flush(&mut self.io)
+    }
+}
+
+impl<Io> AsyncRead for TlsStream<Io>
+where
+    Io: AsyncIo,
+{
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        ready!(this.io.get_ref().poll_ready(Interest::READABLE, cx))?;
+        match io::Read::read(this, buf.initialize_unfilled()) {
+            Ok(n) => {
+                buf.advance(n);
+                Poll::Ready(Ok(()))
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+}
+
+impl<Io> AsyncWrite for TlsStream<Io>
+where
+    Io: AsyncIo,
+{
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+
+        match io::Write::write(this, buf) {
+            Ok(n) => Poll::Ready(Ok(n)),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+
+        match io::Write::flush(this) {
+            Ok(_) => Poll::Ready(Ok(())),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        AsyncIo::poll_shutdown(self, cx)
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+
+        match io::Write::write_vectored(this, bufs) {
+            Ok(n) => Poll::Ready(Ok(n)),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.io.get_ref().is_vectored_write()
+    }
+}
+
+/// Collection of 'openssl' error types.
+pub enum OpensslError {
+    Io(io::Error),
+    Tls(Error),
+    Stack(ErrorStack),
+}
+
+impl Debug for OpensslError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Io(ref e) => write!(f, "{:?}", e),
+            Self::Tls(ref e) => write!(f, "{:?}", e),
+            Self::Stack(ref e) => write!(f, "{:?}", e),
+        }
+    }
+}
+
+impl From<io::Error> for OpensslError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<ErrorStack> for OpensslError {
+    fn from(e: ErrorStack) -> Self {
+        Self::Stack(e)
+    }
+}
+
+impl From<Error> for OpensslError {
+    fn from(e: Error) -> Self {
+        Self::Tls(e)
     }
 }
 

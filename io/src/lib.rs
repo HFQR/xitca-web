@@ -220,6 +220,10 @@ pub mod io {
         /// asynchronously wait for the IO type and return it's state as [Ready].
         fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_>;
 
+        /// a poll version of ready method. This is a temporary method for backward compat
+        /// of [AsyncRead] and [AsyncWrite] traits.
+        fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>>;
+
         /// hint if IO can be vectored write.
         fn is_vectored_write(&self) -> bool;
 
@@ -231,7 +235,7 @@ pub mod io {
         fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
     }
 
-    macro_rules! basic_impl {
+    macro_rules! default_aio_impl {
         ($ty: ty) => {
             impl AsyncIo for $ty {
                 type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>>;
@@ -239,6 +243,15 @@ pub mod io {
                 #[inline]
                 fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
                     self.0.ready(interest)
+                }
+
+                #[inline]
+                fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+                    match interest {
+                        Interest::READABLE => self.0.poll_read_ready(cx).map_ok(|_| Ready::READABLE),
+                        Interest::WRITABLE => self.0.poll_write_ready(cx).map_ok(|_| Ready::WRITABLE),
+                        _ => unimplemented!("tokio does not support poll_ready for BOTH read and write ready"),
+                    }
                 }
 
                 #[inline]
@@ -278,8 +291,61 @@ pub mod io {
         };
     }
 
-    basic_impl!(super::net::TcpStream);
+    default_aio_impl!(super::net::TcpStream);
 
     #[cfg(unix)]
-    basic_impl!(super::net::UnixStream);
+    default_aio_impl!(super::net::UnixStream);
+
+    // TODO: remove this macro and implements when a homebrew h2 protocol is introduced.
+    // temporary macro that forward AsyncRead/AsyncWrite trait.
+    // This is only used for h2 crate.
+    macro_rules! default_async_read_write_impl {
+        ($ty: ty) => {
+            impl AsyncRead for $ty {
+                #[inline]
+                fn poll_read(
+                    self: Pin<&mut Self>,
+                    cx: &mut Context<'_>,
+                    buf: &mut ReadBuf<'_>,
+                ) -> Poll<io::Result<()>> {
+                    Pin::new(&mut self.get_mut().0).poll_read(cx, buf)
+                }
+            }
+
+            impl AsyncWrite for $ty {
+                #[inline]
+                fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+                    Pin::new(&mut self.get_mut().0).poll_write(cx, buf)
+                }
+
+                #[inline]
+                fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                    Pin::new(&mut self.get_mut().0).poll_flush(cx)
+                }
+
+                #[inline]
+                fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                    Pin::new(&mut self.get_mut().0).poll_shutdown(cx)
+                }
+
+                #[inline]
+                fn poll_write_vectored(
+                    self: Pin<&mut Self>,
+                    cx: &mut Context<'_>,
+                    bufs: &[io::IoSlice<'_>],
+                ) -> Poll<io::Result<usize>> {
+                    Pin::new(&mut self.get_mut().0).poll_write_vectored(cx, bufs)
+                }
+
+                fn is_write_vectored(&self) -> bool {
+                    self.0.is_write_vectored()
+                }
+            }
+        };
+    }
+
+    default_async_read_write_impl!(super::net::TcpStream);
+
+    #[cfg(unix)]
+    default_async_read_write_impl!(super::net::UnixStream);
 }
