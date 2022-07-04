@@ -211,7 +211,7 @@ pub mod io {
 
     use std::io;
 
-    /// A wrapper trait for an AsyncRead/AsyncWrite tokio type with additional methods.
+    /// A wrapper trait for an [AsyncRead]/[AsyncWrite] tokio type with additional methods.
     pub trait AsyncIo: io::Read + io::Write + Unpin {
         type ReadyFuture<'f>: Future<Output = io::Result<Ready>>
         where
@@ -220,18 +220,22 @@ pub mod io {
         /// asynchronously wait for the IO type and return it's state as [Ready].
         fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_>;
 
-        /// a poll version of ready method. This is a temporary method for backward compat
-        /// of [AsyncRead] and [AsyncWrite] traits.
+        /// a poll version of ready method.
+        ///
+        /// # Why:
+        /// This is a temporary method for backward compat of [AsyncRead] and [AsyncWrite] traits.
         fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>>;
 
         /// hint if IO can be vectored write.
+        ///
+        /// # Why:
+        /// std `can_vector` feature is not stabled yet and xitca make use of vectored io write.
         fn is_vectored_write(&self) -> bool;
 
         /// poll shutdown the write part of Self.
         ///
         /// # Why:
-        /// tokio's network Stream types does not expose other api for shutdown besides
-        /// [AsyncWrite::poll_shutdown].
+        /// tokio's network Stream types do not expose other api for shutdown besides [AsyncWrite::poll_shutdown].
         fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
     }
 
@@ -245,7 +249,6 @@ pub mod io {
                     self.0.ready(interest)
                 }
 
-                #[inline]
                 fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
                     match interest {
                         Interest::READABLE => self.0.poll_read_ready(cx).map_ok(|_| Ready::READABLE),
@@ -254,12 +257,10 @@ pub mod io {
                     }
                 }
 
-                #[inline]
                 fn is_vectored_write(&self) -> bool {
                     self.0.is_write_vectored()
                 }
 
-                #[inline]
                 fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
                     AsyncWrite::poll_shutdown(Pin::new(&mut self.get_mut().0), cx)
                 }
