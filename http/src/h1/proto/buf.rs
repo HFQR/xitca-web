@@ -123,21 +123,19 @@ impl<const BUF_LIMIT: usize> BufWrite for FlatBuf<BUF_LIMIT> {
     }
 
     fn flush<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
-        if !self.flush.want_flush() {
-            let mut written = 0;
-            let len = self.remaining();
+        let mut written = 0;
+        let len = self.remaining();
 
-            while written < len {
-                match io.write(&self[written..]) {
-                    Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                    Ok(n) => written += n,
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e),
-                }
+        while written < len {
+            match io.write(&self[written..]) {
+                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                Ok(n) => written += n,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => return Err(e),
             }
-
-            self.advance(written);
         }
+
+        self.advance(written);
 
         self.flush.flush(io)
     }
@@ -230,18 +228,16 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
     }
 
     fn flush<Io: AsyncIo>(&mut self, io: &mut Io) -> io::Result<()> {
-        if !self.flush.want_flush() {
-            let queue = &mut self.list;
-            while !queue.is_empty() {
-                let mut buf = uninit::uninit_array::<_, BUF_LIST_CNT>();
-                let slice = queue.chunks_vectored_uninit_into_init(&mut buf);
+        let queue = &mut self.list;
+        while !queue.is_empty() {
+            let mut buf = uninit::uninit_array::<_, BUF_LIST_CNT>();
+            let slice = queue.chunks_vectored_uninit_into_init(&mut buf);
 
-                match io.write_vectored(slice) {
-                    Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                    Ok(n) => queue.advance(n),
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e),
-                }
+            match io.write_vectored(slice) {
+                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                Ok(n) => queue.advance(n),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => return Err(e),
             }
         }
 
