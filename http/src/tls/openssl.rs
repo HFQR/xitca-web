@@ -48,6 +48,29 @@ impl TlsAcceptorService {
     pub fn new(acceptor: TlsAcceptor) -> Self {
         Self { acceptor }
     }
+
+    #[inline(never)]
+    async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<TlsStream<Io>, OpensslError> {
+        let ctx = self.acceptor.context();
+        let ssl = Ssl::new(ctx)?;
+
+        let mut io = SslStream::new(ssl, io)?;
+
+        let mut interest = Interest::READABLE;
+        loop {
+            io.get_mut().ready(interest).await?;
+            match io.accept() {
+                Ok(_) => return Ok(TlsStream { io }),
+                Err(ref e) if e.code() == ErrorCode::WANT_READ => {
+                    interest = Interest::READABLE;
+                }
+                Err(ref e) if e.code() == ErrorCode::WANT_WRITE => {
+                    interest = Interest::WRITABLE;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
 }
 
 impl BuildService for TlsAcceptorService {
@@ -67,27 +90,7 @@ impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
     fn call(&self, io: Io) -> Self::Future<'_> {
-        async move {
-            let ctx = self.acceptor.context();
-            let ssl = Ssl::new(ctx)?;
-
-            let mut io = SslStream::new(ssl, io)?;
-
-            let mut interest = Interest::READABLE;
-            loop {
-                io.get_mut().ready(interest).await?;
-                match io.accept() {
-                    Ok(_) => return Ok(TlsStream { io }),
-                    Err(ref e) if e.code() == ErrorCode::WANT_READ => {
-                        interest = Interest::READABLE;
-                    }
-                    Err(ref e) if e.code() == ErrorCode::WANT_WRITE => {
-                        interest = Interest::WRITABLE;
-                    }
-                    Err(e) => return Err(e.into()),
-                }
-            }
-        }
+        self.accept(io)
     }
 }
 

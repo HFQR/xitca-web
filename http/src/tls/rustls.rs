@@ -125,12 +125,8 @@ impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
     type Error = RustlsError;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    #[inline]
     fn call(&self, io: Io) -> Self::Future<'_> {
-        async move {
-            let stream = self.accept(io).await?;
-            Ok(stream)
-        }
+        self.accept(io)
     }
 }
 
