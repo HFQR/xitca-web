@@ -155,14 +155,8 @@ impl<Io: AsyncIo> AsyncIo for TlsStream<Io> {
 
 impl<Io: AsyncIo> io::Read for TlsStream<Io> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        while self.conn.wants_read() {
-            let n = self.read_tls()?;
-
+        while self.conn.wants_read() && self.read_tls()? > 0 {
             self.process_new_packets()?;
-
-            if n == 0 {
-                break;
-            }
         }
         self.conn.reader().read(buf)
     }
