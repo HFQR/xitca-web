@@ -9,7 +9,7 @@ use core::{
     fmt,
     future::Future,
     marker::PhantomData,
-    mem::{self, ManuallyDrop},
+    mem::ManuallyDrop,
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
@@ -341,7 +341,10 @@ impl AtomicWaker {
                         }
                         Err(state) => {
                             debug_assert_eq!(state, OPERATING | WAKING);
-                            let waker = mem::replace(&mut *self.waker.get(), waker).unwrap();
+                            // retake waker and wake up self again.
+                            // the old waker can be ignored as the other part is trying to wake us
+                            // up and it's in active state already.
+                            let waker = (*self.waker.get()).take().unwrap();
                             self.state.swap(FREE, Ordering::AcqRel);
                             waker.wake();
                         }
