@@ -24,7 +24,7 @@ pub struct TlsStream<Io>
 where
     Io: AsyncIo,
 {
-    inner: StreamOwned<ServerConnection, Io>,
+    io: StreamOwned<ServerConnection, Io>,
 }
 
 impl<Io> AsVersion for TlsStream<Io>
@@ -32,7 +32,7 @@ where
     Io: AsyncIo,
 {
     fn as_version(&self) -> Version {
-        self.inner
+        self.io
             .conn
             .alpn_protocol()
             .map(Self::from_alpn)
@@ -59,7 +59,7 @@ impl TlsAcceptorService {
             let interest = match conn.complete_io(&mut io) {
                 Ok(_) => {
                     return Ok(TlsStream {
-                        inner: StreamOwned::new(conn, io),
+                        io: StreamOwned::new(conn, io),
                     })
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => match (conn.wants_read(), conn.wants_write()) {
@@ -102,44 +102,44 @@ impl<Io: AsyncIo> AsyncIo for TlsStream<Io> {
 
     #[inline]
     fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
-        self.inner.get_ref().ready(interest)
+        self.io.get_ref().ready(interest)
     }
 
     #[inline]
     fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
-        self.inner.get_ref().poll_ready(interest, cx)
+        self.io.get_ref().poll_ready(interest, cx)
     }
 
     fn is_vectored_write(&self) -> bool {
-        self.inner.get_ref().is_vectored_write()
+        self.io.get_ref().is_vectored_write()
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncIo::poll_shutdown(Pin::new(self.get_mut().inner.get_mut()), cx)
+        AsyncIo::poll_shutdown(Pin::new(self.get_mut().io.get_mut()), cx)
     }
 }
 
 impl<Io: AsyncIo> io::Read for TlsStream<Io> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        io::Read::read(&mut self.inner, buf)
+        io::Read::read(&mut self.io, buf)
     }
 }
 
 impl<Io: AsyncIo> io::Write for TlsStream<Io> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        io::Write::write(&mut self.inner, buf)
+        io::Write::write(&mut self.io, buf)
     }
 
     #[inline]
     fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        io::Write::write_vectored(&mut self.inner, bufs)
+        io::Write::write_vectored(&mut self.io, bufs)
     }
 
     #[inline]
     fn flush(&mut self) -> io::Result<()> {
-        io::Write::flush(&mut self.inner)
+        io::Write::flush(&mut self.io)
     }
 }
 
@@ -149,7 +149,7 @@ where
 {
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        ready!(this.inner.get_ref().poll_ready(Interest::READABLE, cx))?;
+        ready!(this.io.get_ref().poll_ready(Interest::READABLE, cx))?;
         match io::Read::read(this, buf.initialize_unfilled()) {
             Ok(n) => {
                 buf.advance(n);
@@ -167,7 +167,7 @@ where
 {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        ready!(this.inner.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
 
         match io::Write::write(this, buf) {
             Ok(n) => Poll::Ready(Ok(n)),
@@ -178,7 +178,7 @@ where
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        ready!(this.inner.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
 
         match io::Write::flush(this) {
             Ok(_) => Poll::Ready(Ok(())),
@@ -197,7 +197,7 @@ where
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        ready!(this.inner.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
 
         match io::Write::write_vectored(this, bufs) {
             Ok(n) => Poll::Ready(Ok(n)),
@@ -207,7 +207,7 @@ where
     }
 
     fn is_write_vectored(&self) -> bool {
-        self.inner.get_ref().is_vectored_write()
+        self.io.get_ref().is_vectored_write()
     }
 }
 
