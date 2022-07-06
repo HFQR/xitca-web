@@ -1,10 +1,11 @@
 use std::{collections::HashMap, future::Future, io, net, pin::Pin, time::Duration};
 
-use xitca_io::net::{Stream, TcpSocket};
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use xitca_io::net::Stream;
 
 use crate::{
     net::AsListener,
-    server::{BuildServiceSync, Factory, Server, ServerFuture, ServerFutureInner, _BuildService},
+    server::{BuildServiceSync, Factory, Server, ServerFuture, _BuildService},
 };
 
 pub struct Builder {
@@ -189,13 +190,9 @@ impl Builder {
     }
 
     pub fn build(self) -> ServerFuture {
-        let _enable_signal = self.enable_signal;
+        let enable_signal = self.enable_signal;
         match Server::new(self) {
-            Ok(server) => ServerFuture::Server(ServerFutureInner {
-                server,
-                #[cfg(feature = "signal")]
-                signals: _enable_signal.then(crate::signals::Signals::start),
-            }),
+            Ok(server) => ServerFuture::Init { server, enable_signal },
             Err(e) => ServerFuture::Error(e),
         }
     }
@@ -207,14 +204,16 @@ impl Builder {
         St: From<Stream> + Send + 'static,
     {
         let socket = if addr.is_ipv4() {
-            TcpSocket::new_v4()?
+            Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?
         } else {
-            TcpSocket::new_v6()?
+            Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?
         };
+        socket.set_nonblocking(true)?;
+        socket.set_reuse_address(true)?;
+        socket.bind(&SockAddr::from(addr))?;
+        socket.listen(self.backlog as _)?;
 
-        socket.set_reuseaddr(true)?;
-        socket.bind(addr)?;
-        let listener = socket.listen(self.backlog)?.into_std()?;
+        let listener = socket.into();
 
         self.listen(name, listener, factory)
     }

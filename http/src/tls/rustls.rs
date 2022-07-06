@@ -168,7 +168,6 @@ where
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
         ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
-
         match io::Write::write(this, buf) {
             Ok(n) => Poll::Ready(Ok(n)),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
@@ -179,7 +178,6 @@ where
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
-
         match io::Write::flush(this) {
             Ok(_) => Poll::Ready(Ok(())),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
@@ -198,7 +196,6 @@ where
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
         ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
-
         match io::Write::write_vectored(this, bufs) {
             Ok(n) => Poll::Ready(Ok(n)),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,

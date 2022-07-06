@@ -12,8 +12,10 @@ signal = ["tokio/signal"]
 [dependencies]
 xitca-io = "0.1"
 xitca-service = "0.1"
+xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3"
+socket2 = "0.4.4"
 tokio = { version = "1.5", features = ["rt-multi-thread", "sync", "time"] }
 tracing = { version = "0.1.29", default-features = false }
 

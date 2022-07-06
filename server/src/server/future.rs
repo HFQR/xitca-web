@@ -5,16 +5,15 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures_core::{future::BoxFuture, ready};
+use futures_core::ready;
 
-use super::handle::ServerHandle;
-use super::{Command, Server};
+use super::{handle::ServerHandle, Command, Server};
 
 #[must_use = "ServerFuture must be .await or spawn as task."]
 pub enum ServerFuture {
-    Server(ServerFutureInner),
+    Init { server: Server, enable_signal: bool },
+    Running(ServerFutureInner),
     Error(io::Error),
-    Shutdown(BoxFuture<'static, io::Result<()>>),
     Finished,
 }
 
@@ -46,15 +45,43 @@ impl ServerFuture {
     /// ```
     pub fn handle(&mut self) -> io::Result<ServerHandle> {
         match *self {
-            Self::Server(ref inner) => Ok(ServerHandle {
+            Self::Init { ref server, .. } => Ok(ServerHandle {
+                tx: server.tx_cmd.clone(),
+            }),
+            Self::Running(ref inner) => Ok(ServerHandle {
                 tx: inner.server.tx_cmd.clone(),
             }),
             Self::Error(_) => match mem::take(self) {
                 Self::Error(e) => Err(e),
                 _ => unreachable!(),
             },
-            Self::Shutdown(_) => panic!("ServerFuture used during shutdown"),
             Self::Finished => panic!("ServerFuture used after finished"),
+        }
+    }
+
+    #[cfg(feature = "signal")]
+    pub fn wait(self) -> io::Result<()> {
+        match self {
+            Self::Init {
+                mut server,
+                enable_signal,
+            } => match tokio::runtime::Handle::try_current() {
+                Ok(handle) => handle.block_on(Self::Running(ServerFutureInner::new(server, enable_signal))),
+                Err(_) => {
+                    let rt = server.rt.take().unwrap();
+                    let (mut inner, cmd) = rt.block_on(async {
+                        let mut inner = ServerFutureInner::new(server, enable_signal);
+                        let cmd = xitca_unsafe_collection::futures::poll_fn(|cx| inner.poll_cmd(cx)).await;
+                        (inner, cmd)
+                    });
+                    inner.server.rt = Some(rt);
+                    inner.handle_cmd(cmd);
+                    Ok(())
+                }
+            },
+            Self::Running(..) => panic!("ServerFuture is already polled."),
+            Self::Error(e) => Err(e),
+            Self::Finished => unreachable!(),
         }
     }
 }
@@ -72,6 +99,32 @@ impl Default for ServerFuture {
 }
 
 impl ServerFutureInner {
+    #[inline(never)]
+    fn new(server: Server, _enable_signal: bool) -> Self {
+        Self {
+            server,
+            #[cfg(feature = "signal")]
+            signals: _enable_signal.then(crate::signals::Signals::start),
+        }
+    }
+
+    #[inline(never)]
+    fn poll_cmd(&mut self, cx: &mut Context<'_>) -> Poll<Command> {
+        #[cfg(feature = "signal")]
+        {
+            let p = self.poll_signal(cx);
+            if p.is_ready() {
+                return p;
+            }
+        }
+
+        match ready!(Pin::new(&mut self.server.rx_cmd).poll_recv(cx)) {
+            Some(cmd) => Poll::Ready(cmd),
+            None => Poll::Pending,
+        }
+    }
+
+    #[inline(never)]
     #[cfg(feature = "signal")]
     fn poll_signal(&mut self, cx: &mut Context<'_>) -> Poll<Command> {
         use crate::signals::Signal;
@@ -95,16 +148,7 @@ impl ServerFutureInner {
         Poll::Pending
     }
 
-    fn poll_cmd(&mut self, cx: &mut Context<'_>) -> Poll<()> {
-        match ready!(Pin::new(&mut self.server.rx_cmd).poll_recv(cx)) {
-            Some(cmd) => {
-                self.handle_cmd(cmd);
-                Poll::Ready(())
-            }
-            None => Poll::Pending,
-        }
-    }
-
+    #[inline(never)]
     fn handle_cmd(&mut self, cmd: Command) {
         match cmd {
             Command::ForceStop => {
@@ -115,39 +159,32 @@ impl ServerFutureInner {
             }
         }
     }
-
-    fn on_stop(&mut self) -> BoxFuture<'static, io::Result<()>> {
-        Box::pin(async { Ok(()) })
-    }
 }
 
 impl Future for ServerFuture {
     type Output = io::Result<()>;
 
+    #[inline(never)]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.as_mut().get_mut();
         match *this {
+            Self::Init { .. } => match mem::take(this) {
+                Self::Init { server, enable_signal } => {
+                    self.set(Self::Running(ServerFutureInner::new(server, enable_signal)));
+                    self.poll(cx)
+                }
+                _ => unreachable!(),
+            },
+            Self::Running(ref mut inner) => {
+                let cmd = ready!(inner.poll_cmd(cx));
+                inner.handle_cmd(cmd);
+                self.set(Self::Finished);
+                Poll::Ready(Ok(()))
+            }
             Self::Error(_) => match mem::take(this) {
                 Self::Error(e) => Poll::Ready(Err(e)),
-                _ => unreachable!("Can not happen"),
+                _ => unreachable!(""),
             },
-            Self::Server(ref mut inner) => {
-                #[cfg(feature = "signal")]
-                {
-                    if let Poll::Ready(cmd) = inner.poll_signal(cx) {
-                        inner.handle_cmd(cmd);
-                        let task = inner.on_stop();
-                        self.set(Self::Shutdown(task));
-                        return self.poll(cx);
-                    }
-                }
-
-                ready!(inner.poll_cmd(cx));
-                let task = inner.on_stop();
-                self.set(Self::Shutdown(task));
-                self.poll(cx)
-            }
-            Self::Shutdown(ref mut fut) => fut.as_mut().poll(cx),
             Self::Finished => unreachable!("ServerFuture polled after finish"),
         }
     }
