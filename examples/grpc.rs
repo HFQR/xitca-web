@@ -23,8 +23,7 @@ mod hello_world {
     include!(concat!(env!("OUT_DIR"), "/helloworld.rs"));
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=info,[xitca-logger]=trace")
         .init();
@@ -38,7 +37,7 @@ async fn main() -> std::io::Result<()> {
     xitca_server::Builder::new()
         .bind("http/2", "localhost:50051", factory)?
         .build()
-        .await
+        .wait()
 }
 
 async fn grpc(mut req: Request<RequestBody>) -> Result<Response<Once<Bytes>>, anyhow::Error> {

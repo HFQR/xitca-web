@@ -16,8 +16,7 @@ use xitca_http::{
 };
 use xitca_service::{fn_service, BuildServiceExt};
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> io::Result<()> {
+fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=info,[xitca-logger]=trace")
         .init();
@@ -56,7 +55,7 @@ async fn main() -> io::Result<()> {
         // on multiple socket addresses and protocols.
         .bind_h3("http/3", "127.0.0.1:8080", config, h3_factory)?
         .build()
-        .await
+        .wait()
 }
 
 async fn handler_h1(_: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Infallible> {

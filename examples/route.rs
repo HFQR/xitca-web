@@ -12,8 +12,7 @@ use xitca_http::{
 };
 use xitca_service::fn_service;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=info,[xitca-logger]=trace")
         .init();
@@ -35,7 +34,7 @@ async fn main() -> std::io::Result<()> {
     xitca_server::Builder::new()
         .bind("http/1", "127.0.0.1:8080", factory)?
         .build()
-        .await
+        .wait()
 }
 
 async fn index(req: Request<RequestBody>) -> Result<Response<Once<Bytes>>, anyhow::Error> {

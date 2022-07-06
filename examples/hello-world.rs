@@ -10,8 +10,7 @@ use xitca_http::{
 };
 use xitca_service::fn_service;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> io::Result<()> {
+fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=trace,[xitca-logger]=trace")
         .init();
@@ -31,7 +30,7 @@ async fn main() -> io::Result<()> {
                 .with_logger()
         })?
         .build()
-        .await
+        .wait()
 }
 
 async fn handler(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
