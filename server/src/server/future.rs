@@ -6,6 +6,7 @@ use std::{
 };
 
 use futures_core::ready;
+use tracing::warn;
 
 use super::{handle::ServerHandle, Command, Server};
 
@@ -66,7 +67,15 @@ impl ServerFuture {
                 mut server,
                 enable_signal,
             } => match tokio::runtime::Handle::try_current() {
-                Ok(handle) => handle.block_on(Self::Running(ServerFutureInner::new(server, enable_signal))),
+                Ok(handle) => {
+                    warn!("ServerFuture::wait is called from with tokio context. It would block current thread from handling async tasks.");
+                    std::thread::spawn(move || {
+                        handle
+                            .block_on(async move { Self::Running(ServerFutureInner::new(server, enable_signal)).await })
+                    })
+                    .join()
+                    .unwrap()
+                }
                 Err(_) => {
                     let rt = server.rt.take().unwrap();
                     let (mut inner, cmd) = rt.block_on(async {
