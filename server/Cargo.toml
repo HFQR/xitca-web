@@ -4,10 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["signal"]
 http3 = ["xitca-io/http3"]
 io-uring = ["tokio-uring"]
-signal = ["tokio/signal"]
 
 [dependencies]
 xitca-io = "0.1"
@@ -16,7 +14,7 @@ xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3"
 socket2 = "0.4.4"
-tokio = { version = "1.5", features = ["rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.5", features = ["rt-multi-thread", "signal", "sync", "time"] }
 tracing = { version = "0.1.29", default-features = false }
 
 # io-uring support

@@ -107,9 +107,7 @@ impl Builder {
     }
 
     /// Disable signal listening.
-    ///
-    /// `tokio::signal` is used for listening and it only functional in tokio runtime 1.x.
-    /// Disabling it would enable server runs in other async runtimes.
+    /// Server would only be shutdown from [ServerHandle](crate::server::ServerHandle)
     pub fn disable_signal(mut self) -> Self {
         self.enable_signal = false;
         self

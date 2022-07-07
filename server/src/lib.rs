@@ -5,10 +5,8 @@
 
 mod builder;
 mod server;
-mod worker;
-
-#[cfg(feature = "signal")]
 mod signals;
+mod worker;
 
 pub mod net;
 

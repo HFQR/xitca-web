@@ -28,35 +28,34 @@ pub(crate) struct Signals {
 }
 
 impl Signals {
+    #[cfg(unix)]
     pub(crate) fn start() -> Self {
-        #[cfg(not(unix))]
-        {
-            Signals {
-                signals: Box::pin(signal::ctrl_c()),
-            }
-        }
-        #[cfg(unix)]
-        {
-            use signal::unix;
+        use signal::unix;
 
-            let sig_map = [
-                (unix::SignalKind::interrupt(), Signal::Int),
-                (unix::SignalKind::hangup(), Signal::Hup),
-                (unix::SignalKind::terminate(), Signal::Term),
-                (unix::SignalKind::quit(), Signal::Quit),
-            ];
+        let sig_map = [
+            (unix::SignalKind::interrupt(), Signal::Int),
+            (unix::SignalKind::hangup(), Signal::Hup),
+            (unix::SignalKind::terminate(), Signal::Term),
+            (unix::SignalKind::quit(), Signal::Quit),
+        ];
 
-            let signals = sig_map
-                .iter()
-                .filter_map(|(kind, sig)| {
-                    unix::signal(*kind)
-                        .map(|tokio_sig| (*sig, tokio_sig))
-                        .map_err(|e| tracing::error!("Can not initialize stream handler for {:?} err: {}", sig, e))
-                        .ok()
-                })
-                .collect::<Vec<_>>();
+        let signals = sig_map
+            .iter()
+            .filter_map(|(kind, sig)| {
+                unix::signal(*kind)
+                    .map(|tokio_sig| (*sig, tokio_sig))
+                    .map_err(|e| tracing::error!("Can not initialize stream handler for {:?} err: {}", sig, e))
+                    .ok()
+            })
+            .collect::<Vec<_>>();
 
-            Signals { signals }
+        Self { signals }
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn start() -> Self {
+        Self {
+            signals: Box::pin(signal::ctrl_c()),
         }
     }
 }

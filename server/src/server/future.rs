@@ -6,11 +6,12 @@ use std::{
 };
 
 use futures_core::ready;
-use tracing::warn;
+
+use crate::signals::{Signal, Signals};
 
 use super::{handle::ServerHandle, Command, Server};
 
-#[must_use = "ServerFuture must be .await or spawn as task."]
+#[must_use = "ServerFuture must be .await/ spawn as task / consumed with ServerFuture::wait."]
 pub enum ServerFuture {
     Init { server: Server, enable_signal: bool },
     Running(ServerFutureInner),
@@ -60,34 +61,37 @@ impl ServerFuture {
         }
     }
 
-    #[cfg(feature = "signal")]
     pub fn wait(self) -> io::Result<()> {
         match self {
             Self::Init {
                 mut server,
                 enable_signal,
-            } => match tokio::runtime::Handle::try_current() {
-                Ok(handle) => {
-                    warn!("ServerFuture::wait is called from with tokio context. It would block current thread from handling async tasks.");
-                    std::thread::spawn(move || {
-                        handle
-                            .block_on(async move { Self::Running(ServerFutureInner::new(server, enable_signal)).await })
-                    })
-                    .join()
-                    .unwrap()
-                }
-                Err(_) => {
-                    let rt = server.rt.take().unwrap();
-                    let (mut inner, cmd) = rt.block_on(async {
-                        let mut inner = ServerFutureInner::new(server, enable_signal);
-                        let cmd = xitca_unsafe_collection::futures::poll_fn(|cx| inner.poll_cmd(cx)).await;
-                        (inner, cmd)
+            } => {
+                let rt = server.rt.take().unwrap();
+
+                let func = move || {
+                    use xitca_unsafe_collection::futures::poll_fn;
+
+                    let (mut server_fut, cmd) = rt.block_on(async {
+                        let mut server_fut = ServerFutureInner::new(server, enable_signal);
+                        let cmd = poll_fn(|cx| server_fut.poll_cmd(cx)).await;
+                        (server_fut, cmd)
                     });
-                    inner.server.rt = Some(rt);
-                    inner.handle_cmd(cmd);
-                    Ok(())
-                }
-            },
+                    server_fut.server.rt = Some(rt);
+                    (server_fut, cmd)
+                };
+
+                let (mut server_fut, cmd) = match tokio::runtime::Handle::try_current() {
+                    Ok(_) => {
+                        tracing::warn!("ServerFuture::wait is called from with tokio context. It would block current thread from handling async tasks.");
+                        std::thread::spawn(move || func()).join().unwrap()
+                    }
+                    Err(_) => func(),
+                };
+
+                server_fut.handle_cmd(cmd);
+                Ok(())
+            }
             Self::Running(..) => panic!("ServerFuture is already polled."),
             Self::Error(e) => Err(e),
             Self::Finished => unreachable!(),
@@ -97,7 +101,6 @@ impl ServerFuture {
 
 pub struct ServerFutureInner {
     pub(crate) server: Server,
-    #[cfg(feature = "signal")]
     pub(crate) signals: Option<crate::signals::Signals>,
 }
 
@@ -109,34 +112,15 @@ impl Default for ServerFuture {
 
 impl ServerFutureInner {
     #[inline(never)]
-    fn new(server: Server, _enable_signal: bool) -> Self {
+    fn new(server: Server, enable_signal: bool) -> Self {
         Self {
             server,
-            #[cfg(feature = "signal")]
-            signals: _enable_signal.then(crate::signals::Signals::start),
+            signals: enable_signal.then(Signals::start),
         }
     }
 
     #[inline(never)]
     fn poll_cmd(&mut self, cx: &mut Context<'_>) -> Poll<Command> {
-        #[cfg(feature = "signal")]
-        {
-            let p = self.poll_signal(cx);
-            if p.is_ready() {
-                return p;
-            }
-        }
-
-        match ready!(Pin::new(&mut self.server.rx_cmd).poll_recv(cx)) {
-            Some(cmd) => Poll::Ready(cmd),
-            None => Poll::Pending,
-        }
-    }
-
-    #[inline(never)]
-    #[cfg(feature = "signal")]
-    fn poll_signal(&mut self, cx: &mut Context<'_>) -> Poll<Command> {
-        use crate::signals::Signal;
         if let Some(signals) = self.signals.as_mut() {
             if let Poll::Ready(sig) = Pin::new(signals).poll(cx) {
                 tracing::info!("Signal {:?} received.", sig);
@@ -154,7 +138,10 @@ impl ServerFutureInner {
             }
         }
 
-        Poll::Pending
+        match ready!(Pin::new(&mut self.server.rx_cmd).poll_recv(cx)) {
+            Some(cmd) => Poll::Ready(cmd),
+            None => Poll::Pending,
+        }
     }
 
     #[inline(never)]
