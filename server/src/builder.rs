@@ -169,22 +169,13 @@ impl Builder {
         self._bind(name, addr, factory)
     }
 
-    pub fn listen<N, F, St>(mut self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
+    pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
         F: BuildServiceSync<St>,
         St: From<Stream> + Send + 'static,
     {
-        self.listeners
-            .entry(name.as_ref().to_string())
-            .or_insert_with(Vec::new)
-            .push(Box::new(Some(listener)));
-
-        let factory = Factory::new_boxed(factory);
-
-        self.factories.insert(name.as_ref().to_string(), factory);
-
-        Ok(self)
+        self._listen(name, Some(listener), factory)
     }
 
     pub fn build(self) -> ServerFuture {
@@ -215,6 +206,25 @@ impl Builder {
 
         self.listen(name, listener, factory)
     }
+
+    fn _listen<N, L, F, St>(mut self, name: N, listener: L, factory: F) -> io::Result<Self>
+    where
+        N: AsRef<str>,
+        L: AsListener + 'static,
+        F: BuildServiceSync<St>,
+        St: From<Stream> + Send + 'static,
+    {
+        self.listeners
+            .entry(name.as_ref().to_string())
+            .or_insert_with(Vec::new)
+            .push(Box::new(listener));
+
+        let factory = Factory::new_boxed(factory);
+
+        self.factories.insert(name.as_ref().to_string(), factory);
+
+        Ok(self)
+    }
 }
 
 #[cfg(unix)]
@@ -241,7 +251,7 @@ impl Builder {
     }
 
     pub fn listen_unix<N, F, St>(
-        mut self,
+        self,
         name: N,
         listener: std::os::unix::net::UnixListener,
         factory: F,
@@ -251,16 +261,7 @@ impl Builder {
         F: BuildServiceSync<St>,
         St: From<Stream> + Send + 'static,
     {
-        self.listeners
-            .entry(name.as_ref().to_string())
-            .or_insert_with(Vec::new)
-            .push(Box::new(Some(listener)));
-
-        let factory = Factory::new_boxed(factory);
-
-        self.factories.insert(name.as_ref().to_string(), factory);
-
-        Ok(self)
+        self._listen(name, Some(listener), factory)
     }
 }
 
@@ -290,15 +291,15 @@ impl Builder {
         let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
 
         self.listeners
-            .entry(name.as_ref().to_string())
-            .or_insert_with(Vec::new)
+            .get_mut(name.as_ref())
+            .unwrap()
             .push(Box::new(Some(builder)));
 
         Ok(self)
     }
 
     pub fn bind_h3<N, A, F>(
-        mut self,
+        self,
         name: N,
         addr: A,
         config: xitca_io::net::H3ServerConfig,
@@ -316,15 +317,6 @@ impl Builder {
 
         let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
 
-        self.listeners
-            .entry(name.as_ref().to_string())
-            .or_insert_with(Vec::new)
-            .push(Box::new(Some(builder)));
-
-        let factory = Factory::new_boxed(factory);
-
-        self.factories.insert(name.as_ref().to_string(), factory);
-
-        Ok(self)
+        self._listen(name, Some(builder), factory)
     }
 }
