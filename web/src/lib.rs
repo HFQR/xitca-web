@@ -26,7 +26,7 @@ pub mod codegen {
     ///
     /// # async fn app() {
     /// // construct App with MyState type.
-    /// App::with_current_thread_state(MyState { field: 996})
+    /// App::with_current_thread_state(MyState { field: 996 })
     ///     .at("/", handler_service(index));
     /// # }
     ///

@@ -3,19 +3,14 @@ use std::{
     future::Future,
     marker::PhantomData,
     pin::Pin,
-    rc::Rc,
     task::{Context, Poll},
 };
 
 use ::h3::{
-    quic::{RecvStream, SendStream},
+    quic::SendStream,
     server::{self, RequestStream},
 };
 use futures_core::{ready, Stream};
-use futures_intrusive::{
-    sync::{GenericMutex, LocalMutex},
-    NoopLock,
-};
 use pin_project_lite::pin_project;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
@@ -72,15 +67,12 @@ where
         loop {
             match conn.accept().select(queue.next()).await {
                 SelectOutput::A(Ok(Some((req, stream)))) => {
-                    // a hack to split read/write of request stream.
-                    // TODO: may deadlock?
-                    let stream = Rc::new(LocalMutex::new(stream, true));
-                    let sender = stream.clone();
+                    let (tx, rx) = stream.split();
 
-                    let body = Box::pin(AsyncStream::new(sender, |stream| async move {
+                    let body = Box::pin(AsyncStream::new(rx, |mut stream| async move {
                         // What the fuck is this API? We need to find another http3 implementation on quinn
                         // that actually make sense. This is plain stupid.
-                        let res = stream.lock().await.recv_data().await?;
+                        let res = stream.recv_data().await?;
                         Ok(res.map(|bytes| (Bytes::copy_from_slice(bytes.chunk()), stream)))
                     }));
 
@@ -90,7 +82,7 @@ where
 
                     queue.push(async move {
                         let fut = self.service.call(req);
-                        h3_handler(fut, &*stream).await
+                        h3_handler(fut, tx).await
                     });
                 }
                 SelectOutput::A(Ok(None)) => break,
@@ -109,28 +101,28 @@ where
     }
 }
 
-async fn h3_handler<Fut, C, ResB, SE, BE>(
+async fn h3_handler<'a, Fut, C, ResB, SE, BE>(
     fut: Fut,
-    stream: &GenericMutex<NoopLock, RequestStream<C, Bytes>>,
+    mut stream: RequestStream<C, Bytes>,
 ) -> Result<(), Error<SE, BE>>
 where
-    Fut: Future<Output = Result<Response<ResB>, SE>>,
-    C: RecvStream + SendStream<Bytes>,
+    Fut: Future<Output = Result<Response<ResB>, SE>> + 'a,
+    C: SendStream<Bytes>,
     ResB: Stream<Item = Result<Bytes, BE>>,
 {
     let (res, body) = fut.await.map_err(Error::Service)?.into_parts();
     let res = Response::from_parts(res, ());
 
-    stream.lock().await.send_response(res).await?;
+    stream.send_response(res).await?;
 
     pin!(body);
 
     while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
         let bytes = res.map_err(Error::Body)?;
-        stream.lock().await.send_data(bytes).await?;
+        stream.send_data(bytes).await?;
     }
 
-    stream.lock().await.finish().await?;
+    stream.finish().await?;
 
     Ok(())
 }
