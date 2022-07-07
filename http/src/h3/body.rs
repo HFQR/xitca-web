@@ -3,12 +3,12 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures_core::stream::{LocalBoxStream, Stream};
+use futures_core::stream::{BoxStream, Stream};
 
 use crate::{bytes::Bytes, error::BodyError};
 
 /// Request body type for Http/3 specifically.
-pub struct RequestBody(pub(super) LocalBoxStream<'static, Result<Bytes, h3::Error>>);
+pub struct RequestBody(pub(super) BoxStream<'static, Result<Bytes, h3::Error>>);
 
 impl Stream for RequestBody {
     type Item = Result<Bytes, BodyError>;
