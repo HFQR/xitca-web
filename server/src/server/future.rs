@@ -84,7 +84,7 @@ impl ServerFuture {
                 let (mut server_fut, cmd) = match tokio::runtime::Handle::try_current() {
                     Ok(_) => {
                         tracing::warn!("ServerFuture::wait is called from with tokio context. It would block current thread from handling async tasks.");
-                        std::thread::spawn(move || func()).join().unwrap()
+                        std::thread::spawn(func).join().unwrap()
                     }
                     Err(_) => func(),
                 };
