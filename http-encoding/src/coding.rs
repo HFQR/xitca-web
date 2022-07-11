@@ -3,16 +3,12 @@
 pub enum ContentEncoding {
     /// Automatically select encoding based on encoding negotiation.
     Auto,
-
     /// A format using the Brotli algorithm.
     Br,
-
     /// A format using the zlib structure with deflate algorithm.
     Deflate,
-
     /// Gzip algorithm.
     Gzip,
-
     /// Indicates the identity function (i.e. no compression, nor modification).
     Identity,
 }
