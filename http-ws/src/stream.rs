@@ -2,7 +2,6 @@ use std::{
     fmt,
     future::Future,
     pin::Pin,
-    rc::Rc,
     task::{Context, Poll},
 };
 
@@ -22,7 +21,7 @@ pin_project! {
         #[pin]
         stream: Option<S>,
         buf: BytesMut,
-        codec: Rc<Codec>
+        codec: Codec
     }
 }
 
@@ -40,7 +39,7 @@ where
         Self {
             stream: Some(stream),
             buf: BytesMut::new(),
-            codec: Rc::new(codec),
+            codec,
         }
     }
 
@@ -48,7 +47,7 @@ where
     ///
     /// This API is to share the same codec for both decode and encode stream.
     pub fn encode_stream(&self) -> (Sender<Message>, EncodeStream) {
-        let codec = self.codec.clone();
+        let codec = self.codec.duplicate();
         EncodeStream::new(codec)
     }
 
@@ -104,7 +103,7 @@ where
             match stream.poll_next(cx) {
                 Poll::Ready(Some(Ok(item))) => {
                     this.buf.extend_from_slice(item.as_ref());
-                    if this.buf.len() >= this.codec.get_max_size() {
+                    if this.buf.len() >= this.codec.max_size() {
                         break;
                     }
                 }
@@ -129,7 +128,7 @@ where
 
 /// Encode a stream of [Message](super::codec::Message) into [Bytes](bytes::Bytes).
 pub struct EncodeStream {
-    codec: Rc<Codec>,
+    codec: Codec,
     buf: BytesMut,
     rx: Option<Receiver<Message>>,
 }
@@ -137,7 +136,7 @@ pub struct EncodeStream {
 impl EncodeStream {
     /// Construct new stream with given codec.
     #[inline]
-    pub fn new(codec: Rc<Codec>) -> (Sender<Message>, Self) {
+    pub fn new(codec: Codec) -> (Sender<Message>, Self) {
         let cap = codec.capacity();
         let (tx, rx) = channel(cap);
 

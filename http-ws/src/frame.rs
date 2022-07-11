@@ -2,7 +2,7 @@
 
 use std::convert::TryFrom;
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tracing::debug;
 
 use super::error::ProtocolError;
@@ -92,7 +92,7 @@ impl Parser {
         src: &mut BytesMut,
         server: bool,
         max_size: usize,
-    ) -> Result<Option<(bool, OpCode, Option<BytesMut>)>, ProtocolError> {
+    ) -> Result<Option<(bool, OpCode, Option<Bytes>)>, ProtocolError> {
         // try to parse ws frame metadata
         let (idx, finished, opcode, length, mask) = match Parser::parse_metadata(src, server, max_size)? {
             None => return Ok(None),
@@ -127,7 +127,7 @@ impl Parser {
                     apply_mask(&mut data, mask);
                 }
 
-                Ok(Some((finished, opcode, Some(data))))
+                Ok(Some((finished, opcode, Some(data.freeze()))))
             }
         }
     }
@@ -199,7 +199,6 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
 
     struct F {
         finished: bool,
@@ -207,7 +206,7 @@ mod tests {
         payload: Bytes,
     }
 
-    type Extract = (bool, OpCode, Option<BytesMut>);
+    type Extract = (bool, OpCode, Option<Bytes>);
 
     fn is_none(frm: &Result<Option<Extract>, ProtocolError>) -> bool {
         matches!(*frm, Ok(None))
@@ -218,7 +217,7 @@ mod tests {
             Ok(Some((finished, opcode, payload))) => F {
                 finished,
                 opcode,
-                payload: payload.map(|b| b.freeze()).unwrap_or_else(|| Bytes::from("")),
+                payload: payload.unwrap_or_else(|| Bytes::from("")),
             },
             _ => unreachable!("error"),
         }
