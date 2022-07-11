@@ -17,11 +17,13 @@ impl Writer {
 }
 
 impl io::Write for Writer {
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.buf.put_slice(buf);
         Ok(buf.len())
     }
 
+    #[inline]
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }

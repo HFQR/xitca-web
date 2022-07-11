@@ -129,18 +129,18 @@ impl Codec {
                 Item::Continue(_) | Item::Last(_) if !self.flags.contains(Flags::CONTINUATION) => {
                     return Err(ProtocolError::ContinuationNotStarted)
                 }
-                Item::FirstText(data) => {
+                Item::FirstText(ref data) => {
                     self.try_start_continue()?;
-                    Parser::write_message(dst, &data[..], OpCode::Text, false, mask);
+                    Parser::write_message(dst, data, OpCode::Text, false, mask);
                 }
-                Item::FirstBinary(data) => {
+                Item::FirstBinary(ref data) => {
                     self.try_start_continue()?;
-                    Parser::write_message(dst, &data[..], OpCode::Binary, false, mask);
+                    Parser::write_message(dst, data, OpCode::Binary, false, mask);
                 }
-                Item::Continue(data) => Parser::write_message(dst, &data[..], OpCode::Continue, false, mask),
-                Item::Last(data) => {
+                Item::Continue(ref data) => Parser::write_message(dst, data, OpCode::Continue, false, mask),
+                Item::Last(ref data) => {
                     self.flags.remove(Flags::CONTINUATION);
-                    Parser::write_message(dst, &data[..], OpCode::Continue, true, mask);
+                    Parser::write_message(dst, data, OpCode::Continue, true, mask);
                 }
             },
             Message::Nop => {}

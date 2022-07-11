@@ -1,10 +1,12 @@
 //! Stream decoders.
 
-use std::{future::Future, io};
+use std::io;
 
 use bytes::Bytes;
 use futures_core::Stream;
 use http::header::{HeaderMap, CONTENT_ENCODING};
+
+use crate::coding::ContentEncoding;
 
 #[cfg(feature = "br")]
 use super::brotli::BrotliDecoder;
@@ -15,21 +17,18 @@ use super::gzip::GzDecoder;
 #[cfg(any(feature = "br", feature = "gz", feature = "de"))]
 use super::writer::Writer;
 
-use super::coder::{AsyncCode, Coder, CoderError, IdentityCoder};
-use crate::coding::ContentEncoding;
+use super::coder::{Code, Coder, CoderError, IdentityCoder};
 
-impl<S, De, T, E> Coder<S, De, T>
+/// Construct from headers and stream body. Use for decoding.
+pub fn try_decoder<Req, S, T, E>(req: Req, body: S) -> Result<Coder<S, ContentDecoder>, CoderError<E>>
 where
+    Req: std::borrow::Borrow<http::Request<()>>,
     S: Stream<Item = Result<T, E>>,
-    De: AsyncCode<T>,
     T: AsRef<[u8]> + Send + 'static,
     Bytes: From<T>,
 {
-    /// Construct from headers and stream body. Use for decoding.
-    pub fn try_decoder_from_parts(headers: &HeaderMap, body: S) -> Result<Coder<S, ContentDecoder, T>, CoderError<E>> {
-        let decoder = from_headers(headers)?;
-        Ok(Coder::new(body, decoder))
-    }
+    let decoder = from_headers(req.borrow().headers())?;
+    Ok(Coder::new(body, decoder))
 }
 
 fn from_headers<E>(headers: &HeaderMap) -> Result<ContentDecoder, CoderError<E>> {
@@ -40,7 +39,7 @@ fn from_headers<E>(headers: &HeaderMap) -> Result<ContentDecoder, CoderError<E>>
             ContentEncoding::Br => {
                 #[cfg(feature = "br")]
                 {
-                    Ok(_ContentDecoder::Br(super::brotli::BrotliDecoder::new(Writer::new())))
+                    Ok(_ContentDecoder::Br(BrotliDecoder::new(Writer::new())))
                 }
                 #[cfg(not(feature = "br"))]
                 Err(CoderError::Feature(super::coder::Feature::Br))
@@ -48,7 +47,7 @@ fn from_headers<E>(headers: &HeaderMap) -> Result<ContentDecoder, CoderError<E>>
             ContentEncoding::Gzip => {
                 #[cfg(feature = "gz")]
                 {
-                    Ok(_ContentDecoder::Gz(super::gzip::GzDecoder::new(Writer::new())))
+                    Ok(_ContentDecoder::Gz(GzDecoder::new(Writer::new())))
                 }
                 #[cfg(not(feature = "gz"))]
                 Err(CoderError::Feature(super::coder::Feature::Gzip))
@@ -56,7 +55,7 @@ fn from_headers<E>(headers: &HeaderMap) -> Result<ContentDecoder, CoderError<E>>
             ContentEncoding::Deflate => {
                 #[cfg(feature = "de")]
                 {
-                    Ok(_ContentDecoder::De(super::deflate::DeflateDecoder::new(Writer::new())))
+                    Ok(_ContentDecoder::De(DeflateDecoder::new(Writer::new())))
                 }
                 #[cfg(not(feature = "de"))]
                 Err(CoderError::Feature(super::coder::Feature::Deflate))
@@ -117,45 +116,34 @@ impl From<DeflateDecoder<Writer>> for ContentDecoder {
     }
 }
 
-impl<Item> AsyncCode<Item> for ContentDecoder
+impl<Item> Code<Item> for ContentDecoder
 where
     Item: AsRef<[u8]> + Send + 'static,
     Bytes: From<Item>,
 {
     type Item = Bytes;
-    type Future = impl Future<Output = io::Result<(Self, Option<Self::Item>)>>;
 
-    fn code(self, item: Item) -> Self::Future {
-        async move {
-            match self.decoder {
-                _ContentDecoder::Identity(decoder) => <IdentityCoder as AsyncCode<Item>>::code(decoder, item)
-                    .await
-                    .map(|(decoder, item)| (decoder.into(), item)),
-                #[cfg(feature = "br")]
-                _ContentDecoder::Br(decoder) => <BrotliDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
-                    .await
-                    .map(|(decoder, item)| (decoder.into(), item)),
-                #[cfg(feature = "gz")]
-                _ContentDecoder::Gz(decoder) => <GzDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
-                    .await
-                    .map(|(decoder, item)| (decoder.into(), item)),
-                #[cfg(feature = "de")]
-                _ContentDecoder::De(decoder) => <DeflateDecoder<Writer> as AsyncCode<Item>>::code(decoder, item)
-                    .await
-                    .map(|(decoder, item)| (decoder.into(), item)),
-            }
+    fn code(&mut self, item: Item) -> io::Result<Option<Self::Item>> {
+        match self.decoder {
+            _ContentDecoder::Identity(ref mut decoder) => IdentityCoder::code(decoder, item),
+            #[cfg(feature = "br")]
+            _ContentDecoder::Br(ref mut decoder) => BrotliDecoder::<Writer>::code(decoder, item),
+            #[cfg(feature = "gz")]
+            _ContentDecoder::Gz(ref mut decoder) => GzDecoder::<Writer>::code(decoder, item),
+            #[cfg(feature = "de")]
+            _ContentDecoder::De(ref mut decoder) => DeflateDecoder::<Writer>::code(decoder, item),
         }
     }
 
-    fn code_eof(self) -> io::Result<Option<Self::Item>> {
+    fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
         match self.decoder {
-            _ContentDecoder::Identity(decoder) => <IdentityCoder as AsyncCode<Item>>::code_eof(decoder),
+            _ContentDecoder::Identity(ref mut decoder) => IdentityCoder::code_eof(decoder),
             #[cfg(feature = "br")]
-            _ContentDecoder::Br(decoder) => <BrotliDecoder<Writer> as AsyncCode<Item>>::code_eof(decoder),
+            _ContentDecoder::Br(ref mut decoder) => <BrotliDecoder<Writer> as Code<Item>>::code_eof(decoder),
             #[cfg(feature = "gz")]
-            _ContentDecoder::Gz(decoder) => <GzDecoder<Writer> as AsyncCode<Item>>::code_eof(decoder),
+            _ContentDecoder::Gz(ref mut decoder) => <GzDecoder<Writer> as Code<Item>>::code_eof(decoder),
             #[cfg(feature = "de")]
-            _ContentDecoder::De(decoder) => <DeflateDecoder<Writer> as AsyncCode<Item>>::code_eof(decoder),
+            _ContentDecoder::De(ref mut decoder) => <DeflateDecoder<Writer> as Code<Item>>::code_eof(decoder),
         }
     }
 }

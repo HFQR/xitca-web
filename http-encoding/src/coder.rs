@@ -1,8 +1,5 @@
 use std::{
-    fmt,
-    future::Future,
-    io,
-    marker::PhantomData,
+    fmt, io,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -13,34 +10,23 @@ use pin_project_lite::pin_project;
 
 pin_project! {
     /// A coder type that can be used for either encode or decode which determined by De type.
-    pub struct Coder<S, De, I>
-    where
-        De: AsyncCode<I>
-    {
-        coder: Option<De>,
+    pub struct Coder<S, C>{
         #[pin]
         body: S,
-        #[pin]
-        in_flight: Option<De::Future>,
-        _item: PhantomData<I>
+        coder: C,
     }
 }
 
-impl<S, De, T, E> Coder<S, De, T>
+impl<S, C, T, E> Coder<S, C>
 where
     S: Stream<Item = Result<T, E>>,
-    De: AsyncCode<T>,
+    C: Code<T>,
     T: AsRef<[u8]> + Send + 'static,
     Bytes: From<T>,
 {
     /// Construct a new coder.
-    pub fn new(body: S, coder: De) -> Self {
-        Self {
-            coder: Some(coder),
-            body,
-            in_flight: None,
-            _item: PhantomData,
-        }
+    pub fn new(body: S, coder: C) -> Self {
+        Self { body, coder }
     }
 }
 
@@ -48,7 +34,6 @@ where
 /// or input Stream's error type.
 pub enum CoderError<E> {
     Io(io::Error),
-    Runtime(tokio::task::JoinError),
     Feature(Feature),
     Stream(E),
 }
@@ -64,7 +49,6 @@ impl<E> fmt::Debug for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Io(ref e) => write!(f, "{:?}", e),
-            Self::Runtime(ref e) => write!(f, "{:?}", e),
             Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
             Self::Feature(Feature::Gzip) => write!(f, "gz feature is disabled."),
             Self::Feature(Feature::Deflate) => write!(f, "de feature is disabled."),
@@ -77,7 +61,6 @@ impl<E> fmt::Display for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Io(ref e) => write!(f, "{}", e),
-            Self::Runtime(ref e) => write!(f, "{}", e),
             Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
             Self::Feature(Feature::Gzip) => write!(f, "gz feature is disabled."),
             Self::Feature(Feature::Deflate) => write!(f, "de feature is disabled."),
@@ -94,135 +77,88 @@ impl<E> From<io::Error> for CoderError<E> {
     }
 }
 
-impl<S, De, T, E> Stream for Coder<S, De, T>
+impl<S, C, T, E> Stream for Coder<S, C>
 where
     S: Stream<Item = Result<T, E>>,
-    De: AsyncCode<T>,
-    De::Item: From<T>,
+    C: Code<T>,
+    C::Item: From<T>,
 {
-    type Item = Result<De::Item, CoderError<E>>;
+    type Item = Result<C::Item, CoderError<E>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        loop {
-            // do not attempt new chunk when in_flight process is pending.
-            if let Some(fut) = this.in_flight.as_mut().as_pin_mut() {
-                let (coder, item) = ready!(fut.poll(cx))?;
-                *this.coder = Some(coder);
-                this.in_flight.set(None);
 
-                if let Some(item) = item {
-                    return Poll::Ready(Some(Ok(item)));
-                }
-            }
-
-            // only poll stream when coder still alive.
-            match this.coder.take() {
-                Some(coder) => match this.body.as_mut().poll_next(cx) {
-                    Poll::Ready(res) => match res {
-                        Some(Ok(next)) => {
-                            // construct next code in_flight future and continue.
-                            let fut = coder.code(next);
-                            this.in_flight.set(Some(fut));
-                        }
-                        Some(Err(e)) => {
-                            // drop coder and return error.
-                            return Poll::Ready(Some(Err(CoderError::Stream(e))));
-                        }
-                        None => {
-                            // stream is finished. try to code eof and drop it.
-                            return match coder.code_eof()? {
-                                Some(res) => Poll::Ready(Some(Ok(res))),
-                                None => Poll::Ready(None),
-                            };
-                        }
-                    },
-                    Poll::Pending => {
-                        *this.coder = Some(coder);
-                        return Poll::Pending;
+        while let Some(res) = ready!(this.body.as_mut().poll_next(cx)) {
+            match res {
+                Ok(item) => {
+                    if let Some(item) = this.coder.code(item)? {
+                        return Poll::Ready(Some(Ok(item)));
                     }
-                },
-                None => return Poll::Ready(None),
+                }
+                Err(e) => return Poll::Ready(Some(Err(CoderError::Stream(e)))),
             }
+        }
+
+        match this.coder.code_eof()? {
+            Some(res) => Poll::Ready(Some(Ok(res))),
+            None => Poll::Ready(None),
         }
     }
 }
 
-/// An async coding trait that consume self with every method call that can be used for either
-/// decode or encode.
-///
-/// This is useful when cross thread de/encode is desirable in the form of moving objects between
-/// threads.
-pub trait AsyncCode<Item>: Sized {
+pub trait Code<Item>: Sized {
     type Item;
 
-    type Future: Future<Output = io::Result<(Self, Option<Self::Item>)>>;
+    fn code(&mut self, item: Item) -> io::Result<Option<Self::Item>>;
 
-    fn code(self, item: Item) -> Self::Future;
-
-    fn code_eof(self) -> io::Result<Option<Self::Item>>;
+    fn code_eof(&mut self) -> io::Result<Option<Self::Item>>;
 }
 
 /// Identity coder serve as a pass through coder that just forward items.
 pub struct IdentityCoder;
 
-impl<Item> AsyncCode<Item> for IdentityCoder
+impl<Item> Code<Item> for IdentityCoder
 where
     Bytes: From<Item>,
 {
     type Item = Bytes;
-    type Future = impl Future<Output = io::Result<(Self, Option<Self::Item>)>>;
 
-    fn code(self, item: Item) -> Self::Future {
-        async move { Ok((self, Some(item.into()))) }
+    fn code(&mut self, item: Item) -> io::Result<Option<Self::Item>> {
+        Ok(Some(item.into()))
     }
 
-    fn code_eof(self) -> io::Result<Option<Self::Item>> {
+    fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
         Ok(None)
     }
 }
 
 #[cfg(any(feature = "br", feature = "gz", feature = "de"))]
-macro_rules! async_code_impl {
-    ($coder: ident, $in_place_size: path) => {
-        impl<Item> crate::AsyncCode<Item> for $coder<crate::writer::Writer>
+macro_rules! code_impl {
+    ($coder: ident) => {
+        impl<Item> crate::Code<Item> for $coder<crate::writer::Writer>
         where
             Item: AsRef<[u8]> + Send + 'static,
         {
             type Item = bytes::Bytes;
-            type Future = impl std::future::Future<Output = std::io::Result<(Self, Option<Self::Item>)>>;
 
-            fn code(self, item: Item) -> Self::Future {
-                use std::io::Write;
+            fn code(&mut self, item: Item) -> ::std::io::Result<Option<bytes::Bytes>> {
+                use ::std::io::Write;
 
-                fn code(
-                    mut this: $coder<crate::writer::Writer>,
-                    buf: &[u8],
-                ) -> std::io::Result<($coder<crate::writer::Writer>, Option<bytes::Bytes>)> {
-                    this.write_all(buf)?;
-                    this.flush()?;
-                    let b = this.get_mut().take();
-                    if !b.is_empty() {
-                        Ok((this, Some(b)))
-                    } else {
-                        Ok((this, None))
-                    }
-                }
-
-                async move {
-                    let buf = item.as_ref();
-                    if buf.len() < $in_place_size {
-                        code(self, buf)
-                    } else {
-                        tokio::task::spawn_blocking(move || code(self, item.as_ref())).await?
-                    }
+                self.write_all(item.as_ref())?;
+                self.flush()?;
+                let b = self.get_mut().take();
+                if !b.is_empty() {
+                    Ok(Some(b))
+                } else {
+                    Ok(None)
                 }
             }
 
-            #[allow(unused_mut)]
-            fn code_eof(mut self) -> std::io::Result<Option<Self::Item>> {
-                let b = self.finish()?.take();
+            fn code_eof(&mut self) -> ::std::io::Result<Option<Self::Item>> {
+                use ::std::io::Write;
 
+                self.flush()?;
+                let b = self.get_mut().take();
                 if !b.is_empty() {
                     Ok(Some(b))
                 } else {
