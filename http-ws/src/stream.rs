@@ -17,15 +17,16 @@ pin_project! {
     /// Decode `S` type into Stream of websocket [Message](super::codec::Message).
     /// `S` type must impl `Stream` trait and output `Result<T, E>` as `Stream::Item`
     /// where `T` type impl `AsRef<[u8]>` trait. (`&[u8]` is needed for parsing messages)
-    pub struct DecodeStream<S> {
+    pub struct DecodeStream<S, E> {
         #[pin]
         stream: Option<S>,
         buf: BytesMut,
-        codec: Codec
+        codec: Codec,
+        err: Option<DecodeError<E>>
     }
 }
 
-impl<S, T, E> DecodeStream<S>
+impl<S, T, E> DecodeStream<S, E>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -40,6 +41,7 @@ where
             stream: Some(stream),
             buf: BytesMut::new(),
             codec,
+            err: None,
         }
     }
 
@@ -89,7 +91,7 @@ impl<E> From<ProtocolError> for DecodeError<E> {
     }
 }
 
-impl<S, T, E> Stream for DecodeStream<S>
+impl<S, T, E> Stream for DecodeStream<S, E>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -107,7 +109,10 @@ where
                         break;
                     }
                 }
-                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(DecodeError::Stream(e)))),
+                Poll::Ready(Some(Err(e))) => {
+                    *this.err = Some(DecodeError::Stream(e));
+                    this.stream.set(None);
+                }
                 Poll::Ready(None) => this.stream.set(None),
                 Poll::Pending => break,
             }
@@ -117,7 +122,7 @@ where
             Some(msg) => Poll::Ready(Some(Ok(msg))),
             None => {
                 if this.stream.is_none() {
-                    Poll::Ready(None)
+                    Poll::Ready(this.err.take().map(Err))
                 } else {
                     Poll::Pending
                 }
