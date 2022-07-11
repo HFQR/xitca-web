@@ -93,7 +93,7 @@ impl<'a> WebSocket<'a> {
 
         Self {
             inner: RefCell::new(WebSocketInner {
-                codec: codec.max_size(size),
+                codec: codec.set_max_size(size),
                 eof,
                 send_buf,
                 recv_buf,

@@ -204,8 +204,8 @@ mod stream;
 pub use self::stream::{DecodeError, DecodeStream, EncodeStream};
 
 #[cfg(feature = "stream")]
-pub type WsOutput<B> = (
-    DecodeStream<B>,
+pub type WsOutput<B, E> = (
+    DecodeStream<B, E>,
     Response<EncodeStream>,
     tokio::sync::mpsc::Sender<Message>,
 );
@@ -242,7 +242,7 @@ pub type WsOutput<B> = (
 ///
 /// let (decoded_stream, http_response, encode_stream_sink) = http_ws::ws(&mut req, DummyRequestBody).unwrap();
 /// ```
-pub fn ws<Req, B, T, E>(mut req: Req, body: B) -> Result<WsOutput<B>, HandshakeError>
+pub fn ws<Req, B, T, E>(mut req: Req, body: B) -> Result<WsOutput<B, E>, HandshakeError>
 where
     Req: std::borrow::BorrowMut<Request<()>>,
     B: futures_core::Stream<Item = Result<T, E>>,

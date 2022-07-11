@@ -2,7 +2,6 @@ use std::{
     fmt,
     future::Future,
     pin::Pin,
-    rc::Rc,
     task::{Context, Poll},
 };
 
@@ -18,15 +17,16 @@ pin_project! {
     /// Decode `S` type into Stream of websocket [Message](super::codec::Message).
     /// `S` type must impl `Stream` trait and output `Result<T, E>` as `Stream::Item`
     /// where `T` type impl `AsRef<[u8]>` trait. (`&[u8]` is needed for parsing messages)
-    pub struct DecodeStream<S> {
+    pub struct DecodeStream<S, E> {
         #[pin]
         stream: Option<S>,
         buf: BytesMut,
-        codec: Rc<Codec>
+        codec: Codec,
+        err: Option<DecodeError<E>>
     }
 }
 
-impl<S, T, E> DecodeStream<S>
+impl<S, T, E> DecodeStream<S, E>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -40,7 +40,8 @@ where
         Self {
             stream: Some(stream),
             buf: BytesMut::new(),
-            codec: Rc::new(codec),
+            codec,
+            err: None,
         }
     }
 
@@ -48,7 +49,7 @@ where
     ///
     /// This API is to share the same codec for both decode and encode stream.
     pub fn encode_stream(&self) -> (Sender<Message>, EncodeStream) {
-        let codec = self.codec.clone();
+        let codec = self.codec.duplicate();
         EncodeStream::new(codec)
     }
 
@@ -90,7 +91,7 @@ impl<E> From<ProtocolError> for DecodeError<E> {
     }
 }
 
-impl<S, T, E> Stream for DecodeStream<S>
+impl<S, T, E> Stream for DecodeStream<S, E>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -104,11 +105,14 @@ where
             match stream.poll_next(cx) {
                 Poll::Ready(Some(Ok(item))) => {
                     this.buf.extend_from_slice(item.as_ref());
-                    if this.buf.len() >= this.codec.get_max_size() {
+                    if this.buf.len() >= this.codec.max_size() {
                         break;
                     }
                 }
-                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(DecodeError::Stream(e)))),
+                Poll::Ready(Some(Err(e))) => {
+                    *this.err = Some(DecodeError::Stream(e));
+                    this.stream.set(None);
+                }
                 Poll::Ready(None) => this.stream.set(None),
                 Poll::Pending => break,
             }
@@ -118,7 +122,7 @@ where
             Some(msg) => Poll::Ready(Some(Ok(msg))),
             None => {
                 if this.stream.is_none() {
-                    Poll::Ready(None)
+                    Poll::Ready(this.err.take().map(Err))
                 } else {
                     Poll::Pending
                 }
@@ -129,7 +133,7 @@ where
 
 /// Encode a stream of [Message](super::codec::Message) into [Bytes](bytes::Bytes).
 pub struct EncodeStream {
-    codec: Rc<Codec>,
+    codec: Codec,
     buf: BytesMut,
     rx: Option<Receiver<Message>>,
 }
@@ -137,7 +141,7 @@ pub struct EncodeStream {
 impl EncodeStream {
     /// Construct new stream with given codec.
     #[inline]
-    pub fn new(codec: Rc<Codec>) -> (Sender<Message>, Self) {
+    pub fn new(codec: Codec) -> (Sender<Message>, Self) {
         let cap = codec.capacity();
         let (tx, rx) = channel(cap);
 
