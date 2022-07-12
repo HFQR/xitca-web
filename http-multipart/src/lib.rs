@@ -183,3 +183,77 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use futures_util::FutureExt;
+    use http::header::{HeaderValue, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
+
+    #[test]
+    fn basic() {
+        let body = b"\
+            --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
+            Content-Disposition: form-data; name=\"file\"; filename=\"foo.txt\"\r\n\
+            Content-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n\
+            test\r\n\
+            --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
+            Content-Disposition: form-data; name=\"file\"; filename=\"bar.txt\"\r\n\
+            Content-Type: text/plain\r\nContent-Length: 8\r\n\r\n\
+            testdata\r\n\
+            --abbc761f78ff4d7cb7573b5a23f96ef0--\r\n";
+
+        let mut req = Request::new(());
+        req.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("multipart/mixed; boundary=\"abbc761f78ff4d7cb7573b5a23f96ef0\""),
+        );
+
+        let body = Box::pin(futures_util::stream::once(async {
+            Ok::<_, ()>(Bytes::copy_from_slice(body))
+        }));
+
+        let mut multipart = multipart(&req, body).unwrap();
+
+        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+
+        assert_eq!(
+            field.headers().get(CONTENT_DISPOSITION).unwrap(),
+            HeaderValue::from_static("form-data; name=\"file\"; filename=\"foo.txt\"")
+        );
+        assert_eq!(
+            field.headers().get(CONTENT_TYPE).unwrap(),
+            HeaderValue::from_static("text/plain; charset=utf-8")
+        );
+        assert_eq!(
+            field.headers().get(CONTENT_LENGTH).unwrap(),
+            HeaderValue::from_static("4")
+        );
+        assert_eq!(
+            field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
+            b"test"
+        );
+        assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+
+        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+
+        assert_eq!(
+            field.headers().get(CONTENT_DISPOSITION).unwrap(),
+            HeaderValue::from_static("form-data; name=\"file\"; filename=\"bar.txt\"")
+        );
+        assert_eq!(
+            field.headers().get(CONTENT_TYPE).unwrap(),
+            HeaderValue::from_static("text/plain")
+        );
+        assert_eq!(
+            field.headers().get(CONTENT_LENGTH).unwrap(),
+            HeaderValue::from_static("8")
+        );
+        assert_eq!(
+            field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
+            b"testdata"
+        );
+        assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+    }
+}
