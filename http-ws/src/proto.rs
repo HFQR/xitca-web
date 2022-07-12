@@ -8,26 +8,20 @@ use std::{
 use tracing::error;
 
 /// Operation codes as part of RFC6455.
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum OpCode {
     /// Indicates a continuation frame of a fragmented message.
     Continue,
-
     /// Indicates a text data frame.
     Text,
-
     /// Indicates a binary data frame.
     Binary,
-
     /// Indicates a close control frame.
     Close,
-
     /// Indicates a ping control frame.
     Ping,
-
     /// Indicates a pong control frame.
     Pong,
-
     /// Indicates an invalid opcode was received.
     Bad,
 }
@@ -50,16 +44,14 @@ impl fmt::Display for OpCode {
 
 impl From<OpCode> for u8 {
     fn from(op: OpCode) -> u8 {
-        use self::OpCode::*;
-
         match op {
-            Continue => 0,
-            Text => 1,
-            Binary => 2,
-            Close => 8,
-            Ping => 9,
-            Pong => 10,
-            Bad => {
+            OpCode::Continue => 0,
+            OpCode::Text => 1,
+            OpCode::Binary => 2,
+            OpCode::Close => 8,
+            OpCode::Ping => 9,
+            OpCode::Pong => 10,
+            OpCode::Bad => {
                 error!("Attempted to convert invalid opcode to u8. This is a bug.");
                 8 // if this somehow happens, a close frame will help us tear down quickly
             }
@@ -69,129 +61,110 @@ impl From<OpCode> for u8 {
 
 impl From<u8> for OpCode {
     fn from(byte: u8) -> OpCode {
-        use self::OpCode::*;
-
         match byte {
-            0 => Continue,
-            1 => Text,
-            2 => Binary,
-            8 => Close,
-            9 => Ping,
-            10 => Pong,
-            _ => Bad,
+            0 => OpCode::Continue,
+            1 => OpCode::Text,
+            2 => OpCode::Binary,
+            8 => OpCode::Close,
+            9 => OpCode::Ping,
+            10 => OpCode::Pong,
+            _ => OpCode::Bad,
         }
     }
 }
 
 /// Status code used to indicate why an endpoint is closing the WebSocket connection.
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum CloseCode {
     /// Indicates a normal closure, meaning that the purpose for which the connection was
     /// established has been fulfilled.
     Normal,
-
     /// Indicates that an endpoint is "going away", such as a server going down or a browser having
     /// navigated away from a page.
     Away,
-
     /// Indicates that an endpoint is terminating the connection due to a protocol error.
     Protocol,
-
     /// Indicates that an endpoint is terminating the connection because it has received a type of
     /// data it cannot accept (e.g., an endpoint that understands only text data MAY send this if it
     /// receives a binary message).
     Unsupported,
-
     /// Indicates an abnormal closure. If the abnormal closure was due to an error, this close code
     /// will not be used. Instead, the `on_error` method of the handler will be called with
     /// the error. However, if the connection is simply dropped, without an error, this close code
     /// will be sent to the handler.
     Abnormal,
-
     /// Indicates that an endpoint is terminating the connection because it has received data within
     /// a message that was not consistent with the type of the message (e.g., non-UTF-8 \[RFC3629\]
     /// data within a text message).
     Invalid,
-
     /// Indicates that an endpoint is terminating the connection because it has received a message
     /// that violates its policy. This is a generic status code that can be returned when there is
     /// no other more suitable status code (e.g., Unsupported or Size) or if there is a need to hide
     /// specific details about the policy.
     Policy,
-
     /// Indicates that an endpoint is terminating the connection because it has received a message
     /// that is too big for it to process.
     Size,
-
     /// Indicates that an endpoint (client) is terminating the connection because it has expected
     /// the server to negotiate one or more extension, but the server didn't return them in the
     /// response message of the WebSocket handshake.  The list of extensions that are needed should
     /// be given as the reason for closing. Note that this status code is not used by the server,
     /// because it can fail the WebSocket handshake instead.
     Extension,
-
     /// Indicates that a server is terminating the connection because it encountered an unexpected
     /// condition that prevented it from fulfilling the request.
     Error,
-
     /// Indicates that the server is restarting. A client may choose to reconnect, and if it does,
     /// it should use a randomized delay of 5-30 seconds between attempts.
     Restart,
-
     /// Indicates that the server is overloaded and the client should either connect to a different
     /// IP (when multiple targets exist), or reconnect to the same IP when a user has performed
     /// an action.
     Again,
-
     #[doc(hidden)]
     Tls,
-
     #[doc(hidden)]
     Other(u16),
 }
 
 impl From<CloseCode> for u16 {
     fn from(code: CloseCode) -> u16 {
-        use self::CloseCode::*;
-
         match code {
-            Normal => 1000,
-            Away => 1001,
-            Protocol => 1002,
-            Unsupported => 1003,
-            Abnormal => 1006,
-            Invalid => 1007,
-            Policy => 1008,
-            Size => 1009,
-            Extension => 1010,
-            Error => 1011,
-            Restart => 1012,
-            Again => 1013,
-            Tls => 1015,
-            Other(code) => code,
+            CloseCode::Normal => 1000,
+            CloseCode::Away => 1001,
+            CloseCode::Protocol => 1002,
+            CloseCode::Unsupported => 1003,
+            CloseCode::Abnormal => 1006,
+            CloseCode::Invalid => 1007,
+            CloseCode::Policy => 1008,
+            CloseCode::Size => 1009,
+            CloseCode::Extension => 1010,
+            CloseCode::Error => 1011,
+            CloseCode::Restart => 1012,
+            CloseCode::Again => 1013,
+            CloseCode::Tls => 1015,
+            CloseCode::Other(code) => code,
         }
     }
 }
 
 impl From<u16> for CloseCode {
     fn from(code: u16) -> CloseCode {
-        use self::CloseCode::*;
-
         match code {
-            1000 => Normal,
-            1001 => Away,
-            1002 => Protocol,
-            1003 => Unsupported,
-            1006 => Abnormal,
-            1007 => Invalid,
-            1008 => Policy,
-            1009 => Size,
-            1010 => Extension,
-            1011 => Error,
-            1012 => Restart,
-            1013 => Again,
-            1015 => Tls,
-            _ => Other(code),
+            1000 => CloseCode::Normal,
+            1001 => CloseCode::Away,
+            1002 => CloseCode::Protocol,
+            1003 => CloseCode::Unsupported,
+            1006 => CloseCode::Abnormal,
+            1007 => CloseCode::Invalid,
+            1008 => CloseCode::Policy,
+            1009 => CloseCode::Size,
+            1010 => CloseCode::Extension,
+            1011 => CloseCode::Error,
+            1012 => CloseCode::Restart,
+            1013 => CloseCode::Again,
+            1015 => CloseCode::Tls,
+            _ => CloseCode::Other(code),
         }
     }
 }
@@ -201,7 +174,6 @@ impl From<u16> for CloseCode {
 pub struct CloseReason {
     /// Exit code
     pub code: CloseCode,
-
     /// Optional description of the exit code
     pub description: Option<String>,
 }
