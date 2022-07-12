@@ -16,13 +16,11 @@ pub enum MultipartError<E> {
     /// Nested multipart is not supported
     Nested,
     /// Multipart stream is incomplete
-    Incomplete,
+    UnexpectedEof,
     /// Error during header parsing
     Header(httparse::Error),
     /// Payload error
     Payload(E),
-    /// Not consumed
-    NotConsumed,
 }
 
 impl<E> fmt::Display for MultipartError<E>
@@ -36,10 +34,9 @@ where
             Self::ParseContentType => write!(f, "Can not parse Content-Type header"),
             Self::Boundary => write!(f, "Multipart boundary is not found"),
             Self::Nested => write!(f, "Nested multipart is not supported"),
-            Self::Incomplete => write!(f, "Multipart stream is incomplete"),
+            Self::UnexpectedEof => write!(f, "Multipart stream ended early than expected."),
             Self::Header(ref e) => write!(f, "{}", e),
             Self::Payload(ref e) => write!(f, "{}", e),
-            Self::NotConsumed => write!(f, "Multipart stream is not consumed"),
         }
     }
 }

@@ -114,7 +114,7 @@ where
         match self.stream.next().await {
             Some(Ok(bytes)) => Ok(bytes),
             Some(Err(e)) => Err(MultipartError::Payload(e)),
-            None => Err(MultipartError::Incomplete),
+            None => Err(MultipartError::UnexpectedEof),
         }
     }
 }
@@ -255,5 +255,8 @@ mod test {
             b"testdata"
         );
         assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+
+        assert!(multipart.try_next().now_or_never().unwrap().unwrap().is_none());
+        assert!(multipart.try_next().now_or_never().unwrap().is_err());
     }
 }
