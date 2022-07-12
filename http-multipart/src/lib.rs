@@ -3,16 +3,17 @@ mod header;
 
 pub use self::error::MultipartError;
 
-use std::cmp;
+use std::{cmp, pin::Pin};
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures_util::stream::{Stream, StreamExt};
 use http::{header::HeaderMap, Request};
+use pin_project_lite::pin_project;
 
 pub fn multipart<Req, B, T, E>(req: Req, body: B) -> Result<Multipart<B>, MultipartError<E>>
 where
     Req: std::borrow::Borrow<Request<()>>,
-    B: Stream<Item = Result<T, E>> + Unpin,
+    B: Stream<Item = Result<T, E>>,
     T: Buf,
 {
     let headers = req.borrow().headers();
@@ -26,10 +27,13 @@ where
     })
 }
 
-pub struct Multipart<S> {
-    stream: S,
-    buf: BytesMut,
-    boundary: Box<[u8]>,
+pin_project! {
+    pub struct Multipart<S> {
+        #[pin]
+        stream: S,
+        buf: BytesMut,
+        boundary: Box<[u8]>,
+    }
 }
 
 const DOUBLE_DASH: &[u8; 2] = b"--";
@@ -38,30 +42,32 @@ const DOUBLE_CR_LF: &[u8; 4] = b"\r\n\r\n";
 
 impl<S, T, E> Multipart<S>
 where
-    S: Stream<Item = Result<T, E>> + Unpin,
+    S: Stream<Item = Result<T, E>>,
     T: Buf,
 {
-    pub async fn try_next(&mut self) -> Result<Option<Field<'_, S>>, MultipartError<E>> {
+    pub async fn try_next(mut self: Pin<&mut Self>) -> Result<Option<Field<'_, S>>, MultipartError<E>> {
         loop {
-            if let Some(idx) = twoway::find_bytes(&self.buf, LF) {
+            let this = self.as_mut().project();
+
+            if let Some(idx) = twoway::find_bytes(this.buf, LF) {
                 // backtrack one byte to exclude CR
-                let slice = &self.buf[..idx - 1];
+                let slice = &this.buf[..idx - 1];
 
                 // empty line. skip.
                 if slice.is_empty() {
                     // forward one byte to include LF.
-                    self.buf.advance(idx + 1);
+                    this.buf.advance(idx + 1);
                     continue;
                 }
 
                 // slice is boundary.
                 if &slice[..2] == DOUBLE_DASH {
                     // non last boundary
-                    if &slice[2..] == self.boundary.as_ref() {
+                    if &slice[2..] == this.boundary.as_ref() {
                         // forward one byte to include CRLF and remove the boundary line.
-                        self.buf.advance(idx + 1);
+                        this.buf.advance(idx + 1);
 
-                        let headers = self.parse_field_headers().await?;
+                        let headers = self.as_mut().parse_headers().await?;
 
                         header::check_headers(&headers)?;
 
@@ -77,8 +83,8 @@ where
                     let at = slice.len() - 2;
 
                     // last boundary.
-                    if &slice[2..at] == self.boundary.as_ref() && &slice[at..] == DOUBLE_DASH {
-                        self.buf.clear();
+                    if &slice[2..at] == this.boundary.as_ref() && &slice[at..] == DOUBLE_DASH {
+                        this.buf.clear();
 
                         return Ok(None);
                     }
@@ -87,47 +93,57 @@ where
                 return Err(MultipartError::Boundary);
             }
 
-            self.read_stream_to_buf().await?;
+            self.as_mut().try_read_stream_to_buf().await?;
         }
     }
 
-    async fn parse_field_headers(&mut self) -> Result<HeaderMap, MultipartError<E>> {
+    async fn parse_headers(mut self: Pin<&mut Self>) -> Result<HeaderMap, MultipartError<E>> {
         loop {
-            if let Some(idx) = twoway::find_bytes(&self.buf, DOUBLE_CR_LF) {
-                let slice = &self.buf[..idx + 4];
+            let this = self.as_mut().project();
+
+            if let Some(idx) = twoway::find_bytes(this.buf, DOUBLE_CR_LF) {
+                let slice = &this.buf[..idx + 4];
                 let headers = header::parse_headers(slice)?;
-                let _ = self.buf.split_to(slice.len());
+                this.buf.advance(slice.len());
+
                 return Ok(headers);
             }
 
-            self.read_stream_to_buf().await?;
+            self.as_mut().try_read_stream_to_buf().await?;
         }
     }
 
-    async fn read_stream_to_buf(&mut self) -> Result<(), MultipartError<E>> {
-        let bytes = self.try_read_stream().await?;
-        self.buf.extend_from_slice(bytes.chunk());
+    async fn try_read_stream_to_buf(mut self: Pin<&mut Self>) -> Result<(), MultipartError<E>> {
+        let bytes = self.as_mut().try_read_stream().await?;
+        self.with_buf(|buf| buf.extend_from_slice(bytes.chunk()));
         Ok(())
     }
 
-    async fn try_read_stream(&mut self) -> Result<T, MultipartError<E>> {
-        match self.stream.next().await {
+    async fn try_read_stream(self: Pin<&mut Self>) -> Result<T, MultipartError<E>> {
+        match self.project().stream.next().await {
             Some(Ok(bytes)) => Ok(bytes),
             Some(Err(e)) => Err(MultipartError::Payload(e)),
             None => Err(MultipartError::UnexpectedEof),
         }
+    }
+
+    fn with_buf<F, O>(self: Pin<&mut Self>, func: F) -> O
+    where
+        F: FnOnce(&mut BytesMut) -> O,
+    {
+        func(self.project().buf)
     }
 }
 
 pub struct Field<'a, S> {
     headers: HeaderMap,
     length: Option<u64>,
-    multipart: &'a mut Multipart<S>,
+    multipart: Pin<&'a mut Multipart<S>>,
 }
 
 impl<S, T, E> Field<'_, S>
 where
-    S: Stream<Item = Result<T, E>> + Unpin,
+    S: Stream<Item = Result<T, E>>,
     T: Buf,
 {
     #[inline]
@@ -136,7 +152,7 @@ where
     }
 
     pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError<E>> {
-        let buf_len = self.multipart.buf.len();
+        let buf_len = self.multipart.as_mut().with_buf(|buf| buf.len());
 
         // check multipart buffer first and drain it if possible.
         if buf_len != 0 {
@@ -146,7 +162,10 @@ where
                     let at = cmp::min(*len, buf_len as u64);
                     *len -= at;
 
-                    let chunk = self.multipart.buf.split_to(at as usize).freeze();
+                    let chunk = self
+                        .multipart
+                        .as_mut()
+                        .with_buf(|buf| buf.split_to(at as usize).freeze());
 
                     return Ok(Some(chunk));
                 }
@@ -155,12 +174,14 @@ where
         }
 
         // multipart buffer is empty. read more from stream.
-        let mut bytes = self.multipart.try_read_stream().await?;
+        let mut bytes = self.multipart.as_mut().try_read_stream().await?;
 
         // try to deal with the read bytes in place before extend to multipart buffer.
         match self.length.as_mut() {
             Some(0) => {
-                self.multipart.buf.extend_from_slice(bytes.chunk());
+                self.multipart
+                    .as_mut()
+                    .with_buf(|buf| buf.extend_from_slice(bytes.chunk()));
                 Ok(None)
             }
             Some(len) => {
@@ -175,7 +196,9 @@ where
 
                 bytes.advance(at);
 
-                self.multipart.buf.extend_from_slice(bytes.chunk());
+                self.multipart
+                    .as_mut()
+                    .with_buf(|buf| buf.extend_from_slice(bytes.chunk()));
 
                 Ok(Some(chunk))
             }
@@ -210,13 +233,13 @@ mod test {
             HeaderValue::from_static("multipart/mixed; boundary=\"abbc761f78ff4d7cb7573b5a23f96ef0\""),
         );
 
-        let body = Box::pin(futures_util::stream::once(async {
-            Ok::<_, ()>(Bytes::copy_from_slice(body))
-        }));
+        let body = futures_util::stream::once(async { Ok::<_, ()>(Bytes::copy_from_slice(body)) });
 
-        let mut multipart = multipart(&req, body).unwrap();
+        let multipart = multipart(&req, body).unwrap();
 
-        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+        futures_util::pin_mut!(multipart);
+
+        let mut field = multipart.as_mut().try_next().now_or_never().unwrap().unwrap().unwrap();
 
         assert_eq!(
             field.headers().get(CONTENT_DISPOSITION).unwrap(),
@@ -236,7 +259,7 @@ mod test {
         );
         assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
 
-        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+        let mut field = multipart.as_mut().try_next().now_or_never().unwrap().unwrap().unwrap();
 
         assert_eq!(
             field.headers().get(CONTENT_DISPOSITION).unwrap(),
@@ -256,7 +279,7 @@ mod test {
         );
         assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
 
-        assert!(multipart.try_next().now_or_never().unwrap().unwrap().is_none());
+        assert!(multipart.as_mut().try_next().now_or_never().unwrap().unwrap().is_none());
         assert!(multipart.try_next().now_or_never().unwrap().is_err());
     }
 }

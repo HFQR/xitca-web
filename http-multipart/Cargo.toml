@@ -9,4 +9,5 @@ futures-util = { version = "0.3", default-features = false }
 http = "0.2.8"
 httparse = "1.7.1"
 mime = "0.3.16"
+pin-project-lite = "0.2.9"
 twoway = "0.2.2"
