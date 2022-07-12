@@ -11,6 +11,7 @@ members = [
     "web",
     "examples",
     "http-encoding",
+    "http-multipart",
     "http-ws",
     "unsafe_collection"
 ]
@@ -26,6 +27,7 @@ xitca-service = { path = "./service" }
 xitca-web = { path = "./web" }
 xitca-unsafe-collection = { path = "./unsafe_collection" }
 http-encoding = { path = "./http-encoding" }
+http-multipart = { path = "./http-multipart" }
 http-ws = { path = "./http-ws" }
 
 h3 = { git = "https://github.com/hyperium/h3.git" }

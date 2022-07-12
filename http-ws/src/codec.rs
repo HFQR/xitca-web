@@ -22,7 +22,6 @@ pub enum Message {
     Pong(Bytes),
     /// Close message with optional reason.
     Close(Option<CloseReason>),
-    #[doc(hidden)]
     /// No-op. Useful for low-level services.
     Nop,
 }
@@ -48,8 +47,8 @@ pub struct Codec {
 struct Flags(u8);
 
 impl Flags {
-    const SERVER: u8 = 0b0000_0001;
-    const CONTINUATION: u8 = 0b0000_0010;
+    const SERVER: u8 = 0b0001;
+    const CONTINUATION: u8 = 0b0010;
 
     #[inline(always)]
     fn remove(&mut self, other: u8) {
@@ -85,7 +84,7 @@ impl Codec {
         self
     }
 
-    pub fn max_size(&self) -> usize {
+    pub const fn max_size(&self) -> usize {
         self.max_size
     }
 
@@ -97,7 +96,7 @@ impl Codec {
         self
     }
 
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.capacity
     }
 
@@ -110,7 +109,8 @@ impl Codec {
         self
     }
 
-    pub(super) fn duplicate(mut self) -> Self {
+    #[doc(hidden)]
+    pub fn duplicate(mut self) -> Self {
         self.flags.remove(Flags::CONTINUATION);
         self
     }

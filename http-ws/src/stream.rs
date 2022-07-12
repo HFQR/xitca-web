@@ -31,7 +31,6 @@ where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
 {
-    #[inline]
     pub fn new(stream: S) -> Self {
         Self::with_codec(stream, Codec::new())
     }
@@ -105,7 +104,7 @@ where
             match stream.poll_next(cx) {
                 Poll::Ready(Some(Ok(item))) => {
                     this.buf.extend_from_slice(item.as_ref());
-                    if this.buf.len() >= this.codec.max_size() {
+                    if this.buf.len() > this.codec.max_size() {
                         break;
                     }
                 }
