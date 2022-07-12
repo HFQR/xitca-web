@@ -25,8 +25,8 @@ pub(super) fn parse_headers<E>(slice: &[u8]) -> Result<HeaderMap, MultipartError
             let mut headers = HeaderMap::with_capacity(hdrs.len());
 
             for h in hdrs {
-                let name = HeaderName::try_from(h.name).map_err(|_| Error::HeaderName)?;
-                let value = HeaderValue::try_from(h.value).map_err(|_| Error::HeaderValue)?;
+                let name = HeaderName::try_from(h.name).unwrap();
+                let value = HeaderValue::try_from(h.value).unwrap();
                 headers.append(name, value);
             }
 
