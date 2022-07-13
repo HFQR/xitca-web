@@ -16,6 +16,15 @@ where
     B: Stream<Item = Result<T, E>>,
     T: Buf,
 {
+    multipart_with_config(req, body, Config::default())
+}
+
+pub fn multipart_with_config<Req, B, T, E>(req: Req, body: B, config: Config) -> Result<Multipart<B>, MultipartError<E>>
+where
+    Req: std::borrow::Borrow<Request<()>>,
+    B: Stream<Item = Result<T, E>>,
+    T: Buf,
+{
     let headers = req.borrow().headers();
 
     let boundary = header::boundary(headers)?;
@@ -24,7 +33,23 @@ where
         stream: body,
         buf: BytesMut::new(),
         boundary: boundary.into_bytes().into_boxed_slice(),
+        config,
     })
+}
+
+/// Configuration for [Multipart] type
+#[derive(Debug, Copy, Clone)]
+pub struct Config {
+    /// limit the max size of internal buffer.
+    /// internal buffer is used to cache overlapped chunks around boundary and filed headers.
+    /// Default to 1MB
+    pub buf_limit: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { buf_limit: 1024 * 1024 }
+    }
 }
 
 pin_project! {
@@ -33,6 +58,7 @@ pin_project! {
         stream: S,
         buf: BytesMut,
         boundary: Box<[u8]>,
+        config: Config
     }
 }
 
@@ -93,6 +119,10 @@ where
                 return Err(MultipartError::Boundary);
             }
 
+            if self.buf_overflow() {
+                return Err(MultipartError::Boundary);
+            }
+
             self.as_mut().try_read_stream_to_buf().await?;
         }
     }
@@ -107,6 +137,10 @@ where
                 this.buf.advance(slice.len());
 
                 return Ok(headers);
+            }
+
+            if self.buf_overflow() {
+                return Err(MultipartError::Header(httparse::Error::TooManyHeaders));
             }
 
             self.as_mut().try_read_stream_to_buf().await?;
@@ -132,6 +166,10 @@ where
         F: FnOnce(&mut BytesMut) -> O,
     {
         func(self.project().buf)
+    }
+
+    fn buf_overflow(&self) -> bool {
+        self.buf.len() > self.config.buf_limit
     }
 }
 
