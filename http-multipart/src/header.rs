@@ -3,19 +3,20 @@ use httparse::{Error, EMPTY_HEADER};
 
 use super::error::MultipartError;
 
-// TODO: remove mime.
 /// Extract boundary info from headers.
-pub(super) fn boundary<E>(headers: &HeaderMap) -> Result<String, MultipartError<E>> {
-    headers
+pub(super) fn boundary<E>(headers: &HeaderMap) -> Result<&[u8], MultipartError<E>> {
+    let header = headers
         .get(&CONTENT_TYPE)
         .ok_or(MultipartError::NoContentType)?
         .to_str()
-        .ok()
-        .and_then(|content_type| content_type.parse::<mime::Mime>().ok())
-        .ok_or(MultipartError::ParseContentType)?
-        .get_param(mime::BOUNDARY)
-        .map(|boundary| boundary.as_str().to_string())
-        .ok_or(MultipartError::Boundary)
+        .map_err(|_| MultipartError::ParseContentType)?
+        .as_bytes();
+
+    let idx = twoway::find_bytes(header, b"boundary=").ok_or(MultipartError::Boundary)?;
+    let start = idx + 9;
+    let end = twoway::find_bytes(&header[start..], b";").unwrap_or(header.len());
+
+    Ok(&header[start..end])
 }
 
 pub(super) fn parse_headers<E>(slice: &[u8]) -> Result<HeaderMap, MultipartError<E>> {

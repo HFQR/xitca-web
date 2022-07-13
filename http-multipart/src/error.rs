@@ -1,7 +1,9 @@
 use std::{error, fmt};
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum MultipartError<E> {
+    /// Only POST method is allowed for multipart.
+    NoPostMethod,
     /// Content-Disposition header is not found or is not equal to "form-data".
     ///
     /// According to [RFC 7578 §4.2](https://datatracker.ietf.org/doc/html/rfc7578#section-4.2) a
@@ -29,6 +31,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::NoPostMethod => write!(f, "Only POST method is allowed for multipart"),
             Self::NoContentDisposition => write!(f, "No Content-Disposition `form-data` header"),
             Self::NoContentType => write!(f, "No Content-Type header found"),
             Self::ParseContentType => write!(f, "Can not parse Content-Type header"),
