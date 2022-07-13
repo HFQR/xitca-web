@@ -5,9 +5,12 @@ edition = "2021"
 
 [dependencies]
 bytes = "1.1.0"
-futures-util = { version = "0.3", default-features = false }
+futures-core = "0.3.21"
 http = "0.2.8"
 httparse = "1.7.1"
 mime = "0.3.16"
 pin-project-lite = "0.2.9"
 twoway = "0.2.2"
+
+[dev-dependencies]
+futures-util = { version = "0.3.21", default-features = false }

@@ -3,36 +3,45 @@ mod header;
 
 pub use self::error::MultipartError;
 
-use std::{cmp, pin::Pin};
+use std::{
+    cmp,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use bytes::{Buf, Bytes, BytesMut};
-use futures_util::stream::{Stream, StreamExt};
-use http::{header::HeaderMap, Request};
+use futures_core::stream::Stream;
+use http::{header::HeaderMap, Method, Request};
 use pin_project_lite::pin_project;
 
-pub fn multipart<Req, B, T, E>(req: Req, body: B) -> Result<Multipart<B>, MultipartError<E>>
+pub fn multipart<RB, B, T, E>(req: &Request<RB>, body: B) -> Result<Multipart<'_, B>, MultipartError<E>>
 where
-    Req: std::borrow::Borrow<Request<()>>,
     B: Stream<Item = Result<T, E>>,
     T: Buf,
 {
     multipart_with_config(req, body, Config::default())
 }
 
-pub fn multipart_with_config<Req, B, T, E>(req: Req, body: B, config: Config) -> Result<Multipart<B>, MultipartError<E>>
+pub fn multipart_with_config<RB, B, T, E>(
+    req: &Request<RB>,
+    body: B,
+    config: Config,
+) -> Result<Multipart<'_, B>, MultipartError<E>>
 where
-    Req: std::borrow::Borrow<Request<()>>,
     B: Stream<Item = Result<T, E>>,
     T: Buf,
 {
-    let headers = req.borrow().headers();
+    if req.method() != Method::POST {
+        return Err(MultipartError::NoPostMethod);
+    }
 
-    let boundary = header::boundary(headers)?;
+    let boundary = header::boundary(req.headers())?;
 
     Ok(Multipart {
         stream: body,
         buf: BytesMut::new(),
-        boundary: boundary.into_bytes().into_boxed_slice(),
+        boundary,
         config,
     })
 }
@@ -53,11 +62,11 @@ impl Default for Config {
 }
 
 pin_project! {
-    pub struct Multipart<S> {
+    pub struct Multipart<'a, S> {
         #[pin]
         stream: S,
         buf: BytesMut,
-        boundary: Box<[u8]>,
+        boundary: &'a [u8],
         config: Config
     }
 }
@@ -66,12 +75,12 @@ const DOUBLE_DASH: &[u8; 2] = b"--";
 const LF: &[u8; 1] = b"\n";
 const DOUBLE_CR_LF: &[u8; 4] = b"\r\n\r\n";
 
-impl<S, T, E> Multipart<S>
+impl<'a, S, T, E> Multipart<'a, S>
 where
     S: Stream<Item = Result<T, E>>,
     T: Buf,
 {
-    pub async fn try_next(mut self: Pin<&mut Self>) -> Result<Option<Field<'_, S>>, MultipartError<E>> {
+    pub async fn try_next(mut self: Pin<&mut Self>) -> Result<Option<Field<'_, 'a, S>>, MultipartError<E>> {
         loop {
             let this = self.as_mut().project();
 
@@ -154,7 +163,26 @@ where
     }
 
     async fn try_read_stream(self: Pin<&mut Self>) -> Result<T, MultipartError<E>> {
-        match self.project().stream.next().await {
+        struct Next<'a, S> {
+            stream: Pin<&'a mut S>,
+        }
+
+        impl<S> Future for Next<'_, S>
+        where
+            S: Stream,
+        {
+            type Output = Option<S::Item>;
+
+            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                self.get_mut().stream.as_mut().poll_next(cx)
+            }
+        }
+
+        let next = Next {
+            stream: self.project().stream,
+        };
+
+        match next.await {
             Some(Ok(bytes)) => Ok(bytes),
             Some(Err(e)) => Err(MultipartError::Payload(e)),
             None => Err(MultipartError::UnexpectedEof),
@@ -173,13 +201,13 @@ where
     }
 }
 
-pub struct Field<'a, S> {
+pub struct Field<'a, 'b, S> {
     headers: HeaderMap,
     length: Option<u64>,
-    multipart: Pin<&'a mut Multipart<S>>,
+    multipart: Pin<&'a mut Multipart<'b, S>>,
 }
 
-impl<S, T, E> Field<'_, S>
+impl<S, T, E> Field<'_, '_, S>
 where
     S: Stream<Item = Result<T, E>>,
     T: Buf,
@@ -252,6 +280,18 @@ mod test {
     use futures_util::FutureExt;
     use http::header::{HeaderValue, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 
+    fn once_body(b: impl Into<Bytes>) -> impl Stream<Item = Result<Bytes, ()>> {
+        futures_util::stream::once(async { Ok::<_, ()>(b.into()) })
+    }
+
+    #[test]
+    fn method() {
+        let req = Request::new(());
+        let body = once_body(Bytes::new());
+        let err = multipart(&req, body).err();
+        assert_eq!(err, Some(MultipartError::NoPostMethod));
+    }
+
     #[test]
     fn basic() {
         let body = b"\
@@ -266,12 +306,13 @@ mod test {
             --abbc761f78ff4d7cb7573b5a23f96ef0--\r\n";
 
         let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
         req.headers_mut().insert(
             CONTENT_TYPE,
-            HeaderValue::from_static("multipart/mixed; boundary=\"abbc761f78ff4d7cb7573b5a23f96ef0\""),
+            HeaderValue::from_static("multipart/mixed; boundary=abbc761f78ff4d7cb7573b5a23f96ef0"),
         );
 
-        let body = futures_util::stream::once(async { Ok::<_, ()>(Bytes::copy_from_slice(body)) });
+        let body = once_body(Bytes::copy_from_slice(body));
 
         let multipart = multipart(&req, body).unwrap();
 
