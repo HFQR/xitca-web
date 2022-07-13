@@ -15,6 +15,41 @@ use futures_core::stream::Stream;
 use http::{header::HeaderMap, Method, Request};
 use pin_project_lite::pin_project;
 
+/// Multipart protocol using high level API that operate over [Stream] trait.
+///
+/// `http` crate is used as Http request input. It provides necessary header information needed for
+/// [Multipart].
+///
+/// # Examples:
+/// ```rust
+/// use std::{convert::Infallible, error};
+///
+/// use bytes::Bytes;
+/// use futures_util::{pin_mut, stream::Stream};
+/// use http::Request;
+///
+/// async fn handle(req: Request<impl Stream<Item = Result<Bytes, Infallible>>>) -> Result<(), Box<dyn error::Error>>{
+///     // replace request body type with ()
+///     let (parts, body) = req.into_parts();
+///     let req = Request::from_parts(parts, ());
+///
+///     // prepare multipart handling.
+///     let mut multipart = http_multipart::multipart(&req, body)?;
+///
+///     // pin multipart and start await on the request body.
+///     pin_mut!(multipart);
+///
+///     // try individual field of the multipart.
+///     while let Some(mut field) = multipart.try_next().await? {
+///         // try chunked data for one field.
+///         while let Some(chunk) = field.try_next().await? {
+///             // handle chunk data.
+///         }
+///     }
+///
+///     Ok(())
+/// }
+/// ```
 pub fn multipart<RB, B, T, E>(req: &Request<RB>, body: B) -> Result<Multipart<'_, B>, MultipartError<E>>
 where
     B: Stream<Item = Result<T, E>>,
@@ -23,6 +58,7 @@ where
     multipart_with_config(req, body, Config::default())
 }
 
+/// [multipart] with [Config] that used for customize behaviour of [Multipart].
 pub fn multipart_with_config<RB, B, T, E>(
     req: &Request<RB>,
     body: B,
@@ -80,7 +116,9 @@ where
     S: Stream<Item = Result<T, E>>,
     T: Buf,
 {
-    pub async fn try_next(mut self: Pin<&mut Self>) -> Result<Option<Field<'_, 'a, S>>, MultipartError<E>> {
+    // take in &mut Pin<&mut Self> so Field can borrow it as Pin<&mut Multipart>.
+    // this avoid another explicit stack pin when operating on Field type.
+    pub async fn try_next<'s>(self: &'s mut Pin<&mut Self>) -> Result<Option<Field<'s, 'a, S>>, MultipartError<E>> {
         loop {
             let this = self.as_mut().project();
 
@@ -111,7 +149,7 @@ where
                         return Ok(Some(Field {
                             headers,
                             length,
-                            multipart: self,
+                            multipart: self.as_mut(),
                         }));
                     }
 
@@ -318,7 +356,7 @@ mod test {
 
         futures_util::pin_mut!(multipart);
 
-        let mut field = multipart.as_mut().try_next().now_or_never().unwrap().unwrap().unwrap();
+        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
 
         assert_eq!(
             field.headers().get(CONTENT_DISPOSITION).unwrap(),
@@ -338,7 +376,7 @@ mod test {
         );
         assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
 
-        let mut field = multipart.as_mut().try_next().now_or_never().unwrap().unwrap().unwrap();
+        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
 
         assert_eq!(
             field.headers().get(CONTENT_DISPOSITION).unwrap(),
@@ -358,7 +396,7 @@ mod test {
         );
         assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
 
-        assert!(multipart.as_mut().try_next().now_or_never().unwrap().unwrap().is_none());
+        assert!(multipart.try_next().now_or_never().unwrap().unwrap().is_none());
         assert!(multipart.try_next().now_or_never().unwrap().is_err());
     }
 }
