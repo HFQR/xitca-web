@@ -71,7 +71,7 @@ pin_project! {
     }
 }
 
-const DOUBLE_DASH: &[u8; 2] = b"--";
+const DOUBLE_HYPHEN: &[u8; 2] = b"--";
 const LF: &[u8; 1] = b"\n";
 const DOUBLE_CR_LF: &[u8; 4] = b"\r\n\r\n";
 
@@ -96,7 +96,7 @@ where
                 }
 
                 // slice is boundary.
-                if &slice[..2] == DOUBLE_DASH {
+                if &slice[..2] == DOUBLE_HYPHEN {
                     // non last boundary
                     if &slice[2..] == this.boundary.as_ref() {
                         // forward one byte to include CRLF and remove the boundary line.
@@ -118,7 +118,7 @@ where
                     let at = slice.len() - 2;
 
                     // last boundary.
-                    if &slice[2..at] == this.boundary.as_ref() && &slice[at..] == DOUBLE_DASH {
+                    if &slice[2..at] == this.boundary.as_ref() && &slice[at..] == DOUBLE_HYPHEN {
                         this.buf.clear();
 
                         return Ok(None);
