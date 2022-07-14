@@ -1,5 +1,6 @@
 use http::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 use httparse::{Error, EMPTY_HEADER};
+use memchr::memmem;
 
 use super::error::MultipartError;
 
@@ -12,9 +13,9 @@ pub(super) fn boundary<E>(headers: &HeaderMap) -> Result<&[u8], MultipartError<E
         .map_err(|_| MultipartError::ParseContentType)?
         .as_bytes();
 
-    let idx = twoway::find_bytes(header, b"boundary=").ok_or(MultipartError::Boundary)?;
+    let idx = memmem::find(header, b"boundary=").ok_or(MultipartError::Boundary)?;
     let start = idx + 9;
-    let end = twoway::find_bytes(&header[start..], b";").unwrap_or(header.len());
+    let end = memmem::find(&header[start..], b";").unwrap_or(header.len());
 
     Ok(&header[start..end])
 }
