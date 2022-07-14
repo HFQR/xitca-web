@@ -262,6 +262,11 @@ where
         &self.headers
     }
 
+    #[inline]
+    pub fn headers_mut(&mut self) -> &mut HeaderMap {
+        &mut self.headers
+    }
+
     pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError<E>> {
         let buf_len = self.multipart.as_mut().with_buf(|buf| buf.len());
 
