@@ -119,24 +119,31 @@ where
     // take in &mut Pin<&mut Self> so Field can borrow it as Pin<&mut Multipart>.
     // this avoid another explicit stack pin when operating on Field type.
     pub async fn try_next<'s>(self: &'s mut Pin<&mut Self>) -> Result<Option<Field<'s, 'a, S>>, MultipartError<E>> {
+        let boundary_len = self.boundary.len();
         loop {
             let this = self.as_mut().project();
 
             if let Some(idx) = twoway::find_bytes(this.buf, LF) {
                 // backtrack one byte to exclude CR
-                let slice = &this.buf[..idx - 1];
+                let slice = match idx.checked_sub(1) {
+                    Some(idx) => &this.buf[..idx],
+                    // no CR before LF.
+                    None => return Err(MultipartError::Boundary),
+                };
 
-                // empty line. skip.
-                if slice.is_empty() {
-                    // forward one byte to include LF.
-                    this.buf.advance(idx + 1);
-                    continue;
-                }
-
-                // slice is boundary.
-                if &slice[..2] == DOUBLE_HYPHEN {
+                match slice.len() {
+                    // empty line. skip.
+                    0 => {
+                        // forward one byte to include LF and remove the empty line.
+                        this.buf.advance(idx + 1);
+                        continue;
+                    }
+                    // not enough data to operate.
+                    len if len < (boundary_len + 2) => {}
+                    // not boundary.
+                    _ if &slice[..2] != DOUBLE_HYPHEN => return Err(MultipartError::Boundary),
                     // non last boundary
-                    if &slice[2..] == this.boundary.as_ref() {
+                    _ if &slice[2..] == this.boundary.as_ref() => {
                         // forward one byte to include CRLF and remove the boundary line.
                         this.buf.advance(idx + 1);
 
@@ -152,18 +159,19 @@ where
                             multipart: self.as_mut(),
                         }));
                     }
-
-                    let at = slice.len() - 2;
-
                     // last boundary.
-                    if &slice[2..at] == this.boundary.as_ref() && &slice[at..] == DOUBLE_HYPHEN {
-                        this.buf.clear();
-
-                        return Ok(None);
+                    len if len == (boundary_len + 4) => {
+                        let at = boundary_len + 2;
+                        return if &slice[2..at] == this.boundary.as_ref() && &slice[at..] == DOUBLE_HYPHEN {
+                            this.buf.clear();
+                            Ok(None)
+                        } else {
+                            Err(MultipartError::Boundary)
+                        };
                     }
+                    // boundary line exceed expected length.
+                    _ => return Err(MultipartError::Boundary),
                 }
-
-                return Err(MultipartError::Boundary);
             }
 
             if self.buf_overflow() {
