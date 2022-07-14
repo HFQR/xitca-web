@@ -163,12 +163,10 @@ where
                     // last boundary.
                     len if len == (boundary_len + 4) => {
                         let at = boundary_len + 2;
-                        return if this.boundary.as_ref().eq(&slice[2..at]) && &slice[at..] == DOUBLE_HYPHEN {
-                            this.buf.clear();
-                            Ok(None)
-                        } else {
-                            Err(MultipartError::Boundary)
-                        };
+                        // TODO: add log for ill formed ending boundary?;
+                        let _ = this.boundary.as_ref().eq(&slice[2..at]) && &slice[at..] == DOUBLE_HYPHEN;
+                        this.buf.clear();
+                        return Ok(None);
                     }
                     // boundary line exceed expected length.
                     _ => return Err(MultipartError::Boundary),
