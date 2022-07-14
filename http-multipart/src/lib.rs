@@ -13,6 +13,7 @@ use std::{
 use bytes::{Buf, Bytes, BytesMut};
 use futures_core::stream::Stream;
 use http::{header::HeaderMap, Method, Request};
+use memchr::memmem;
 use pin_project_lite::pin_project;
 
 /// Multipart protocol using high level API that operate over [Stream] trait.
@@ -123,7 +124,7 @@ where
         loop {
             let this = self.as_mut().project();
 
-            if let Some(idx) = twoway::find_bytes(this.buf, LF) {
+            if let Some(idx) = memmem::find(this.buf, LF) {
                 // backtrack one byte to exclude CR
                 let slice = match idx.checked_sub(1) {
                     Some(idx) => &this.buf[..idx],
@@ -143,7 +144,7 @@ where
                     // not boundary.
                     _ if &slice[..2] != DOUBLE_HYPHEN => return Err(MultipartError::Boundary),
                     // non last boundary
-                    _ if &slice[2..] == this.boundary.as_ref() => {
+                    _ if this.boundary.as_ref().eq(&slice[2..]) => {
                         // forward one byte to include CRLF and remove the boundary line.
                         this.buf.advance(idx + 1);
 
@@ -162,7 +163,7 @@ where
                     // last boundary.
                     len if len == (boundary_len + 4) => {
                         let at = boundary_len + 2;
-                        return if &slice[2..at] == this.boundary.as_ref() && &slice[at..] == DOUBLE_HYPHEN {
+                        return if this.boundary.as_ref().eq(&slice[2..at]) && &slice[at..] == DOUBLE_HYPHEN {
                             this.buf.clear();
                             Ok(None)
                         } else {
@@ -186,7 +187,7 @@ where
         loop {
             let this = self.as_mut().project();
 
-            if let Some(idx) = twoway::find_bytes(this.buf, DOUBLE_CR_LF) {
+            if let Some(idx) = memmem::find(this.buf, DOUBLE_CR_LF) {
                 let slice = &this.buf[..idx + 4];
                 let headers = header::parse_headers(slice)?;
                 this.buf.advance(slice.len());
