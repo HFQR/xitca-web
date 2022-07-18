@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::VecDeque,
+    future::poll_fn,
     io,
     pin::Pin,
     rc::Rc,
@@ -8,7 +9,6 @@ use std::{
 };
 
 use futures_core::Stream;
-use xitca_unsafe_collection::futures::poll_fn;
 
 use crate::{bytes::Bytes, error::BodyError};
 

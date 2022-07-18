@@ -1,12 +1,12 @@
-use std::task::{Context, Poll};
+use std::{
+    future::poll_fn,
+    task::{Context, Poll},
+};
 
 use futures_core::ready;
 use postgres_protocol::message::backend;
 use xitca_io::bytes::BytesMut;
-use xitca_unsafe_collection::{
-    channel::spsc::{Receiver, Sender},
-    futures::poll_fn,
-};
+use xitca_unsafe_collection::channel::spsc::{Receiver, Sender};
 
 use super::error::Error;
 

@@ -70,11 +70,9 @@ impl ServerFuture {
                 let rt = server.rt.take().unwrap();
 
                 let func = move || {
-                    use xitca_unsafe_collection::futures::poll_fn;
-
                     let (mut server_fut, cmd) = rt.block_on(async {
                         let mut server_fut = ServerFutureInner::new(server, enable_signal);
-                        let cmd = poll_fn(|cx| server_fut.poll_cmd(cx)).await;
+                        let cmd = std::future::poll_fn(|cx| server_fut.poll_cmd(cx)).await;
                         (server_fut, cmd)
                     });
                     server_fut.server.rt = Some(rt);

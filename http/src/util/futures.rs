@@ -60,7 +60,7 @@ mod queue {
         #[cfg(feature = "http3")]
         pub(crate) async fn next(&mut self) -> F::Output {
             if self.is_empty() {
-                xitca_unsafe_collection::futures::never().await
+                std::future::pending().await
             } else {
                 self.next2().await
             }

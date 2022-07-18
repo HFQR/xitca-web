@@ -5,7 +5,7 @@ extern crate alloc;
 use core::{
     cell::RefCell,
     fmt,
-    future::Future,
+    future::{poll_fn, Future},
     pin::Pin,
     task::{Context, Poll, Waker},
 };
@@ -14,10 +14,7 @@ use alloc::rc::Rc;
 
 use std::collections::linked_list::LinkedList;
 
-use crate::{
-    bound_queue::heap::{HeapQueue, Iter},
-    futures::poll_fn,
-};
+use crate::bound_queue::heap::{HeapQueue, Iter};
 
 /// An async array that act in mpsc manner. There can be multiple `Sender`s and one `Receiver`.
 pub fn async_vec<T>(cap: usize) -> (Sender<T>, Receiver<T>) {

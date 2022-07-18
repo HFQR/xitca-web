@@ -1,10 +1,9 @@
-use std::io;
+use std::{future::poll_fn, io};
 
 use futures_core::Stream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use xitca_http::h1::proto::{buf::FlatBuf, codec::TransferCoding, context::ConnectionType};
 use xitca_io::io::{AsyncRead, AsyncWrite};
-use xitca_unsafe_collection::futures::poll_fn;
 
 use crate::{
     body::{BodyError, BodySize},

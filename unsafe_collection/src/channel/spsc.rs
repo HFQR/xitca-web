@@ -7,7 +7,7 @@ extern crate alloc;
 use core::{
     cell::UnsafeCell,
     fmt,
-    future::Future,
+    future::{poll_fn, Future},
     marker::PhantomData,
     mem::ManuallyDrop,
     pin::Pin,
@@ -18,8 +18,6 @@ use core::{
 use alloc::{sync::Arc, vec::Vec};
 
 use cache_padded::CachePadded;
-
-use crate::futures::poll_fn;
 
 struct Inner<T> {
     head: CachePadded<AtomicUsize>,
