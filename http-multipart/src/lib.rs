@@ -3,12 +3,7 @@ mod header;
 
 pub use self::error::MultipartError;
 
-use std::{
-    cmp,
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::{cmp, future::poll_fn, pin::Pin};
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures_core::stream::Stream;
@@ -207,27 +202,8 @@ where
         Ok(())
     }
 
-    async fn try_read_stream(self: Pin<&mut Self>) -> Result<T, MultipartError<E>> {
-        struct Next<'a, S> {
-            stream: Pin<&'a mut S>,
-        }
-
-        impl<S> Future for Next<'_, S>
-        where
-            S: Stream,
-        {
-            type Output = Option<S::Item>;
-
-            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-                self.get_mut().stream.as_mut().poll_next(cx)
-            }
-        }
-
-        let next = Next {
-            stream: self.project().stream,
-        };
-
-        match next.await {
+    async fn try_read_stream(mut self: Pin<&mut Self>) -> Result<T, MultipartError<E>> {
+        match poll_fn(move |cx| self.as_mut().project().stream.poll_next(cx)).await {
             Some(Ok(bytes)) => Ok(bytes),
             Some(Err(e)) => Err(MultipartError::Payload(e)),
             None => Err(MultipartError::UnexpectedEof),
@@ -410,5 +386,56 @@ mod test {
 
         assert!(multipart.try_next().now_or_never().unwrap().unwrap().is_none());
         assert!(multipart.try_next().now_or_never().unwrap().is_err());
+    }
+
+    #[test]
+    fn field_header_overflow() {
+        let body = b"\
+            --12345\r\n\
+            Content-Disposition: form-data; name=\"file\"; filename=\"foo.txt\"\r\n\
+            Content-Type: text/plain; charset=utf-8\r\nContent-Length: 4";
+
+        let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
+        req.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("multipart/mixed; boundary=12345"),
+        );
+
+        let body = once_body(Bytes::copy_from_slice(body));
+
+        // limit is set to 7 so the first boundary can be parsed.
+        let multipart = multipart_with_config(&req, body, Config { buf_limit: 7 }).unwrap();
+
+        futures_util::pin_mut!(multipart);
+
+        assert_eq!(
+            multipart.try_next().now_or_never().unwrap().err().unwrap(),
+            MultipartError::Header(httparse::Error::TooManyHeaders)
+        );
+    }
+
+    #[test]
+    fn boundary_overflow() {
+        let body = b"--123456";
+
+        let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
+        req.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("multipart/mixed; boundary=12345"),
+        );
+
+        let body = once_body(Bytes::copy_from_slice(body));
+
+        // limit is set to 7 so the first boundary can not be parsed.
+        let multipart = multipart_with_config(&req, body, Config { buf_limit: 7 }).unwrap();
+
+        futures_util::pin_mut!(multipart);
+
+        assert_eq!(
+            multipart.try_next().now_or_never().unwrap().err().unwrap(),
+            MultipartError::Boundary
+        );
     }
 }
