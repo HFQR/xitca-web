@@ -1,4 +1,4 @@
-use std::cmp;
+use std::{cmp, future::poll_fn};
 
 use ::h2::client;
 use futures_core::stream::Stream;
@@ -12,7 +12,6 @@ use xitca_http::{
     },
 };
 use xitca_io::io::{AsyncRead, AsyncWrite};
-use xitca_unsafe_collection::futures::poll_fn;
 
 use crate::{
     body::{BodyError, BodySize, ResponseBody},

@@ -19,43 +19,6 @@ macro_rules! pin {
     )* }
 }
 
-#[inline]
-pub async fn never<T>() -> T {
-    poll_fn(|_| Poll::Pending).await
-}
-
-#[inline]
-pub const fn poll_fn<T, F>(f: F) -> PollFn<F>
-where
-    F: FnMut(&mut Context<'_>) -> Poll<T>,
-{
-    PollFn { f }
-}
-
-pub struct PollFn<F> {
-    f: F,
-}
-
-impl<F> Unpin for PollFn<F> {}
-
-impl<F> fmt::Debug for PollFn<F> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PollFn").finish()
-    }
-}
-
-impl<T, F> Future for PollFn<F>
-where
-    F: FnMut(&mut Context<'_>) -> Poll<T>,
-{
-    type Output = T;
-
-    #[inline]
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-        (self.f)(cx)
-    }
-}
-
 pub trait Select: Sized {
     fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>;
 }
@@ -122,7 +85,7 @@ mod test {
 
     extern crate alloc;
 
-    use core::task::Waker;
+    use core::{future::poll_fn, task::Waker};
 
     use alloc::{sync::Arc, task::Wake};
 

@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    future::Future,
+    future::{poll_fn, Future},
     marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
@@ -15,7 +15,7 @@ use pin_project_lite::pin_project;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
 use xitca_unsafe_collection::{
-    futures::{poll_fn, Select, SelectOutput},
+    futures::{Select, SelectOutput},
     pin,
 };
 

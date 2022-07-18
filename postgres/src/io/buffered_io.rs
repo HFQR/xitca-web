@@ -171,8 +171,6 @@ mod io_impl {
 mod io_impl {
     use super::*;
 
-    use xitca_unsafe_collection::futures::never;
-
     impl<Io, const BATCH_LIMIT: usize> BufferedIo<Io, BATCH_LIMIT>
     where
         Io: AsyncIo,
@@ -211,7 +209,7 @@ mod io_impl {
         ctx: &Context<BATCH_LIMIT>,
     ) -> Option<Request> {
         if ctx.req_is_full() {
-            never().await
+            std::future::pending().await
         } else {
             rx.recv().await
         }

@@ -1,9 +1,8 @@
-use std::net::SocketAddr;
+use std::{future::poll_fn, net::SocketAddr};
 
 use ::h3_quinn::quinn::Endpoint;
 use futures_core::stream::Stream;
 use xitca_http::date::DateTime;
-use xitca_unsafe_collection::futures::poll_fn;
 
 use crate::{
     body::{BodyError, BodySize, ResponseBody},

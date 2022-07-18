@@ -1,7 +1,7 @@
 ## An alternative http library and web framework inspired by hyper and actix-web.
 
 ### Requirement:
-- rustc 1.63.0-nightly (ca122c7eb 2022-06-13)
+- rustc 1.64.0-nightly (263edd43c 2022-07-17)
 
 ### Motivation:
 - thread per core. Prefer less synchronization when possible.

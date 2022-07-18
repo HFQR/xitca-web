@@ -1,7 +1,7 @@
 ## HTTP client built on top of `xitca-http` and `tokio`
 
 ### Requirement:
-- rust version 1.58.0-nightly (bd41e09da 2021-10-18)
+- rustc 1.64.0-nightly (263edd43c 2022-07-17)
 
 ### Motivation:
 - 100% safe rust. All unsafe codes are outsourced to dependencies.

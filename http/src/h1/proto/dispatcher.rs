@@ -1,4 +1,10 @@
-use std::{future::Future, io, marker::PhantomData, pin::Pin, time::Duration};
+use std::{
+    future::{pending, poll_fn, Future},
+    io,
+    marker::PhantomData,
+    pin::Pin,
+    time::Duration,
+};
 
 use futures_core::stream::Stream;
 use tracing::trace;
@@ -6,7 +12,7 @@ use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
 use xitca_unsafe_collection::{
     bytes::read_buf,
-    futures::{never, poll_fn, Select as _, SelectOutput},
+    futures::{Select as _, SelectOutput},
     pin,
 };
 
@@ -161,7 +167,7 @@ where
     // This is a hack for `Select`.
     async fn write_or_pending(&mut self) -> io::Result<()> {
         if !self.write_buf.want_write() {
-            never().await
+            pending().await
         } else {
             self.write().await
         }
@@ -335,7 +341,7 @@ where
         *body_handle = None;
 
         // pending and do nothing when RequestBodyHandle is gone.
-        never().await
+        pending().await
     }
 
     async fn _request_body_handler(&mut self, handle: &mut RequestBodyHandle) -> io::Result<()> {
@@ -405,7 +411,7 @@ where
         let write_backpressure = self.io.write_buf.backpressure();
         async move {
             if write_backpressure {
-                never().await
+                pending().await
             } else {
                 poll_fn(|cx| body.as_mut().poll_next(cx)).await
             }

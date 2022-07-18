@@ -1,6 +1,6 @@
 use std::{
     cmp, fmt,
-    future::Future,
+    future::{poll_fn, Future},
     marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
@@ -16,7 +16,7 @@ use tracing::trace;
 use xitca_io::io::{AsyncRead, AsyncWrite};
 use xitca_service::Service;
 use xitca_unsafe_collection::{
-    futures::{poll_fn, Select as _, SelectOutput},
+    futures::{Select as _, SelectOutput},
     pin,
 };
 
