@@ -1,15 +1,19 @@
+mod content_disposition;
 mod error;
+mod field;
 mod header;
 
-pub use self::error::MultipartError;
+pub use self::{error::MultipartError, field::Field};
 
-use std::{cmp, future::poll_fn, pin::Pin};
+use std::{future::poll_fn, pin::Pin};
 
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, BytesMut};
 use futures_core::stream::Stream;
 use http::{header::HeaderMap, Method, Request};
 use memchr::memmem;
 use pin_project_lite::pin_project;
+
+use self::content_disposition::ContentDisposition;
 
 /// Multipart protocol using high level API that operate over [Stream] trait.
 ///
@@ -145,12 +149,8 @@ where
                         // forward one byte to include CRLF and remove the boundary line.
                         this.buf.advance(idx + 1);
 
-                        let length = self.as_mut().parse_headers().await?;
-
-                        return Ok(Some(Field {
-                            length,
-                            multipart: self.as_mut(),
-                        }));
+                        let field = self.as_mut().parse_field().await?;
+                        return Ok(Some(field));
                     }
                     // last boundary.
                     len if len == (boundary_len + 4) => {
@@ -173,7 +173,7 @@ where
     }
 
     // return Ok<Option<u64>> as field content length hint.
-    async fn parse_headers(mut self: Pin<&mut Self>) -> Result<Option<u64>, MultipartError<E>> {
+    async fn parse_field(mut self: Pin<&mut Self>) -> Result<Field<'_, 'a, S>, MultipartError<E>> {
         loop {
             let this = self.as_mut().project();
 
@@ -183,11 +183,17 @@ where
                 header::parse_headers(this.headers, slice)?;
                 this.buf.advance(slice.len());
 
+                let cp = ContentDisposition::try_from_header(this.headers)?;
+
                 header::check_headers(this.headers)?;
 
                 let length = header::content_length_opt(this.headers)?;
 
-                return Ok(length);
+                return Ok(Field {
+                    length,
+                    cp,
+                    multipart: self,
+                });
             }
 
             if self.buf_overflow() {
@@ -228,104 +234,11 @@ where
     }
 }
 
-pub struct Field<'a, 'b, S> {
-    length: Option<u64>,
-    multipart: Pin<&'a mut Multipart<'b, S>>,
-}
-
-impl<S> Drop for Field<'_, '_, S> {
-    fn drop(&mut self) {
-        self.multipart.as_mut().project().headers.clear();
-    }
-}
-
-impl<S, T, E> Field<'_, '_, S>
-where
-    S: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]> + 'static,
-{
-    #[inline]
-    pub fn headers(&self) -> &HeaderMap {
-        &self.multipart.headers
-    }
-
-    #[inline]
-    pub fn headers_mut(&mut self) -> &mut HeaderMap {
-        self.multipart.as_mut().project().headers
-    }
-
-    pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError<E>> {
-        let buf_len = self.multipart.as_mut().with_buf(|buf| buf.len());
-
-        // check multipart buffer first and drain it if possible.
-        if buf_len != 0 {
-            match self.length.as_mut() {
-                Some(0) => return Ok(None),
-                Some(len) => {
-                    let at = cmp::min(*len, buf_len as u64);
-                    *len -= at;
-
-                    let chunk = self
-                        .multipart
-                        .as_mut()
-                        .with_buf(|buf| buf.split_to(at as usize).freeze());
-
-                    return Ok(Some(chunk));
-                }
-                None => {}
-            }
-        }
-
-        // multipart buffer is empty. read more from stream.
-        let item = self.multipart.as_mut().try_read_stream().await?;
-
-        // try to deal with the read bytes in place before extend to multipart buffer.
-        match self.length.as_mut() {
-            Some(0) => {
-                self.multipart.as_mut().buf_extend(item.as_ref());
-                Ok(None)
-            }
-            Some(len) => {
-                let chunk = item.as_ref();
-
-                let at = cmp::min(*len, chunk.len() as u64);
-                *len -= at;
-
-                let at = at as usize;
-
-                match try_downcast_to_bytes(item) {
-                    Ok(mut item) => {
-                        let bytes = item.split_to(at);
-                        self.multipart.as_mut().buf_extend(item.as_ref());
-                        Ok(Some(bytes))
-                    }
-                    Err(item) => {
-                        let chunk = item.as_ref();
-                        let bytes = Bytes::copy_from_slice(&chunk[..at]);
-                        self.multipart.as_mut().buf_extend(&chunk[at..]);
-                        Ok(Some(bytes))
-                    }
-                }
-            }
-            None => unimplemented!("multipart field without content length header is not supported yet"),
-        }
-    }
-}
-
-fn try_downcast_to_bytes<T: 'static>(item: T) -> Result<Bytes, T> {
-    use std::any::Any;
-
-    let item = &mut Some(item);
-    match (item as &mut dyn Any).downcast_mut::<Option<Bytes>>() {
-        Some(bytes) => Ok(bytes.take().unwrap()),
-        None => Err(item.take().unwrap()),
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
+    use bytes::Bytes;
     use futures_util::FutureExt;
     use http::header::{HeaderValue, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 
@@ -374,6 +287,8 @@ mod test {
                 field.headers().get(CONTENT_DISPOSITION).unwrap(),
                 HeaderValue::from_static("form-data; name=\"file\"; filename=\"foo.txt\"")
             );
+            assert_eq!(field.name().unwrap(), "file");
+            assert_eq!(field.file_name().unwrap(), "foo.txt");
             assert_eq!(
                 field.headers().get(CONTENT_TYPE).unwrap(),
                 HeaderValue::from_static("text/plain; charset=utf-8")
@@ -396,6 +311,8 @@ mod test {
                 field.headers().get(CONTENT_DISPOSITION).unwrap(),
                 HeaderValue::from_static("form-data; name=\"file\"; filename=\"bar.txt\"")
             );
+            assert_eq!(field.name().unwrap(), "file");
+            assert_eq!(field.file_name().unwrap(), "bar.txt");
             assert_eq!(
                 field.headers().get(CONTENT_TYPE).unwrap(),
                 HeaderValue::from_static("text/plain")
@@ -464,13 +381,5 @@ mod test {
             multipart.try_next().now_or_never().unwrap().err().unwrap(),
             MultipartError::Boundary
         );
-    }
-
-    #[test]
-    fn downcast_bytes() {
-        let bytes = Bytes::new();
-        assert!(try_downcast_to_bytes(bytes).is_ok());
-        let bytes = Vec::<u8>::new();
-        assert!(try_downcast_to_bytes(bytes).is_err());
     }
 }
