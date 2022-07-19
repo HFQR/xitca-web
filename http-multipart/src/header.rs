@@ -20,11 +20,12 @@ pub(super) fn boundary<E>(headers: &HeaderMap) -> Result<&[u8], MultipartError<E
     Ok(&header[start..end])
 }
 
-pub(super) fn parse_headers<E>(slice: &[u8]) -> Result<HeaderMap, MultipartError<E>> {
+pub(super) fn parse_headers<E>(headers: &mut HeaderMap, slice: &[u8]) -> Result<(), MultipartError<E>> {
     let mut hdrs = [EMPTY_HEADER; 16];
     match httparse::parse_headers(slice, &mut hdrs)? {
         httparse::Status::Complete((_, hdrs)) => {
-            let mut headers = HeaderMap::with_capacity(hdrs.len());
+            debug_assert!(headers.is_empty());
+            headers.reserve(hdrs.len());
 
             for h in hdrs {
                 let name = HeaderName::try_from(h.name).unwrap();
@@ -32,7 +33,7 @@ pub(super) fn parse_headers<E>(slice: &[u8]) -> Result<HeaderMap, MultipartError
                 headers.append(name, value);
             }
 
-            Ok(headers)
+            Ok(())
         }
         httparse::Status::Partial => Err(Error::TooManyHeaders.into()),
     }

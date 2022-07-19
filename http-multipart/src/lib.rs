@@ -74,6 +74,7 @@ where
         stream: body,
         buf: BytesMut::new(),
         boundary,
+        headers: HeaderMap::new(),
         config,
     })
 }
@@ -99,6 +100,7 @@ pin_project! {
         stream: S,
         buf: BytesMut,
         boundary: &'a [u8],
+        headers: HeaderMap,
         config: Config
     }
 }
@@ -181,9 +183,11 @@ where
 
             if let Some(idx) = memmem::find(this.buf, DOUBLE_CR_LF) {
                 let slice = &this.buf[..idx + 4];
-                let headers = header::parse_headers(slice)?;
-                this.buf.advance(slice.len());
 
+                let mut headers = std::mem::take(this.headers);
+
+                header::parse_headers(&mut headers, slice)?;
+                this.buf.advance(slice.len());
                 return Ok(headers);
             }
 
@@ -229,6 +233,15 @@ pub struct Field<'a, 'b, S> {
     headers: HeaderMap,
     length: Option<u64>,
     multipart: Pin<&'a mut Multipart<'b, S>>,
+}
+
+impl<S> Drop for Field<'_, '_, S> {
+    fn drop(&mut self) {
+        let mut headers = std::mem::take(&mut self.headers);
+        headers.clear();
+        let multipart = self.multipart.as_mut().project();
+        *multipart.headers = headers;
+    }
 }
 
 impl<S, T, E> Field<'_, '_, S>
@@ -359,45 +372,49 @@ mod test {
 
         futures_util::pin_mut!(multipart);
 
-        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+        {
+            let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
 
-        assert_eq!(
-            field.headers().get(CONTENT_DISPOSITION).unwrap(),
-            HeaderValue::from_static("form-data; name=\"file\"; filename=\"foo.txt\"")
-        );
-        assert_eq!(
-            field.headers().get(CONTENT_TYPE).unwrap(),
-            HeaderValue::from_static("text/plain; charset=utf-8")
-        );
-        assert_eq!(
-            field.headers().get(CONTENT_LENGTH).unwrap(),
-            HeaderValue::from_static("4")
-        );
-        assert_eq!(
-            field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
-            b"test"
-        );
-        assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+            assert_eq!(
+                field.headers().get(CONTENT_DISPOSITION).unwrap(),
+                HeaderValue::from_static("form-data; name=\"file\"; filename=\"foo.txt\"")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_TYPE).unwrap(),
+                HeaderValue::from_static("text/plain; charset=utf-8")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_LENGTH).unwrap(),
+                HeaderValue::from_static("4")
+            );
+            assert_eq!(
+                field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
+                b"test"
+            );
+            assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+        }
 
-        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+        {
+            let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
 
-        assert_eq!(
-            field.headers().get(CONTENT_DISPOSITION).unwrap(),
-            HeaderValue::from_static("form-data; name=\"file\"; filename=\"bar.txt\"")
-        );
-        assert_eq!(
-            field.headers().get(CONTENT_TYPE).unwrap(),
-            HeaderValue::from_static("text/plain")
-        );
-        assert_eq!(
-            field.headers().get(CONTENT_LENGTH).unwrap(),
-            HeaderValue::from_static("8")
-        );
-        assert_eq!(
-            field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
-            b"testdata"
-        );
-        assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+            assert_eq!(
+                field.headers().get(CONTENT_DISPOSITION).unwrap(),
+                HeaderValue::from_static("form-data; name=\"file\"; filename=\"bar.txt\"")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_TYPE).unwrap(),
+                HeaderValue::from_static("text/plain")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_LENGTH).unwrap(),
+                HeaderValue::from_static("8")
+            );
+            assert_eq!(
+                field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
+                b"testdata"
+            );
+            assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+        }
 
         assert!(multipart.try_next().now_or_never().unwrap().unwrap().is_none());
         assert!(multipart.try_next().now_or_never().unwrap().unwrap().is_none());
