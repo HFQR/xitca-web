@@ -49,7 +49,7 @@ use pin_project_lite::pin_project;
 pub fn multipart<RB, B, T, E>(req: &Request<RB>, body: B) -> Result<Multipart<'_, B>, MultipartError<E>>
 where
     B: Stream<Item = Result<T, E>>,
-    T: Buf,
+    T: AsRef<[u8]>,
 {
     multipart_with_config(req, body, Config::default())
 }
@@ -62,7 +62,7 @@ pub fn multipart_with_config<RB, B, T, E>(
 ) -> Result<Multipart<'_, B>, MultipartError<E>>
 where
     B: Stream<Item = Result<T, E>>,
-    T: Buf,
+    T: AsRef<[u8]>,
 {
     if req.method() != Method::POST {
         return Err(MultipartError::NoPostMethod);
@@ -74,6 +74,7 @@ where
         stream: body,
         buf: BytesMut::new(),
         boundary,
+        headers: HeaderMap::new(),
         config,
     })
 }
@@ -99,6 +100,7 @@ pin_project! {
         stream: S,
         buf: BytesMut,
         boundary: &'a [u8],
+        headers: HeaderMap,
         config: Config
     }
 }
@@ -110,7 +112,7 @@ const DOUBLE_CR_LF: &[u8; 4] = b"\r\n\r\n";
 impl<'a, S, T, E> Multipart<'a, S>
 where
     S: Stream<Item = Result<T, E>>,
-    T: Buf,
+    T: AsRef<[u8]>,
 {
     // take in &mut Pin<&mut Self> so Field can borrow it as Pin<&mut Multipart>.
     // this avoid another explicit stack pin when operating on Field type.
@@ -143,14 +145,9 @@ where
                         // forward one byte to include CRLF and remove the boundary line.
                         this.buf.advance(idx + 1);
 
-                        let headers = self.as_mut().parse_headers().await?;
-
-                        header::check_headers(&headers)?;
-
-                        let length = header::content_length_opt(&headers)?;
+                        let length = self.as_mut().parse_headers().await?;
 
                         return Ok(Some(Field {
-                            headers,
                             length,
                             multipart: self.as_mut(),
                         }));
@@ -160,7 +157,6 @@ where
                         let at = boundary_len + 2;
                         // TODO: add log for ill formed ending boundary?;
                         let _ = this.boundary.as_ref().eq(&slice[2..at]) && &slice[at..] == DOUBLE_HYPHEN;
-                        this.buf.clear();
                         return Ok(None);
                     }
                     // boundary line exceed expected length.
@@ -176,16 +172,22 @@ where
         }
     }
 
-    async fn parse_headers(mut self: Pin<&mut Self>) -> Result<HeaderMap, MultipartError<E>> {
+    // return Ok<Option<u64>> as field content length hint.
+    async fn parse_headers(mut self: Pin<&mut Self>) -> Result<Option<u64>, MultipartError<E>> {
         loop {
             let this = self.as_mut().project();
 
             if let Some(idx) = memmem::find(this.buf, DOUBLE_CR_LF) {
                 let slice = &this.buf[..idx + 4];
-                let headers = header::parse_headers(slice)?;
+
+                header::parse_headers(this.headers, slice)?;
                 this.buf.advance(slice.len());
 
-                return Ok(headers);
+                header::check_headers(this.headers)?;
+
+                let length = header::content_length_opt(this.headers)?;
+
+                return Ok(length);
             }
 
             if self.buf_overflow() {
@@ -198,7 +200,7 @@ where
 
     async fn try_read_stream_to_buf(mut self: Pin<&mut Self>) -> Result<(), MultipartError<E>> {
         let bytes = self.as_mut().try_read_stream().await?;
-        self.with_buf(|buf| buf.extend_from_slice(bytes.chunk()));
+        self.buf_extend(bytes.as_ref());
         Ok(())
     }
 
@@ -217,30 +219,39 @@ where
         func(self.project().buf)
     }
 
+    fn buf_extend(self: Pin<&mut Self>, slice: &[u8]) {
+        self.with_buf(|buf| buf.extend_from_slice(slice));
+    }
+
     fn buf_overflow(&self) -> bool {
         self.buf.len() > self.config.buf_limit
     }
 }
 
 pub struct Field<'a, 'b, S> {
-    headers: HeaderMap,
     length: Option<u64>,
     multipart: Pin<&'a mut Multipart<'b, S>>,
+}
+
+impl<S> Drop for Field<'_, '_, S> {
+    fn drop(&mut self) {
+        self.multipart.as_mut().project().headers.clear();
+    }
 }
 
 impl<S, T, E> Field<'_, '_, S>
 where
     S: Stream<Item = Result<T, E>>,
-    T: Buf,
+    T: AsRef<[u8]> + 'static,
 {
     #[inline]
     pub fn headers(&self) -> &HeaderMap {
-        &self.headers
+        &self.multipart.headers
     }
 
     #[inline]
     pub fn headers_mut(&mut self) -> &mut HeaderMap {
-        &mut self.headers
+        self.multipart.as_mut().project().headers
     }
 
     pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError<E>> {
@@ -266,36 +277,48 @@ where
         }
 
         // multipart buffer is empty. read more from stream.
-        let mut bytes = self.multipart.as_mut().try_read_stream().await?;
+        let item = self.multipart.as_mut().try_read_stream().await?;
 
         // try to deal with the read bytes in place before extend to multipart buffer.
         match self.length.as_mut() {
             Some(0) => {
-                self.multipart
-                    .as_mut()
-                    .with_buf(|buf| buf.extend_from_slice(bytes.chunk()));
+                self.multipart.as_mut().buf_extend(item.as_ref());
                 Ok(None)
             }
             Some(len) => {
-                let chunk = bytes.chunk();
+                let chunk = item.as_ref();
 
                 let at = cmp::min(*len, chunk.len() as u64);
                 *len -= at;
 
                 let at = at as usize;
 
-                let chunk = Bytes::copy_from_slice(&chunk[..at]);
-
-                bytes.advance(at);
-
-                self.multipart
-                    .as_mut()
-                    .with_buf(|buf| buf.extend_from_slice(bytes.chunk()));
-
-                Ok(Some(chunk))
+                match try_downcast_to_bytes(item) {
+                    Ok(mut item) => {
+                        let bytes = item.split_to(at);
+                        self.multipart.as_mut().buf_extend(item.as_ref());
+                        Ok(Some(bytes))
+                    }
+                    Err(item) => {
+                        let chunk = item.as_ref();
+                        let bytes = Bytes::copy_from_slice(&chunk[..at]);
+                        self.multipart.as_mut().buf_extend(&chunk[at..]);
+                        Ok(Some(bytes))
+                    }
+                }
             }
             None => unimplemented!("multipart field without content length header is not supported yet"),
         }
+    }
+}
+
+fn try_downcast_to_bytes<T: 'static>(item: T) -> Result<Bytes, T> {
+    use std::any::Any;
+
+    let item = &mut Some(item);
+    match (item as &mut dyn Any).downcast_mut::<Option<Bytes>>() {
+        Some(bytes) => Ok(bytes.take().unwrap()),
+        None => Err(item.take().unwrap()),
     }
 }
 
@@ -344,48 +367,52 @@ mod test {
 
         futures_util::pin_mut!(multipart);
 
-        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+        {
+            let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
 
-        assert_eq!(
-            field.headers().get(CONTENT_DISPOSITION).unwrap(),
-            HeaderValue::from_static("form-data; name=\"file\"; filename=\"foo.txt\"")
-        );
-        assert_eq!(
-            field.headers().get(CONTENT_TYPE).unwrap(),
-            HeaderValue::from_static("text/plain; charset=utf-8")
-        );
-        assert_eq!(
-            field.headers().get(CONTENT_LENGTH).unwrap(),
-            HeaderValue::from_static("4")
-        );
-        assert_eq!(
-            field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
-            b"test"
-        );
-        assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+            assert_eq!(
+                field.headers().get(CONTENT_DISPOSITION).unwrap(),
+                HeaderValue::from_static("form-data; name=\"file\"; filename=\"foo.txt\"")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_TYPE).unwrap(),
+                HeaderValue::from_static("text/plain; charset=utf-8")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_LENGTH).unwrap(),
+                HeaderValue::from_static("4")
+            );
+            assert_eq!(
+                field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
+                b"test"
+            );
+            assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+        }
 
-        let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+        {
+            let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
 
-        assert_eq!(
-            field.headers().get(CONTENT_DISPOSITION).unwrap(),
-            HeaderValue::from_static("form-data; name=\"file\"; filename=\"bar.txt\"")
-        );
-        assert_eq!(
-            field.headers().get(CONTENT_TYPE).unwrap(),
-            HeaderValue::from_static("text/plain")
-        );
-        assert_eq!(
-            field.headers().get(CONTENT_LENGTH).unwrap(),
-            HeaderValue::from_static("8")
-        );
-        assert_eq!(
-            field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
-            b"testdata"
-        );
-        assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+            assert_eq!(
+                field.headers().get(CONTENT_DISPOSITION).unwrap(),
+                HeaderValue::from_static("form-data; name=\"file\"; filename=\"bar.txt\"")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_TYPE).unwrap(),
+                HeaderValue::from_static("text/plain")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_LENGTH).unwrap(),
+                HeaderValue::from_static("8")
+            );
+            assert_eq!(
+                field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
+                b"testdata"
+            );
+            assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+        }
 
         assert!(multipart.try_next().now_or_never().unwrap().unwrap().is_none());
-        assert!(multipart.try_next().now_or_never().unwrap().is_err());
+        assert!(multipart.try_next().now_or_never().unwrap().unwrap().is_none());
     }
 
     #[test]
@@ -437,5 +464,13 @@ mod test {
             multipart.try_next().now_or_never().unwrap().err().unwrap(),
             MultipartError::Boundary
         );
+    }
+
+    #[test]
+    fn downcast_bytes() {
+        let bytes = Bytes::new();
+        assert!(try_downcast_to_bytes(bytes).is_ok());
+        let bytes = Vec::<u8>::new();
+        assert!(try_downcast_to_bytes(bytes).is_err());
     }
 }
