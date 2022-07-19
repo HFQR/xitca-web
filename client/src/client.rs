@@ -180,13 +180,13 @@ impl Client {
                     .map_err(|_| TimeoutError::Resolve)??;
 
                 #[cfg(feature = "http3")]
-                {
-                    // TODO: find better way to discover http3.
+                // TODO: find better way to discover http3.
+                if max_version == Version::HTTP_3 {
                     if let Ok(conn) = self.make_h3(connect, timer).await {
                         return Ok(conn);
                     }
-                    // Fallback to tcp if http3 failed.
                 }
+                // Fallback to tcp if http3 failed.
 
                 self.make_tls(connect, timer, max_version).await
             }
