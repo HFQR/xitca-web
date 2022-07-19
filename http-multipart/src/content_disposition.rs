@@ -10,7 +10,7 @@ pub struct ContentDisposition {
 }
 
 impl ContentDisposition {
-    const FORM: &'static [u8; 10] = b"form-data;";
+    const FORM: &'static [u8; 11] = b"form-data; ";
     const NAME: &'static [u8; 5] = b"name=";
     const FILE_NAME: &'static [u8; 9] = b"filename=";
 
@@ -28,15 +28,17 @@ impl ContentDisposition {
     }
 
     pub(super) fn name_from_headers<'h>(&self, headers: &'h HeaderMap) -> Option<&'h [u8]> {
-        headers
+        let header = headers
             .get(&CONTENT_DISPOSITION)
-            .and_then(|header| self.name(header.as_bytes()))
+            .expect("ContentDisposition::try_from_header must make sure header exists");
+        self.name(header.as_bytes())
     }
 
     pub(super) fn filename_from_headers<'h>(&self, headers: &'h HeaderMap) -> Option<&'h [u8]> {
-        headers
+        let header = headers
             .get(&CONTENT_DISPOSITION)
-            .and_then(|header| self.filename(header.as_bytes()))
+            .expect("ContentDisposition::try_from_header must make sure header exists");
+        self.filename(header.as_bytes())
     }
 
     fn name<'h>(&self, slice: &'h [u8]) -> Option<&'h [u8]> {

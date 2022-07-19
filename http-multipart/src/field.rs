@@ -37,14 +37,8 @@ where
             .and_then(|s| std::str::from_utf8(s).ok())
     }
 
-    #[inline]
     pub fn headers(&self) -> &HeaderMap {
         &self.multipart.headers
-    }
-
-    #[inline]
-    pub fn headers_mut(&mut self) -> &mut HeaderMap {
-        self.multipart.as_mut().project().headers
     }
 
     pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError<E>> {
