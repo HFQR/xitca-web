@@ -145,14 +145,9 @@ where
                         // forward one byte to include CRLF and remove the boundary line.
                         this.buf.advance(idx + 1);
 
-                        let headers = self.as_mut().parse_headers().await?;
-
-                        header::check_headers(&headers)?;
-
-                        let length = header::content_length_opt(&headers)?;
+                        let length = self.as_mut().parse_headers().await?;
 
                         return Ok(Some(Field {
-                            headers,
                             length,
                             multipart: self.as_mut(),
                         }));
@@ -177,18 +172,22 @@ where
         }
     }
 
-    async fn parse_headers(mut self: Pin<&mut Self>) -> Result<HeaderMap, MultipartError<E>> {
+    // return Ok<Option<u64>> as field content length hint.
+    async fn parse_headers(mut self: Pin<&mut Self>) -> Result<Option<u64>, MultipartError<E>> {
         loop {
             let this = self.as_mut().project();
 
             if let Some(idx) = memmem::find(this.buf, DOUBLE_CR_LF) {
                 let slice = &this.buf[..idx + 4];
 
-                let mut headers = std::mem::take(this.headers);
-
-                header::parse_headers(&mut headers, slice)?;
+                header::parse_headers(this.headers, slice)?;
                 this.buf.advance(slice.len());
-                return Ok(headers);
+
+                header::check_headers(this.headers)?;
+
+                let length = header::content_length_opt(this.headers)?;
+
+                return Ok(length);
             }
 
             if self.buf_overflow() {
@@ -230,17 +229,13 @@ where
 }
 
 pub struct Field<'a, 'b, S> {
-    headers: HeaderMap,
     length: Option<u64>,
     multipart: Pin<&'a mut Multipart<'b, S>>,
 }
 
 impl<S> Drop for Field<'_, '_, S> {
     fn drop(&mut self) {
-        let mut headers = std::mem::take(&mut self.headers);
-        headers.clear();
-        let multipart = self.multipart.as_mut().project();
-        *multipart.headers = headers;
+        self.multipart.as_mut().project().headers.clear();
     }
 }
 
@@ -251,12 +246,12 @@ where
 {
     #[inline]
     pub fn headers(&self) -> &HeaderMap {
-        &self.headers
+        &self.multipart.headers
     }
 
     #[inline]
     pub fn headers_mut(&mut self) -> &mut HeaderMap {
-        &mut self.headers
+        self.multipart.as_mut().project().headers
     }
 
     pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError<E>> {
