@@ -1,4 +1,4 @@
-use http::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
+use http::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE};
 use httparse::{Error, EMPTY_HEADER};
 use memchr::memmem;
 
@@ -40,14 +40,6 @@ pub(super) fn parse_headers<E>(headers: &mut HeaderMap, slice: &[u8]) -> Result<
 }
 
 pub(super) fn check_headers<E>(headers: &HeaderMap) -> Result<(), MultipartError<E>> {
-    // According to RFC 7578 §4.2, a Content-Disposition header must always be present and
-    // set to "form-data".
-
-    match headers.get(&CONTENT_DISPOSITION) {
-        Some(_) => {}
-        None => return Err(MultipartError::NoContentDisposition),
-    };
-
     let ct = headers
         .get(&CONTENT_TYPE)
         .and_then(|ct| ct.to_str().ok())

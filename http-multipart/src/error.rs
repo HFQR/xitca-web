@@ -5,9 +5,6 @@ pub enum MultipartError<E> {
     /// Only POST method is allowed for multipart.
     NoPostMethod,
     /// Content-Disposition header is not found or is not equal to "form-data".
-    ///
-    /// According to [RFC 7578 §4.2](https://datatracker.ietf.org/doc/html/rfc7578#section-4.2) a
-    /// Content-Disposition header must always be present and equal to "form-data".
     NoContentDisposition,
     /// Content-Type header is not found
     NoContentType,
