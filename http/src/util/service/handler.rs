@@ -11,10 +11,10 @@ use std::{
 use pin_project_lite::pin_project;
 use xitca_service::{pipeline::PipelineE, BuildService, Service};
 
-/// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
+/// A service factory shortcut offering given async function ability to use [Extract] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
 ///
-/// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
+/// Given async function's return type must impl [Inject] trait for transforming arbitrary return type to `Service::Future`'s
 /// output type.
 pub fn handler_service<F, T, O, Res, Err>(func: F) -> HandlerService<F, T, O, Res, Err> {
     HandlerService::new(func)
@@ -60,11 +60,11 @@ where
 impl<F, Req, T, O, Res, Err> Service<Req> for HandlerService<F, T, O, Res, Err>
 where
     // for borrowed extrctors, `T` is the `'static` version of the extractors
-    T: FromRequest<'static, Req, Error = Err>,
+    T: Extract<'static, Req, Error = Err>,
     F: AsyncFn<T>, // just to assist type inference to pinpoint `T`
 
     F: for<'a> AsyncFn<T::Type<'a>, Output = O> + Clone + 'static,
-    O: Responder<Req, Output = Res>,
+    O: Inject<Req, Output = Res>,
 {
     type Response = Res;
     type Error = Err;
@@ -73,9 +73,9 @@ where
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
         async move {
-            let extract = T::Type::<'_>::from_request(&req).await?;
+            let extract = T::Type::<'_>::extract(&req).await?;
             let res = self.func.call(extract).await;
-            Ok(res.respond_to(req).await)
+            Ok(res.inject(req).await)
         }
     }
 }
@@ -91,47 +91,47 @@ where
 /// ```
 /// #![feature(generic_associated_types, type_alias_impl_trait)]
 /// # use std::future::Future;
-/// # use xitca_http::util::service::handler::FromRequest;
+/// # use xitca_http::util::service::handler::Extract;
 /// struct MyExtractor<'a>(&'a str);
 ///
-/// impl<'a, 'r> FromRequest<'a, &'r String> for MyExtractor<'a> {
+/// impl<'a, 'r> Extract<'a, &'r String> for MyExtractor<'a> {
 ///     type Type<'b> = MyExtractor<'b>;
 ///     type Error = ();
 ///     type Future = impl Future<Output = Result<Self, Self::Error>> where 'r: 'a;
-///     fn from_request(req: &'a &'r String) -> Self::Future {
+///     fn extract(req: &'a &'r String) -> Self::Future {
 ///         async { Ok(MyExtractor(req)) }
 ///     }
 /// }
 /// ```
-pub trait FromRequest<'a, Req>: Sized {
+pub trait Extract<'a, Req>: Sized {
     // Used to construct the type for any lifetime 'b.
-    type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
+    type Type<'b>: Extract<'b, Req, Error = Self::Error>;
 
     type Error;
     type Future: Future<Output = Result<Self, Self::Error>>
     where
         Req: 'a;
 
-    fn from_request(req: &'a Req) -> Self::Future;
+    fn extract(req: &'a Req) -> Self::Future;
 }
 
 macro_rules! from_req_impl {
     ($fut: ident; $($req: ident),*) => {
-        impl<'a, Req, Err, $($req,)*> FromRequest<'a, Req> for ($($req,)*)
+        impl<'a, Req, Err, $($req,)*> Extract<'a, Req> for ($($req,)*)
         where
             $(
-                $req: FromRequest<'a, Req, Error = Err>,
+                $req: Extract<'a, Req, Error = Err>,
             )*
         {
             type Type<'r> = ($($req::Type<'r>,)*);
             type Error = Err;
             type Future = impl Future<Output = Result<Self, Self::Error>> where Req: 'a;
 
-            fn from_request(req: &'a Req) -> Self::Future {
+            fn extract(req: &'a Req) -> Self::Future {
                 $fut {
                     $(
                         $req: ExtractFuture::Future {
-                            fut: $req::from_request(req)
+                            fut: $req::extract(req)
                         },
                     )+
                 }
@@ -139,7 +139,7 @@ macro_rules! from_req_impl {
         }
 
         pin_project! {
-            struct $fut<'f, Req: 'f, $($req: FromRequest<'f, Req>),+>
+            struct $fut<'f, Req: 'f, $($req: Extract<'f, Req>),+>
             {
                 $(
                     #[pin]
@@ -148,7 +148,7 @@ macro_rules! from_req_impl {
             }
         }
 
-        impl<'f, Req: 'f, Err, $($req: FromRequest<'f, Req, Error = Err>),+> Future for $fut<'f, Req, $($req),+>
+        impl<'f, Req: 'f, Err, $($req: Extract<'f, Req, Error = Err>),+> Future for $fut<'f, Req, $($req),+>
         {
             type Output = Result<($($req,)+), Err>;
 
@@ -165,7 +165,7 @@ macro_rules! from_req_impl {
                             Poll::Pending => ready = false,
                         },
                         ExtractProj::Done { .. } => {},
-                        ExtractProj::Empty => unreachable!("FromRequest polled after finished"),
+                        ExtractProj::Empty => unreachable!("Extract polled after finished"),
                     }
                 )+
 
@@ -174,7 +174,7 @@ macro_rules! from_req_impl {
                         ($(
                             match this.$req.project_replace(ExtractFuture::Empty) {
                                 ExtractReplaceProj::Done { output } => output,
-                                _ => unreachable!("FromRequest polled after finished"),
+                                _ => unreachable!("Extract polled after finished"),
                             },
                         )+)
                     ))
@@ -213,40 +213,40 @@ from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I }
 
 /// Make Response with reference of Req.
 /// The Output type is what returns from [handler_service] function.
-pub trait Responder<Req> {
+pub trait Inject<Req> {
     type Output;
     type Future: Future<Output = Self::Output>;
 
-    fn respond_to(self, req: Req) -> Self::Future;
+    fn inject(self, req: Req) -> Self::Future;
 }
 
-impl<R, T, E> Responder<R> for Result<T, E>
+impl<R, T, E> Inject<R> for Result<T, E>
 where
-    T: Responder<R>,
+    T: Inject<R>,
 {
     type Output = Result<T::Output, E>;
     type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: R) -> Self::Future {
-        async { Ok(self?.respond_to(req).await) }
+    fn inject(self, req: R) -> Self::Future {
+        async { Ok(self?.inject(req).await) }
     }
 }
 
-impl<R, F, S> Responder<R> for PipelineE<F, S>
+impl<R, F, S> Inject<R> for PipelineE<F, S>
 where
-    F: Responder<R>,
-    S: Responder<R, Output = F::Output>,
+    F: Inject<R>,
+    S: Inject<R, Output = F::Output>,
 {
     type Output = F::Output;
     type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: R) -> Self::Future {
+    fn inject(self, req: R) -> Self::Future {
         async {
             match self {
-                Self::First(f) => f.respond_to(req).await,
-                Self::Second(s) => s.respond_to(req).await,
+                Self::First(f) => f.inject(req).await,
+                Self::Second(s) => s.inject(req).await,
             }
         }
     }
@@ -317,11 +317,11 @@ mod test {
         StatusCode::MULTI_STATUS
     }
 
-    impl Responder<Request<()>> for StatusCode {
+    impl Inject<Request<()>> for StatusCode {
         type Output = Response<()>;
         type Future = impl Future<Output = Self::Output>;
 
-        fn respond_to(self, _: Request<()>) -> Self::Future {
+        fn inject(self, _: Request<()>) -> Self::Future {
             async move {
                 let mut res = Response::new(());
                 *res.status_mut() = self;
@@ -330,42 +330,42 @@ mod test {
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for String {
+    impl<'a> Extract<'a, Request<()>> for String {
         type Type<'f> = Self;
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<()>) -> Self::Future {
+        fn extract(_: &'a Request<()>) -> Self::Future {
             ready(Ok(String::from("996")))
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for u32 {
+    impl<'a> Extract<'a, Request<()>> for u32 {
         type Type<'f> = Self;
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<()>) -> Self::Future {
+        fn extract(_: &'a Request<()>) -> Self::Future {
             ready(Ok(996))
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for u64 {
+    impl<'a> Extract<'a, Request<()>> for u64 {
         type Type<'f> = Self;
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<()>) -> Self::Future {
+        fn extract(_: &'a Request<()>) -> Self::Future {
             ready(Ok(996))
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for &'a Request<()> {
+    impl<'a> Extract<'a, Request<()>> for &'a Request<()> {
         type Type<'f> = &'f Request<()>;
         type Error = Infallible;
         type Future = impl Future<Output = Result<Self, Self::Error>>;
 
-        fn from_request(req: &'a Request<()>) -> Self::Future {
+        fn extract(req: &'a Request<()>) -> Self::Future {
             async move { Ok(req) }
         }
     }

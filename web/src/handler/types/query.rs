@@ -1,6 +1,6 @@
 use std::{convert::Infallible, fmt, future::Future};
 
-use crate::{handler::FromRequest, request::WebRequest};
+use crate::{handler::Extract, request::WebRequest};
 
 pub struct Query<T>(pub T);
 
@@ -13,7 +13,7 @@ where
     }
 }
 
-impl<'a, 'r, S: 'r, T> FromRequest<'a, WebRequest<'r, S>> for Query<T>
+impl<'a, 'r, S: 'r, T> Extract<'a, WebRequest<'r, S>> for Query<T>
 where
     T: serde::de::DeserializeOwned,
 {
@@ -22,7 +22,7 @@ where
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+    fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
         async move {
             let value = serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default()).unwrap();
             Ok(Query(value))
@@ -48,7 +48,7 @@ mod test {
 
         *req.req_mut().uri_mut() = Uri::from_static("/996/251/?id=dagongren");
 
-        let Query(id) = Query::<Id>::from_request(&req).await.unwrap();
+        let Query(id) = Query::<Id>::extract(&req).await.unwrap();
 
         assert_eq!(id.id, "dagongren");
     }

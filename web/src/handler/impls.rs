@@ -8,39 +8,39 @@ use crate::{
     response::WebResponse,
 };
 
-use super::{FromRequest, Responder};
+use super::{Extract, Inject};
 
-impl<'a, 'r, S, T, E> FromRequest<'a, WebRequest<'r, S>> for Result<T, E>
+impl<'a, 'r, S, T, E> Extract<'a, WebRequest<'r, S>> for Result<T, E>
 where
     S: 'static,
-    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, S>, Error = E>,
+    T: for<'a2, 'r2> Extract<'a2, WebRequest<'r2, S>, Error = E>,
 {
     type Type<'b> = Result<T, E>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
-        async { Ok(T::from_request(req).await) }
+    fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
+        async { Ok(T::extract(req).await) }
     }
 }
 
-impl<'a, 'r, S, T> FromRequest<'a, WebRequest<'r, S>> for Option<T>
+impl<'a, 'r, S, T> Extract<'a, WebRequest<'r, S>> for Option<T>
 where
     S: 'static,
-    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, S>>,
+    T: for<'a2, 'r2> Extract<'a2, WebRequest<'r2, S>>,
 {
     type Type<'b> = Option<T>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
-        async { Ok(T::from_request(req).await.ok()) }
+    fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
+        async { Ok(T::extract(req).await.ok()) }
     }
 }
 
-impl<'a, 'r, S> FromRequest<'a, WebRequest<'r, S>> for &'a WebRequest<'a, S>
+impl<'a, 'r, S> Extract<'a, WebRequest<'r, S>> for &'a WebRequest<'a, S>
 where
     S: 'static,
 {
@@ -54,7 +54,7 @@ where
     }
 }
 
-impl<'a, 'r, S> FromRequest<'a, WebRequest<'r, S>> for ()
+impl<'a, 'r, S> Extract<'a, WebRequest<'r, S>> for ()
 where
     S: 'r,
 {
@@ -63,47 +63,47 @@ where
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(_: &'a WebRequest<'r, S>) -> Self::Future {
+    fn extract(_: &'a WebRequest<'r, S>) -> Self::Future {
         async { Ok(()) }
     }
 }
 
-impl<'r, S> Responder<WebRequest<'r, S>> for WebResponse {
+impl<'r, S> Inject<WebRequest<'r, S>> for WebResponse {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, _: WebRequest<'r, S>) -> Self::Future {
+    fn inject(self, _: WebRequest<'r, S>) -> Self::Future {
         async { self }
     }
 }
 
-impl<'r, S: 'r> Responder<WebRequest<'r, S>> for () {
+impl<'r, S: 'r> Inject<WebRequest<'r, S>> for () {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+    fn inject(self, req: WebRequest<'r, S>) -> Self::Future {
         let res = req.into_response(Bytes::new());
         async { res }
     }
 }
 
-impl<'r, S: 'r> Responder<WebRequest<'r, S>> for Infallible {
+impl<'r, S: 'r> Inject<WebRequest<'r, S>> for Infallible {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, _: WebRequest<'r, S>) -> Self::Future {
+    fn inject(self, _: WebRequest<'r, S>) -> Self::Future {
         async { unreachable!() }
     }
 }
 
 macro_rules! text_utf8 {
     ($type: ty) => {
-        impl<'r, S: 'r> Responder<WebRequest<'r, S>> for $type {
+        impl<'r, S: 'r> Inject<WebRequest<'r, S>> for $type {
             type Output = WebResponse;
             type Future = impl Future<Output = Self::Output>;
 
-            fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+            fn inject(self, req: WebRequest<'r, S>) -> Self::Future {
                 let mut res = req.into_response(self);
                 res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
                 async { res }
@@ -117,11 +117,11 @@ text_utf8!(&'static str);
 
 macro_rules! blank_internal {
     ($type: ty) => {
-        impl<'r, S: 'r> Responder<WebRequest<'r, S>> for $type {
+        impl<'r, S: 'r> Inject<WebRequest<'r, S>> for $type {
             type Output = WebResponse;
             type Future = impl Future<Output = Self::Output>;
 
-            fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+            fn inject(self, req: WebRequest<'r, S>) -> Self::Future {
                 let mut res = req.into_response(Bytes::new());
                 *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                 async { res }
@@ -135,28 +135,28 @@ blank_internal!(Box<dyn error::Error>);
 blank_internal!(Box<dyn error::Error + Send>);
 blank_internal!(Box<dyn error::Error + Send + Sync>);
 
-impl<'r, S> Responder<WebRequest<'r, S>> for MatchError
+impl<'r, S> Inject<WebRequest<'r, S>> for MatchError
 where
     S: 'r,
 {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+    fn inject(self, req: WebRequest<'r, S>) -> Self::Future {
         let mut res = req.into_response(Bytes::new());
         *res.status_mut() = StatusCode::NOT_FOUND;
         async { res }
     }
 }
 
-impl<'r, S> Responder<WebRequest<'r, S>> for MethodNotAllowed
+impl<'r, S> Inject<WebRequest<'r, S>> for MethodNotAllowed
 where
     S: 'r,
 {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+    fn inject(self, req: WebRequest<'r, S>) -> Self::Future {
         let mut res = req.into_response(Bytes::new());
         *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
         async { res }
@@ -174,9 +174,9 @@ mod test {
         let mut req = WebRequest::new_test(());
         let req = req.as_web_req();
 
-        Option::<()>::from_request(&req).await.unwrap().unwrap();
-        Result::<(), Infallible>::from_request(&req).await.unwrap().unwrap();
-        <&WebRequest<'_, ()>>::from_request(&req).await.unwrap();
-        <()>::from_request(&req).await.unwrap();
+        Option::<()>::extract(&req).await.unwrap().unwrap();
+        Result::<(), Infallible>::extract(&req).await.unwrap().unwrap();
+        <&WebRequest<'_, ()>>::extract(&req).await.unwrap();
+        <()>::extract(&req).await.unwrap();
     }
 }

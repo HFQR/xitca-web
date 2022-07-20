@@ -1,7 +1,7 @@
 use std::{convert::Infallible, fmt, future::Future, ops::Deref, str::FromStr};
 
 use crate::{
-    handler::FromRequest,
+    handler::Extract,
     http::header::{self, HeaderValue},
     request::WebRequest,
 };
@@ -56,13 +56,13 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
     }
 }
 
-impl<'a, 'r, S: 'r, const HEADER_NAME: usize> FromRequest<'a, WebRequest<'r, S>> for HeaderRef<'a, HEADER_NAME> {
+impl<'a, 'r, S: 'r, const HEADER_NAME: usize> Extract<'a, WebRequest<'r, S>> for HeaderRef<'a, HEADER_NAME> {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+    fn extract(req: &'a WebRequest<'r, S>) -> Self::Future {
         async move {
             Ok(HeaderRef(
                 req.req().headers().get(&map_to_header_name::<HEADER_NAME>()).unwrap(),
@@ -98,7 +98,7 @@ mod test {
             .insert(header::ACCEPT_ENCODING, header::HeaderValue::from_static("251"));
 
         assert_eq!(
-            HeaderRef::<'_, { super::ACCEPT_ENCODING }>::from_request(&req)
+            HeaderRef::<'_, { super::ACCEPT_ENCODING }>::extract(&req)
                 .await
                 .unwrap()
                 .try_parse::<String>()
@@ -106,7 +106,7 @@ mod test {
             "251"
         );
         assert_eq!(
-            HeaderRef::<'_, { super::HOST }>::from_request(&req)
+            HeaderRef::<'_, { super::HOST }>::extract(&req)
                 .await
                 .unwrap()
                 .try_parse::<String>()

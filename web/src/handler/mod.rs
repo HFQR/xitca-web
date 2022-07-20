@@ -3,4 +3,4 @@ mod types;
 
 pub use types::*;
 
-pub use xitca_http::util::service::handler::{handler_service, FromRequest, Responder};
+pub use xitca_http::util::service::handler::{handler_service, Extract, Inject};
