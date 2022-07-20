@@ -9,7 +9,7 @@ stream = ["pin-project-lite", "tokio/sync"]
 
 [dependencies]
 base64 = { version = "0.13", default-features = false, features = ["alloc"] }
-bytes = "1"
+bytes = "1.2"
 futures-core = "0.3"
 http = "0.2.8"
 rand = "0.8.4"
