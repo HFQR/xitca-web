@@ -172,7 +172,6 @@ where
         }
     }
 
-    // return Ok<Option<u64>> as field content length hint.
     async fn parse_field(mut self: Pin<&mut Self>) -> Result<Field<'_, 'a, S>, MultipartError<E>> {
         loop {
             let this = self.as_mut().project();

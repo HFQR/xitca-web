@@ -50,7 +50,7 @@
 //!
 //! // spawn an async task that decode request streaming body and send message to encode stream
 //! // that would encode and sending response.
-//! tokio::task::spawn_local(async move {
+//! tokio::spawn(async move {
 //!     while let Some(Ok(msg)) = decode.next().await {
 //!         match msg {
 //!             // echo back text and ping messages and ignore others.

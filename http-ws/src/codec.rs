@@ -1,5 +1,3 @@
-//! Copy from [actix-http](https://github.com/actix/actix-web)
-
 use bytes::{Bytes, BytesMut};
 use tracing::error;
 
