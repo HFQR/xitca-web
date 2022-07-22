@@ -5,9 +5,9 @@ use crate::{
 
 use super::ReadyService;
 
-impl<S, Req, T, Res, Err> ReadyService<Req> for PipelineT<S, T, EnclosedFn>
+impl<S, Req, Req2, T, Res, Err> ReadyService<Req> for PipelineT<S, T, EnclosedFn<Req2>>
 where
-    S: ReadyService<Req>,
+    S: ReadyService<Req2>,
     T: for<'s> AsyncClosure<(&'s S, Req), Output = Result<Res, Err>>,
 {
     type Ready = S::Ready;

@@ -32,5 +32,5 @@ mod deflate {
 
 pub use self::coder::{Code, Coder};
 pub use self::coding::ContentEncoding;
-pub use self::decoder::try_decoder;
-pub use self::encoder::try_encoder;
+pub use self::decoder::{try_decoder, ContentDecoder};
+pub use self::encoder::{try_encoder, ContentEncoder};
