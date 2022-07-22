@@ -7,7 +7,7 @@ use http_encoding::{Coder, ContentDecoder, ContentEncoder, ContentEncoding};
 use tracing::info;
 use xitca_http::{
     bytes::{Buf, Bytes},
-    http::{const_header_value::TEXT_UTF8, header::{CONTENT_TYPE}, Response, self},
+    http::{self, const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Response},
     HttpServiceBuilder, Request, ResponseBody,
 };
 use xitca_service::{fn_service, BuildServiceExt, Service};
@@ -22,7 +22,6 @@ fn main() -> io::Result<()> {
             let service = fn_service(handler)
                 .enclosed_fn(decode_middleware)
                 .enclosed_fn(encode_middleware);
-
             HttpServiceBuilder::h1(service).with_logger()
         })?
         .build()
@@ -47,7 +46,7 @@ where
         .status(200)
         .header(CONTENT_TYPE, TEXT_UTF8)
         .body("Hello World!".into())?;
-        
+
     Ok(res)
 }
 
@@ -64,7 +63,10 @@ where
 }
 
 // a simple middleware apply br body encoder to compress the response.
-async fn encode_middleware<S, Req, B>(service: &S, req: Req) -> Result<Response<Coder<ResponseBody, ContentEncoder>>, S::Error>
+async fn encode_middleware<S, Req, B>(
+    service: &S,
+    req: Req,
+) -> Result<Response<Coder<ResponseBody, ContentEncoder>>, S::Error>
 where
     S: Service<Req, Response = Response<ResponseBody>>,
     Req: std::borrow::Borrow<http::Request<B>>,
