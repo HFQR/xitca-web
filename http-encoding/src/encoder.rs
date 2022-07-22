@@ -26,7 +26,7 @@ pub fn try_encoder<S, T, E>(
 ) -> Result<Response<Coder<S, ContentEncoder>>, CoderError<E>>
 where
     S: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]> + Send + 'static,
+    T: AsRef<[u8]> + 'static,
 {
     #[allow(unused_mut)]
     let (mut parts, body) = response.into_parts();
@@ -150,7 +150,7 @@ impl From<DeflateEncoder<Writer>> for ContentEncoder {
 
 impl<T> Code<T> for ContentEncoder
 where
-    T: AsRef<[u8]> + Send + 'static,
+    T: AsRef<[u8]> + 'static,
 {
     type Item = Bytes;
 

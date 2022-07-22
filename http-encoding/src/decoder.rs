@@ -24,7 +24,7 @@ pub fn try_decoder<Req, S, T, E>(req: Req, body: S) -> Result<Coder<S, ContentDe
 where
     Req: std::borrow::Borrow<http::Request<()>>,
     S: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]> + Send + 'static,
+    T: AsRef<[u8]> + 'static,
 {
     let decoder = from_headers(req.borrow().headers())?;
     Ok(Coder::new(body, decoder))
@@ -117,7 +117,7 @@ impl From<DeflateDecoder<Writer>> for ContentDecoder {
 
 impl<T> Code<T> for ContentDecoder
 where
-    T: AsRef<[u8]> + Send + 'static,
+    T: AsRef<[u8]> + 'static,
 {
     type Item = Bytes;
 
