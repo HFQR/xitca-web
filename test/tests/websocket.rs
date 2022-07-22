@@ -1,15 +1,16 @@
 use futures_util::{SinkExt, Stream, StreamExt};
 use http_ws::{ws, Message};
-use xitca_http::{body::ResponseBody, h1, http::Response, Request};
+use xitca_client::Client;
+use xitca_http::{body::ResponseBody, h1, h2, http::Response, Request};
 use xitca_io::bytes::Bytes;
 use xitca_service::fn_service;
-use xitca_test::Error;
+use xitca_test::{test_h2_server, Error};
 
 #[tokio::test]
 async fn message() -> Result<(), Error> {
     let mut handle = xitca_test::test_h1_server(|| fn_service(handler))?;
 
-    let c = xitca_client::Client::new();
+    let c = Client::new();
 
     let ws = c.ws(&format!("ws://{}", handle.ip_port_string()))?.send().await?.ws()?;
 
@@ -33,7 +34,6 @@ async fn message() -> Result<(), Error> {
     assert_eq!(msg, Message::Close(None));
 
     handle.try_handle()?.stop(true);
-
     handle.await.map_err(Into::into)
 }
 
@@ -63,4 +63,25 @@ async fn handler(
     });
 
     Ok(res.map(ResponseBody::stream))
+}
+
+#[tokio::test]
+async fn h2_websocket() -> Result<(), Error> {
+    let mut handle = test_h2_server(|| fn_service(handler2))?;
+
+    let server_url = format!("https://{}/", handle.ip_port_string());
+
+    let c = Client::new();
+    let mut res = c.ws2(&server_url)?.send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("websocket response", body);
+
+    handle.try_handle()?.stop(false);
+    handle.await.map_err(Into::into)
+}
+
+async fn handler2(_: Request<h2::RequestBody>) -> Result<Response<ResponseBody>, Error> {
+    Ok(Response::new(Bytes::from("websocket response").into()))
 }
