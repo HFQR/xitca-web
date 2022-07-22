@@ -63,7 +63,9 @@ where
             // update timer to first request timeout.
             self.update_first_request_deadline(timer.as_mut());
 
-            let mut conn = ::h2::server::handshake(tls_stream)
+            let mut conn = ::h2::server::Builder::new()
+                .enable_connect_protocol()
+                .handshake(tls_stream)
                 .timeout(timer.as_mut())
                 .await
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;

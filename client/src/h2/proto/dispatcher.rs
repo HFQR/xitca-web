@@ -1,11 +1,12 @@
 use std::{cmp, future::poll_fn};
 
-use ::h2::client;
+use ::h2::{client, Reason};
 use futures_core::stream::Stream;
 use xitca_http::{
     date::DateTime,
     http::{
         self,
+        const_header_name::PROTOCOL,
         header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING, UPGRADE},
         method::Method,
         version::Version,
@@ -21,7 +22,7 @@ use crate::{
 };
 
 pub(crate) async fn send<B, E>(
-    stream: &mut crate::h2::Connection,
+    stream: &mut Connection,
     date: DateTimeHandle<'_>,
     mut req: http::Request<B>,
 ) -> Result<http::Response<ResponseBody<'static>>, Error>
@@ -68,6 +69,16 @@ where
         req.headers_mut().append(DATE, date);
     }
 
+    if let Some(v) = req.headers_mut().remove(PROTOCOL) {
+        if req.method() != Method::CONNECT {
+            return Err(::h2::Error::from(Reason::PROTOCOL_ERROR).into());
+        }
+
+        if let Ok(v) = v.to_str() {
+            req.extensions_mut().insert(::h2::ext::Protocol::from(v));
+        }
+    }
+
     let is_head_method = *req.method() == Method::HEAD;
 
     let (fut, mut stream) = stream.send_request(req, is_eof)?;
@@ -112,10 +123,8 @@ pub(crate) async fn handshake<S>(stream: S) -> Result<Connection, Error>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let mut builder = client::Builder::new();
-    builder.enable_push(false);
+    let (conn, task) = client::Builder::new().enable_push(false).handshake(stream).await?;
 
-    let (conn, task) = builder.handshake(stream).await?;
     tokio::spawn(async {
         task.await.expect("http2 connection failed");
     });
