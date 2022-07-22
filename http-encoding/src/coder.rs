@@ -22,7 +22,6 @@ where
     S: Stream<Item = Result<T, E>>,
     C: Code<T>,
     T: AsRef<[u8]> + Send + 'static,
-    Bytes: From<T>,
 {
     /// Construct a new coder.
     pub fn new(body: S, coder: C) -> Self {
@@ -81,7 +80,6 @@ impl<S, C, T, E> Stream for Coder<S, C>
 where
     S: Stream<Item = Result<T, E>>,
     C: Code<T>,
-    C::Item: From<T>,
 {
     type Item = Result<C::Item, CoderError<E>>;
 
@@ -106,10 +104,10 @@ where
     }
 }
 
-pub trait Code<Item>: Sized {
+pub trait Code<T>: Sized {
     type Item;
 
-    fn code(&mut self, item: Item) -> io::Result<Option<Self::Item>>;
+    fn code(&mut self, item: T) -> io::Result<Option<Self::Item>>;
 
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>>;
 }
@@ -117,14 +115,16 @@ pub trait Code<Item>: Sized {
 /// Identity coder serve as a pass through coder that just forward items.
 pub struct IdentityCoder;
 
-impl<Item> Code<Item> for IdentityCoder
+impl<T> Code<T> for IdentityCoder
 where
-    Bytes: From<Item>,
+    T: AsRef<[u8]> + Send + 'static,
 {
     type Item = Bytes;
 
-    fn code(&mut self, item: Item) -> io::Result<Option<Self::Item>> {
-        Ok(Some(item.into()))
+    fn code(&mut self, item: T) -> io::Result<Option<Self::Item>> {
+        Ok(Some(
+            try_downcast_to_bytes(item).unwrap_or_else(|item| Bytes::copy_from_slice(item.as_ref())),
+        ))
     }
 
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
@@ -135,13 +135,13 @@ where
 #[cfg(any(feature = "br", feature = "gz", feature = "de"))]
 macro_rules! code_impl {
     ($coder: ident) => {
-        impl<Item> crate::Code<Item> for $coder<crate::writer::Writer>
+        impl<T> crate::Code<T> for $coder<crate::writer::Writer>
         where
-            Item: AsRef<[u8]> + Send + 'static,
+            T: AsRef<[u8]> + Send + 'static,
         {
-            type Item = bytes::Bytes;
+            type Item = ::bytes::Bytes;
 
-            fn code(&mut self, item: Item) -> ::std::io::Result<Option<bytes::Bytes>> {
+            fn code(&mut self, item: T) -> ::std::io::Result<Option<::bytes::Bytes>> {
                 use ::std::io::Write;
 
                 self.write_all(item.as_ref())?;
@@ -167,4 +167,27 @@ macro_rules! code_impl {
             }
         }
     };
+}
+
+fn try_downcast_to_bytes<T: 'static>(item: T) -> Result<Bytes, T> {
+    use std::any::Any;
+
+    let item = &mut Some(item);
+    match (item as &mut dyn Any).downcast_mut::<Option<Bytes>>() {
+        Some(bytes) => Ok(bytes.take().unwrap()),
+        None => Err(item.take().unwrap()),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn downcast_bytes() {
+        let bytes = Bytes::new();
+        assert!(try_downcast_to_bytes(bytes).is_ok());
+        let bytes = Vec::<u8>::new();
+        assert!(try_downcast_to_bytes(bytes).is_err());
+    }
 }
