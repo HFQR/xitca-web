@@ -21,7 +21,7 @@ impl<S, C, T, E> Coder<S, C>
 where
     S: Stream<Item = Result<T, E>>,
     C: Code<T>,
-    T: AsRef<[u8]> + Send + 'static,
+    T: AsRef<[u8]>,
 {
     /// Construct a new coder.
     pub fn new(body: S, coder: C) -> Self {
@@ -117,7 +117,7 @@ pub struct IdentityCoder;
 
 impl<T> Code<T> for IdentityCoder
 where
-    T: AsRef<[u8]> + Send + 'static,
+    T: AsRef<[u8]> + 'static,
 {
     type Item = Bytes;
 
@@ -132,20 +132,19 @@ where
     }
 }
 
-#[cfg(any(feature = "br", feature = "gz", feature = "de"))]
+#[cfg(any(feature = "gz", feature = "de"))]
 macro_rules! code_impl {
     ($coder: ident) => {
         impl<T> crate::Code<T> for $coder<crate::writer::Writer>
         where
-            T: AsRef<[u8]> + Send + 'static,
+            T: AsRef<[u8]>,
         {
             type Item = ::bytes::Bytes;
 
-            fn code(&mut self, item: T) -> ::std::io::Result<Option<::bytes::Bytes>> {
+            fn code(&mut self, item: T) -> ::std::io::Result<Option<Self::Item>> {
                 use ::std::io::Write;
 
                 self.write_all(item.as_ref())?;
-                self.flush()?;
                 let b = self.get_mut().take();
                 if !b.is_empty() {
                     Ok(Some(b))
@@ -155,9 +154,7 @@ macro_rules! code_impl {
             }
 
             fn code_eof(&mut self) -> ::std::io::Result<Option<Self::Item>> {
-                use ::std::io::Write;
-
-                self.flush()?;
+                self.try_finish()?;
                 let b = self.get_mut().take();
                 if !b.is_empty() {
                     Ok(Some(b))
