@@ -27,7 +27,6 @@ pub fn try_encoder<S, T, E>(
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]> + Send + 'static,
-    Bytes: From<T>,
 {
     #[allow(unused_mut)]
     let (mut parts, body) = response.into_parts();
@@ -149,34 +148,33 @@ impl From<DeflateEncoder<Writer>> for ContentEncoder {
     }
 }
 
-impl<Item> Code<Item> for ContentEncoder
+impl<T> Code<T> for ContentEncoder
 where
-    Item: AsRef<[u8]> + Send + 'static,
-    Bytes: From<Item>,
+    T: AsRef<[u8]> + Send + 'static,
 {
     type Item = Bytes;
 
-    fn code(&mut self, item: Item) -> io::Result<Option<Self::Item>> {
+    fn code(&mut self, item: T) -> io::Result<Option<Self::Item>> {
         match self.encoder {
-            _ContentEncoder::Identity(ref mut encoder) => <IdentityCoder as Code<Item>>::code(encoder, item),
+            _ContentEncoder::Identity(ref mut encoder) => <IdentityCoder as Code<T>>::code(encoder, item),
             #[cfg(feature = "br")]
-            _ContentEncoder::Br(ref mut encoder) => <BrotliEncoder<Writer> as Code<Item>>::code(encoder, item),
+            _ContentEncoder::Br(ref mut encoder) => <BrotliEncoder<Writer> as Code<T>>::code(encoder, item),
             #[cfg(feature = "gz")]
-            _ContentEncoder::Gz(ref mut encoder) => <GzEncoder<Writer> as Code<Item>>::code(encoder, item),
+            _ContentEncoder::Gz(ref mut encoder) => <GzEncoder<Writer> as Code<T>>::code(encoder, item),
             #[cfg(feature = "de")]
-            _ContentEncoder::De(ref mut encoder) => <DeflateEncoder<Writer> as Code<Item>>::code(encoder, item),
+            _ContentEncoder::De(ref mut encoder) => <DeflateEncoder<Writer> as Code<T>>::code(encoder, item),
         }
     }
 
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
         match self.encoder {
-            _ContentEncoder::Identity(ref mut encoder) => <IdentityCoder as Code<Item>>::code_eof(encoder),
+            _ContentEncoder::Identity(ref mut encoder) => <IdentityCoder as Code<T>>::code_eof(encoder),
             #[cfg(feature = "br")]
-            _ContentEncoder::Br(ref mut encoder) => <BrotliEncoder<Writer> as Code<Item>>::code_eof(encoder),
+            _ContentEncoder::Br(ref mut encoder) => <BrotliEncoder<Writer> as Code<T>>::code_eof(encoder),
             #[cfg(feature = "gz")]
-            _ContentEncoder::Gz(ref mut encoder) => <GzEncoder<Writer> as Code<Item>>::code_eof(encoder),
+            _ContentEncoder::Gz(ref mut encoder) => <GzEncoder<Writer> as Code<T>>::code_eof(encoder),
             #[cfg(feature = "de")]
-            _ContentEncoder::De(ref mut encoder) => <DeflateEncoder<Writer> as Code<Item>>::code_eof(encoder),
+            _ContentEncoder::De(ref mut encoder) => <DeflateEncoder<Writer> as Code<T>>::code_eof(encoder),
         }
     }
 }

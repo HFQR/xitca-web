@@ -32,6 +32,10 @@ name = "io-uring"
 path = "io-uring.rs"
 required-features = ["io-uring"]
 
+[[example]]
+name = "content-encoding"
+path = "content-encoding.rs"
+
 [features]
 io-uring = ["tokio-uring", "xitca-web/io-uring"]
 
@@ -41,6 +45,8 @@ xitca-io = "0.1"
 xitca-server= { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
 xitca-web = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
+
+http-encoding = { version = "0.1", features = ["all"] }
 http-ws = "0.1"
 
 anyhow = "1.0.48"

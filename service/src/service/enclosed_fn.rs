@@ -7,9 +7,9 @@ use crate::{
 
 use super::Service;
 
-impl<S, Req, T, Res, Err> Service<Req> for PipelineT<S, T, EnclosedFn>
+impl<S, Req, Req2, T, Res, Err> Service<Req> for PipelineT<S, T, EnclosedFn<Req2>>
 where
-    S: Service<Req>,
+    S: Service<Req2>,
     T: for<'s> AsyncClosure<(&'s S, Req), Output = Result<Res, Err>>,
 {
     type Response = Res;

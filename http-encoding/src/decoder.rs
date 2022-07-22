@@ -25,7 +25,6 @@ where
     Req: std::borrow::Borrow<http::Request<()>>,
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]> + Send + 'static,
-    Bytes: From<T>,
 {
     let decoder = from_headers(req.borrow().headers())?;
     Ok(Coder::new(body, decoder))
@@ -116,14 +115,13 @@ impl From<DeflateDecoder<Writer>> for ContentDecoder {
     }
 }
 
-impl<Item> Code<Item> for ContentDecoder
+impl<T> Code<T> for ContentDecoder
 where
-    Item: AsRef<[u8]> + Send + 'static,
-    Bytes: From<Item>,
+    T: AsRef<[u8]> + Send + 'static,
 {
     type Item = Bytes;
 
-    fn code(&mut self, item: Item) -> io::Result<Option<Self::Item>> {
+    fn code(&mut self, item: T) -> io::Result<Option<Self::Item>> {
         match self.decoder {
             _ContentDecoder::Identity(ref mut decoder) => IdentityCoder::code(decoder, item),
             #[cfg(feature = "br")]
@@ -137,13 +135,13 @@ where
 
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
         match self.decoder {
-            _ContentDecoder::Identity(ref mut decoder) => IdentityCoder::code_eof(decoder),
+            _ContentDecoder::Identity(ref mut decoder) => <IdentityCoder as Code<T>>::code_eof(decoder),
             #[cfg(feature = "br")]
-            _ContentDecoder::Br(ref mut decoder) => <BrotliDecoder<Writer> as Code<Item>>::code_eof(decoder),
+            _ContentDecoder::Br(ref mut decoder) => <BrotliDecoder<Writer> as Code<T>>::code_eof(decoder),
             #[cfg(feature = "gz")]
-            _ContentDecoder::Gz(ref mut decoder) => <GzDecoder<Writer> as Code<Item>>::code_eof(decoder),
+            _ContentDecoder::Gz(ref mut decoder) => <GzDecoder<Writer> as Code<T>>::code_eof(decoder),
             #[cfg(feature = "de")]
-            _ContentDecoder::De(ref mut decoder) => <DeflateDecoder<Writer> as Code<Item>>::code_eof(decoder),
+            _ContentDecoder::De(ref mut decoder) => <DeflateDecoder<Writer> as Code<T>>::code_eof(decoder),
         }
     }
 }

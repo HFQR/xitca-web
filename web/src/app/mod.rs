@@ -95,7 +95,7 @@ where
     }
 
     /// Enclose App with function as middleware type.
-    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T>>
+    pub fn enclosed_fn<Req, Req2, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T, Req2>>
     where
         T: for<'s> AsyncClosure<(&'s R::Service, Req)> + Clone,
     {
