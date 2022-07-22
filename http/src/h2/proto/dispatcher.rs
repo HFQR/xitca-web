@@ -3,7 +3,7 @@ use std::{
     future::{poll_fn, Future},
     marker::PhantomData,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
     time::Duration,
 };
 
@@ -11,7 +11,7 @@ use ::h2::{
     server::{Connection, SendResponse},
     Ping, PingPong,
 };
-use futures_core::{ready, Stream};
+use futures_core::stream::Stream;
 use tracing::trace;
 use xitca_io::io::{AsyncRead, AsyncWrite};
 use xitca_service::Service;

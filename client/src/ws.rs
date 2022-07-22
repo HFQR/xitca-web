@@ -4,10 +4,10 @@ use std::{
     cell::RefCell,
     io,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
-use futures_core::{ready, stream::Stream};
+use futures_core::stream::Stream;
 use futures_util::sink::Sink;
 use http_ws::Codec;
 use xitca_http::bytes::{Buf, BytesMut};

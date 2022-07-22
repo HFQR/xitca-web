@@ -3,14 +3,14 @@ use std::{
     future::{poll_fn, Future},
     marker::PhantomData,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use ::h3::{
     quic::SendStream,
     server::{self, RequestStream},
 };
-use futures_core::{ready, Stream};
+use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;

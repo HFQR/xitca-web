@@ -7,10 +7,9 @@ use std::{
     io,
     pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
-use futures_core::ready;
 use rustls::{Error, ServerConfig, ServerConnection, StreamOwned};
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use xitca_service::{BuildService, Service};

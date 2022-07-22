@@ -1,7 +1,12 @@
-use alloc::boxed::Box;
 use core::marker::PhantomData;
 
-use crate::{fn_build, BuildService, BuildServiceExt, Service};
+use alloc::boxed::Box;
+
+use super::{
+    build::{fn_build, BuildService, BuildServiceExt},
+    service::Service,
+    BoxFuture,
+};
 
 use self::helpers::{ServiceObject, Wrapper};
 
@@ -18,6 +23,9 @@ pub trait ObjectConstructor<I> {
     fn into_object(inner: I) -> Self::Object;
 }
 
+/// An often used type alias for [ObjectConstructor::Object] type.
+pub type Object<Arg, S, E> = Box<dyn BuildService<Arg, Service = S, Error = E, Future = BoxFuture<'static, S, E>>>;
+
 /// The most trivial [ObjectConstructor] for [ServiceFactory] types.
 ///
 /// Its main limitation is that the trait object is not polymorphic over `Req`.
@@ -27,8 +35,7 @@ pub trait ObjectConstructor<I> {
 pub struct DefaultObjectConstructor<Req, Arg>(PhantomData<(Req, Arg)>);
 
 /// [ServiceFactory] object created by the [DefaultObjectConstructor]
-pub type DefaultFactoryObject<Req, Arg, BErr, Res, Err> =
-    impl BuildService<Arg, Service = DefaultServiceObject<Req, Res, Err>, Error = BErr>;
+pub type DefaultFactoryObject<Arg, Req, Res, Err, BErr> = Object<Arg, DefaultServiceObject<Req, Res, Err>, BErr>;
 
 /// [Service] object created by the [DefaultObjectConstructor]
 pub type DefaultServiceObject<Req, Res, Err> = impl Service<Req, Response = Res, Error = Err>;
@@ -39,7 +46,7 @@ where
     T::Service: Service<Req, Response = Res, Error = Err> + 'static,
     T::Future: 'static,
 {
-    type Object = DefaultFactoryObject<Req, Arg, BErr, Res, Err>;
+    type Object = DefaultFactoryObject<Arg, Req, Res, Err, BErr>;
 
     fn into_object(inner: T) -> Self::Object {
         let factory = fn_build(move |arg: Arg| {
@@ -51,7 +58,7 @@ where
         })
         .boxed_future();
 
-        Box::new(factory) as Box<dyn BuildService<Arg, Service = _, Error = _, Future = _>>
+        Box::new(factory)
     }
 }
 

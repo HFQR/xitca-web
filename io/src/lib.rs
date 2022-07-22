@@ -111,16 +111,13 @@ pub mod net {
 
     #[cfg(windows)]
     mod windows {
-        use std::{
-            io,
-            os::windows::io::{AsRawSocket, RawSocket},
-        };
+        use std::os::windows::io::{AsRawSocket, RawSocket};
 
         use super::TcpStream;
 
         impl AsRawSocket for TcpStream {
             fn as_raw_socket(&self) -> RawSocket {
-                self.0.as_raw_socket
+                self.0.as_raw_socket()
             }
         }
     }

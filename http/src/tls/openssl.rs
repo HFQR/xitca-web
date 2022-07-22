@@ -6,10 +6,9 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
-use futures_core::ready;
 use openssl::{
     error::ErrorStack,
     ssl::{Error, ErrorCode, ShutdownResult, Ssl, SslStream},

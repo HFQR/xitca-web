@@ -1,10 +1,9 @@
 use std::{
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
-use futures_core::ready;
 use pin_project_lite::pin_project;
 use tokio::time::{sleep_until, Instant, Sleep};
 

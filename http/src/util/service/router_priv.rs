@@ -17,7 +17,7 @@ use crate::{http, request::BorrowReq};
 
 /// A [GenericRouter] specialized with [DefaultObjectConstructor]
 pub type Router<Req, Arg, BErr, Res, Err> =
-    GenericRouter<DefaultObjectConstructor<Req, Arg>, DefaultFactoryObject<Req, Arg, BErr, Res, Err>>;
+    GenericRouter<DefaultObjectConstructor<Req, Arg>, DefaultFactoryObject<Arg, Req, BErr, Res, Err>>;
 
 /// Simple router for matching on [Request]'s path and call according service.
 ///

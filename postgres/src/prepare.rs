@@ -5,7 +5,7 @@ use std::{
 };
 
 use fallible_iterator::FallibleIterator;
-use futures_core::Stream;
+use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid, Type};
 use tracing::debug;

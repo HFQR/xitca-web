@@ -1,9 +1,9 @@
 use std::{
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
-use futures_core::{ready, stream::Stream};
+use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{BorrowToSql, IsNull, ToSql};
 use xitca_io::bytes::{Bytes, BytesMut};
