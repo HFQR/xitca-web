@@ -2,10 +2,10 @@ use std::{
     io,
     ops::DerefMut,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
-use futures_core::{ready, Stream};
+use futures_core::stream::Stream;
 use tokio::io::AsyncRead;
 use tokio_util::io::poll_read_buf;
 use xitca_http::{

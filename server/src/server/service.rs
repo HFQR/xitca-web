@@ -1,15 +1,18 @@
 use std::{
+    future::Future,
     marker::PhantomData,
+    pin::Pin,
     rc::Rc,
     sync::{Arc, Mutex},
 };
 
-use futures_core::future::LocalBoxFuture;
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
 use xitca_service::{ready::ReadyService, BuildService};
 
 use crate::worker::{self, ServiceAny};
+
+type LocalBoxFuture<'a, O> = Pin<Box<dyn Future<Output = O> + 'a>>;
 
 pub(crate) struct Factory<F, Req> {
     inner: F,

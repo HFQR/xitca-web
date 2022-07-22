@@ -1,10 +1,10 @@
 ## An alternative http library and web framework inspired by hyper and actix-web.
 
 ### Requirement:
-- rustc 1.64.0-nightly (263edd43c 2022-07-17)
+- rustc 1.64.0-nightly (62b272d25 2022-07-21)
 
 ### Motivation:
-- thread per core. Prefer less synchronization when possible.
+- Thread per core. Prefer less synchronization when possible.
 - 100% safe Rust. All unsafe codes are outsourced to dependencies.
 - Low memory footprint. Avoid (pre)allocation when possible. 
 - Light weight dependency tree. Avoid adding unnecessary import when possible. Prefer no proc macro code generation when possible(proc macro feature are still offered as opt-in instead of opt-out).

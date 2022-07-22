@@ -2,10 +2,8 @@ use std::{
     future::Future,
     io, mem,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
-
-use futures_core::ready;
 
 use crate::signals::{Signal, Signals};
 

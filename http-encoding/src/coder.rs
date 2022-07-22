@@ -1,11 +1,11 @@
 use std::{
     fmt, io,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use bytes::Bytes;
-use futures_core::{ready, Stream};
+use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 
 pin_project! {

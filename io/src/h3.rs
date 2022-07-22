@@ -3,11 +3,10 @@ use std::{
     io,
     net::SocketAddr,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use async_channel::{Receiver, Recv};
-use futures_core::ready;
 use quinn::{Connecting, Endpoint, Incoming, ServerConfig};
 
 pub type UdpConnecting = Connecting;

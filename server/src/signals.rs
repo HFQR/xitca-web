@@ -22,7 +22,7 @@ pub(crate) enum Signal {
 
 pub(crate) struct Signals {
     #[cfg(not(unix))]
-    signals: futures_core::future::BoxFuture<'static, std::io::Result<()>>,
+    signals: Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>,
     #[cfg(unix)]
     signals: Vec<(Signal, signal::unix::Signal)>,
 }

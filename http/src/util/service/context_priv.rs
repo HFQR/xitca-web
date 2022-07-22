@@ -187,15 +187,15 @@ pub mod object {
         fn_build,
         object::{
             helpers::{ServiceObject, Wrapper},
-            ObjectConstructor,
+            Object, ObjectConstructor,
         },
         BuildService, BuildServiceExt, Service,
     };
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
-    pub type ContextFactoryObject<Req, C, BErr, Res, Err> =
-        impl BuildService<Error = BErr, Service = ContextServiceObject<Req, C, Res, Err>>;
+    pub type ContextFactoryObject<Arg, Req, C, BErr, Res, Err> =
+        Object<Arg, ContextServiceObject<Req, C, Res, Err>, BErr>;
 
     pub type ContextServiceObject<Req, C, Res, Err> =
         impl for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>;
@@ -205,7 +205,7 @@ pub mod object {
         I: BuildService<Service = Svc, Error = BErr> + 'static,
         Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
-        type Object = ContextFactoryObject<Req, C, BErr, Res, Err>;
+        type Object = ContextFactoryObject<(), Req, C, I::Error, Res, Err>;
 
         fn into_object(inner: I) -> Self::Object {
             let factory = fn_build(move |_arg: ()| {

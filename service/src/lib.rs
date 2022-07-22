@@ -20,5 +20,5 @@ pub use self::{
     service::Service,
 };
 
-type BoxFuture<'a, Res, Err> =
+pub type BoxFuture<'a, Res, Err> =
     core::pin::Pin<alloc::boxed::Box<dyn core::future::Future<Output = Result<Res, Err>> + 'a>>;
