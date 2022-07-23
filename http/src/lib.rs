@@ -35,7 +35,7 @@ pub mod http {
     /// Some often used header value.
     #[allow(clippy::declare_interior_mutable_const)]
     pub mod const_header_value {
-        use super::*;
+        use ::http::header::HeaderValue;
 
         macro_rules! const_value {
             ($(($ident: ident, $expr: expr)), *) => {
@@ -50,8 +50,25 @@ pub mod http {
             (TEXT_UTF8, "text/plain; charset=utf-8"),
             (JSON, "application/json"),
             (TEXT_HTML_UTF8, "text/html; charset=utf-8"),
-            (GRPC, "application/grpc")
+            (GRPC, "application/grpc"),
+            (WEBSOCKET, "websocket")
         );
+    }
+
+    /// Some often used header name.
+    #[allow(clippy::declare_interior_mutable_const)]
+    pub mod const_header_name {
+        use ::http::header::HeaderName;
+
+        macro_rules! const_name {
+            ($(($ident: ident, $expr: expr)), *) => {
+                $(
+                   pub const $ident: HeaderName = HeaderName::from_static($expr);
+                )*
+            }
+        }
+
+        const_name!((PROTOCOL, "protocol"));
     }
 
     /// Helper trait for convert a [Request] to [Response].

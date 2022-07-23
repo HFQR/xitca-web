@@ -1,11 +1,12 @@
 use std::{cmp, future::poll_fn};
 
-use ::h2::client;
+use ::h2::{client, Reason};
 use futures_core::stream::Stream;
 use xitca_http::{
     date::DateTime,
     http::{
         self,
+        const_header_name::PROTOCOL,
         header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING, UPGRADE},
         method::Method,
         version::Version,
@@ -17,11 +18,11 @@ use crate::{
     body::{BodyError, BodySize, ResponseBody},
     bytes::Bytes,
     date::DateTimeHandle,
-    h2::{Connection, Error},
+    h2::{body::ResponseBody as H2ResponseBody, Connection, Error},
 };
 
 pub(crate) async fn send<B, E>(
-    stream: &mut crate::h2::Connection,
+    stream: &mut Connection,
     date: DateTimeHandle<'_>,
     mut req: http::Request<B>,
 ) -> Result<http::Response<ResponseBody<'static>>, Error>
@@ -68,6 +69,17 @@ where
         req.headers_mut().append(DATE, date);
     }
 
+    // websocket specific check.
+    if let Some(v) = req.headers_mut().remove(PROTOCOL) {
+        if req.method() != Method::CONNECT && !is_eof {
+            return Err(::h2::Error::from(Reason::PROTOCOL_ERROR).into());
+        }
+
+        if let Ok(v) = v.to_str() {
+            req.extensions_mut().insert(::h2::ext::Protocol::from(v));
+        }
+    }
+
     let is_head_method = *req.method() == Method::HEAD;
 
     let (fut, mut stream) = stream.send_request(req, is_eof)?;
@@ -102,7 +114,7 @@ where
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
     } else {
-        res.map(|body| ResponseBody::H2(body.into()))
+        res.map(|body| ResponseBody::H2(H2ResponseBody::new(stream, body.into())))
     };
 
     Ok(res)
@@ -112,10 +124,8 @@ pub(crate) async fn handshake<S>(stream: S) -> Result<Connection, Error>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let mut builder = client::Builder::new();
-    builder.enable_push(false);
+    let (conn, task) = client::Builder::new().enable_push(false).handshake(stream).await?;
 
-    let (conn, task) = builder.handshake(stream).await?;
     tokio::spawn(async {
         task.await.expect("http2 connection failed");
     });

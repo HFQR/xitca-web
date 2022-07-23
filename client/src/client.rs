@@ -150,7 +150,19 @@ impl Client {
     #[cfg(feature = "websocket")]
     /// Start a new websocket request.
     pub fn ws(&self, url: &str) -> Result<Request<'_, Empty<Bytes>>, Error> {
-        let req = http_ws::client_request_from_uri(url)?.map(|_| Default::default());
+        self._ws(url, Version::HTTP_11)
+    }
+
+    #[cfg(all(feature = "websocket", feature = "http2"))]
+    /// Start a new websocket request with HTTP/2.
+    pub fn ws2(&self, url: &str) -> Result<Request<'_, Empty<Bytes>>, Error> {
+        self._ws(url, Version::HTTP_2)
+    }
+
+    #[cfg(feature = "websocket")]
+    /// Start a new websocket request with given [Version]. must be either `HTTP_11` or `HTTP_2`
+    pub fn _ws(&self, url: &str, version: Version) -> Result<Request<'_, Empty<Bytes>>, Error> {
+        let req = http_ws::client_request_from_uri(url, version)?.map(|_| Default::default());
         Ok(Request::new(req, self))
     }
 }

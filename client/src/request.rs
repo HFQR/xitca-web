@@ -13,7 +13,7 @@ use crate::{
     http::{
         self, const_header_value,
         header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE},
-        Method, Version,
+        Extensions, Method, Version,
     },
     response::DefaultResponse,
     timeout::Timeout,
@@ -50,6 +50,18 @@ impl<'a, B> Request<'a, B> {
     #[inline]
     pub fn headers_mut(&mut self) -> &mut HeaderMap {
         self.req.headers_mut()
+    }
+
+    /// Returns request's [Extensions].
+    #[inline]
+    pub fn extensions(&self) -> &Extensions {
+        self.req.extensions()
+    }
+
+    /// Returns request's mutable [Extensions].
+    #[inline]
+    pub fn extensions_mut(&mut self) -> &mut Extensions {
+        self.req.extensions_mut()
     }
 
     /// Set HTTP method of this request.

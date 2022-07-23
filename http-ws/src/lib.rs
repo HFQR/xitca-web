@@ -72,11 +72,14 @@
 //! ```
 
 use http::{
-    header::{self, HeaderValue},
+    header::{
+        HeaderMap, HeaderName, HeaderValue, ALLOW, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY,
+        SEC_WEBSOCKET_VERSION, UPGRADE,
+    },
     request::Request,
     response::{Builder, Response},
     uri::Uri,
-    HeaderMap, Method, StatusCode,
+    Method, StatusCode, Version,
 };
 
 mod codec;
@@ -89,40 +92,67 @@ pub use self::codec::{Codec, Item, Message};
 pub use self::error::{HandshakeError, ProtocolError};
 pub use self::proto::{hash_key, CloseCode, CloseReason, OpCode};
 
+#[allow(clippy::declare_interior_mutable_const)]
+mod const_header {
+    use super::{HeaderName, HeaderValue};
+
+    pub(super) const PROTOCOL: HeaderName = HeaderName::from_static("protocol");
+
+    pub(super) const WEBSOCKET: HeaderValue = HeaderValue::from_static("websocket");
+    pub(super) const UPGRADE_VALUE: HeaderValue = HeaderValue::from_static("upgrade");
+    pub(super) const SEC_WEBSOCKET_VERSION_VALUE: HeaderValue = HeaderValue::from_static("13");
+}
+
+use const_header::*;
+
 impl From<HandshakeError> for Builder {
     fn from(e: HandshakeError) -> Self {
         match e {
             HandshakeError::GetMethodRequired => Response::builder()
                 .status(StatusCode::METHOD_NOT_ALLOWED)
-                .header(header::ALLOW, "GET"),
+                .header(ALLOW, "GET"),
 
             _ => Response::builder().status(StatusCode::BAD_REQUEST),
         }
     }
 }
 
-/// Prepare a request with given Uri.
-/// After process the request would be ready to be sent to server for websocket connection.
-pub fn client_request_from_uri<U, E>(uri: U) -> Result<Request<()>, E>
+/// Prepare a [Request] with given [Uri] and [Version]  for websocket connection.
+/// Only [Version::HTTP_11] and [Version::HTTP_2] are supported.
+/// After process the request would be ready to be sent to server.
+pub fn client_request_from_uri<U, E>(uri: U, version: Version) -> Result<Request<()>, E>
 where
     Uri: TryFrom<U, Error = E>,
 {
     let uri = uri.try_into()?;
+
     let mut req = Request::new(());
     *req.uri_mut() = uri;
+    *req.version_mut() = version;
+
+    match version {
+        Version::HTTP_11 => {
+            req.headers_mut().insert(UPGRADE, WEBSOCKET);
+            req.headers_mut().insert(CONNECTION, UPGRADE_VALUE);
+
+            // generate 24 bytes base64 encoded random key.
+            let input = rand::random::<[u8; 16]>();
+            let mut output = [0u8; 24];
+            let n = base64::encode_config_slice(&input, base64::STANDARD, &mut output);
+            assert_eq!(n, output.len());
+
+            req.headers_mut()
+                .insert(SEC_WEBSOCKET_KEY, HeaderValue::from_bytes(&output).unwrap());
+        }
+        Version::HTTP_2 => {
+            *req.method_mut() = Method::CONNECT;
+            req.headers_mut().insert(PROTOCOL, WEBSOCKET);
+        }
+        _ => {}
+    }
 
     req.headers_mut()
-        .insert(header::UPGRADE, HeaderValue::from_static("websocket"));
-    req.headers_mut()
-        .insert(header::CONNECTION, HeaderValue::from_static("upgrade"));
-    req.headers_mut()
-        .insert(header::SEC_WEBSOCKET_VERSION, HeaderValue::from_static("13"));
-
-    let sec_key = rand::random::<[u8; 16]>();
-    let key = base64::encode(&sec_key);
-
-    req.headers_mut()
-        .insert(header::SEC_WEBSOCKET_KEY, HeaderValue::try_from(key.as_str()).unwrap());
+        .insert(SEC_WEBSOCKET_VERSION, SEC_WEBSOCKET_VERSION_VALUE);
 
     Ok(req)
 }
@@ -143,7 +173,7 @@ fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'
 
     // Check for "Upgrade" header
     let has_upgrade_hd = headers
-        .get(header::UPGRADE)
+        .get(UPGRADE)
         .and_then(|hdr| hdr.to_str().ok())
         .filter(|s| s.to_ascii_lowercase().contains("websocket"))
         .is_some();
@@ -154,7 +184,7 @@ fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'
 
     // Check for "Connection" header
     let has_connection_hd = headers
-        .get(header::CONNECTION)
+        .get(CONNECTION)
         .and_then(|hdr| hdr.to_str().ok())
         .filter(|s| s.to_ascii_lowercase().contains("upgrade"))
         .is_some();
@@ -165,7 +195,7 @@ fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'
 
     // check supported version
     let value = headers
-        .get(header::SEC_WEBSOCKET_VERSION)
+        .get(SEC_WEBSOCKET_VERSION)
         .ok_or(HandshakeError::NoVersionHeader)?;
 
     if value != "13" && value != "8" && value != "7" {
@@ -173,9 +203,7 @@ fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'
     }
 
     // check client handshake for validity
-    let value = headers
-        .get(header::SEC_WEBSOCKET_KEY)
-        .ok_or(HandshakeError::BadWebsocketKey)?;
+    let value = headers.get(SEC_WEBSOCKET_KEY).ok_or(HandshakeError::BadWebsocketKey)?;
 
     Ok(value.as_bytes())
 }
@@ -184,14 +212,14 @@ fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'
 ///
 /// This function returns handshake `http::response::Builder`, ready to send to peer.
 fn handshake_response(key: &[u8]) -> Builder {
-    let key = proto::hash_key(key);
+    let key = hash_key(key);
 
     Response::builder()
         .status(StatusCode::SWITCHING_PROTOCOLS)
-        .header(header::UPGRADE, "websocket")
-        .header(header::CONNECTION, "upgrade")
+        .header(UPGRADE, WEBSOCKET)
+        .header(CONNECTION, UPGRADE_VALUE)
         .header(
-            header::SEC_WEBSOCKET_ACCEPT,
+            SEC_WEBSOCKET_ACCEPT,
             // key is known to be header value safe ascii
             HeaderValue::from_bytes(&key).unwrap(),
         )
@@ -266,8 +294,6 @@ where
 mod tests {
     use super::*;
 
-    use http::Request;
-
     #[test]
     fn test_handshake() {
         let req = Request::builder().method(Method::POST).body(()).unwrap();
@@ -283,7 +309,7 @@ mod tests {
         );
 
         let req = Request::builder()
-            .header(header::UPGRADE, header::HeaderValue::from_static("test"))
+            .header(UPGRADE, HeaderValue::from_static("test"))
             .body(())
             .unwrap();
         assert_eq!(
@@ -291,18 +317,15 @@ mod tests {
             verify_handshake(req.method(), req.headers()).unwrap_err(),
         );
 
-        let req = Request::builder()
-            .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
-            .body(())
-            .unwrap();
+        let req = Request::builder().header(UPGRADE, WEBSOCKET).body(()).unwrap();
         assert_eq!(
             HandshakeError::NoConnectionUpgrade,
             verify_handshake(req.method(), req.headers()).unwrap_err(),
         );
 
         let req = Request::builder()
-            .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
-            .header(header::CONNECTION, header::HeaderValue::from_static("upgrade"))
+            .header(UPGRADE, WEBSOCKET)
+            .header(CONNECTION, UPGRADE_VALUE)
             .body(())
             .unwrap();
         assert_eq!(
@@ -311,9 +334,9 @@ mod tests {
         );
 
         let req = Request::builder()
-            .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
-            .header(header::CONNECTION, header::HeaderValue::from_static("upgrade"))
-            .header(header::SEC_WEBSOCKET_VERSION, header::HeaderValue::from_static("5"))
+            .header(UPGRADE, WEBSOCKET)
+            .header(CONNECTION, UPGRADE_VALUE)
+            .header(SEC_WEBSOCKET_VERSION, HeaderValue::from_static("5"))
             .body(())
             .unwrap();
         assert_eq!(
@@ -323,9 +346,9 @@ mod tests {
 
         let builder = || {
             Request::builder()
-                .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
-                .header(header::CONNECTION, header::HeaderValue::from_static("upgrade"))
-                .header(header::SEC_WEBSOCKET_VERSION, header::HeaderValue::from_static("13"))
+                .header(UPGRADE, WEBSOCKET)
+                .header(CONNECTION, UPGRADE_VALUE)
+                .header(SEC_WEBSOCKET_VERSION, SEC_WEBSOCKET_VERSION_VALUE)
         };
 
         let req = builder().body(()).unwrap();
@@ -335,7 +358,7 @@ mod tests {
         );
 
         let req = builder()
-            .header(header::SEC_WEBSOCKET_KEY, header::HeaderValue::from_static("13"))
+            .header(SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_VERSION_VALUE)
             .body(())
             .unwrap();
         let key = verify_handshake(req.method(), req.headers()).unwrap();
