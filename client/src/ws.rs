@@ -176,11 +176,7 @@ impl Sink<Message> for WebSocketInner<'_> {
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
                 while !inner.send_buf.chunk().is_empty() {
-                    let len = inner.send_buf.chunk().len();
-                    let cap = ready!(body.poll_capacity(len, cx))?;
-                    let len = std::cmp::min(cap, len);
-                    let bytes = inner.send_buf.split_to(len).freeze();
-                    body.send_data(bytes, false)?;
+                    ready!(body.poll_send_buf(&mut inner.send_buf, cx))?;
                 }
 
                 Poll::Ready(Ok(()))
