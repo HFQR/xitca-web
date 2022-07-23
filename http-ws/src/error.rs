@@ -52,6 +52,7 @@ impl From<io::Error> for ProtocolError {
 #[derive(Debug, Eq, PartialEq)]
 pub enum HandshakeError {
     GetMethodRequired,
+    ConnectMethodRequired,
     NoWebsocketUpgrade,
     NoConnectionUpgrade,
     NoVersionHeader,
@@ -62,12 +63,13 @@ pub enum HandshakeError {
 impl fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::GetMethodRequired => write!(f, "Only get method is allowed."),
-            Self::NoWebsocketUpgrade => write!(f, "Upgrade header is not set to websocket."),
-            Self::NoConnectionUpgrade => write!(f, "Connection header is not set to upgrade."),
-            Self::NoVersionHeader => write!(f, " WebSocket version header is not set."),
+            Self::GetMethodRequired => write!(f, "Only GET method is allowed for HTTP/1.1 websocket."),
+            Self::ConnectMethodRequired => write!(f, "Only CONNECT method is allowed HTTP/2 websocket."),
+            Self::NoWebsocketUpgrade => write!(f, "Upgrade header is not set to HTTP/1.1 websocket."),
+            Self::NoConnectionUpgrade => write!(f, "Connection header is not set to HTTP/1.1 websocket."),
+            Self::NoVersionHeader => write!(f, " WebSocket version header is not set to HTTP/1.1 websocket."),
             Self::UnsupportedVersion => write!(f, "Unsupported WebSocket version."),
-            Self::BadWebsocketKey => write!(f, "WebSocket key is not set or wrong."),
+            Self::BadWebsocketKey => write!(f, "WebSocket key is not set or wrong to HTTP/1.1 websocket."),
         }
     }
 }
