@@ -1,7 +1,7 @@
 use futures_util::{SinkExt, Stream, StreamExt};
 use http_ws::{ws, Message};
 use xitca_client::Client;
-use xitca_http::{body::ResponseBody, h1, h2, http::Response, Request};
+use xitca_http::{body::ResponseBody, http::Response, Request};
 use xitca_io::bytes::Bytes;
 use xitca_service::fn_service;
 use xitca_test::{test_h2_server, Error};
@@ -37,37 +37,9 @@ async fn message() -> Result<(), Error> {
     handle.await.map_err(Into::into)
 }
 
-async fn handler(
-    req: Request<h1::RequestBody>,
-) -> Result<Response<ResponseBody<impl Stream<Item = Result<Bytes, impl std::fmt::Debug>>>>, Error> {
-    let (req, body) = req.replace_body(());
-    let (mut decode, res, tx) = ws(req, body)?;
-
-    // spawn websocket message handling logic task.
-    tokio::task::spawn_local(async move {
-        while let Some(Ok(msg)) = decode.next().await {
-            match msg {
-                Message::Text(bytes) => {
-                    tx.send(Message::Text(bytes)).await.unwrap();
-                }
-                Message::Ping(bytes) => {
-                    tx.send(Message::Pong(bytes)).await.unwrap();
-                }
-                Message::Close(reason) => {
-                    tx.send(Message::Close(reason)).await.unwrap();
-                    return;
-                }
-                _ => {}
-            }
-        }
-    });
-
-    Ok(res.map(ResponseBody::stream))
-}
-
 #[tokio::test]
 async fn message_h2() -> Result<(), Error> {
-    let mut handle = test_h2_server(|| fn_service(handler2))?;
+    let mut handle = test_h2_server(|| fn_service(handler))?;
 
     let server_url = format!("https://{}/", handle.ip_port_string());
 
@@ -95,9 +67,13 @@ async fn message_h2() -> Result<(), Error> {
     handle.await.map_err(Into::into)
 }
 
-async fn handler2(
-    req: Request<h2::RequestBody>,
-) -> Result<Response<ResponseBody<impl Stream<Item = Result<Bytes, impl std::fmt::Debug>>>>, Error> {
+async fn handler<B, E>(
+    req: Request<B>,
+) -> Result<Response<ResponseBody<impl Stream<Item = Result<Bytes, impl std::fmt::Debug>>>>, Error>
+where
+    B: Stream<Item = Result<Bytes, E>> + Unpin + 'static,
+    E: 'static,
+{
     let (req, body) = req.replace_body(());
     let (mut decode, res, tx) = ws(req, body)?;
 
