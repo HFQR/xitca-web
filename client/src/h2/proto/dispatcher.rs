@@ -18,7 +18,7 @@ use crate::{
     body::{BodyError, BodySize, ResponseBody},
     bytes::Bytes,
     date::DateTimeHandle,
-    h2::{Connection, Error},
+    h2::{body::ResponseBody as H2ResponseBody, Connection, Error},
 };
 
 pub(crate) async fn send<B, E>(
@@ -69,8 +69,9 @@ where
         req.headers_mut().append(DATE, date);
     }
 
+    // websocket specific check.
     if let Some(v) = req.headers_mut().remove(PROTOCOL) {
-        if req.method() != Method::CONNECT {
+        if req.method() != Method::CONNECT && !is_eof {
             return Err(::h2::Error::from(Reason::PROTOCOL_ERROR).into());
         }
 
@@ -113,7 +114,7 @@ where
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
     } else {
-        res.map(|body| ResponseBody::H2(body.into()))
+        res.map(|body| ResponseBody::H2(H2ResponseBody::new(stream, body.into())))
     };
 
     Ok(res)
