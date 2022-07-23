@@ -69,6 +69,8 @@ where
         req.headers_mut().append(DATE, date);
     }
 
+    let mut end_of_stream = is_eof;
+
     // websocket specific check.
     if let Some(v) = req.headers_mut().remove(PROTOCOL) {
         if req.method() != Method::CONNECT && !is_eof {
@@ -77,12 +79,13 @@ where
 
         if let Ok(v) = v.to_str() {
             req.extensions_mut().insert(::h2::ext::Protocol::from(v));
+            end_of_stream = false;
         }
     }
 
     let is_head_method = *req.method() == Method::HEAD;
 
-    let (fut, mut stream) = stream.send_request(req, is_eof)?;
+    let (fut, mut stream) = stream.send_request(req, end_of_stream)?;
 
     if !is_eof {
         tokio::pin!(body);

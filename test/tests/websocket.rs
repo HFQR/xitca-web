@@ -66,22 +66,59 @@ async fn handler(
 }
 
 #[tokio::test]
-async fn h2_websocket() -> Result<(), Error> {
+async fn message_h2() -> Result<(), Error> {
     let mut handle = test_h2_server(|| fn_service(handler2))?;
 
     let server_url = format!("https://{}/", handle.ip_port_string());
 
     let c = Client::new();
-    let mut res = c.ws2(&server_url)?.send().await?;
-    assert_eq!(res.status().as_u16(), 200);
-    assert!(!res.can_close_connection());
-    let body = res.string().await?;
-    assert_eq!("websocket response", body);
+    let (mut tx, mut rx) = c.ws2(&server_url)?.send().await?.ws()?.split();
 
-    handle.try_handle()?.stop(false);
+    for _ in 0..9 {
+        tx.send(Message::Text(Bytes::from("Hello,World!"))).await?;
+    }
+
+    for _ in 0..9 {
+        let msg = rx.next().await.unwrap()?;
+        assert_eq!(msg, Message::Text(Bytes::from("Hello,World!")));
+    }
+
+    tx.send(Message::Ping(Bytes::from("pingpong"))).await?;
+    let msg = rx.next().await.unwrap()?;
+    assert_eq!(msg, Message::Pong(Bytes::from("pingpong")));
+
+    tx.send(Message::Close(None)).await?;
+    let msg = rx.next().await.unwrap()?;
+    assert_eq!(msg, Message::Close(None));
+
+    handle.try_handle()?.stop(true);
     handle.await.map_err(Into::into)
 }
 
-async fn handler2(_: Request<h2::RequestBody>) -> Result<Response<ResponseBody>, Error> {
-    Ok(Response::new(Bytes::from("websocket response").into()))
+async fn handler2(
+    req: Request<h2::RequestBody>,
+) -> Result<Response<ResponseBody<impl Stream<Item = Result<Bytes, impl std::fmt::Debug>>>>, Error> {
+    let (req, body) = req.replace_body(());
+    let (mut decode, res, tx) = ws(req, body)?;
+
+    // spawn websocket message handling logic task.
+    tokio::task::spawn_local(async move {
+        while let Some(Ok(msg)) = decode.next().await {
+            match msg {
+                Message::Text(bytes) => {
+                    tx.send(Message::Text(bytes)).await.unwrap();
+                }
+                Message::Ping(bytes) => {
+                    tx.send(Message::Pong(bytes)).await.unwrap();
+                }
+                Message::Close(reason) => {
+                    tx.send(Message::Close(reason)).await.unwrap();
+                    return;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Ok(res.map(ResponseBody::stream))
 }

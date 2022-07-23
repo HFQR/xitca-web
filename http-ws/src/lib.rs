@@ -157,16 +157,26 @@ where
     Ok(req)
 }
 
-/// Verify WebSocket handshake request and create handshake response.
+/// Verify HTTP/1.1 WebSocket handshake request and create handshake response.
 pub fn handshake(method: &Method, headers: &HeaderMap) -> Result<Builder, HandshakeError> {
     let key = verify_handshake(method, headers)?;
     let builder = handshake_response(key);
     Ok(builder)
 }
 
+/// Verify HTTP/2 WebSocket handshake request and create handshake response.
+pub fn handshake_h2(method: &Method) -> Result<Builder, HandshakeError> {
+    // Check for method
+    if method != Method::CONNECT {
+        return Err(HandshakeError::ConnectMethodRequired);
+    }
+
+    Ok(Response::builder().status(StatusCode::OK))
+}
+
 /// Verify WebSocket handshake request and return `SEC_WEBSOCKET_KEY` header value as `&[u8]`
 fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'a [u8], HandshakeError> {
-    // WebSocket accepts only GET
+    // Check for method
     if method != Method::GET {
         return Err(HandshakeError::GetMethodRequired);
     }
@@ -278,7 +288,10 @@ where
 {
     let req = req.borrow_mut();
 
-    let builder = handshake(req.method(), req.headers())?;
+    let builder = match req.version() {
+        Version::HTTP_2 => handshake_h2(req.method())?,
+        _ => handshake(req.method(), req.headers())?,
+    };
 
     let decode = DecodeStream::new(body);
     let (tx, encode) = decode.encode_stream();
