@@ -2,7 +2,7 @@ use std::io;
 
 use bytes::{BufMut, Bytes, BytesMut};
 
-pub(crate) struct Writer {
+pub struct Writer {
     buf: BytesMut,
 }
 

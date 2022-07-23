@@ -114,10 +114,7 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
     #[cfg(feature = "websocket")]
     pub fn ws(self) -> Result<crate::ws::WebSocket<'a>, Error> {
         let body = self.res.into_body();
-        match body {
-            ResponseBody::H1(body) => Ok(crate::ws::WebSocket::from_body(body)),
-            _ => todo!(),
-        }
+        crate::ws::WebSocket::try_from_body(body)
     }
 
     async fn collect<B>(self) -> Result<B, Error>

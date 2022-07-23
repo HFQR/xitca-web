@@ -3,7 +3,7 @@
 use std::io;
 
 use futures_util::{pin_mut, Stream, StreamExt};
-use http_encoding::{Coder, ContentDecoder, ContentEncoder, ContentEncoding};
+use http_encoding::{Coder, ContentEncoding};
 use tracing::info;
 use xitca_http::{
     bytes::{Buf, Bytes},
@@ -53,7 +53,7 @@ where
 // a simple middleware look into request's `content-encoding` header and apply proper body decoder to it.
 async fn decode_middleware<S, B, E>(service: &S, req: Request<B>) -> Result<S::Response, S::Error>
 where
-    S: Service<Request<Coder<B, ContentDecoder>>>,
+    S: Service<Request<Coder<B>>>,
     B: Stream<Item = Result<Bytes, E>>,
 {
     let (req, body) = req.replace_body(());
@@ -63,16 +63,13 @@ where
 }
 
 // a simple middleware apply br body encoder to compress the response.
-async fn encode_middleware<S, Req, B>(
-    service: &S,
-    req: Req,
-) -> Result<Response<Coder<ResponseBody, ContentEncoder>>, S::Error>
+async fn encode_middleware<S, Req, B>(service: &S, req: Req) -> Result<Response<Coder<ResponseBody>>, S::Error>
 where
     S: Service<Req, Response = Response<ResponseBody>>,
     Req: std::borrow::Borrow<http::Request<B>>,
 {
     let res = service.call(req).await?;
     // hardcode br as compress encoding. in real world this should be a look up into `accept-encoding` header of request
-    // and genarated from it.
+    // and generated from it.
     Ok(http_encoding::try_encoder(res, ContentEncoding::Br).unwrap())
 }

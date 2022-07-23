@@ -10,7 +10,7 @@ use pin_project_lite::pin_project;
 
 pin_project! {
     /// A coder type that can be used for either encode or decode which determined by De type.
-    pub struct Coder<S, C>{
+    pub struct Coder<S, C = FeaturedCode>{
         #[pin]
         body: S,
         coder: C,
@@ -112,10 +112,10 @@ pub trait Code<T>: Sized {
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>>;
 }
 
-/// Identity coder serve as a pass through coder that just forward items.
-pub struct IdentityCoder;
+/// coder serve as pass through that just forward items.
+pub struct NoOpCode;
 
-impl<T> Code<T> for IdentityCoder
+impl<T> Code<T> for NoOpCode
 where
     T: AsRef<[u8]> + 'static,
 {
@@ -129,6 +129,65 @@ where
 
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
         Ok(None)
+    }
+}
+
+pub enum FeaturedCode {
+    NoOp(NoOpCode),
+    #[cfg(feature = "br")]
+    DecodeBr(super::brotli::Decoder),
+    #[cfg(feature = "br")]
+    EncodeBr(super::brotli::Encoder),
+    #[cfg(feature = "gz")]
+    DecodeGz(super::gzip::Decoder),
+    #[cfg(feature = "gz")]
+    EncodeGz(super::gzip::Encoder),
+    #[cfg(feature = "de")]
+    DecodeDe(super::deflate::Decoder),
+    #[cfg(feature = "de")]
+    EncodeDe(super::deflate::Encoder),
+}
+
+impl<T> Code<T> for FeaturedCode
+where
+    T: AsRef<[u8]> + 'static,
+{
+    type Item = Bytes;
+
+    fn code(&mut self, item: T) -> io::Result<Option<Self::Item>> {
+        match self {
+            Self::NoOp(ref mut coder) => coder.code(item),
+            #[cfg(feature = "br")]
+            Self::DecodeBr(ref mut coder) => coder.code(item),
+            #[cfg(feature = "br")]
+            Self::EncodeBr(ref mut coder) => coder.code(item),
+            #[cfg(feature = "gz")]
+            Self::DecodeGz(ref mut coder) => coder.code(item),
+            #[cfg(feature = "gz")]
+            Self::EncodeGz(ref mut coder) => coder.code(item),
+            #[cfg(feature = "de")]
+            Self::DecodeDe(ref mut coder) => coder.code(item),
+            #[cfg(feature = "de")]
+            Self::EncodeDe(ref mut coder) => coder.code(item),
+        }
+    }
+
+    fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
+        match self {
+            Self::NoOp(ref mut coder) => <NoOpCode as Code<T>>::code_eof(coder),
+            #[cfg(feature = "br")]
+            Self::DecodeBr(ref mut coder) => <super::brotli::Decoder as Code<T>>::code_eof(coder),
+            #[cfg(feature = "br")]
+            Self::EncodeBr(ref mut coder) => <super::brotli::Encoder as Code<T>>::code_eof(coder),
+            #[cfg(feature = "gz")]
+            Self::DecodeGz(ref mut coder) => <super::gzip::Decoder as Code<T>>::code_eof(coder),
+            #[cfg(feature = "gz")]
+            Self::EncodeGz(ref mut coder) => <super::gzip::Encoder as Code<T>>::code_eof(coder),
+            #[cfg(feature = "de")]
+            Self::DecodeDe(ref mut coder) => <super::deflate::Decoder as Code<T>>::code_eof(coder),
+            #[cfg(feature = "de")]
+            Self::EncodeDe(ref mut coder) => <super::deflate::Encoder as Code<T>>::code_eof(coder),
+        }
     }
 }
 
