@@ -13,7 +13,7 @@ use http_ws::Codec;
 use xitca_http::bytes::{Buf, BytesMut};
 use xitca_io::io::AsyncWrite;
 
-use super::{connection::ConnectionWithKey, error::Error, h1};
+use super::{body::ResponseBody, error::Error};
 
 /// sender part of websocket connection.
 /// [Sink] trait is used to asynchronously send message.
@@ -60,8 +60,10 @@ pub struct WebSocket<'c> {
 }
 
 impl<'a> WebSocket<'a> {
-    pub(crate) fn from_body(body: h1::body::ResponseBody<ConnectionWithKey<'a>>) -> Self {
-        Self {
+    pub(crate) fn try_from_body(body: ResponseBody<'a>) -> Result<Self, Error> {
+        // TODO: check body to make sure only H1 and H2 are accepted.
+
+        Ok(Self {
             inner: RefCell::new(WebSocketInner {
                 codec: Codec::new().client_mode(),
                 eof: false,
@@ -69,7 +71,7 @@ impl<'a> WebSocket<'a> {
                 recv_buf: BytesMut::new(),
                 body,
             }),
-        }
+        })
     }
 
     /// Split into a sink and reader pair that can be used for concurrent read/write
@@ -131,12 +133,12 @@ impl Stream for WebSocket<'_> {
     }
 }
 
-struct WebSocketInner<'c> {
+struct WebSocketInner<'b> {
     codec: Codec,
     eof: bool,
     send_buf: BytesMut,
     recv_buf: BytesMut,
-    body: h1::body::ResponseBody<ConnectionWithKey<'c>>,
+    body: ResponseBody<'b>,
 }
 
 impl Sink<Message> for WebSocketInner<'_> {
@@ -160,21 +162,44 @@ impl Sink<Message> for WebSocketInner<'_> {
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
 
-        while !inner.send_buf.chunk().is_empty() {
-            match ready!(Pin::new(&mut **inner.body.conn()).poll_write(cx, inner.send_buf.chunk()))? {
-                0 => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
-                n => inner.send_buf.advance(n),
-            }
-        }
+        match inner.body {
+            ResponseBody::H1(ref mut body) => {
+                while !inner.send_buf.chunk().is_empty() {
+                    match ready!(Pin::new(&mut **body.conn()).poll_write(cx, inner.send_buf.chunk()))? {
+                        0 => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
+                        n => inner.send_buf.advance(n),
+                    }
+                }
 
-        Pin::new(&mut **inner.body.conn()).poll_flush(cx).map_err(Into::into)
+                Pin::new(&mut **body.conn()).poll_flush(cx).map_err(Into::into)
+            }
+            #[cfg(feature = "http2")]
+            ResponseBody::H2(ref mut body) => {
+                while !inner.send_buf.chunk().is_empty() {
+                    let len = inner.send_buf.chunk().len();
+                    let cap = ready!(body.poll_capacity(len, cx))?;
+                    let len = std::cmp::min(cap, len);
+                    let bytes = inner.send_buf.split_to(len).freeze();
+                    body.send_data(bytes, false)?;
+                }
+
+                Poll::Ready(Ok(()))
+            }
+            _ => unreachable!(),
+        }
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         ready!(self.as_mut().poll_flush(cx))?;
-        Pin::new(&mut **self.get_mut().body.conn())
-            .poll_shutdown(cx)
-            .map_err(Into::into)
+        match self.get_mut().body {
+            ResponseBody::H1(ref mut body) => Pin::new(&mut **body.conn()).poll_shutdown(cx).map_err(Into::into),
+            #[cfg(feature = "http2")]
+            ResponseBody::H2(ref mut body) => {
+                body.send_data(xitca_http::bytes::Bytes::new(), true)?;
+                Poll::Ready(Ok(()))
+            }
+            _ => unreachable!(),
+        }
     }
 }
 

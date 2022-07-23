@@ -5,8 +5,8 @@
 #[macro_use]
 mod coder;
 mod coding;
-mod decoder;
-mod encoder;
+mod decode;
+mod encode;
 
 #[cfg(any(feature = "br", feature = "gz", feature = "de"))]
 mod writer;
@@ -15,11 +15,13 @@ mod writer;
 mod brotli {
     use std::io::{self, Write};
 
+    use brotli2::write::{BrotliDecoder, BrotliEncoder};
     use bytes::Bytes;
 
-    use crate::{coder::Code, writer::Writer};
+    use super::{coder::Code, writer::Writer};
 
-    pub(super) use brotli2::write::{BrotliDecoder, BrotliEncoder};
+    pub type Decoder = BrotliDecoder<Writer>;
+    pub type Encoder = BrotliEncoder<Writer>;
 
     impl<T> Code<T> for BrotliDecoder<Writer>
     where
@@ -78,18 +80,30 @@ mod brotli {
 
 #[cfg(feature = "gz")]
 mod gzip {
-    pub(super) use flate2::write::{GzDecoder, GzEncoder};
+    use super::writer::Writer;
+
+    use flate2::write::{GzDecoder, GzEncoder};
+
+    pub type Decoder = GzDecoder<Writer>;
+    pub type Encoder = GzEncoder<Writer>;
+
     code_impl!(GzDecoder);
     code_impl!(GzEncoder);
 }
 #[cfg(feature = "de")]
 mod deflate {
-    pub(super) use flate2::write::{DeflateDecoder, DeflateEncoder};
+    use super::writer::Writer;
+
+    use flate2::write::{DeflateDecoder, DeflateEncoder};
+
+    pub type Decoder = DeflateDecoder<Writer>;
+    pub type Encoder = DeflateEncoder<Writer>;
+
     code_impl!(DeflateDecoder);
     code_impl!(DeflateEncoder);
 }
 
-pub use self::coder::{Code, Coder};
+pub use self::coder::{Code, Coder, FeaturedCode};
 pub use self::coding::ContentEncoding;
-pub use self::decoder::{try_decoder, ContentDecoder};
-pub use self::encoder::{try_encoder, ContentEncoder};
+pub use self::decode::try_decoder;
+pub use self::encode::try_encoder;
