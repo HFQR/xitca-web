@@ -165,11 +165,13 @@ pub fn handshake(method: &Method, headers: &HeaderMap) -> Result<Builder, Handsh
 }
 
 /// Verify HTTP/2 WebSocket handshake request and create handshake response.
-pub fn handshake_h2(method: &Method) -> Result<Builder, HandshakeError> {
+pub fn handshake_h2(method: &Method, headers: &HeaderMap) -> Result<Builder, HandshakeError> {
     // Check for method
     if method != Method::CONNECT {
         return Err(HandshakeError::ConnectMethodRequired);
     }
+
+    ws_version_check(headers)?;
 
     Ok(Response::builder().status(StatusCode::OK))
 }
@@ -203,14 +205,7 @@ fn verify_handshake<'a>(method: &'a Method, headers: &'a HeaderMap) -> Result<&'
         return Err(HandshakeError::NoConnectionUpgrade);
     }
 
-    // check supported version
-    let value = headers
-        .get(SEC_WEBSOCKET_VERSION)
-        .ok_or(HandshakeError::NoVersionHeader)?;
-
-    if value != "13" && value != "8" && value != "7" {
-        return Err(HandshakeError::UnsupportedVersion);
-    }
+    ws_version_check(headers)?;
 
     // check client handshake for validity
     let value = headers.get(SEC_WEBSOCKET_KEY).ok_or(HandshakeError::BadWebsocketKey)?;
@@ -233,6 +228,19 @@ fn handshake_response(key: &[u8]) -> Builder {
             // key is known to be header value safe ascii
             HeaderValue::from_bytes(&key).unwrap(),
         )
+}
+
+// check supported version
+fn ws_version_check(headers: &HeaderMap) -> Result<(), HandshakeError> {
+    let value = headers
+        .get(SEC_WEBSOCKET_VERSION)
+        .ok_or(HandshakeError::NoVersionHeader)?;
+
+    if value != "13" && value != "8" && value != "7" {
+        Err(HandshakeError::UnsupportedVersion)
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(feature = "stream")]
@@ -289,7 +297,7 @@ where
     let req = req.borrow_mut();
 
     let builder = match req.version() {
-        Version::HTTP_2 => handshake_h2(req.method())?,
+        Version::HTTP_2 => handshake_h2(req.method(), req.headers())?,
         _ => handshake(req.method(), req.headers())?,
     };
 
