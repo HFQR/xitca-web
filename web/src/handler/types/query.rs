@@ -13,16 +13,16 @@ where
     }
 }
 
-impl<'a, 'r, S: 'r, T> FromRequest<'a, WebRequest<'r, S>> for Query<T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for Query<T>
 where
     T: serde::de::DeserializeOwned,
 {
     type Type<'b> = Query<T>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async move {
             let value = serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default()).unwrap();
             Ok(Query(value))

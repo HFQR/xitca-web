@@ -13,16 +13,13 @@ impl Deref for UriRef<'_> {
     }
 }
 
-impl<'a, 'r, S> FromRequest<'a, WebRequest<'r, S>> for UriRef<'a>
-where
-    S: 'static,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for UriRef<'a> {
     type Type<'b> = UriRef<'b>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async move { Ok(UriRef(req.req().uri())) }
     }
 }

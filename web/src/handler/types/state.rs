@@ -26,17 +26,17 @@ impl<S> Deref for StateRef<'_, S> {
     }
 }
 
-impl<'a, 'r, S, T> FromRequest<'a, WebRequest<'r, S>> for StateRef<'a, T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for StateRef<'a, T>
 where
+    C: Borrow<T>,
     T: 'static,
-    S: 'static + Borrow<T>,
 {
     type Type<'b> = StateRef<'b, T>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async move { Ok(StateRef(req.state().borrow())) }
     }
 }

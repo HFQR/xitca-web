@@ -2,6 +2,7 @@ use std::{
     future::{pending, poll_fn, Future},
     io,
     marker::PhantomData,
+    ops::DerefMut,
     pin::Pin,
     time::Duration,
 };
@@ -294,7 +295,7 @@ where
     }
 
     fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
-        match self.ctx.decode_head::<READ_BUF_LIMIT>(&mut *self.io.read_buf) {
+        match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut()) {
             Ok(Some((req, decoder))) => {
                 let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
 

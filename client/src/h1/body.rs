@@ -41,7 +41,7 @@ where
         let this = self.get_mut();
 
         while !this.decoder.is_eof() {
-            match this.decoder.decode(&mut *this.buf)? {
+            match this.decoder.decode(this.buf.deref_mut())? {
                 Some(bytes) if bytes.is_empty() => this.decoder = TransferCoding::eof(),
                 Some(bytes) => return Poll::Ready(Some(Ok(bytes))),
                 None => {

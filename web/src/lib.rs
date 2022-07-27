@@ -15,7 +15,7 @@ pub mod codegen {
     ///
     /// # Example:
     /// ```rust
-    /// # use xitca_web::{codegen::State, handler::{handler_service, state::StateRef}, App};
+    /// # use xitca_web::{codegen::State, handler::{handler_service, state::StateRef}, request::WebRequest, App};
     ///
     /// // use derive macro and attribute to mark the field that can be extracted.
     /// #[derive(State, Clone)]
@@ -27,13 +27,17 @@ pub mod codegen {
     /// # async fn app() {
     /// // construct App with MyState type.
     /// App::with_current_thread_state(MyState { field: 996 })
-    ///     .at("/", handler_service(index));
+    ///     .at("/", handler_service(index))
+    /// #   .at("/nah", handler_service(nah));
     /// # }
     ///
     /// // extract u128 typed field from MyState.
     /// async fn index(StateRef(num): StateRef<'_, u128>) {
     ///     assert_eq!(*num, 996);
     /// }
+    /// # async fn nah(_: &WebRequest<'_, MyState>) {
+    /// #   // needed to infer the body type of request
+    /// # }
     /// ```
     pub use xitca_codegen::State;
 }
