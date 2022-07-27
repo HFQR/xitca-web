@@ -3,11 +3,11 @@ use std::{
     fmt,
     future::{poll_fn, Future},
     ops::{Deref, DerefMut},
-    pin::Pin,
 };
 
 use futures_core::stream::Stream;
 use serde::{de::DeserializeOwned, ser::Serialize};
+use xitca_unsafe_collection::pin;
 
 use crate::{
     dev::bytes::{BufMutWriter, BytesMut},
@@ -58,7 +58,7 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
 
 impl<'a, 'r, C, B, I, E, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, C, B>> for Json<T, LIMIT>
 where
-    B: Stream<Item = Result<I, E>> + Default + Unpin,
+    B: Stream<Item = Result<I, E>> + Default,
     I: AsRef<[u8]>,
     T: DeserializeOwned,
 {
@@ -78,13 +78,15 @@ where
                 Err(_) => LIMIT,
             };
 
-            let Body(mut body) = Body::from_request(req).await?;
+            let Body(body) = Body::from_request(req).await?;
+
+            pin!(body);
 
             let mut buf = BytesMut::new();
 
-            while let Some(Ok(chunk)) = poll_fn(|cx| Pin::new(&mut body).poll_next(cx)).await {
+            while let Some(Ok(chunk)) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
                 let chunk = chunk.as_ref();
-                if buf.len() + chunk.len() >= limit {
+                if buf.len() + chunk.len() > limit {
                     panic!("error handling");
                 }
                 buf.extend_from_slice(chunk);
