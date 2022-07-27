@@ -110,39 +110,34 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<Fut, C, CErr>(self) -> ContextBuilder<CF, C, MapRequest<R>>
+    pub fn finish<C, Fut, CErr, B, RS, Res, Err>(
+        self,
+    ) -> impl BuildService<(), Service = impl Service<Request<B>, Response = Res, Error = Err>, Error = R::Error>
     where
-        CF: Fn() -> Fut,
+        R: BuildService<(), Service = RS> + 'static,
+        CF: Fn() -> Fut + 'static,
         Fut: Future<Output = Result<C, CErr>>,
         C: 'static,
-        R: 'static,
-        R::Error: From<CErr>,
+        B: 'static,
+        RS: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>,
+        R::Error: From<CErr> + From<Infallible>,
     {
         let App { ctx_factory, router } = self;
-
-        ContextBuilder::new(ctx_factory).service(MapRequest { factory: router })
+        let service = router.enclosed(MapRequest);
+        ContextBuilder::new(ctx_factory).service(service)
     }
 }
 
-pub struct MapRequest<F> {
-    factory: F,
-}
+#[derive(Clone, Copy)]
+struct MapRequest;
 
-impl<F, Arg> BuildService<Arg> for MapRequest<F>
-where
-    F: BuildService<Arg> + 'static,
-    Arg: 'static,
-{
-    type Service = MapRequestService<F::Service>;
-    type Error = F::Error;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>> + 'static;
+impl<S> BuildService<S> for MapRequest {
+    type Service = MapRequestService<S>;
+    type Error = Infallible;
+    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn build(&self, arg: Arg) -> Self::Future {
-        let fut = self.factory.build(arg);
-        async {
-            let service = fut.await?;
-            Ok(MapRequestService { service })
-        }
+    fn build(&self, service: S) -> Self::Future {
+        async { Ok(MapRequestService { service }) }
     }
 }
 
@@ -152,8 +147,8 @@ pub struct MapRequestService<S> {
 
 impl<'c, C, B, S, Res, Err> Service<Context<'c, Request<B>, C>> for MapRequestService<S>
 where
-    B: 'static,
     C: 'static,
+    B: 'static,
     S: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>,
 {
     type Response = Res;
