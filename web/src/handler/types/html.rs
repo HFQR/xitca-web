@@ -20,7 +20,7 @@ where
     }
 }
 
-impl<'r, S: 'r, T> Responder<WebRequest<'r, S>> for Html<T>
+impl<'r, S, T> Responder<WebRequest<'r, S>> for Html<T>
 where
     T: Into<ResponseBody>,
 {

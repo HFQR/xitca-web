@@ -1,11 +1,12 @@
 use std::{
     convert::Infallible,
     fmt,
-    future::Future,
+    future::{poll_fn, Future},
     ops::{Deref, DerefMut},
+    pin::Pin,
 };
 
-use futures_util::StreamExt;
+use futures_core::stream::Stream;
 use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::{
@@ -55,16 +56,17 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
     }
 }
 
-impl<'a, 'r, S, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, S>> for Json<T, LIMIT>
+impl<'a, 'r, C, B, I, E, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, C, B>> for Json<T, LIMIT>
 where
-    S: 'r,
+    B: Stream<Item = Result<I, E>> + Default + Unpin,
+    I: AsRef<[u8]>,
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async move {
             HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
 
@@ -80,11 +82,12 @@ where
 
             let mut buf = BytesMut::new();
 
-            while let Some(Ok(chunk)) = body.next().await {
+            while let Some(Ok(chunk)) = poll_fn(|cx| Pin::new(&mut body).poll_next(cx)).await {
+                let chunk = chunk.as_ref();
                 if buf.len() + chunk.len() >= limit {
                     panic!("error handling");
                 }
-                buf.extend_from_slice(&chunk);
+                buf.extend_from_slice(chunk);
             }
 
             let json = serde_json::from_slice(&buf).expect("error handling is to do");
@@ -94,16 +97,15 @@ where
     }
 }
 
-impl<'r, S, T, const LIMIT: usize> Responder<WebRequest<'r, S>> for Json<T, LIMIT>
+impl<'r, C, B, T, const LIMIT: usize> Responder<WebRequest<'r, C, B>> for Json<T, LIMIT>
 where
-    S: 'r,
     T: Serialize,
 {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
         let mut bytes = BytesMut::new();
         serde_json::to_writer(BufMutWriter(&mut bytes), &self.0).unwrap();
         let mut res = req.into_response(bytes.freeze());

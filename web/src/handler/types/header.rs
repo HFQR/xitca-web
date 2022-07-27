@@ -56,13 +56,13 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
     }
 }
 
-impl<'a, 'r, S: 'r, const HEADER_NAME: usize> FromRequest<'a, WebRequest<'r, S>> for HeaderRef<'a, HEADER_NAME> {
+impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebRequest<'r, C, B>> for HeaderRef<'a, HEADER_NAME> {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
+    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async move {
             Ok(HeaderRef(
                 req.req().headers().get(&map_to_header_name::<HEADER_NAME>()).unwrap(),

@@ -11,7 +11,7 @@ use xitca_http::{
         context::{Context, ContextBuilder},
         router::GenericRouter,
     },
-    Request, RequestBody,
+    Request,
 };
 use xitca_service::{
     object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, BuildServiceExt, EnclosedFactory,
@@ -27,17 +27,19 @@ pub struct App<CF = (), R = ()> {
     router: R,
 }
 
-type Router<C, SF> = GenericRouter<WebObjectConstructor<C>, SF>;
+type Router<C, B, SF> = GenericRouter<WebObjectConstructor<C, B>, SF>;
 
 impl App {
-    pub fn new<SF>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<(), SF>> {
+    pub fn new<B, SF>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<(), B, SF>> {
         Self::with_async_state(|| ready(Ok(())))
     }
 
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<C, SF>>
+    pub fn with_current_thread_state<C, B, SF>(
+        state: C,
+    ) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<C, B, SF>>
     where
         C: Clone + 'static,
     {
@@ -47,7 +49,9 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<C, SF>>
+    pub fn with_multi_thread_state<C, B, SF>(
+        state: C,
+    ) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<C, B, SF>>
     where
         C: Send + Sync + Clone + 'static,
     {
@@ -56,7 +60,7 @@ impl App {
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<CF, Fut, E, C, SF>(ctx_factory: CF) -> App<CF, Router<C, SF>>
+    pub fn with_async_state<CF, Fut, E, C, B, SF>(ctx_factory: CF) -> App<CF, Router<C, B, SF>>
     where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, E>>,
@@ -68,10 +72,10 @@ impl App {
     }
 }
 
-impl<CF, C, SF> App<CF, Router<C, SF>> {
-    pub fn at<F>(mut self, path: &'static str, factory: F) -> Self
+impl<CF, C, B, SF> App<CF, Router<C, B, SF>> {
+    pub fn at<F>(mut self, path: &'static str, factory: F) -> App<CF, Router<C, B, SF>>
     where
-        WebObjectConstructor<C>: ObjectConstructor<F, Object = SF>,
+        WebObjectConstructor<C, B>: ObjectConstructor<F, Object = SF>,
     {
         self.router = self.router.insert(path, factory);
         self
@@ -146,16 +150,17 @@ pub struct MapRequestService<S> {
     service: S,
 }
 
-impl<'c, C, S, Res, Err> Service<Context<'c, Request<RequestBody>, C>> for MapRequestService<S>
+impl<'c, C, B, S, Res, Err> Service<Context<'c, Request<B>, C>> for MapRequestService<S>
 where
+    B: 'static,
     C: 'static,
-    S: for<'r> Service<WebRequest<'r, C>, Response = Res, Error = Err>,
+    S: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>,
 {
     type Response = Res;
     type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
 
-    fn call(&self, req: Context<'c, Request<RequestBody>, C>) -> Self::Future<'_> {
+    fn call(&self, req: Context<'c, Request<B>, C>) -> Self::Future<'_> {
         async move {
             let (req, state) = req.into_parts();
             let (mut req, body) = req.replace_body(());
@@ -166,10 +171,11 @@ where
     }
 }
 
-impl<'c, C, S, R, Res, Err> ReadyService<Context<'c, Request<RequestBody>, C>> for MapRequestService<S>
+impl<'c, C, B, S, R, Res, Err> ReadyService<Context<'c, Request<B>, C>> for MapRequestService<S>
 where
+    B: 'static,
     C: 'static,
-    S: for<'r> ReadyService<WebRequest<'r, C>, Response = Res, Error = Err, Ready = R>,
+    S: for<'r> ReadyService<WebRequest<'r, C, B>, Response = Res, Error = Err, Ready = R>,
 {
     type Ready = R;
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where S: 'f;
@@ -183,6 +189,8 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+
+    use xitca_http::body::RequestBody;
 
     use crate::{
         dev::Service,
@@ -200,7 +208,7 @@ mod test {
         UriRef(_): UriRef<'_>,
         ExtensionRef(_): ExtensionRef<'_, Foo>,
         ExtensionsRef(_): ExtensionsRef<'_>,
-        req: &WebRequest<'_, String>,
+        req: &WebRequest<'_, String, NewBody<RequestBody>>,
     ) -> String {
         assert_eq!("state", state);
         assert_eq!(state, req.state());
@@ -229,31 +237,39 @@ mod test {
 
     struct MiddlewareService<S>(S);
 
-    impl<'r, S, State, Res, Err> Service<WebRequest<'r, State>> for MiddlewareService<S>
+    impl<'r, S, C, B, Res, Err> Service<WebRequest<'r, C, B>> for MiddlewareService<S>
     where
-        S: for<'r2> Service<WebRequest<'r2, State>, Response = Res, Error = Err>,
-        State: 'r,
+        S: for<'r2> Service<WebRequest<'r2, C, B>, Response = Res, Error = Err>,
+        C: 'r,
+        B: 'r,
     {
         type Response = Res;
         type Error = Err;
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-        fn call(&self, mut req: WebRequest<'r, State>) -> Self::Future<'_> {
+        fn call(&self, mut req: WebRequest<'r, C, B>) -> Self::Future<'_> {
             async move { self.0.call(req.reborrow()).await }
         }
     }
 
+    // arbitrary body type mutation
+    struct NewBody<B>(B);
+
     #[tokio::test]
     async fn test_app() {
-        async fn middleware_fn<S, State, Res, Err>(
-            service: &S,
-            mut req: WebRequest<'_, State>,
-        ) -> Result<Res, Infallible>
+        async fn middleware_fn<S, C, B, Res, Err>(service: &S, mut req: WebRequest<'_, C, B>) -> Result<Res, Infallible>
         where
-            S: for<'r> Service<WebRequest<'r, State>, Response = Res, Error = Err>,
-            Err: for<'r> Responder<WebRequest<'r, State>, Output = Res>,
+            S: for<'r> Service<WebRequest<'r, C, NewBody<B>>, Response = Res, Error = Err>,
+            B: Default,
+            Err: for<'r> Responder<WebRequest<'r, C, B>, Output = Res>,
         {
-            match service.call(req.reborrow()).await {
+            let body = &mut RefCell::new(NewBody(req.take_body_mut()));
+            let req2 = WebRequest {
+                req: req.req,
+                body,
+                ctx: req.ctx,
+            };
+            match service.call(req2).await {
                 Ok(res) => Ok(res),
                 Err(e) => Ok(e.respond_to(req).await),
             }

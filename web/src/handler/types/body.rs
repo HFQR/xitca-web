@@ -1,17 +1,20 @@
 use std::{convert::Infallible, future::Future};
 
-use crate::{handler::FromRequest, request::RequestBody, request::WebRequest};
+use crate::{handler::FromRequest, request::WebRequest};
 
-pub struct Body(pub RequestBody);
+pub struct Body<B>(pub B);
 
-impl<'a, 'r, S: 'r> FromRequest<'a, WebRequest<'r, S>> for Body {
-    type Type<'b> = Body;
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Body<B>
+where
+    B: Default,
+{
+    type Type<'b> = Body<B>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, S>: 'a;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, S>) -> Self::Future {
-        let extract = Body(std::mem::take(&mut *req.body_borrow_mut()));
+    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
+        let extract = Body(req.take_body_ref());
         async move { Ok(extract) }
     }
 }
