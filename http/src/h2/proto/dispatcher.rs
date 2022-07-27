@@ -263,7 +263,7 @@ where
         .and_then(|v| {
             v.as_bytes()
                 .eq_ignore_ascii_case(b"close")
-                .then(|| ConnectionState::Close)
+                .then_some(ConnectionState::Close)
         })
         .unwrap_or(ConnectionState::KeepAlive);
 

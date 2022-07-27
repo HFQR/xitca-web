@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     fmt::{self, Write},
+    ops::Deref,
     rc::Rc,
     time::{Duration, SystemTime},
 };
@@ -60,7 +61,7 @@ impl DateTimeService {
 
     #[inline(always)]
     pub(crate) fn get(&self) -> &DateTimeHandle {
-        &*self.state
+        self.state.deref()
     }
 }
 

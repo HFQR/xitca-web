@@ -69,7 +69,7 @@ impl<'a, C, B> WebRequest<'a, C, B> {
     /// Get a mutable reference of [Request]
     #[inline]
     pub fn req_mut(&mut self) -> &mut Request<()> {
-        &mut self.req
+        self.req
     }
 
     /// Get a immutable reference of [RequestBody]

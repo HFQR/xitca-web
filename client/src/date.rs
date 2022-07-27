@@ -48,7 +48,7 @@ impl DateTimeService {
     }
 
     pub(crate) fn handle(&self) -> DateTimeHandle<'_> {
-        DateTimeHandle(&*self.state)
+        DateTimeHandle(self.state.deref())
     }
 }
 

@@ -245,13 +245,8 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
 }
 
 // a track type for given io's flush state.
+#[derive(Default)]
 struct Flush(bool);
-
-impl Default for Flush {
-    fn default() -> Self {
-        Self(false)
-    }
-}
 
 impl Flush {
     // if flush want to write to io
