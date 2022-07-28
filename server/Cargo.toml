@@ -11,7 +11,7 @@ io-uring = ["tokio-uring"]
 
 [dependencies]
 xitca-io = "0.1"
-xitca-service = "0.1"
+xitca-service = { version = "0.1", features = ["alloc"] }
 xitca-unsafe-collection = "0.1"
 
 socket2 = "0.4.4"
