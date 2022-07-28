@@ -115,7 +115,7 @@ where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, CErr>>,
         C: 'static,
-        R: 'static,
+        R::Future: 'static,
         R::Error: From<CErr>,
     {
         let App { ctx_factory, router } = self;
@@ -130,8 +130,8 @@ pub struct MapRequest<F> {
 
 impl<F, Arg> BuildService<Arg> for MapRequest<F>
 where
-    F: BuildService<Arg> + 'static,
-    Arg: 'static,
+    F: BuildService<Arg>,
+    F::Future: 'static,
 {
     type Service = MapRequestService<F::Service>;
     type Error = F::Error;
