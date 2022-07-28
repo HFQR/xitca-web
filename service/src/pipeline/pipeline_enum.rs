@@ -1,4 +1,7 @@
-use core::fmt::{self, Debug, Display, Formatter};
+use core::{
+    convert::Infallible,
+    fmt::{self, Debug, Display, Formatter},
+};
 
 /// A pipeline type where two variants have a parent-child/first-second relationship
 pub enum Pipeline<F, S> {
@@ -66,5 +69,12 @@ where
             Self::First(ref p) => write!(f, "{}", p),
             Self::Second(ref p) => write!(f, "{}", p),
         }
+    }
+}
+
+// useful default impl when pipeline enum used as error type.
+impl<F, S> From<Infallible> for Pipeline<F, S> {
+    fn from(e: Infallible) -> Self {
+        match e {}
     }
 }
