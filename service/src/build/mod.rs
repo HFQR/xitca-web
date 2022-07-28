@@ -1,6 +1,7 @@
 pub(crate) mod function;
 
 mod and_then;
+#[cfg(feature = "alloc")]
 mod boxed;
 mod enclosed;
 mod enclosed_fn;
@@ -14,8 +15,6 @@ pub use self::{
 };
 
 use core::future::Future;
-
-use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
 /// Trait for simulate `Fn<(&Self, Arg)> -> impl Future<Output = Result<(impl Service<Req> + !Send), E>> + Send`.
 /// This trait is used to construct a `!Send` type from a `Send` type.
@@ -33,23 +32,30 @@ pub trait BuildService<Arg = ()> {
     fn build(&self, arg: Arg) -> Self::Future;
 }
 
-macro_rules! impl_alloc {
-    ($alloc: ident) => {
-        impl<F, Arg> BuildService<Arg> for $alloc<F>
-        where
-            F: BuildService<Arg> + ?Sized,
-        {
-            type Service = F::Service;
-            type Error = F::Error;
-            type Future = F::Future;
+#[cfg(feature = "alloc")]
+mod alloc_impl {
+    use super::BuildService;
 
-            fn build(&self, arg: Arg) -> Self::Future {
-                (**self).build(arg)
+    use alloc::{boxed::Box, rc::Rc, sync::Arc};
+
+    macro_rules! impl_alloc {
+        ($alloc: ident) => {
+            impl<F, Arg> BuildService<Arg> for $alloc<F>
+            where
+                F: BuildService<Arg> + ?Sized,
+            {
+                type Service = F::Service;
+                type Error = F::Error;
+                type Future = F::Future;
+
+                fn build(&self, arg: Arg) -> Self::Future {
+                    (**self).build(arg)
+                }
             }
-        }
-    };
-}
+        };
+    }
 
-impl_alloc!(Box);
-impl_alloc!(Rc);
-impl_alloc!(Arc);
+    impl_alloc!(Box);
+    impl_alloc!(Rc);
+    impl_alloc!(Arc);
+}

@@ -1,10 +1,15 @@
 use crate::{
     async_closure::AsyncClosure,
-    object::{DefaultObjectConstructor, ObjectConstructor},
     pipeline::{marker, PipelineT},
 };
 
-use super::{boxed::Boxed, BuildService};
+#[cfg(feature = "alloc")]
+use crate::{
+    build::boxed::Boxed,
+    object::{DefaultObjectConstructor, ObjectConstructor},
+};
+
+use super::BuildService;
 
 /// Extend trait for [BuildService]
 ///
@@ -27,16 +32,6 @@ pub trait BuildServiceExt<Arg>: BuildService<Arg> {
         Self: Sized,
     {
         PipelineT::new(self, err)
-    }
-
-    /// Box `<Self as BuildService<_>>::Future` to reduce it's stack size.
-    ///
-    /// *. This combinator does not box `Self` or `Self::Service`.
-    fn boxed_future(self) -> Boxed<Self>
-    where
-        Self: Sized,
-    {
-        Boxed::new(self)
     }
 
     /// Chain another service factory who's service takes `Self`'s `Service::Response` output as
@@ -68,6 +63,18 @@ pub trait BuildServiceExt<Arg>: BuildService<Arg> {
         PipelineT::new(self, func)
     }
 
+    #[cfg(feature = "alloc")]
+    /// Box `<Self as BuildService<_>>::Future` to reduce it's stack size.
+    ///
+    /// *. This combinator does not box `Self` or `Self::Service`.
+    fn boxed_future(self) -> Boxed<Self>
+    where
+        Self: Sized,
+    {
+        Boxed::new(self)
+    }
+
+    #[cfg(feature = "alloc")]
     /// Box self and cast it to a trait object.
     ///
     /// This would erase `Self::Service` type and it's GAT nature.
@@ -125,6 +132,7 @@ mod test {
         Ok(s)
     }
 
+    #[cfg(feature = "alloc")]
     #[tokio::test]
     async fn service_object() {
         let service = fn_service(index)

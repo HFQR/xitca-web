@@ -5,8 +5,6 @@ mod map_err;
 
 use core::{future::Future, ops::Deref, pin::Pin};
 
-use alloc::{boxed::Box, rc::Rc, sync::Arc};
-
 /// Trait for simulate `Fn<(&Self, Arg)> -> impl Future<Output = Result<T, E>> + '_`.
 /// The function call come from stateful type that can be referenced within returned opaque future.
 pub trait Service<Req> {
@@ -24,27 +22,34 @@ pub trait Service<Req> {
     fn call(&self, req: Req) -> Self::Future<'_>;
 }
 
-macro_rules! impl_alloc {
-    ($alloc: ident) => {
-        impl<S, Req> Service<Req> for $alloc<S>
-        where
-            S: Service<Req> + ?Sized,
-        {
-            type Response = S::Response;
-            type Error = S::Error;
-            type Future<'f> = S::Future<'f> where Self: 'f;
+#[cfg(feature = "alloc")]
+mod alloc_impl {
+    use super::Service;
 
-            #[inline]
-            fn call(&self, req: Req) -> Self::Future<'_> {
-                (**self).call(req)
+    use alloc::{boxed::Box, rc::Rc, sync::Arc};
+
+    macro_rules! impl_alloc {
+        ($alloc: ident) => {
+            impl<S, Req> Service<Req> for $alloc<S>
+            where
+                S: Service<Req> + ?Sized,
+            {
+                type Response = S::Response;
+                type Error = S::Error;
+                type Future<'f> = S::Future<'f> where Self: 'f;
+
+                #[inline]
+                fn call(&self, req: Req) -> Self::Future<'_> {
+                    (**self).call(req)
+                }
             }
-        }
-    };
-}
+        };
+    }
 
-impl_alloc!(Box);
-impl_alloc!(Rc);
-impl_alloc!(Arc);
+    impl_alloc!(Box);
+    impl_alloc!(Rc);
+    impl_alloc!(Arc);
+}
 
 impl<S, Req> Service<Req> for Pin<S>
 where
@@ -61,6 +66,7 @@ where
     }
 }
 
+#[cfg(feature = "alloc")]
 #[cfg(test)]
 mod test {
     use super::*;

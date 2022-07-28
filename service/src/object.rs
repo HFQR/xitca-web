@@ -26,7 +26,7 @@ pub trait ObjectConstructor<I> {
 /// An often used type alias for [ObjectConstructor::Object] type.
 pub type Object<Arg, S, E> = Box<dyn BuildService<Arg, Service = S, Error = E, Future = BoxFuture<'static, S, E>>>;
 
-/// The most trivial [ObjectConstructor] for [ServiceFactory] types.
+/// The most trivial [ObjectConstructor] for [BuildService] types.
 ///
 /// Its main limitation is that the trait object is not polymorphic over `Req`.
 /// So if the original service type is `impl for<'r> Service<&'r str>`,
@@ -35,10 +35,10 @@ pub type Object<Arg, S, E> = Box<dyn BuildService<Arg, Service = S, Error = E, F
 pub struct DefaultObjectConstructor<Req, Arg>(PhantomData<(Req, Arg)>);
 
 /// [ServiceFactory] object created by the [DefaultObjectConstructor]
-pub type DefaultFactoryObject<Arg, Req, Res, Err, BErr> = Object<Arg, DefaultServiceObject<Req, Res, Err>, BErr>;
+pub type DefaultFactoryObject<Arg, Req, Res, Err, BErr> = Object<Arg, ServiceAlias<Req, Res, Err>, BErr>;
 
-/// [Service] object created by the [DefaultObjectConstructor]
-pub type DefaultServiceObject<Req, Res, Err> = impl Service<Req, Response = Res, Error = Err>;
+/// [Service] imp trait alias created by the [DefaultObjectConstructor]
+pub type ServiceAlias<Req, Res, Err> = impl Service<Req, Response = Res, Error = Err>;
 
 impl<T, Req, Arg, BErr, Res, Err> ObjectConstructor<T> for DefaultObjectConstructor<Req, Arg>
 where
@@ -66,10 +66,11 @@ pub mod helpers {
     //! Useful types and traits for implementing a custom
     //! [ObjectConstructor](super::ObjectConstructor).
 
-    use alloc::boxed::Box;
     use core::future::Future;
 
-    use crate::{BoxFuture, Service};
+    use alloc::boxed::Box;
+
+    use crate::{service::Service, BoxFuture};
 
     /// Object-safe counterpart of [Service].
     pub trait ServiceObject<Req> {

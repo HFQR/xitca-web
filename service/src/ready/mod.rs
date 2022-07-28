@@ -6,8 +6,6 @@ mod map_err;
 
 use core::{future::Future, ops::Deref, pin::Pin};
 
-use alloc::{boxed::Box, rc::Rc, sync::Arc};
-
 use super::service::Service;
 
 /// Extend trait for [Service].
@@ -85,26 +83,33 @@ pub trait ReadyService<Req>: Service<Req> {
     fn ready(&self) -> Self::ReadyFuture<'_>;
 }
 
-macro_rules! impl_alloc {
-    ($alloc: ident) => {
-        impl<S, Req> ReadyService<Req> for $alloc<S>
-        where
-            S: ReadyService<Req> + ?Sized,
-        {
-            type Ready = S::Ready;
-            type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
+#[cfg(feature = "alloc")]
+mod alloc_impl {
+    use super::ReadyService;
 
-            #[inline]
-            fn ready(&self) -> Self::ReadyFuture<'_> {
-                (**self).ready()
+    use alloc::{boxed::Box, rc::Rc, sync::Arc};
+
+    macro_rules! impl_alloc {
+        ($alloc: ident) => {
+            impl<S, Req> ReadyService<Req> for $alloc<S>
+            where
+                S: ReadyService<Req> + ?Sized,
+            {
+                type Ready = S::Ready;
+                type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
+
+                #[inline]
+                fn ready(&self) -> Self::ReadyFuture<'_> {
+                    (**self).ready()
+                }
             }
-        }
-    };
-}
+        };
+    }
 
-impl_alloc!(Box);
-impl_alloc!(Rc);
-impl_alloc!(Arc);
+    impl_alloc!(Box);
+    impl_alloc!(Rc);
+    impl_alloc!(Arc);
+}
 
 impl<S, Req> ReadyService<Req> for Pin<S>
 where
