@@ -14,7 +14,7 @@ use std::{io::Write, rc::Rc};
 use tempfile::NamedTempFile;
 use tokio_uring::fs::File;
 use xitca_web::{
-    dev::fn_service,
+    dev::service::fn_service,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
     request::WebRequest,
     response::WebResponse,

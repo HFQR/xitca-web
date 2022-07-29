@@ -33,8 +33,8 @@ path = "io-uring.rs"
 required-features = ["io-uring"]
 
 [[example]]
-name = "content-encoding"
-path = "content-encoding.rs"
+name = "compression"
+path = "compression.rs"
 
 [features]
 io-uring = ["tokio-uring", "xitca-web/io-uring"]
@@ -44,7 +44,7 @@ xitca-http = { version = "0.1", features = ["http2", "http3", "rustls", "openssl
 xitca-io = "0.1"
 xitca-server= { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
-xitca-web = { version = "0.1", features = ["http2", "http3", "rustls", "openssl"] }
+xitca-web = { version = "0.1", features = ["http2", "http3", "rustls", "openssl", "compress-br", "compress-de", "compress-gz"] }
 
 http-encoding = { version = "0.1", features = ["all"] }
 http-ws = "0.1"

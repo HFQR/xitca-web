@@ -50,7 +50,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::{BuildService, Service},
+        dev::service::{BuildService, Service},
         handler::handler_service,
         request::WebRequest,
         route::get,
