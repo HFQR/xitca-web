@@ -133,9 +133,6 @@ where
 #[derive(Clone, Copy)]
 struct MapRequest;
 
-#[derive(Clone, Copy)]
-struct MapRequest;
-
 impl<S> BuildService<S> for MapRequest {
     type Service = MapRequestService<S>;
     type Error = Infallible;
@@ -188,12 +185,10 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::service::Service,
+        dev::service::{middleware::UncheckedReady, Service},
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
             uri::UriRef, Responder,
@@ -202,6 +197,8 @@ mod test {
         request::RequestBody,
         route::get,
     };
+
+    use super::*;
 
     async fn handler(
         StateRef(state): StateRef<'_, String>,
@@ -286,6 +283,7 @@ mod test {
             )
             .enclosed_fn(middleware_fn)
             .enclosed(Middleware)
+            .enclosed(UncheckedReady)
             .finish()
             .build(())
             .now_or_panic()

@@ -6,6 +6,7 @@ mod async_closure;
 mod build;
 mod service;
 
+pub mod middleware;
 pub mod pipeline;
 pub mod ready;
 
