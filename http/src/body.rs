@@ -16,6 +16,7 @@ use super::{
 
 /// A unified request body type for different http protocols.
 /// This enables one service type to handle multiple http protocols.
+#[derive(Default)]
 pub enum RequestBody {
     #[cfg(feature = "http1")]
     H1(super::h1::RequestBody),
@@ -23,13 +24,8 @@ pub enum RequestBody {
     H2(super::h2::RequestBody),
     #[cfg(feature = "http3")]
     H3(super::h3::RequestBody),
+    #[default]
     None,
-}
-
-impl Default for RequestBody {
-    fn default() -> Self {
-        RequestBody::None
-    }
 }
 
 impl Stream for RequestBody {
@@ -75,6 +71,7 @@ impl<B> Stream for Empty<B> {
 }
 
 /// Full body type that can only be polled once with [Stream::poll_next].
+#[derive(Default)]
 pub struct Once<B>(Option<B>);
 
 impl<B> Once<B>

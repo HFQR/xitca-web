@@ -7,4 +7,4 @@ edition = "2021"
 alloc = []
 
 [dev-dependencies]
-tokio = { version = "1.6", features = ["macros", "rt"] }
+xitca-unsafe-collection = "0.1"

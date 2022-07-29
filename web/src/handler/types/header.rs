@@ -84,10 +84,12 @@ impl<const HEADER_NAME: usize> HeaderRef<'_, HEADER_NAME> {
 
 #[cfg(test)]
 mod test {
+    use xitca_unsafe_collection::futures::NowOrPanic;
+
     use super::*;
 
-    #[tokio::test]
-    async fn extract_header() {
+    #[test]
+    fn extract_header() {
         let mut req = WebRequest::new_test(());
         let mut req = req.as_web_req();
         req.req_mut()
@@ -99,7 +101,7 @@ mod test {
 
         assert_eq!(
             HeaderRef::<'_, { super::ACCEPT_ENCODING }>::from_request(&req)
-                .await
+                .now_or_panic()
                 .unwrap()
                 .try_parse::<String>()
                 .unwrap(),
@@ -107,7 +109,7 @@ mod test {
         );
         assert_eq!(
             HeaderRef::<'_, { super::HOST }>::from_request(&req)
-                .await
+                .now_or_panic()
                 .unwrap()
                 .try_parse::<String>()
                 .unwrap(),

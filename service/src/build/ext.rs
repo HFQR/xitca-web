@@ -97,6 +97,8 @@ mod test {
 
     use core::{convert::Infallible, future::Future};
 
+    use xitca_unsafe_collection::futures::NowOrPanic;
+
     use crate::{fn_service, Service};
 
     #[derive(Clone)]
@@ -133,46 +135,46 @@ mod test {
     }
 
     #[cfg(feature = "alloc")]
-    #[tokio::test]
-    async fn service_object() {
+    #[test]
+    fn service_object() {
         let service = fn_service(index)
             .enclosed(DummyMiddleware)
             .into_object()
             .build(())
-            .await
+            .now_or_panic()
             .unwrap();
 
-        let res = service.call("996").await.unwrap();
+        let res = service.call("996").now_or_panic().unwrap();
         assert_eq!(res, "996");
     }
 
-    #[tokio::test]
-    async fn map() {
-        let service = fn_service(index).map(|_| "251").build(()).await.unwrap();
+    #[test]
+    fn map() {
+        let service = fn_service(index).map(|_| "251").build(()).now_or_panic().unwrap();
 
-        let err = service.call("996").await.ok().unwrap();
+        let err = service.call("996").now_or_panic().ok().unwrap();
         assert_eq!(err, "251");
     }
 
-    #[tokio::test]
-    async fn map_err() {
+    #[test]
+    fn map_err() {
         let service = fn_service(|_: &str| async { Err::<(), _>(()) })
             .map_err(|_| "251")
             .build(())
-            .await
+            .now_or_panic()
             .unwrap();
 
-        let err = service.call("996").await.err().unwrap();
+        let err = service.call("996").now_or_panic().err().unwrap();
         assert_eq!(err, "251");
     }
 
-    #[tokio::test]
-    async fn enclosed_fn() {
+    #[test]
+    fn enclosed_fn() {
         async fn enclosed<S>(service: &S, req: &'static str) -> Result<&'static str, ()>
         where
             S: Service<&'static str, Response = &'static str, Error = ()>,
         {
-            let res = service.call(req).await?;
+            let res = service.call(req).now_or_panic()?;
             assert_eq!(res, "996");
             Ok("251")
         }
@@ -180,10 +182,10 @@ mod test {
         let res = fn_service(index)
             .enclosed_fn(enclosed)
             .build(())
-            .await
+            .now_or_panic()
             .unwrap()
             .call("996")
-            .await
+            .now_or_panic()
             .ok()
             .unwrap();
 

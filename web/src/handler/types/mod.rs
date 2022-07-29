@@ -5,7 +5,9 @@ pub mod html;
 pub mod path;
 pub mod request;
 pub mod state;
+pub mod string;
 pub mod uri;
+pub mod vec;
 
 #[cfg(feature = "urlencoded")]
 pub mod query;
