@@ -3,5 +3,8 @@ name = "xitca-service"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+alloc = []
+
 [dev-dependencies]
-tokio = { version = "1.6", features = ["macros", "rt"] }
+xitca-unsafe-collection = "0.1"

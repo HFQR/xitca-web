@@ -175,44 +175,45 @@ mod test {
     use std::convert::Infallible;
 
     use xitca_service::{fn_service, BuildServiceExt, Service};
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         http::{self, Response},
         request::Request,
     };
 
-    #[tokio::test]
-    async fn router_accept_crate_request() {
+    #[test]
+    fn router_accept_crate_request() {
         Router::new()
             .insert(
                 "/",
                 fn_service(|_: Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
             .build(())
-            .await
+            .now_or_panic()
             .unwrap()
             .call(Request::new(()))
-            .await
+            .now_or_panic()
             .unwrap();
     }
 
-    #[tokio::test]
-    async fn router_accept_http_request() {
+    #[test]
+    fn router_accept_http_request() {
         Router::new()
             .insert(
                 "/",
                 fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
             .build(())
-            .await
+            .now_or_panic()
             .unwrap()
             .call(http::Request::new(()))
-            .await
+            .now_or_panic()
             .unwrap();
     }
 
-    #[tokio::test]
-    async fn router_enclosed_fn() {
+    #[test]
+    fn router_enclosed_fn() {
         async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
         where
             S: Service<Req>,
@@ -227,10 +228,10 @@ mod test {
             )
             .enclosed_fn(enclosed)
             .build(())
-            .await
+            .now_or_panic()
             .unwrap()
             .call(http::Request::new(()))
-            .await
+            .now_or_panic()
             .unwrap();
     }
 }

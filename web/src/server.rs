@@ -2,13 +2,16 @@ use std::{error, fmt, future::Future, net::ToSocketAddrs, time::Duration};
 
 use futures_core::Stream;
 use xitca_http::{
-    bytes::Bytes,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::Response,
     HttpServiceBuilder, Request, RequestBody, ResponseBody,
 };
 use xitca_server::{Builder, ServerFuture};
-use xitca_service::{ready::ReadyService, BuildService, Service};
+
+use crate::dev::{
+    bytes::Bytes,
+    service::{ready::ReadyService, BuildService, Service},
+};
 
 pub struct HttpServer<
     F,
@@ -195,7 +198,7 @@ where
     pub fn bind<A: ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
-        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
         I::Error: error::Error,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 

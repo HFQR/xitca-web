@@ -155,18 +155,26 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MethodNotAllowed {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::request::WebRequest;
 
-    #[tokio::test]
-    async fn extract_default_impls() {
+    use super::*;
+
+    #[test]
+    fn extract_default_impls() {
         let mut req = WebRequest::new_test(());
         let req = req.as_web_req();
 
-        Option::<()>::from_request(&req).await.unwrap().unwrap();
-        Result::<(), Infallible>::from_request(&req).await.unwrap().unwrap();
-        <&WebRequest<'_>>::from_request(&req).await.unwrap();
-        <()>::from_request(&req).await.unwrap();
+        Option::<()>::from_request(&req).now_or_panic().unwrap().unwrap();
+
+        Result::<(), Infallible>::from_request(&req)
+            .now_or_panic()
+            .unwrap()
+            .unwrap();
+
+        <&WebRequest<'_>>::from_request(&req).now_or_panic().unwrap();
+
+        <()>::from_request(&req).now_or_panic().unwrap();
     }
 }

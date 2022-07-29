@@ -4,7 +4,7 @@ use futures_util::TryStreamExt;
 use http_ws::{ws, Message};
 use tracing::info;
 use xitca_web::{
-    dev::fn_service,
+    dev::service::fn_service,
     error::BodyError,
     http,
     request::WebRequest,

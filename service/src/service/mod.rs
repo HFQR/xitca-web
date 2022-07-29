@@ -5,8 +5,6 @@ mod map_err;
 
 use core::{future::Future, ops::Deref, pin::Pin};
 
-use alloc::{boxed::Box, rc::Rc, sync::Arc};
-
 /// Trait for simulate `Fn<(&Self, Arg)> -> impl Future<Output = Result<T, E>> + '_`.
 /// The function call come from stateful type that can be referenced within returned opaque future.
 pub trait Service<Req> {
@@ -24,27 +22,34 @@ pub trait Service<Req> {
     fn call(&self, req: Req) -> Self::Future<'_>;
 }
 
-macro_rules! impl_alloc {
-    ($alloc: ident) => {
-        impl<S, Req> Service<Req> for $alloc<S>
-        where
-            S: Service<Req> + ?Sized,
-        {
-            type Response = S::Response;
-            type Error = S::Error;
-            type Future<'f> = S::Future<'f> where Self: 'f;
+#[cfg(feature = "alloc")]
+mod alloc_impl {
+    use super::Service;
 
-            #[inline]
-            fn call(&self, req: Req) -> Self::Future<'_> {
-                (**self).call(req)
+    use alloc::{boxed::Box, rc::Rc, sync::Arc};
+
+    macro_rules! impl_alloc {
+        ($alloc: ident) => {
+            impl<S, Req> Service<Req> for $alloc<S>
+            where
+                S: Service<Req> + ?Sized,
+            {
+                type Response = S::Response;
+                type Error = S::Error;
+                type Future<'f> = S::Future<'f> where Self: 'f;
+
+                #[inline]
+                fn call(&self, req: Req) -> Self::Future<'_> {
+                    (**self).call(req)
+                }
             }
-        }
-    };
-}
+        };
+    }
 
-impl_alloc!(Box);
-impl_alloc!(Rc);
-impl_alloc!(Arc);
+    impl_alloc!(Box);
+    impl_alloc!(Rc);
+    impl_alloc!(Arc);
+}
 
 impl<S, Req> Service<Req> for Pin<S>
 where
@@ -61,11 +66,14 @@ where
     }
 }
 
+#[cfg(feature = "alloc")]
 #[cfg(test)]
 mod test {
     use super::*;
 
     use alloc::string::String;
+
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     struct Layer1<S> {
         name: String,
@@ -128,8 +136,8 @@ mod test {
         }
     }
 
-    #[tokio::test]
-    async fn nest_service() {
+    #[test]
+    fn nest_service() {
         let service = Layer2 {
             name: String::from("Layer2"),
             service: DummyService,
@@ -142,7 +150,7 @@ mod test {
 
         let req = "Request";
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res, String::from("RequestLayer1Layer2"));
     }

@@ -6,6 +6,7 @@ mod server;
 
 pub mod error;
 pub mod handler;
+pub mod middleware;
 pub mod request;
 pub mod response;
 
@@ -48,7 +49,8 @@ pub mod route {
 
 pub mod dev {
     pub use xitca_http::bytes;
-    pub use xitca_service::{fn_service, BuildService, BuildServiceExt, Service};
+
+    pub use xitca_service as service;
 }
 
 pub use app::App;

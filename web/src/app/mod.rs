@@ -110,23 +110,28 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<C, Fut, CErr, B, RS, Res, Err>(
+    pub fn finish<C, Fut, CErr, B, RS, Res, Err, Rdy>(
         self,
-    ) -> impl BuildService<(), Service = impl Service<Request<B>, Response = Res, Error = Err>, Error = R::Error>
+    ) -> impl BuildService<Service = impl ReadyService<Request<B>, Response = Res, Error = Err, Ready = Rdy>, Error = R::Error>
     where
-        R: BuildService<(), Service = RS> + 'static,
+        R: BuildService<Service = RS> + 'static,
         CF: Fn() -> Fut + 'static,
         Fut: Future<Output = Result<C, CErr>>,
         C: 'static,
         B: 'static,
-        RS: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>,
+        R::Future: 'static,
         R::Error: From<CErr> + From<Infallible>,
+        RS: for<'r> ReadyService<WebRequest<'r, C, B>, Response = Res, Error = Err, Ready = Rdy>,
     {
         let App { ctx_factory, router } = self;
         let service = router.enclosed(MapRequest);
-        ContextBuilder::new(ctx_factory).service(service)
+        Box::new(ContextBuilder::new(ctx_factory).service(service))
+            as Box<dyn BuildService<Service = _, Error = _, Future = _>>
     }
 }
+
+#[derive(Clone, Copy)]
+struct MapRequest;
 
 #[derive(Clone, Copy)]
 struct MapRequest;
@@ -185,15 +190,16 @@ where
 mod test {
     use super::*;
 
-    use xitca_http::body::RequestBody;
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::Service,
+        dev::service::Service,
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
             uri::UriRef, Responder,
         },
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Method, Uri},
+        request::RequestBody,
         route::get,
     };
 
@@ -250,8 +256,8 @@ mod test {
     // arbitrary body type mutation
     struct NewBody<B>(B);
 
-    #[tokio::test]
-    async fn test_app() {
+    #[test]
+    fn test_app() {
         async fn middleware_fn<S, C, B, Res, Err>(service: &S, mut req: WebRequest<'_, C, B>) -> Result<Res, Infallible>
         where
             S: for<'r> Service<WebRequest<'r, C, NewBody<B>>, Response = Res, Error = Err>,
@@ -282,14 +288,14 @@ mod test {
             .enclosed(Middleware)
             .finish()
             .build(())
-            .await
+            .now_or_panic()
             .ok()
             .unwrap();
 
         let mut req = Request::default();
         req.extensions_mut().insert(Foo);
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
@@ -297,14 +303,14 @@ mod test {
         let mut req = Request::default();
         *req.uri_mut() = Uri::from_static("/abc");
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 404);
 
         let mut req = Request::default();
         *req.method_mut() = Method::POST;
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 405);
     }

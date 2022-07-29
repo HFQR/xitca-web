@@ -10,6 +10,7 @@ use pin_project_lite::pin_project;
 
 pin_project! {
     /// A coder type that can be used for either encode or decode which determined by De type.
+    #[derive(Default)]
     pub struct Coder<S, C = FeaturedCode>{
         #[pin]
         body: S,
@@ -33,12 +34,12 @@ where
 /// or input Stream's error type.
 pub enum CoderError<E> {
     Io(io::Error),
-    Feature(Feature),
+    Feature(FeatureError),
     Stream(E),
 }
 
-#[doc(hidden)]
-pub enum Feature {
+#[derive(Debug)]
+pub enum FeatureError {
     Br,
     Gzip,
     Deflate,
@@ -48,9 +49,9 @@ impl<E> fmt::Debug for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Io(ref e) => write!(f, "{:?}", e),
-            Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
-            Self::Feature(Feature::Gzip) => write!(f, "gz feature is disabled."),
-            Self::Feature(Feature::Deflate) => write!(f, "de feature is disabled."),
+            Self::Feature(FeatureError::Br) => write!(f, "br feature is disabled."),
+            Self::Feature(FeatureError::Gzip) => write!(f, "gz feature is disabled."),
+            Self::Feature(FeatureError::Deflate) => write!(f, "de feature is disabled."),
             Self::Stream(..) => write!(f, "Input Stream body error."),
         }
     }
@@ -60,9 +61,9 @@ impl<E> fmt::Display for CoderError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Io(ref e) => write!(f, "{}", e),
-            Self::Feature(Feature::Br) => write!(f, "br feature is disabled."),
-            Self::Feature(Feature::Gzip) => write!(f, "gz feature is disabled."),
-            Self::Feature(Feature::Deflate) => write!(f, "de feature is disabled."),
+            Self::Feature(FeatureError::Br) => write!(f, "br feature is disabled."),
+            Self::Feature(FeatureError::Gzip) => write!(f, "gz feature is disabled."),
+            Self::Feature(FeatureError::Deflate) => write!(f, "de feature is disabled."),
             Self::Stream(..) => write!(f, "Input Stream body error."),
         }
     }
@@ -146,6 +147,12 @@ pub enum FeaturedCode {
     DecodeDe(super::deflate::Decoder),
     #[cfg(feature = "de")]
     EncodeDe(super::deflate::Encoder),
+}
+
+impl Default for FeaturedCode {
+    fn default() -> Self {
+        Self::NoOp(NoOpCode)
+    }
 }
 
 impl<T> Code<T> for FeaturedCode

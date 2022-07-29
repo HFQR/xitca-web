@@ -46,7 +46,7 @@ async fn grpc(mut req: Request<RequestBody>) -> Result<Response<Once<Bytes>>, an
     let mut buf = BytesMut::new();
 
     while let Some(bytes) = body.try_next().await? {
-        buf.extend_from_slice(&*bytes);
+        buf.extend_from_slice(bytes.as_ref());
     }
 
     let msg: hello_world::HelloRequest = Message::decode(buf.split_off(5))?;

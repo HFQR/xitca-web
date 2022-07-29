@@ -8,9 +8,12 @@ default = []
 http2 = ["xitca-http/http2"]
 http3 = ["xitca-http/http3", "xitca-io/http3"]
 io-uring = ["xitca-server/io-uring"]
-json = ["serde", "serde_json"]
 openssl = ["xitca-http/openssl", "openssl-crate"]
 rustls = ["xitca-http/rustls", "rustls-crate"]
+compress-br = ["http-encoding/br"]
+compress-gz = ["http-encoding/gz"]
+compress-de = ["http-encoding/de"]
+json = ["serde", "serde_json"]
 urlencoded = ["serde", "serde_urlencoded" ]
 codegen = ["xitca-codegen"]
 
@@ -28,6 +31,9 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 
 # rustls feature
 rustls-crate = { package = "rustls", version = "0.20", optional = true }
+
+# (de)compress feature
+http-encoding = { version = "0.1", optional = true }
 
 # json feature
 serde = { version = "1", optional = true }
