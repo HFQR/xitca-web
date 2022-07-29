@@ -38,6 +38,7 @@ pub enum CoderError<E> {
     Stream(E),
 }
 
+#[derive(Debug)]
 pub enum FeatureError {
     Br,
     Gzip,

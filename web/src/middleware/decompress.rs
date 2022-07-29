@@ -2,9 +2,11 @@ use std::{cell::RefCell, convert::Infallible, fmt, future::Future};
 
 use futures_core::stream::Stream;
 use http_encoding::{Coder, FeatureError};
-use xitca_service::{pipeline::PipelineE, BuildService, Service};
 
-use crate::request::WebRequest;
+use crate::{
+    dev::service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service},
+    request::WebRequest,
+};
 
 /// A decompress middleware look into [WebRequest]'s `Content-Encoding` header and
 /// apply according decompression to it according to enabled compress feature.
@@ -57,11 +59,28 @@ where
     }
 }
 
+impl<'r, S, C, B, T, E, Res, Err, Rdy> ReadyService<WebRequest<'r, C, B>> for DecompressService<S>
+where
+    C: 'static,
+    B: Stream<Item = Result<T, E>> + Default + 'static,
+    T: AsRef<[u8]> + 'static,
+    E: fmt::Debug,
+    S: for<'rs> ReadyService<WebRequest<'rs, C, Coder<B>>, Response = Res, Error = Err, Ready = Rdy>,
+{
+    type Ready = Rdy;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async move { self.service.ready().await }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::future::poll_fn;
 
-    use http_encoding::{try_encoder, ContentEncoding};
+    use http_encoding::{encoder, ContentEncoding};
     use xitca_http::{body::Once, Request};
     use xitca_unsafe_collection::{futures::NowOrPanic, pin};
 
@@ -122,7 +141,7 @@ mod test {
     #[test]
     fn compressed() {
         // a hack to generate a compressed client request from server response.
-        let res = WebResponse::new(ResponseBody::bytes(Bytes::from_static(Q)));
+        let res = WebResponse::<ResponseBody>::new(ResponseBody::bytes(Bytes::from_static(Q)));
 
         let encoding = {
             #[cfg(all(feature = "compress-br", not(any(feature = "compress-gz", feature = "compress-de"))))]
@@ -143,7 +162,7 @@ mod test {
             }
         };
 
-        let (mut parts, body) = try_encoder(res, encoding).unwrap().into_parts();
+        let (mut parts, body) = encoder(res, encoding).into_parts();
 
         pin!(body);
 

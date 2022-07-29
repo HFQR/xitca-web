@@ -50,7 +50,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::{BuildService, Service},
+        dev::service::{BuildService, Service},
         handler::handler_service,
         request::WebRequest,
         route::get,
@@ -85,14 +85,15 @@ mod test {
             field2: 996,
         };
 
-        let service = App::with_current_thread_state(state)
+        App::with_current_thread_state(state)
             .at("/", get(handler_service(handler)))
             .finish()
             .build(())
             .now_or_panic()
             .ok()
+            .unwrap()
+            .call(Request::default())
+            .now_or_panic()
             .unwrap();
-
-        let _ = service.call(Request::default()).now_or_panic().unwrap();
     }
 }

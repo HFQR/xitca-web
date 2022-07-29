@@ -4,7 +4,7 @@ use xitca_http::{
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Response},
     Request, RequestBody, ResponseBody,
 };
-use xitca_web::{dev::fn_service, HttpServer};
+use xitca_web::{dev::service::fn_service, HttpServer};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {

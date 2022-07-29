@@ -23,7 +23,7 @@ fn from_headers<E>(headers: &HeaderMap) -> Result<FeaturedCode, CoderError<E>> {
     let decoder = headers
         .get(&CONTENT_ENCODING)
         .and_then(|val| val.to_str().ok())
-        .map(|encoding| match ContentEncoding::from(encoding) {
+        .map(|encoding| match ContentEncoding::parse(encoding) {
             ContentEncoding::Br => {
                 #[cfg(feature = "br")]
                 {

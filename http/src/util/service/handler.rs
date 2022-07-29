@@ -304,6 +304,7 @@ mod test {
     };
 
     use xitca_service::{BuildServiceExt, Service};
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::http::{Response, StatusCode};
     use crate::util::service::{route::get, Router};
@@ -370,8 +371,8 @@ mod test {
         }
     }
 
-    #[tokio::test]
-    async fn concurrent_extract_with_enclosed_fn() {
+    #[test]
+    fn concurrent_extract_with_enclosed_fn() {
         async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
         where
             S: Service<Req>,
@@ -382,24 +383,24 @@ mod test {
         let res = handler_service(handler)
             .enclosed_fn(enclosed)
             .build(())
-            .await
+            .now_or_panic()
             .unwrap()
             .call(Request::new(()))
-            .await
+            .now_or_panic()
             .unwrap();
 
         assert_eq!(res.status(), StatusCode::MULTI_STATUS);
     }
 
-    #[tokio::test]
-    async fn handler_in_router() {
+    #[test]
+    fn handler_in_router() {
         let res = Router::new()
             .insert("/", get(handler_service(handler)))
             .build(())
-            .await
+            .now_or_panic()
             .unwrap()
             .call(Request::new(()))
-            .await
+            .now_or_panic()
             .unwrap();
 
         assert_eq!(res.status(), StatusCode::MULTI_STATUS);

@@ -228,6 +228,7 @@ mod test {
     use std::convert::Infallible;
 
     use xitca_service::{fn_service, BuildServiceExt};
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         http::Response,
@@ -254,18 +255,18 @@ mod test {
         Ok(Response::new(()))
     }
 
-    #[tokio::test]
-    async fn test_state_and_then() {
+    #[test]
+    fn test_state_and_then() {
         let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(fn_service(into_context).and_then(fn_service(ctx_handler)))
             .build(())
-            .await
+            .now_or_panic()
             .ok()
             .unwrap();
 
         let req = Request::default();
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
     }
@@ -276,8 +277,8 @@ mod test {
         Ok(Response::new(()))
     }
 
-    #[tokio::test]
-    async fn test_state_in_router() {
+    #[test]
+    fn test_state_in_router() {
         async fn enclosed<S, Req, C, Res, Err>(service: &S, req: Context<'_, Req, C>) -> Result<Res, Err>
         where
             S: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>,
@@ -292,13 +293,13 @@ mod test {
         let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(router)
             .build(())
-            .await
+            .now_or_panic()
             .ok()
             .unwrap();
 
         let req = Request::default();
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
     }
