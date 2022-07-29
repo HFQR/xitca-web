@@ -37,7 +37,7 @@ where
                         ))
                     }
                     #[cfg(not(feature = "de"))]
-                    return Err(CoderError::Feature(super::coder::Feature::Deflate));
+                    return Err(CoderError::Feature(super::coder::FeatureError::Deflate));
                 }
                 ContentEncoding::Gzip => {
                     #[cfg(feature = "gz")]
@@ -49,7 +49,7 @@ where
                         ))
                     }
                     #[cfg(not(feature = "gz"))]
-                    return Err(CoderError::Feature(super::coder::Feature::Gzip));
+                    return Err(CoderError::Feature(super::coder::FeatureError::Gzip));
                 }
                 ContentEncoding::Br => {
                     #[cfg(feature = "br")]
@@ -58,7 +58,7 @@ where
                         FeaturedCode::EncodeBr(super::brotli::Encoder::new(super::writer::Writer::new(), 3))
                     }
                     #[cfg(not(feature = "br"))]
-                    return Err(CoderError::Feature(super::coder::Feature::Br));
+                    return Err(CoderError::Feature(super::coder::FeatureError::Br));
                 }
                 ContentEncoding::NoOp => {
                     // Since identity does not do actual encoding. content-length header can left untouched.

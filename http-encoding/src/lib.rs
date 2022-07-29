@@ -103,7 +103,7 @@ mod deflate {
     code_impl!(DeflateEncoder);
 }
 
-pub use self::coder::{Code, Coder, FeaturedCode};
+pub use self::coder::{Code, Coder, CoderError, FeatureError, FeaturedCode};
 pub use self::coding::ContentEncoding;
 pub use self::decode::try_decoder;
 pub use self::encode::try_encoder;

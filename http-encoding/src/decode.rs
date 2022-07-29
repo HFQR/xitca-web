@@ -32,7 +32,7 @@ fn from_headers<E>(headers: &HeaderMap) -> Result<FeaturedCode, CoderError<E>> {
                     )))
                 }
                 #[cfg(not(feature = "br"))]
-                Err(CoderError::Feature(super::coder::Feature::Br))
+                Err(CoderError::Feature(super::coder::FeatureError::Br))
             }
             ContentEncoding::Gzip => {
                 #[cfg(feature = "gz")]
@@ -42,7 +42,7 @@ fn from_headers<E>(headers: &HeaderMap) -> Result<FeaturedCode, CoderError<E>> {
                     )))
                 }
                 #[cfg(not(feature = "gz"))]
-                Err(CoderError::Feature(super::coder::Feature::Gzip))
+                Err(CoderError::Feature(super::coder::FeatureError::Gzip))
             }
             ContentEncoding::Deflate => {
                 #[cfg(feature = "de")]
@@ -52,7 +52,7 @@ fn from_headers<E>(headers: &HeaderMap) -> Result<FeaturedCode, CoderError<E>> {
                     )))
                 }
                 #[cfg(not(feature = "de"))]
-                Err(CoderError::Feature(super::coder::Feature::Deflate))
+                Err(CoderError::Feature(super::coder::FeatureError::Deflate))
             }
             ContentEncoding::NoOp => Ok(FeaturedCode::NoOp(NoOpCode)),
         })

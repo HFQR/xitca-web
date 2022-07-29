@@ -6,6 +6,7 @@ mod server;
 
 pub mod error;
 pub mod handler;
+pub mod middleware;
 pub mod request;
 pub mod response;
 
