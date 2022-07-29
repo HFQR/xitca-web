@@ -73,7 +73,7 @@ mod test {
 
     use alloc::string::String;
 
-    use futures_util::FutureExt;
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     struct Layer1<S> {
         name: String,
@@ -150,7 +150,7 @@ mod test {
 
         let req = "Request";
 
-        let res = service.call(req).now_or_never().unwrap().unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res, String::from("RequestLayer1Layer2"));
     }

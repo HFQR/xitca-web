@@ -84,7 +84,7 @@ impl<const HEADER_NAME: usize> HeaderRef<'_, HEADER_NAME> {
 
 #[cfg(test)]
 mod test {
-    use futures_util::FutureExt;
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use super::*;
 
@@ -101,8 +101,7 @@ mod test {
 
         assert_eq!(
             HeaderRef::<'_, { super::ACCEPT_ENCODING }>::from_request(&req)
-                .now_or_never()
-                .unwrap()
+                .now_or_panic()
                 .unwrap()
                 .try_parse::<String>()
                 .unwrap(),
@@ -110,8 +109,7 @@ mod test {
         );
         assert_eq!(
             HeaderRef::<'_, { super::HOST }>::from_request(&req)
-                .now_or_never()
-                .unwrap()
+                .now_or_panic()
                 .unwrap()
                 .try_parse::<String>()
                 .unwrap(),

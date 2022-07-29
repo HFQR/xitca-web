@@ -97,7 +97,7 @@ mod test {
 
     use core::{convert::Infallible, future::Future};
 
-    use futures_util::FutureExt;
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{fn_service, Service};
 
@@ -141,24 +141,18 @@ mod test {
             .enclosed(DummyMiddleware)
             .into_object()
             .build(())
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .unwrap();
 
-        let res = service.call("996").now_or_never().unwrap().unwrap();
+        let res = service.call("996").now_or_panic().unwrap();
         assert_eq!(res, "996");
     }
 
     #[test]
     fn map() {
-        let service = fn_service(index)
-            .map(|_| "251")
-            .build(())
-            .now_or_never()
-            .unwrap()
-            .unwrap();
+        let service = fn_service(index).map(|_| "251").build(()).now_or_panic().unwrap();
 
-        let err = service.call("996").now_or_never().unwrap().ok().unwrap();
+        let err = service.call("996").now_or_panic().ok().unwrap();
         assert_eq!(err, "251");
     }
 
@@ -167,11 +161,10 @@ mod test {
         let service = fn_service(|_: &str| async { Err::<(), _>(()) })
             .map_err(|_| "251")
             .build(())
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .unwrap();
 
-        let err = service.call("996").now_or_never().unwrap().err().unwrap();
+        let err = service.call("996").now_or_panic().err().unwrap();
         assert_eq!(err, "251");
     }
 
@@ -181,7 +174,7 @@ mod test {
         where
             S: Service<&'static str, Response = &'static str, Error = ()>,
         {
-            let res = service.call(req).now_or_never().unwrap()?;
+            let res = service.call(req).now_or_panic()?;
             assert_eq!(res, "996");
             Ok("251")
         }
@@ -189,12 +182,10 @@ mod test {
         let res = fn_service(index)
             .enclosed_fn(enclosed)
             .build(())
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .unwrap()
             .call("996")
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .ok()
             .unwrap();
 

@@ -61,10 +61,9 @@ where
 mod test {
     use std::future::poll_fn;
 
-    use futures_util::FutureExt;
     use http_encoding::{try_encoder, ContentEncoding};
     use xitca_http::{body::Once, Request};
-    use xitca_unsafe_collection::pin;
+    use xitca_unsafe_collection::{futures::NowOrPanic, pin};
 
     use crate::{dev::bytes::Bytes, http::header::CONTENT_ENCODING};
 
@@ -96,12 +95,10 @@ mod test {
             .enclosed(Decompress)
             .finish()
             .build(())
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .unwrap()
             .call(Request::new(RequestBody::default()))
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .ok()
             .unwrap();
     }
@@ -113,12 +110,10 @@ mod test {
             .enclosed(Decompress)
             .finish()
             .build(())
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .unwrap()
             .call(Request::new(Once::new(Q)))
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .ok()
             .unwrap();
     }
@@ -142,6 +137,10 @@ mod test {
             {
                 ContentEncoding::Deflate
             }
+            #[cfg(all(feature = "compress-de", feature = "compress-br", feature = "compress-gz"))]
+            {
+                ContentEncoding::Br
+            }
         };
 
         let (mut parts, body) = try_encoder(res, encoding).unwrap().into_parts();
@@ -150,7 +149,7 @@ mod test {
 
         let mut buf = std::vec::Vec::new();
 
-        while let Some(Ok(bytes)) = poll_fn(|cx| body.as_mut().poll_next(cx)).now_or_never().unwrap() {
+        while let Some(Ok(bytes)) = poll_fn(|cx| body.as_mut().poll_next(cx)).now_or_panic() {
             buf.extend_from_slice(bytes.as_ref());
         }
 
@@ -163,12 +162,10 @@ mod test {
             .enclosed(Decompress)
             .finish()
             .build(())
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .unwrap()
             .call(req)
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .ok()
             .unwrap();
     }

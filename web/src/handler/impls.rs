@@ -155,7 +155,7 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MethodNotAllowed {
 
 #[cfg(test)]
 mod test {
-    use futures_util::FutureExt;
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::request::WebRequest;
 
@@ -166,20 +166,15 @@ mod test {
         let mut req = WebRequest::new_test(());
         let req = req.as_web_req();
 
-        Option::<()>::from_request(&req)
-            .now_or_never()
-            .unwrap()
-            .unwrap()
-            .unwrap();
+        Option::<()>::from_request(&req).now_or_panic().unwrap().unwrap();
 
         Result::<(), Infallible>::from_request(&req)
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .unwrap()
             .unwrap();
 
-        <&WebRequest<'_>>::from_request(&req).now_or_never().unwrap().unwrap();
+        <&WebRequest<'_>>::from_request(&req).now_or_panic().unwrap();
 
-        <()>::from_request(&req).now_or_never().unwrap().unwrap();
+        <()>::from_request(&req).now_or_panic().unwrap();
     }
 }

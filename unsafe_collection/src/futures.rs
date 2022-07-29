@@ -5,6 +5,10 @@ use core::{
     task::{Context, Poll},
 };
 
+extern crate alloc;
+
+use alloc::{sync::Arc, task::Wake};
+
 #[macro_export]
 macro_rules! pin {
     ($($x:ident),* $(,)?) => { $(
@@ -79,23 +83,44 @@ impl<A, B> fmt::Debug for SelectOutput<A, B> {
     }
 }
 
+pub trait NowOrPanic: Sized {
+    type Output;
+
+    fn now_or_panic(&mut self) -> Self::Output;
+}
+
+impl<F> NowOrPanic for F
+where
+    F: Future,
+{
+    type Output = F::Output;
+
+    fn now_or_panic(&mut self) -> Self::Output {
+        let waker = Arc::new(DummyWaker).into();
+        let cx = &mut Context::from_waker(&waker);
+
+        // SAFETY:
+        // self is not moved.
+        match unsafe { Pin::new_unchecked(self).poll(cx) } {
+            Poll::Ready(ret) => ret,
+            Poll::Pending => panic!("Future can not be polled to complete"),
+        }
+    }
+}
+
+struct DummyWaker;
+
+impl Wake for DummyWaker {
+    fn wake(self: Arc<Self>) {
+        // do nothing.
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
-    extern crate alloc;
-
-    use core::{future::poll_fn, task::Waker};
-
-    use alloc::{sync::Arc, task::Wake};
-
-    struct DummyWaker;
-
-    impl Wake for DummyWaker {
-        fn wake(self: Arc<Self>) {
-            // do nothing.
-        }
-    }
+    use core::future::poll_fn;
 
     #[test]
     fn test_select() {
@@ -111,10 +136,6 @@ mod test {
 
         pin!(fut);
 
-        let waker = Waker::from(Arc::new(DummyWaker));
-
-        let cx = &mut Context::from_waker(&waker);
-
-        matches!(fut.poll(cx), Poll::Ready(SelectOutput::B(321)));
+        matches!(fut.now_or_panic(), SelectOutput::B(321));
     }
 }

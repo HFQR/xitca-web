@@ -32,7 +32,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use futures_util::FutureExt;
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::http::Uri;
 
@@ -50,7 +50,7 @@ mod test {
 
         *req.req_mut().uri_mut() = Uri::from_static("/996/251/?id=dagongren");
 
-        let Query(id) = Query::<Id>::from_request(&req).now_or_never().unwrap().unwrap();
+        let Query(id) = Query::<Id>::from_request(&req).now_or_panic().unwrap();
 
         assert_eq!(id.id, "dagongren");
     }

@@ -45,9 +45,9 @@ where
 mod test {
     use super::*;
 
-    use futures_util::FutureExt;
     use xitca_codegen::State;
     use xitca_http::request::Request;
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         dev::{BuildService, Service},
@@ -89,11 +89,10 @@ mod test {
             .at("/", get(handler_service(handler)))
             .finish()
             .build(())
-            .now_or_never()
-            .unwrap()
+            .now_or_panic()
             .ok()
             .unwrap();
 
-        let _ = service.call(Request::default()).now_or_never().unwrap().unwrap();
+        let _ = service.call(Request::default()).now_or_panic().unwrap();
     }
 }
