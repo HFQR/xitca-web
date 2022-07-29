@@ -73,6 +73,8 @@ mod test {
 
     use alloc::string::String;
 
+    use futures_util::FutureExt;
+
     struct Layer1<S> {
         name: String,
         service: S,
@@ -134,8 +136,8 @@ mod test {
         }
     }
 
-    #[tokio::test]
-    async fn nest_service() {
+    #[test]
+    fn nest_service() {
         let service = Layer2 {
             name: String::from("Layer2"),
             service: DummyService,
@@ -148,7 +150,7 @@ mod test {
 
         let req = "Request";
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_never().unwrap().unwrap();
 
         assert_eq!(res, String::from("RequestLayer1Layer2"));
     }

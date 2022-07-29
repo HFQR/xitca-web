@@ -6,6 +6,9 @@ use xitca_service::{pipeline::PipelineE, BuildService, Service};
 
 use crate::request::WebRequest;
 
+/// A decompress middleware look into [WebRequest]'s `Content-Encoding` header and
+/// apply according decompression to it according to enabled compress feature.
+/// `compress-x` feature must be enabled for this middleware to function correctly.
 #[derive(Clone)]
 pub struct Decompress;
 
@@ -56,30 +59,60 @@ where
 
 #[cfg(test)]
 mod test {
-    use xitca_http::{body::Once, util::service::handler::handler_service, Request};
+    use futures_util::FutureExt;
+    use xitca_http::{body::Once, Request};
 
-    use crate::{handler::vec::Vec, App};
+    use crate::{
+        handler::{handler_service, vec::Vec},
+        request::RequestBody,
+        App,
+    };
 
     use super::*;
 
-    const Q: &[u8] = b"what is the goal of lie";
-    const A: &str = "go port for chip";
+    const Q: &[u8] = b"what is the goal of life";
+    const A: &str = "go dock for chip";
 
     async fn handler(Vec(vec): Vec) -> &'static str {
         assert_eq!(Q, vec);
         A
     }
 
-    #[tokio::test]
-    async fn plain() {
-        let service = App::new()
+    #[test]
+    fn build() {
+        async fn noop() -> &'static str {
+            "noop"
+        }
+
+        App::new()
+            .at("/", handler_service(noop))
+            .enclosed(Decompress)
+            .finish()
+            .build(())
+            .now_or_never()
+            .unwrap()
+            .unwrap()
+            .call(Request::new(RequestBody::default()))
+            .now_or_never()
+            .unwrap()
+            .ok()
+            .unwrap();
+    }
+
+    #[test]
+    fn plain() {
+        App::new()
             .at("/", handler_service(handler))
             .enclosed(Decompress)
             .finish()
             .build(())
-            .await
+            .now_or_never()
+            .unwrap()
+            .unwrap()
+            .call(Request::new(Once::new(Q)))
+            .now_or_never()
+            .unwrap()
+            .ok()
             .unwrap();
-
-        service.call(Request::new(Once::new(Q))).await.ok().unwrap();
     }
 }

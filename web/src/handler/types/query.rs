@@ -32,23 +32,25 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use futures_util::FutureExt;
 
     use crate::http::Uri;
+
+    use super::*;
 
     #[derive(serde::Deserialize)]
     struct Id {
         id: String,
     }
 
-    #[tokio::test]
-    async fn query() {
+    #[test]
+    fn query() {
         let mut req = WebRequest::new_test(());
         let mut req = req.as_web_req();
 
         *req.req_mut().uri_mut() = Uri::from_static("/996/251/?id=dagongren");
 
-        let Query(id) = Query::<Id>::from_request(&req).await.unwrap();
+        let Query(id) = Query::<Id>::from_request(&req).now_or_never().unwrap().unwrap();
 
         assert_eq!(id.id, "dagongren");
     }

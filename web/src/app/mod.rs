@@ -190,6 +190,7 @@ where
 mod test {
     use super::*;
 
+    use futures_util::FutureExt;
     use xitca_http::body::RequestBody;
 
     use crate::{
@@ -255,8 +256,8 @@ mod test {
     // arbitrary body type mutation
     struct NewBody<B>(B);
 
-    #[tokio::test]
-    async fn test_app() {
+    #[test]
+    fn test_app() {
         async fn middleware_fn<S, C, B, Res, Err>(service: &S, mut req: WebRequest<'_, C, B>) -> Result<Res, Infallible>
         where
             S: for<'r> Service<WebRequest<'r, C, NewBody<B>>, Response = Res, Error = Err>,
@@ -287,14 +288,15 @@ mod test {
             .enclosed(Middleware)
             .finish()
             .build(())
-            .await
+            .now_or_never()
+            .unwrap()
             .ok()
             .unwrap();
 
         let mut req = Request::default();
         req.extensions_mut().insert(Foo);
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_never().unwrap().unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
@@ -302,14 +304,14 @@ mod test {
         let mut req = Request::default();
         *req.uri_mut() = Uri::from_static("/abc");
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_never().unwrap().unwrap();
 
         assert_eq!(res.status().as_u16(), 404);
 
         let mut req = Request::default();
         *req.method_mut() = Method::POST;
 
-        let res = service.call(req).await.unwrap();
+        let res = service.call(req).now_or_never().unwrap().unwrap();
 
         assert_eq!(res.status().as_u16(), 405);
     }

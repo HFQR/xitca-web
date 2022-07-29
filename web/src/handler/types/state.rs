@@ -45,6 +45,7 @@ where
 mod test {
     use super::*;
 
+    use futures_util::FutureExt;
     use xitca_codegen::State;
     use xitca_http::request::Request;
 
@@ -77,8 +78,8 @@ mod test {
         state.to_string()
     }
 
-    #[tokio::test]
-    async fn state_extract() {
+    #[test]
+    fn state_extract() {
         let state = State {
             field1: String::from("state"),
             field2: 996,
@@ -88,10 +89,11 @@ mod test {
             .at("/", get(handler_service(handler)))
             .finish()
             .build(())
-            .await
+            .now_or_never()
+            .unwrap()
             .ok()
             .unwrap();
 
-        let _ = service.call(Request::default()).await.unwrap();
+        let _ = service.call(Request::default()).now_or_never().unwrap().unwrap();
     }
 }

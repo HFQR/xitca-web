@@ -10,7 +10,9 @@ http3 = ["xitca-http/http3", "xitca-io/http3"]
 io-uring = ["xitca-server/io-uring"]
 openssl = ["xitca-http/openssl", "openssl-crate"]
 rustls = ["xitca-http/rustls", "rustls-crate"]
-compress = ["http-encoding"]
+compress-br = ["http-encoding/br"]
+compress-gz = ["http-encoding/gz"]
+compress-de = ["http-encoding/de"]
 json = ["serde", "serde_json"]
 urlencoded = ["serde", "serde_urlencoded" ]
 codegen = ["xitca-codegen"]
@@ -46,5 +48,6 @@ xitca-codegen = { version = "0.1", optional = true }
 [dev-dependencies]
 xitca-codegen = { version = "0.1" }
 
+futures-util = { version = "0.3.21" }
 serde = { version = "1.0.137", features = ["derive"] }
 tokio = { version = "1.12", features = ["rt", "macros"] }
