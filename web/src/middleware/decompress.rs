@@ -59,12 +59,19 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::future::poll_fn;
+
     use futures_util::FutureExt;
+    use http_encoding::{try_encoder, ContentEncoding};
     use xitca_http::{body::Once, Request};
+    use xitca_unsafe_collection::pin;
+
+    use crate::{dev::bytes::Bytes, http::header::CONTENT_ENCODING};
 
     use crate::{
         handler::{handler_service, vec::Vec},
         request::RequestBody,
+        response::{ResponseBody, WebResponse},
         App,
     };
 
@@ -110,6 +117,56 @@ mod test {
             .unwrap()
             .unwrap()
             .call(Request::new(Once::new(Q)))
+            .now_or_never()
+            .unwrap()
+            .ok()
+            .unwrap();
+    }
+
+    #[cfg(any(feature = "compress-br", feature = "compress-gz", feature = "compress-de"))]
+    #[test]
+    fn compressed() {
+        // a hack to generate a compressed client request from server response.
+        let res = WebResponse::new(ResponseBody::bytes(Bytes::from_static(Q)));
+
+        let encoding = {
+            #[cfg(all(feature = "compress-br", not(any(feature = "compress-gz", feature = "compress-de"))))]
+            {
+                ContentEncoding::Br
+            }
+            #[cfg(all(feature = "compress-gz", not(any(feature = "compress-br", feature = "compress-de"))))]
+            {
+                ContentEncoding::Gzip
+            }
+            #[cfg(all(feature = "compress-de", not(any(feature = "compress-br", feature = "compress-gz"))))]
+            {
+                ContentEncoding::Deflate
+            }
+        };
+
+        let (mut parts, body) = try_encoder(res, encoding).unwrap().into_parts();
+
+        pin!(body);
+
+        let mut buf = std::vec::Vec::new();
+
+        while let Some(Ok(bytes)) = poll_fn(|cx| body.as_mut().poll_next(cx)).now_or_never().unwrap() {
+            buf.extend_from_slice(bytes.as_ref());
+        }
+
+        let mut req = Request::new(Once::new(Bytes::from(buf)));
+        req.headers_mut()
+            .insert(CONTENT_ENCODING, parts.headers.remove(CONTENT_ENCODING).unwrap());
+
+        App::new()
+            .at("/", handler_service(handler))
+            .enclosed(Decompress)
+            .finish()
+            .build(())
+            .now_or_never()
+            .unwrap()
+            .unwrap()
+            .call(req)
             .now_or_never()
             .unwrap()
             .ok()

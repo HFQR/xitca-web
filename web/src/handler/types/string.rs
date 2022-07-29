@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::Future};
+use std::{convert::Infallible, fmt, future::Future};
 
 use futures_core::stream::Stream;
 
@@ -12,6 +12,7 @@ impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for String
 where
     B: Stream<Item = Result<T, E>> + Default,
     T: AsRef<[u8]>,
+    E: fmt::Debug,
 {
     type Type<'b> = String;
     type Error = Infallible;

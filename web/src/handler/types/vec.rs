@@ -1,5 +1,6 @@
 use std::{
     convert::Infallible,
+    fmt,
     future::{poll_fn, Future},
 };
 
@@ -14,6 +15,7 @@ impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Vec
 where
     B: Stream<Item = Result<T, E>> + Default,
     T: AsRef<[u8]>,
+    E: fmt::Debug,
 {
     type Type<'b> = Vec;
     type Error = Infallible;
@@ -28,7 +30,8 @@ where
 
             let mut vec = std::vec::Vec::new();
 
-            while let Some(Ok(chunk)) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+            while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+                let chunk = chunk.unwrap();
                 vec.extend_from_slice(chunk.as_ref());
             }
 

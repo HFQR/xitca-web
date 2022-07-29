@@ -55,7 +55,7 @@ where
                     #[cfg(feature = "br")]
                     {
                         update_header(&mut parts.headers, "br");
-                        FeaturedCode::EncodeBr(super::brotli::Encoder::new(super::writer::Writer::new(), 3))
+                        FeaturedCode::EncodeBr(super::brotli::Encoder::new(3))
                     }
                     #[cfg(not(feature = "br"))]
                     return Err(CoderError::Feature(super::coder::FeatureError::Br));
