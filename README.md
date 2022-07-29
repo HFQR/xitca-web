@@ -1,18 +1,21 @@
-## An alternative http library and web framework inspired by hyper and actix-web.
+# An alternative http library and web framework inspired by hyper and actix-web
 
-### Requirement:
-- rustc 1.64.0-nightly (62b272d25 2022-07-21)
+## Requirement
 
-### Motivation:
+- rustc 1.64.0-nightly (9067d5277 2022-07-28)
+
+## Motivation
+
 - Thread per core. Prefer less synchronization when possible.
 - 100% safe Rust. All unsafe codes are outsourced to dependencies.
-- Low memory footprint. Avoid (pre)allocation when possible. 
+- Low memory footprint. Avoid (pre)allocation when possible.
 - Light weight dependency tree. Avoid adding unnecessary import when possible. Prefer no proc macro code generation when possible(proc macro feature are still offered as opt-in instead of opt-out).
 - Experiment nightly Rust features: [generic_associated_types](https://github.com/rust-lang/rust/issues/44265) and [type_alias_impl_trait](https://github.com/rust-lang/rust/issues/63063) to make async web frameworks easier to use.
 - Make code base compact and simple. Reduce the barrier of understanding of source code for easier contributing.
 - Simplify ecosystem with no homebrew new type/crate wrapper. `tokio`(for async runtime) and `http`(for http types) are used directly as dependency.
 
-### Limitation:
+## Limitation
+
 - Experimental.
 - No stable API.
 - Feature in-complete.
