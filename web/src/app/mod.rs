@@ -19,7 +19,9 @@ use crate::{
         object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, BuildServiceExt, EnclosedFactory,
         EnclosedFnFactory, Service,
     },
+    handler::Responder,
     request::WebRequest,
+    response::WebResponse,
 };
 
 use self::object::WebObjectConstructor;
@@ -112,21 +114,39 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<C, Fut, CErr, B, Res, Err, Rdy>(
+    pub fn finish<C, Fut, CErr, B, ResB, Err, Rdy>(
         self,
-    ) -> impl BuildService<Service = impl ReadyService<Request<B>, Response = Res, Error = Err, Ready = Rdy>, Error = R::Error>
+    ) -> impl BuildService<
+        Service = impl ReadyService<Request<B>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
+        Error = R::Error,
+    >
     where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, CErr>>,
         C: 'static,
         B: 'static,
-        R::Service: for<'r> ReadyService<WebRequest<'r, C, B>, Response = Res, Error = Err, Ready = Rdy>,
+        R::Service: for<'r> ReadyService<WebRequest<'r, C, B>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
         R::Error: From<CErr> + From<Infallible>,
+        Err: for<'r> Responder<WebRequest<'r, C, B>, Output = WebResponse>,
     {
         let App { ctx_factory, router } = self;
-        let service = router.enclosed_fn(map_request);
+        let service = router.enclosed_fn(map_response).enclosed_fn(map_request);
 
         ContextBuilder::new(ctx_factory).service(service)
+    }
+}
+
+async fn map_response<B, C, S, ResB, Err>(service: &S, mut req: WebRequest<'_, C, B>) -> Result<WebResponse<ResB>, Err>
+where
+    C: 'static,
+    B: 'static,
+    S: for<'r> Service<WebRequest<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
+    Err: for<'r> Responder<WebRequest<'r, C, B>, Output = WebResponse>,
+{
+    match service.call(req.reborrow()).await {
+        Ok(res) => Ok(res),
+        // TODO: mutate response header according to outcome of drop_stream_cast?
+        Err(e) => Ok(e.respond_to(req).await.map(|body| body.drop_stream_cast())),
     }
 }
 
