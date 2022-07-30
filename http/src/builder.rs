@@ -1,4 +1,4 @@
-use std::{error, future::Future, marker::PhantomData};
+use std::{future::Future, marker::PhantomData};
 
 use xitca_io::net;
 use xitca_service::{BuildService, BuildServiceExt, EnclosedFactory};
@@ -206,14 +206,11 @@ impl<F, Arg, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const W
     for HttpServiceBuilder<marker::Http, net::Stream, F, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     F: BuildService<Arg>,
-    F::Error: error::Error + 'static,
-
     FA: BuildService,
-    FA::Error: error::Error + 'static,
 {
     type Service =
         HttpService<net::Stream, F::Service, RequestBody, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
-    type Error = BuildError;
+    type Error = BuildError<FA::Error, F::Error>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn build(&self, arg: Arg) -> Self::Future {
@@ -222,8 +219,8 @@ where
         let config = self.config;
 
         async move {
-            let service = service.await?;
-            let tls_acceptor = tls_acceptor.await?;
+            let tls_acceptor = tls_acceptor.await.map_err(BuildError::First)?;
+            let service = service.await.map_err(BuildError::Second)?;
             Ok(HttpService::new(config, service, tls_acceptor))
         }
     }

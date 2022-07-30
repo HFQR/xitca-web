@@ -1,11 +1,10 @@
 //! A Http/1 server echos back websocket text message and respond to ping message.
 
-use futures_util::TryStreamExt;
+use futures_util::stream::Stream;
 use http_ws::{ws, Message};
 use tracing::info;
 use xitca_web::{
-    dev::service::fn_service,
-    error::BodyError,
+    dev::{bytes::Bytes, service::fn_service},
     http,
     request::WebRequest,
     response::{ResponseBody, WebResponse},
@@ -36,7 +35,9 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-async fn handler(mut req: WebRequest<'_, &'static str>) -> Result<WebResponse, Box<dyn std::error::Error>> {
+async fn handler(
+    mut req: WebRequest<'_, &'static str>,
+) -> Result<WebResponse<impl Stream<Item = Result<Bytes, impl std::fmt::Debug>>>, Box<dyn std::error::Error>> {
     // borrow shared state of App.
     let state = req.state();
     assert_eq!(*state, "app_state");
@@ -72,8 +73,5 @@ async fn handler(mut req: WebRequest<'_, &'static str>) -> Result<WebResponse, B
     });
 
     // construct response types.
-    Ok(res.map(|body| {
-        let body = body.map_err(|e| BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
-        ResponseBody::stream(Box::pin(body) as _)
-    }))
+    Ok(res.map(ResponseBody::stream))
 }

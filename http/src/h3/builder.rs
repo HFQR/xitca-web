@@ -1,4 +1,4 @@
-use std::{error, future::Future};
+use std::{convert::Infallible, future::Future};
 
 use xitca_service::BuildService;
 
@@ -22,16 +22,15 @@ impl<F> H3ServiceBuilder<F> {
 impl<F, Arg> BuildService<Arg> for H3ServiceBuilder<F>
 where
     F: BuildService<Arg>,
-    F::Error: error::Error + 'static,
 {
     type Service = H3Service<F::Service>;
-    type Error = BuildError;
+    type Error = BuildError<Infallible, F::Error>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn build(&self, arg: Arg) -> Self::Future {
         let service = self.factory.build(arg);
         async {
-            let service = service.await?;
+            let service = service.await.map_err(BuildError::Second)?;
             Ok(H3Service::new(service))
         }
     }

@@ -117,7 +117,7 @@ where
     }
 }
 
-/// Error type for [ContextBuilder] as [ServiceFactory] and [ContextService] as [Service]
+/// Error type for [ContextBuilder] as [BuildService] and [ContextService] as [Service]
 pub type ContextError<A, B> = PipelineE<A, B>;
 
 impl<CF, Fut, C, CErr, F, Arg> BuildService<Arg> for ContextBuilder<CF, C, F>
@@ -126,18 +126,17 @@ where
     Fut: Future<Output = Result<C, CErr>>,
     C: 'static,
     F: BuildService<Arg>,
-    F::Error: From<CErr>,
 {
     type Service = ContextService<C, F::Service>;
-    type Error = F::Error;
+    type Error = ContextError<CErr, F::Error>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn build(&self, arg: Arg) -> Self::Future {
         let state = (self.ctx_factory)();
         let service = self.service_factory.build(arg);
         async {
-            let state = state.await?;
-            let service = service.await?;
+            let state = state.await.map_err(ContextError::First)?;
+            let service = service.await.map_err(ContextError::Second)?;
             Ok(ContextService { service, state })
         }
     }
