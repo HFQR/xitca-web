@@ -7,7 +7,7 @@ use tokio::{
 };
 
 use crate::{
-    body::{BodyError, Empty},
+    body::{BodyError, NoneBody},
     builder::ClientBuilder,
     bytes::Bytes,
     connect::Connect,
@@ -64,7 +64,7 @@ impl Client {
     }
 
     /// Start a new GET request with empty request body.
-    pub fn get<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
+    pub fn get<U>(&self, url: U) -> Result<Request<'_, NoneBody<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -79,7 +79,7 @@ impl Client {
 
     /// Start a new POST request with empty request body.
     #[inline]
-    pub fn post<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
+    pub fn post<U>(&self, url: U) -> Result<Request<'_, NoneBody<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -89,7 +89,7 @@ impl Client {
 
     /// Start a new PUT request with empty request body.
     #[inline]
-    pub fn put<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
+    pub fn put<U>(&self, url: U) -> Result<Request<'_, NoneBody<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -99,7 +99,7 @@ impl Client {
 
     /// Start a new PATCH request with empty request body.
     #[inline]
-    pub fn patch<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
+    pub fn patch<U>(&self, url: U) -> Result<Request<'_, NoneBody<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -109,7 +109,7 @@ impl Client {
 
     /// Start a new DELETE request with empty request body.
     #[inline]
-    pub fn delete<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
+    pub fn delete<U>(&self, url: U) -> Result<Request<'_, NoneBody<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -119,7 +119,7 @@ impl Client {
 
     /// Start a new OPTIONS request with empty request body.
     #[inline]
-    pub fn options<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
+    pub fn options<U>(&self, url: U) -> Result<Request<'_, NoneBody<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -129,7 +129,7 @@ impl Client {
 
     /// Start a new HEAD request with empty request body.
     #[inline]
-    pub fn head<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
+    pub fn head<U>(&self, url: U) -> Result<Request<'_, NoneBody<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -139,7 +139,7 @@ impl Client {
 
     /// Start a new CONNECT request with empty request body.
     #[inline]
-    pub fn connect<U>(&self, url: U) -> Result<Request<'_, Empty<Bytes>>, Error>
+    pub fn connect<U>(&self, url: U) -> Result<Request<'_, NoneBody<Bytes>>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -149,19 +149,19 @@ impl Client {
 
     #[cfg(feature = "websocket")]
     /// Start a new websocket request.
-    pub fn ws(&self, url: &str) -> Result<Request<'_, Empty<Bytes>>, Error> {
+    pub fn ws(&self, url: &str) -> Result<Request<'_, NoneBody<Bytes>>, Error> {
         self._ws(url, Version::HTTP_11)
     }
 
     #[cfg(all(feature = "websocket", feature = "http2"))]
     /// Start a new websocket request with HTTP/2.
-    pub fn ws2(&self, url: &str) -> Result<Request<'_, Empty<Bytes>>, Error> {
+    pub fn ws2(&self, url: &str) -> Result<Request<'_, NoneBody<Bytes>>, Error> {
         self._ws(url, Version::HTTP_2)
     }
 
     #[cfg(feature = "websocket")]
     /// Start a new websocket request with given [Version]. must be either `HTTP_11` or `HTTP_2`
-    pub fn _ws(&self, url: &str, version: Version) -> Result<Request<'_, Empty<Bytes>>, Error> {
+    pub fn _ws(&self, url: &str, version: Version) -> Result<Request<'_, NoneBody<Bytes>>, Error> {
         let req = http_ws::client_request_from_uri(url, version)?.map(|_| Default::default());
         Ok(Request::new(req, self))
     }

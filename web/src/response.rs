@@ -5,4 +5,4 @@ pub use xitca_http::{
 
 use crate::http::Response;
 
-pub type WebResponse<B = StreamBody> = Response<ResponseBody<B>>;
+pub type WebResponse<B = ResponseBody> = Response<B>;

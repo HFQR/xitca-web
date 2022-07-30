@@ -1,5 +1,5 @@
 pub(crate) use xitca_http::{
-    body::{BodySize, Empty, Once},
+    body::{BodySize, NoneBody, Once},
     error::BodyError,
 };
 
