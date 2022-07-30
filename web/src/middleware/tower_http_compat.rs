@@ -27,6 +27,8 @@ use crate::{
     response::WebResponse,
 };
 
+/// A middleware type that bridge `xitca-service` and `tower-service`.
+/// Any `tower-http` type that impl [Layer] trait can be passed to it and used as xitca-web's middleware.
 pub struct TowerHttpCompat<L, C, ReqB, ResB, Err> {
     layer: L,
     _phantom: PhantomData<(C, ReqB, ResB, Err)>,
@@ -45,6 +47,26 @@ where
 }
 
 impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
+    /// Construct a new xitca-web middleware from tower-http layer type.
+    ///
+    /// # Example:
+    /// ```rust
+    /// # use std::convert::Infallible;
+    /// # use xitca_web::{dev::service::fn_service, request::WebRequest, response::WebResponse, App};
+    /// # use xitca_web::http::StatusCode;
+    /// use xitca_web::middleware::tower_http_compat::TowerHttpCompat;
+    /// use tower_http::set_status::SetStatusLayer;
+    ///
+    /// # fn doc_example() {
+    /// App::new()
+    ///     .at("/", fn_service(handler))
+    ///     .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)));
+    /// # }
+    ///
+    /// # async fn handler(req: WebRequest<'_>) -> Result<WebResponse, Infallible> {
+    /// #   todo!()
+    /// # }
+    /// ```
     pub fn new(layer: L) -> Self {
         Self {
             layer,
@@ -100,9 +122,8 @@ where
             req.req_mut().extensions_mut().insert(addr);
             let (parts, body) = req.take_request().into_parts();
             let req = http::Request::from_parts(parts, body);
-            tower_service::Service::call(&mut *self.service.borrow_mut(), req)
-                .await
-                .map(|res| res.map(|body| CompatBody { body }))
+            let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
+            fut.await.map(|res| res.map(CompatBody::new))
         }
     }
 }
@@ -136,7 +157,7 @@ where
             let mut req = Request::from_http(req, remote_addr);
             let mut body = RefCell::new(body);
             let req = WebRequest::new(&mut req, &mut body, &ctx);
-            service.call(req).await.map(|res| res.map(|body| CompatBody { body }))
+            service.call(req).await.map(|res| res.map(CompatBody::new))
         }
     }
 }
@@ -145,6 +166,12 @@ pin_project! {
     pub struct CompatBody<B> {
         #[pin]
         body: B
+    }
+}
+
+impl<B> CompatBody<B> {
+    fn new(body: B) -> Self {
+        Self { body }
     }
 }
 
