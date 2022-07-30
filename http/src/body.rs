@@ -167,7 +167,7 @@ where
     }
 
     /// Drop [ResponseBody::Stream] variant to cast it to given generic B1 stream type.
-    /// 
+    ///
     /// # Note:
     /// Response's HeaderMap may need according change when Stream variant is droped.
     pub fn drop_stream_cast<B1>(self) -> ResponseBody<B1> {
