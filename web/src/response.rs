@@ -1,6 +1,8 @@
-pub use xitca_http::{http::response::Builder as WebResponseBuilder, ResponseBody};
+pub use xitca_http::{
+    body::{ResponseBody, StreamBody},
+    http::response::Builder as WebResponseBuilder,
+};
 
 use crate::http::Response;
 
-// TODO: add app state to response type.
-pub type WebResponse<B = ResponseBody> = Response<B>;
+pub type WebResponse<B = StreamBody> = Response<ResponseBody<B>>;

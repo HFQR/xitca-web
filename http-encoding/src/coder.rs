@@ -1,5 +1,5 @@
 use std::{
-    fmt, io,
+    io,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -7,6 +7,8 @@ use std::{
 use bytes::Bytes;
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
+
+use super::error::CoderError;
 
 pin_project! {
     /// A coder type that can be used for either encode or decode which determined by De type.
@@ -27,53 +29,6 @@ where
     /// Construct a new coder.
     pub fn new(body: S, coder: C) -> Self {
         Self { body, coder }
-    }
-}
-
-/// Coder Error collection. Error can either from coding process as std::io::Error
-/// or input Stream's error type.
-pub enum CoderError<E> {
-    Io(io::Error),
-    Feature(FeatureError),
-    Stream(E),
-}
-
-#[derive(Debug)]
-pub enum FeatureError {
-    Br,
-    Gzip,
-    Deflate,
-}
-
-impl<E> fmt::Debug for CoderError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Io(ref e) => write!(f, "{:?}", e),
-            Self::Feature(FeatureError::Br) => write!(f, "br feature is disabled."),
-            Self::Feature(FeatureError::Gzip) => write!(f, "gz feature is disabled."),
-            Self::Feature(FeatureError::Deflate) => write!(f, "de feature is disabled."),
-            Self::Stream(..) => write!(f, "Input Stream body error."),
-        }
-    }
-}
-
-impl<E> fmt::Display for CoderError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Io(ref e) => write!(f, "{}", e),
-            Self::Feature(FeatureError::Br) => write!(f, "br feature is disabled."),
-            Self::Feature(FeatureError::Gzip) => write!(f, "gz feature is disabled."),
-            Self::Feature(FeatureError::Deflate) => write!(f, "de feature is disabled."),
-            Self::Stream(..) => write!(f, "Input Stream body error."),
-        }
-    }
-}
-
-impl<E> std::error::Error for CoderError<E> {}
-
-impl<E> From<io::Error> for CoderError<E> {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
     }
 }
 

@@ -4,12 +4,13 @@ use futures_core::Stream;
 use http::header::{HeaderMap, CONTENT_ENCODING};
 
 use super::{
-    coder::{Coder, CoderError, FeaturedCode, NoOpCode},
+    coder::{Coder, FeaturedCode},
     coding::ContentEncoding,
+    error::EncodingError,
 };
 
 /// Construct from headers and stream body. Use for decoding.
-pub fn try_decoder<Req, S, T, E>(req: Req, body: S) -> Result<Coder<S, FeaturedCode>, CoderError<E>>
+pub fn try_decoder<Req, S, T, E>(req: Req, body: S) -> Result<Coder<S, FeaturedCode>, EncodingError>
 where
     Req: std::borrow::Borrow<http::Request<()>>,
     S: Stream<Item = Result<T, E>>,
@@ -19,44 +20,44 @@ where
     Ok(Coder::new(body, decoder))
 }
 
-fn from_headers<E>(headers: &HeaderMap) -> Result<FeaturedCode, CoderError<E>> {
-    let decoder = headers
-        .get(&CONTENT_ENCODING)
-        .and_then(|val| val.to_str().ok())
-        .map(|encoding| match ContentEncoding::parse(encoding) {
-            ContentEncoding::Br => {
-                #[cfg(feature = "br")]
-                {
-                    Ok(FeaturedCode::DecodeBr(super::brotli::Decoder::new(
-                        super::writer::Writer::new(),
-                    )))
+fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
+    match headers.get(&CONTENT_ENCODING) {
+        None => Ok(FeaturedCode::default()),
+        Some(value) => {
+            let encoding = value.to_str().map_err(|_| EncodingError::ParseAcceptEncoding)?;
+            match ContentEncoding::parse(encoding) {
+                ContentEncoding::Br => {
+                    #[cfg(feature = "br")]
+                    {
+                        Ok(FeaturedCode::DecodeBr(super::brotli::Decoder::new(
+                            super::writer::Writer::new(),
+                        )))
+                    }
+                    #[cfg(not(feature = "br"))]
+                    Err(super::error::FeatureError::Br.into())
                 }
-                #[cfg(not(feature = "br"))]
-                Err(CoderError::Feature(super::coder::FeatureError::Br))
-            }
-            ContentEncoding::Gzip => {
-                #[cfg(feature = "gz")]
-                {
-                    Ok(FeaturedCode::DecodeGz(super::gzip::Decoder::new(
-                        super::writer::Writer::new(),
-                    )))
+                ContentEncoding::Gzip => {
+                    #[cfg(feature = "gz")]
+                    {
+                        Ok(FeaturedCode::DecodeGz(super::gzip::Decoder::new(
+                            super::writer::Writer::new(),
+                        )))
+                    }
+                    #[cfg(not(feature = "gz"))]
+                    Err(super::error::FeatureError::Gzip.into())
                 }
-                #[cfg(not(feature = "gz"))]
-                Err(CoderError::Feature(super::coder::FeatureError::Gzip))
-            }
-            ContentEncoding::Deflate => {
-                #[cfg(feature = "de")]
-                {
-                    Ok(FeaturedCode::DecodeDe(super::deflate::Decoder::new(
-                        super::writer::Writer::new(),
-                    )))
+                ContentEncoding::Deflate => {
+                    #[cfg(feature = "de")]
+                    {
+                        Ok(FeaturedCode::DecodeDe(super::deflate::Decoder::new(
+                            super::writer::Writer::new(),
+                        )))
+                    }
+                    #[cfg(not(feature = "de"))]
+                    Err(super::error::FeatureError::Deflate.into())
                 }
-                #[cfg(not(feature = "de"))]
-                Err(CoderError::Feature(super::coder::FeatureError::Deflate))
+                ContentEncoding::NoOp => Ok(FeaturedCode::default()),
             }
-            ContentEncoding::NoOp => Ok(FeaturedCode::NoOp(NoOpCode)),
-        })
-        .unwrap_or_else(|| Ok::<_, CoderError<E>>(FeaturedCode::NoOp(NoOpCode)))?;
-
-    Ok(decoder)
+        }
+    }
 }

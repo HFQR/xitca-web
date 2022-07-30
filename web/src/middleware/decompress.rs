@@ -1,11 +1,14 @@
 use std::{cell::RefCell, convert::Infallible, fmt, future::Future};
 
 use futures_core::stream::Stream;
-use http_encoding::{Coder, FeatureError};
+use http_encoding::{error::EncodingError, Coder};
 
 use crate::{
     dev::service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service},
+    handler::Responder,
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, StatusCode},
     request::WebRequest,
+    response::WebResponse,
 };
 
 /// A decompress middleware look into [WebRequest]'s `Content-Encoding` header and
@@ -28,7 +31,7 @@ pub struct DecompressService<S> {
     service: S,
 }
 
-pub type DecompressServiceError<E> = PipelineE<FeatureError, E>;
+pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
 
 impl<'r, S, C, B, T, E, Res, Err> Service<WebRequest<'r, C, B>> for DecompressService<S>
 where
@@ -46,9 +49,7 @@ where
         async move {
             let (mut http_req, body) = req.take_request().replace_body(());
 
-            let decoder = http_encoding::try_decoder(&*http_req, body)
-                // TODO: rework http-encoding error: seprate the error type to streaming error and construction error.
-                .map_err(|_| DecompressServiceError::First(FeatureError::Br))?;
+            let decoder = http_encoding::try_decoder(&*http_req, body).map_err(DecompressServiceError::First)?;
 
             let mut body = RefCell::new(decoder);
 
@@ -73,6 +74,18 @@ where
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
         async move { self.service.ready().await }
+    }
+}
+
+impl<'r, C, B> Responder<WebRequest<'r, C, B>> for EncodingError {
+    type Output = WebResponse;
+    type Future = impl Future<Output = Self::Output>;
+
+    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+        let mut res = req.into_response(format!("{self}"));
+        res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
+        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        async { res }
     }
 }
 

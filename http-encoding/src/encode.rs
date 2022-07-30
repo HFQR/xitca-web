@@ -4,12 +4,12 @@ use futures_core::Stream;
 use http::{header, Response, StatusCode};
 
 use super::{
-    coder::{Coder, FeaturedCode, NoOpCode},
+    coder::{Coder, FeaturedCode},
     coding::ContentEncoding,
 };
 
 /// Construct from headers and stream body. Use for encoding.
-pub fn encoder<S, T, E>(response: Response<S>, encoding: ContentEncoding) -> Response<Coder<S, FeaturedCode>>
+pub fn encoder<S, T, E>(response: Response<S>, mut encoding: ContentEncoding) -> Response<Coder<S, FeaturedCode>>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]> + 'static,
@@ -17,14 +17,17 @@ where
     #[allow(unused_mut)]
     let (mut parts, body) = response.into_parts();
 
-    let can_encode = !(parts.headers.contains_key(&header::CONTENT_ENCODING)
+    if parts.headers.contains_key(&header::CONTENT_ENCODING)
         || parts.status == StatusCode::SWITCHING_PROTOCOLS
-        || parts.status == StatusCode::NO_CONTENT);
+        || parts.status == StatusCode::NO_CONTENT
+    {
+        encoding = ContentEncoding::NoOp
+    }
 
     let encoder = {
         match encoding {
             #[cfg(feature = "de")]
-            ContentEncoding::Deflate if can_encode => {
+            ContentEncoding::Deflate => {
                 update_header(&mut parts.headers, "deflate");
                 FeaturedCode::EncodeDe(super::deflate::Encoder::new(
                     super::writer::Writer::new(),
@@ -32,7 +35,7 @@ where
                 ))
             }
             #[cfg(feature = "gz")]
-            ContentEncoding::Gzip if can_encode => {
+            ContentEncoding::Gzip => {
                 update_header(&mut parts.headers, "gzip");
                 FeaturedCode::EncodeGz(super::gzip::Encoder::new(
                     super::writer::Writer::new(),
@@ -40,11 +43,11 @@ where
                 ))
             }
             #[cfg(feature = "br")]
-            ContentEncoding::Br if can_encode => {
+            ContentEncoding::Br => {
                 update_header(&mut parts.headers, "br");
                 FeaturedCode::EncodeBr(super::brotli::Encoder::new(3))
             }
-            _ => FeaturedCode::NoOp(NoOpCode),
+            _ => FeaturedCode::default(),
         }
     };
 

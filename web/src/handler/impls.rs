@@ -89,7 +89,7 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for Infallible {
     type Future = impl Future<Output = Self::Output>;
 
     fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Future {
-        async { unreachable!() }
+        async { match self {} }
     }
 }
 
