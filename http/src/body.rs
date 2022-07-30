@@ -14,6 +14,20 @@ use super::{
     error::BodyError,
 };
 
+// this is a crate level hack to hint for none body type.
+// A body type with this size hint means the body MUST not be polled/collected by anyone.
+pub const fn none_body_hint() -> (usize, Option<usize>) {
+    NONE_BODY_HINT
+}
+
+const NONE_BODY_HINT: (usize, Option<usize>) = (usize::MAX, Some(0));
+
+// this is a crate level hack to hint for exact body type.
+// A body type with this size hint means the body MUST be polled/collected for exact length of usize.
+pub const fn exact_body_hint(size: usize) -> (usize, Option<usize>) {
+    (size, Some(size))
+}
+
 /// A unified request body type for different http protocols.
 /// This enables one service type to handle multiple http protocols.
 #[derive(Default)]
@@ -45,28 +59,26 @@ impl Stream for RequestBody {
     }
 }
 
-/// Empty body type.
+/// None body type.
 /// B type is used to infer other types of body's output type used together with Empty.
-pub struct Empty<B>(PhantomData<B>);
+pub struct NoneBody<B>(PhantomData<B>);
 
-impl<B> Default for Empty<B> {
+impl<B> Default for NoneBody<B> {
     fn default() -> Self {
         Self(PhantomData)
     }
 }
 
-impl<B> Stream for Empty<B> {
+impl<B> Stream for NoneBody<B> {
     type Item = Result<B, Infallible>;
 
     fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        unreachable!("Empty must not be polled. See Empty::size_hint for detail")
+        unreachable!("NoneBody must not be polled. See NoneBody for detail")
     }
 
-    // use usize::MAX as lower bound.
-    // Which means you can't have a legit value go beyond the lower bound.
-    // Hence hint there is NO body.
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (usize::MAX, None)
+        none_body_hint()
     }
 }
 
@@ -106,10 +118,7 @@ where
     // use the length of buffer as both lower bound and upperbound.
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self.0 {
-            Some(ref b) => {
-                let len = b.remaining();
-                (len, Some(len))
-            }
+            Some(ref b) => exact_body_hint(b.remaining()),
             None => unreachable!("Once must check size_hint before it got polled"),
         }
     }
@@ -158,14 +167,6 @@ where
         Self::Bytes { bytes }
     }
 
-    pub fn size(&self) -> BodySize {
-        match *self {
-            Self::None => BodySize::None,
-            Self::Bytes { ref bytes } => BodySize::Sized(bytes.len()),
-            Self::Stream { .. } => BodySize::Stream,
-        }
-    }
-
     /// Drop [ResponseBody::Stream] variant to cast it to given generic B1 stream type.
     ///
     /// # Note:
@@ -197,13 +198,8 @@ where
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
-            // See Empty::size_hint for detail.
-            Self::None => (usize::MAX, None),
-            // See Once::size_hint for detail.
-            Self::Bytes { ref bytes } => {
-                let len = bytes.len();
-                (len, Some(len))
-            }
+            Self::None => none_body_hint(),
+            Self::Bytes { ref bytes } => exact_body_hint(bytes.len()),
             Self::Stream { ref stream } => stream.size_hint(),
         }
     }
@@ -276,8 +272,7 @@ impl BodySize {
         S: Stream,
     {
         match stream.size_hint() {
-            // *. See <Empty as Stream>::size_hint for reason.
-            (usize::MAX, None) => Self::None,
+            NONE_BODY_HINT => Self::None,
             (_, Some(size)) => Self::Sized(size),
             (_, None) => Self::Stream,
         }

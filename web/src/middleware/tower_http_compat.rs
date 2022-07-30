@@ -3,16 +3,26 @@ use std::{
     convert::Infallible,
     future::Future,
     marker::PhantomData,
+    pin::Pin,
     rc::Rc,
     task::{Context, Poll},
 };
 
+use futures_core::stream::Stream;
+use http_body::{Body, SizeHint};
+use pin_project_lite::pin_project;
 use tower_layer::Layer;
-use xitca_http::request::{RemoteAddr, Request};
+use xitca_http::{
+    body::{none_body_hint, BodySize},
+    request::{RemoteAddr, Request},
+};
 
 use crate::{
-    dev::service::{BuildService, Service},
-    http,
+    dev::{
+        bytes::Buf,
+        service::{BuildService, Service},
+    },
+    http::{self, header::HeaderMap},
     request::WebRequest,
     response::WebResponse,
 };
@@ -71,11 +81,12 @@ pub struct TowerCompatService<TS> {
 
 impl<'r, C, ReqB, TS, ResB> Service<WebRequest<'r, C, ReqB>> for TowerCompatService<TS>
 where
-    TS: tower_service::Service<http::Request<ReqB>, Response = WebResponse<ResB>>,
+    TS: tower_service::Service<http::Request<ReqB>, Response = http::Response<ResB>>,
+    ResB: Body,
     C: Send + Sync + Clone + 'static,
     ReqB: Default + 'r,
 {
-    type Response = WebResponse<ResB>;
+    type Response = WebResponse<CompatBody<ResB>>;
     type Error = TS::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>
     where
@@ -89,8 +100,9 @@ where
             req.req_mut().extensions_mut().insert(addr);
             let (parts, body) = req.take_request().into_parts();
             let req = http::Request::from_parts(parts, body);
-            let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
-            fut.await
+            tower_service::Service::call(&mut *self.service.borrow_mut(), req)
+                .await
+                .map(|res| res.map(|body| CompatBody { body }))
         }
     }
 }
@@ -105,7 +117,7 @@ where
     S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
     C: Send + Sync + Clone + 'static,
 {
-    type Response = WebResponse<ResB>;
+    type Response = http::Response<CompatBody<ResB>>;
     type Error = Err;
     type Future = impl Future<Output = Result<Self::Response, Self::Error>>;
 
@@ -124,8 +136,66 @@ where
             let mut req = Request::from_http(req, remote_addr);
             let mut body = RefCell::new(body);
             let req = WebRequest::new(&mut req, &mut body, &ctx);
-            service.call(req).await
+            service.call(req).await.map(|res| res.map(|body| CompatBody { body }))
         }
+    }
+}
+
+pin_project! {
+    pub struct CompatBody<B> {
+        #[pin]
+        body: B
+    }
+}
+
+impl<B, T, E> Body for CompatBody<B>
+where
+    B: Stream<Item = Result<T, E>>,
+    T: Buf,
+{
+    type Data = T;
+    type Error = E;
+
+    #[inline]
+    fn poll_data(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Self::Data, Self::Error>>> {
+        self.project().body.poll_next(cx)
+    }
+
+    #[inline]
+    fn poll_trailers(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
+        Poll::Ready(Ok(None))
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        let mut hint = SizeHint::new();
+        match BodySize::from_stream(&self.body) {
+            BodySize::None => {
+                let (low, upper) = none_body_hint();
+                hint.set_lower(low as u64);
+                hint.set_upper(upper.unwrap() as u64);
+            }
+            BodySize::Sized(size) => hint.set_exact(size as u64),
+            BodySize::Stream => {}
+        }
+
+        hint
+    }
+}
+
+impl<B> Stream for CompatBody<B>
+where
+    B: Body,
+{
+    type Item = Result<B::Data, B::Error>;
+
+    #[inline]
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().body.poll_data(cx)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let hint = self.body.size_hint();
+        (hint.lower() as usize, hint.upper().map(|num| num as usize))
     }
 }
 

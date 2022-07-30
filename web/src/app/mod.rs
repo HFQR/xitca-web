@@ -7,6 +7,7 @@ use std::{
     future::{ready, Future, Ready},
 };
 
+use futures_core::stream::Stream;
 use xitca_http::{
     util::service::{
         context::{Context, ContextBuilder},
@@ -16,13 +17,16 @@ use xitca_http::{
 };
 
 use crate::{
-    dev::service::{
-        object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, BuildServiceExt, EnclosedFactory,
-        EnclosedFnFactory, Service,
+    dev::{
+        bytes::Bytes,
+        service::{
+            object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, BuildServiceExt,
+            EnclosedFactory, EnclosedFnFactory, Service,
+        },
     },
     handler::Responder,
     request::WebRequest,
-    response::WebResponse,
+    response::{ResponseBody, WebResponse},
 };
 
 use self::object::WebObjectConstructor;
@@ -115,10 +119,10 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<C, Fut, CErr, B, ResB, Err, Rdy>(
+    pub fn finish<C, Fut, CErr, ReqB, ResB, E, Err, Rdy>(
         self,
     ) -> impl BuildService<
-        Service = impl ReadyService<Request<B>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
+        Service = impl ReadyService<Request<ReqB>, Response = WebResponse<ResponseBody<ResB>>, Error = Err, Ready = Rdy>,
         Error = impl fmt::Debug,
     >
     where
@@ -126,10 +130,12 @@ where
         Fut: Future<Output = Result<C, CErr>>,
         C: 'static,
         CErr: fmt::Debug,
-        B: 'static,
-        R::Service: for<'r> ReadyService<WebRequest<'r, C, B>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
+        ReqB: 'static,
+        R::Service:
+            for<'r> ReadyService<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
         R::Error: fmt::Debug,
-        Err: for<'r> Responder<WebRequest<'r, C, B>, Output = WebResponse>,
+        Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse>,
+        ResB: Stream<Item = Result<Bytes, E>>,
     {
         let App { ctx_factory, router } = self;
         let service = router.enclosed_fn(map_response).enclosed_fn(map_request);
@@ -138,15 +144,19 @@ where
     }
 }
 
-async fn map_response<B, C, S, ResB, Err>(service: &S, mut req: WebRequest<'_, C, B>) -> Result<WebResponse<ResB>, Err>
+async fn map_response<B, C, S, ResB, E, Err>(
+    service: &S,
+    mut req: WebRequest<'_, C, B>,
+) -> Result<WebResponse<ResponseBody<ResB>>, Err>
 where
     C: 'static,
     B: 'static,
     S: for<'r> Service<WebRequest<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
     Err: for<'r> Responder<WebRequest<'r, C, B>, Output = WebResponse>,
+    ResB: Stream<Item = Result<Bytes, E>>,
 {
     match service.call(req.reborrow()).await {
-        Ok(res) => Ok(res),
+        Ok(res) => Ok(res.map(|body| ResponseBody::stream(body))),
         // TODO: mutate response header according to outcome of drop_stream_cast?
         Err(e) => Ok(e.respond_to(req).await.map(|body| body.drop_stream_cast())),
     }
