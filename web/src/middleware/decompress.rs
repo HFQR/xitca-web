@@ -87,7 +87,7 @@ mod test {
     use crate::{dev::bytes::Bytes, http::header::CONTENT_ENCODING};
 
     use crate::{
-        handler::{handler_service, vec::Vec},
+        handler::handler_service,
         request::RequestBody,
         response::{ResponseBody, WebResponse},
         App,
@@ -98,7 +98,7 @@ mod test {
     const Q: &[u8] = b"what is the goal of life";
     const A: &str = "go dock for chip";
 
-    async fn handler(Vec(vec): Vec) -> &'static str {
+    async fn handler(vec: Vec<u8>) -> &'static str {
         assert_eq!(Q, vec);
         A
     }

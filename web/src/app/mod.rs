@@ -13,12 +13,14 @@ use xitca_http::{
     },
     Request,
 };
-use xitca_service::{
-    object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, BuildServiceExt, EnclosedFactory,
-    EnclosedFnFactory, Service,
-};
 
-use crate::request::WebRequest;
+use crate::{
+    dev::service::{
+        object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, BuildServiceExt, EnclosedFactory,
+        EnclosedFnFactory, Service,
+    },
+    request::WebRequest,
+};
 
 use self::object::WebObjectConstructor;
 
@@ -110,90 +112,43 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<Fut, C, CErr>(self) -> ContextBuilder<CF, C, MapRequest<R>>
+    pub fn finish<C, Fut, CErr, B, Res, Err, Rdy>(
+        self,
+    ) -> impl BuildService<Service = impl ReadyService<Request<B>, Response = Res, Error = Err, Ready = Rdy>, Error = R::Error>
     where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, CErr>>,
         C: 'static,
-        R::Future: 'static,
-        R::Error: From<CErr>,
+        B: 'static,
+        R::Service: for<'r> ReadyService<WebRequest<'r, C, B>, Response = Res, Error = Err, Ready = Rdy>,
+        R::Error: From<CErr> + From<Infallible>,
     {
         let App { ctx_factory, router } = self;
+        let service = router.enclosed_fn(map_request);
 
-        ContextBuilder::new(ctx_factory).service(MapRequest { factory: router })
+        ContextBuilder::new(ctx_factory).service(service)
     }
 }
 
-pub struct MapRequest<F> {
-    factory: F,
-}
-
-impl<F, Arg> BuildService<Arg> for MapRequest<F>
+async fn map_request<B, C, S, Res, Err>(service: &S, req: Context<'_, Request<B>, C>) -> Result<Res, Err>
 where
-    F: BuildService<Arg>,
-    F::Future: 'static,
-{
-    type Service = MapRequestService<F::Service>;
-    type Error = F::Error;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>> + 'static;
-
-    fn build(&self, arg: Arg) -> Self::Future {
-        let fut = self.factory.build(arg);
-        async {
-            let service = fut.await?;
-            Ok(MapRequestService { service })
-        }
-    }
-}
-
-pub struct MapRequestService<S> {
-    service: S,
-}
-
-impl<'c, C, B, S, Res, Err> Service<Context<'c, Request<B>, C>> for MapRequestService<S>
-where
-    B: 'static,
     C: 'static,
+    B: 'static,
     S: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>,
 {
-    type Response = Res;
-    type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
-
-    fn call(&self, req: Context<'c, Request<B>, C>) -> Self::Future<'_> {
-        async move {
-            let (req, state) = req.into_parts();
-            let (mut req, body) = req.replace_body(());
-            let mut body = RefCell::new(body);
-            let req = WebRequest::new(&mut req, &mut body, state);
-            self.service.call(req).await
-        }
-    }
-}
-
-impl<'c, C, B, S, R, Res, Err> ReadyService<Context<'c, Request<B>, C>> for MapRequestService<S>
-where
-    B: 'static,
-    C: 'static,
-    S: for<'r> ReadyService<WebRequest<'r, C, B>, Response = Res, Error = Err, Ready = R>,
-{
-    type Ready = R;
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where S: 'f;
-
-    #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
-        async { self.service.ready().await }
-    }
+    let (req, state) = req.into_parts();
+    let (mut req, body) = req.replace_body(());
+    let mut body = RefCell::new(body);
+    let req = WebRequest::new(&mut req, &mut body, state);
+    service.call(req).await
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::service::Service,
+        dev::service::{middleware::UncheckedReady, Service},
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
             uri::UriRef, Responder,
@@ -202,6 +157,8 @@ mod test {
         request::RequestBody,
         route::get,
     };
+
+    use super::*;
 
     async fn handler(
         StateRef(state): StateRef<'_, String>,
@@ -286,6 +243,7 @@ mod test {
             )
             .enclosed_fn(middleware_fn)
             .enclosed(Middleware)
+            .enclosed(UncheckedReady)
             .finish()
             .build(())
             .now_or_panic()

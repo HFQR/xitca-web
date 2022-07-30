@@ -9,15 +9,13 @@ use xitca_unsafe_collection::pin;
 
 use crate::{handler::FromRequest, request::WebRequest};
 
-pub struct Vec(pub std::vec::Vec<u8>);
-
-impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Vec
+impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Vec<u8>
 where
     B: Stream<Item = Result<T, E>> + Default,
     T: AsRef<[u8]>,
     E: fmt::Debug,
 {
-    type Type<'b> = Vec;
+    type Type<'b> = Vec<u8>;
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
@@ -28,14 +26,14 @@ where
         async {
             pin!(body);
 
-            let mut vec = std::vec::Vec::new();
+            let mut vec = Vec::new();
 
             while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
                 let chunk = chunk.unwrap();
                 vec.extend_from_slice(chunk.as_ref());
             }
 
-            Ok(Vec(vec))
+            Ok(vec)
         }
     }
 }

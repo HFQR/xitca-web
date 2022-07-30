@@ -4,7 +4,7 @@ use std::io;
 
 use tracing::info;
 use xitca_web::{
-    handler::{handler_service, string::String},
+    handler::handler_service,
     middleware::{compress::Compress, decompress::Decompress},
     App, HttpServer,
 };
@@ -26,7 +26,7 @@ fn main() -> io::Result<()> {
     .wait()
 }
 
-async fn root(String(string): String) -> &'static str {
+async fn root(string: String) -> &'static str {
     info!("Request body is: {}", string);
     "Hello World!"
 }
