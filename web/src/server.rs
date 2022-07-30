@@ -1,4 +1,4 @@
-use std::{error, fmt, future::Future, net::ToSocketAddrs, time::Duration};
+use std::{fmt, future::Future, net::ToSocketAddrs, time::Duration};
 
 use futures_core::Stream;
 use xitca_http::{
@@ -199,7 +199,6 @@ where
     where
         I: BuildService + 'static,
         I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        I::Error: error::Error,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -224,7 +223,6 @@ where
     where
         I: BuildService + 'static,
         I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Error: error::Error,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -281,7 +279,6 @@ where
     where
         I: BuildService + 'static,
         I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Error: error::Error,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -315,7 +312,6 @@ where
     where
         I: BuildService + 'static,
         I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
-        I::Error: error::Error,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,

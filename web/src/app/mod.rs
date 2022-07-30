@@ -3,6 +3,7 @@ mod object;
 use std::{
     cell::RefCell,
     convert::Infallible,
+    fmt,
     future::{ready, Future, Ready},
 };
 
@@ -118,15 +119,16 @@ where
         self,
     ) -> impl BuildService<
         Service = impl ReadyService<Request<B>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
-        Error = R::Error,
+        Error = impl fmt::Debug,
     >
     where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, CErr>>,
         C: 'static,
+        CErr: fmt::Debug,
         B: 'static,
         R::Service: for<'r> ReadyService<WebRequest<'r, C, B>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
-        R::Error: From<CErr> + From<Infallible>,
+        R::Error: fmt::Debug,
         Err: for<'r> Responder<WebRequest<'r, C, B>, Output = WebResponse>,
     {
         let App { ctx_factory, router } = self;
