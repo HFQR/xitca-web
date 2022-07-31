@@ -24,6 +24,7 @@ pub enum FeatureError {
     Br,
     Gzip,
     Deflate,
+    Unknown(Box<str>),
 }
 
 impl fmt::Display for FeatureError {
@@ -32,6 +33,7 @@ impl fmt::Display for FeatureError {
             Self::Br => write!(f, "Content-Encoding: brotli is not supported."),
             Self::Gzip => write!(f, "Content-Encoding: gzip is not supported."),
             Self::Deflate => write!(f, "Content-Encoding: deflate is not supported."),
+            Self::Unknown(ref encoding) => write!(f, "Content-Encoding: {} is not supported.", encoding),
         }
     }
 }

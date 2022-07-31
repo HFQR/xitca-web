@@ -25,7 +25,7 @@ fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
         None => Ok(FeaturedCode::default()),
         Some(value) => {
             let encoding = value.to_str().map_err(|_| EncodingError::ParseAcceptEncoding)?;
-            match ContentEncoding::parse(encoding) {
+            match ContentEncoding::try_parse(encoding)? {
                 ContentEncoding::Br => {
                     #[cfg(feature = "br")]
                     {
@@ -34,7 +34,9 @@ fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
                         )))
                     }
                     #[cfg(not(feature = "br"))]
-                    Err(super::error::FeatureError::Br.into())
+                    {
+                        Err(super::error::FeatureError::Br.into())
+                    }
                 }
                 ContentEncoding::Gzip => {
                     #[cfg(feature = "gz")]
@@ -44,7 +46,9 @@ fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
                         )))
                     }
                     #[cfg(not(feature = "gz"))]
-                    Err(super::error::FeatureError::Gzip.into())
+                    {
+                        Err(super::error::FeatureError::Gzip.into())
+                    }
                 }
                 ContentEncoding::Deflate => {
                     #[cfg(feature = "de")]
@@ -54,7 +58,9 @@ fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
                         )))
                     }
                     #[cfg(not(feature = "de"))]
-                    Err(super::error::FeatureError::Deflate.into())
+                    {
+                        Err(super::error::FeatureError::Deflate.into())
+                    }
                 }
                 ContentEncoding::NoOp => Ok(FeaturedCode::default()),
             }

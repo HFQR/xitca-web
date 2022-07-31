@@ -14,6 +14,10 @@ impl Writer {
     pub(super) fn take(&mut self) -> Bytes {
         self.buf.split().freeze()
     }
+
+    pub(super) fn take_owned(self) -> Bytes {
+        self.buf.freeze()
+    }
 }
 
 impl io::Write for Writer {
