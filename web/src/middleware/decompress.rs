@@ -84,7 +84,7 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for EncodingError {
     fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
         let mut res = req.into_response(format!("{self}"));
         res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        *res.status_mut() = StatusCode::UNSUPPORTED_MEDIA_TYPE;
         async { res }
     }
 }

@@ -29,9 +29,9 @@ pub enum FeatureError {
 impl fmt::Display for FeatureError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Br => write!(f, "br feature is disabled."),
-            Self::Gzip => write!(f, "gz feature is disabled."),
-            Self::Deflate => write!(f, "de feature is disabled."),
+            Self::Br => write!(f, "Content-Encoding: brotli is not supported."),
+            Self::Gzip => write!(f, "Content-Encoding: gzip is not supported."),
+            Self::Deflate => write!(f, "Content-Encoding: deflate is not supported."),
         }
     }
 }
