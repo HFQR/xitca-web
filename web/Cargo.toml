@@ -17,16 +17,19 @@ io-uring = ["xitca-server/io-uring"]
 openssl = ["xitca-http/openssl", "openssl-crate"]
 rustls = ["xitca-http/rustls", "rustls-crate"]
 
-# (de)compression formats
-compress-br = ["http-encoding/br"]
-compress-gz = ["http-encoding/gz"]
-compress-de = ["http-encoding/de"]
-
 # json type extractor
 json = ["serde", "serde_json"]
 
 # ur encoded type extractor
 urlencoded = ["serde", "serde_urlencoded" ]
+
+# (de)compression formats
+compress-br = ["http-encoding/br"]
+compress-gz = ["http-encoding/gz"]
+compress-de = ["http-encoding/de"]
+
+# multipart type extractgor
+multipart = ["http-multipart"]
 
 # proc macro code generation
 codegen = ["xitca-codegen"]
@@ -49,15 +52,18 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 # rustls
 rustls-crate = { package = "rustls", version = "0.20", optional = true }
 
-# compress-x
-http-encoding = { version = "0.1", optional = true }
-
 # json
 serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 
 # urlencoded
 serde_urlencoded = { version = "0.7.1", optional = true }
+
+# compress-x
+http-encoding = { version = "0.1", optional = true }
+
+# multipart
+http-multipart = { version = "0.1", optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }
