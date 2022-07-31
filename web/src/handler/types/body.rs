@@ -15,6 +15,6 @@ where
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         let extract = Body(req.take_body_ref());
-        async move { Ok(extract) }
+        async { Ok(extract) }
     }
 }

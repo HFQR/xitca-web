@@ -296,8 +296,6 @@ async_fn_impl! { A, B, C, D, E, F, G, H, I }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::{
         convert::Infallible,
         future::{ready, Ready},
@@ -306,9 +304,14 @@ mod test {
     use xitca_service::{BuildServiceExt, Service};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::http::{Response, StatusCode};
-    use crate::util::service::{route::get, Router};
-    use crate::Request;
+    use crate::{
+        http::StatusCode,
+        request::Request,
+        response::Response,
+        util::service::{route::get, Router},
+    };
+
+    use super::*;
 
     async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> StatusCode {
         assert_eq!(e1, "996");

@@ -6,9 +6,9 @@ use std::{
 };
 
 use xitca_http::{
+    body::ResponseBody,
     http::IntoResponse,
     request::{BorrowReq, BorrowReqMut, Request},
-    ResponseBody,
 };
 
 use super::response::WebResponse;

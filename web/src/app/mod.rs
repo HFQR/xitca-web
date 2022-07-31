@@ -9,11 +9,11 @@ use std::{
 
 use futures_core::stream::Stream;
 use xitca_http::{
+    request::Request,
     util::service::{
         context::{Context, ContextBuilder},
         router::GenericRouter,
     },
-    Request,
 };
 
 use crate::{
