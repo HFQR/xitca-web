@@ -9,6 +9,7 @@ pub mod handler;
 pub mod middleware;
 pub mod request;
 pub mod response;
+pub mod test;
 
 #[cfg(feature = "codegen")]
 pub mod codegen {

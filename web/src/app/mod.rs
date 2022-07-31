@@ -180,12 +180,13 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::service::{middleware::UncheckedReady, Service},
+        dev::service::Service,
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
             uri::UriRef, Responder,
         },
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Method, Uri},
+        middleware::UncheckedReady,
         request::RequestBody,
         route::get,
     };
