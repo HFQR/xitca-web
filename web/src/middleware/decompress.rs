@@ -91,11 +91,9 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for EncodingError {
 
 #[cfg(test)]
 mod test {
-    use std::future::poll_fn;
-
     use http_encoding::{encoder, ContentEncoding};
     use xitca_http::{body::Once, Request};
-    use xitca_unsafe_collection::{futures::NowOrPanic, pin};
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{dev::bytes::Bytes, http::header::CONTENT_ENCODING};
 
@@ -103,6 +101,7 @@ mod test {
         handler::handler_service,
         request::RequestBody,
         response::{ResponseBody, WebResponse},
+        test::collect_body,
         App,
     };
 
@@ -177,15 +176,9 @@ mod test {
 
         let (mut parts, body) = encoder(res, encoding).into_parts();
 
-        pin!(body);
+        let body = collect_body(body).now_or_panic().unwrap();
 
-        let mut buf = std::vec::Vec::new();
-
-        while let Some(Ok(bytes)) = poll_fn(|cx| body.as_mut().poll_next(cx)).now_or_panic() {
-            buf.extend_from_slice(bytes.as_ref());
-        }
-
-        let mut req = Request::new(Once::new(Bytes::from(buf)));
+        let mut req = Request::new(Once::new(Bytes::from(body)));
         req.headers_mut()
             .insert(CONTENT_ENCODING, parts.headers.remove(CONTENT_ENCODING).unwrap());
 

@@ -4,7 +4,7 @@ use futures_core::Stream;
 use xitca_http::{
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     http::Response,
-    HttpServiceBuilder, Request, RequestBody, ResponseBody,
+    HttpServiceBuilder, Request, RequestBody,
 };
 use xitca_server::{Builder, ServerFuture};
 
@@ -222,7 +222,7 @@ where
     ) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
-        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -278,7 +278,7 @@ where
     ) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
-        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -311,7 +311,7 @@ where
     pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
-        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResponseBody<ResB>>> + 'static,
+        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,

@@ -7,7 +7,7 @@ use std::{
 
 use xitca_http::{
     http::IntoResponse,
-    request::{BorrowReq, Request},
+    request::{BorrowReq, BorrowReqMut, Request},
     ResponseBody,
 };
 
@@ -149,6 +149,15 @@ where
 {
     fn borrow(&self) -> &T {
         self.req().borrow()
+    }
+}
+
+impl<C, B, T> BorrowReqMut<T> for WebRequest<'_, C, B>
+where
+    Request<()>: BorrowReqMut<T>,
+{
+    fn borrow_mut(&mut self) -> &mut T {
+        self.req_mut().borrow_mut()
     }
 }
 
