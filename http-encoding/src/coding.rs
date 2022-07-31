@@ -1,5 +1,7 @@
 use http::header::{HeaderMap, ACCEPT_ENCODING};
 
+use super::error::FeatureError;
+
 /// Represents a supported content encoding.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ContentEncoding {
@@ -38,7 +40,9 @@ impl ContentEncoding {
             .filter_map(|v| {
                 let mut v = v.splitn(2, ';');
 
-                let encoding = Self::parse(v.next().unwrap().trim());
+                let encoding = Self::try_parse(v.next().unwrap().trim())
+                    // fallback to no-op encoding when preferred encoding is not supported.
+                    .unwrap_or(ContentEncoding::NoOp);
 
                 let qval = if let Some(qval) = v.next() {
                     QValue::parse(qval.trim())?
@@ -50,24 +54,18 @@ impl ContentEncoding {
             })
     }
 
-    pub(crate) fn parse(s: &str) -> Self {
+    pub(super) fn try_parse(s: &str) -> Result<Self, FeatureError> {
         if s.eq_ignore_ascii_case("gzip") {
-            return Self::Gzip;
+            Ok(Self::Gzip)
+        } else if s.eq_ignore_ascii_case("deflate") {
+            Ok(Self::Deflate)
+        } else if s.eq_ignore_ascii_case("br") {
+            Ok(Self::Br)
+        } else if s.eq_ignore_ascii_case("identity") {
+            Ok(Self::NoOp)
+        } else {
+            Err(FeatureError::Unknown(s.to_string().into_boxed_str()))
         }
-
-        if s.eq_ignore_ascii_case("deflate") {
-            return Self::Deflate;
-        }
-
-        if s.eq_ignore_ascii_case("br") {
-            return Self::Br;
-        }
-
-        if s.eq_ignore_ascii_case("identity") {
-            return Self::NoOp;
-        }
-
-        Self::NoOp
     }
 }
 
@@ -75,7 +73,6 @@ impl ContentEncoding {
 struct QValue(u16);
 
 impl QValue {
-    #[inline]
     fn one() -> Self {
         Self(1000)
     }

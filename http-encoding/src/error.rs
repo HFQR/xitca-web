@@ -24,16 +24,24 @@ pub enum FeatureError {
     Br,
     Gzip,
     Deflate,
+    Unknown(Box<str>),
 }
 
 impl fmt::Display for FeatureError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Br => write!(f, "Content-Encoding: brotli is not supported."),
-            Self::Gzip => write!(f, "Content-Encoding: gzip is not supported."),
-            Self::Deflate => write!(f, "Content-Encoding: deflate is not supported."),
+            Self::Br => feature_error_fmt("brotil", f),
+            Self::Gzip => feature_error_fmt("gzip", f),
+            Self::Deflate => feature_error_fmt("deflate", f),
+            Self::Unknown(ref encoding) => feature_error_fmt(encoding, f),
         }
     }
+}
+
+#[cold]
+#[inline(never)]
+fn feature_error_fmt(encoding: impl fmt::Display, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "Content-Encoding: {} is not supported.", encoding)
 }
 
 impl error::Error for FeatureError {}

@@ -49,7 +49,7 @@ mod brotli {
         }
 
         fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
-            let b = self.finish()?.take();
+            let b = self.finish()?.take_owned();
             if !b.is_empty() {
                 Ok(Some(b))
             } else {
@@ -79,7 +79,7 @@ mod brotli {
         fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
             match self.0.take() {
                 Some(encoder) => {
-                    let b = encoder.finish()?.take();
+                    let b = encoder.finish()?.take_owned();
                     assert!(!b.is_empty());
                     Ok(Some(b))
                 }
