@@ -15,6 +15,7 @@ impl Writer {
         self.buf.split().freeze()
     }
 
+    #[cfg(feature = "br")]
     pub(super) fn take_owned(self) -> Bytes {
         self.buf.freeze()
     }
