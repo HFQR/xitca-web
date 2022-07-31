@@ -170,17 +170,14 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::convert::Infallible;
 
     use xitca_service::{fn_service, BuildServiceExt, Service};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{
-        http::{self, Response},
-        request::Request,
-    };
+    use crate::{http, request::Request, response::Response};
+
+    use super::*;
 
     #[test]
     fn router_accept_crate_request() {

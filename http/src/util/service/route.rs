@@ -229,17 +229,18 @@ impl error::Error for MethodNotAllowed {}
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::convert::Infallible;
 
     use xitca_service::{fn_service, BuildServiceExt, Service};
 
     use crate::{
         body::{RequestBody, ResponseBody},
-        http::{self, Response},
+        http,
         request::Request,
+        response::Response,
     };
+
+    use super::*;
 
     async fn index(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Infallible> {
         Ok(Response::new(ResponseBody::None))

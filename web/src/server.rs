@@ -1,10 +1,12 @@
 use std::{fmt, future::Future, net::ToSocketAddrs, time::Duration};
 
-use futures_core::Stream;
+use futures_core::stream::Stream;
 use xitca_http::{
+    body::RequestBody,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
-    http::Response,
-    HttpServiceBuilder, Request, RequestBody,
+    request::Request,
+    response::Response,
+    HttpServiceBuilder,
 };
 use xitca_server::{Builder, ServerFuture};
 

@@ -1,13 +1,13 @@
 #[cfg(feature = "http1")]
 pub(super) use h1_impl::*;
 
+pub use crate::http::response::Response;
+
 #[cfg(feature = "http1")]
 mod h1_impl {
-    use crate::{
-        body::Once,
-        bytes::Bytes,
-        http::{status::StatusCode, Response},
-    };
+    use crate::{body::Once, bytes::Bytes, http::status::StatusCode};
+
+    use super::*;
 
     pub fn header_too_large() -> Response<Once<Bytes>> {
         status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)

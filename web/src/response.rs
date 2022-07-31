@@ -3,6 +3,6 @@ pub use xitca_http::{
     http::response::Builder as WebResponseBuilder,
 };
 
-use crate::http::Response;
+use xitca_http::response::Response;
 
 pub type WebResponse<B = ResponseBody> = Response<B>;

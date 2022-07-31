@@ -8,7 +8,6 @@
 #![feature(generic_associated_types, type_alias_impl_trait)]
 
 mod builder;
-mod response;
 mod service;
 mod tls;
 mod version;
@@ -17,6 +16,7 @@ pub mod body;
 pub mod date;
 pub mod error;
 pub mod request;
+pub mod response;
 
 #[cfg(feature = "http1")]
 pub mod h1;
@@ -115,6 +115,7 @@ pub use body::{RequestBody, ResponseBody};
 pub use builder::HttpServiceBuilder;
 pub use error::{BodyError, HttpServiceError};
 pub use request::Request;
+pub use response::Response;
 pub use service::HttpService;
 
 // TODO: enable this conflict feature check.
