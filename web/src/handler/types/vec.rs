@@ -1,22 +1,17 @@
-use std::{
-    fmt,
-    future::{poll_fn, Future},
-};
+use std::future::{poll_fn, Future};
 
-use futures_core::stream::Stream;
 use xitca_unsafe_collection::pin;
 
 use crate::{
     handler::{error::ExtractError, FromRequest, Responder},
     request::WebRequest,
     response::WebResponse,
+    stream::WebStream,
 };
 
-impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Vec<u8>
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Vec<u8>
 where
-    B: Stream<Item = Result<T, E>> + Default,
-    T: AsRef<[u8]>,
-    E: fmt::Debug,
+    B: WebStream,
 {
     type Type<'b> = Vec<u8>;
     type Error = ExtractError;

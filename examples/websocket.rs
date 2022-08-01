@@ -1,6 +1,7 @@
 //! A Http/1 server echos back websocket text message and respond to ping message.
 
 use futures_util::stream::Stream;
+use futures_util::{pin_mut, StreamExt};
 use http_ws::{ws, Message};
 use tracing::info;
 use xitca_web::{
@@ -47,10 +48,12 @@ async fn handler(
     let req = http::Request::from_parts(parts, ());
 
     // construct websocket handler types.
-    let (mut decode, res, tx) = ws(req, body)?;
+    let (decode, res, tx) = ws(req, body)?;
 
     // spawn websocket message handling logic task.
     tokio::task::spawn_local(async move {
+        pin_mut!(decode);
+
         while let Some(Ok(msg)) = decode.next().await {
             match msg {
                 Message::Text(bytes) => {

@@ -85,8 +85,8 @@ pub enum BodyError {
 impl Display for BodyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Std(ref e) => write!(f, "{}", e),
-            Self::Io(ref e) => write!(f, "{}", e),
+            Self::Std(ref e) => Display::fmt(e, f),
+            Self::Io(ref e) => Display::fmt(e, f),
             Self::OverFlow => write!(f, "Body length is overflow"),
         }
     }
@@ -119,7 +119,7 @@ impl<S, B> From<()> for HttpServiceError<S, B> {
 }
 
 impl<S, B> From<Infallible> for HttpServiceError<S, B> {
-    fn from(_: Infallible) -> Self {
-        unreachable!("Infallible error should never happen")
+    fn from(e: Infallible) -> Self {
+        match e {}
     }
 }

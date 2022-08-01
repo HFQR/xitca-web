@@ -4,7 +4,6 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use futures_core::stream::Stream;
 use serde::{de::DeserializeOwned, ser::Serialize};
 use xitca_unsafe_collection::pin;
 
@@ -17,6 +16,7 @@ use crate::{
     http::{const_header_value::JSON, header::CONTENT_TYPE},
     request::WebRequest,
     response::WebResponse,
+    stream::WebStream,
 };
 
 use super::{
@@ -58,10 +58,9 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
     }
 }
 
-impl<'a, 'r, C, B, I, E, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, C, B>> for Json<T, LIMIT>
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, C, B>> for Json<T, LIMIT>
 where
-    B: Stream<Item = Result<I, E>> + Default,
-    I: AsRef<[u8]>,
+    B: WebStream,
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;

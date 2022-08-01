@@ -1,6 +1,4 @@
-use std::{fmt, future::Future};
-
-use futures_core::stream::Stream;
+use std::future::Future;
 
 use crate::{
     handler::{
@@ -8,13 +6,12 @@ use crate::{
         FromRequest,
     },
     request::WebRequest,
+    stream::WebStream,
 };
 
-impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for String
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for String
 where
-    B: Stream<Item = Result<T, E>> + Default,
-    T: AsRef<[u8]>,
-    E: fmt::Debug,
+    B: WebStream,
 {
     type Type<'b> = String;
     type Error = ExtractError;

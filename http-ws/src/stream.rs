@@ -1,6 +1,5 @@
 use std::{
     fmt,
-    future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -50,12 +49,6 @@ where
     pub fn encode_stream(&self) -> (Sender<Message>, EncodeStream) {
         let codec = self.codec.duplicate();
         EncodeStream::new(codec)
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    #[inline]
-    pub fn next(&mut self) -> Next<'_, Self> {
-        Next { stream: self }
     }
 }
 
@@ -152,12 +145,6 @@ impl EncodeStream {
 
         (tx, stream)
     }
-
-    #[allow(clippy::should_implement_trait)]
-    #[inline]
-    pub fn next(&mut self) -> Next<'_, Self> {
-        Next { stream: self }
-    }
 }
 
 impl Stream for EncodeStream {
@@ -181,23 +168,5 @@ impl Stream for EncodeStream {
         } else {
             Poll::Pending
         }
-    }
-}
-
-pin_project! {
-    pub struct Next<'a, S> {
-        #[pin]
-        stream: &'a mut S
-    }
-}
-
-impl<S> Future for Next<'_, S>
-where
-    S: Stream + Unpin,
-{
-    type Output = Option<S::Item>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.get_mut().stream).poll_next(cx)
     }
 }
