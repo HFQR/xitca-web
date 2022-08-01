@@ -1,5 +1,4 @@
 use std::{
-    convert::Infallible,
     fmt,
     future::{poll_fn, Future},
 };
@@ -8,7 +7,7 @@ use futures_core::stream::Stream;
 use xitca_unsafe_collection::pin;
 
 use crate::{
-    handler::{FromRequest, Responder},
+    handler::{error::ExtractError, FromRequest, Responder},
     request::WebRequest,
     response::WebResponse,
 };
@@ -20,7 +19,7 @@ where
     E: fmt::Debug,
 {
     type Type<'b> = Vec<u8>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
@@ -33,7 +32,7 @@ where
             let mut vec = Vec::new();
 
             while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                let chunk = chunk.unwrap();
+                let chunk = chunk.map_err(|_| ExtractError::UnexpectedEof)?;
                 vec.extend_from_slice(chunk.as_ref());
             }
 

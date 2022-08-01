@@ -1,6 +1,9 @@
-use std::{convert::Infallible, future::Future};
+use std::future::Future;
 
-use crate::{handler::FromRequest, request::WebRequest};
+use crate::{
+    handler::{error::ExtractError, FromRequest},
+    request::WebRequest,
+};
 
 pub struct Body<B>(pub B);
 
@@ -9,7 +12,7 @@ where
     B: Default,
 {
     type Type<'b> = Body<B>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]

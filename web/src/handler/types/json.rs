@@ -1,5 +1,4 @@
 use std::{
-    convert::Infallible,
     fmt,
     future::{poll_fn, Future},
     ops::{Deref, DerefMut},
@@ -11,7 +10,10 @@ use xitca_unsafe_collection::pin;
 
 use crate::{
     dev::bytes::{BufMutWriter, BytesMut},
-    handler::{FromRequest, Responder},
+    handler::{
+        error::{ExtractError, _ParseError},
+        FromRequest, Responder,
+    },
     http::{const_header_value::JSON, header::CONTENT_TYPE},
     request::WebRequest,
     response::WebResponse,
@@ -63,7 +65,7 @@ where
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
@@ -84,7 +86,8 @@ where
 
             let mut buf = BytesMut::new();
 
-            while let Some(Ok(chunk)) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+            while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+                let chunk = chunk.map_err(|_| ExtractError::UnexpectedEof)?;
                 let chunk = chunk.as_ref();
                 if buf.len() + chunk.len() > limit {
                     panic!("error handling");
@@ -92,7 +95,7 @@ where
                 buf.extend_from_slice(chunk);
             }
 
-            let json = serde_json::from_slice(&buf).expect("error handling is to do");
+            let json = serde_json::from_slice(&buf).map_err(_ParseError::JsonString)?;
 
             Ok(Json(json))
         }
