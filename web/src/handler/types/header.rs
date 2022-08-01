@@ -1,7 +1,7 @@
 use std::{convert::Infallible, fmt, future::Future, ops::Deref, str::FromStr};
 
 use crate::{
-    handler::FromRequest,
+    handler::{ExtractError, FromRequest},
     http::header::{self, HeaderValue},
     request::WebRequest,
 };
@@ -58,15 +58,18 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
 
 impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebRequest<'r, C, B>> for HeaderRef<'a, HEADER_NAME> {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async move {
-            Ok(HeaderRef(
-                req.req().headers().get(&map_to_header_name::<HEADER_NAME>()).unwrap(),
-            ))
+            let header = req
+                .req()
+                .headers()
+                .get(&map_to_header_name::<HEADER_NAME>())
+                .ok_or(ExtractError::HeaderNameNotFound)?;
+            Ok(HeaderRef(header))
         }
     }
 }

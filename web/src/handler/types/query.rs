@@ -1,6 +1,12 @@
-use std::{convert::Infallible, fmt, future::Future};
+use std::{fmt, future::Future};
 
-use crate::{handler::FromRequest, request::WebRequest};
+use crate::{
+    handler::{
+        error::{ExtractError, _ParseError},
+        FromRequest,
+    },
+    request::WebRequest,
+};
 
 pub struct Query<T>(pub T);
 
@@ -18,13 +24,14 @@ where
     T: serde::de::DeserializeOwned,
 {
     type Type<'b> = Query<T>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async move {
-            let value = serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default()).unwrap();
+            let value = serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default())
+                .map_err(_ParseError::UrlEncoded)?;
             Ok(Query(value))
         }
     }

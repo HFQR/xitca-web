@@ -1,6 +1,9 @@
-use std::{borrow::Borrow, convert::Infallible, fmt, future::Future, ops::Deref};
+use std::{borrow::Borrow, fmt, future::Future, ops::Deref};
 
-use crate::{handler::FromRequest, request::WebRequest};
+use crate::{
+    handler::{error::ExtractError, FromRequest},
+    request::WebRequest,
+};
 
 /// App state extractor.
 /// S type must be the same with the type passed to App::with_xxx_state(<S>).
@@ -32,12 +35,12 @@ where
     T: 'static,
 {
     type Type<'b> = StateRef<'b, T>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move { Ok(StateRef(req.state().borrow())) }
+        async { Ok(StateRef(req.state().borrow())) }
     }
 }
 

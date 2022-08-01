@@ -16,22 +16,22 @@ use xitca_service::{pipeline::PipelineE, BuildService, Service};
 ///
 /// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
 /// output type.
-pub fn handler_service<F, T, O, Res, Err>(func: F) -> HandlerService<F, T, O, Res, Err> {
+pub fn handler_service<F, T, O>(func: F) -> HandlerService<F, T, O> {
     HandlerService::new(func)
 }
 
-pub struct HandlerService<F, T, O, Res, Err> {
+pub struct HandlerService<F, T, O> {
     func: F,
-    _p: PhantomData<(T, O, Res, Err)>,
+    _p: PhantomData<(T, O)>,
 }
 
-impl<F, T, O, Res, Err> HandlerService<F, T, O, Res, Err> {
-    pub fn new(func: F) -> Self {
+impl<F, T, O> HandlerService<F, T, O> {
+    pub const fn new(func: F) -> Self {
         Self { func, _p: PhantomData }
     }
 }
 
-impl<F, T, O, Res, Err> Clone for HandlerService<F, T, O, Res, Err>
+impl<F, T, O> Clone for HandlerService<F, T, O>
 where
     F: Clone,
 {
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<F, T, O, Res, Err> BuildService for HandlerService<F, T, O, Res, Err>
+impl<F, T, O> BuildService for HandlerService<F, T, O>
 where
     F: Clone,
 {
@@ -57,17 +57,17 @@ where
     }
 }
 
-impl<F, Req, T, O, Res, Err> Service<Req> for HandlerService<F, T, O, Res, Err>
+impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O>
 where
     // for borrowed extrctors, `T` is the `'static` version of the extractors
-    T: FromRequest<'static, Req, Error = Err>,
+    T: FromRequest<'static, Req>,
     F: AsyncFn<T>, // just to assist type inference to pinpoint `T`
 
     F: for<'a> AsyncFn<T::Type<'a>, Output = O> + Clone + 'static,
-    O: Responder<Req, Output = Res>,
+    O: Responder<Req>,
 {
-    type Response = Res;
-    type Error = Err;
+    type Response = O::Output;
+    type Error = T::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
     #[inline]
@@ -116,46 +116,53 @@ pub trait FromRequest<'a, Req>: Sized {
 }
 
 macro_rules! from_req_impl {
-    ($fut: ident; $($req: ident),*) => {
-        impl<'a, Req, Err, $($req,)*> FromRequest<'a, Req> for ($($req,)*)
+    ($fut: ident; $req0: ident, $($req: ident,)*) => {
+        from_req_impl! { $fut, $req0, $($req,)* }
+
+        impl<'a, Req, $req0, $($req,)*> FromRequest<'a, Req> for ($req0, $($req,)*)
         where
+            $req0: FromRequest<'a, Req>,
             $(
-                $req: FromRequest<'a, Req, Error = Err>,
+                $req: FromRequest<'a, Req>,
+                $req0::Error: From<$req::Error>,
             )*
         {
-            type Type<'r> = ($($req::Type<'r>,)*);
-            type Error = Err;
+            type Type<'r> = ($req0::Type<'r>, $($req::Type<'r>,)*);
+            type Error = $req0::Error;
             type Future = impl Future<Output = Result<Self, Self::Error>> where Req: 'a;
 
             fn from_request(req: &'a Req) -> Self::Future {
-                $fut {
-                    $(
-                        $req: ExtractFuture::Future {
-                            fut: $req::from_request(req)
-                        },
-                    )+
-                }
+                $fut::new(req)
             }
         }
 
-        pin_project! {
-            struct $fut<'f, Req: 'f, $($req: FromRequest<'f, Req>),+>
-            {
-                $(
-                    #[pin]
-                    $req: ExtractFuture<$req::Future, $req>,
-                )+
-            }
-        }
-
-        impl<'f, Req: 'f, Err, $($req: FromRequest<'f, Req, Error = Err>),+> Future for $fut<'f, Req, $($req),+>
+        impl<'f, Req, $req0, $($req,)*> Future for $fut<'f, Req, $req0, $($req,)*>
+        where
+            Req: 'f,
+            $req0: FromRequest<'f, Req>,
+            $(
+                $req: FromRequest<'f, Req>,
+                $req0::Error: From<$req::Error>,
+            )*
         {
-            type Output = Result<($($req,)+), Err>;
+            type Output = Result<($req0, $($req,)*), $req0::Error>;
 
             fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
                 let mut this = self.project();
 
                 let mut ready = true;
+
+                match this.$req0.as_mut().project() {
+                    ExtractProj::Future { fut } => match fut.poll(cx)? {
+                        Poll::Ready(output) => {
+                            let _ = this.$req0.as_mut().project_replace(ExtractFuture::Done { output });
+                        },
+                        Poll::Pending => ready = false,
+                    },
+                    ExtractProj::Done { .. } => {},
+                    ExtractProj::Empty => unreachable!("FromRequest polled after finished"),
+                }
+
                 $(
                     match this.$req.as_mut().project() {
                         ExtractProj::Future { fut } => match fut.poll(cx)? {
@@ -167,16 +174,22 @@ macro_rules! from_req_impl {
                         ExtractProj::Done { .. } => {},
                         ExtractProj::Empty => unreachable!("FromRequest polled after finished"),
                     }
-                )+
+                )*
 
                 if ready {
                     Poll::Ready(Ok(
-                        ($(
-                            match this.$req.project_replace(ExtractFuture::Empty) {
+                        (
+                            match this.$req0.project_replace(ExtractFuture::Empty) {
                                 ExtractReplaceProj::Done { output } => output,
                                 _ => unreachable!("FromRequest polled after finished"),
                             },
-                        )+)
+                            $(
+                                match this.$req.project_replace(ExtractFuture::Empty) {
+                                    ExtractReplaceProj::Done { output } => output,
+                                    _ => unreachable!("FromRequest polled after finished"),
+                                },
+                            )*
+                        )
                     ))
                 } else {
                     Poll::Pending
@@ -184,6 +197,40 @@ macro_rules! from_req_impl {
             }
         }
     };
+    ($fut: ident, $($req: ident,)*) => {
+        pin_project! {
+            struct $fut<'f, Req, $($req,)*>
+            where
+                Req: 'f,
+                $(
+                    $req: FromRequest<'f, Req>,
+                )*
+            {
+                $(
+                    #[pin]
+                    $req: ExtractFuture<$req::Future, $req>,
+                )*
+            }
+        }
+
+        impl<'f, Req, $($req,)*> $fut<'f, Req, $($req,)*>
+        where
+            Req: 'f,
+            $(
+                $req: FromRequest<'f, Req>,
+            )*
+        {
+            fn new(req: &'f Req) -> Self {
+                Self {
+                    $(
+                        $req: ExtractFuture::Future {
+                            fut: $req::from_request(req)
+                        },
+                    )*
+                }
+            }
+        }
+    }
 }
 
 pin_project! {
@@ -201,15 +248,15 @@ pin_project! {
     }
 }
 
-from_req_impl! { Extract1; A }
-from_req_impl! { Extract2; A, B }
-from_req_impl! { Extract3; A, B, C }
-from_req_impl! { Extract4; A, B, C, D }
-from_req_impl! { Extract5; A, B, C, D, E }
-from_req_impl! { Extract6; A, B, C, D, E, F }
-from_req_impl! { Extract7; A, B, C, D, E, F, G }
-from_req_impl! { Extract8; A, B, C, D, E, F, G, H }
-from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I }
+from_req_impl! { Extract1; A, }
+from_req_impl! { Extract2; A, B, }
+from_req_impl! { Extract3; A, B, C, }
+from_req_impl! { Extract4; A, B, C, D, }
+from_req_impl! { Extract5; A, B, C, D, E, }
+from_req_impl! { Extract6; A, B, C, D, E, F, }
+from_req_impl! { Extract7; A, B, C, D, E, F, G, }
+from_req_impl! { Extract8; A, B, C, D, E, F, G, H, }
+from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I, }
 
 /// Make Response with reference of Req.
 /// The Output type is what returns from [handler_service] function.

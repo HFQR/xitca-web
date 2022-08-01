@@ -8,14 +8,14 @@ use crate::{
     response::WebResponse,
 };
 
-use super::{FromRequest, Responder};
+use super::{error::ExtractError, FromRequest, Responder};
 
 impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Result<T, E>
 where
     T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>, Error = E>,
 {
     type Type<'b> = Result<T, E>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r,  C, B>: 'a;
 
     #[inline]
@@ -29,7 +29,7 @@ where
     T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>>,
 {
     type Type<'b> = Option<T>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B, >: 'a;
 
     #[inline]
@@ -44,7 +44,7 @@ where
     B: 'static,
 {
     type Type<'b> = &'b WebRequest<'b, C, B>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
@@ -55,7 +55,7 @@ where
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for () {
     type Type<'b> = ();
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
@@ -168,7 +168,7 @@ mod test {
 
         Option::<()>::from_request(&req).now_or_panic().unwrap().unwrap();
 
-        Result::<(), Infallible>::from_request(&req)
+        Result::<(), ExtractError>::from_request(&req)
             .now_or_panic()
             .unwrap()
             .unwrap();

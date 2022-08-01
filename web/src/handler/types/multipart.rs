@@ -1,9 +1,9 @@
-use std::{convert::Infallible, fmt, future::Future};
+use std::{fmt, future::Future};
 
 use futures_core::stream::Stream;
 
 use crate::{
-    handler::FromRequest,
+    handler::{ExtractError, FromRequest},
     request::{RequestBody, WebRequest},
 };
 
@@ -16,7 +16,7 @@ where
     E: fmt::Debug,
 {
     type Type<'b> = Multipart<'b, B>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {

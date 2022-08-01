@@ -1,6 +1,10 @@
-use std::{convert::Infallible, future::Future, ops::Deref};
+use std::{future::Future, ops::Deref};
 
-use crate::{handler::FromRequest, http::Request, request::WebRequest};
+use crate::{
+    handler::{error::ExtractError, FromRequest},
+    http::request::Request,
+    request::WebRequest,
+};
 
 #[derive(Debug)]
 pub struct RequestRef<'a>(pub &'a Request<()>);
@@ -15,7 +19,7 @@ impl Deref for RequestRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for RequestRef<'a> {
     type Type<'b> = RequestRef<'b>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]

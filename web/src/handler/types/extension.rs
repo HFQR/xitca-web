@@ -1,6 +1,10 @@
-use std::{convert::Infallible, fmt, future::Future, ops::Deref};
+use std::{fmt, future::Future, ops::Deref};
 
-use crate::{handler::FromRequest, http::Extensions, request::WebRequest};
+use crate::{
+    handler::{ExtractError, FromRequest},
+    http::Extensions,
+    request::WebRequest,
+};
 
 /// Extract immutable reference of element stored inside [Extensions]
 pub struct ExtensionRef<'a, T>(pub &'a T);
@@ -24,12 +28,19 @@ where
     T: Send + Sync + 'static,
 {
     type Type<'b> = ExtensionRef<'b, T>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move { Ok(ExtensionRef(req.req().extensions().get::<T>().unwrap())) }
+        async move {
+            let ext = req
+                .req()
+                .extensions()
+                .get::<T>()
+                .ok_or(ExtractError::ExtensionNotFound)?;
+            Ok(ExtensionRef(ext))
+        }
     }
 }
 
@@ -46,7 +57,7 @@ impl Deref for ExtensionsRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionsRef<'a> {
     type Type<'b> = ExtensionsRef<'b>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]

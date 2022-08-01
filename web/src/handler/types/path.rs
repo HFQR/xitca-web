@@ -1,6 +1,9 @@
-use std::{convert::Infallible, future::Future, ops::Deref};
+use std::{future::Future, ops::Deref};
 
-use crate::{handler::FromRequest, request::WebRequest};
+use crate::{
+    handler::{ExtractError, FromRequest},
+    request::WebRequest,
+};
 
 #[derive(Debug)]
 pub struct PathRef<'a>(pub &'a str);
@@ -15,11 +18,11 @@ impl Deref for PathRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for PathRef<'a> {
     type Type<'b> = PathRef<'b>;
-    type Error = Infallible;
+    type Error = ExtractError;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move { Ok(PathRef(req.req().uri().path())) }
+        async { Ok(PathRef(req.req().uri().path())) }
     }
 }
