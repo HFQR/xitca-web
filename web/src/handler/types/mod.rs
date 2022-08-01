@@ -14,3 +14,6 @@ pub mod query;
 
 #[cfg(feature = "json")]
 pub mod json;
+
+#[cfg(feature = "multipart")]
+pub mod multipart;
