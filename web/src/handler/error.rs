@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt, future::Future, string::FromUtf8Error};
+use std::{convert::Infallible, fmt, future::Future, str::Utf8Error};
 
 use crate::{dev::bytes::Bytes, http::StatusCode, request::WebRequest, response::WebResponse};
 
@@ -49,7 +49,7 @@ impl fmt::Display for ParseError {
             _ParseError::String(ref e) => fmt::Display::fmt(e, f),
             #[cfg(feature = "json")]
             _ParseError::JsonString(ref e) => fmt::Display::fmt(e, f),
-            #[cfg(feature = "json")]
+            #[cfg(feature = "urlencoded")]
             _ParseError::UrlEncoded(ref e) => fmt::Display::fmt(e, f),
         }
     }
@@ -58,7 +58,7 @@ impl fmt::Display for ParseError {
 // a private type to hide 3rd part crates error types from ExtractError interface.
 #[derive(Debug)]
 pub(super) enum _ParseError {
-    String(FromUtf8Error),
+    String(Utf8Error),
     #[cfg(feature = "json")]
     JsonString(serde_json::Error),
     #[cfg(feature = "urlencoded")]

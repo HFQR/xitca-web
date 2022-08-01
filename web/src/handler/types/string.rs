@@ -24,7 +24,7 @@ where
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async move {
             let vec = Vec::from_request(req).await?;
-            Ok(String::from_utf8(vec).map_err(_ParseError::String)?)
+            Ok(String::from_utf8(vec).map_err(|e| _ParseError::String(e.utf8_error()))?)
         }
     }
 }
