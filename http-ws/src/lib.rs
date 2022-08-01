@@ -10,7 +10,7 @@
 //! # use std::{pin::Pin, task::{Context, Poll}};
 //! # use http::{Request, Response, header, Method};
 //! # use http_ws::{handshake, DecodeStream, Message};
-//! # use futures_core::Stream;
+//! # use futures_util::stream::{Stream, StreamExt};
 //! #
 //! # fn ws() -> Response<http_ws::EncodeStream> {
 //! #

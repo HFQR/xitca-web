@@ -1,19 +1,16 @@
-use std::{fmt, future::Future};
-
-use futures_core::stream::Stream;
+use std::future::Future;
 
 use crate::{
     handler::{ExtractError, FromRequest},
     request::{RequestBody, WebRequest},
+    stream::WebStream,
 };
 
 pub type Multipart<'a, B = RequestBody> = http_multipart::Multipart<'a, B>;
 
-impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Multipart<'a, B>
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Multipart<'a, B>
 where
-    B: Stream<Item = Result<T, E>> + Default,
-    T: AsRef<[u8]>,
-    E: fmt::Debug,
+    B: WebStream,
 {
     type Type<'b> = Multipart<'b, B>;
     type Error = ExtractError;

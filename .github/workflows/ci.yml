@@ -105,7 +105,6 @@ jobs:
         cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
         cargo-cache
 
-
   check_other_and_test:
     strategy:
       matrix:
