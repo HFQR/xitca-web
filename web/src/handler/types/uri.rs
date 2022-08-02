@@ -4,6 +4,7 @@ use crate::{
     handler::{error::ExtractError, FromRequest},
     http::Uri,
     request::WebRequest,
+    stream::WebStream,
 };
 
 #[derive(Debug)]
@@ -17,9 +18,12 @@ impl Deref for UriRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for UriRef<'a> {
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for UriRef<'a>
+where
+    B: WebStream,
+{
     type Type<'b> = UriRef<'b>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]

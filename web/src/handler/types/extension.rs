@@ -1,9 +1,10 @@
 use std::{fmt, future::Future, ops::Deref};
 
 use crate::{
-    handler::{ExtractError, FromRequest},
+    handler::{error::ExtractError, FromRequest},
     http::Extensions,
     request::WebRequest,
+    stream::WebStream,
 };
 
 /// Extract immutable reference of element stored inside [Extensions]
@@ -26,9 +27,10 @@ impl<T> Deref for ExtensionRef<'_, T> {
 impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionRef<'a, T>
 where
     T: Send + Sync + 'static,
+    B: WebStream,
 {
     type Type<'b> = ExtensionRef<'b, T>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
@@ -55,9 +57,12 @@ impl Deref for ExtensionsRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionsRef<'a> {
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionsRef<'a>
+where
+    B: WebStream,
+{
     type Type<'b> = ExtensionsRef<'b>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]

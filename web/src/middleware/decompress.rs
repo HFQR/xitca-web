@@ -1,6 +1,5 @@
-use std::{cell::RefCell, convert::Infallible, fmt, future::Future};
+use std::{cell::RefCell, convert::Infallible, future::Future};
 
-use futures_core::stream::Stream;
 use http_encoding::{error::EncodingError, Coder};
 
 use crate::{
@@ -9,6 +8,7 @@ use crate::{
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, StatusCode},
     request::WebRequest,
     response::WebResponse,
+    stream::WebStream,
 };
 
 /// A decompress middleware look into [WebRequest]'s `Content-Encoding` header and
@@ -33,12 +33,10 @@ pub struct DecompressService<S> {
 
 pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
 
-impl<'r, S, C, B, T, E, Res, Err> Service<WebRequest<'r, C, B>> for DecompressService<S>
+impl<'r, S, C, B, Res, Err> Service<WebRequest<'r, C, B>> for DecompressService<S>
 where
     C: 'static,
-    B: Stream<Item = Result<T, E>> + Default + 'static,
-    T: AsRef<[u8]> + 'static,
-    E: fmt::Debug,
+    B: WebStream + Default + 'static,
     S: for<'rs> Service<WebRequest<'rs, C, Coder<B>>, Response = Res, Error = Err>,
 {
     type Response = Res;
@@ -60,12 +58,10 @@ where
     }
 }
 
-impl<'r, S, C, B, T, E, Res, Err, Rdy> ReadyService<WebRequest<'r, C, B>> for DecompressService<S>
+impl<'r, S, C, B, Res, Err, Rdy> ReadyService<WebRequest<'r, C, B>> for DecompressService<S>
 where
     C: 'static,
-    B: Stream<Item = Result<T, E>> + Default + 'static,
-    T: AsRef<[u8]> + 'static,
-    E: fmt::Debug,
+    B: WebStream + Default + 'static,
     S: for<'rs> ReadyService<WebRequest<'rs, C, Coder<B>>, Response = Res, Error = Err, Ready = Rdy>,
 {
     type Ready = Rdy;

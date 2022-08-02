@@ -11,10 +11,10 @@ use crate::{
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Vec<u8>
 where
-    B: WebStream,
+    B: WebStream + Default,
 {
     type Type<'b> = Vec<u8>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
@@ -27,7 +27,7 @@ where
             let mut vec = Vec::new();
 
             while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                let chunk = chunk.map_err(|_| ExtractError::UnexpectedEof)?;
+                let chunk = chunk.map_err(ExtractError::Body)?;
                 vec.extend_from_slice(chunk.as_ref());
             }
 

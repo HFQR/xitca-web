@@ -3,6 +3,7 @@ use std::{borrow::Borrow, fmt, future::Future, ops::Deref};
 use crate::{
     handler::{error::ExtractError, FromRequest},
     request::WebRequest,
+    stream::WebStream,
 };
 
 /// App state extractor.
@@ -32,10 +33,11 @@ impl<S> Deref for StateRef<'_, S> {
 impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for StateRef<'a, T>
 where
     C: Borrow<T>,
+    B: WebStream,
     T: 'static,
 {
     type Type<'b> = StateRef<'b, T>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]

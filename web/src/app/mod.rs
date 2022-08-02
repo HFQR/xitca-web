@@ -177,6 +177,11 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::{
+        pin::Pin,
+        task::{self, Poll},
+    };
+
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
@@ -245,6 +250,17 @@ mod test {
 
     // arbitrary body type mutation
     struct NewBody<B>(B);
+
+    impl<B> Stream for NewBody<B>
+    where
+        B: Stream + Unpin,
+    {
+        type Item = B::Item;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
+            Pin::new(&mut self.get_mut().0).poll_next(cx)
+        }
+    }
 
     #[test]
     fn test_app() {
