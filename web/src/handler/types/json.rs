@@ -86,11 +86,10 @@ where
 
             while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
                 let chunk = chunk.map_err(ExtractError::Body)?;
-                let chunk = chunk.as_ref();
-                if buf.len() + chunk.len() > limit {
-                    panic!("error handling");
+                buf.extend_from_slice(chunk.as_ref());
+                if buf.len() > limit {
+                    break;
                 }
-                buf.extend_from_slice(chunk);
             }
 
             let json = serde_json::from_slice(&buf).map_err(_ParseError::JsonString)?;
