@@ -64,7 +64,7 @@ where
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
@@ -86,7 +86,7 @@ where
             let mut buf = BytesMut::new();
 
             while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                let chunk = chunk.map_err(|_| ExtractError::UnexpectedEof)?;
+                let chunk = chunk.map_err(ExtractError::Body)?;
                 let chunk = chunk.as_ref();
                 if buf.len() + chunk.len() > limit {
                     panic!("error handling");

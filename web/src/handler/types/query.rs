@@ -1,11 +1,14 @@
 use std::{fmt, future::Future};
 
+use serde::de::DeserializeOwned;
+
 use crate::{
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest,
     },
     request::WebRequest,
+    stream::WebStream,
 };
 
 pub struct Query<T>(pub T);
@@ -21,10 +24,11 @@ where
 
 impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for Query<T>
 where
-    T: serde::de::DeserializeOwned,
+    T: DeserializeOwned,
+    B: WebStream,
 {
     type Type<'b> = Query<T>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]

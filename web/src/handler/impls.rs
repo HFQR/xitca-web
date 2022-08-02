@@ -6,16 +6,18 @@ use crate::{
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, StatusCode},
     request::WebRequest,
     response::WebResponse,
+    stream::WebStream,
 };
 
 use super::{error::ExtractError, FromRequest, Responder};
 
 impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Result<T, E>
 where
+    B: WebStream,
     T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>, Error = E>,
 {
     type Type<'b> = Result<T, E>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r,  C, B>: 'a;
 
     #[inline]
@@ -26,10 +28,11 @@ where
 
 impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for Option<T>
 where
+    B: WebStream,
     T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>>,
 {
     type Type<'b> = Option<T>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B, >: 'a;
 
     #[inline]
@@ -41,10 +44,10 @@ where
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for &'a WebRequest<'a, C, B>
 where
     C: 'static,
-    B: 'static,
+    B: WebStream + 'static,
 {
     type Type<'b> = &'b WebRequest<'b, C, B>;
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
@@ -53,9 +56,12 @@ where
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for () {
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ()
+where
+    B: WebStream,
+{
     type Type<'b> = ();
-    type Error = ExtractError;
+    type Error = ExtractError<B::Error>;
     type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
@@ -157,7 +163,7 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MethodNotAllowed {
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::request::WebRequest;
+    use crate::{error::BodyError, request::WebRequest};
 
     use super::*;
 
@@ -168,7 +174,7 @@ mod test {
 
         Option::<()>::from_request(&req).now_or_panic().unwrap().unwrap();
 
-        Result::<(), ExtractError>::from_request(&req)
+        Result::<(), ExtractError<BodyError>>::from_request(&req)
             .now_or_panic()
             .unwrap()
             .unwrap();

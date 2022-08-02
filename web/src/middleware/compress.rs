@@ -1,12 +1,12 @@
-use std::{convert::Infallible, fmt, future::Future};
+use std::{convert::Infallible, future::Future};
 
-use futures_core::stream::Stream;
 use http_encoding::{encoder, Coder, ContentEncoding};
 
 use crate::{
     dev::service::{ready::ReadyService, BuildService, Service},
     request::WebRequest,
     response::WebResponse,
+    stream::WebStream,
 };
 
 /// A compress middleware look into [WebRequest]'s `Accept-Encoding` header and
@@ -29,14 +29,12 @@ pub struct CompressService<S> {
     service: S,
 }
 
-impl<'r, S, C, ReqB, ResB, T, E, Err> Service<WebRequest<'r, C, ReqB>> for CompressService<S>
+impl<'r, S, C, ReqB, ResB, Err> Service<WebRequest<'r, C, ReqB>> for CompressService<S>
 where
     C: 'static,
     ReqB: 'static,
     S: for<'rs> Service<WebRequest<'rs, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
-    ResB: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]> + 'static,
-    E: fmt::Debug,
+    ResB: WebStream,
 {
     type Response = WebResponse<Coder<ResB>>;
     type Error = Err;
@@ -51,14 +49,12 @@ where
     }
 }
 
-impl<'r, S, C, ReqB, ResB, T, E, Err, Rdy> ReadyService<WebRequest<'r, C, ReqB>> for CompressService<S>
+impl<'r, S, C, ReqB, ResB, Err, Rdy> ReadyService<WebRequest<'r, C, ReqB>> for CompressService<S>
 where
     C: 'static,
     ReqB: 'static,
     S: for<'rs> ReadyService<WebRequest<'rs, C, ReqB>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
-    ResB: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]> + 'static,
-    E: fmt::Debug,
+    ResB: WebStream,
 {
     type Ready = Rdy;
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;

@@ -1,21 +1,27 @@
-use std::{convert::Infallible, fmt, future::Future, str::Utf8Error};
+use std::{convert::Infallible, error, fmt, future::Future, str::Utf8Error};
 
-use crate::{dev::bytes::Bytes, http::StatusCode, request::WebRequest, response::WebResponse};
+use crate::{dev::bytes::Bytes, error::BodyError, http::StatusCode, request::WebRequest, response::WebResponse};
 
 use super::Responder;
 
+/// Collection of all default extract types's error.
 #[derive(Debug)]
-pub enum ExtractError {
-    UnexpectedEof,
+#[non_exhaustive]
+pub enum ExtractError<E = BodyError> {
+    /// Request body error.
+    Body(E),
+    /// Absent type of request's (Extensions)[crate::http::Extensions] type map.
     ExtensionNotFound,
+    /// Absent header value.
     HeaderNameNotFound,
+    /// Error of parsing bytes to Rust types.
     Parse(ParseError),
 }
 
-impl fmt::Display for ExtractError {
+impl<E: fmt::Display> fmt::Display for ExtractError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::UnexpectedEof => write!(f, "Request stream body ended unexpectedly"),
+            Self::Body(ref e) => fmt::Display::fmt(e, f),
             Self::ExtensionNotFound => write!(f, "Extension can not be found"),
             Self::HeaderNameNotFound => write!(f, "HeaderName can not be found"),
             Self::Parse(ref e) => fmt::Display::fmt(e, f),
@@ -23,13 +29,15 @@ impl fmt::Display for ExtractError {
     }
 }
 
-impl From<Infallible> for ExtractError {
+impl<E> error::Error for ExtractError<E> where E: fmt::Debug + fmt::Display {}
+
+impl<E> From<Infallible> for ExtractError<E> {
     fn from(e: Infallible) -> Self {
         match e {}
     }
 }
 
-impl<'r, C, B> Responder<WebRequest<'r, C, B>> for ExtractError {
+impl<'r, C, B, E> Responder<WebRequest<'r, C, B>> for ExtractError<E> {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
 
@@ -65,7 +73,7 @@ pub(super) enum _ParseError {
     UrlEncoded(serde_urlencoded::de::Error),
 }
 
-impl From<_ParseError> for ExtractError {
+impl<E> From<_ParseError> for ExtractError<E> {
     fn from(e: _ParseError) -> Self {
         Self::Parse(ParseError(e))
     }
