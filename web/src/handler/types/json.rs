@@ -60,7 +60,7 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
 
 impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, C, B>> for Json<T, LIMIT>
 where
-    B: WebStream,
+    B: WebStream + Default,
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;
