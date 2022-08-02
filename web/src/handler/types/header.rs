@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt, future::Future, ops::Deref, str::FromStr};
+use std::{fmt, future::Future, ops::Deref};
 
 use crate::{
     handler::{error::ExtractError, FromRequest},
@@ -67,25 +67,14 @@ where
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move {
-            let header = req
-                .req()
-                .headers()
-                .get(&map_to_header_name::<HEADER_NAME>())
-                .ok_or(ExtractError::HeaderNameNotFound)?;
-            Ok(HeaderRef(header))
-        }
-    }
-}
+        let res = req
+            .req()
+            .headers()
+            .get(&map_to_header_name::<HEADER_NAME>())
+            .map(HeaderRef)
+            .ok_or_else(|| ExtractError::HeaderNotFound(map_to_header_name::<HEADER_NAME>()));
 
-impl<const HEADER_NAME: usize> HeaderRef<'_, HEADER_NAME> {
-    // TODO: handle error.
-    pub fn try_parse<T>(&self) -> Result<T, Infallible>
-    where
-        T: FromStr,
-        T::Err: fmt::Debug,
-    {
-        Ok(self.to_str().unwrap().parse().unwrap())
+        async { res }
     }
 }
 
@@ -110,17 +99,15 @@ mod test {
             HeaderRef::<'_, { super::ACCEPT_ENCODING }>::from_request(&req)
                 .now_or_panic()
                 .unwrap()
-                .try_parse::<String>()
-                .unwrap(),
-            "251"
+                .deref(),
+            &header::HeaderValue::from_static("251")
         );
         assert_eq!(
             HeaderRef::<'_, { super::HOST }>::from_request(&req)
                 .now_or_panic()
                 .unwrap()
-                .try_parse::<String>()
-                .unwrap(),
-            "996"
+                .deref(),
+            &header::HeaderValue::from_static("996")
         );
     }
 }

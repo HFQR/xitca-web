@@ -71,13 +71,12 @@ where
         async move {
             HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
 
-            let limit = match HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(req).await {
-                Ok(header) => {
-                    let len = header.try_parse()?;
-                    std::cmp::min(len, LIMIT)
-                }
-                Err(_) => LIMIT,
-            };
+            let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(req)
+                .await
+                .ok()
+                .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
+                .map(|len| std::cmp::min(len, LIMIT))
+                .unwrap_or_else(|| LIMIT);
 
             let Body(body) = Body::from_request(req).await?;
 

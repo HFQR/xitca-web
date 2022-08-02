@@ -1,6 +1,12 @@
 use std::{convert::Infallible, error, fmt, future::Future, str::Utf8Error};
 
-use crate::{dev::bytes::Bytes, error::BodyError, http::StatusCode, request::WebRequest, response::WebResponse};
+use crate::{
+    dev::bytes::Bytes,
+    error::BodyError,
+    http::{header::HeaderName, StatusCode},
+    request::WebRequest,
+    response::WebResponse,
+};
 
 use super::Responder;
 
@@ -13,7 +19,7 @@ pub enum ExtractError<E = BodyError> {
     /// Absent type of request's (Extensions)[crate::http::Extensions] type map.
     ExtensionNotFound,
     /// Absent header value.
-    HeaderNameNotFound,
+    HeaderNotFound(HeaderName),
     /// Error of parsing bytes to Rust types.
     Parse(ParseError),
 }
@@ -23,7 +29,7 @@ impl<E: fmt::Display> fmt::Display for ExtractError<E> {
         match *self {
             Self::Body(ref e) => fmt::Display::fmt(e, f),
             Self::ExtensionNotFound => write!(f, "Extension can not be found"),
-            Self::HeaderNameNotFound => write!(f, "HeaderName can not be found"),
+            Self::HeaderNotFound(ref name) => write!(f, "HeaderName: {name} not found."),
             Self::Parse(ref e) => fmt::Display::fmt(e, f),
         }
     }
