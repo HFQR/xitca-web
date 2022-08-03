@@ -75,7 +75,7 @@ where
     E: 'static,
 {
     let (req, body) = req.replace_body(());
-    let (mut decode, res, tx) = ws(req, body)?;
+    let (mut decode, res, tx) = ws(&req, body)?;
 
     // spawn websocket message handling logic task.
     tokio::task::spawn_local(async move {

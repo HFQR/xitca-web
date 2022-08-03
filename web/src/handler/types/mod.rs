@@ -17,3 +17,6 @@ pub mod json;
 
 #[cfg(feature = "multipart")]
 pub mod multipart;
+
+#[cfg(feature = "websocket")]
+pub mod websocket;

@@ -17,24 +17,27 @@ io-uring = ["xitca-server/io-uring"]
 openssl = ["xitca-http/openssl", "openssl-crate"]
 rustls = ["xitca-http/rustls", "rustls-crate"]
 
-# json type extractor
+# json type extractor/respodner
 json = ["serde", "serde_json"]
 
-# ur encoded type extractor
+# urlencoded type extractor
 urlencoded = ["serde", "serde_urlencoded" ]
 
-# (de)compression formats
+# (de)compression middlewares
 compress-br = ["http-encoding/br"]
 compress-gz = ["http-encoding/gz"]
 compress-de = ["http-encoding/de"]
 
-# multipart type extractgor
+# multipart type extractor
 multipart = ["http-multipart"]
+
+# websocket type extractor/responder
+websocket = ["futures-util", "http-ws", "tokio"]
 
 # proc macro code generation
 codegen = ["xitca-codegen"]
 
-# experimental tower compat feature.
+# experimental tower-http Layer compat.
 tower-http-compat = ["tower-service", "tower-layer", "http-body", "pin-project-lite"]
 
 [dependencies]
@@ -64,6 +67,11 @@ http-encoding = { version = "0.1", optional = true }
 
 # multipart
 http-multipart = { version = "0.1", optional = true }
+
+# websocket
+futures-util = { version = "0.3.21", default-features = false, optional = true }
+http-ws = { version = "0.1", optional = true }
+tokio = { version = "1.20.1", features = ["sync"], optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }

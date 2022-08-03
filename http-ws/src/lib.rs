@@ -244,7 +244,7 @@ fn ws_version_check(headers: &HeaderMap) -> Result<(), HandshakeError> {
 }
 
 #[cfg(feature = "stream")]
-mod stream;
+pub mod stream;
 
 #[cfg(feature = "stream")]
 pub use self::stream::{DecodeError, DecodeStream, EncodeStream};
@@ -288,14 +288,11 @@ pub type WsOutput<B, E> = (
 ///
 /// let (decoded_stream, http_response, encode_stream_sink) = http_ws::ws(&mut req, DummyRequestBody).unwrap();
 /// ```
-pub fn ws<Req, B, T, E>(mut req: Req, body: B) -> Result<WsOutput<B, E>, HandshakeError>
+pub fn ws<ReqB, B, T, E>(req: &Request<ReqB>, body: B) -> Result<WsOutput<B, E>, HandshakeError>
 where
-    Req: std::borrow::BorrowMut<Request<()>>,
     B: futures_core::Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
 {
-    let req = req.borrow_mut();
-
     let builder = match req.version() {
         Version::HTTP_2 => handshake_h2(req.method(), req.headers())?,
         _ => handshake(req.method(), req.headers())?,
