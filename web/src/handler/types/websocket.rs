@@ -7,7 +7,6 @@ use std::{
 pub use http_ws::Message;
 
 use futures_core::stream::Stream;
-use futures_util::stream::TryStreamExt;
 use http_ws::{stream::DecodeStream, WsOutput};
 use tokio::{sync::mpsc::Sender, time::Instant};
 use xitca_unsafe_collection::{
@@ -17,10 +16,9 @@ use xitca_unsafe_collection::{
 
 use crate::{
     dev::bytes::Bytes,
-    error::BodyError,
     handler::{error::ExtractError, FromRequest, Responder},
     request::{RequestBody, WebRequest},
-    response::{ResponseBody, WebResponse},
+    response::{StreamBody, WebResponse},
     stream::WebStream,
 };
 
@@ -116,10 +114,7 @@ where
             let _ = spawn_task(ping_interval, max_unanswered_ping, decode, tx, on_msg).await;
         });
 
-        let res = res.map(|body| {
-            let body = body.map_err(|e| BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
-            ResponseBody::stream(Box::pin(body) as _)
-        });
+        let res = res.map(|body| StreamBody::new(body).into());
 
         async { res }
     }
@@ -154,6 +149,10 @@ where
                 }
                 Message::Ping(ping) => {
                     tx.send(Message::Pong(ping)).await?;
+                }
+                Message::Close(reason) => {
+                    tx.send(Message::Close(reason)).await?;
+                    break;
                 }
                 msg => on_msg(&mut tx, msg).await,
             },

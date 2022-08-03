@@ -7,7 +7,8 @@ use std::{
 
 use futures_util::StreamExt;
 use tokio::time::{Instant, Sleep};
-use xitca_http::{bytes::BytesMut, error::BodyError, http};
+use tracing::debug;
+use xitca_http::{bytes::BytesMut, http};
 
 use crate::{
     body::ResponseBody,
@@ -150,11 +151,14 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
                             return Err(e.into());
                         }
                     };
-                    if buf.len() + b.len() > limit {
-                        body.destroy_on_drop();
-                        return Err(BodyError::OverFlow.into());
-                    }
+
                     b.try_extend_from_slice(&buf)?;
+
+                    if buf.len() > limit {
+                        debug!("PAYLOAD_LIMIT reached and only part of the response body is collected.");
+                        body.destroy_on_drop();
+                        break;
+                    }
                 }
                 Ok(None) => break,
                 Err(_) => {

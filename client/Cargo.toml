@@ -28,6 +28,7 @@ httparse = "1.5.1"
 pin-project-lite = "0.2.7"
 tokio = { version = "1.13", features = ["rt"] }
 tokio-util = { version = "0.7", features = ["io"] }
+tracing = "0.1.36"
 
 # http/2 support
 h2 = { version = "0.3.7", optional = true }
