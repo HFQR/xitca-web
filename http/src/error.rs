@@ -79,7 +79,6 @@ pub enum TimeoutError {
 pub enum BodyError {
     Std(Box<dyn Error + Send + Sync>),
     Io(io::Error),
-    OverFlow,
 }
 
 impl Display for BodyError {
@@ -87,7 +86,6 @@ impl Display for BodyError {
         match *self {
             Self::Std(ref e) => Display::fmt(e, f),
             Self::Io(ref e) => Display::fmt(e, f),
-            Self::OverFlow => write!(f, "Body length is overflow"),
         }
     }
 }
@@ -107,8 +105,8 @@ impl From<Box<dyn Error + Send + Sync>> for BodyError {
 }
 
 impl From<Infallible> for BodyError {
-    fn from(_: Infallible) -> BodyError {
-        unreachable!("Infallible error should never happen")
+    fn from(e: Infallible) -> BodyError {
+        match e {}
     }
 }
 

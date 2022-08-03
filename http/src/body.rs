@@ -1,5 +1,6 @@
 use std::{
     convert::Infallible,
+    error,
     marker::PhantomData,
     mem,
     pin::Pin,
@@ -60,7 +61,7 @@ impl Stream for RequestBody {
 }
 
 /// None body type.
-/// B type is used to infer other types of body's output type used together with Empty.
+/// B type is used to infer other types of body's output type used together with NoneBody.
 pub struct NoneBody<B>(PhantomData<B>);
 
 impl<B> Default for NoneBody<B> {
@@ -124,7 +125,47 @@ where
     }
 }
 
-pub type StreamBody = LocalBoxStream<'static, Result<Bytes, BodyError>>;
+pub struct StreamBody(LocalBoxStream<'static, Result<Bytes, BodyError>>);
+
+impl Stream for StreamBody {
+    type Item = Result<Bytes, BodyError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_mut().0.as_mut().poll_next(cx)
+    }
+}
+
+impl StreamBody {
+    pub fn new<B, E>(body: B) -> Self
+    where
+        B: Stream<Item = Result<Bytes, E>> + 'static,
+        E: error::Error + Send + Sync + 'static,
+    {
+        Self(Box::pin(MapStreamBody { body }))
+    }
+}
+
+pin_project! {
+    pub struct MapStreamBody<B> {
+        #[pin]
+        body: B
+    }
+}
+
+impl<B, T, E> Stream for MapStreamBody<B>
+where
+    B: Stream<Item = Result<T, E>>,
+    E: error::Error + Send + Sync + 'static,
+{
+    type Item = Result<T, BodyError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project()
+            .body
+            .poll_next(cx)
+            .map_err(|e| BodyError::from(Box::new(e) as Box<dyn error::Error + Send + Sync>))
+    }
+}
 
 pin_project! {
     /// A unified response body type.
@@ -143,18 +184,7 @@ pin_project! {
     }
 }
 
-impl<B, E> ResponseBody<B>
-where
-    B: Stream<Item = Result<Bytes, E>>,
-{
-    pub fn is_eof(&self) -> bool {
-        match *self {
-            Self::None => true,
-            Self::Bytes { ref bytes, .. } => bytes.is_empty(),
-            Self::Stream { .. } => false,
-        }
-    }
-
+impl<B> ResponseBody<B> {
     /// Construct a new Stream variant of ResponseBody
     #[inline]
     pub fn stream(stream: B) -> Self {
@@ -207,19 +237,19 @@ where
 
 impl From<StreamBody> for ResponseBody {
     fn from(stream: StreamBody) -> Self {
-        Self::Stream { stream }
+        Self::stream(stream)
     }
 }
 
 impl<B> From<Bytes> for ResponseBody<B> {
     fn from(bytes: Bytes) -> Self {
-        Self::Bytes { bytes }
+        Self::bytes(bytes)
     }
 }
 
 impl<B> From<BytesMut> for ResponseBody<B> {
     fn from(bytes: BytesMut) -> Self {
-        Self::Bytes { bytes: bytes.freeze() }
+        Self::bytes(bytes.freeze())
     }
 }
 
@@ -254,12 +284,10 @@ pub enum BodySize {
     ///
     /// Will skip writing Content-Length header.
     None,
-
     /// Known size body.
     ///
     /// Will write `Content-Length: N` header.
     Sized(usize),
-
     /// Unknown size body.
     ///
     /// Will not write Content-Length header. Can be used with chunked Transfer-Encoding.
