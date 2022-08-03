@@ -7,7 +7,10 @@ use std::{
 pub use http_ws::Message;
 
 use futures_core::stream::Stream;
-use http_ws::{stream::DecodeStream, WsOutput};
+use http_ws::{
+    stream::{DecodeError, DecodeStream},
+    WsOutput,
+};
 use tokio::{sync::mpsc::Sender, time::Instant};
 use xitca_unsafe_collection::{
     futures::{Select, SelectOutput},
@@ -24,7 +27,13 @@ use crate::{
 
 pub type WsSender = Sender<Message>;
 
-type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut WsSender, Message) -> Pin<Box<dyn Future<Output = ()> + 'a>>>;
+type BoxFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
+
+type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut WsSender, Message) -> BoxFuture<'a>>;
+
+type OnErrCB<E> = Box<dyn FnMut(DecodeError<E>) -> BoxFuture<'static>>;
+
+type OnCloseCB = Box<dyn FnOnce() -> BoxFuture<'static>>;
 
 pub struct WebSocket<B = RequestBody>
 where
@@ -34,6 +43,8 @@ where
     ping_interval: Duration,
     max_unanswered_ping: u8,
     on_msg: OnMsgCB,
+    on_err: OnErrCB<B::Error>,
+    on_close: OnCloseCB,
 }
 
 impl<B> WebSocket<B>
@@ -46,29 +57,58 @@ where
             ping_interval: Duration::from_secs(15),
             max_unanswered_ping: 3,
             on_msg: Box::new(|_, _| Box::pin(async {})),
+            on_err: Box::new(|_| Box::pin(async {})),
+            on_close: Box::new(|| Box::pin(async {})),
         }
     }
 
+    /// Set interval duration of server side [Message::Ping] to client.
     pub fn set_ping_interval(&mut self, dur: Duration) -> &mut Self {
         self.ping_interval = dur;
         self
     }
 
+    /// Set max number of consecutive server side [Message::Ping] messages that are not
+    /// answered by client with [Message::Pong].
+    ///
+    /// # Panic:
+    /// when 0 is passed as argument.
     pub fn set_max_unanswered_ping(&mut self, size: u8) -> &mut Self {
         assert!(size > 0, "max_unanswered_ping MUST be none 0");
         self.max_unanswered_ping = size;
         self
     }
 
-    pub fn msg_sender(&self) -> &Sender<Message> {
+    /// Get a reference of Websocket message sender.
+    /// Can be used to send [Message] to client.
+    pub fn msg_sender(&self) -> &WsSender {
         &self.ws.2
     }
 
+    /// Async function that would be called when new message arrived from client.
     pub fn on_msg<F>(&mut self, func: F) -> &mut Self
     where
-        F: for<'a> FnMut(&'a mut WsSender, Message) -> Pin<Box<dyn Future<Output = ()> + 'a>> + 'static,
+        F: for<'a> FnMut(&'a mut WsSender, Message) -> BoxFuture<'a> + 'static,
     {
         self.on_msg = Box::new(func);
+        self
+    }
+
+    /// Async function that would be called when error occurred.
+    pub fn on_err<F>(&mut self, func: F) -> &mut Self
+    where
+        F: FnMut(DecodeError<B::Error>) -> BoxFuture<'static> + 'static,
+    {
+        self.on_err = Box::new(func);
+        self
+    }
+
+    /// Async function that would be called when closing the websocket connection.
+    pub fn on_close<F>(&mut self, func: F) -> &mut Self
+    where
+        F: FnOnce() -> BoxFuture<'static> + 'static,
+    {
+        self.on_close = Box::new(func);
         self
     }
 }
@@ -106,12 +146,14 @@ where
             ping_interval,
             max_unanswered_ping,
             on_msg,
+            on_err,
+            on_close,
         } = self;
 
         let (decode, res, tx) = ws;
 
         tokio::task::spawn_local(async move {
-            let _ = spawn_task(ping_interval, max_unanswered_ping, decode, tx, on_msg).await;
+            let _ = spawn_task(ping_interval, max_unanswered_ping, decode, tx, on_msg, on_err, on_close).await;
         });
 
         let res = res.map(|body| StreamBody::new(body).into());
@@ -126,6 +168,8 @@ async fn spawn_task<B>(
     decode: DecodeStream<B, B::Error>,
     mut tx: WsSender,
     mut on_msg: OnMsgCB,
+    mut on_err: OnErrCB<B::Error>,
+    on_close: OnCloseCB,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     B: WebStream,
@@ -138,6 +182,7 @@ where
     let mut un_answered_ping = 0u8;
 
     let on_msg = &mut *on_msg;
+    let on_err = &mut *on_err;
 
     loop {
         match poll_fn(|cx| decode.as_mut().poll_next(cx)).select(sleep.as_mut()).await {
@@ -156,7 +201,7 @@ where
                 }
                 msg => on_msg(&mut tx, msg).await,
             },
-            SelectOutput::A(Some(Err(_))) => break,
+            SelectOutput::A(Some(Err(e))) => on_err(e).await,
             SelectOutput::A(None) => break,
             SelectOutput::B(_) => {
                 if un_answered_ping > max_unanswered_ping {
@@ -170,6 +215,8 @@ where
             }
         }
     }
+
+    on_close().await;
 
     Ok(())
 }
