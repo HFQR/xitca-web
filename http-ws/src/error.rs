@@ -1,4 +1,4 @@
-use std::{error, fmt, io};
+use std::{error, fmt};
 
 use super::proto::OpCode;
 
@@ -14,7 +14,6 @@ pub enum ProtocolError {
     ContinuationNotStarted,
     ContinuationStarted,
     ContinuationFragment(OpCode),
-    Io(io::Error),
 }
 
 impl fmt::Display for ProtocolError {
@@ -22,14 +21,13 @@ impl fmt::Display for ProtocolError {
         match *self {
             Self::UnmaskedFrame => write!(f, "Received an unmasked frame from client."),
             Self::MaskedFrame => write!(f, "Received a masked frame from server."),
-            Self::InvalidOpcode(code) => write!(f, " Encountered invalid OpCode: {}", code),
-            Self::InvalidLength(len) => write!(f, "Invalid control frame length: {}.", len),
+            Self::InvalidOpcode(code) => write!(f, " Encountered invalid OpCode: {code}"),
+            Self::InvalidLength(len) => write!(f, "Invalid control frame length: {len}."),
             Self::BadOpCode => write!(f, "Bad opcode."),
             Self::Overflow => write!(f, "A payload reached size limit."),
             Self::ContinuationNotStarted => write!(f, "Continuation is not started."),
             Self::ContinuationStarted => write!(f, "Received new continuation but it is already started."),
-            Self::ContinuationFragment(ref code) => write!(f, "Unknown continuation fragment with OpCode: {}.", code),
-            Self::Io(ref e) => write!(f, "Io error: {}", e),
+            Self::ContinuationFragment(ref code) => write!(f, "Unknown continuation fragment with OpCode: {code}."),
         }
     }
 }
@@ -39,12 +37,6 @@ impl error::Error for ProtocolError {}
 impl From<OpCode> for ProtocolError {
     fn from(e: OpCode) -> Self {
         Self::ContinuationFragment(e)
-    }
-}
-
-impl From<io::Error> for ProtocolError {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
     }
 }
 
