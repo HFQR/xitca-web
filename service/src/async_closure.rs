@@ -1,21 +1,44 @@
+#![allow(non_snake_case)]
+
 use core::future::Future;
 
-pub trait AsyncClosure<Args> {
+/// Same as `std::ops::Fn` trait but for async output.
+///
+/// It is necessary in the the HRTB bounds for async fn's with reference parameters because it
+/// allows the output future to be bound to the parameter lifetime.
+///     `F: for<'a> AsyncClosure<(&'a u8,) Output=u8>`
+pub trait AsyncClosure<Arg> {
     type Output;
     type Future: Future<Output = Self::Output>;
 
-    fn call(&self, arg: Args) -> Self::Future;
+    fn call(&self, arg: Arg) -> Self::Future;
 }
 
-impl<F, Arg1, Arg2, Fut> AsyncClosure<(Arg1, Arg2)> for F
-where
-    F: Fn(Arg1, Arg2) -> Fut,
-    Fut: Future,
-{
-    type Output = Fut::Output;
-    type Future = impl Future<Output = Self::Output>;
+macro_rules! async_closure_impl {
+    ($($arg: ident),*) => {
+        impl<Func, Fut, $($arg,)*> AsyncClosure<($($arg,)*)> for Func
+        where
+            Func: Fn($($arg),*) -> Fut,
+            Fut: Future,
+        {
+            type Output = Fut::Output;
+            type Future = Fut;
 
-    fn call(&self, (arg1, arg2): (Arg1, Arg2)) -> Self::Future {
-        (self)(arg1, arg2)
+            #[inline]
+            fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Future {
+                self($($arg,)*)
+            }
+        }
     }
 }
+
+async_closure_impl! {}
+async_closure_impl! { A }
+async_closure_impl! { A, B }
+async_closure_impl! { A, B, C }
+async_closure_impl! { A, B, C, D }
+async_closure_impl! { A, B, C, D, E }
+async_closure_impl! { A, B, C, D, E, F }
+async_closure_impl! { A, B, C, D, E, F, G }
+async_closure_impl! { A, B, C, D, E, F, G, H }
+async_closure_impl! { A, B, C, D, E, F, G, H, I }

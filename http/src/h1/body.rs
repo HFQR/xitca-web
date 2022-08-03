@@ -69,6 +69,19 @@ impl From<RequestBody> for crate::body::RequestBody {
 /// Sender part of the payload stream
 pub struct RequestBodySender(Rc<RefCell<Inner>>);
 
+// TODO: rework early eof error handling.
+impl Drop for RequestBodySender {
+    fn drop(&mut self) {
+        if self.payload_alive() {
+            let mut inner = self.0.borrow_mut();
+            if !inner.eof {
+                inner.feed_error(BodyError::Io(io::ErrorKind::UnexpectedEof.into()));
+                inner.wake();
+            }
+        }
+    }
+}
+
 impl RequestBodySender {
     pub(super) fn is_eof(&self) -> bool {
         self.0.borrow_mut().eof
@@ -86,7 +99,7 @@ impl RequestBodySender {
         }
     }
 
-    // TODO: feed_data should returrn the payload_alive status.
+    // TODO: feed_data should return the payload_alive status.
     pub(super) fn feed_data(&mut self, data: Bytes) {
         if self.payload_alive() {
             self.0.borrow_mut().feed_data(data);

@@ -9,7 +9,7 @@ use std::{
 };
 
 use pin_project_lite::pin_project;
-use xitca_service::{pipeline::PipelineE, BuildService, Service};
+use xitca_service::{pipeline::PipelineE, AsyncClosure, BuildService, Service};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
@@ -59,11 +59,11 @@ where
 
 impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O>
 where
-    // for borrowed extrctors, `T` is the `'static` version of the extractors
+    // for borrowed extractors, `T` is the `'static` version of the extractors
     T: FromRequest<'static, Req>,
-    F: AsyncFn<T>, // just to assist type inference to pinpoint `T`
+    F: AsyncClosure<T>, // just to assist type inference to pinpoint `T`
 
-    F: for<'a> AsyncFn<T::Type<'a>, Output = O> + Clone + 'static,
+    F: for<'a> AsyncClosure<T::Type<'a>, Output = O> + Clone + 'static,
     O: Responder<Req>,
 {
     type Response = O::Output;
@@ -298,48 +298,6 @@ where
         }
     }
 }
-
-#[doc(hidden)]
-/// Same as `std::ops::Fn` trait but for async output.
-///
-/// It is necessary in the the HRTB bounds for async fn's with reference paramters because it
-/// allows the output future to be bound to the paramter lifetime.
-///     `F: for<'a> AsyncFn<(&'a u8,) Output=u8>`
-pub trait AsyncFn<Arg> {
-    type Output;
-    type Future: Future<Output = Self::Output>;
-
-    fn call(&self, arg: Arg) -> Self::Future;
-}
-
-macro_rules! async_fn_impl {
-    ($($arg: ident),*) => {
-        impl<Func, Fut, $($arg,)*> AsyncFn<($($arg,)*)> for Func
-        where
-            Func: Fn($($arg),*) -> Fut,
-            Fut: Future,
-        {
-            type Output = Fut::Output;
-            type Future = Fut;
-
-            #[inline]
-            fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Future {
-                self($($arg,)*)
-            }
-        }
-    }
-}
-
-async_fn_impl! {}
-async_fn_impl! { A }
-async_fn_impl! { A, B }
-async_fn_impl! { A, B, C }
-async_fn_impl! { A, B, C, D }
-async_fn_impl! { A, B, C, D, E }
-async_fn_impl! { A, B, C, D, E, F }
-async_fn_impl! { A, B, C, D, E, F, G }
-async_fn_impl! { A, B, C, D, E, F, G, H }
-async_fn_impl! { A, B, C, D, E, F, G, H, I }
 
 #[cfg(test)]
 mod test {
