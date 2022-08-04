@@ -27,28 +27,22 @@ pub struct RequestBody(Rc<RefCell<Inner>>);
 
 impl Default for RequestBody {
     fn default() -> Self {
-        Self::empty()
+        Self::create(true)
     }
 }
 
 impl RequestBody {
-    /// Create payload stream.
-    ///
-    /// This method construct two objects responsible for bytes stream
-    /// generation.
-    ///
-    /// * `PayloadSender` - *Sender* side of the stream
-    ///
-    /// * `Payload` - *Receiver* side of the stream
-    pub(super) fn create(eof: bool) -> (RequestBodySender, Self) {
-        let shared = Rc::new(RefCell::new(Inner::new(eof)));
-
-        (RequestBodySender(shared.clone()), Self(shared))
+    /// Create request body stream with given EOF state.
+    pub(super) fn create(eof: bool) -> Self {
+        RequestBody(Rc::new(RefCell::new(Inner::new(eof))))
     }
 
-    /// Create empty payload
-    pub(super) fn empty() -> Self {
-        Self(Rc::new(RefCell::new(Inner::new(true))))
+    /// Create RequestBodySender together with RequestBody that share the same inner body state.
+    /// RequestBodySender is used to mutate data/eof/error state and made the change observable
+    /// from RequestBody owner.
+    pub(super) fn channel(eof: bool) -> (RequestBodySender, Self) {
+        let this = Self::create(eof);
+        (RequestBodySender(this.0.clone()), this)
     }
 }
 

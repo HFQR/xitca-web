@@ -35,11 +35,6 @@ impl TransferCoding {
     }
 
     #[inline]
-    pub fn is_eof(&self) -> bool {
-        matches!(self, Self::Eof)
-    }
-
-    #[inline]
     pub const fn length(len: u64) -> Self {
         Self::Length(len)
     }
@@ -57,6 +52,15 @@ impl TransferCoding {
     #[inline]
     pub const fn upgrade() -> Self {
         Self::Upgrade
+    }
+
+    #[inline]
+    pub fn is_eof(&self) -> bool {
+        match self {
+            Self::Eof | Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => true,
+            Self::EncodeChunked => unreachable!("TransferCoding can't decide eof state when encoding chunked data"),
+            _ => false,
+        }
     }
 
     #[inline]

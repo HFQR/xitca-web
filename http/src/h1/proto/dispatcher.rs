@@ -164,34 +164,18 @@ where
         Ok(())
     }
 
-    // A specialized write check that always pending when write buffer is empty.
-    // This is a hack for `Select`.
-    async fn write_or_pending(&mut self) -> io::Result<()> {
-        if !self.write_buf.want_write() {
-            pending().await
-        } else {
-            self.write().await
-        }
-    }
-
-    // Check readable and writable state of IO and ready state of request payload sender.
-    // Remove readable state if request payload is not ready(Read ahead backpressure).
+    // Check readable and writable state of IO and ready state of request body reader.
     async fn ready<D, const HEADER_LIMIT: usize>(
         &mut self,
-        handle: &mut RequestBodyHandle,
+        body_reader: &mut BodyReader,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {
         if !self.write_buf.want_write() {
-            handle.ready(ctx).await?;
+            body_reader.ready(ctx).await;
             self.io.ready(Interest::READABLE).await
         } else {
-            // for readable event the RequestBodyHandle must always be checked before polling
-            // it's Interest.
-            match handle.ready(ctx).select(self.io.ready(Interest::WRITABLE)).await {
-                SelectOutput::A(res) => {
-                    res?;
-                    self.io.ready(Interest::READABLE | Interest::WRITABLE).await
-                }
+            match body_reader.ready(ctx).select(self.io.ready(Interest::WRITABLE)).await {
+                SelectOutput::A(_) => self.io.ready(Interest::READABLE | Interest::WRITABLE).await,
                 SelectOutput::B(res) => res,
             }
         }
@@ -258,14 +242,11 @@ where
 
             'req: while let Some(res) = self.decode_head() {
                 match res {
-                    Ok((req, mut body_handle)) => {
-                        let (parts, res_body) = self.request_handler(req, &mut body_handle).await?.into_parts();
-
+                    Ok((req, mut body_reader)) => {
+                        let (parts, res_body) = self.request_handler(req, &mut body_reader).await?.into_parts();
                         let size = BodySize::from_stream(&res_body);
                         let encoder = &mut self.encode_head(parts, size)?;
-
-                        self.response_handler(res_body, encoder, body_handle).await?;
-
+                        self.response_handler(res_body, encoder, &mut body_reader).await?;
                         if self.ctx.is_connection_closed() {
                             break 'req;
                         }
@@ -297,11 +278,9 @@ where
     fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
         match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut()) {
             Ok(Some((req, decoder))) => {
-                let (body_handle, body) = RequestBodyHandle::new_pair(decoder);
-
+                let (body_reader, body) = BodyReader::from_coding(decoder);
                 let req = req.map_body(move |_| body);
-
-                Some(Ok((req, body_handle)))
+                Some(Ok((req, body_reader)))
             }
             Ok(None) => None,
             Err(e) => Some(Err(e)),
@@ -317,72 +296,48 @@ where
     async fn request_handler(
         &mut self,
         req: Request<ReqB>,
-        body_handle: &mut Option<RequestBodyHandle>,
+        body_reader: &mut BodyReader,
     ) -> Result<S::Response, Error<S::Error, BE>> {
         match self
             .service
             .call(req)
-            .select(self.request_body_handler(body_handle))
+            .select(self.request_body_handler(body_reader))
             .await
         {
-            SelectOutput::A(res) => res.map_err(Error::Service),
+            SelectOutput::A(res) => Result::map_err(res, Error::Service),
             SelectOutput::B(res) => res,
         }
     }
 
-    async fn request_body_handler(
-        &mut self,
-        body_handle: &mut Option<RequestBodyHandle>,
-    ) -> Result<S::Response, Error<S::Error, BE>> {
-        // decode request body and read more if needed.
-        if let Some(handle) = body_handle {
-            self._request_body_handler(handle).await?;
-        }
-
-        *body_handle = None;
-
-        // pending and do nothing when RequestBodyHandle is gone.
-        pending().await
-    }
-
-    async fn _request_body_handler(&mut self, handle: &mut RequestBodyHandle) -> io::Result<()> {
+    // a hacky method that output S::Response as Ok part but never actually produce the value.
+    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<S::Response, Error<S::Error, BE>> {
         if self.ctx.is_expect_header() {
             // Wait for body polled for expect header request.
-            match handle.wait_for_poll().await {
-                Ok(_) => {
-                    // encode continue
-                    self.ctx.encode_continue(&mut self.io.write_buf);
-                    // use drain write to make sure continue is sent to client.
-                    self.io.drain_write().await?;
-                }
-                // If body is already dropped then ignore sending 100 continue.
-                Err(_) => return Ok(()),
-            }
+            body_reader.wait_for_poll().await;
+            // encode continue
+            self.ctx.encode_continue(&mut self.io.write_buf);
+            // use drain write to make sure continue is sent to client.
+            self.io.drain_write().await?;
         }
 
-        // Check the readiness of RequestBodyHandle
-        // so read ahead does not buffer too much data.
-        while handle.ready(&mut self.ctx).await.is_ok() {
-            match handle.decode(&mut self.io.read_buf)? {
-                DecodeState::Continue => self.io.read().await?,
-                DecodeState::Eof => break,
-            }
+        loop {
+            body_reader.ready(&mut self.ctx).await;
+            body_reader.decode(&mut self.io.read_buf)?;
+            self.io.read().await?;
         }
-
-        Ok(())
     }
 
     async fn response_handler(
         &mut self,
         body: ResB,
         encoder: &mut TransferCoding,
-        mut body_handle: Option<RequestBodyHandle>,
+        body_reader: &mut BodyReader,
     ) -> Result<(), Error<S::Error, BE>> {
         pin!(body);
         loop {
             match self
                 .try_poll_body(body.as_mut())
-                .select(self.response_body_handler(&mut body_handle))
+                .select(self.response_body_handler(body_reader))
                 .await
             {
                 SelectOutput::A(Some(res)) => {
@@ -390,16 +345,13 @@ where
                     encoder.encode(bytes, &mut self.io.write_buf);
                 }
                 SelectOutput::A(None) => {
-                    if let Some(handle) = body_handle.take() {
-                        // Request body is partial consumed.
-                        // Close connection in case there are bytes remain in socket.
-                        // Treat upgrade decoder as special case because it does not have
-                        // an eof state.
-                        if !handle.sender.is_eof() && !handle.decoder.is_upgrade() {
-                            self.ctx.set_ctype(ConnectionType::Close);
-                        }
+                    // Request body is partial consumed.
+                    // Close connection in case there are bytes remain in socket.
+                    // Treat upgrade decoder as special case because it does not have
+                    // an eof state.
+                    if !body_reader.tx.is_eof() && !body_reader.decoder.is_upgrade() {
+                        self.ctx.set_ctype(ConnectionType::Close);
                     }
-
                     encoder.encode_eof(&mut self.io.write_buf);
                     return Ok(());
                 }
@@ -419,35 +371,25 @@ where
         }
     }
 
-    async fn response_body_handler(
-        &mut self,
-        body_handle: &mut Option<RequestBodyHandle>,
-    ) -> Result<(), Error<S::Error, BE>> {
-        match body_handle.as_mut() {
-            Some(handle) => match handle.decode(&mut self.io.read_buf)? {
-                DecodeState::Continue => {
-                    debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
-                    match self.io.ready(handle, &mut self.ctx).await {
-                        Ok(ready) => {
-                            if ready.is_readable() {
-                                self.io.try_read()?
-                            }
-                            if ready.is_writable() {
-                                self.io.try_write()?;
-                            }
-                        }
-                        // TODO: potential special handling error case of RequestBodySender::poll_ready ?
-                        // This output would mix IO error and RequestBodySender::poll_ready error.
-                        // For now the effect of not handling them differently is not clear.
-                        Err(e) => {
-                            handle.sender.feed_error(e.into());
-                            *body_handle = None;
-                        }
-                    }
+    async fn response_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<(), Error<S::Error, BE>> {
+        body_reader.decode(&mut self.io.read_buf)?;
+
+        debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
+        match self.io.ready(body_reader, &mut self.ctx).await {
+            Ok(ready) => {
+                if ready.is_readable() {
+                    self.io.try_read()?
                 }
-                DecodeState::Eof => *body_handle = None,
-            },
-            None => self.io.write_or_pending().await?,
+                if ready.is_writable() {
+                    self.io.try_write()?;
+                }
+            }
+            // TODO: potential special handling error case of RequestBodySender::poll_ready ?
+            // This output would mix IO error and RequestBodySender::poll_ready error.
+            // For now the effect of not handling them differently is not clear.
+            Err(e) => {
+                body_reader.tx.feed_error(e.into());
+            }
         }
 
         Ok(())
@@ -460,76 +402,66 @@ where
         F: FnOnce() -> Response<Once<Bytes>>,
     {
         self.ctx.set_ctype(ConnectionType::Close);
-
         let (parts, body) = func().into_parts();
-
         let size = BodySize::from_stream(&body);
-
         self.encode_head(parts, size).map(|_| ())
     }
 }
 
-type DecodedHead<ReqB> = (Request<ReqB>, Option<RequestBodyHandle>);
+type DecodedHead<ReqB> = (Request<ReqB>, BodyReader);
 
-struct RequestBodyHandle {
+struct BodyReader {
     decoder: TransferCoding,
-    sender: RequestBodySender,
+    tx: RequestBodySender,
 }
 
-enum DecodeState {
-    // TransferDecoding can continue for more data.
-    Continue,
-    // TransferDecoding is ended with eof.
-    Eof,
-}
-
-impl RequestBodyHandle {
-    fn new_pair<ReqB>(decoder: TransferCoding) -> (Option<Self>, ReqB)
+impl BodyReader {
+    fn from_coding<ReqB>(decoder: TransferCoding) -> (Self, ReqB)
     where
         ReqB: From<RequestBody>,
     {
-        if decoder.is_eof() {
-            let body = RequestBody::empty();
-            (None, body.into())
-        } else {
-            let (sender, body) = RequestBody::create(false);
-            let body_handle = RequestBodyHandle { decoder, sender };
-            (Some(body_handle), body.into())
-        }
+        let (tx, body) = RequestBody::channel(decoder.is_eof());
+        let body_reader = BodyReader { decoder, tx };
+        (body_reader, body.into())
     }
 
-    fn decode<const READ_BUF_LIMIT: usize>(
-        &mut self,
-        read_buf: &mut FlatBuf<READ_BUF_LIMIT>,
-    ) -> io::Result<DecodeState> {
+    fn decode<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut FlatBuf<READ_BUF_LIMIT>) -> io::Result<()> {
         while let Some(bytes) = self.decoder.decode(&mut *read_buf)? {
             if bytes.is_empty() {
-                self.sender.feed_eof();
-                return Ok(DecodeState::Eof);
+                self.tx.feed_eof();
+                break;
             }
-            self.sender.feed_data(bytes);
+            self.tx.feed_data(bytes);
         }
-
-        Ok(DecodeState::Continue)
+        Ok(())
     }
 
-    async fn ready<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) -> io::Result<()> {
-        self.sender.ready().await.map_err(|e| {
-            // RequestBodySender's only error case is when service future drop the request
-            // body half way. In this case notify Context to close connection afterwards.
-            //
-            // Service future is trusted to produce a meaningful response after it drops
-            // the request body.
-            ctx.set_ctype(ConnectionType::Close);
-            e
-        })
+    // dispatcher MUST call this method before do any io reading for decode request body.
+    // a none ready state means the body consumer either is in backpressure or don't expect any more
+    // body.
+    async fn ready<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
+        if !self.decoder.is_eof() {
+            match self.tx.ready().await {
+                Ok(_) => return,
+                // BodyReader's only error case is when service future drop the request
+                // body consumer half way. In this case notify Context to close connection afterwards.
+                //
+                // Service future is trusted to produce a meaningful response after it drops
+                // the request body.
+                Err(_) => ctx.set_ctype(ConnectionType::Close),
+            }
+        }
+        // just don't be ready when decoder is eof and service dropped body consumer.
+        pending().await
     }
 
-    async fn wait_for_poll(&mut self) -> io::Result<()> {
+    async fn wait_for_poll(&mut self) {
         // The error case is the same condition as Self::ready method.
-        //
         // Remote should not have sent any body until 100 continue is received
-        // which means it's safe to keep the connection open(possibly) on error path.
-        self.sender.wait_for_poll().await
+        // which means it's safe(possibly) to keep the connection open on error path.
+        if self.tx.wait_for_poll().await.is_err() {
+            // like Self::ready method. just pending on error path
+            pending().await
+        }
     }
 }
