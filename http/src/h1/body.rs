@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     future::poll_fn,
+    future::Future,
     io,
     pin::Pin,
     rc::Rc,
@@ -100,37 +101,29 @@ impl RequestBodySender {
         }
     }
 
-    pub(super) async fn ready(&mut self) -> io::Result<()> {
-        poll_fn(|cx| {
-            // Check backpressure only if Payload (other side) is alive,
-            // Otherwise always return io error.
-            if self.payload_alive() {
-                let mut borrow = self.0.borrow_mut();
-                // when payload is backpressure register current task waker and wait.
-                if borrow.backpressure() {
-                    borrow.register_io(cx);
-                    Poll::Pending
-                } else {
-                    Poll::Ready(Ok(()))
-                }
-            } else {
-                Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()))
-            }
-        })
-        .await
+    pub(super) async fn ready(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
+        self.ready_with(|inner| !inner.backpressure())
     }
 
     // Lazily wait until RequestBody is already polled.
     // For specific use case body must not be eagerly polled.
     // For example: Request with Expect: Continue header.
-    pub(super) async fn wait_for_poll(&mut self) -> io::Result<()> {
+    pub(super) fn wait_for_poll(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
+        self.ready_with(|inner| inner.waiting())
+    }
+
+    async fn ready_with<F>(&mut self, func: F) -> io::Result<()>
+    where
+        F: Fn(&mut Inner) -> bool,
+    {
         poll_fn(|cx| {
+            // Check only if Payload (other side) is alive, Otherwise always return io error.
             if self.payload_alive() {
                 let mut borrow = self.0.borrow_mut();
-                // when payload is polled and waiting for data it's considered ready.
-                if borrow.waiting() {
+                if func(&mut *borrow) {
                     Poll::Ready(Ok(()))
                 } else {
+                    // when payload is not ready register current task waker and wait.
                     borrow.register_io(cx);
                     Poll::Pending
                 }
