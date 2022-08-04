@@ -12,7 +12,7 @@ use xitca_web::{
 
 fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("xitca=info,[xitca-logger]=trace,websocket=info")
+        .with_env_filter("xitca=info,websocket=info")
         .init();
     HttpServer::new(|| App::new().at("/", get(handler_service(handler))).finish())
         .bind("127.0.0.1:8080")?
@@ -31,18 +31,24 @@ async fn handler(mut ws: WebSocket) -> WebSocket {
         .on_msg(|tx, msg| {
             Box::pin(async move {
                 match msg {
-                    // echo back text message and ignore all other types of message.
+                    // echo back text message.
                     Message::Text(bytes) => {
                         let str = String::from_utf8_lossy(bytes.as_ref());
                         info!("Got text message: {str}");
                         tx.send(Message::Text(format!("Echo: {str}").into())).await.unwrap();
                     }
-                    _ => {}
+                    Message::Ping(_) | Message::Pong(_) | Message::Close(_) => {
+                        unreachable!("ping/pong/close messages are managed automatically by WebSocket type and exclueded from on_msg function");
+                    }
+                    _ => {
+                        // ignore all other types of message.
+                    }
                 }
             })
         })
         // async function that called when error occurred
         .on_err(|e| Box::pin(async move { error!("{e}") }))
+        // async function that called when closing websocket connection.
         .on_close(|| Box::pin(async { info!("WebSocket connection closing") }));
 
     // return the instance after configuration.
