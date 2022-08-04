@@ -11,7 +11,7 @@ use std::{
 
 use futures_core::Stream;
 
-use crate::{bytes::Bytes, error::BodyError};
+use crate::bytes::Bytes;
 
 /// max buffer size 32k
 pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;
@@ -48,9 +48,9 @@ impl RequestBody {
 }
 
 impl Stream for RequestBody {
-    type Item = Result<Bytes, BodyError>;
+    type Item = io::Result<Bytes>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
         self.0.borrow_mut().poll_read(cx)
     }
 }
@@ -70,7 +70,7 @@ impl Drop for RequestBodySender {
         if self.payload_alive() {
             let mut inner = self.0.borrow_mut();
             if !inner.eof {
-                inner.feed_error(BodyError::Io(io::ErrorKind::UnexpectedEof.into()));
+                inner.feed_error(io::ErrorKind::UnexpectedEof.into());
                 inner.wake();
             }
         }
@@ -82,9 +82,9 @@ impl RequestBodySender {
         self.0.borrow_mut().eof
     }
 
-    pub(super) fn feed_error(&mut self, err: BodyError) {
+    pub(super) fn feed_error(&mut self, e: io::Error) {
         if self.payload_alive() {
-            self.0.borrow_mut().feed_error(err);
+            self.0.borrow_mut().feed_error(e);
         }
     }
 
@@ -147,7 +147,7 @@ impl RequestBodySender {
 struct Inner {
     len: usize,
     eof: bool,
-    err: Option<BodyError>,
+    err: Option<io::Error>,
     items: VecDeque<Bytes>,
     task: Option<Waker>,
     io_task: Option<Waker>,
@@ -200,7 +200,7 @@ impl Inner {
         }
     }
 
-    fn feed_error(&mut self, err: BodyError) {
+    fn feed_error(&mut self, err: io::Error) {
         self.err = Some(err);
     }
 
@@ -219,7 +219,7 @@ impl Inner {
         self.len >= MAX_BUFFER_SIZE
     }
 
-    fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyError>>> {
+    fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
         if let Some(data) = self.items.pop_front() {
             self.len -= data.len();
             Poll::Ready(Some(Ok(data)))

@@ -50,7 +50,7 @@ impl Stream for RequestBody {
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             #[cfg(feature = "http1")]
-            Self::H1(body) => Pin::new(body).poll_next(_cx),
+            Self::H1(body) => Pin::new(body).poll_next(_cx).map_err(Into::into),
             #[cfg(feature = "http2")]
             Self::H2(body) => Pin::new(body).poll_next(_cx),
             #[cfg(feature = "http3")]

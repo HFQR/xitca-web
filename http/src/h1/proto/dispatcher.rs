@@ -388,7 +388,7 @@ where
             // This output would mix IO error and RequestBodySender::poll_ready error.
             // For now the effect of not handling them differently is not clear.
             Err(e) => {
-                body_reader.tx.feed_error(e.into());
+                body_reader.tx.feed_error(e);
             }
         }
 
