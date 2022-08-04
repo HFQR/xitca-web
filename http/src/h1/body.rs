@@ -101,7 +101,7 @@ impl RequestBodySender {
         }
     }
 
-    pub(super) async fn ready(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
+    pub(super) fn ready(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
         self.ready_with(|inner| !inner.backpressure())
     }
 
