@@ -311,23 +311,13 @@ where
 
     // a hacky method that output S::Response as Ok part but never actually produce the value.
     async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<S::Response, Error<S::Error, BE>> {
-        self._request_body_handler(body_reader).await?;
-        pending().await
-    }
-
-    async fn _request_body_handler(&mut self, body_reader: &mut BodyReader) -> io::Result<()> {
         if self.ctx.is_expect_header() {
             // Wait for body polled for expect header request.
-            match body_reader.wait_for_poll().await {
-                Ok(_) => {
-                    // encode continue
-                    self.ctx.encode_continue(&mut self.io.write_buf);
-                    // use drain write to make sure continue is sent to client.
-                    self.io.drain_write().await?;
-                }
-                // If body is already dropped then ignore sending 100 continue.
-                Err(_) => return Ok(()),
-            }
+            body_reader.wait_for_poll().await;
+            // encode continue
+            self.ctx.encode_continue(&mut self.io.write_buf);
+            // use drain write to make sure continue is sent to client.
+            self.io.drain_write().await?;
         }
 
         loop {
@@ -465,11 +455,13 @@ impl BodyReader {
         pending().await
     }
 
-    async fn wait_for_poll(&mut self) -> io::Result<()> {
+    async fn wait_for_poll(&mut self) {
         // The error case is the same condition as Self::ready method.
-        //
         // Remote should not have sent any body until 100 continue is received
-        // which means it's safe to keep the connection open(possibly) on error path.
-        self.tx.wait_for_poll().await
+        // which means it's safe(possibly) to keep the connection open on error path.
+        if self.tx.wait_for_poll().await.is_err() {
+            // like Self::ready method. just pending on error path
+            pending().await
+        }
     }
 }
