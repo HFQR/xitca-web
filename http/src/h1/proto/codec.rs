@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, mem};
 
 use tracing::{trace, warn};
 
@@ -191,19 +191,10 @@ impl ChunkedState {
     }
 
     fn read_body(rdr: &mut BytesMut, rem: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
-        let len = rdr.len() as u64;
-        if len == 0 {
-            Ok(Some(Self::Body))
+        if rdr.is_empty() {
+            Ok(None)
         } else {
-            let slice;
-            if *rem > len {
-                slice = rdr.split().freeze();
-                *rem -= len;
-            } else {
-                slice = rdr.split_to(*rem as usize).freeze();
-                *rem = 0;
-            }
-            *buf = Some(slice);
+            *buf = Some(bounded_split(rem, rdr));
             if *rem > 0 {
                 Ok(Some(Self::Body))
             } else {
@@ -290,14 +281,14 @@ impl TransferCoding {
         match *self {
             Self::Upgrade => buf.write_bytes(bytes),
             Self::EncodeChunked => buf.write_chunked(bytes),
-            Self::Length(ref mut remaining) => {
+            Self::Length(ref mut rem) => {
                 let len = bytes.len() as u64;
-                if *remaining >= len {
+                if *rem >= len {
                     buf.write_bytes(bytes);
-                    *remaining -= len;
+                    *rem -= len;
                 } else {
-                    buf.write_bytes(bytes.split_to(*remaining as usize));
-                    *remaining = 0;
+                    let rem = mem::replace(rem, 0u64);
+                    buf.write_bytes(bytes.split_to(rem as usize));
                 }
             }
             Self::Eof => warn!(target: "h1_encode", "TransferCoding::Eof should not encode response body"),
@@ -332,15 +323,8 @@ impl TransferCoding {
             Self::Eof | Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
                 unreachable!("TransferCoding::decode must not be called after it reaches EOF state. See Self::is_eof for condition.")
             }
-            Self::Length(ref mut remaining) => {
-                let len = src.len() as u64;
-                let buf = if *remaining > len {
-                    *remaining -= len;
-                    src.split().freeze()
-                } else {
-                    let split = std::mem::replace(remaining, 0u64);
-                    src.split_to(split as usize).freeze()
-                };
+            Self::Length(ref mut rem) => {
+                let buf = bounded_split(rem, src);
                 Ok(Some(buf))
             }
             Self::DecodeChunked(ref mut state, ref mut size) => {
@@ -352,7 +336,7 @@ impl TransferCoding {
                         None => return Ok(None),
                     };
 
-                    if src.is_empty() || matches!(state, ChunkedState::End) {
+                    if matches!(state, ChunkedState::End) {
                         return Ok(None);
                     }
 
@@ -364,6 +348,17 @@ impl TransferCoding {
             Self::Upgrade => Ok(Some(src.split().freeze())),
             _ => unreachable!(),
         }
+    }
+}
+
+fn bounded_split(rem: &mut u64, buf: &mut BytesMut) -> Bytes {
+    let len = buf.len() as u64;
+    if *rem >= len {
+        *rem -= len;
+        buf.split().freeze()
+    } else {
+        let rem = mem::replace(rem, 0u64);
+        buf.split_to(rem as usize).freeze()
     }
 }
 

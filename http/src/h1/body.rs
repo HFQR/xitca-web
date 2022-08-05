@@ -4,6 +4,7 @@ use std::{
     future::poll_fn,
     future::Future,
     io,
+    ops::DerefMut,
     pin::Pin,
     rc::Rc,
     task::{Context, Poll, Waker},
@@ -120,7 +121,7 @@ impl RequestBodySender {
             // Check only if Payload (other side) is alive, Otherwise always return io error.
             if self.payload_alive() {
                 let mut borrow = self.0.borrow_mut();
-                if func(&mut *borrow) {
+                if func(borrow.deref_mut()) {
                     Poll::Ready(Ok(()))
                 } else {
                     // when payload is not ready register current task waker and wait.
