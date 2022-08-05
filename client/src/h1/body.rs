@@ -42,7 +42,6 @@ where
 
         while !this.decoder.is_eof() {
             match this.decoder.decode(this.buf.deref_mut())? {
-                Some(bytes) if bytes.is_empty() => this.decoder = TransferCoding::eof(),
                 Some(bytes) => return Poll::Ready(Some(Ok(bytes))),
                 None => {
                     let n = ready!(poll_read_buf(Pin::new(&mut *this.conn), cx, &mut *this.buf))?;

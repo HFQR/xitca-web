@@ -54,6 +54,8 @@ impl TransferCoding {
         Self::Upgrade
     }
 
+    /// Check if Self is in EOF state. An EOF state means TransferCoding is ended gracefully
+    /// and can not decode any value. See [TransferCoding::decode] for detail.
     #[inline]
     pub fn is_eof(&self) -> bool {
         match self {
@@ -92,36 +94,30 @@ macro_rules! byte (
             $rdr.advance(1);
             b
         } else {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF during chunk size line"));
+            return Ok(None);
         }
     })
 );
 
 impl ChunkedState {
-    pub fn step(
-        &self,
-        body: &mut BytesMut,
-        size: &mut u64,
-        buf: &mut Option<Bytes>,
-    ) -> io::Result<Option<ChunkedState>> {
-        use self::ChunkedState::*;
+    pub fn step(&self, body: &mut BytesMut, size: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
         match *self {
-            Size => ChunkedState::read_size(body, size),
-            SizeLws => ChunkedState::read_size_lws(body),
-            Extension => ChunkedState::read_extension(body),
-            SizeLf => ChunkedState::read_size_lf(body, size),
-            Body => ChunkedState::read_body(body, size, buf),
-            BodyCr => ChunkedState::read_body_cr(body),
-            BodyLf => ChunkedState::read_body_lf(body),
-            Trailer => ChunkedState::read_trailer(body),
-            TrailerLf => ChunkedState::read_trailer_lf(body),
-            EndCr => ChunkedState::read_end_cr(body),
-            EndLf => ChunkedState::read_end_lf(body),
-            End => Ok(Some(ChunkedState::End)),
+            Self::Size => Self::read_size(body, size),
+            Self::SizeLws => Self::read_size_lws(body),
+            Self::Extension => Self::read_extension(body),
+            Self::SizeLf => Self::read_size_lf(body, size),
+            Self::Body => Self::read_body(body, size, buf),
+            Self::BodyCr => Self::read_body_cr(body),
+            Self::BodyLf => Self::read_body_lf(body),
+            Self::Trailer => Self::read_trailer(body),
+            Self::TrailerLf => Self::read_trailer_lf(body),
+            Self::EndCr => Self::read_end_cr(body),
+            Self::EndLf => Self::read_end_lf(body),
+            Self::End => Ok(Some(Self::End)),
         }
     }
 
-    fn read_size(rdr: &mut BytesMut, size: &mut u64) -> io::Result<Option<ChunkedState>> {
+    fn read_size(rdr: &mut BytesMut, size: &mut u64) -> io::Result<Option<Self>> {
         macro_rules! or_overflow {
             ($e:expr) => (
                 match $e {
@@ -162,12 +158,12 @@ impl ChunkedState {
         Ok(Some(ChunkedState::Size))
     }
 
-    fn read_size_lws(rdr: &mut BytesMut) -> io::Result<Option<ChunkedState>> {
+    fn read_size_lws(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             // LWS can follow the chunk size, but no more digits can come
-            b'\t' | b' ' => Ok(Some(ChunkedState::SizeLws)),
-            b';' => Ok(Some(ChunkedState::Extension)),
-            b'\r' => Ok(Some(ChunkedState::SizeLf)),
+            b'\t' | b' ' => Ok(Some(Self::SizeLws)),
+            b';' => Ok(Some(Self::Extension)),
+            b'\r' => Ok(Some(Self::SizeLf)),
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Invalid chunk size linear white space",
@@ -175,86 +171,77 @@ impl ChunkedState {
         }
     }
 
-    fn read_extension(rdr: &mut BytesMut) -> io::Result<Option<ChunkedState>> {
+    fn read_extension(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
-            b'\r' => Ok(Some(ChunkedState::SizeLf)),
+            b'\r' => Ok(Some(Self::SizeLf)),
             b'\n' => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid chunk extension contains newline",
             )),
-            _ => Ok(Some(ChunkedState::Extension)), // no supported extensions
+            _ => Ok(Some(Self::Extension)), // no supported extensions
         }
     }
 
-    fn read_size_lf(rdr: &mut BytesMut, size: &mut u64) -> io::Result<Option<ChunkedState>> {
+    fn read_size_lf(rdr: &mut BytesMut, size: &mut u64) -> io::Result<Option<Self>> {
         match byte!(rdr) {
-            b'\n' if *size > 0 => Ok(Some(ChunkedState::Body)),
-            b'\n' if *size == 0 => Ok(Some(ChunkedState::EndCr)),
+            b'\n' if *size > 0 => Ok(Some(Self::Body)),
+            b'\n' if *size == 0 => Ok(Some(Self::EndCr)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk size LF")),
         }
     }
 
-    fn read_body(rdr: &mut BytesMut, rem: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<ChunkedState>> {
-        let len = rdr.len() as u64;
-        if len == 0 {
-            *rem = 0;
-            Err(incomplete_body())
+    fn read_body(rdr: &mut BytesMut, rem: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
+        if rdr.is_empty() {
+            Ok(None)
         } else {
-            let slice;
-            if *rem > len {
-                slice = rdr.split().freeze();
-                *rem -= len;
-            } else {
-                slice = rdr.split_to(*rem as usize).freeze();
-                *rem = 0;
-            }
-            *buf = Some(slice);
+            *buf = Some(bounded_split(rem, rdr));
             if *rem > 0 {
-                Ok(Some(ChunkedState::Body))
+                Ok(Some(Self::Body))
             } else {
-                Ok(Some(ChunkedState::BodyCr))
+                Ok(Some(Self::BodyCr))
             }
         }
     }
 
-    fn read_body_cr(rdr: &mut BytesMut) -> io::Result<Option<ChunkedState>> {
+    fn read_body_cr(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
-            b'\r' => Ok(Some(ChunkedState::BodyLf)),
+            b'\r' => Ok(Some(Self::BodyLf)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk body CR")),
         }
     }
 
-    fn read_body_lf(rdr: &mut BytesMut) -> io::Result<Option<ChunkedState>> {
+    fn read_body_lf(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
-            b'\n' => Ok(Some(ChunkedState::Size)),
+            b'\n' => Ok(Some(Self::Size)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk body LF")),
         }
     }
 
-    fn read_trailer(rdr: &mut BytesMut) -> io::Result<Option<ChunkedState>> {
+    fn read_trailer(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
         trace!(target: "h1_decode", "read_trailer");
         match byte!(rdr) {
-            b'\r' => Ok(Some(ChunkedState::TrailerLf)),
-            _ => Ok(Some(ChunkedState::Trailer)),
+            b'\r' => Ok(Some(Self::TrailerLf)),
+            _ => Ok(Some(Self::Trailer)),
         }
     }
-    fn read_trailer_lf(rdr: &mut BytesMut) -> io::Result<Option<ChunkedState>> {
+
+    fn read_trailer_lf(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
-            b'\n' => Ok(Some(ChunkedState::EndCr)),
+            b'\n' => Ok(Some(Self::EndCr)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid trailer end LF")),
         }
     }
 
-    fn read_end_cr(rdr: &mut BytesMut) -> io::Result<Option<ChunkedState>> {
+    fn read_end_cr(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
-            b'\r' => Ok(Some(ChunkedState::EndLf)),
-            _ => Ok(Some(ChunkedState::Trailer)),
+            b'\r' => Ok(Some(Self::EndLf)),
+            _ => Ok(Some(Self::Trailer)),
         }
     }
 
-    fn read_end_lf(rdr: &mut BytesMut) -> io::Result<Option<ChunkedState>> {
+    fn read_end_lf(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
-            b'\n' => Ok(Some(ChunkedState::End)),
+            b'\n' => Ok(Some(Self::End)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end LF")),
         }
     }
@@ -294,14 +281,14 @@ impl TransferCoding {
         match *self {
             Self::Upgrade => buf.write_bytes(bytes),
             Self::EncodeChunked => buf.write_chunked(bytes),
-            Self::Length(ref mut remaining) => {
+            Self::Length(ref mut rem) => {
                 let len = bytes.len() as u64;
-                if *remaining >= len {
+                if *rem >= len {
                     buf.write_bytes(bytes);
-                    *remaining -= len;
+                    *rem -= len;
                 } else {
-                    buf.write_bytes(bytes.split_to(*remaining as usize));
-                    *remaining = 0;
+                    let rem = mem::replace(rem, 0u64);
+                    buf.write_bytes(bytes.split_to(rem as usize));
                 }
             }
             Self::Eof => warn!(target: "h1_encode", "TransferCoding::Eof should not encode response body"),
@@ -322,26 +309,22 @@ impl TransferCoding {
         }
     }
 
-    /// Encode body. Return Bytes when successfully encoded new data.
+    /// decode body. return Some(Bytes) when successfully decoded new data.
     ///
-    /// When returned bytes has zero length it means the encoder should enter Eof state.
-    /// (calling `Self::encode_eof`)
+    /// # Panics:
+    /// Decode when Self is in EOF state would cause a panic. See [TransferCoding::is_eof] for.
+    /// It's suggested to call `is_eof` before/after calling `decode` to make sure.
     pub fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
+        if src.is_empty() {
+            return Ok(None);
+        }
+
         match *self {
-            Self::Length(0) => Ok(Some(Bytes::new())),
-            Self::Length(ref mut remaining) => {
-                if src.is_empty() {
-                    return Ok(None);
-                }
-                let len = src.len() as u64;
-                let buf = if *remaining > len {
-                    *remaining -= len;
-                    src.split().freeze()
-                } else {
-                    let mut split = 0;
-                    mem::swap(remaining, &mut split);
-                    src.split_to(split as usize).freeze()
-                };
+            Self::Eof | Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
+                unreachable!("TransferCoding::decode must not be called after it reaches EOF state. See Self::is_eof for condition.")
+            }
+            Self::Length(ref mut rem) => {
+                let buf = bounded_split(rem, src);
                 Ok(Some(buf))
             }
             Self::DecodeChunked(ref mut state, ref mut size) => {
@@ -354,7 +337,7 @@ impl TransferCoding {
                     };
 
                     if matches!(state, ChunkedState::End) {
-                        return Ok(Some(Bytes::new()));
+                        return Ok(None);
                     }
 
                     if let Some(buf) = buf {
@@ -362,26 +345,21 @@ impl TransferCoding {
                     }
                 }
             }
-            Self::Upgrade => {
-                if src.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(src.split().freeze()))
-                }
-            }
-            Self::Eof => unreachable!("TransferCoding::Eof must never attempt to decode request payload"),
+            Self::Upgrade => Ok(Some(src.split().freeze())),
             _ => unreachable!(),
         }
     }
 }
 
-#[cold]
-#[inline(never)]
-fn incomplete_body() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::UnexpectedEof,
-        "end of file before message length reached",
-    )
+fn bounded_split(rem: &mut u64, buf: &mut BytesMut) -> Bytes {
+    let len = buf.len() as u64;
+    if *rem >= len {
+        *rem -= len;
+        buf.split().freeze()
+    } else {
+        let rem = mem::replace(rem, 0u64);
+        buf.split_to(rem as usize).freeze()
+    }
 }
 
 #[cfg(test)]
@@ -417,7 +395,8 @@ mod test {
             loop {
                 let result = state.step(rdr, &mut size, &mut None);
                 state = match result {
-                    Ok(s) => s.unwrap(),
+                    Ok(Some(s)) => s,
+                    Ok(None) => return assert_eq!(expected_err, UnexpectedEof),
                     Err(e) => {
                         assert_eq!(
                             expected_err,
@@ -471,21 +450,6 @@ mod test {
     }
 
     #[test]
-    fn test_read_chunked_early_eof() {
-        let bytes = &mut BytesMut::from(
-            "\
-            9\r\n\
-            foo bar\
-        ",
-        );
-        let mut decoder = TransferCoding::decode_chunked();
-        let n = decoder.decode(bytes).unwrap().unwrap().len();
-        assert_eq!(n, 7);
-        let e = decoder.decode(bytes).unwrap_err();
-        assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
-    }
-
-    #[test]
     fn test_read_chunked_single_read() {
         let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\n");
         let buf = TransferCoding::decode_chunked().decode(mock_buf).unwrap().unwrap();
@@ -515,77 +479,11 @@ mod test {
         assert_eq!("1234567890abcdef", &result);
 
         // eof read
-        let buf = decoder.decode(mock_buf).unwrap().unwrap();
-        assert_eq!(0, buf.len());
+        assert!(decoder.decode(mock_buf).unwrap().is_none());
 
-        // ensure read after eof also returns eof
-        let buf = decoder.decode(mock_buf).unwrap().unwrap();
-        assert_eq!(0, buf.len());
+        // ensure eof state is observable.
+        assert!(decoder.is_eof());
     }
-
-    // TODO: Revive async tests.
-    // // perform an async read using a custom buffer size and causing a blocking
-    // // read at the specified byte
-    // fn read_async(mut decoder: TransferCoding, content: &[u8], block_at: usize) -> String {
-    //     let mut outs = Vec::new();
-    //
-    //     let mut ins = if block_at == 0 {
-    //         tokio_test::io::Builder::new()
-    //             .wait(Duration::from_millis(10))
-    //             .read(content)
-    //             .build()
-    //     } else {
-    //         tokio_test::io::Builder::new()
-    //             .read(&content[..block_at])
-    //             .wait(Duration::from_millis(10))
-    //             .read(&content[block_at..])
-    //             .build()
-    //     };
-    //
-    //     let mut ins = &mut ins as &mut (dyn AsyncRead + Unpin);
-    //
-    //     loop {
-    //         let buf = decoder
-    //             .decode_fut(&mut ins)
-    //             .await
-    //             .expect("unexpected decode error");
-    //         if buf.is_empty() {
-    //             break; // eof
-    //         }
-    //         outs.extend(buf.as_ref());
-    //     }
-    //
-    //     String::from_utf8(outs).unwrap()
-    // }
-    //
-    // // iterate over the different ways that this async read could go.
-    // // tests blocking a read at each byte along the content - The shotgun approach
-    // async fn all_async_cases(content: &str, expected: &str, decoder: Decoder) {
-    //     let content_len = content.len();
-    //     for block_at in 0..content_len {
-    //         let actual = read_async(decoder.clone(), content.as_bytes(), block_at).await;
-    //         assert_eq!(expected, &actual) //, "Failed async. Blocking at {}", block_at);
-    //     }
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_read_length_async() {
-    //     let content = "foobar";
-    //     all_async_cases(content, content, Decoder::length(content.len() as u64)).await;
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_read_chunked_async() {
-    //     let content = "3\r\nfoo\r\n3\r\nbar\r\n0\r\n\r\n";
-    //     let expected = "foobar";
-    //     all_async_cases(content, expected, Decoder::chunked()).await;
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_read_eof_async() {
-    //     let content = "foobar";
-    //     all_async_cases(content, content, Decoder::eof()).await;
-    // }
 
     #[test]
     fn encode_chunked() {
