@@ -33,14 +33,14 @@ impl Default for RequestBody {
 }
 
 impl RequestBody {
-    /// Create request body stream with given EOF state.
-    pub(super) fn create(eof: bool) -> Self {
+    // Create request body stream with given EOF state.
+    fn create(eof: bool) -> Self {
         RequestBody(Rc::new(RefCell::new(Inner::new(eof))))
     }
 
-    /// Create RequestBodySender together with RequestBody that share the same inner body state.
-    /// RequestBodySender is used to mutate data/eof/error state and made the change observable
-    /// from RequestBody owner.
+    // Create RequestBodySender together with RequestBody that share the same inner body state.
+    // RequestBodySender is used to mutate data/eof/error state and made the change observable
+    // from RequestBody owner.
     pub(super) fn channel(eof: bool) -> (RequestBodySender, Self) {
         let this = Self::create(eof);
         (RequestBodySender(this.0.clone()), this)

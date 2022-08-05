@@ -151,15 +151,11 @@ where
         self.try_read()
     }
 
-    async fn write(&mut self) -> io::Result<()> {
-        self.io.ready(Interest::WRITABLE).await?;
-        self.try_write()
-    }
-
     // drain write buffer and flush the io.
     async fn drain_write(&mut self) -> io::Result<()> {
         while self.write_buf.want_write() {
-            self.write().await?;
+            self.io.ready(Interest::WRITABLE).await?;
+            self.try_write()?;
         }
         Ok(())
     }
@@ -279,7 +275,7 @@ where
         match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut()) {
             Ok(Some((req, decoder))) => {
                 let (body_reader, body) = BodyReader::from_coding(decoder);
-                let req = req.map_body(move |_| body);
+                let req = req.map_body(move |_| ReqB::from(body));
                 Some(Ok((req, body_reader)))
             }
             Ok(None) => None,
@@ -416,23 +412,21 @@ struct BodyReader {
 }
 
 impl BodyReader {
-    fn from_coding<ReqB>(decoder: TransferCoding) -> (Self, ReqB)
-    where
-        ReqB: From<RequestBody>,
-    {
+    fn from_coding(decoder: TransferCoding) -> (Self, RequestBody) {
         let (tx, body) = RequestBody::channel(decoder.is_eof());
         let body_reader = BodyReader { decoder, tx };
-        (body_reader, body.into())
+        (body_reader, body)
     }
 
     fn decode<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut FlatBuf<READ_BUF_LIMIT>) -> io::Result<()> {
         while let Some(bytes) = self.decoder.decode(&mut *read_buf)? {
-            if bytes.is_empty() {
-                self.tx.feed_eof();
-                break;
-            }
             self.tx.feed_data(bytes);
         }
+
+        if self.decoder.is_eof() {
+            self.tx.feed_eof();
+        }
+
         Ok(())
     }
 
