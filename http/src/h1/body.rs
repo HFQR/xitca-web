@@ -79,10 +79,6 @@ impl Drop for RequestBodySender {
 }
 
 impl RequestBodySender {
-    pub(super) fn is_eof(&self) -> bool {
-        self.0.borrow_mut().eof
-    }
-
     pub(super) fn feed_error(&mut self, e: io::Error) {
         if self.payload_alive() {
             self.0.borrow_mut().feed_error(e);

@@ -341,11 +341,9 @@ where
                     encoder.encode(bytes, &mut self.io.write_buf);
                 }
                 SelectOutput::A(None) => {
-                    // Request body is partial consumed.
-                    // Close connection in case there are bytes remain in socket.
-                    // Treat upgrade decoder as special case because it does not have
-                    // an eof state.
-                    if !body_reader.tx.is_eof() && !body_reader.decoder.is_upgrade() {
+                    // Request body is partial consumed. Close connection in case there are bytes
+                    // remain in socket.
+                    if !body_reader.decoder.is_eof() {
                         self.ctx.set_ctype(ConnectionType::Close);
                     }
                     encoder.encode_eof(&mut self.io.write_buf);
@@ -369,23 +367,21 @@ where
 
     async fn response_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<(), Error<S::Error, BE>> {
         body_reader.decode(&mut self.io.read_buf)?;
-
         debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
+
         match self.io.ready(body_reader, &mut self.ctx).await {
             Ok(ready) => {
                 if ready.is_readable() {
-                    self.io.try_read()?
+                    if let Err(e) = self.io.try_read() {
+                        // TODO: transform to eof state for body reader to stop reading?
+                        body_reader.tx.feed_error(e);
+                    }
                 }
                 if ready.is_writable() {
                     self.io.try_write()?;
                 }
             }
-            // TODO: potential special handling error case of RequestBodySender::poll_ready ?
-            // This output would mix IO error and RequestBodySender::poll_ready error.
-            // For now the effect of not handling them differently is not clear.
-            Err(e) => {
-                body_reader.tx.feed_error(e);
-            }
+            Err(e) => body_reader.tx.feed_error(e),
         }
 
         Ok(())
