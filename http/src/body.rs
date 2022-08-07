@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     convert::Infallible,
     error,
     marker::PhantomData,
@@ -127,6 +128,16 @@ where
 
 pub struct StreamBody(LocalBoxStream<'static, Result<Bytes, BodyError>>);
 
+impl StreamBody {
+    pub fn new<B, E>(body: B) -> Self
+    where
+        B: Stream<Item = Result<Bytes, E>> + 'static,
+        E: error::Error + Send + Sync + 'static,
+    {
+        Self(Box::pin(MapStreamBody { body }))
+    }
+}
+
 impl Stream for StreamBody {
     type Item = Result<Bytes, BodyError>;
 
@@ -139,18 +150,8 @@ impl Stream for StreamBody {
     }
 }
 
-impl StreamBody {
-    pub fn new<B, E>(body: B) -> Self
-    where
-        B: Stream<Item = Result<Bytes, E>> + 'static,
-        E: error::Error + Send + Sync + 'static,
-    {
-        Self(Box::pin(MapStreamBody { body }))
-    }
-}
-
 pin_project! {
-    pub struct MapStreamBody<B> {
+    struct MapStreamBody<B> {
         #[pin]
         body: B
     }
@@ -201,8 +202,13 @@ impl<B> ResponseBody<B> {
 
     /// Construct a new Bytes variant of ResponseBody
     #[inline]
-    pub fn bytes(bytes: Bytes) -> Self {
-        Self::Bytes { bytes }
+    pub fn bytes<B2>(bytes: B2) -> Self
+    where
+        Bytes: From<B2>,
+    {
+        Self::Bytes {
+            bytes: Bytes::from(bytes),
+        }
     }
 
     /// Drop [ResponseBody::Stream] variant to cast it to given generic B1 stream type.
@@ -249,38 +255,34 @@ impl From<StreamBody> for ResponseBody {
     }
 }
 
-impl<B> From<Bytes> for ResponseBody<B> {
-    fn from(bytes: Bytes) -> Self {
-        Self::bytes(bytes)
-    }
-}
-
-impl<B> From<BytesMut> for ResponseBody<B> {
-    fn from(bytes: BytesMut) -> Self {
-        Self::bytes(bytes.freeze())
-    }
-}
-
-macro_rules! from_impl {
+macro_rules! bytes_impl {
     ($ty: ty) => {
         impl<B> From<$ty> for ResponseBody<B> {
             fn from(item: $ty) -> Self {
-                Self::Bytes {
-                    bytes: Bytes::from(item),
-                }
+                Self::bytes(item)
             }
         }
     };
 }
 
-from_impl!(&'static [u8]);
-from_impl!(Vec<u8>);
-from_impl!(String);
+bytes_impl!(Bytes);
+bytes_impl!(BytesMut);
+bytes_impl!(&'static [u8]);
+bytes_impl!(Box<[u8]>);
+bytes_impl!(Vec<u8>);
+bytes_impl!(String);
 
-impl<B> From<&'_ str> for ResponseBody<B> {
+impl<B> From<&str> for ResponseBody<B> {
     fn from(str: &str) -> Self {
-        Self::Bytes {
-            bytes: Bytes::copy_from_slice(str.as_bytes()),
+        Self::bytes(Bytes::copy_from_slice(str.as_bytes()))
+    }
+}
+
+impl<B> From<Cow<'_, str>> for ResponseBody<B> {
+    fn from(str: Cow<'_, str>) -> Self {
+        match str {
+            Cow::Owned(str) => str.into(),
+            Cow::Borrowed(str) => str.into(),
         }
     }
 }
