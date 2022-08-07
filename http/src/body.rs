@@ -314,3 +314,17 @@ impl BodySize {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn stream_body_size_hint() {
+        let body = StreamBody::new(Once::new(Bytes::new()));
+        assert_eq!(BodySize::from_stream(&body), BodySize::Sized(0));
+
+        let body = StreamBody::new(NoneBody::<Bytes>::default());
+        assert_eq!(BodySize::from_stream(&body), BodySize::None);
+    }
+}
