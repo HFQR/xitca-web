@@ -133,6 +133,10 @@ impl Stream for StreamBody {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.get_mut().0.as_mut().poll_next(cx)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
 }
 
 impl StreamBody {
@@ -164,6 +168,10 @@ where
             .body
             .poll_next(cx)
             .map_err(|e| BodyError::from(Box::new(e) as Box<dyn error::Error + Send + Sync>))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.body.size_hint()
     }
 }
 
