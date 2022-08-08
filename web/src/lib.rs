@@ -9,6 +9,7 @@ pub mod handler;
 pub mod middleware;
 pub mod request;
 pub mod response;
+pub mod service;
 pub mod stream;
 pub mod test;
 
