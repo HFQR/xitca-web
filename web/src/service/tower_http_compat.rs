@@ -159,3 +159,32 @@ where
         (hint.lower() as usize, hint.upper().map(|num| num as usize))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use xitca_http::body::{exact_body_hint, Once};
+
+    use crate::dev::bytes::Bytes;
+
+    use super::*;
+
+    #[test]
+    fn body_compat() {
+        let buf = Bytes::from_static(b"996");
+        let len = buf.len();
+        let body = CompatBody::new(Once::new(buf));
+
+        let size = Body::size_hint(&body);
+
+        assert_eq!(
+            (size.lower() as usize, size.upper().map(|num| num as usize)),
+            exact_body_hint(len)
+        );
+
+        let body = CompatBody::new(body);
+
+        let size = Stream::size_hint(&body);
+
+        assert_eq!(size, exact_body_hint(len));
+    }
+}
