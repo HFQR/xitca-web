@@ -31,10 +31,6 @@ impl<S, B> From<::h2::Error> for HttpServiceError<S, B> {
 
 impl From<::h2::Error> for BodyError {
     fn from(e: ::h2::Error) -> Self {
-        if e.is_io() {
-            Self::Io(e.into_io().unwrap())
-        } else {
-            BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-        }
+        BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 }
