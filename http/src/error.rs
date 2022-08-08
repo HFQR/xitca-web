@@ -74,42 +74,6 @@ pub enum TimeoutError {
     H2Handshake,
 }
 
-/// Request/Response body layer error.
-#[derive(Debug)]
-pub enum BodyError {
-    Std(Box<dyn Error + Send + Sync>),
-    Io(io::Error),
-}
-
-impl Display for BodyError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Std(ref e) => Display::fmt(e, f),
-            Self::Io(ref e) => Display::fmt(e, f),
-        }
-    }
-}
-
-impl Error for BodyError {}
-
-impl From<io::Error> for BodyError {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-impl From<Box<dyn Error + Send + Sync>> for BodyError {
-    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
-        Self::Std(e)
-    }
-}
-
-impl From<Infallible> for BodyError {
-    fn from(e: Infallible) -> BodyError {
-        match e {}
-    }
-}
-
 impl<S, B> From<()> for HttpServiceError<S, B> {
     fn from(_: ()) -> Self {
         Self::Ignored
@@ -118,6 +82,36 @@ impl<S, B> From<()> for HttpServiceError<S, B> {
 
 impl<S, B> From<Infallible> for HttpServiceError<S, B> {
     fn from(e: Infallible) -> Self {
+        match e {}
+    }
+}
+
+/// Default Request/Response body error.
+#[derive(Debug)]
+pub struct BodyError(Box<dyn Error + Send + Sync>);
+
+impl Display for BodyError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl Error for BodyError {}
+
+impl From<io::Error> for BodyError {
+    fn from(e: io::Error) -> Self {
+        Self(Box::new(e))
+    }
+}
+
+impl From<Box<dyn Error + Send + Sync>> for BodyError {
+    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
+        Self(e)
+    }
+}
+
+impl From<Infallible> for BodyError {
+    fn from(e: Infallible) -> BodyError {
         match e {}
     }
 }
