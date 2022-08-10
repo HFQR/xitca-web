@@ -215,6 +215,16 @@ pub mod io {
             Self: 'f;
 
         /// asynchronously wait for the IO type and return it's state as [Ready].
+        ///
+        /// # Errors:
+        ///
+        /// The only error cause of ready should be from runtime shutdown. Indicates no further
+        /// operations can be done.
+        ///
+        /// Actual IO error should be exposed from [std::io::Read]/[std::io::Write] methods.
+        ///
+        /// This constraint is from `tokio`'s behavior which is what xitca built upon and rely on
+        /// in downstream crates like `xitca-http` etc.
         fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_>;
 
         /// a poll version of ready method.
