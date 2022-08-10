@@ -161,6 +161,7 @@ where
     }
 
     // Check readable and writable state of IO and ready state of request body reader.
+    // return error when runtime is shutdown.(See AsyncIo::ready for reason).
     async fn ready<D, const HEADER_LIMIT: usize>(
         &mut self,
         body_reader: &mut BodyReader,
@@ -317,8 +318,8 @@ where
         }
 
         loop {
+            body_reader.decode(&mut self.io.read_buf);
             body_reader.ready(&mut self.ctx).await;
-            body_reader.decode(&mut self.io.read_buf)?;
             self.io.read().await?;
         }
     }
@@ -366,22 +367,20 @@ where
     }
 
     async fn response_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<(), Error<S::Error, BE>> {
-        body_reader.decode(&mut self.io.read_buf)?;
+        body_reader.decode(&mut self.io.read_buf);
         debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
 
-        match self.io.ready(body_reader, &mut self.ctx).await {
-            Ok(ready) => {
-                if ready.is_readable() {
-                    if let Err(e) = self.io.try_read() {
-                        // TODO: transform to eof state for body reader to stop reading?
-                        body_reader.tx.feed_error(e);
-                    }
-                }
-                if ready.is_writable() {
-                    self.io.try_write()?;
-                }
+        let ready = self.io.ready(body_reader, &mut self.ctx).await?;
+
+        if ready.is_readable() {
+            if let Err(e) = self.io.try_read() {
+                // TODO: transform to eof state for body reader to stop reading?
+                body_reader.tx.feed_error(e);
             }
-            Err(e) => body_reader.tx.feed_error(e),
+        }
+
+        if ready.is_writable() {
+            self.io.try_write()?;
         }
 
         Ok(())
@@ -414,16 +413,15 @@ impl BodyReader {
         (body_reader, body)
     }
 
-    fn decode<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut FlatBuf<READ_BUF_LIMIT>) -> io::Result<()> {
-        while let Some(bytes) = self.decoder.decode(&mut *read_buf)? {
-            self.tx.feed_data(bytes);
+    fn decode<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut FlatBuf<READ_BUF_LIMIT>) {
+        loop {
+            match self.decoder.decode(&mut *read_buf) {
+                Ok(Some(bytes)) => self.tx.feed_data(bytes),
+                Err(e) => return self.tx.feed_error(e),
+                Ok(None) if self.decoder.is_eof() => return self.tx.feed_eof(),
+                _ => return,
+            }
         }
-
-        if self.decoder.is_eof() {
-            self.tx.feed_eof();
-        }
-
-        Ok(())
     }
 
     // dispatcher MUST call this method before do any io reading for decode request body.
