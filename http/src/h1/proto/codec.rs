@@ -323,10 +323,8 @@ impl TransferCoding {
             Self::Eof | Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
                 unreachable!("TransferCoding::decode must not be called after it reaches EOF state. See Self::is_eof for condition.")
             }
-            Self::Length(ref mut rem) => {
-                let buf = bounded_split(rem, src);
-                Ok(Some(buf))
-            }
+            Self::Length(ref mut rem) => Ok(Some(bounded_split(rem, src))),
+            Self::Upgrade => Ok(Some(src.split().freeze())),
             Self::DecodeChunked(ref mut state, ref mut size) => {
                 loop {
                     let mut buf = None;
@@ -345,7 +343,6 @@ impl TransferCoding {
                     }
                 }
             }
-            Self::Upgrade => Ok(Some(src.split().freeze())),
             _ => unreachable!(),
         }
     }
@@ -357,7 +354,7 @@ fn bounded_split(rem: &mut u64, buf: &mut BytesMut) -> Bytes {
         *rem -= len;
         buf.split().freeze()
     } else {
-        let rem = mem::replace(rem, 0u64);
+        let rem = mem::replace(rem, 0);
         buf.split_to(rem as usize).freeze()
     }
 }

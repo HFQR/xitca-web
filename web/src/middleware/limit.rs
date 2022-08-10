@@ -37,7 +37,7 @@ impl Limit {
         }
     }
 
-    //
+    /// Set max size in byte unit the request body can be.
     pub fn set_request_body_max_size(mut self, size: usize) -> Self {
         self.request_body_size = size;
         self
@@ -159,7 +159,7 @@ pub enum LimitError {
 impl fmt::Display for LimitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::BodyOverSize(size) => write!(f, "Body size reached limit: {size} bytes."),
+            Self::BodyOverSize(size) => write!(f, "Body size reached limit: {} bytes.", size),
         }
     }
 }
@@ -196,8 +196,6 @@ mod test {
 
     use super::*;
 
-    const Q: Bytes = Bytes::from_static(b"hello,world!");
-
     async fn handler<B: WebStream>(Body(body): Body<B>) -> String {
         pin!(body);
 
@@ -212,13 +210,17 @@ mod test {
     fn request_body_over_limit() {
         use futures_util::stream::{self, StreamExt};
 
-        let body = stream::once(async { Ok::<_, BodyError>(Q) }).chain(stream::once(async { Ok::<_, BodyError>(Q) }));
+        let chunk = b"hello,world!";
+
+        let item = || async { Ok::<_, BodyError>(Bytes::from_static(chunk)) };
+
+        let body = stream::once(item()).chain(stream::once(item()));
 
         let req = Request::new(StreamBody::new(body));
 
         let body = App::new()
             .at("/", handler_service(handler))
-            .enclosed(Limit::new().set_request_body_max_size(Q.len()))
+            .enclosed(Limit::new().set_request_body_max_size(chunk.len()))
             .finish()
             .build(())
             .now_or_panic()
@@ -231,6 +233,6 @@ mod test {
 
         let body = collect_body(body).now_or_panic().unwrap();
 
-        assert_eq!(body, Q);
+        assert_eq!(body, chunk);
     }
 }
