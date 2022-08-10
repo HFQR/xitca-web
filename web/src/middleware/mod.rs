@@ -6,6 +6,8 @@ pub mod decompress;
 #[cfg(feature = "tower-http-compat")]
 pub mod tower_http_compat;
 
+pub mod limit;
+
 pub use xitca_http::util::middleware::Extension;
 
 pub use xitca_service::middleware::UncheckedReady;
