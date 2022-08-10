@@ -218,6 +218,9 @@ impl Client {
             .await
             .map_err(|_| TimeoutError::Connect)??;
 
+        // TODO: make nodelay configurable?
+        let _ = stream.set_nodelay(true);
+
         Ok(stream)
     }
 
