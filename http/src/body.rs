@@ -128,6 +128,12 @@ where
 
 pub struct StreamBody(LocalBoxStream<'static, Result<Bytes, BodyError>>);
 
+impl Default for StreamBody {
+    fn default() -> Self {
+        Self::new(NoneBody::default())
+    }
+}
+
 impl StreamBody {
     pub fn new<B, E>(body: B) -> Self
     where

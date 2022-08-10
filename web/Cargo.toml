@@ -38,7 +38,7 @@ websocket = ["http-ws", "tokio"]
 codegen = ["xitca-codegen"]
 
 # experimental tower-http Layer compat.
-tower-http-compat = ["tower-service", "tower-layer", "http-body", "pin-project-lite"]
+tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 
 [dependencies]
 xitca-http = { version = "0.1", features = ["util-service"] }
@@ -48,6 +48,7 @@ xitca-service = "0.1"
 xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3"
+pin-project-lite = "0.2.9"
 
 # openssl
 openssl-crate = { package = "openssl", version = "0.10", optional = true }
@@ -79,11 +80,11 @@ xitca-codegen = { version = "0.1", optional = true }
 tower-service = { version = "0.3", optional = true }
 tower-layer = { version = "0.3", optional = true }
 http-body = { version = "0.4", optional = true }
-pin-project-lite = { version = "0.2.9", optional = true }
 
 [dev-dependencies]
 xitca-codegen = { version = "0.1" }
 
+futures-util = { version = "0.3", features = ["alloc"] }
 serde = { version = "1.0.137", features = ["derive"] }
 tokio = { version = "1.12", features = ["rt", "macros"] }
 
