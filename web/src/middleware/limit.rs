@@ -99,8 +99,6 @@ where
     }
 }
 
-pub type LimitBodyError<E> = PipelineE<LimitError, E>;
-
 pin_project! {
     pub struct LimitBody<B> {
         limit: usize,
@@ -130,18 +128,18 @@ impl<B> Stream for LimitBody<B>
 where
     B: WebStream,
 {
-    type Item = B::Item;
+    type Item = Result<B::Chunk, LimitBodyError<B::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
 
         if *this.record >= *this.limit {
-            return Poll::Ready(None);
+            return Poll::Ready(Some(Err(LimitBodyError::First(LimitError::BodyOverSize(*this.limit)))));
         }
 
         match ready!(this.body.poll_next(cx)) {
             Some(res) => {
-                let chunk = res?;
+                let chunk = res.map_err(LimitBodyError::Second)?;
                 *this.record += chunk.as_ref().len();
                 // TODO: for now there is no way to split a chunk if it goes beyond body limit.
                 Poll::Ready(Some(Ok(chunk)))
@@ -178,6 +176,25 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for LimitError {
     }
 }
 
+// TODO: PipelineE can not be used here because PipelineE is a no_std type from xitca-service.
+// revisit this when ::core::error::Error trait is implemented
+#[derive(Debug)]
+pub enum LimitBodyError<E> {
+    First(LimitError),
+    Second(E),
+}
+
+impl<E: fmt::Display> fmt::Display for LimitBodyError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::First(ref e) => fmt::Display::fmt(e, f),
+            Self::Second(ref e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl<E: error::Error> error::Error for LimitBodyError<E> {}
+
 #[cfg(test)]
 mod test {
     use std::future::poll_fn;
@@ -201,7 +218,7 @@ mod test {
 
         let chunk = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().unwrap();
 
-        assert!(poll_fn(|cx| body.as_mut().poll_next(cx)).await.is_none());
+        assert!(poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().is_err());
 
         std::str::from_utf8(chunk.as_ref()).unwrap().to_string()
     }
