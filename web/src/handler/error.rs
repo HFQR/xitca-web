@@ -22,6 +22,8 @@ pub enum ExtractError<E = BodyError> {
     HeaderNotFound(HeaderName),
     /// Error of parsing bytes to Rust types.
     Parse(ParseError),
+    /// fallback boxed error type.
+    Boxed(Box<dyn error::Error + Send + Sync + 'static>),
 }
 
 impl<E: fmt::Display> fmt::Display for ExtractError<E> {
@@ -31,6 +33,7 @@ impl<E: fmt::Display> fmt::Display for ExtractError<E> {
             Self::ExtensionNotFound => write!(f, "Extension can not be found"),
             Self::HeaderNotFound(ref name) => write!(f, "HeaderName: {name} not found."),
             Self::Parse(ref e) => fmt::Display::fmt(e, f),
+            Self::Boxed(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
