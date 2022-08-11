@@ -7,6 +7,7 @@ use std::{
 pub use http_ws::Message;
 
 use futures_core::stream::Stream;
+use http_ws::HandshakeError;
 use http_ws::{
     stream::{DecodeError, DecodeStream},
     WsOutput,
@@ -20,6 +21,7 @@ use xitca_unsafe_collection::{
 use crate::{
     dev::bytes::Bytes,
     handler::{error::ExtractError, FromRequest, Responder},
+    http::header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
     request::{RequestBody, WebRequest},
     response::{StreamBody, WebResponse},
     stream::WebStream,
@@ -113,6 +115,18 @@ where
     }
 }
 
+impl<E> From<HandshakeError> for ExtractError<E> {
+    fn from(e: HandshakeError) -> Self {
+        match e {
+            HandshakeError::NoConnectionUpgrade => ExtractError::HeaderNotFound(CONNECTION),
+            HandshakeError::NoVersionHeader => ExtractError::HeaderNotFound(SEC_WEBSOCKET_VERSION),
+            HandshakeError::NoWebsocketUpgrade => ExtractError::HeaderNotFound(UPGRADE),
+            // TODO: refine error mapping of the remaining branches.
+            e => ExtractError::Boxed(Box::new(e)),
+        }
+    }
+}
+
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for WebSocket<B>
 where
     C: 'static,
@@ -127,7 +141,7 @@ where
         let body = req.take_body_ref();
 
         async {
-            let ws = http_ws::ws(req.req(), body).unwrap();
+            let ws = http_ws::ws(req.req(), body)?;
             Ok(WebSocket::new(ws))
         }
     }
