@@ -16,7 +16,12 @@ use tokio::sync::mpsc::{channel, Receiver};
 #[cfg(feature = "single-thread")]
 use xitca_unsafe_collection::channel::mpsc::{async_vec as channel, Receiver};
 
-use crate::{client::Client, error::Error, request::Request, response::Response};
+use crate::{
+    client::Client,
+    error::{unexpected_eof_err, write_zero_err, Error},
+    request::Request,
+    response::Response,
+};
 
 use super::context::Context;
 
@@ -53,12 +58,12 @@ where
         self.ctx.push_req(req);
 
         while !self.ctx.req_is_empty() {
-            let _ = self.io.ready(Interest::WRITABLE).await?;
+            self.io.ready(Interest::WRITABLE).await?;
             self.try_write()?;
         }
 
         loop {
-            let _ = self.io.ready(Interest::READABLE).await?;
+            self.io.ready(Interest::READABLE).await?;
             self.try_read()?;
 
             if self.ctx.try_response_once()? {
@@ -75,7 +80,7 @@ where
     fn try_read(&mut self) -> Result<(), Error> {
         loop {
             match read_buf(&mut self.io, &mut self.ctx.buf) {
-                Ok(0) => return Err(Error::ConnectionClosed),
+                Ok(0) => return Err(unexpected_eof_err()),
                 Ok(_) => continue,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(e) => return Err(e.into()),
@@ -91,7 +96,7 @@ where
             let slice = self.ctx.chunks_vectored(&mut iovs);
 
             match self.io.write_vectored(slice) {
-                Ok(0) => return Err(Error::ConnectionClosed),
+                Ok(0) => return Err(write_zero_err()),
                 Ok(n) => self.ctx.advance(n),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(e) => return Err(e.into()),
@@ -119,7 +124,7 @@ mod io_impl {
             loop {
                 let ready = match self.rx.wait().select(self.io.ready(Interest::READABLE)).await {
                     SelectOutput::A(res) => {
-                        res.map_err(|_| Error::ConnectionClosed)?;
+                        res.map_err(|_| unexpected_eof_err())?;
                         self.io.ready(Interest::READABLE | Interest::WRITABLE).await?
                     }
                     SelectOutput::B(ready) => ready?,
@@ -144,7 +149,7 @@ mod io_impl {
             });
 
             match res {
-                Ok(0) => Err(Error::ConnectionClosed),
+                Ok(0) => Err(write_zero_err()),
                 Ok(mut n) => {
                     self.rx.advance_until(|req| {
                         let rem = req.msg.remaining();
