@@ -124,7 +124,7 @@ mod io_impl {
             loop {
                 let ready = match self.rx.wait().select(self.io.ready(Interest::READABLE)).await {
                     SelectOutput::A(res) => {
-                        res.map_err(|_| Error::ConnectionClosed)?;
+                        res.map_err(|_| unexpected_eof_err())?;
                         self.io.ready(Interest::READABLE | Interest::WRITABLE).await?
                     }
                     SelectOutput::B(ready) => ready?,
@@ -149,7 +149,7 @@ mod io_impl {
             });
 
             match res {
-                Ok(0) => Err(Error::ConnectionClosed),
+                Ok(0) => Err(write_zero_err()),
                 Ok(mut n) => {
                     self.rx.advance_until(|req| {
                         let rem = req.msg.remaining();
