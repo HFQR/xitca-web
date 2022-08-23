@@ -59,9 +59,7 @@ where
         params.push(("application_name", &**application_name));
     }
 
-    let mut res = io
-        .linear_request(|buf| frontend::startup_message(params, buf).map_err(Error::Io))
-        .await?;
+    let mut res = io.linear_request(|buf| frontend::startup_message(params, buf)).await?;
 
     match res.recv().await? {
         backend::Message::AuthenticationOk => {}
@@ -70,8 +68,8 @@ where
             password(&mut res, io, pass).await?
         }
         backend::Message::AuthenticationMd5Password(body) => {
-            let user = cfg.get_user().ok_or(AuthenticationError::MissingUserName)?.as_bytes();
             let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
+            let user = cfg.get_user().ok_or(AuthenticationError::MissingUserName)?.as_bytes();
             let pass = authentication::md5_hash(user, pass, body.salt());
             password(&mut res, io, pass).await?
         }
@@ -101,10 +99,8 @@ where
 
             let mut scram = sasl::ScramSha256::new(pass, channel_binding);
 
-            io.linear_request(|buf| {
-                frontend::sasl_initial_response(mechanism, scram.message(), buf).map_err(Error::Io)
-            })
-            .await?;
+            io.linear_request(|buf| frontend::sasl_initial_response(mechanism, scram.message(), buf))
+                .await?;
 
             let body = match res.recv().await? {
                 backend::Message::AuthenticationSaslContinue(body) => body,
@@ -113,7 +109,7 @@ where
 
             scram.update(body.data())?;
 
-            io.linear_request(|buf| frontend::sasl_response(scram.message(), buf).map_err(Error::Io))
+            io.linear_request(|buf| frontend::sasl_response(scram.message(), buf))
                 .await?;
 
             let body = match res.recv().await? {
@@ -145,7 +141,7 @@ where
     Io: AsyncIo,
     P: AsRef<[u8]>,
 {
-    io.linear_request(|buf| frontend::password_message(pass.as_ref(), buf).map_err(Error::Io))
+    io.linear_request(|buf| frontend::password_message(pass.as_ref(), buf))
         .await?;
 
     match res.recv().await? {

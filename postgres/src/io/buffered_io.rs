@@ -45,9 +45,10 @@ where
 
     // send request in self blocking manner. this call would not utilize concurrent read/write nor
     // pipeline/batch. A single response is returned.
-    pub async fn linear_request<F>(&mut self, encoder: F) -> Result<Response, Error>
+    pub async fn linear_request<F, E>(&mut self, encoder: F) -> Result<Response, Error>
     where
-        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+        F: FnOnce(&mut BytesMut) -> Result<(), E>,
+        Error: From<E>,
     {
         let mut buf = BytesMut::new();
         encoder(&mut buf)?;
