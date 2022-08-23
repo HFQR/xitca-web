@@ -57,7 +57,7 @@ impl Client {
 
     pub(crate) async fn send(&self, msg: Bytes) -> Result<Response, Error> {
         let (req, res) = Request::new_pair(msg);
-        self.tx.send(req).await.map_err(|_| Error::ConnectionClosed)?;
+        self.tx.send(req).await?;
         Ok(res)
     }
 

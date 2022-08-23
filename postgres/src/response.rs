@@ -7,7 +7,7 @@ use postgres_protocol::message::backend;
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::channel::spsc::{Receiver, Sender};
 
-use super::error::Error;
+use super::error::{unexpected_eof_err, Error};
 
 pub struct Response {
     rx: ResponseReceiver,
@@ -34,7 +34,7 @@ impl Response {
         if self.buf.is_empty() {
             match ready!(self.rx.poll_recv(cx)) {
                 Some(buf) => self.buf = buf,
-                None => return Poll::Ready(Err(Error::ConnectionClosed)),
+                None => return Poll::Ready(Err(unexpected_eof_err())),
             }
         }
 
