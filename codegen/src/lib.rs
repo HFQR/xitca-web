@@ -142,11 +142,11 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }) => quote! {
             #base
 
-            impl<#generic_ty> ::xitca_service::ready::ReadyService<#req_ty> for #service_ty
+            impl<#generic_ty> ::xitca_service::ready::ReadyService for #service_ty
             #where_clause
             {
                 type Ready = #ready_res_ty;
-                type ReadyFuture<'f> = impl ::core::future::Future<Output = Self::Ready> where Self: 'f ;
+                type ReadyFuture<'f> = impl ::core::future::Future<Output = Self::Ready> where Self: 'f;
                 #[inline]
                 fn ready(&self) -> Self::ReadyFuture<'_> {
                     async move {

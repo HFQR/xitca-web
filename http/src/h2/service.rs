@@ -95,9 +95,9 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > ReadyService<St> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > ReadyService for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
+    S: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
     S::Error: fmt::Debug,
 
     A: Service<St, Response = TlsSt> + 'static,

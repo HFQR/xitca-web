@@ -7,7 +7,7 @@ pub use pipeline_enum::Pipeline as PipelineE;
 pub use pipeline_struct::Pipeline as PipelineT;
 
 /// Type alias for specialized [PipelineT] type with [marker::EnclosedFn].
-pub type EnclosedFnFactory<F, S, Req> = PipelineT<F, S, marker::EnclosedFn<Req>>;
+pub type EnclosedFnFactory<F, S> = PipelineT<F, S, marker::EnclosedFn>;
 
 /// Type alias for specialized [PipelineT] type with [marker::Enclosed].
 pub type EnclosedFactory<F, S> = PipelineT<F, S, marker::Enclosed>;

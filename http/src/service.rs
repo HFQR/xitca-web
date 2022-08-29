@@ -180,11 +180,10 @@ where
     }
 }
 
-impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    ReadyService<ServerStream>
+impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> ReadyService
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
+    S: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
     A: Service<TcpStream> + 'static,
     A::Response: AsyncIo + AsVersion + AsyncRead + AsyncWrite + Unpin,
     HttpServiceError<S::Error, BE>: From<A::Error>,

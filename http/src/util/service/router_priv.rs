@@ -154,11 +154,7 @@ where
     }
 }
 
-impl<S, Req> ReadyService<Req> for RouterService<S>
-where
-    S: Service<Req>,
-    Req: BorrowReq<http::Uri>,
-{
+impl<S> ReadyService for RouterService<S> {
     type Ready = ();
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where S: 'f;
 

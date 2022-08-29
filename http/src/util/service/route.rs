@@ -192,10 +192,7 @@ where
     }
 }
 
-impl<Req, R, N, const M: usize> ReadyService<Req> for Route<R, N, M>
-where
-    Self: Service<Req>,
-{
+impl<R, N, const M: usize> ReadyService for Route<R, N, M> {
     type Ready = ();
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 

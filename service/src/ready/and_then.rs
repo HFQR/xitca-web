@@ -4,10 +4,10 @@ use crate::pipeline::{marker::AndThen, PipelineT};
 
 use super::ReadyService;
 
-impl<S, Req, S1> ReadyService<Req> for PipelineT<S, S1, AndThen>
+impl<S, S1> ReadyService for PipelineT<S, S1, AndThen>
 where
-    S: ReadyService<Req>,
-    S1: ReadyService<S::Response, Error = S::Error>,
+    S: ReadyService,
+    S1: ReadyService,
 {
     type Ready = PipelineT<S::Ready, S1::Ready>;
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;

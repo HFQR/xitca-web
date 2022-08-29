@@ -37,10 +37,7 @@ where
     }
 }
 
-impl<S, Req> ReadyService<Req> for UncheckedReadyService<S>
-where
-    S: Service<Req>,
-{
+impl<S> ReadyService for UncheckedReadyService<S> {
     type Ready = ();
 
     type ReadyFuture<'f> = impl Future<Output = Self::Ready>

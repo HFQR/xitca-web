@@ -4,10 +4,9 @@ use crate::build::function::FnService;
 
 use super::ReadyService;
 
-impl<F, Req, Fut, Res, Err> ReadyService<Req> for FnService<F>
+impl<F> ReadyService for FnService<F>
 where
-    F: Fn(Req) -> Fut + Clone,
-    Fut: Future<Output = Result<Res, Err>>,
+    F: Clone,
 {
     type Ready = ();
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where F: 'f;

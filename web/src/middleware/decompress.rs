@@ -58,18 +58,16 @@ where
     }
 }
 
-impl<'r, S, C, B, Res, Err, Rdy> ReadyService<WebRequest<'r, C, B>> for DecompressService<S>
+impl<S> ReadyService for DecompressService<S>
 where
-    C: 'static,
-    B: WebStream + Default + 'static,
-    S: for<'rs> ReadyService<WebRequest<'rs, C, Coder<B>>, Response = Res, Error = Err, Ready = Rdy>,
+    S: ReadyService,
 {
-    type Ready = Rdy;
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
+    type Ready = S::Ready;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move { self.service.ready().await }
+        self.service.ready()
     }
 }
 

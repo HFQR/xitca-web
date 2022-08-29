@@ -87,10 +87,9 @@ where
     }
 }
 
-impl<S, Req, St> ReadyService<Req> for ExtensionService<S, St>
+impl<S, St> ReadyService for ExtensionService<S, St>
 where
-    S: ReadyService<Req>,
-    Req: BorrowReqMut<http::Extensions>,
+    S: ReadyService,
     St: Send + Sync + Clone + 'static,
 {
     type Ready = S::Ready;

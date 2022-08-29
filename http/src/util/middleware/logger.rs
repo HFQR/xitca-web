@@ -94,10 +94,9 @@ impl<T: Future> Future for Instrumented<'_, T> {
     }
 }
 
-impl<S, Req> ReadyService<Req> for LoggerService<S>
+impl<S> ReadyService for LoggerService<S>
 where
-    S: ReadyService<Req>,
-    S::Error: Debug,
+    S: ReadyService,
 {
     type Ready = S::Ready;
 

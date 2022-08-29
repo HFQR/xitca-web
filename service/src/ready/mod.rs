@@ -6,8 +6,6 @@ mod map_err;
 
 use core::{future::Future, ops::Deref, pin::Pin};
 
-use super::service::Service;
-
 /// Extend trait for [Service].
 ///
 /// Can be used to cehck the ready state of a service before calling it.
@@ -41,8 +39,8 @@ use super::service::Service;
 ///     }
 /// }
 ///
-/// impl ReadyService<()> for Foo {
-///     type Ready = Result<Permit, Self::Error>;
+/// impl ReadyService for Foo {
+///     type Ready = Result<Permit, ()>;
 ///     type ReadyFuture<'f> = impl Future<Output = Self::Ready>;
 ///
 ///     fn ready(&self) -> Self::ReadyFuture<'_> {
@@ -73,7 +71,7 @@ use super::service::Service;
 ///     assert!(service.ready().await.is_err());  // service is throttled because permit is still held in scope.
 /// }
 /// ```
-pub trait ReadyService<Req>: Service<Req> {
+pub trait ReadyService {
     type Ready;
 
     type ReadyFuture<'f>: Future<Output = Self::Ready>
@@ -91,9 +89,9 @@ mod alloc_impl {
 
     macro_rules! impl_alloc {
         ($alloc: ident) => {
-            impl<S, Req> ReadyService<Req> for $alloc<S>
+            impl<S> ReadyService for $alloc<S>
             where
-                S: ReadyService<Req> + ?Sized,
+                S: ReadyService + ?Sized,
             {
                 type Ready = S::Ready;
                 type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
@@ -111,13 +109,13 @@ mod alloc_impl {
     impl_alloc!(Arc);
 }
 
-impl<S, Req> ReadyService<Req> for Pin<S>
+impl<S> ReadyService for Pin<S>
 where
     S: Deref,
-    S::Target: ReadyService<Req>,
+    S::Target: ReadyService,
 {
-    type Ready = <S::Target as ReadyService<Req>>::Ready;
-    type ReadyFuture<'f> = <S::Target as ReadyService<Req>>::ReadyFuture<'f>
+    type Ready = <S::Target as ReadyService>::Ready;
+    type ReadyFuture<'f> = <S::Target as ReadyService>::ReadyFuture<'f>
     where
         S: 'f;
 

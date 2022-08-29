@@ -86,9 +86,9 @@ where
     }
 }
 
-impl<S> ReadyService<TcpStream> for TcpConfigService<S>
+impl<S> ReadyService for TcpConfigService<S>
 where
-    S: ReadyService<TcpStream>,
+    S: ReadyService,
 {
     type Ready = S::Ready;
     type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
@@ -116,19 +116,6 @@ where
         }
 
         self.service.call(req)
-    }
-}
-
-impl<S> ReadyService<ServerStream> for TcpConfigService<S>
-where
-    S: ReadyService<ServerStream>,
-{
-    type Ready = S::Ready;
-    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
-
-    #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
-        self.service.ready()
     }
 }
 
