@@ -8,7 +8,7 @@ use std::{
 
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
-use xitca_service::{ready::ReadyService, BuildService};
+use xitca_service::{ready::ReadyService, BuildService, Service};
 
 use crate::worker::{self, ServiceAny};
 
@@ -44,7 +44,7 @@ pub(crate) trait _BuildService: Send + Sync {
 impl<F, Req> _BuildService for Factory<F, Req>
 where
     F: BuildServiceSync<Req>,
-    F::Service: ReadyService<Req>,
+    F::Service: ReadyService + Service<Req>,
     Req: From<Stream> + Send + 'static,
 {
     fn _build<'s, 'f>(
@@ -78,7 +78,7 @@ where
     Self: Send + Sync + 'static,
 {
     type BuildService: BuildService<Service = Self::Service>;
-    type Service: ReadyService<Req>;
+    type Service: ReadyService + Service<Req>;
 
     fn build(&self) -> Self::BuildService;
 }
@@ -87,7 +87,7 @@ impl<F, T, Req> BuildServiceSync<Req> for F
 where
     F: Fn() -> T + Send + Sync + 'static,
     T: BuildService,
-    T::Service: ReadyService<Req>,
+    T::Service: ReadyService + Service<Req>,
     Req: From<Stream>,
 {
     type BuildService = T;

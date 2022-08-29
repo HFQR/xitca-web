@@ -12,7 +12,7 @@ use std::{
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
 use xitca_io::net::{Listener, Stream};
-use xitca_service::ready::ReadyService;
+use xitca_service::{ready::ReadyService, Service};
 
 use self::shutdown::ShutdownHandle;
 
@@ -21,7 +21,7 @@ pub(crate) type ServiceAny = Rc<dyn Any>;
 
 pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S) -> JoinHandle<()>
 where
-    S: ReadyService<Req> + Clone + 'static,
+    S: ReadyService + Service<Req> + Clone + 'static,
     S::Ready: 'static,
     Req: From<Stream>,
 {

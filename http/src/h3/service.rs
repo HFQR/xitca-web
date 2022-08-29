@@ -43,16 +43,12 @@ where
     }
 }
 
-impl<S, ResB, BE> ReadyService<UdpStream> for H3Service<S>
+impl<S> ReadyService for H3Service<S>
 where
-    S: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
-    S::Error: fmt::Debug,
-
-    ResB: Stream<Item = Result<Bytes, BE>>,
-    BE: fmt::Debug,
+    S: ReadyService,
 {
     type Ready = S::Ready;
-    type ReadyFuture<'f> = S::ReadyFuture<'f>;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

@@ -55,7 +55,7 @@ pub trait BuildServiceExt<Arg>: BuildService<Arg> {
     }
 
     /// Function version of [Self::enclosed] method.
-    fn enclosed_fn<T, Req, Req2>(self, func: T) -> PipelineT<Self, T, marker::EnclosedFn<Req2>>
+    fn enclosed_fn<T, Req>(self, func: T) -> PipelineT<Self, T, marker::EnclosedFn>
     where
         T: for<'s> AsyncClosure<(&'s Self::Service, Req)> + Clone,
         Self: BuildService<Arg> + Sized,

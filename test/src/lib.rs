@@ -29,7 +29,7 @@ pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> T + Send + Sync + 'static,
     T: BuildService,
-    T::Service: ReadyService<Req>,
+    T::Service: ReadyService + Service<Req>,
     Req: From<NetStream> + Send + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;
@@ -51,7 +51,7 @@ pub fn test_h1_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
     I: BuildService + 'static,
-    I::Service: ReadyService<Request<h1::RequestBody>, Response = HResponse<B>> + 'static,
+    I::Service: ReadyService + Service<Request<h1::RequestBody>, Response = HResponse<B>> + 'static,
     <I::Service as Service<Request<h1::RequestBody>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
@@ -68,7 +68,7 @@ pub fn test_h2_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
     I: BuildService + 'static,
-    I::Service: ReadyService<Request<h2::RequestBody>, Response = HResponse<B>> + 'static,
+    I::Service: ReadyService + Service<Request<h2::RequestBody>, Response = HResponse<B>> + 'static,
     <I::Service as Service<Request<h2::RequestBody>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
@@ -89,7 +89,7 @@ pub fn test_h3_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
     I: BuildService + 'static,
-    I::Service: ReadyService<Request<h3::RequestBody>, Response = HResponse<B>> + 'static,
+    I::Service: ReadyService + Service<Request<h3::RequestBody>, Response = HResponse<B>> + 'static,
     <I::Service as Service<Request<h3::RequestBody>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,

@@ -34,7 +34,7 @@ struct TestMiddlewareService<S>(S);
 #[xitca_codegen::middleware_impl]
 impl<S> TestMiddlewareService<S>
 where
-    S: ReadyService<String, Error = Box<dyn std::error::Error>, Response = usize>,
+    S: ReadyService + Service<String, Error = Box<dyn std::error::Error>, Response = usize>,
 {
     async fn new_service(_m: &TestMiddleware, service: S) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(TestMiddlewareService(service))

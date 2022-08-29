@@ -108,7 +108,7 @@ where
     }
 
     /// Enclose App with function as middleware type.
-    pub fn enclosed_fn<Req, Req2, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T, Req2>>
+    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T>>
     where
         T: for<'s> AsyncClosure<(&'s R::Service, Req)> + Clone,
     {
@@ -119,10 +119,10 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<C, Fut, CErr, ReqB, ResB, E, Err, Rdy>(
+    pub fn finish<C, Fut, CErr, ReqB, ResB, E, Err>(
         self,
     ) -> impl BuildService<
-        Service = impl ReadyService<Request<ReqB>, Response = WebResponse<ResponseBody<ResB>>, Error = Err, Ready = Rdy>,
+        Service = impl ReadyService + Service<Request<ReqB>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
         Error = impl fmt::Debug,
     >
     where
@@ -131,8 +131,7 @@ where
         C: 'static,
         CErr: fmt::Debug,
         ReqB: 'static,
-        R::Service:
-            for<'r> ReadyService<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err, Ready = Rdy>,
+        R::Service: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
         R::Error: fmt::Debug,
         Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse>,
         ResB: Stream<Item = Result<Bytes, E>>,

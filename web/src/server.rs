@@ -200,7 +200,7 @@ where
     pub fn bind<A: ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
-        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -224,7 +224,7 @@ where
     ) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
-        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -280,7 +280,7 @@ where
     ) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
-        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -313,7 +313,7 @@ where
     pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
-        I::Service: ReadyService<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
         <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,

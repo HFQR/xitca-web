@@ -4,12 +4,12 @@ use crate::pipeline::{marker::EnclosedFn, PipelineT};
 
 use super::BuildService;
 
-impl<SF, Arg, T, Req> BuildService<Arg> for PipelineT<SF, T, EnclosedFn<Req>>
+impl<SF, Arg, T> BuildService<Arg> for PipelineT<SF, T, EnclosedFn>
 where
     SF: BuildService<Arg>,
     T: Clone,
 {
-    type Service = PipelineT<SF::Service, T, EnclosedFn<Req>>;
+    type Service = PipelineT<SF::Service, T, EnclosedFn>;
     type Error = SF::Error;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 

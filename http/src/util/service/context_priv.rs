@@ -164,12 +164,12 @@ where
     }
 }
 
-impl<Req, C, S, R, Res, Err> ReadyService<Req> for ContextService<C, S>
+impl<C, S> ReadyService for ContextService<C, S>
 where
-    S: for<'c> ReadyService<Context<'c, Req, C>, Response = Res, Error = Err, Ready = R>,
+    S: ReadyService,
 {
-    type Ready = R;
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
+    type Ready = S::Ready;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

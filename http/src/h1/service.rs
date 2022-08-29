@@ -60,9 +60,9 @@ where
 }
 
 impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    ReadyService<St> for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ReadyService for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: ReadyService<Request<RequestBody>, Response = Response<B>> + 'static,
+    S: ReadyService + Service<Request<RequestBody>, Response = Response<B>> + 'static,
 
     A: Service<St, Response = TlsSt> + 'static,
     St: AsyncIo,
