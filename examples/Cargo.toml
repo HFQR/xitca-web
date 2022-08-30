@@ -40,6 +40,10 @@ required-features = ["io-uring"]
 name = "compression"
 path = "compression.rs"
 
+[[example]]
+name = "tower-http"
+path = "tower-http.rs"
+
 [features]
 io-uring = ["tokio-uring", "xitca-web/io-uring"]
 
@@ -48,7 +52,7 @@ xitca-http = { version = "0.1", features = ["http2", "http3", "rustls", "openssl
 xitca-io = "0.1"
 xitca-server= { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
-xitca-web = { version = "0.1", features = ["http2", "http3", "rustls", "openssl", "compress-br", "compress-de", "compress-gz", "multipart", "websocket"] }
+xitca-web = { version = "0.1", features = ["http2", "http3", "rustls", "openssl", "compress-br", "compress-de", "compress-gz", "multipart", "tower-http-compat", "websocket"] }
 
 http-encoding = { version = "0.1", features = ["all"] }
 http-ws = "0.1"
@@ -64,6 +68,7 @@ rustls = "0.20"
 rustls-pemfile = "1"
 tempfile = "3"
 tokio = { version = "1.5", features = ["fs", "macros", "rt"] }
+tower-http = { version = "0.3", features = ["fs"] }
 tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.1", features = ["env-filter"] }
 openssl = "0.10"
