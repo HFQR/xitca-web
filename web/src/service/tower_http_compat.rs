@@ -35,7 +35,7 @@ impl<S> TowerHttpCompat<S> {
     }
 }
 
-impl<S, Arg> BuildService<Arg> for TowerHttpCompat<S>
+impl<S> BuildService for TowerHttpCompat<S>
 where
     S: Clone,
 {
@@ -43,7 +43,7 @@ where
     type Error = Infallible;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
-    fn build(&self, _: Arg) -> Self::Future {
+    fn build(&self, _: ()) -> Self::Future {
         let service = self.service.clone();
         async {
             Ok(TowerCompatService {
