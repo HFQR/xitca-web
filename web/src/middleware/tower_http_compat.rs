@@ -41,6 +41,10 @@ where
 impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     /// Construct a new xitca-web middleware from tower-http layer type.
     ///
+    /// # Limitation:
+    /// tower::Service::poll_ready implementation is ingorend by TowerHttpCompat.
+    /// if a tower Service is sensitive to poll_ready implemetnation it should not be used.
+    ///
     /// # Example:
     /// ```rust
     /// # use std::convert::Infallible;
@@ -126,10 +130,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::{
-            bytes::Bytes,
-            service::{fn_service, middleware::UncheckedReady},
-        },
+        dev::{bytes::Bytes, service::fn_service},
         http::StatusCode,
         App,
     };
@@ -145,7 +146,6 @@ mod test {
         let res = App::new()
             .at("/", fn_service(handler))
             .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)))
-            .enclosed(UncheckedReady)
             .finish()
             .build(())
             .now_or_panic()

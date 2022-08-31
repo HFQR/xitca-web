@@ -15,7 +15,7 @@ use xitca_unsafe_collection::no_send_send::NoSendSend;
 use crate::{
     dev::{
         bytes::Buf,
-        service::{BuildService, Service},
+        service::{ready::ReadyService, BuildService, Service},
     },
     http::{self, header::HeaderMap},
     request::WebRequest,
@@ -89,6 +89,19 @@ where
             let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
             fut.await.map(|res| res.map(CompatBody::new))
         }
+    }
+}
+
+impl<S> ReadyService for TowerCompatService<S> {
+    type Ready = ();
+
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready>
+    where
+        Self: 'f;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async {}
     }
 }
 
