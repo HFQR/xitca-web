@@ -8,6 +8,7 @@ mod enclosed_fn;
 mod ext;
 mod map;
 mod map_err;
+mod opt;
 
 pub use self::{
     ext::BuildServiceExt,
