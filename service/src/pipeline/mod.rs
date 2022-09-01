@@ -1,10 +1,12 @@
+//! specialized struct and enum for handling branching of parent-child/first-second related two types.
+
 pub(crate) mod marker;
 
-mod pipeline_enum;
-mod pipeline_struct;
+mod r#enum;
+mod r#struct;
 
-pub use pipeline_enum::Pipeline as PipelineE;
-pub use pipeline_struct::Pipeline as PipelineT;
+pub use r#enum::Pipeline as PipelineE;
+pub use r#struct::Pipeline as PipelineT;
 
 /// Type alias for specialized [PipelineT] type with [marker::EnclosedFn].
 pub type EnclosedFnFactory<F, S> = PipelineT<F, S, marker::EnclosedFn>;

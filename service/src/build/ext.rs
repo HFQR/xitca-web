@@ -105,7 +105,7 @@ mod test {
     struct DummyMiddleware;
 
     #[derive(Clone)]
-    struct DummyMiddlewareService<S: Clone>(S);
+    struct DummyMiddlewareService<S>(S);
 
     impl<S: Clone> BuildService<S> for DummyMiddleware {
         type Service = DummyMiddlewareService<S>;
@@ -190,5 +190,28 @@ mod test {
             .unwrap();
 
         assert_eq!(res, "251");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn enclosed_opt() {
+        let service = fn_service(index)
+            .enclosed(Some(DummyMiddleware))
+            .into_object()
+            .build(())
+            .now_or_panic()
+            .unwrap();
+
+        let res = service.call("996").now_or_panic().unwrap();
+        assert_eq!(res, "996");
+
+        let service = fn_service(index)
+            .enclosed(Option::<DummyMiddleware>::None)
+            .build(())
+            .now_or_panic()
+            .unwrap();
+
+        let res = service.call("996").now_or_panic().unwrap();
+        assert_eq!(res, "996");
     }
 }
