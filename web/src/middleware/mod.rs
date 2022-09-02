@@ -2,10 +2,10 @@
 pub mod compress;
 #[cfg(any(feature = "compress-br", feature = "compress-gz", feature = "compress-de"))]
 pub mod decompress;
-
 #[cfg(feature = "tower-http-compat")]
 pub mod tower_http_compat;
 
+pub mod eraser;
 pub mod limit;
 
 pub use xitca_http::util::middleware::Extension;
