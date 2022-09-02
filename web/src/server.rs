@@ -1,4 +1,4 @@
-use std::{fmt, future::Future, net::ToSocketAddrs, time::Duration};
+use std::{fmt, future::Future, time::Duration};
 
 use futures_core::stream::Stream;
 use xitca_http::{
@@ -197,7 +197,8 @@ where
         self
     }
 
-    pub fn bind<A: ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    pub fn bind<A: std::net::ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
         I: BuildService + 'static,
         I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
@@ -216,8 +217,27 @@ where
         Ok(self)
     }
 
+    pub fn listen<ResB, BE>(mut self, listener: std::net::TcpListener) -> std::io::Result<Self>
+    where
+        I: BuildService + 'static,
+        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
+
+        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+        BE: fmt::Debug + 'static,
+    {
+        let factory = self.factory.clone();
+        let config = self.config;
+        self.builder = self.builder.listen("xitca-web", listener, move || {
+            let factory = factory();
+            HttpServiceBuilder::with_config(factory, config).with_logger()
+        })?;
+
+        Ok(self)
+    }
+
     #[cfg(feature = "openssl")]
-    pub fn bind_openssl<A: ToSocketAddrs, ResB, BE>(
+    pub fn bind_openssl<A: std::net::ToSocketAddrs, ResB, BE>(
         mut self,
         addr: A,
         mut builder: openssl_crate::ssl::SslAcceptorBuilder,
@@ -273,7 +293,7 @@ where
     }
 
     #[cfg(feature = "rustls")]
-    pub fn bind_rustls<A: ToSocketAddrs, ResB, BE>(
+    pub fn bind_rustls<A: std::net::ToSocketAddrs, ResB, BE>(
         mut self,
         addr: A,
         mut config: rustls_crate::ServerConfig,
