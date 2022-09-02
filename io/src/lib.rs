@@ -35,13 +35,19 @@ pub mod bytes {
 
 /// re-export of [tokio::net] types
 pub mod net {
-    pub use tokio::net::{TcpListener, TcpSocket, ToSocketAddrs};
+    pub use tokio::net::{TcpListener, ToSocketAddrs};
+
+    // TODO: possible remove the attribute when wasm support tcp socket.
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    pub use tokio::net::TcpSocket;
 
     use std::io;
 
     pub struct TcpStream(pub(crate) tokio::net::TcpStream);
 
     impl TcpStream {
+        // TODO: possible remove the attribute when wasm support tcp connect.
+        #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
         pub async fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
             tokio::net::TcpStream::connect(addr).await.map(Self)
         }
@@ -179,7 +185,7 @@ pub mod net {
         fn from(stream: Stream) -> Self {
             match stream {
                 Stream::Tcp(tcp) => tcp,
-                #[cfg(any(not(windows), feature = "http3"))]
+                #[allow(unreachable_patterns)]
                 _ => unreachable!("Can not be casted to TcpStream"),
             }
         }

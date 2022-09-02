@@ -1,5 +1,6 @@
 use std::{collections::HashMap, future::Future, io, net, pin::Pin, time::Duration};
 
+#[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use xitca_io::net::Stream;
 
@@ -31,7 +32,7 @@ impl Builder {
     pub fn new() -> Self {
         Self {
             server_threads: 1,
-            worker_threads: std::thread::available_parallelism().unwrap().get(),
+            worker_threads: std::thread::available_parallelism().map(|size| size.get()).unwrap_or(1),
             worker_max_blocking_threads: 512,
             listeners: HashMap::new(),
             factories: HashMap::new(),
@@ -64,25 +65,6 @@ impl Builder {
         assert_ne!(num, 0, "There must be at least one worker thread");
 
         self.worker_threads = num;
-        self
-    }
-
-    #[deprecated(note = "server connection limit is removed")]
-    /// Set limit of connection count for a single worker thread.
-    ///
-    /// When reaching limit a worker thread would enter backpressure state and stop
-    /// accepting new connections until living connections reduces below the limit.
-    ///
-    /// A worker thread enter backpressure does not prevent other worker threads from
-    /// accepting new connections as long as they have not reached their connection
-    /// limits.
-    ///
-    /// Default set to 25_600.
-    ///
-    /// # Panics:
-    /// When received 0 as number of connection limit.
-    pub fn connection_limit(self, num: usize) -> Self {
-        assert_ne!(num, 0, "Connection limit must be higher than 0");
         self
     }
 
@@ -154,6 +136,7 @@ impl Builder {
         self
     }
 
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
     pub fn bind<N, A, F, St>(self, name: N, addr: A, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
@@ -186,6 +169,7 @@ impl Builder {
         }
     }
 
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
     fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,

@@ -71,7 +71,7 @@ http-multipart = { version = "0.1", optional = true }
 
 # websocket
 http-ws = { version = "0.1", optional = true }
-tokio = { version = "1.20.1", features = ["sync"], optional = true }
+tokio = { version = "1.21", features = ["sync"], optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }
@@ -86,6 +86,6 @@ xitca-codegen = { version = "0.1" }
 
 futures-util = { version = "0.3", features = ["alloc"] }
 serde = { version = "1.0.137", features = ["derive"] }
-tokio = { version = "1.12", features = ["rt", "macros"] }
+tokio = { version = "1.21", features = ["rt", "macros"] }
 
 tower-http = { version = "0.3", features = ["set-status"] }
