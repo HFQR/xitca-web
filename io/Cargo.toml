@@ -9,7 +9,7 @@ http3 = ["async-channel", "futures-core", "quinn"]
 
 [dependencies]
 bytes = "1.2"
-tokio = { version = "1", features = ["net", "io-util"] }
+tokio = { version = "1.21", features = ["net", "io-util"] }
 
 # http/3 support
 async-channel = { version = "1.6.1", optional = true }

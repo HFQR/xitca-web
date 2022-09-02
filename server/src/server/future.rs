@@ -5,6 +5,7 @@ use std::{
     task::{ready, Context, Poll},
 };
 
+#[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
 use crate::signals::{Signal, Signals};
 
 use super::{handle::ServerHandle, Command, Server};
@@ -97,6 +98,7 @@ impl ServerFuture {
 
 pub struct ServerFutureInner {
     pub(crate) server: Server,
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
     pub(crate) signals: Option<crate::signals::Signals>,
 }
 
@@ -108,15 +110,17 @@ impl Default for ServerFuture {
 
 impl ServerFutureInner {
     #[inline(never)]
-    fn new(server: Server, enable_signal: bool) -> Self {
+    fn new(server: Server, _enable_signal: bool) -> Self {
         Self {
             server,
-            signals: enable_signal.then(Signals::start),
+            #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+            signals: _enable_signal.then(Signals::start),
         }
     }
 
     #[inline(never)]
     fn poll_cmd(&mut self, cx: &mut Context<'_>) -> Poll<Command> {
+        #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
         if let Some(signals) = self.signals.as_mut() {
             if let Poll::Ready(sig) = Pin::new(signals).poll(cx) {
                 tracing::info!("Signal {:?} received.", sig);

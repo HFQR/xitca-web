@@ -20,7 +20,7 @@ use std::{
 
 use tokio::{
     runtime::Runtime,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
 
 use crate::{builder::Builder, worker};
@@ -34,6 +34,59 @@ pub struct Server {
 }
 
 impl Server {
+    #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+    pub fn new(builder: Builder) -> io::Result<Self> {
+        let Builder {
+            listeners,
+            factories,
+            shutdown_timeout,
+            on_worker_start,
+            ..
+        } = builder;
+
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+
+        let fut = async {
+            listeners
+                .into_iter()
+                .flat_map(|(name, listeners)| {
+                    listeners.into_iter().map(move |mut l| {
+                        let l = l.as_listener()?;
+                        Ok((name.to_owned(), Arc::new(l)))
+                    })
+                })
+                .collect::<Result<Vec<_>, io::Error>>()
+        };
+
+        let listeners = rt.block_on(fut)?;
+
+        let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
+
+        let on_start_fut = on_worker_start();
+
+        let fut = async {
+            on_start_fut.await;
+
+            let mut handles = Vec::new();
+            let mut services = Vec::new();
+
+            for (name, factory) in factories.iter() {
+                let (h, s) = factory._build(name, &listeners).await?;
+                handles.extend(h);
+                services.push(s);
+            }
+
+            worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown).await;
+
+            Ok::<_, ()>(())
+        };
+
+        rt.block_on(tokio::task::LocalSet::new().run_until(fut)).unwrap();
+
+        todo!()
+    }
+
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
     pub fn new(builder: Builder) -> io::Result<Self> {
         let Builder {
             server_threads,
@@ -125,7 +178,7 @@ impl Server {
             })
         });
 
-        let (tx_cmd, rx_cmd) = unbounded_channel();
+        let (tx_cmd, rx_cmd) = tokio::sync::mpsc::unbounded_channel();
 
         Ok(Self {
             is_graceful_shutdown,

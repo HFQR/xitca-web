@@ -5,8 +5,11 @@
 
 mod builder;
 mod server;
-mod signals;
 mod worker;
+
+// TODO: wasm does not support system signal yet.
+#[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+mod signals;
 
 pub mod net;
 
