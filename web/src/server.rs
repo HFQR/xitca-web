@@ -74,36 +74,12 @@ where
         self
     }
 
-    #[deprecated(note = "server connection limit is removed")]
-    /// Set limit of connection count for a single worker thread.
-    ///
-    /// When reaching limit a worker thread would enter backpressure state and stop
-    /// accepting new connections until living connections reduces below the limit.
-    ///
-    /// A worker thread enter backpressure does not prevent other worker threads from
-    /// accepting new connections as long as they have not reached their connection
-    /// limits.
-    ///
-    /// Default set to 25_600.
-    ///
-    /// # Panics:
-    /// When received 0 as number of connection limit.
-    pub fn connection_limit(self, _: usize) -> Self {
-        self
-    }
-
     /// Disable signal listening.
     ///
     /// `tokio::signal` is used for listening and it only functions in tokio runtime 1.x.
     /// Disabling it would enable server runs in other async runtimes.
     pub fn disable_signal(mut self) -> Self {
         self.builder = self.builder.disable_signal();
-        self
-    }
-
-    #[deprecated(note = "use Server::backlog instead")]
-    pub fn tcp_backlog(mut self, num: u32) -> Self {
-        self.builder = self.builder.backlog(num);
         self
     }
 
@@ -118,14 +94,6 @@ where
     pub fn disable_vectored_write(mut self) -> Self {
         self.config = self.config.disable_vectored_write();
         self
-    }
-
-    #[deprecated(note = "Please use HttpServer::disable_vectored_write. This API would be removed with 0.1 release")]
-    /// Force IO write always use a flat buffer where extra data copy is preferred.
-    ///
-    /// This is beneficial when dealing with small size of response body.
-    pub fn force_flat_buf(self) -> Self {
-        self.disable_vectored_write()
     }
 
     /// Change keep alive duration for Http/1 connection.

@@ -59,16 +59,6 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
         self
     }
 
-    #[deprecated(
-        note = "Please use HttpServiceConfig::disable_vectored_write. This API would be removed with 0.1 release"
-    )]
-    /// Force IO write always use a flat buffer where extra data copy is preferred.
-    ///
-    /// This is beneficial when dealing with small size of response body.
-    pub fn force_flat_buf(self) -> Self {
-        self.disable_vectored_write()
-    }
-
     /// Define duration of how long a connection is kept alive.
     pub fn keep_alive_timeout(mut self, dur: Duration) -> Self {
         self.keep_alive_timeout = dur;
