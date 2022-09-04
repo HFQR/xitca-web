@@ -19,11 +19,11 @@ tracing = { version = "0.1.29", default-features = false }
 # io-uring support
 tokio-uring = { version = "0.3", optional = true }
 
-[target.'cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.4.4" }
 tokio = { version = "1.21", features = ["rt-multi-thread", "signal", "sync", "time"] }
 
-[target.'cfg(any(target_arch = "wasm32", target_arch = "wasm64"))'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 tokio = { version = "1.21", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
