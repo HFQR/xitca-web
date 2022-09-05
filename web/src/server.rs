@@ -165,7 +165,7 @@ where
         self
     }
 
-    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn bind<A: std::net::ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
         I: BuildService + 'static,

@@ -1,11 +1,11 @@
 mod extension;
 mod logger;
 
-#[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+#[cfg(not(target_family = "wasm"))]
 mod tcp_config;
 
 pub use extension::Extension;
 pub use logger::Logger;
 
-#[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+#[cfg(not(target_family = "wasm"))]
 pub use tcp_config::TcpConfig;

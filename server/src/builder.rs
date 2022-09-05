@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future, io, net, pin::Pin, time::Duration};
 
-#[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+#[cfg(not(target_family = "wasm"))]
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use xitca_io::net::Stream;
 
@@ -136,7 +136,7 @@ impl Builder {
         self
     }
 
-    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn bind<N, A, F, St>(self, name: N, addr: A, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
