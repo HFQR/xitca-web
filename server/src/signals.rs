@@ -4,8 +4,6 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::signal;
-
 /// Different types of process signals
 #[allow(dead_code)]
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
@@ -21,16 +19,16 @@ pub(crate) enum Signal {
 }
 
 pub(crate) struct Signals {
+    #[cfg(unix)]
+    signals: Vec<(Signal, tokio::signal::unix::Signal)>,
     #[cfg(not(unix))]
     signals: Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>,
-    #[cfg(unix)]
-    signals: Vec<(Signal, signal::unix::Signal)>,
 }
 
 impl Signals {
     #[cfg(unix)]
     pub(crate) fn start() -> Self {
-        use signal::unix;
+        use tokio::signal::unix;
 
         let sig_map = [
             (unix::SignalKind::interrupt(), Signal::Int),
@@ -52,10 +50,17 @@ impl Signals {
         Self { signals }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, target_family = "wasm")))]
     pub(crate) fn start() -> Self {
         Self {
-            signals: Box::pin(signal::ctrl_c()),
+            signals: Box::pin(tokio::signal::ctrl_c()),
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub(crate) fn start() -> Self {
+        Self {
+            signals: Box::pin(std::future::pending()),
         }
     }
 }
