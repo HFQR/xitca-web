@@ -34,7 +34,7 @@ pub struct Server {
 }
 
 impl Server {
-    #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+    #[cfg(target_family = "wasm")]
     pub fn new(builder: Builder) -> io::Result<Self> {
         let Builder {
             listeners,
@@ -86,7 +86,7 @@ impl Server {
         todo!()
     }
 
-    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn new(builder: Builder) -> io::Result<Self> {
         let Builder {
             server_threads,
@@ -126,57 +126,65 @@ impl Server {
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
 
         let is_graceful_shutdown2 = is_graceful_shutdown.clone();
-        let worker_handles = thread::spawn(move || {
-            let is_graceful_shutdown = is_graceful_shutdown2;
-            thread::scope(|s| {
-                let handles = (0..worker_threads)
-                    .map(|idx| {
-                        thread::Builder::new()
-                            .name(format!("xitca-server-worker-{idx}"))
-                            .spawn_scoped(s, || {
-                                let on_start_fut = on_worker_start();
 
-                                let fut = async {
-                                    on_start_fut.await;
+        let worker_handles = thread::Builder::new()
+            .name(String::from("xitca-server-worker-shared-scope"))
+            .spawn(move || {
+                let is_graceful_shutdown = is_graceful_shutdown2;
+                thread::scope(|s| {
+                    let handles = (0..worker_threads)
+                        .map(|idx| {
+                            thread::Builder::new()
+                                .name(format!("xitca-server-worker-{idx}"))
+                                .spawn_scoped(s, || {
+                                    let on_start_fut = on_worker_start();
 
-                                    let mut handles = Vec::new();
-                                    let mut services = Vec::new();
+                                    let fut = async {
+                                        on_start_fut.await;
 
-                                    for (name, factory) in factories.iter() {
-                                        let (h, s) = factory._build(name, &listeners).await?;
-                                        handles.extend(h);
-                                        services.push(s);
-                                    }
+                                        let mut handles = Vec::new();
+                                        let mut services = Vec::new();
 
-                                    worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown)
+                                        for (name, factory) in factories.iter() {
+                                            let (h, s) = factory._build(name, &listeners).await?;
+                                            handles.extend(h);
+                                            services.push(s);
+                                        }
+
+                                        worker::wait_for_stop(
+                                            handles,
+                                            services,
+                                            shutdown_timeout,
+                                            &is_graceful_shutdown,
+                                        )
                                         .await;
 
-                                    Ok::<_, ()>(())
-                                };
+                                        Ok::<_, ()>(())
+                                    };
 
-                                #[cfg(not(feature = "io-uring"))]
-                                {
-                                    tokio::runtime::Builder::new_current_thread()
-                                        .enable_all()
-                                        .max_blocking_threads(worker_max_blocking_threads)
-                                        .build()
-                                        .unwrap()
-                                        .block_on(tokio::task::LocalSet::new().run_until(fut))
-                                }
-                                #[cfg(feature = "io-uring")]
-                                {
-                                    let _ = worker_max_blocking_threads;
-                                    tokio_uring::start(fut)
-                                }
-                            })
-                    })
-                    .collect::<Result<Vec<_>, _>>();
+                                    #[cfg(not(feature = "io-uring"))]
+                                    {
+                                        tokio::runtime::Builder::new_current_thread()
+                                            .enable_all()
+                                            .max_blocking_threads(worker_max_blocking_threads)
+                                            .build()
+                                            .unwrap()
+                                            .block_on(tokio::task::LocalSet::new().run_until(fut))
+                                    }
+                                    #[cfg(feature = "io-uring")]
+                                    {
+                                        let _ = worker_max_blocking_threads;
+                                        tokio_uring::start(fut)
+                                    }
+                                })
+                        })
+                        .collect::<Result<Vec<_>, _>>();
 
-                for handle in handles.unwrap() {
-                    handle.join().unwrap().unwrap();
-                }
-            })
-        });
+                    for handle in handles.unwrap() {
+                        handle.join().unwrap().unwrap();
+                    }
+                })
+            })?;
 
         let (tx_cmd, rx_cmd) = tokio::sync::mpsc::unbounded_channel();
 
