@@ -131,57 +131,71 @@ impl Server {
             .name(String::from("xitca-server-worker-shared-scope"))
             .spawn(move || {
                 let is_graceful_shutdown = is_graceful_shutdown2;
+
                 thread::scope(|s| {
-                    let handles = (0..worker_threads)
-                        .map(|idx| {
-                            thread::Builder::new()
-                                .name(format!("xitca-server-worker-{idx}"))
-                                .spawn_scoped(s, || {
-                                    let on_start_fut = on_worker_start();
+                    let mut handles = Vec::with_capacity(worker_threads);
 
-                                    let fut = async {
-                                        on_start_fut.await;
+                    let spawner = |scope| {
+                        for idx in 0..worker_threads {
+                            let thread = thread::Builder::new().name(format!("xitca-server-worker-{idx}"));
 
-                                        let mut handles = Vec::new();
-                                        let mut services = Vec::new();
+                            let task = || {
+                                let on_start_fut = on_worker_start();
 
-                                        for (name, factory) in factories.iter() {
-                                            let (h, s) = factory._build(name, &listeners).await?;
-                                            handles.extend(h);
-                                            services.push(s);
-                                        }
+                                async {
+                                    on_start_fut.await;
 
-                                        worker::wait_for_stop(
-                                            handles,
-                                            services,
-                                            shutdown_timeout,
-                                            &is_graceful_shutdown,
-                                        )
+                                    let mut handles = Vec::new();
+                                    let mut services = Vec::new();
+
+                                    for (name, factory) in factories.iter() {
+                                        let (h, s) = factory._build(name, &listeners).await?;
+                                        handles.extend(h);
+                                        services.push(s);
+                                    }
+
+                                    worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown)
                                         .await;
 
-                                        Ok::<_, ()>(())
-                                    };
+                                    Ok::<_, ()>(())
+                                }
+                            };
 
-                                    #[cfg(not(feature = "io-uring"))]
-                                    {
-                                        tokio::runtime::Builder::new_current_thread()
-                                            .enable_all()
-                                            .max_blocking_threads(worker_max_blocking_threads)
-                                            .build()
-                                            .unwrap()
-                                            .block_on(tokio::task::LocalSet::new().run_until(fut))
-                                    }
-                                    #[cfg(feature = "io-uring")]
-                                    {
+                            let handle = {
+                                #[cfg(not(feature = "io-uring"))]
+                                {
+                                    let rt = tokio::runtime::Builder::new_current_thread()
+                                        .enable_all()
+                                        .max_blocking_threads(worker_max_blocking_threads)
+                                        .build()?;
+
+                                    thread.spawn_scoped(scope, move || {
+                                        rt.block_on(tokio::task::LocalSet::new().run_until(task()))
+                                    })?
+                                }
+
+                                #[cfg(feature = "io-uring")]
+                                {
+                                    thread.spawn_scoped(scope, move || {
                                         let _ = worker_max_blocking_threads;
-                                        tokio_uring::start(fut)
-                                    }
-                                })
-                        })
-                        .collect::<Result<Vec<_>, _>>();
+                                        tokio_uring::start(task())
+                                    })?
+                                }
+                            };
 
-                    for handle in handles.unwrap() {
-                        handle.join().unwrap().unwrap();
+                            handles.push(handle);
+                        }
+
+                        Ok::<_, io::Error>(handles)
+                    };
+
+                    match spawner(s) {
+                        Ok(handles) => {
+                            for handle in handles {
+                                let _ = handle.join();
+                            }
+                        }
+                        Err(_) => todo!("block main thread and wait for runtime and thread builder?"),
                     }
                 })
             })?;
