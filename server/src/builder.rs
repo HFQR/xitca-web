@@ -6,7 +6,7 @@ use xitca_io::net::Stream;
 
 use crate::{
     net::AsListener,
-    server::{BuildServiceSync, Factory, Server, ServerFuture, _BuildService},
+    server::{BuildServiceFn, Factory, Server, ServerFuture, _BuildService},
 };
 
 pub struct Builder {
@@ -141,7 +141,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceSync<St>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         let addr = addr
@@ -155,7 +155,7 @@ impl Builder {
     pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: BuildServiceSync<St>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         self._listen(name, Some(listener), factory)
@@ -173,7 +173,7 @@ impl Builder {
     fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: BuildServiceSync<St>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         let socket = if addr.is_ipv4() {
@@ -195,7 +195,7 @@ impl Builder {
     where
         N: AsRef<str>,
         L: AsListener + 'static,
-        F: BuildServiceSync<St>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         self.listeners
@@ -217,7 +217,7 @@ impl Builder {
     where
         N: AsRef<str>,
         P: AsRef<std::path::Path>,
-        F: BuildServiceSync<St>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         // The path must not exist when we try to bind.
@@ -242,7 +242,7 @@ impl Builder {
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: BuildServiceSync<St>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         self._listen(name, Some(listener), factory)
@@ -263,7 +263,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceSync<Stream>,
+        F: BuildServiceFn<Stream>,
     {
         let addr = addr
             .to_socket_addrs()?
@@ -292,7 +292,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceSync<xitca_io::net::UdpStream>,
+        F: BuildServiceFn<xitca_io::net::UdpStream>,
     {
         let addr = addr
             .to_socket_addrs()?

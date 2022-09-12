@@ -7,7 +7,7 @@ pub use self::{
     handle::ServerHandle,
 };
 
-pub(crate) use self::service::{BuildServiceSync, Factory, _BuildService};
+pub(crate) use self::service::{BuildServiceFn, Factory, _BuildService};
 
 use std::{
     io, mem,

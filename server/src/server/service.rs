@@ -21,7 +21,7 @@ pub(crate) struct Factory<F, Req> {
 
 impl<F, Req> Factory<F, Req>
 where
-    F: BuildServiceSync<Req>,
+    F: BuildServiceFn<Req>,
     Req: From<Stream> + Send + 'static,
 {
     pub(crate) fn new_boxed(inner: F) -> Box<dyn _BuildService> {
@@ -31,6 +31,7 @@ where
 
 type BuildServiceSyncOpt = Result<(Vec<JoinHandle<()>>, ServiceAny), ()>;
 
+// a specialized BuildService trait that can return a future that reference the input arguments.
 pub(crate) trait _BuildService: Send + Sync {
     fn _build<'s, 'f>(
         &'s self,
@@ -43,8 +44,7 @@ pub(crate) trait _BuildService: Send + Sync {
 
 impl<F, Req> _BuildService for Factory<F, Req>
 where
-    F: BuildServiceSync<Req>,
-    F::Service: ReadyService + Service<Req>,
+    F: BuildServiceFn<Req>,
     Req: From<Stream> + Send + 'static,
 {
     fn _build<'s, 'f>(
@@ -56,7 +56,7 @@ where
         's: 'f,
     {
         Box::pin(async move {
-            let service = self.inner.build().build(()).await.map_err(|_| ())?;
+            let service = self.inner.call().build(()).await.map_err(|_| ())?;
             let service = Rc::new(service);
 
             let handles = listeners
@@ -70,30 +70,27 @@ where
     }
 }
 
-/// Helper trait to cast a type that impl [`BuildService`](xitca_service::BuildService)
-/// to a trait object that is `Send` and `Sync`.
-pub trait BuildServiceSync<Req>
+/// helper trait to alias impl Fn() -> impl BuildService type and hide it's generic type params(other than the Req type).
+pub trait BuildServiceFn<Req>
 where
-    Req: From<Stream>,
     Self: Send + Sync + 'static,
 {
     type BuildService: BuildService<Service = Self::Service>;
     type Service: ReadyService + Service<Req>;
 
-    fn build(&self) -> Self::BuildService;
+    fn call(&self) -> Self::BuildService;
 }
 
-impl<F, T, Req> BuildServiceSync<Req> for F
+impl<F, T, Req> BuildServiceFn<Req> for F
 where
     F: Fn() -> T + Send + Sync + 'static,
     T: BuildService,
     T::Service: ReadyService + Service<Req>,
-    Req: From<Stream>,
 {
     type BuildService = T;
     type Service = T::Service;
 
-    fn build(&self) -> T {
+    fn call(&self) -> T {
         self()
     }
 }
