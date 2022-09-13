@@ -59,6 +59,10 @@ impl ServerFuture {
         }
     }
 
+    /// Consume ServerFuture and block current thread waitting for server stop.
+    ///
+    /// Server can be stopped through OS signal or [ServerHandle::stop]. If none is active this call
+    /// would block forever.
     pub fn wait(self) -> io::Result<()> {
         match self {
             Self::Init {
@@ -79,8 +83,12 @@ impl ServerFuture {
 
                 let (mut server_fut, cmd) = match tokio::runtime::Handle::try_current() {
                     Ok(_) => {
-                        tracing::warn!("ServerFuture::wait is called from with tokio context. It would block current thread from handling async tasks.");
-                        std::thread::spawn(func).join().unwrap()
+                        tracing::warn!("ServerFuture::wait is called from within tokio context. It would block current thread from handling async tasks.");
+                        std::thread::Builder::new()
+                            .name(String::from("xitca-server-wait-scoped"))
+                            .spawn(func)?
+                            .join()
+                            .expect("ServerFutureInner unexpected panicing")
                     }
                     Err(_) => func(),
                 };
