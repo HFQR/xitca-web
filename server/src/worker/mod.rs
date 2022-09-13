@@ -41,13 +41,13 @@ where
                     });
                 }
                 Err(ref e) if connection_error(e) => continue,
-                // TODO: This error branch is used to detect Accept thread exit.
-                // Should use other notifier other than error.
                 Err(ref e) if fatal_error(e) => return,
-                Err(e) => {
+                // TODO: handling os level io error differently according to the error code?
+                Err(ref e) if os_error(e) => {
                     error!("Error accepting connection: {e}");
                     sleep(Duration::from_secs(1)).await;
                 }
+                Err(_) => return,
             }
         }
     })
@@ -97,6 +97,14 @@ fn connection_error(e: &io::Error) -> bool {
         || e.kind() == io::ErrorKind::ConnectionReset
 }
 
+/// fatal error that can not be recovered.
 fn fatal_error(e: &io::Error) -> bool {
-    e.kind() == io::ErrorKind::BrokenPipe || e.kind() == io::ErrorKind::Other
+    e.kind() == io::ErrorKind::BrokenPipe
+}
+
+/// std::io::Error is a widely used type through dependencies and this method is
+/// used to tell the difference of os io error from dependency crate io error.
+/// (for example tokio use std::io::Error to hint runtime shutdown)
+fn os_error(e: &io::Error) -> bool {
+    e.raw_os_error().is_some()
 }
