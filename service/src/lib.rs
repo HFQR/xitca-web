@@ -1,6 +1,6 @@
 #![no_std]
 #![forbid(unsafe_code)]
-#![feature(generic_associated_types, type_alias_impl_trait)]
+#![feature(type_alias_impl_trait)]
 
 mod async_closure;
 mod build;

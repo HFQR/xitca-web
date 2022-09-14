@@ -1,6 +1,6 @@
 //! Async traits and types used for Io operations.
 
-#![feature(generic_associated_types, type_alias_impl_trait)]
+#![feature(type_alias_impl_trait)]
 
 #[cfg(feature = "http3")]
 mod h3;
