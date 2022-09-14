@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![feature(generic_associated_types, type_alias_impl_trait)]
+#![feature(type_alias_impl_trait)]
 
 mod app;
 mod server;

@@ -2,7 +2,7 @@
 
 ## Requirement
 
-- rustc 1.64.0-nightly (9067d5277 2022-07-28)
+- rustc 1.65.0-nightly (9067d5277 2022-09-13)
 
 ## Motivation
 
