@@ -1,4 +1,4 @@
-#![feature(generic_associated_types, type_alias_impl_trait)]
+#![feature(type_alias_impl_trait)]
 
 use xitca_service::{ready::ReadyService, BuildService, BuildServiceExt, Service};
 
