@@ -106,12 +106,6 @@ impl Builder {
         self
     }
 
-    #[deprecated(note = "use Builder::backlog instead")]
-    pub fn tcp_backlog(mut self, num: u32) -> Self {
-        self.backlog = num;
-        self
-    }
-
     pub fn backlog(mut self, num: u32) -> Self {
         self.backlog = num;
         self
@@ -136,22 +130,6 @@ impl Builder {
         self
     }
 
-    #[cfg(not(target_family = "wasm"))]
-    pub fn bind<N, A, F, St>(self, name: N, addr: A, factory: F) -> io::Result<Self>
-    where
-        N: AsRef<str>,
-        A: net::ToSocketAddrs,
-        F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
-    {
-        let addr = addr
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
-
-        self._bind(name, addr, factory)
-    }
-
     pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
@@ -167,28 +145,6 @@ impl Builder {
             Ok(server) => ServerFuture::Init { server, enable_signal },
             Err(e) => ServerFuture::Error(e),
         }
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, factory: F) -> io::Result<Self>
-    where
-        N: AsRef<str>,
-        F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
-    {
-        let socket = if addr.is_ipv4() {
-            Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?
-        } else {
-            Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?
-        };
-        socket.set_nonblocking(true)?;
-        socket.set_reuse_address(true)?;
-        socket.bind(&SockAddr::from(addr))?;
-        socket.listen(self.backlog as _)?;
-
-        let listener = socket.into();
-
-        self.listen(name, listener, factory)
     }
 
     fn _listen<N, L, F, St>(mut self, name: N, listener: L, factory: F) -> io::Result<Self>
@@ -208,6 +164,45 @@ impl Builder {
         self.factories.insert(name.as_ref().to_string(), factory);
 
         Ok(self)
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Builder {
+    pub fn bind<N, A, F, St>(self, name: N, addr: A, factory: F) -> io::Result<Self>
+    where
+        N: AsRef<str>,
+        A: net::ToSocketAddrs,
+        F: BuildServiceFn<St>,
+        St: From<Stream> + Send + 'static,
+    {
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
+
+        self._bind(name, addr, factory)
+    }
+
+    fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, factory: F) -> io::Result<Self>
+    where
+        N: AsRef<str>,
+        F: BuildServiceFn<St>,
+        St: From<Stream> + Send + 'static,
+    {
+        let socket = if addr.is_ipv4() {
+            Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?
+        } else {
+            Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?
+        };
+        socket.set_nonblocking(true)?;
+        socket.set_reuse_address(true)?;
+        socket.bind(&SockAddr::from(addr))?;
+        socket.listen(self.backlog as _)?;
+
+        let listener = socket.into();
+
+        self.listen(name, listener, factory)
     }
 }
 
