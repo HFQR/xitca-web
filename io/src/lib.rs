@@ -38,7 +38,7 @@ pub mod net {
     pub use tokio::net::{TcpListener, ToSocketAddrs};
 
     // TODO: possible remove the attribute when wasm support tcp socket.
-    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    #[cfg(not(target_family = "wasm"))]
     pub use tokio::net::TcpSocket;
 
     use std::io;
@@ -47,7 +47,7 @@ pub mod net {
 
     impl TcpStream {
         // TODO: possible remove the attribute when wasm support tcp connect.
-        #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+        #[cfg(not(target_family = "wasm"))]
         pub async fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
             tokio::net::TcpStream::connect(addr).await.map(Self)
         }
