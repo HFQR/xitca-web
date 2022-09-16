@@ -26,7 +26,7 @@ futures-core = { version = "0.3.17", default-features = false, features =["alloc
 futures-util = { version = "0.3.17", default-features = false, features =["alloc"] }
 httparse = "1.5.1"
 pin-project-lite = "0.2.7"
-tokio = { version = "1.13", features = ["rt"] }
+tokio = { version = "1.13", features = ["io-util", "rt"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tracing = "0.1.36"
 
