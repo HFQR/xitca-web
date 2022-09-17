@@ -1,9 +1,9 @@
 pub use http_ws::Message;
 
 use std::{
-    cell::RefCell,
     io,
     pin::Pin,
+    sync::Mutex,
     task::{ready, Context, Poll},
 };
 
@@ -23,19 +23,19 @@ impl Sink<Message> for WebSocketSink<'_, '_> {
     type Error = Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut *self.get_mut().0.inner.borrow_mut()).poll_ready(cx)
+        Pin::new(&mut *self.get_mut().0.inner.lock().unwrap()).poll_ready(cx)
     }
 
     fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
-        Pin::new(&mut *self.get_mut().0.inner.borrow_mut()).start_send(item)
+        Pin::new(&mut *self.get_mut().0.inner.lock().unwrap()).start_send(item)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut *self.get_mut().0.inner.borrow_mut()).poll_flush(cx)
+        Pin::new(&mut *self.get_mut().0.inner.lock().unwrap()).poll_flush(cx)
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut *self.get_mut().0.inner.borrow_mut()).poll_close(cx)
+        Pin::new(&mut *self.get_mut().0.inner.lock().unwrap()).poll_close(cx)
     }
 }
 
@@ -47,7 +47,7 @@ impl Stream for WebSocketReader<'_, '_> {
     type Item = Result<Message, Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut *self.get_mut().0.inner.borrow_mut()).poll_next(cx)
+        Pin::new(&mut *self.get_mut().0.inner.lock().unwrap()).poll_next(cx)
     }
 }
 
@@ -56,7 +56,7 @@ impl Stream for WebSocketReader<'_, '_> {
 /// * This type can not do concurrent message handling which means send always block receive
 /// and vice versa.
 pub struct WebSocket<'c> {
-    inner: RefCell<WebSocketInner<'c>>,
+    inner: Mutex<WebSocketInner<'c>>,
 }
 
 impl<'a> WebSocket<'a> {
@@ -64,7 +64,7 @@ impl<'a> WebSocket<'a> {
         // TODO: check body to make sure only H1 and H2 are accepted.
 
         Ok(Self {
-            inner: RefCell::new(WebSocketInner {
+            inner: Mutex::new(WebSocketInner {
                 codec: Codec::new().client_mode(),
                 eof: false,
                 send_buf: BytesMut::new(),
@@ -77,7 +77,7 @@ impl<'a> WebSocket<'a> {
     /// Split into a sink and reader pair that can be used for concurrent read/write
     /// message to websocket connection.
     #[inline]
-    pub fn split<'s>(&'s self) -> (WebSocketSink<'s, 'a>, WebSocketReader<'s, 'a>) {
+    pub fn split(&self) -> (WebSocketSink<'_, 'a>, WebSocketReader<'_, 'a>) {
         (WebSocketSink(self), WebSocketReader(self))
     }
 
@@ -91,10 +91,10 @@ impl<'a> WebSocket<'a> {
             send_buf,
             recv_buf,
             body,
-        } = self.inner.into_inner();
+        } = self.inner.into_inner().unwrap();
 
         Self {
-            inner: RefCell::new(WebSocketInner {
+            inner: Mutex::new(WebSocketInner {
                 codec: codec.set_max_size(size),
                 eof,
                 send_buf,
@@ -103,33 +103,42 @@ impl<'a> WebSocket<'a> {
             }),
         }
     }
+
+    fn get_mut_pinned_inner(self: Pin<&mut Self>) -> Pin<&mut WebSocketInner<'a>> {
+        Pin::new(self.get_mut().inner.get_mut().unwrap())
+    }
 }
 
 impl Sink<Message> for WebSocket<'_> {
     type Error = Error;
 
+    #[inline]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.get_mut().inner.get_mut()).poll_ready(cx)
+        self.get_mut_pinned_inner().poll_ready(cx)
     }
 
+    #[inline]
     fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
-        Pin::new(self.get_mut().inner.get_mut()).start_send(item)
+        self.get_mut_pinned_inner().start_send(item)
     }
 
+    #[inline]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.get_mut().inner.get_mut()).poll_flush(cx)
+        self.get_mut_pinned_inner().poll_flush(cx)
     }
 
+    #[inline]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.get_mut().inner.get_mut()).poll_close(cx)
+        self.get_mut_pinned_inner().poll_close(cx)
     }
 }
 
 impl Stream for WebSocket<'_> {
     type Item = Result<Message, Error>;
 
+    #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(self.get_mut().inner.get_mut()).poll_next(cx)
+        self.get_mut_pinned_inner().poll_next(cx)
     }
 }
 

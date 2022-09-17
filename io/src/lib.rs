@@ -255,7 +255,7 @@ pub mod io {
     macro_rules! default_aio_impl {
         ($ty: ty) => {
             impl AsyncIo for $ty {
-                type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>>;
+                type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> where Self: 'f;
 
                 #[inline]
                 fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
@@ -287,6 +287,32 @@ pub mod io {
             }
 
             impl io::Write for $ty {
+                #[inline]
+                fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                    self.0.try_write(buf)
+                }
+
+                #[inline]
+                fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+                    self.0.try_write_vectored(bufs)
+                }
+
+                #[inline]
+                fn flush(&mut self) -> io::Result<()> {
+                    Ok(())
+                }
+            }
+
+            // specialized read implement based on tokio 1.0 spec.
+            impl io::Read for &$ty {
+                #[inline]
+                fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                    self.0.try_read(buf)
+                }
+            }
+
+            // specialized implement based on tokio 1.0 spec.
+            impl io::Write for &$ty {
                 #[inline]
                 fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
                     self.0.try_write(buf)
