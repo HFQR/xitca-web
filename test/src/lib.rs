@@ -40,7 +40,7 @@ where
         .worker_threads(1)
         .server_threads(1)
         .disable_signal()
-        .listen::<_, _, Req>("test_server", lst, factory)?
+        .listen::<_, _, Req>("test_server", lst, factory)
         .build();
 
     Ok(TestServerHandle { addr, handle })

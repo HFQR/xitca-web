@@ -199,7 +199,7 @@ where
         self.builder = self.builder.listen("xitca-web", listener, move || {
             let factory = factory();
             HttpServiceBuilder::with_config(factory, config).with_logger()
-        })?;
+        });
 
         Ok(self)
     }
