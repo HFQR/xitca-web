@@ -130,7 +130,7 @@ impl Builder {
         self
     }
 
-    pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, factory: F) -> io::Result<Self>
+    pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, factory: F) -> Self
     where
         N: AsRef<str>,
         F: BuildServiceFn<St>,
@@ -147,7 +147,7 @@ impl Builder {
         }
     }
 
-    fn _listen<N, L, F, St>(mut self, name: N, listener: L, factory: F) -> io::Result<Self>
+    fn _listen<N, L, F, St>(mut self, name: N, listener: L, factory: F) -> Self
     where
         N: AsRef<str>,
         L: AsListener + 'static,
@@ -163,7 +163,7 @@ impl Builder {
 
         self.factories.insert(name.as_ref().to_string(), factory);
 
-        Ok(self)
+        self
     }
 }
 
@@ -202,7 +202,7 @@ impl Builder {
 
         let listener = socket.into();
 
-        self.listen(name, listener, factory)
+        Ok(self.listen(name, listener, factory))
     }
 }
 
@@ -226,15 +226,10 @@ impl Builder {
 
         let listener = std::os::unix::net::UnixListener::bind(path)?;
 
-        self.listen_unix(name, listener, factory)
+        Ok(self.listen_unix(name, listener, factory))
     }
 
-    pub fn listen_unix<N, F, St>(
-        self,
-        name: N,
-        listener: std::os::unix::net::UnixListener,
-        factory: F,
-    ) -> io::Result<Self>
+    pub fn listen_unix<N, F, St>(self, name: N, listener: std::os::unix::net::UnixListener, factory: F) -> Self
     where
         N: AsRef<str>,
         F: BuildServiceFn<St>,
@@ -296,6 +291,6 @@ impl Builder {
 
         let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
 
-        self._listen(name, Some(builder), factory)
+        Ok(self._listen(name, Some(builder), factory))
     }
 }
