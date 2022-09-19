@@ -28,6 +28,7 @@ pub struct Client {
     pub(crate) connector: Connector,
     pub(crate) resolver: Resolver,
     pub(crate) timeout_config: TimeoutConfig,
+    pub(crate) max_http_version: Version,
     pub(crate) local_addr: Option<SocketAddr>,
     pub(crate) date_service: DateTimeService,
     #[cfg(feature = "http3")]
@@ -73,6 +74,7 @@ impl Client {
 
         let mut req = http::Request::new(Default::default());
         *req.uri_mut() = uri;
+        *req.version_mut() = self.max_http_version;
 
         Ok(self.request(req))
     }

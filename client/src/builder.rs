@@ -237,6 +237,7 @@ impl ClientBuilder {
                     connector: Connector::default(),
                     resolver: self.resolver,
                     timeout_config: self.timeout_config,
+                    max_http_version: self.max_http_version,
                     local_addr: self.local_addr,
                     date_service: DateTimeService::new(),
                     h3_client,
@@ -249,6 +250,7 @@ impl ClientBuilder {
                 connector: Connector::default(),
                 resolver: self.resolver,
                 timeout_config: self.timeout_config,
+                max_http_version: self.max_http_version,
                 local_addr: self.local_addr,
                 date_service: DateTimeService::new(),
             }
