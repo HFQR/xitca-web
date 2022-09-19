@@ -1,4 +1,4 @@
-use std::{error, fmt, io, str};
+use std::{convert::Infallible, error, fmt, io, str};
 
 use xitca_http::{error::BodyError, http::uri};
 
@@ -62,19 +62,25 @@ impl From<str::Utf8Error> for Error {
     }
 }
 
+impl From<Infallible> for Error {
+    fn from(e: Infallible) -> Self {
+        match e {}
+    }
+}
+
 #[derive(Debug)]
 pub enum InvalidUri {
-    ReasonUnknown,
     MissingHost,
     MissingScheme,
     MissingAuthority,
     MissingPathQuery,
     UnknownScheme,
+    Other(uri::InvalidUri),
 }
 
 impl From<uri::InvalidUri> for InvalidUri {
-    fn from(_: uri::InvalidUri) -> Self {
-        Self::ReasonUnknown
+    fn from(uri: uri::InvalidUri) -> Self {
+        Self::Other(uri)
     }
 }
 
