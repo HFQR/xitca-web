@@ -150,12 +150,6 @@ impl ClientBuilder {
                 use h3_quinn::quinn::{ClientConfig, Endpoint};
                 use tokio_rustls::rustls;
 
-                assert_eq!(
-                    self.max_http_version,
-                    Version::HTTP_3,
-                    "Please disable http3 feature if max_http_version is below HTTP_3"
-                );
-
                 #[cfg(not(feature = "dangerous"))]
                 let h3_client = {
                     use rustls::{OwnedTrustAnchor, RootCertStore};

@@ -156,7 +156,11 @@ impl<'a, B> Request<'a, B> {
         B: Stream<Item = Result<Bytes, E>>,
         BodyError: From<E>,
     {
-        let Self { req, client, timeout } = self;
+        let Self {
+            mut req,
+            client,
+            timeout,
+        } = self;
 
         let uri = Uri::try_parse(req.uri())?;
 
@@ -189,12 +193,24 @@ impl<'a, B> Request<'a, B> {
             .reset(Instant::now() + client.timeout_config.request_timeout);
 
         let res = match &mut *conn {
-            Connection::Tcp(stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
-            Connection::Tls(stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
+            Connection::Tcp(stream) => {
+                if matches!(req.version(), Version::HTTP_2 | Version::HTTP_3) {
+                    *req.version_mut() = Version::HTTP_11
+                }
+                crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await
+            }
+            Connection::Tls(stream) => {
+                if matches!(req.version(), Version::HTTP_2 | Version::HTTP_3) {
+                    *req.version_mut() = Version::HTTP_11
+                }
+                crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await
+            }
             #[cfg(unix)]
             Connection::Unix(stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
             #[cfg(feature = "http2")]
             Connection::H2(stream) => {
+                *req.version_mut() = Version::HTTP_2;
+
                 return match crate::h2::proto::send(stream, date, req).timeout(timer.as_mut()).await {
                     Ok(Ok(res)) => {
                         let timeout = client.timeout_config.response_timeout;
@@ -208,10 +224,12 @@ impl<'a, B> Request<'a, B> {
                         conn.destroy_on_drop();
                         Err(TimeoutError::Request.into())
                     }
-                }
+                };
             }
             #[cfg(feature = "http3")]
             Connection::H3(c) => {
+                *req.version_mut() = Version::HTTP_2;
+
                 return match crate::h3::proto::send(c, date, req).timeout(timer.as_mut()).await {
                     Ok(Ok(res)) => {
                         let timeout = client.timeout_config.response_timeout;
@@ -225,7 +243,7 @@ impl<'a, B> Request<'a, B> {
                         conn.destroy_on_drop();
                         Err(TimeoutError::Request.into())
                     }
-                }
+                };
             }
         };
         match res {
