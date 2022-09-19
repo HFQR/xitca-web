@@ -150,12 +150,6 @@ impl ClientBuilder {
                 use h3_quinn::quinn::{ClientConfig, Endpoint};
                 use tokio_rustls::rustls;
 
-                assert_eq!(
-                    self.max_http_version,
-                    Version::HTTP_3,
-                    "Please disable http3 feature if max_http_version is below HTTP_3"
-                );
-
                 #[cfg(not(feature = "dangerous"))]
                 let h3_client = {
                     use rustls::{OwnedTrustAnchor, RootCertStore};
@@ -237,6 +231,7 @@ impl ClientBuilder {
                     connector: Connector::default(),
                     resolver: self.resolver,
                     timeout_config: self.timeout_config,
+                    max_http_version: self.max_http_version,
                     local_addr: self.local_addr,
                     date_service: DateTimeService::new(),
                     h3_client,
@@ -249,6 +244,7 @@ impl ClientBuilder {
                 connector: Connector::default(),
                 resolver: self.resolver,
                 timeout_config: self.timeout_config,
+                max_http_version: self.max_http_version,
                 local_addr: self.local_addr,
                 date_service: DateTimeService::new(),
             }
