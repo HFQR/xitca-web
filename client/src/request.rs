@@ -228,7 +228,7 @@ impl<'a, B> Request<'a, B> {
             }
             #[cfg(feature = "http3")]
             Connection::H3(c) => {
-                *req.version_mut() = Version::HTTP_2;
+                *req.version_mut() = Version::HTTP_3;
 
                 return match crate::h3::proto::send(c, date, req).timeout(timer.as_mut()).await {
                     Ok(Ok(res)) => {
