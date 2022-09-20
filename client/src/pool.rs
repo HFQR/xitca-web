@@ -209,7 +209,7 @@ impl ConnState {
     }
 
     fn is_expired(&self) -> bool {
-        self.born.elapsed() > Duration::from_secs(3600) || self.idle_since.elapsed() > Duration::from_secs(60)
+        self.born.elapsed() > Duration::from_secs(3600) || self.idle_since.elapsed() > Duration::from_secs(600)
     }
 }
 
