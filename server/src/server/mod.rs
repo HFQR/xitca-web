@@ -71,19 +71,22 @@ impl Server {
             let mut services = Vec::new();
 
             for (name, factory) in factories.iter() {
-                let (h, s) = factory._build(name, &listeners).await?;
+                let (h, s) = factory
+                    ._build(name, &listeners)
+                    .await
+                    .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
                 handles.extend(h);
                 services.push(s);
             }
 
             worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown).await;
 
-            Ok::<_, ()>(())
+            Ok::<_, io::Error>(())
         };
 
-        rt.block_on(tokio::task::LocalSet::new().run_until(fut)).unwrap();
+        rt.block_on(tokio::task::LocalSet::new().run_until(fut))?;
 
-        todo!()
+        unreachable!("")
     }
 
     #[cfg(not(target_family = "wasm"))]
