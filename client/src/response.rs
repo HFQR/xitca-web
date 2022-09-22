@@ -47,6 +47,7 @@ impl<const PAYLOAD_LIMIT: usize> fmt::Debug for Response<'_, PAYLOAD_LIMIT> {
 }
 
 impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
+    #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
     pub(crate) fn new(res: http::Response<ResponseBody<'a>>, timer: Pin<Box<Sleep>>, timeout: Duration) -> Self {
         Self { res, timer, timeout }
     }

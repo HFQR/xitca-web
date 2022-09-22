@@ -6,7 +6,6 @@ mod client;
 mod connect;
 mod connection;
 mod date;
-mod h1;
 mod pool;
 mod request;
 mod resolver;
@@ -14,6 +13,9 @@ mod response;
 mod timeout;
 mod tls;
 mod uri;
+
+#[cfg(feature = "http1")]
+mod h1;
 
 #[cfg(feature = "http2")]
 mod h2;

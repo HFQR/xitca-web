@@ -4,21 +4,22 @@ use futures_core::Stream;
 use tokio::time::Instant;
 
 use crate::{
-    body::{BodyError, Once, ResponseBody},
+    body::{BodyError, Once},
     bytes::Bytes,
     client::Client,
     connect::Connect,
-    connection::Connection,
-    error::{Error, TimeoutError},
+    error::Error,
     http::{
         self, const_header_value,
         header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE},
         Extensions, Method, Version,
     },
     response::DefaultResponse,
-    timeout::Timeout,
     uri::Uri,
 };
+
+#[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
+use crate::{connection::Connection, error::TimeoutError, timeout::Timeout};
 
 /// crate level HTTP request type.
 pub struct Request<'a, B = Once<Bytes>> {
@@ -151,6 +152,7 @@ impl<'a, B> Request<'a, B> {
     }
 
     /// Send the request and return response asynchronously.
+    #[allow(unused_variables, unused_mut)]
     pub async fn send<E>(self) -> Result<DefaultResponse<'a>, Error>
     where
         B: Stream<Item = Result<Bytes, E>>,
@@ -192,23 +194,26 @@ impl<'a, B> Request<'a, B> {
             .as_mut()
             .reset(Instant::now() + client.timeout_config.request_timeout);
 
-        let res = match &mut *conn {
-            Connection::Tcp(stream) => {
+        let res = match *conn {
+            #[cfg(feature = "http1")]
+            Connection::Tcp(ref mut stream) => {
                 if matches!(req.version(), Version::HTTP_2 | Version::HTTP_3) {
                     *req.version_mut() = Version::HTTP_11
                 }
                 crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await
             }
-            Connection::Tls(stream) => {
+            #[cfg(feature = "http1")]
+            Connection::Tls(ref mut stream) => {
                 if matches!(req.version(), Version::HTTP_2 | Version::HTTP_3) {
                     *req.version_mut() = Version::HTTP_11
                 }
                 crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await
             }
+            #[cfg(feature = "http1")]
             #[cfg(unix)]
-            Connection::Unix(stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
+            Connection::Unix(ref mut stream) => crate::h1::proto::send(stream, date, req).timeout(timer.as_mut()).await,
             #[cfg(feature = "http2")]
-            Connection::H2(stream) => {
+            Connection::H2(ref mut stream) => {
                 *req.version_mut() = Version::HTTP_2;
 
                 return match crate::h2::proto::send(stream, date, req).timeout(timer.as_mut()).await {
@@ -227,7 +232,7 @@ impl<'a, B> Request<'a, B> {
                 };
             }
             #[cfg(feature = "http3")]
-            Connection::H3(c) => {
+            Connection::H3(ref mut c) => {
                 *req.version_mut() = Version::HTTP_3;
 
                 return match crate::h3::proto::send(c, date, req).timeout(timer.as_mut()).await {
@@ -245,7 +250,11 @@ impl<'a, B> Request<'a, B> {
                     }
                 };
             }
+            #[cfg(not(feature = "http1"))]
+            _ => panic!("http1 feature is not enabled in Cargo.toml"),
         };
+
+        #[cfg(feature = "http1")]
         match res {
             Ok(Ok((res, buf, decoder, is_close))) => {
                 if is_close {
@@ -253,7 +262,7 @@ impl<'a, B> Request<'a, B> {
                 }
 
                 let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
-                let res = res.map(|_| ResponseBody::H1(body));
+                let res = res.map(|_| crate::body::ResponseBody::H1(body));
                 let timeout = client.timeout_config.response_timeout;
 
                 Ok(DefaultResponse::new(res, timer, timeout))
