@@ -181,7 +181,7 @@ impl Sink<Message> for WebSocketInner<'_> {
                     }
                 }
 
-                Pin::new(&mut **body.conn()).poll_flush(cx).map_err(Into::into)
+                Pin::new(&mut **body.conn()).poll_flush(_cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
