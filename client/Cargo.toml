@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
+default = ["http1"]
+http1 = ["httparse", "xitca-http/http1"]
 http2 = ["h2", "itoa", "xitca-http/http2"]
 http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "tokio-rustls", "webpki-roots"]
 openssl = ["openssl-crate", "tokio-openssl"]
@@ -18,17 +19,19 @@ websocket = ["http-ws", "futures-util/sink"]
 dangerous = ["tokio-rustls/dangerous_configuration"]
 
 [dependencies]
-xitca-http = "0.1"
+xitca-http = { version = "0.1", default-features = false }
 xitca-io = "0.1"
 xitca-unsafe-collection = "0.1"
 
 futures-core = { version = "0.3.17", default-features = false, features =["alloc"] }
 futures-util = { version = "0.3.17", default-features = false, features =["alloc"] }
-httparse = "1.5.1"
 pin-project-lite = "0.2.7"
 tokio = { version = "1.13", features = ["io-util", "rt"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tracing = { version = "0.1.36", default-features = false }
+
+# http/1 support
+httparse = { version = "1.5.1", optional = true }
 
 # http/2 support
 h2 = { version = "0.3.7", optional = true }

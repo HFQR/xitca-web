@@ -12,15 +12,16 @@ use tokio::{
 
 use xitca_http::http::uri::{Authority, PathAndQuery};
 
-use crate::{pool::Conn, uri::Uri};
+use crate::uri::Uri;
 
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
 use crate::tls::stream::TlsStream;
 
+#[cfg(feature = "http1")]
 /// A convince type alias for typing connection without interacting with pool.
-pub type ConnectionWithKey<'a> = Conn<'a, ConnectionKey, Connection>;
+pub type ConnectionWithKey<'a> = crate::pool::Conn<'a, ConnectionKey, Connection>;
 
 /// Connection type branched into different HTTP version/layer.
 #[allow(clippy::large_enum_variant)]

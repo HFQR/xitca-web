@@ -1,4 +1,4 @@
-use std::{cmp, future::poll_fn};
+use std::{cmp, future::poll_fn, marker::PhantomData};
 
 use ::h2::{client, Reason};
 use futures_core::stream::Stream;
@@ -115,7 +115,7 @@ where
     let res = fut.await?;
 
     let res = if is_head_method {
-        res.map(|_| ResponseBody::Eof)
+        res.map(|_| ResponseBody::Eof(PhantomData))
     } else {
         res.map(|body| ResponseBody::H2(H2ResponseBody::new(stream, body.into())))
     };

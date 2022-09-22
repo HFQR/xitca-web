@@ -1,4 +1,4 @@
-use std::{future::poll_fn, net::SocketAddr};
+use std::{future::poll_fn, marker::PhantomData, net::SocketAddr};
 
 use ::h3_quinn::quinn::Endpoint;
 use futures_core::stream::Stream;
@@ -73,7 +73,7 @@ where
     let res = stream.recv_response().await?;
 
     let res = if is_head_method {
-        res.map(|_| ResponseBody::Eof)
+        res.map(|_| ResponseBody::Eof(PhantomData))
     } else {
         let body = async_stream::stream! {
             while let Some(bytes) = stream.recv_data().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {

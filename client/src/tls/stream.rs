@@ -14,6 +14,7 @@ use tokio_rustls::client::TlsStream as RustlsStream;
 
 #[doc(hidden)]
 pub enum TlsStream<S> {
+    #[allow(dead_code)] // when no http feature is enabled noop becomes dead code.
     NoOp(S),
     Boxed(Box<dyn Io>),
     #[cfg(feature = "openssl")]

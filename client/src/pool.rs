@@ -126,10 +126,12 @@ where
         });
     }
 
+    #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
     pub(crate) fn destroy_on_drop(&mut self) {
         self.destroy_on_drop = true;
     }
 
+    #[cfg(feature = "http1")]
     pub(crate) fn is_destroy_on_drop(&self) -> bool {
         self.destroy_on_drop
     }

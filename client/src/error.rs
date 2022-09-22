@@ -12,6 +12,7 @@ pub enum Error {
     Timeout(TimeoutError),
     TlsNotEnabled,
     Body(BodyError),
+    #[cfg(feature = "http1")]
     H1(crate::h1::Error),
     #[cfg(feature = "http2")]
     H2(crate::h2::Error),
@@ -47,12 +48,6 @@ impl From<Box<dyn error::Error + Send + Sync>> for Error {
 impl From<BodyError> for Error {
     fn from(e: BodyError) -> Self {
         Self::Body(e)
-    }
-}
-
-impl From<crate::h1::Error> for Error {
-    fn from(e: crate::h1::Error) -> Self {
-        Self::H1(e)
     }
 }
 
@@ -183,6 +178,13 @@ mod _rustls {
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Self::Parse(ParseError::Json(e))
+    }
+}
+
+#[cfg(feature = "http1")]
+impl From<crate::h1::Error> for Error {
+    fn from(e: crate::h1::Error) -> Self {
+        Self::H1(e)
     }
 }
 
