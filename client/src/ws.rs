@@ -166,7 +166,7 @@ impl Sink<Message> for WebSocketInner<'_> {
         inner.codec.encode(item, &mut inner.send_buf).map_err(Into::into)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
 
         match inner.body {
@@ -175,7 +175,7 @@ impl Sink<Message> for WebSocketInner<'_> {
                 use std::io;
                 use xitca_io::io::AsyncWrite;
                 while !inner.send_buf.chunk().is_empty() {
-                    match ready!(Pin::new(&mut **body.conn()).poll_write(cx, inner.send_buf.chunk()))? {
+                    match ready!(Pin::new(&mut **body.conn()).poll_write(_cx, inner.send_buf.chunk()))? {
                         0 => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
                         n => inner.send_buf.advance(n),
                     }
@@ -186,12 +186,12 @@ impl Sink<Message> for WebSocketInner<'_> {
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
                 while !inner.send_buf.chunk().is_empty() {
-                    ready!(body.poll_send_buf(&mut inner.send_buf, cx))?;
+                    ready!(body.poll_send_buf(&mut inner.send_buf, _cx))?;
                 }
 
                 Poll::Ready(Ok(()))
             }
-            _ => unreachable!(),
+            _ => panic!("websocket can only be enabled when http1 or http2 feature is also enabled"),
         }
     }
 
@@ -207,7 +207,7 @@ impl Sink<Message> for WebSocketInner<'_> {
                 body.send_data(xitca_http::bytes::Bytes::new(), true)?;
                 Poll::Ready(Ok(()))
             }
-            _ => unreachable!(),
+            _ => panic!("websocket can only be enabled when http1 or http2 feature is also enabled"),
         }
     }
 }

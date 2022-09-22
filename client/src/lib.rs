@@ -26,10 +26,6 @@ mod h3;
 #[cfg(feature = "websocket")]
 pub mod ws;
 
-#[cfg(not(any(feature = "http1", feature = "http2")))]
-#[cfg(feature = "websocket")]
-compile_error!("websocket can only be enabled when http1 or http2 feature is also enabled");
-
 pub mod error;
 
 pub use self::builder::ClientBuilder;
