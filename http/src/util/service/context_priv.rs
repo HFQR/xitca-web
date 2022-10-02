@@ -210,7 +210,7 @@ pub mod object {
             let factory = fn_build(move |_arg: ()| {
                 let fut = inner.build(());
                 async move {
-                    let boxed_service = Box::new(Wrapper(fut.await?))
+                    let boxed_service = Box::new(fut.await?)
                         as Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = _, Error = _>>;
                     Ok(Wrapper(boxed_service))
                 }
