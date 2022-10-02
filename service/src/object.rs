@@ -52,7 +52,7 @@ where
         let factory = fn_build(move |arg: Arg| {
             let fut = inner.build(arg);
             async move {
-                let svc = Box::new(Wrapper(fut.await?)) as Box<dyn ServiceObject<Req, Response = _, Error = _>>;
+                let svc = Box::new(fut.await?) as Box<dyn ServiceObject<Req, Response = _, Error = _>>;
                 Ok::<_, BErr>(Wrapper(svc))
             }
         })
@@ -77,10 +77,25 @@ pub mod helpers {
         type Response;
         type Error;
 
-        fn call<'s, 'f>(&'s self, req: Req) -> BoxFuture<'f, Self::Response, Self::Error>
+        fn call<'s>(&'s self, req: Req) -> BoxFuture<'s, Self::Response, Self::Error>
         where
-            Req: 'f,
-            's: 'f;
+            Req: 's;
+    }
+
+    impl<S, Req> ServiceObject<Req> for S
+    where
+        S: Service<Req>,
+    {
+        type Response = S::Response;
+        type Error = S::Error;
+
+        #[inline]
+        fn call<'s>(&'s self, req: Req) -> BoxFuture<'s, Self::Response, Self::Error>
+        where
+            Req: 's,
+        {
+            Box::pin(Service::call(self, req))
+        }
     }
 
     /// Converts between object-safe non-object-safe Service and ServiceFactory. See impls.
@@ -97,23 +112,6 @@ pub mod helpers {
         #[inline]
         fn call(&self, req: Req) -> Self::Future<'_> {
             async move { ServiceObject::call(&*self.0, req).await }
-        }
-    }
-
-    impl<Inner, Req> ServiceObject<Req> for Wrapper<Inner>
-    where
-        Inner: Service<Req>,
-    {
-        type Response = Inner::Response;
-        type Error = Inner::Error;
-
-        #[inline]
-        fn call<'s, 'f>(&'s self, req: Req) -> BoxFuture<'f, Inner::Response, Inner::Error>
-        where
-            Req: 'f,
-            's: 'f,
-        {
-            Box::pin(Service::call(&self.0, req))
         }
     }
 }
