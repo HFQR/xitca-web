@@ -1,6 +1,6 @@
 use core::future::Future;
 
-use crate::pipeline::{marker::Enclosed, PipelineT};
+use crate::pipeline::{marker::Enclosed, PipelineE, PipelineT};
 
 use super::BuildService;
 
@@ -8,19 +8,17 @@ impl<F, Arg, T> BuildService<Arg> for PipelineT<F, T, Enclosed>
 where
     F: BuildService<Arg>,
     T: BuildService<F::Service> + Clone,
-    F::Error: From<T::Error>,
 {
     type Service = T::Service;
-    type Error = F::Error;
+    type Error = PipelineE<F::Error, T::Error>;
     type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
 
     fn build(&self, arg: Arg) -> Self::Future {
         let service = self.first.build(arg);
         let middleware = self.second.clone();
         async move {
-            let service = service.await?;
-            let middleware = middleware.build(service).await?;
-            Ok(middleware)
+            let service = service.await.map_err(PipelineE::First)?;
+            middleware.build(service).await.map_err(PipelineE::Second)
         }
     }
 }

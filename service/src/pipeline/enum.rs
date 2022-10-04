@@ -56,8 +56,8 @@ where
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::First(ref p) => write!(f, "{:?}", p),
-            Self::Second(ref p) => write!(f, "{:?}", p),
+            Self::First(ref p) => Debug::fmt(p, f),
+            Self::Second(ref p) => Debug::fmt(p, f),
         }
     }
 }
@@ -69,8 +69,8 @@ where
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::First(ref p) => write!(f, "{}", p),
-            Self::Second(ref p) => write!(f, "{}", p),
+            Self::First(ref p) => Display::fmt(p, f),
+            Self::Second(ref p) => Display::fmt(p, f),
         }
     }
 }
