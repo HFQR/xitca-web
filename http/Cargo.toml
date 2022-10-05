@@ -45,7 +45,7 @@ rustls = { version = "0.20.6", optional = true }
 native-tls = { version = "0.2.7", features = ["alpn"], optional = true }
 
 # http/1 support
-httparse = { version = "1.5.1", optional = true }
+httparse = { version = "1.8", optional = true }
 itoa = { version = "1", optional = true }
 
 # http/2 support

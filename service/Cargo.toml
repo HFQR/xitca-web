@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 alloc = []
+std = []
 
 [dev-dependencies]
 xitca-unsafe-collection = "0.1"

@@ -44,7 +44,7 @@ tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 xitca-http = { version = "0.1", features = ["util-service"] }
 xitca-io = "0.1"
 xitca-server = { version = "0.1" }
-xitca-service = "0.1"
+xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3"

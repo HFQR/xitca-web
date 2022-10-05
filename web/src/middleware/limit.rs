@@ -147,6 +147,8 @@ where
     }
 }
 
+pub type LimitBodyError<E> = PipelineE<LimitError, E>;
+
 #[derive(Debug)]
 pub enum LimitError {
     BodyOverSize(usize),
@@ -173,25 +175,6 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for LimitError {
         async { res }
     }
 }
-
-// TODO: PipelineE can not be used here because PipelineE is a no_std type from xitca-service.
-// revisit this when ::core::error::Error trait is implemented
-#[derive(Debug)]
-pub enum LimitBodyError<E> {
-    First(LimitError),
-    Second(E),
-}
-
-impl<E: fmt::Display> fmt::Display for LimitBodyError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::First(ref e) => fmt::Display::fmt(e, f),
-            Self::Second(ref e) => fmt::Display::fmt(e, f),
-        }
-    }
-}
-
-impl<E: error::Error> error::Error for LimitBodyError<E> {}
 
 #[cfg(test)]
 mod test {

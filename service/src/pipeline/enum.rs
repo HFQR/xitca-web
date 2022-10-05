@@ -123,3 +123,11 @@ where
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl<F, S> std::error::Error for Pipeline<F, S>
+where
+    F: std::error::Error,
+    S: std::error::Error,
+{
+}

@@ -26,3 +26,6 @@ pub mod object;
 #[cfg(feature = "alloc")]
 pub type BoxFuture<'a, Res, Err> =
     core::pin::Pin<alloc::boxed::Box<dyn core::future::Future<Output = Result<Res, Err>> + 'a>>;
+
+#[cfg(feature = "std")]
+extern crate std;

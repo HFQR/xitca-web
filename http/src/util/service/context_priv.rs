@@ -217,7 +217,7 @@ pub mod object {
             })
             .boxed_future();
 
-            Box::new(factory) as Box<dyn BuildService<Service = _, Error = _, Future = _>>
+            Box::new(factory)
         }
     }
 }
