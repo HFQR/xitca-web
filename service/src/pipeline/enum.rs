@@ -130,4 +130,10 @@ where
     F: std::error::Error,
     S: std::error::Error,
 {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            Self::First(ref f) => std::error::Error::source(f),
+            Self::Second(ref f) => std::error::Error::source(f),
+        }
+    }
 }
