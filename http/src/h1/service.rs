@@ -2,7 +2,7 @@ use std::future::Future;
 
 use futures_core::Stream;
 use xitca_io::io::AsyncIo;
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::Service;
 use xitca_unsafe_collection::pin;
 
 use crate::{
@@ -56,27 +56,5 @@ where
                 .await
                 .map_err(Into::into)
         }
-    }
-}
-
-impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    ReadyService for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
-where
-    S: ReadyService + Service<Request<RequestBody>, Response = Response<B>> + 'static,
-
-    A: Service<St, Response = TlsSt> + 'static,
-    St: AsyncIo,
-    TlsSt: AsyncIo,
-
-    B: Stream<Item = Result<Bytes, BE>>,
-
-    HttpServiceError<S::Error, BE>: From<A::Error>,
-{
-    type Ready = S::Ready;
-    type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
-
-    #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
-        self.service.ready()
     }
 }
