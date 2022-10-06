@@ -2,7 +2,7 @@ use std::{fmt, future::Future};
 
 use futures_core::Stream;
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite};
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::Service;
 use xitca_unsafe_collection::pin;
 
 use crate::{
@@ -82,38 +82,5 @@ where
 
             Ok(())
         }
-    }
-}
-
-impl<
-        St,
-        S,
-        ResB,
-        BE,
-        A,
-        TlsSt,
-        const HEADER_LIMIT: usize,
-        const READ_BUF_LIMIT: usize,
-        const WRITE_BUF_LIMIT: usize,
-    > ReadyService for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
-where
-    S: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-    S::Error: fmt::Debug,
-
-    A: Service<St, Response = TlsSt> + 'static,
-    St: AsyncIo,
-    TlsSt: AsyncRead + AsyncWrite + Unpin,
-
-    HttpServiceError<S::Error, BE>: From<A::Error>,
-
-    ResB: Stream<Item = Result<Bytes, BE>>,
-    BE: fmt::Debug,
-{
-    type Ready = S::Ready;
-    type ReadyFuture<'f> = S::ReadyFuture<'f> where Self: 'f;
-
-    #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
-        self.service.ready()
     }
 }
