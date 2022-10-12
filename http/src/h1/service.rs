@@ -19,17 +19,14 @@ use super::{body::RequestBody, proto};
 pub type H1Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
     HttpService<St, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<St, S, B, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<St> for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, S, B, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<St>
+    for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<B>> + 'static,
-
-    A: Service<St, Response = TlsSt> + 'static,
+    A: Service<St> + 'static,
     St: AsyncIo,
-    TlsSt: AsyncIo,
-
+    A::Response: AsyncIo,
     B: Stream<Item = Result<Bytes, BE>>,
-
     HttpServiceError<S::Error, BE>: From<A::Error>,
 {
     type Response = ();
