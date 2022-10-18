@@ -21,7 +21,7 @@ impl<B> NoSendSend<B> {
     /// Construct a new Send type from B. preferably B is bound to `!Send`.
     ///
     /// # Examples:
-    /// ```rust
+    /// ```no_run
     /// # use xitca_unsafe_collection::no_send_send::NoSendSend;
     ///
     /// // make a "Send" Rc.
@@ -89,7 +89,6 @@ impl<B> DerefMut for NoSendSend<B> {
 
 impl<B> Drop for NoSendSend<B> {
     fn drop(&mut self) {
-        // drop B when possible. leak the memory if not.
         if mem::needs_drop::<B>() && thread::current().id() == self.id {
             // SAFETY:
             // B needs drop and is not moved to other threads.
@@ -97,22 +96,5 @@ impl<B> Drop for NoSendSend<B> {
                 ManuallyDrop::drop(&mut self.inner);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    #[should_panic]
-    fn test_move() {
-        let send = NoSendSend::new(std::rc::Rc::new(123));
-
-        let _ = std::thread::spawn(move || {
-            &*send;
-        })
-        .join()
-        .unwrap();
     }
 }
