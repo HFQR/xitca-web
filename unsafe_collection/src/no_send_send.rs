@@ -1,13 +1,17 @@
-use core::ops::{Deref, DerefMut};
-
-use std::{
+use core::{
+    cell::Cell,
     mem::{self, ManuallyDrop},
-    thread::{self, ThreadId},
+    ops::{Deref, DerefMut},
 };
+
+use std::thread::{self, ThreadId};
 
 /// thread id guarded wrapper for `!Send` B type to make it `Send` bound.
 /// It is safe to transfer NoSendSend between threads and panic when actual access to B happens on
 /// threads other than the one it's constructed from.
+///
+/// Drop NoSendSend<B> on a foreign thread will not trigger destructure of B(if it has one). The memory of B
+/// allocation would be leaked.
 pub struct NoSendSend<B> {
     id: ThreadId,
     inner: ManuallyDrop<B>,
@@ -89,6 +93,7 @@ impl<B> DerefMut for NoSendSend<B> {
 
 impl<B> Drop for NoSendSend<B> {
     fn drop(&mut self) {
+        // drop B when possible. leak B if not.
         if mem::needs_drop::<B>() && thread::current().id() == self.id {
             // SAFETY:
             // B needs drop and is not moved to other threads.
