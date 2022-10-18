@@ -1,5 +1,4 @@
 use core::{
-    cell::Cell,
     mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut},
 };
