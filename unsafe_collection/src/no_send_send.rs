@@ -1,13 +1,16 @@
 use core::ops::{Deref, DerefMut};
 
-use std::thread::{self, ThreadId};
+use std::{
+    mem::{self, ManuallyDrop},
+    thread::{self, ThreadId},
+};
 
 /// thread id guarded wrapper for `!Send` B type to make it `Send` bound.
 /// It is safe to transfer NoSendSend between threads and panic when actual access to B happens on
 /// threads other than the one it's constructed from.
 pub struct NoSendSend<B> {
     id: ThreadId,
-    inner: B,
+    inner: ManuallyDrop<B>,
 }
 
 // SAFETY:
@@ -44,7 +47,7 @@ impl<B> NoSendSend<B> {
     pub fn new(inner: B) -> Self {
         Self {
             id: thread::current().id(),
-            inner,
+            inner: ManuallyDrop::new(inner),
         }
     }
 
@@ -54,7 +57,13 @@ impl<B> NoSendSend<B> {
     /// - When called from a thread not where B is originally constructed.
     pub fn into_inner(self) -> B {
         self.assert_thread_id();
-        self.inner
+
+        // forget self so Drop does not run.
+        let mut this = ManuallyDrop::new(self);
+
+        // SAFETY:
+        // function take Self by value leave no other owner/borrower.
+        unsafe { ManuallyDrop::take(&mut this.inner) }
     }
 
     fn assert_thread_id(&self) {
@@ -67,13 +76,43 @@ impl<B> Deref for NoSendSend<B> {
 
     fn deref(&self) -> &Self::Target {
         self.assert_thread_id();
-        &self.inner
+        self.inner.deref()
     }
 }
 
 impl<B> DerefMut for NoSendSend<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.assert_thread_id();
-        &mut self.inner
+        self.inner.deref_mut()
+    }
+}
+
+impl<B> Drop for NoSendSend<B> {
+    fn drop(&mut self) {
+        // drop B when possible. leak the memory if not.
+        if mem::needs_drop::<B>() && thread::current().id() == self.id {
+            // SAFETY:
+            // B needs drop and is not moved to other threads.
+            unsafe {
+                ManuallyDrop::drop(&mut self.inner);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_move() {
+        let send = NoSendSend::new(std::rc::Rc::new(123));
+
+        let _ = std::thread::spawn(move || {
+            &*send;
+        })
+        .join()
+        .unwrap();
     }
 }
