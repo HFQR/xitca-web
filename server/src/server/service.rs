@@ -8,7 +8,7 @@ use std::{
 
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
-use xitca_service::{ready::ReadyService, BuildService, Service};
+use xitca_service::{ready::ReadyService, Service};
 
 use crate::worker::{self, ServiceAny};
 
@@ -56,7 +56,7 @@ where
         's: 'f,
     {
         Box::pin(async move {
-            let service = self.inner.call().build(()).await.map_err(|_| ())?;
+            let service = self.inner.call().call(()).await.map_err(|_| ())?;
             let service = Rc::new(service);
 
             let handles = listeners
@@ -75,7 +75,7 @@ pub trait BuildServiceFn<Req>
 where
     Self: Send + Sync + 'static,
 {
-    type BuildService: BuildService<Service = Self::Service>;
+    type BuildService: Service<Response = Self::Service>;
     type Service: ReadyService + Service<Req>;
 
     fn call(&self) -> Self::BuildService;
@@ -84,11 +84,11 @@ where
 impl<F, T, Req> BuildServiceFn<Req> for F
 where
     F: Fn() -> T + Send + Sync + 'static,
-    T: BuildService,
-    T::Service: ReadyService + Service<Req>,
+    T: Service,
+    T::Response: ReadyService + Service<Req>,
 {
     type BuildService = T;
-    type Service = T::Service;
+    type Service = T::Response;
 
     fn call(&self) -> T {
         self()

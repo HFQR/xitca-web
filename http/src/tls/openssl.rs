@@ -14,7 +14,7 @@ use openssl::{
     ssl::{Error, ErrorCode, ShutdownResult, Ssl, SslStream},
 };
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
-use xitca_service::{BuildService, Service};
+use xitca_service::Service;
 
 use crate::{http::Version, version::AsVersion};
 
@@ -37,17 +37,37 @@ impl<Io> AsVersion for TlsStream<Io> {
     }
 }
 
-/// Openssl Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
 #[derive(Clone)]
+pub struct TlsAcceptorBuilder {
+    acceptor: TlsAcceptor,
+}
+
+impl TlsAcceptorBuilder {
+    pub fn new(acceptor: TlsAcceptor) -> Self {
+        Self { acceptor }
+    }
+}
+
+impl<Arg> Service<Arg> for TlsAcceptorBuilder {
+    type Response = TlsAcceptorService;
+    type Error = Infallible;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+
+    fn call(&self, _: Arg) -> Self::Future<'_> {
+        async {
+            Ok(TlsAcceptorService {
+                acceptor: self.acceptor.clone(),
+            })
+        }
+    }
+}
+
+/// Openssl Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
 pub struct TlsAcceptorService {
     acceptor: TlsAcceptor,
 }
 
 impl TlsAcceptorService {
-    pub fn new(acceptor: TlsAcceptor) -> Self {
-        Self { acceptor }
-    }
-
     #[inline(never)]
     async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<TlsStream<Io>, OpensslError> {
         let ctx = self.acceptor.context();
@@ -67,17 +87,6 @@ impl TlsAcceptorService {
                 Err(e) => return Err(e.into()),
             }
         }
-    }
-}
-
-impl BuildService for TlsAcceptorService {
-    type Service = TlsAcceptorService;
-    type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
-
-    fn build(&self, _: ()) -> Self::Future {
-        let this = self.clone();
-        async { Ok(this) }
     }
 }
 

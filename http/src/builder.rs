@@ -1,7 +1,7 @@
 use std::{future::Future, marker::PhantomData};
 
 use xitca_io::net;
-use xitca_service::{BuildService, BuildServiceExt, EnclosedFactory};
+use xitca_service::{EnclosedFactory, Service, ServiceExt};
 
 use super::{
     body::RequestBody,
@@ -45,7 +45,7 @@ impl<F>
         marker::Http,
         net::Stream,
         F,
-        tls::NoOpTlsAcceptorService,
+        tls::NoOpTlsAcceptorBuilder,
         DEFAULT_HEADER_LIMIT,
         DEFAULT_READ_BUF_LIMIT,
         DEFAULT_WRITE_BUF_LIMIT,
@@ -64,14 +64,14 @@ impl<F>
         marker::Http,
         net::Stream,
         F,
-        tls::NoOpTlsAcceptorService,
+        tls::NoOpTlsAcceptorBuilder,
         HEADER_LIMIT,
         READ_BUF_LIMIT,
         WRITE_BUF_LIMIT,
     > {
         HttpServiceBuilder {
             factory,
-            tls_factory: tls::NoOpTlsAcceptorService,
+            tls_factory: tls::NoOpTlsAcceptorBuilder,
             config,
             _body: PhantomData,
         }
@@ -88,14 +88,14 @@ impl<F>
         marker::Http1,
         net::TcpStream,
         F,
-        tls::NoOpTlsAcceptorService,
+        tls::NoOpTlsAcceptorBuilder,
         DEFAULT_HEADER_LIMIT,
         DEFAULT_READ_BUF_LIMIT,
         DEFAULT_WRITE_BUF_LIMIT,
     > {
         HttpServiceBuilder {
             factory,
-            tls_factory: tls::NoOpTlsAcceptorService,
+            tls_factory: tls::NoOpTlsAcceptorBuilder,
             config: HttpServiceConfig::default(),
             _body: PhantomData,
         }
@@ -112,14 +112,14 @@ impl<F>
         marker::Http2,
         net::TcpStream,
         F,
-        tls::NoOpTlsAcceptorService,
+        tls::NoOpTlsAcceptorBuilder,
         DEFAULT_HEADER_LIMIT,
         DEFAULT_READ_BUF_LIMIT,
         DEFAULT_WRITE_BUF_LIMIT,
     > {
         HttpServiceBuilder {
             factory,
-            tls_factory: tls::NoOpTlsAcceptorService,
+            tls_factory: tls::NoOpTlsAcceptorBuilder,
             config: HttpServiceConfig::default(),
             _body: PhantomData,
         }
@@ -169,7 +169,7 @@ impl<V, St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
     /// Would consume input.
     pub fn with_logger<Arg>(self) -> EnclosedFactory<Self, Logger>
     where
-        Self: BuildService<Arg>,
+        Self: Service<Arg>,
     {
         self.enclosed(Logger::new())
     }
@@ -178,50 +178,46 @@ impl<V, St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
     pub fn openssl(
         self,
         acceptor: tls::openssl::TlsAcceptor,
-    ) -> HttpServiceBuilder<V, St, F, tls::openssl::TlsAcceptorService, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, St, F, tls::openssl::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
-        self.with_tls(tls::openssl::TlsAcceptorService::new(acceptor))
+        self.with_tls(tls::openssl::TlsAcceptorBuilder::new(acceptor))
     }
 
     #[cfg(feature = "rustls")]
     pub fn rustls(
         self,
         config: tls::rustls::RustlsConfig,
-    ) -> HttpServiceBuilder<V, St, F, tls::rustls::TlsAcceptorService, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, St, F, tls::rustls::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
-        self.with_tls(tls::rustls::TlsAcceptorService::new(config))
+        self.with_tls(tls::rustls::TlsAcceptorBuilder::new(config))
     }
 
     #[cfg(feature = "native-tls")]
     pub fn native_tls(
         self,
         acceptor: tls::native_tls::TlsAcceptor,
-    ) -> HttpServiceBuilder<V, St, F, tls::native_tls::TlsAcceptorService, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, St, F, tls::native_tls::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
-        self.with_tls(tls::native_tls::TlsAcceptorService::new(acceptor))
+        self.with_tls(tls::native_tls::TlsAcceptorBuilder::new(acceptor))
     }
 }
 
-impl<F, Arg, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> BuildService<Arg>
+impl<F, Arg, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<Arg>
     for HttpServiceBuilder<marker::Http, net::Stream, F, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    F: BuildService<Arg>,
-    FA: BuildService,
+    F: Service<Arg>,
+    FA: Service,
 {
-    type Service =
-        HttpService<net::Stream, F::Service, RequestBody, FA::Service, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+    type Response =
+        HttpService<net::Stream, F::Response, RequestBody, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = BuildError<FA::Error, F::Error>;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, arg: Arg) -> Self::Future {
-        let service = self.factory.build(arg);
-        let tls_acceptor = self.tls_factory.build(());
-        let config = self.config;
-
-        async move {
-            let tls_acceptor = tls_acceptor.await.map_err(BuildError::First)?;
-            let service = service.await.map_err(BuildError::Second)?;
-            Ok(HttpService::new(config, service, tls_acceptor))
+    fn call(&self, arg: Arg) -> Self::Future<'_> {
+        async {
+            let tls_acceptor = self.tls_factory.call(()).await.map_err(BuildError::First)?;
+            let service = self.factory.call(arg).await.map_err(BuildError::Second)?;
+            Ok(HttpService::new(self.config, service, tls_acceptor))
         }
     }
 }

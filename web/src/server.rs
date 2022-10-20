@@ -12,7 +12,7 @@ use xitca_server::{Builder, ServerFuture};
 
 use crate::dev::{
     bytes::Bytes,
-    service::{ready::ReadyService, BuildService, Service},
+    service::{ready::ReadyService, Service},
 };
 
 pub struct HttpServer<
@@ -168,9 +168,9 @@ where
     #[cfg(not(target_family = "wasm"))]
     pub fn bind<A: std::net::ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
-        I: BuildService + 'static,
-        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I: Service + 'static,
+        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -187,9 +187,9 @@ where
 
     pub fn listen<ResB, BE>(mut self, listener: std::net::TcpListener) -> std::io::Result<Self>
     where
-        I: BuildService + 'static,
-        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I: Service + 'static,
+        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -211,9 +211,9 @@ where
         mut builder: openssl_crate::ssl::SslAcceptorBuilder,
     ) -> std::io::Result<Self>
     where
-        I: BuildService + 'static,
-        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I: Service + 'static,
+        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -267,9 +267,9 @@ where
         mut config: rustls_crate::ServerConfig,
     ) -> std::io::Result<Self>
     where
-        I: BuildService + 'static,
-        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I: Service + 'static,
+        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -300,9 +300,9 @@ where
     #[cfg(unix)]
     pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
     where
-        I: BuildService + 'static,
-        I::Service: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Service as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I: Service + 'static,
+        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,

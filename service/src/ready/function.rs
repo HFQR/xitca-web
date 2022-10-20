@@ -1,15 +1,12 @@
 use core::future::Future;
 
-use crate::build::function::FnService;
+use crate::service::FnService;
 
 use super::ReadyService;
 
-impl<F> ReadyService for FnService<F>
-where
-    F: Clone,
-{
+impl<F> ReadyService for FnService<F> {
     type Ready = ();
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where F: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {

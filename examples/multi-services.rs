@@ -14,7 +14,7 @@ use xitca_http::{
     util::middleware::{Logger, TcpConfig},
     HttpServiceBuilder, Request, ResponseBody,
 };
-use xitca_service::{fn_service, BuildServiceExt};
+use xitca_service::{fn_service, ServiceExt};
 
 fn main() -> io::Result<()> {
     tracing_subscriber::fmt()

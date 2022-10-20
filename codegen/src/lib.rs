@@ -104,16 +104,16 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     } = CallImpl::from_items(&input.items);
 
     let base = quote! {
-        impl<#generic_ty> ::xitca_service::BuildService<#arg_ty> for #factory_ty
+        impl<#generic_ty> ::xitca_service::Service<#arg_ty> for #factory_ty
         #where_clause
         {
-            type Service = #service_ty;
+            type Response = #service_ty;
             type Error = #err_ty;
-            type Future = impl ::core::future::Future<Output = Result<Self::Service, Self::Error>>;
+            type Future<'f> = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-            fn build(&self, #arg_ident: #arg_ty) -> Self::Future {
-                let #factory_ident = self.clone();
+            fn call(&self, #arg_ident: #arg_ty) -> Self::Future<'_> {
                 async move {
+                    let #factory_ident = &self;
                     #(#factory_stmts)*
                 }
             }

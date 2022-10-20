@@ -17,7 +17,7 @@ use xitca_io::{
     net::{Stream as NetStream, TcpStream},
 };
 use xitca_server::{Builder, ServerFuture, ServerHandle};
-use xitca_service::{ready::ReadyService, BuildService, Service};
+use xitca_service::{ready::ReadyService, Service};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -28,8 +28,8 @@ type HResponse<B> = Response<ResponseBody<B>>;
 pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> T + Send + Sync + 'static,
-    T: BuildService,
-    T::Service: ReadyService + Service<Req>,
+    T: Service,
+    T::Response: ReadyService + Service<Req>,
     Req: From<NetStream> + Send + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;
@@ -50,9 +50,9 @@ where
 pub fn test_h1_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
-    I: BuildService + 'static,
-    I::Service: ReadyService + Service<Request<h1::RequestBody>, Response = HResponse<B>> + 'static,
-    <I::Service as Service<Request<h1::RequestBody>>>::Error: fmt::Debug,
+    I: Service + 'static,
+    I::Response: ReadyService + Service<Request<h1::RequestBody>, Response = HResponse<B>> + 'static,
+    <I::Response as Service<Request<h1::RequestBody>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
@@ -67,9 +67,9 @@ where
 pub fn test_h2_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
-    I: BuildService + 'static,
-    I::Service: ReadyService + Service<Request<h2::RequestBody>, Response = HResponse<B>> + 'static,
-    <I::Service as Service<Request<h2::RequestBody>>>::Error: fmt::Debug,
+    I: Service + 'static,
+    I::Response: ReadyService + Service<Request<h2::RequestBody>, Response = HResponse<B>> + 'static,
+    <I::Response as Service<Request<h2::RequestBody>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
@@ -88,9 +88,9 @@ where
 pub fn test_h3_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
-    I: BuildService + 'static,
-    I::Service: ReadyService + Service<Request<h3::RequestBody>, Response = HResponse<B>> + 'static,
-    <I::Service as Service<Request<h3::RequestBody>>>::Error: fmt::Debug,
+    I: Service + 'static,
+    I::Response: ReadyService + Service<Request<h3::RequestBody>, Response = HResponse<B>> + 'static,
+    <I::Response as Service<Request<h3::RequestBody>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,

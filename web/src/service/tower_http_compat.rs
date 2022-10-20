@@ -15,7 +15,7 @@ use xitca_unsafe_collection::no_send_send::NoSendSend;
 use crate::{
     dev::{
         bytes::Buf,
-        service::{ready::ReadyService, BuildService, Service},
+        service::{ready::ReadyService, Service},
     },
     http::{self, header::HeaderMap},
     request::WebRequest,
@@ -35,15 +35,15 @@ impl<S> TowerHttpCompat<S> {
     }
 }
 
-impl<S> BuildService for TowerHttpCompat<S>
+impl<S> Service for TowerHttpCompat<S>
 where
     S: Clone,
 {
-    type Service = TowerCompatService<S>;
+    type Response = TowerCompatService<S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, _: ()) -> Self::Future {
+    fn call(&self, _: ()) -> Self::Future<'_> {
         let service = self.service.clone();
         async {
             Ok(TowerCompatService {

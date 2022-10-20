@@ -4,7 +4,7 @@ use std::{
     future::Future,
 };
 
-use xitca_service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service};
+use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
 
 use crate::{
     http::{self, Method},
@@ -103,53 +103,58 @@ impl<R, N, const M: usize> Route<R, N, M> {
     route_method!(trace, TRACE);
 }
 
-impl<Arg, R, N, const M: usize> BuildService<Arg> for Route<R, next::Exist<N>, M>
+impl<Arg, R, N, const M: usize> Service<Arg> for Route<R, next::Exist<N>, M>
 where
-    R: BuildService<Arg>,
-    N: BuildService<Arg, Error = R::Error>,
+    R: Service<Arg>,
+    N: Service<Arg, Error = R::Error>,
     Arg: Clone,
 {
-    type Service = Route<R::Service, next::Exist<N::Service>, M>;
+    type Response = RouteService<R::Response, next::Exist<N::Response>, M>;
     type Error = R::Error;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, arg: Arg) -> Self::Future {
-        let route = self.route.build(arg.clone());
-        let next = self.next.0.build(arg);
+    fn call(&self, arg: Arg) -> Self::Future<'_> {
+        let route = self.route.call(arg.clone());
+        let next = self.next.0.call(arg);
 
         let methods = self.methods.clone();
 
         async move {
             let route = route.await?;
             let next = next::Exist(next.await?);
-            // re-use Route for Service trait type.
-            Ok(Route { methods, route, next })
+            Ok(RouteService { methods, route, next })
         }
     }
 }
 
-impl<Arg, R, const M: usize> BuildService<Arg> for Route<R, next::Empty, M>
+impl<Arg, R, const M: usize> Service<Arg> for Route<R, next::Empty, M>
 where
-    R: BuildService<Arg>,
+    R: Service<Arg>,
 {
-    type Service = Route<R::Service, next::Empty, M>;
+    type Response = RouteService<R::Response, next::Empty, M>;
     type Error = R::Error;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, arg: Arg) -> Self::Future {
-        let route = self.route.build(arg);
-        let methods = self.methods.clone();
-
+    fn call(&self, arg: Arg) -> Self::Future<'_> {
         async move {
-            let route = route.await?;
+            let route = self.route.call(arg).await?;
             let next = next::Empty;
-            // re-use Route for Service trait type.
-            Ok(Route { methods, route, next })
+            Ok(RouteService {
+                methods: self.methods.clone(),
+                route,
+                next,
+            })
         }
     }
 }
 
-impl<Req, R, N, E, const M: usize> Service<Req> for Route<R, next::Exist<N>, M>
+pub struct RouteService<R, N, const M: usize> {
+    methods: [Method; M],
+    route: R,
+    next: N,
+}
+
+impl<Req, R, N, E, const M: usize> Service<Req> for RouteService<R, next::Exist<N>, M>
 where
     R: Service<Req, Error = E>,
     N: Service<Req, Response = R::Response, Error = RouteError<E>>,
@@ -171,7 +176,7 @@ where
     }
 }
 
-impl<Req, R, const M: usize> Service<Req> for Route<R, next::Empty, M>
+impl<Req, R, const M: usize> Service<Req> for RouteService<R, next::Empty, M>
 where
     R: Service<Req>,
     Req: BorrowReq<http::Method>,
@@ -192,7 +197,7 @@ where
     }
 }
 
-impl<R, N, const M: usize> ReadyService for Route<R, N, M> {
+impl<R, N, const M: usize> ReadyService for RouteService<R, N, M> {
     type Ready = ();
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
@@ -228,7 +233,7 @@ impl error::Error for MethodNotAllowed {}
 mod test {
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, BuildServiceExt, Service};
+    use xitca_service::{fn_service, Service, ServiceExt};
 
     use crate::{
         body::{RequestBody, ResponseBody},
@@ -257,7 +262,7 @@ mod test {
             .trace(fn_service(index))
             .enclosed_fn(enclosed);
 
-        let service = route.build(()).await.ok().unwrap();
+        let service = route.call(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);
         let res = service.call(req).await.ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
@@ -277,7 +282,7 @@ mod test {
     async fn route_mixed() {
         let route = get(fn_service(index)).next(Route::new(fn_service(index)).methods([Method::POST, Method::PUT]));
 
-        let service = route.build(()).await.ok().unwrap();
+        let service = route.call(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);
         let res = service.call(req).await.ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
@@ -306,7 +311,7 @@ mod test {
             .next(Route::new(fn_service(index)).methods([Method::OPTIONS]))
             .next(trace(fn_service(index)));
 
-        let service = route.build(()).await.ok().unwrap();
+        let service = route.call(()).await.ok().unwrap();
         let req = Request::new(RequestBody::None);
         let res = service.call(req).await.ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
@@ -345,7 +350,7 @@ mod test {
         get(fn_service(|_: Request<()>| async {
             Ok::<_, Infallible>(Response::new(()))
         }))
-        .build(())
+        .call(())
         .await
         .unwrap()
         .call(Request::new(()))
@@ -358,7 +363,7 @@ mod test {
         get(fn_service(|_: http::Request<()>| async {
             Ok::<_, Infallible>(Response::new(()))
         }))
-        .build(())
+        .call(())
         .await
         .unwrap()
         .call(http::Request::new(()))

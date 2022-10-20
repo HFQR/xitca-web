@@ -3,7 +3,7 @@ use std::{convert::Infallible, future::Future};
 use http_encoding::{encoder, Coder, ContentEncoding};
 
 use crate::{
-    dev::service::{ready::ReadyService, BuildService, Service},
+    dev::service::{ready::ReadyService, Service},
     request::WebRequest,
     response::WebResponse,
     stream::WebStream,
@@ -15,12 +15,12 @@ use crate::{
 #[derive(Clone)]
 pub struct Compress;
 
-impl<S> BuildService<S> for Compress {
-    type Service = CompressService<S>;
+impl<S> Service<S> for Compress {
+    type Response = CompressService<S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
+    fn call(&self, service: S) -> Self::Future<'_> {
         async { Ok(CompressService { service }) }
     }
 }

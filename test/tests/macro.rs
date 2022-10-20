@@ -1,6 +1,6 @@
 #![feature(type_alias_impl_trait)]
 
-use xitca_service::{ready::ReadyService, BuildService, BuildServiceExt, Service};
+use xitca_service::{ready::ReadyService, Service, ServiceExt};
 
 struct Test;
 
@@ -26,7 +26,6 @@ impl Test {
     }
 }
 
-#[derive(Clone)]
 struct TestMiddleware;
 
 struct TestMiddlewareService<S>(S);
@@ -75,20 +74,20 @@ impl TestWithoutReady {
 async fn http_codegen() {
     let factory = TestFactory;
     let cfg = String::from("996");
-    let service = BuildService::build(&factory, cfg.clone()).await.unwrap();
+    let service = Service::call(&factory, cfg.clone()).await.unwrap();
 
     ReadyService::ready(&service).await.err().unwrap();
     let res = Service::call(&service, String::from("007")).await.unwrap();
     assert_eq!(res, 233);
 
     let transform = factory.enclosed(TestMiddleware);
-    let middlware = BuildService::build(&transform, cfg.clone()).await.unwrap();
+    let middlware = Service::call(&transform, cfg.clone()).await.unwrap();
 
     let res = Service::call(&middlware, String::from("007")).await.unwrap();
     assert_eq!(res, 233);
 
     let factory = TestWithoutReadyFactory;
-    let service = BuildService::build(&factory, cfg).await.unwrap();
+    let service = Service::call(&factory, cfg).await.unwrap();
     let res = Service::call(&service, String::from("007")).await.unwrap();
     assert_eq!(res, 7);
 }

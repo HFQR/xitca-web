@@ -1,13 +1,22 @@
 mod and_then;
+mod enclosed;
 mod enclosed_fn;
+mod ext;
+mod function;
 mod map;
 mod map_err;
+mod opt;
+
+pub use self::{
+    ext::ServiceExt,
+    function::{fn_build, fn_service, FnService},
+};
 
 use core::{future::Future, ops::Deref, pin::Pin};
 
 /// Trait for simulate `Fn<(&Self, Arg)> -> impl Future<Output = Result<T, E>> + '_`.
 /// The function call come from stateful type that can be referenced within returned opaque future.
-pub trait Service<Req> {
+pub trait Service<Req = ()> {
     /// The Ok part of output future.
     type Response;
 

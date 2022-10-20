@@ -11,7 +11,7 @@ use std::{
 
 use native_tls::{Error, HandshakeError};
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
-use xitca_service::{BuildService, Service};
+use xitca_service::Service;
 
 use crate::{http::Version, version::AsVersion};
 
@@ -35,27 +35,34 @@ impl<Io: AsyncIo> AsVersion for TlsStream<Io> {
     }
 }
 
-/// native-tls Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
 #[derive(Clone)]
-pub struct TlsAcceptorService {
+pub struct TlsAcceptorBuilder {
     acceptor: TlsAcceptor,
 }
 
-impl TlsAcceptorService {
+impl TlsAcceptorBuilder {
     pub fn new(acceptor: TlsAcceptor) -> Self {
         Self { acceptor }
     }
 }
 
-impl<Arg> BuildService<Arg> for TlsAcceptorService {
-    type Service = TlsAcceptorService;
+impl<Arg> Service<Arg> for TlsAcceptorBuilder {
+    type Response = TlsAcceptorService;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, _: Arg) -> Self::Future {
-        let this = self.clone();
-        async { Ok(this) }
+    fn call(&self, _: Arg) -> Self::Future<'_> {
+        async {
+            Ok(TlsAcceptorService {
+                acceptor: self.acceptor.clone(),
+            })
+        }
     }
+}
+
+/// native-tls Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
+pub struct TlsAcceptorService {
+    acceptor: TlsAcceptor,
 }
 
 impl<St: AsyncIo> Service<St> for TlsAcceptorService {

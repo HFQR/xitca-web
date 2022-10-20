@@ -3,7 +3,7 @@ use std::{cell::RefCell, convert::Infallible, future::Future};
 use http_encoding::{error::EncodingError, Coder};
 
 use crate::{
-    dev::service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service},
+    dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
     handler::Responder,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, StatusCode},
     request::WebRequest,
@@ -17,12 +17,12 @@ use crate::{
 #[derive(Clone)]
 pub struct Decompress;
 
-impl<S> BuildService<S> for Decompress {
-    type Service = DecompressService<S>;
+impl<S> Service<S> for Decompress {
+    type Response = DecompressService<S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
+    fn call(&self, service: S) -> Self::Future<'_> {
         async { Ok(DecompressService { service }) }
     }
 }
@@ -119,7 +119,7 @@ mod test {
             .at("/", handler_service(noop))
             .enclosed(Decompress)
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(Request::new(RequestBody::default()))
@@ -134,7 +134,7 @@ mod test {
             .at("/", handler_service(handler))
             .enclosed(Decompress)
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(Request::new(Once::new(Q)))
@@ -180,7 +180,7 @@ mod test {
             .at("/", handler_service(handler))
             .enclosed(Decompress)
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(req)
