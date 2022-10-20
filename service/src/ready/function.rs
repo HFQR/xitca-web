@@ -4,7 +4,7 @@ use crate::service::FnService;
 
 use super::ReadyService;
 
-impl<F, M> ReadyService for FnService<F, M> {
+impl<F> ReadyService for FnService<F> {
     type Ready = ();
     type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 

@@ -1,30 +1,30 @@
-use core::{convert::Infallible, future::Future, marker::PhantomData};
+use core::{
+    convert::Infallible,
+    future::{ready, Future, Ready},
+};
 
 use super::Service;
 
-pub fn fn_service<F, Req, Fut, Res, Err>(f: F) -> FnService<F, BuildFnService>
+/// Shortcut for transform a given Fn into type impl [Service] trait.
+pub fn fn_service<F, Req, Fut, Res, Err>(f: F) -> FnBuild<impl Fn(()) -> Ready<Result<FnService<F>, Infallible>>>
 where
     F: Fn(Req) -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
 {
-    FnService {
-        f,
-        _marker: PhantomData,
-    }
+    fn_build(move |_| ready(Ok(FnService(f.clone()))))
 }
 
+/// Shortcut for transform a given Fn into type impl [Service] trait.
 pub fn fn_build<F, Arg, Fut, Svc, Err>(f: F) -> FnBuild<F>
 where
     F: Fn(Arg) -> Fut,
     Fut: Future<Output = Result<Svc, Err>>,
 {
-    FnBuild { f }
+    FnBuild(f)
 }
 
 #[derive(Clone)]
-pub struct FnBuild<F> {
-    f: F,
-}
+pub struct FnBuild<F>(F);
 
 impl<F, Arg, Fut, Svc, Err> Service<Arg> for FnBuild<F>
 where
@@ -36,50 +36,14 @@ where
     type Future<'f> = Fut where Self: 'f;
 
     fn call(&self, arg: Arg) -> Self::Future<'_> {
-        (self.f)(arg)
+        (self.0)(arg)
     }
 }
 
-pub struct FnService<F, M> {
-    f: F,
-    _marker: PhantomData<M>,
-}
+#[derive(Clone)]
+pub struct FnService<F>(F);
 
-impl<F, M> Clone for FnService<F, M>
-where
-    F: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            f: self.f.clone(),
-            _marker: PhantomData,
-        }
-    }
-}
-
-pub struct BuildFnService;
-pub struct CallFnServie;
-
-impl<F> Service for FnService<F, BuildFnService>
-where
-    F: Clone,
-{
-    type Response = FnService<F, CallFnServie>;
-    type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
-
-    fn call(&self, _: ()) -> Self::Future<'_> {
-        let f = self.f.clone();
-        async {
-            Ok(FnService {
-                f,
-                _marker: PhantomData,
-            })
-        }
-    }
-}
-
-impl<F, Req, Fut, Res, Err> Service<Req> for FnService<F, CallFnServie>
+impl<F, Req, Fut, Res, Err> Service<Req> for FnService<F>
 where
     F: Fn(Req) -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
@@ -90,6 +54,6 @@ where
 
     #[inline]
     fn call(&self, req: Req) -> Self::Future<'_> {
-        (self.f)(req)
+        (self.0)(req)
     }
 }
