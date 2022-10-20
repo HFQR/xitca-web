@@ -2,56 +2,36 @@
 
 use std::{
     convert::Infallible,
-    future::Future,
+    future::{ready, Future},
     marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
 
 use pin_project_lite::pin_project;
-use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
+use xitca_service::{fn_build, pipeline::PipelineE, AsyncClosure, Service};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
 ///
 /// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
 /// output type.
-pub fn handler_service<F, T, O>(func: F) -> HandlerServiceBuilder<F, T, O> {
-    HandlerServiceBuilder::new(func)
-}
-
-pub struct HandlerServiceBuilder<F, T, O> {
-    func: F,
-    _p: PhantomData<(T, O)>,
-}
-
-impl<F, T, O> HandlerServiceBuilder<F, T, O> {
-    pub const fn new(func: F) -> Self {
-        Self { func, _p: PhantomData }
-    }
-}
-
-impl<F, T, O> Service for HandlerServiceBuilder<F, T, O>
+pub fn handler_service<F, T, O>(func: F) -> impl Service<Response = HandlerService<F, T, O>, Error = Infallible>
 where
     F: Clone,
 {
-    type Response = HandlerService<F, T, O>;
-    type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
-
-    fn call(&self, _: ()) -> Self::Future<'_> {
-        async {
-            Ok(HandlerService {
-                func: self.func.clone(),
-                _p: PhantomData,
-            })
-        }
-    }
+    fn_build(move |_| ready(Ok(HandlerService::new(func.clone()))))
 }
 
 pub struct HandlerService<F, T, O> {
     func: F,
     _p: PhantomData<(T, O)>,
+}
+
+impl<F, T, O> HandlerService<F, T, O> {
+    pub const fn new(func: F) -> Self {
+        Self { func, _p: PhantomData }
+    }
 }
 
 impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O>
