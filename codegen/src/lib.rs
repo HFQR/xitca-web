@@ -112,8 +112,8 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             type Future<'f> = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
             fn call(&self, #arg_ident: #arg_ty) -> Self::Future<'_> {
-                let #factory_ident = self.clone();
                 async move {
+                    let #factory_ident = &self;
                     #(#factory_stmts)*
                 }
             }

@@ -26,7 +26,6 @@ impl Test {
     }
 }
 
-#[derive(Clone)]
 struct TestMiddleware;
 
 struct TestMiddlewareService<S>(S);
