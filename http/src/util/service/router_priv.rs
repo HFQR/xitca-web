@@ -10,7 +10,7 @@ use xitca_service::{
     object::{DefaultFactoryObject, DefaultObjectConstructor, ObjectConstructor},
     pipeline::PipelineE,
     ready::ReadyService,
-    BuildService, Service,
+    Service,
 };
 
 use crate::{http, request::BorrowReq};
@@ -99,20 +99,20 @@ impl<ObjCons, SF> GenericRouter<ObjCons, SF> {
     }
 }
 
-impl<ObjCons, SF, Arg> BuildService<Arg> for GenericRouter<ObjCons, SF>
+impl<ObjCons, SF, Arg> Service<Arg> for GenericRouter<ObjCons, SF>
 where
-    SF: BuildService<Arg>,
+    SF: Service<Arg>,
     Arg: Clone,
 {
-    type Service = RouterService<SF::Service>;
+    type Response = RouterService<SF::Response>;
     type Error = SF::Error;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, arg: Arg) -> Self::Future {
+    fn call(&self, arg: Arg) -> Self::Future<'_> {
         let futs = self
             .routes
             .iter()
-            .map(|(path, obj)| (*path, obj.build(arg.clone())))
+            .map(|(path, obj)| (*path, obj.call(arg.clone())))
             .collect::<Vec<_>>();
 
         async move {
@@ -168,7 +168,7 @@ impl<S> ReadyService for RouterService<S> {
 mod test {
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, BuildServiceExt, Service};
+    use xitca_service::{fn_service, Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{http, request::Request, response::Response};
@@ -182,7 +182,7 @@ mod test {
                 "/",
                 fn_service(|_: Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(Request::new(()))
@@ -197,7 +197,7 @@ mod test {
                 "/",
                 fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(http::Request::new(()))
@@ -220,7 +220,7 @@ mod test {
                 fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
             .enclosed_fn(enclosed)
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(http::Request::new(()))

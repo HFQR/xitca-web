@@ -1,18 +1,18 @@
 use core::{convert::Infallible, future::Future};
 
-use crate::{build::BuildService, ready::ReadyService, service::Service};
+use crate::{ready::ReadyService, service::Service};
 
 /// A middleware unconditionally treat inner service type as ready.
 /// See [ReadyService] for detail.
 #[derive(Clone, Copy)]
 pub struct UncheckedReady;
 
-impl<S> BuildService<S> for UncheckedReady {
-    type Service = UncheckedReadyService<S>;
+impl<S> Service<S> for UncheckedReady {
+    type Response = UncheckedReadyService<S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
+    fn call(&self, service: S) -> Self::Future<'_> {
         async { Ok(UncheckedReadyService { service }) }
     }
 }

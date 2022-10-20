@@ -5,7 +5,7 @@ use xitca_http::ResponseBody;
 use crate::{
     dev::{
         bytes::Bytes,
-        service::{ready::ReadyService, BuildService, Service},
+        service::{ready::ReadyService, Service},
     },
     request::WebRequest,
     response::{StreamBody, WebResponse},
@@ -58,12 +58,12 @@ impl TypeEraser<EraseErr> {
     }
 }
 
-impl<M, S> BuildService<S> for TypeEraser<M> {
-    type Service = EraserService<M, S>;
+impl<M, S> Service<S> for TypeEraser<M> {
+    type Response = EraserService<M, S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
+    fn call(&self, service: S) -> Self::Future<'_> {
         async {
             Ok(EraserService {
                 service,
@@ -136,7 +136,7 @@ mod test {
     use xitca_http::{body::Once, request::Request};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{dev::service::BuildServiceExt, handler::handler_service, App};
+    use crate::{dev::service::ServiceExt, handler::handler_service, App};
 
     use super::*;
 
@@ -168,7 +168,7 @@ mod test {
             // observe erased body type.
             .enclosed_fn(middleware_fn)
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(Request::default())

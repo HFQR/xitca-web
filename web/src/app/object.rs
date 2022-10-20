@@ -1,12 +1,11 @@
-use std::{boxed::Box, marker::PhantomData};
+use std::{boxed::Box, future::Future, marker::PhantomData};
 
 use xitca_service::{
-    fn_build,
     object::{
         helpers::{ServiceObject, Wrapper},
         Object, ObjectConstructor,
     },
-    BuildService, BuildServiceExt, Service,
+    Service,
 };
 
 use crate::request::WebRequest;
@@ -19,22 +18,33 @@ pub type WebServiceObject<C, B, Res, Err> = impl for<'r> Service<WebRequest<'r, 
 
 impl<C, B, I, Svc, BErr, Res, Err> ObjectConstructor<I> for WebObjectConstructor<C, B>
 where
-    I: BuildService<Service = Svc, Error = BErr> + 'static,
+    C: 'static,
+    B: 'static,
+    I: Service<Response = Svc, Error = BErr> + 'static,
     Svc: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err> + 'static,
 {
     type Object = WebFactoryObject<(), C, B, I::Error, Res, Err>;
 
     fn into_object(inner: I) -> Self::Object {
-        let factory = fn_build(move |_arg: ()| {
-            let fut = inner.build(());
-            async move {
-                let boxed_service = Box::new(fut.await?)
-                    as Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = _, Error = _>>;
-                Ok(Wrapper(boxed_service))
-            }
-        })
-        .boxed_future();
+        struct WebObjBuilder<I, C, B>(I, PhantomData<(C, B)>);
 
-        Box::new(factory)
+        impl<C, I, Svc, BErr, B, Res, Err> Service for WebObjBuilder<I, C, B>
+        where
+            I: Service<Response = Svc, Error = BErr> + 'static,
+            Svc: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err> + 'static,
+        {
+            type Response = Wrapper<Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>>;
+            type Error = BErr;
+            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+
+            fn call(&self, arg: ()) -> Self::Future<'_> {
+                async move {
+                    let service = self.0.call(arg).await?;
+                    Ok(Wrapper(Box::new(service) as _))
+                }
+            }
+        }
+
+        Wrapper(Box::new(WebObjBuilder(inner, PhantomData)))
     }
 }

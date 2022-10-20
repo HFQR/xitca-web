@@ -20,8 +20,8 @@ use crate::{
     dev::{
         bytes::Bytes,
         service::{
-            object::ObjectConstructor, ready::ReadyService, AsyncClosure, BuildService, BuildServiceExt,
-            EnclosedFactory, EnclosedFnFactory, Service,
+            object::ObjectConstructor, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
+            ServiceExt,
         },
     },
     handler::Responder,
@@ -93,13 +93,13 @@ impl<CF, C, B, SF> App<CF, Router<C, B, SF>> {
 
 impl<CF, R> App<CF, R>
 where
-    R: BuildService,
+    R: Service,
 {
     /// Enclose App with middleware type.
-    /// Middleware must impl [BuildService] trait.
+    /// Middleware must impl [Service] trait.
     pub fn enclosed<T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
     where
-        T: BuildService<R::Service> + Clone,
+        T: Service<R::Response> + Clone,
     {
         App {
             ctx_factory: self.ctx_factory,
@@ -110,7 +110,7 @@ where
     /// Enclose App with function as middleware type.
     pub fn enclosed_fn<Req, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T>>
     where
-        T: for<'s> AsyncClosure<(&'s R::Service, Req)> + Clone,
+        T: for<'s> AsyncClosure<(&'s R::Response, Req)> + Clone,
     {
         App {
             ctx_factory: self.ctx_factory,
@@ -121,8 +121,8 @@ where
     /// Finish App build. No other App method can be called afterwards.
     pub fn finish<C, Fut, CErr, ReqB, ResB, E, Err>(
         self,
-    ) -> impl BuildService<
-        Service = impl ReadyService + Service<Request<ReqB>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
+    ) -> impl Service<
+        Response = impl ReadyService + Service<Request<ReqB>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
         Error = impl fmt::Debug,
     >
     where
@@ -131,7 +131,7 @@ where
         C: 'static,
         CErr: fmt::Debug,
         ReqB: 'static,
-        R::Service: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
+        R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
         R::Error: fmt::Debug,
         Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse>,
         ResB: Stream<Item = Result<Bytes, E>>,
@@ -220,12 +220,12 @@ mod test {
     #[derive(Clone)]
     struct Middleware;
 
-    impl<S> BuildService<S> for Middleware {
-        type Service = MiddlewareService<S>;
+    impl<S> Service<S> for Middleware {
+        type Response = MiddlewareService<S>;
         type Error = Infallible;
-        type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-        fn build(&self, service: S) -> Self::Future {
+        fn call(&self, service: S) -> Self::Future<'_> {
             async { Ok(MiddlewareService(service)) }
         }
     }
@@ -293,7 +293,7 @@ mod test {
             .enclosed(Middleware)
             .enclosed(UncheckedReady)
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .ok()
             .unwrap();

@@ -12,7 +12,7 @@ use std::{
 
 use rustls::{Error, ServerConfig, ServerConnection, StreamOwned};
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
-use xitca_service::{BuildService, Service};
+use xitca_service::Service;
 
 use crate::{http::Version, version::AsVersion};
 
@@ -39,20 +39,40 @@ where
     }
 }
 
-/// Rustls Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
 #[derive(Clone)]
+pub struct TlsAcceptorBuilder {
+    acceptor: Arc<ServerConfig>,
+}
+
+impl TlsAcceptorBuilder {
+    pub fn new(acceptor: Arc<ServerConfig>) -> Self {
+        Self { acceptor }
+    }
+}
+
+impl<Arg> Service<Arg> for TlsAcceptorBuilder {
+    type Response = TlsAcceptorService;
+    type Error = Infallible;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+
+    fn call(&self, _: Arg) -> Self::Future<'_> {
+        async {
+            Ok(TlsAcceptorService {
+                acceptor: self.acceptor.clone(),
+            })
+        }
+    }
+}
+
+/// Rustls Acceptor. Used to accept a unsecure Stream and upgrade it to a TlsStream.
 pub struct TlsAcceptorService {
-    config: Arc<ServerConfig>,
+    acceptor: Arc<ServerConfig>,
 }
 
 impl TlsAcceptorService {
-    pub fn new(config: Arc<ServerConfig>) -> Self {
-        Self { config }
-    }
-
     #[inline(never)]
     async fn accept<Io: AsyncIo>(&self, mut io: Io) -> Result<TlsStream<Io>, RustlsError> {
-        let mut conn = ServerConnection::new(self.config.clone())?;
+        let mut conn = ServerConnection::new(self.acceptor.clone())?;
 
         loop {
             let interest = match conn.complete_io(&mut io) {
@@ -72,17 +92,6 @@ impl TlsAcceptorService {
 
             io.ready(interest).await?;
         }
-    }
-}
-
-impl BuildService for TlsAcceptorService {
-    type Service = TlsAcceptorService;
-    type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
-
-    fn build(&self, _: ()) -> Self::Future {
-        let this = self.clone();
-        async { Ok(this) }
     }
 }
 

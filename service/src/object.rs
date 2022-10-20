@@ -1,12 +1,8 @@
-use core::marker::PhantomData;
+use core::{future::Future, marker::PhantomData};
 
 use alloc::boxed::Box;
 
-use super::{
-    build::{fn_build, BuildService, BuildServiceExt},
-    service::Service,
-    BoxFuture,
-};
+use super::service::Service;
 
 use self::helpers::{ServiceObject, Wrapper};
 
@@ -24,9 +20,9 @@ pub trait ObjectConstructor<I> {
 }
 
 /// An often used type alias for [ObjectConstructor::Object] type.
-pub type Object<Arg, S, E> = Box<dyn BuildService<Arg, Service = S, Error = E, Future = BoxFuture<'static, S, E>>>;
+pub type Object<Arg, S, E> = Wrapper<Box<dyn ServiceObject<Arg, Response = S, Error = E>>>;
 
-/// The most trivial [ObjectConstructor] for [BuildService] types.
+/// The most trivial [ObjectConstructor] for [Service] types.
 ///
 /// Its main limitation is that the trait object is not polymorphic over `Req`.
 /// So if the original service type is `impl for<'r> Service<&'r str>`,
@@ -42,23 +38,33 @@ pub type ServiceAlias<Req, Res, Err> = impl Service<Req, Response = Res, Error =
 
 impl<T, Req, Arg, BErr, Res, Err> ObjectConstructor<T> for DefaultObjectConstructor<Req, Arg>
 where
-    T: BuildService<Arg, Error = BErr> + 'static,
-    T::Service: Service<Req, Response = Res, Error = Err> + 'static,
-    T::Future: 'static,
+    Req: 'static,
+    T: Service<Arg, Error = BErr> + 'static,
+    T::Response: Service<Req, Response = Res, Error = Err> + 'static,
 {
     type Object = DefaultFactoryObject<Arg, Req, Res, Err, BErr>;
 
     fn into_object(inner: T) -> Self::Object {
-        let factory = fn_build(move |arg: Arg| {
-            let fut = inner.build(arg);
-            async move {
-                let svc = Box::new(fut.await?) as Box<dyn ServiceObject<Req, Response = _, Error = _>>;
-                Ok::<_, BErr>(Wrapper(svc))
-            }
-        })
-        .boxed_future();
+        struct DefaultObjBuilder<T, Req>(T, PhantomData<Req>);
 
-        Box::new(factory)
+        impl<T, Req, Arg, BErr, Res, Err> Service<Arg> for DefaultObjBuilder<T, Req>
+        where
+            T: Service<Arg, Error = BErr> + 'static,
+            T::Response: Service<Req, Response = Res, Error = Err> + 'static,
+        {
+            type Response = Wrapper<Box<dyn ServiceObject<Req, Response = Res, Error = Err>>>;
+            type Error = BErr;
+            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+
+            fn call(&self, req: Arg) -> Self::Future<'_> {
+                async move {
+                    let service = self.0.call(req).await?;
+                    Ok(Wrapper(Box::new(service) as _))
+                }
+            }
+        }
+
+        Wrapper(Box::new(DefaultObjBuilder(inner, PhantomData)))
     }
 }
 

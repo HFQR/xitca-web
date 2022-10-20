@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData};
 
-use xitca_service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service};
+use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
 
 use crate::request::{BorrowReq, BorrowReqMut};
 
@@ -9,7 +9,7 @@ use crate::request::{BorrowReq, BorrowReqMut};
 /// State is roughly doing the same thing as `move ||` style closure capture. The difference comes
 /// down to:
 ///
-/// - The captured state is constructed lazily when [BuildService::build] method is
+/// - The captured state is constructed lazily when [Service::call] method is
 /// called.
 ///
 /// - State can be referenced in nested types and beyond closures.
@@ -23,7 +23,7 @@ use crate::request::{BorrowReq, BorrowReqMut};
 ///```rust
 /// # use std::convert::Infallible;
 /// # use xitca_http::util::service::context::{ContextBuilder, Context};
-/// # use xitca_service::{fn_service, Service, BuildService};
+/// # use xitca_service::{fn_service, Service};
 ///
 /// // function service.
 /// async fn state_handler(req: Context<'_, String, String>) -> Result<String, Infallible> {
@@ -37,7 +37,7 @@ use crate::request::{BorrowReq, BorrowReqMut};
 /// let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
 ///    // Stateful service factory would construct given service factory and pass (&State, Req) to it.
 ///    .service(fn_service(state_handler))
-///    .build(())
+///    .call(())
 ///    .await
 ///    .unwrap();
 ///
@@ -73,7 +73,7 @@ impl<CF, C, SF> ContextBuilder<CF, C, SF> {
     /// The constructor of service type that would receive state.
     pub fn service<Req, SF1>(self, factory: SF1) -> ContextBuilder<CF, C, SF1>
     where
-        ContextBuilder<CF, C, SF1>: BuildService<Req>,
+        ContextBuilder<CF, C, SF1>: Service<Req>,
     {
         ContextBuilder {
             ctx_factory: self.ctx_factory,
@@ -117,26 +117,24 @@ where
     }
 }
 
-/// Error type for [ContextBuilder] as [BuildService] and [ContextService] as [Service]
+/// Error type for [ContextBuilder] as [Service] and [ContextService] as [Service]
 pub type ContextError<A, B> = PipelineE<A, B>;
 
-impl<CF, Fut, C, CErr, F, Arg> BuildService<Arg> for ContextBuilder<CF, C, F>
+impl<CF, Fut, C, CErr, F, Arg> Service<Arg> for ContextBuilder<CF, C, F>
 where
     CF: Fn() -> Fut,
     Fut: Future<Output = Result<C, CErr>>,
     C: 'static,
-    F: BuildService<Arg>,
+    F: Service<Arg>,
 {
-    type Service = ContextService<C, F::Service>;
+    type Response = ContextService<C, F::Response>;
     type Error = ContextError<CErr, F::Error>;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, arg: Arg) -> Self::Future {
-        let state = (self.ctx_factory)();
-        let service = self.service_factory.build(arg);
-        async {
-            let state = state.await.map_err(ContextError::First)?;
-            let service = service.await.map_err(ContextError::Second)?;
+    fn call(&self, arg: Arg) -> Self::Future<'_> {
+        async move {
+            let state = (self.ctx_factory)().await.map_err(ContextError::First)?;
+            let service = self.service_factory.call(arg).await.map_err(ContextError::Second)?;
             Ok(ContextService { service, state })
         }
     }
@@ -183,12 +181,11 @@ pub mod object {
     use std::{boxed::Box, marker::PhantomData};
 
     use xitca_service::{
-        fn_build,
         object::{
             helpers::{ServiceObject, Wrapper},
             Object, ObjectConstructor,
         },
-        BuildService, BuildServiceExt, Service,
+        Service,
     };
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
@@ -201,23 +198,35 @@ pub mod object {
 
     impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
     where
-        I: BuildService<Service = Svc, Error = BErr> + 'static,
+        C: 'static,
+        Req: 'static,
+        I: Service<Response = Svc, Error = BErr> + 'static,
         Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
         type Object = ContextFactoryObject<(), Req, C, I::Error, Res, Err>;
 
         fn into_object(inner: I) -> Self::Object {
-            let factory = fn_build(move |_arg: ()| {
-                let fut = inner.build(());
-                async move {
-                    let boxed_service = Box::new(fut.await?)
-                        as Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = _, Error = _>>;
-                    Ok(Wrapper(boxed_service))
-                }
-            })
-            .boxed_future();
+            struct ContextObjBuilder<I, Req, C>(I, PhantomData<(Req, C)>);
 
-            Box::new(factory)
+            impl<C, I, Svc, BErr, Req, Res, Err> Service for ContextObjBuilder<I, Req, C>
+            where
+                I: Service<Response = Svc, Error = BErr> + 'static,
+                Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
+            {
+                type Response =
+                    Wrapper<Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>>;
+                type Error = BErr;
+                type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+
+                fn call(&self, arg: ()) -> Self::Future<'_> {
+                    async move {
+                        let service = self.0.call(arg).await?;
+                        Ok(Wrapper(Box::new(service) as _))
+                    }
+                }
+            }
+
+            Wrapper(Box::new(ContextObjBuilder(inner, PhantomData)))
         }
     }
 }
@@ -226,7 +235,7 @@ pub mod object {
 mod test {
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, BuildServiceExt};
+    use xitca_service::{fn_service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
@@ -258,7 +267,7 @@ mod test {
     fn test_state_and_then() {
         let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(fn_service(into_context).and_then(fn_service(ctx_handler)))
-            .build(())
+            .call(())
             .now_or_panic()
             .ok()
             .unwrap();
@@ -291,7 +300,7 @@ mod test {
 
         let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(router)
-            .build(())
+            .call(())
             .now_or_panic()
             .ok()
             .unwrap();

@@ -8,7 +8,7 @@ use std::{
 
 use pin_project_lite::pin_project;
 use tracing::{error, span, Level, Span};
-use xitca_service::{ready::ReadyService, BuildService, Service};
+use xitca_service::{ready::ReadyService, Service};
 
 /// A factory for logger service.
 #[derive(Clone)]
@@ -32,12 +32,12 @@ impl Logger {
     }
 }
 
-impl<S> BuildService<S> for Logger {
-    type Service = LoggerService<S>;
+impl<S> Service<S> for Logger {
+    type Response = LoggerService<S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
+    fn call(&self, service: S) -> Self::Future<'_> {
         let span = self.span.clone();
         async { Ok(LoggerService { service, span }) }
     }

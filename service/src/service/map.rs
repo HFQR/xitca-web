@@ -1,8 +1,29 @@
 use core::future::Future;
 
-use crate::pipeline::{marker::Map, PipelineT};
+use crate::pipeline::{
+    marker::{BuildMap, Map},
+    PipelineT,
+};
 
 use super::Service;
+
+impl<SF, Arg, SF1> Service<Arg> for PipelineT<SF, SF1, BuildMap>
+where
+    SF: Service<Arg>,
+    SF1: Clone,
+{
+    type Response = PipelineT<SF::Response, SF1, Map>;
+    type Error = SF::Error;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+
+    fn call(&self, arg: Arg) -> Self::Future<'_> {
+        let transform = self.second.clone();
+        async move {
+            let service = self.first.call(arg).await?;
+            Ok(PipelineT::new(service, transform))
+        }
+    }
+}
 
 impl<S, Req, F, Res> Service<Req> for PipelineT<S, F, Map>
 where

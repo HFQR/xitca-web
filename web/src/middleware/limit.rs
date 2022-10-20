@@ -11,7 +11,7 @@ use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 
 use crate::{
-    dev::service::{pipeline::PipelineE, ready::ReadyService, BuildService, Service},
+    dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
     handler::Responder,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, status::StatusCode},
     request::WebRequest,
@@ -44,14 +44,13 @@ impl Limit {
     }
 }
 
-impl<S> BuildService<S> for Limit {
-    type Service = LimitService<S>;
+impl<S> Service<S> for Limit {
+    type Response = LimitService<S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
-        let service = LimitService { service, limit: *self };
-        async { Ok(service) }
+    fn call(&self, service: S) -> Self::Future<'_> {
+        async { Ok(LimitService { service, limit: *self }) }
     }
 }
 
@@ -220,7 +219,7 @@ mod test {
             .at("/", handler_service(handler))
             .enclosed(Limit::new().set_request_body_max_size(chunk.len()))
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(req)

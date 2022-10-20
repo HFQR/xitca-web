@@ -12,7 +12,7 @@ use xitca_http::request::{RemoteAddr, Request};
 use xitca_unsafe_collection::no_send_send::NoSendSend;
 
 use crate::{
-    dev::service::{BuildService, Service},
+    dev::service::Service,
     http,
     request::WebRequest,
     response::WebResponse,
@@ -71,16 +71,16 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     }
 }
 
-impl<L, S, C, ReqB, ResB, Err> BuildService<S> for TowerHttpCompat<L, C, ReqB, ResB, Err>
+impl<L, S, C, ReqB, ResB, Err> Service<S> for TowerHttpCompat<L, C, ReqB, ResB, Err>
 where
     L: Layer<CompatLayer<S, C, ReqB, ResB, Err>>,
     S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
 {
-    type Service = TowerCompatService<L::Service>;
+    type Response = TowerCompatService<L::Service>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
+    fn call(&self, service: S) -> Self::Future<'_> {
         let service = self.layer.layer(CompatLayer {
             service: Rc::new(service),
             _phantom: PhantomData,
@@ -147,7 +147,7 @@ mod test {
             .at("/", fn_service(handler))
             .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)))
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(Request::default())

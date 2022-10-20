@@ -33,10 +33,7 @@ mod test {
 
     use crate::test::collect_body;
     use crate::{
-        dev::{
-            bytes::Bytes,
-            service::{BuildService, Service},
-        },
+        dev::{bytes::Bytes, service::Service},
         handler::handler_service,
         http::{
             header::{HeaderValue, CONTENT_TYPE, TRANSFER_ENCODING},
@@ -103,7 +100,7 @@ mod test {
         let res = App::new()
             .at("/", post(handler_service(handler)))
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(req)

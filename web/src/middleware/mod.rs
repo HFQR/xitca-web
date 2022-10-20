@@ -18,7 +18,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::service::{BuildService, Service},
+        dev::service::Service,
         handler::{extension::ExtensionRef, handler_service},
         test::collect_string_body,
         App,
@@ -37,7 +37,7 @@ mod test {
             .enclosed(Extension::new("hello".to_string()))
             .enclosed(UncheckedReady)
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(Request::<RequestBody>::default())

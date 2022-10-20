@@ -9,52 +9,49 @@ use std::{
 };
 
 use pin_project_lite::pin_project;
-use xitca_service::{pipeline::PipelineE, AsyncClosure, BuildService, Service};
+use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
 ///
 /// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
 /// output type.
-pub fn handler_service<F, T, O>(func: F) -> HandlerService<F, T, O> {
-    HandlerService::new(func)
+pub fn handler_service<F, T, O>(func: F) -> HandlerServiceBuilder<F, T, O> {
+    HandlerServiceBuilder::new(func)
 }
 
-pub struct HandlerService<F, T, O> {
+pub struct HandlerServiceBuilder<F, T, O> {
     func: F,
     _p: PhantomData<(T, O)>,
 }
 
-impl<F, T, O> HandlerService<F, T, O> {
+impl<F, T, O> HandlerServiceBuilder<F, T, O> {
     pub const fn new(func: F) -> Self {
         Self { func, _p: PhantomData }
     }
 }
 
-impl<F, T, O> Clone for HandlerService<F, T, O>
+impl<F, T, O> Service for HandlerServiceBuilder<F, T, O>
 where
     F: Clone,
 {
-    fn clone(&self) -> Self {
-        Self {
-            func: self.func.clone(),
-            _p: PhantomData,
+    type Response = HandlerService<F, T, O>;
+    type Error = Infallible;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+
+    fn call(&self, _: ()) -> Self::Future<'_> {
+        async {
+            Ok(HandlerService {
+                func: self.func.clone(),
+                _p: PhantomData,
+            })
         }
     }
 }
 
-impl<F, T, O> BuildService for HandlerService<F, T, O>
-where
-    F: Clone,
-{
-    type Service = Self;
-    type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
-
-    fn build(&self, _: ()) -> Self::Future {
-        let this = self.clone();
-        async { Ok(this) }
-    }
+pub struct HandlerService<F, T, O> {
+    func: F,
+    _p: PhantomData<(T, O)>,
 }
 
 impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O>
@@ -306,7 +303,7 @@ mod test {
         future::{ready, Ready},
     };
 
-    use xitca_service::{BuildServiceExt, Service};
+    use xitca_service::{Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
@@ -390,7 +387,7 @@ mod test {
 
         let res = handler_service(handler)
             .enclosed_fn(enclosed)
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(Request::new(()))
@@ -404,7 +401,7 @@ mod test {
     fn handler_in_router() {
         let res = Router::new()
             .insert("/", get(handler_service(handler)))
-            .build(())
+            .call(())
             .now_or_panic()
             .unwrap()
             .call(Request::new(()))

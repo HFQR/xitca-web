@@ -4,7 +4,7 @@ use socket2::{SockRef, TcpKeepalive};
 
 use tracing::warn;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
-use xitca_service::{ready::ReadyService, BuildService, Service};
+use xitca_service::{ready::ReadyService, Service};
 
 /// A middleware for socket options config of [TcpStream].
 #[derive(Clone, Debug)]
@@ -61,12 +61,12 @@ impl TcpConfig {
     }
 }
 
-impl<S> BuildService<S> for TcpConfig {
-    type Service = TcpConfigService<S>;
+impl<S> Service<S> for TcpConfig {
+    type Response = TcpConfigService<S>;
     type Error = Infallible;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
+    fn call(&self, service: S) -> Self::Future<'_> {
         let config = self.clone();
         async move { Ok(TcpConfigService { config, service }) }
     }

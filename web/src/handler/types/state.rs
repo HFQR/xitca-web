@@ -54,13 +54,7 @@ mod test {
     use xitca_http::request::Request;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{
-        dev::service::{BuildService, Service},
-        handler::handler_service,
-        request::WebRequest,
-        route::get,
-        App,
-    };
+    use crate::{dev::service::Service, handler::handler_service, request::WebRequest, route::get, App};
 
     #[derive(State, Clone, Debug, Eq, PartialEq)]
     struct State {
@@ -93,7 +87,7 @@ mod test {
         App::with_current_thread_state(state)
             .at("/", get(handler_service(handler)))
             .finish()
-            .build(())
+            .call(())
             .now_or_panic()
             .ok()
             .unwrap()

@@ -3,7 +3,7 @@ use std::{
     future::{ready, Future, Ready},
 };
 
-use xitca_service::{ready::ReadyService, BuildService, Service};
+use xitca_service::{ready::ReadyService, Service};
 
 use crate::{http, request::BorrowReqMut};
 
@@ -32,21 +32,19 @@ impl Extension {
     }
 }
 
-impl<S, F, Fut, Res, Err> BuildService<S> for Extension<F>
+impl<S, F, Fut, Res, Err> Service<S> for Extension<F>
 where
     F: Fn() -> Fut + Clone,
     Fut: Future<Output = Result<Res, Err>>,
     Res: Send + Sync + Clone + 'static,
 {
-    type Service = ExtensionService<S, Res>;
+    type Response = ExtensionService<S, Res>;
     type Error = Err;
-    type Future = impl Future<Output = Result<Self::Service, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn build(&self, service: S) -> Self::Future {
-        let fut = (self.factory)();
-
+    fn call(&self, service: S) -> Self::Future<'_> {
         async {
-            let state = fut.await?;
+            let state = (self.factory)().await?;
             Ok(ExtensionService { service, state })
         }
     }
@@ -106,7 +104,7 @@ where
 mod test {
     use super::*;
 
-    use xitca_service::{fn_service, BuildService, BuildServiceExt};
+    use xitca_service::{fn_service, ServiceExt};
 
     use crate::request::Request;
 
@@ -117,7 +115,7 @@ mod test {
             Ok::<_, ()>("996")
         })
         .enclosed(Extension::new(String::from("state")))
-        .build(())
+        .call(())
         .await
         .unwrap();
 
@@ -135,7 +133,7 @@ mod test {
         .enclosed(Extension::factory(|| async move {
             Ok::<_, Infallible>(String::from("state"))
         }))
-        .build(())
+        .call(())
         .await
         .unwrap();
 
@@ -151,7 +149,7 @@ mod test {
             Ok::<_, ()>("996")
         })
         .enclosed(Extension::new(String::from("state")))
-        .build(())
+        .call(())
         .await
         .unwrap();
 
