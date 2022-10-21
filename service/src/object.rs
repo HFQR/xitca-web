@@ -99,7 +99,7 @@ mod helpers {
         }
     }
 
-    /// Converts between object-safe non-object-safe Service and ServiceFactory. See impls.
+    /// Converts between object-safe non-object-safe Service. See impls.
     pub struct Wrapper<I>(pub I);
 
     impl<Inner, Req> Service<Req> for Wrapper<Box<Inner>>
