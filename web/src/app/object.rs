@@ -1,10 +1,7 @@
 use std::{boxed::Box, future::Future, marker::PhantomData};
 
 use xitca_service::{
-    object::{
-        helpers::{ServiceObject, Wrapper},
-        Object, ObjectConstructor,
-    },
+    object::{Object, ObjectConstructor, ServiceObject, Wrapper},
     Service,
 };
 
@@ -12,9 +9,7 @@ use crate::request::WebRequest;
 
 pub struct WebObjectConstructor<C, B>(PhantomData<(C, B)>);
 
-pub type WebFactoryObject<Arg, C, B, BErr, Res, Err> = Object<Arg, WebServiceObject<C, B, Res, Err>, BErr>;
-
-pub type WebServiceObject<C, B, Res, Err> = impl for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>;
+pub type WebServiceAlias<C, B, Res, Err> = impl for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>;
 
 impl<C, B, I, Svc, BErr, Res, Err> ObjectConstructor<I> for WebObjectConstructor<C, B>
 where
@@ -23,7 +18,7 @@ where
     I: Service<Response = Svc, Error = BErr> + 'static,
     Svc: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err> + 'static,
 {
-    type Object = WebFactoryObject<(), C, B, I::Error, Res, Err>;
+    type Object = Object<(), WebServiceAlias<C, B, Res, Err>, BErr>;
 
     fn into_object(inner: I) -> Self::Object {
         struct WebObjBuilder<I, C, B>(I, PhantomData<(C, B)>);
@@ -45,6 +40,6 @@ where
             }
         }
 
-        Wrapper(Box::new(WebObjBuilder(inner, PhantomData)))
+        Object::from_service(WebObjBuilder(inner, PhantomData))
     }
 }

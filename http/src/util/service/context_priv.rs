@@ -181,19 +181,13 @@ pub mod object {
     use std::{boxed::Box, marker::PhantomData};
 
     use xitca_service::{
-        object::{
-            helpers::{ServiceObject, Wrapper},
-            Object, ObjectConstructor,
-        },
+        object::{Object, ObjectConstructor, ServiceObject, Wrapper},
         Service,
     };
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
-    pub type ContextFactoryObject<Arg, Req, C, BErr, Res, Err> =
-        Object<Arg, ContextServiceObject<Req, C, Res, Err>, BErr>;
-
-    pub type ContextServiceObject<Req, C, Res, Err> =
+    pub type ContextServiceAlias<Req, C, Res, Err> =
         impl for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>;
 
     impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
@@ -203,7 +197,7 @@ pub mod object {
         I: Service<Response = Svc, Error = BErr> + 'static,
         Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
-        type Object = ContextFactoryObject<(), Req, C, I::Error, Res, Err>;
+        type Object = Object<(), ContextServiceAlias<Req, C, Res, Err>, BErr>;
 
         fn into_object(inner: I) -> Self::Object {
             struct ContextObjBuilder<I, Req, C>(I, PhantomData<(Req, C)>);
@@ -226,7 +220,7 @@ pub mod object {
                 }
             }
 
-            Wrapper(Box::new(ContextObjBuilder(inner, PhantomData)))
+            Object::from_service(ContextObjBuilder(inner, PhantomData))
         }
     }
 }
