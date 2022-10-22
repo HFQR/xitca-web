@@ -78,9 +78,13 @@ where
 {
     type Response = TowerCompatService<L::Service>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call(&self, service: S) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+    where
+        's: 'f,
+        S: 'f,
+    {
         let service = self.layer.layer(CompatLayer {
             service: Rc::new(service),
             _phantom: PhantomData,

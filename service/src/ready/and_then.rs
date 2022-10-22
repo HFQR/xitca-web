@@ -10,7 +10,7 @@ where
     S1: ReadyService,
 {
     type Ready = PipelineT<S::Ready, S1::Ready>;
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> + 'f where Self: 'f;
 
     fn ready(&self) -> Self::ReadyFuture<'_> {
         async move {

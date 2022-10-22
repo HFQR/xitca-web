@@ -106,16 +106,20 @@ where
 {
     type Response = RouterService<SF::Response>;
     type Error = SF::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    where
+        's: 'f,
+        Arg: 'f,
+    {
         let futs = self
             .routes
             .iter()
             .map(|(path, obj)| (*path, obj.call(arg.clone())))
             .collect::<Vec<_>>();
 
-        async move {
+        async {
             let mut routes = matchit::Router::new();
 
             for (path, fut) in futs {
@@ -139,11 +143,15 @@ where
 {
     type Response = S::Response;
     type Error = RouterError<S::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    where
+        's: 'f,
+        Req: 'f,
+    {
+        async {
             let service = self
                 .routes
                 .at(req.borrow().path())

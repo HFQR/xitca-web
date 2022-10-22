@@ -40,9 +40,13 @@ where
 {
     type Response = ExtensionService<S, Res>;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call(&self, service: S) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+    where
+        's: 'f,
+        S: 'f,
+    {
         async {
             let state = (self.factory)().await?;
             Ok(ExtensionService { service, state })
@@ -76,10 +80,14 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f> = S::Future<'f> where S: 'f;
+    type Future<'f> = S::Future<'f> where S: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, mut req: Req) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, mut req: Req) -> Self::Future<'f>
+    where
+        's: 'f,
+        Req: 'f,
+    {
         req.borrow_mut().insert(self.state.clone());
         self.service.call(req)
     }

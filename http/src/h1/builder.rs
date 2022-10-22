@@ -45,10 +45,14 @@ where
 {
     type Response = H1Service<St, F::Response, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = BuildError<FA::Error, F::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    where
+        's: 'f,
+        Arg: 'f,
+    {
+        async {
             let tls_acceptor = self.tls_factory.call(()).await.map_err(BuildError::First)?;
             let service = self.factory.call(arg).await.map_err(BuildError::Second)?;
             Ok(H1Service::new(self.config, service, tls_acceptor))

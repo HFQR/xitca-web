@@ -31,10 +31,14 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-    fn call(&self, io: St) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, io: St) -> Self::Future<'f>
+    where
+        's: 'f,
+        St: 'f,
+    {
+        async {
             // tls accept timer.
             let timer = self.keep_alive();
             pin!(timer);

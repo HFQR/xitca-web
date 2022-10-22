@@ -11,9 +11,13 @@ where
 {
     type Response = T::Response;
     type Error = PipelineE<F::Error, T::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    where
+        's: 'f,
+        Arg: 'f,
+    {
         async {
             let service = self.first.call(arg).await.map_err(PipelineE::First)?;
             self.second.call(service).await.map_err(PipelineE::Second)

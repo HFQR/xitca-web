@@ -31,7 +31,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-2022-09-14-x86_64-unknown-linux-gnu
+          toolchain: nightly-2022-10-22-x86_64-unknown-linux-gnu
           profile: minimal
           components: clippy
           override: true

@@ -111,15 +111,19 @@ where
 {
     type Response = RouteService<R::Response, next::Exist<N::Response>, M>;
     type Error = R::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    where
+        's: 'f,
+        Arg: 'f,
+    {
         let route = self.route.call(arg.clone());
         let next = self.next.0.call(arg);
 
         let methods = self.methods.clone();
 
-        async move {
+        async {
             let route = route.await?;
             let next = next::Exist(next.await?);
             Ok(RouteService { methods, route, next })
@@ -133,10 +137,14 @@ where
 {
     type Response = RouteService<R::Response, next::Empty, M>;
     type Error = R::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    where
+        's: 'f,
+        Arg: 'f,
+    {
+        async {
             let route = self.route.call(arg).await?;
             let next = next::Empty;
             Ok(RouteService {
@@ -162,11 +170,15 @@ where
 {
     type Response = R::Response;
     type Error = RouteError<E>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    where
+        's: 'f,
+        Req: 'f,
+    {
+        async {
             if self.methods.contains(req.borrow()) {
                 self.route.call(req).await.map_err(RouteError::Second)
             } else {
@@ -183,11 +195,15 @@ where
 {
     type Response = R::Response;
     type Error = RouteError<R::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    where
+        's: 'f,
+        Req: 'f,
+    {
+        async {
             if self.methods.contains(req.borrow()) {
                 self.route.call(req).await.map_err(RouteError::Second)
             } else {

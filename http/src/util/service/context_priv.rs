@@ -129,10 +129,14 @@ where
 {
     type Response = ContextService<C, F::Response>;
     type Error = ContextError<CErr, F::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    where
+        's: 'f,
+        Arg: 'f,
+    {
+        async {
             let state = (self.ctx_factory)().await.map_err(ContextError::First)?;
             let service = self.service_factory.call(arg).await.map_err(ContextError::Second)?;
             Ok(ContextService { service, state })
@@ -151,10 +155,14 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    where
+        's: 'f,
+        Req: 'f,
+    {
         self.service.call(Context {
             req,
             state: &self.state,
@@ -210,9 +218,12 @@ pub mod object {
                 type Response =
                     Wrapper<Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>>;
                 type Error = BErr;
-                type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+                type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-                fn call(&self, arg: ()) -> Self::Future<'_> {
+                fn call<'s, 'f>(&'s self, arg: ()) -> Self::Future<'f>
+                where
+                    's: 'f,
+                {
                     async move {
                         let service = self.0.call(arg).await?;
                         Ok(Wrapper(Box::new(service) as _))

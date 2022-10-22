@@ -17,10 +17,14 @@ where
 {
     type Response = PipelineT<SF::Response, T, EnclosedFn>;
     type Error = SF::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    where
+        's: 'f,
+        Arg: 'f,
+    {
+        async {
             let service = self.first.call(arg).await?;
             Ok(PipelineT::new(service, self.second.clone()))
         }
@@ -33,10 +37,14 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Res, Err>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    where
+        's: 'f,
+        Req: 'f,
+    {
         self.second.call((&self.first, req))
     }
 }

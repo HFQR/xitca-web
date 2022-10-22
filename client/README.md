@@ -1,11 +1,14 @@
-## HTTP client built on top of `xitca-http` and `tokio`
+# HTTP client built on top of `xitca-http` and `tokio`
 
-### Requirement:
-- rustc 1.64.0-nightly (263edd43c 2022-07-17)
+## Requirement
 
-### Motivation:
+- rustc 1.66.0-nightly (5c8bff74b 2022-10-21)
+
+## Motivation
+
 - 100% safe rust. All unsafe codes are outsourced to dependencies.
 - Low memory footprint. Avoid pre-allocation whenever possible.
 
-### Limitation:
+## Limitation
+
 - This is a WIP project.

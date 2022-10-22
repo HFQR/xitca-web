@@ -4,7 +4,7 @@ use core::{
     future::Future,
 };
 
-use crate::{ready::ReadyService, service::Service};
+use crate::service::Service;
 
 /// A pipeline type where two variants have a parent-child/first-second relationship
 pub enum Pipeline<F, S> {
@@ -89,11 +89,15 @@ where
 {
     type Response = F::Response;
     type Error = F::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
     where
-        Self: 'f;
+        Self: 'f, Req: 'f;
 
-    fn call(&self, req: Req) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    where
+        's: 'f,
+        Req: 'f,
+    {
         async move {
             match self {
                 Self::First(ref f) => f.call(req).await,
@@ -103,26 +107,26 @@ where
     }
 }
 
-impl<F, S> ReadyService for Pipeline<F, S>
-where
-    F: ReadyService,
-    S: ReadyService,
-{
-    type Ready = Pipeline<F::Ready, S::Ready>;
+// impl<F, S> ReadyService for Pipeline<F, S>
+// where
+//     F: ReadyService,
+//     S: ReadyService,
+// {
+//     type Ready = Pipeline<F::Ready, S::Ready>;
 
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready>
-    where
-        Self: 'f;
+//     type ReadyFuture<'f> = impl Future<Output = Self::Ready>
+//     where
+//         Self: 'f;
 
-    fn ready(&self) -> Self::ReadyFuture<'_> {
-        async move {
-            match self {
-                Self::First(ref f) => Pipeline::First(f.ready().await),
-                Self::Second(ref s) => Pipeline::Second(s.ready().await),
-            }
-        }
-    }
-}
+//     fn ready(&self) -> Self::ReadyFuture<'_> {
+//         async move {
+//             match self {
+//                 Self::First(ref f) => Pipeline::First(f.ready().await),
+//                 Self::Second(ref s) => Pipeline::Second(s.ready().await),
+//             }
+//         }
+//     }
+// }
 
 #[cfg(feature = "std")]
 impl<F, S> std::error::Error for Pipeline<F, S>

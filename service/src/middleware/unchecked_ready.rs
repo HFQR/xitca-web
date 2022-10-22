@@ -10,9 +10,13 @@ pub struct UncheckedReady;
 impl<S> Service<S> for UncheckedReady {
     type Response = UncheckedReadyService<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call(&self, service: S) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+    where
+        's: 'f,
+        S: 'f,
+    {
         async { Ok(UncheckedReadyService { service }) }
     }
 }
@@ -29,10 +33,14 @@ where
     type Error = S::Error;
     type Future<'f> = S::Future<'f>
     where
-        S: 'f;
+        S: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    where
+        's: 'f,
+        Req: 'f,
+    {
         self.service.call(req)
     }
 }

@@ -255,7 +255,7 @@ pub mod io {
     macro_rules! default_aio_impl {
         ($ty: ty) => {
             impl AsyncIo for $ty {
-                type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> where Self: 'f;
+                type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> + 'f where Self: 'f;
 
                 #[inline]
                 fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {

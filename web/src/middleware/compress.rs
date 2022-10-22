@@ -18,9 +18,13 @@ pub struct Compress;
 impl<S> Service<S> for Compress {
     type Response = CompressService<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-    fn call(&self, service: S) -> Self::Future<'_> {
+    fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+    where
+        's: 'f,
+        S: 'f,
+    {
         async { Ok(CompressService { service }) }
     }
 }
@@ -31,17 +35,21 @@ pub struct CompressService<S> {
 
 impl<'r, S, C, ReqB, ResB, Err> Service<WebRequest<'r, C, ReqB>> for CompressService<S>
 where
-    C: 'static,
-    ReqB: 'static,
+    C: 'r,
+    ReqB: 'r,
     S: for<'rs> Service<WebRequest<'rs, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
     ResB: WebStream,
 {
     type Response = WebResponse<Coder<ResB>>;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-    fn call(&self, req: WebRequest<'r, C, ReqB>) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, req: WebRequest<'r, C, ReqB>) -> Self::Future<'f>
+    where
+        's: 'f,
+        'r: 'f,
+    {
+        async {
             let encoding = ContentEncoding::from_headers(req.req().headers());
             let res = self.service.call(req).await?;
             Ok(encoder(res, encoding))

@@ -88,10 +88,13 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
 
-    fn call(&self, io: ServerStream) -> Self::Future<'_> {
-        async move {
+    fn call<'s, 'f>(&'s self, io: ServerStream) -> Self::Future<'f>
+    where
+        's: 'f,
+    {
+        async {
             // tls accept timer.
             let timer = self.keep_alive();
             pin!(timer);

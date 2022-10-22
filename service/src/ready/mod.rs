@@ -12,7 +12,7 @@ use core::{future::Future, ops::Deref, pin::Pin};
 ///
 /// # Examples:
 /// ```rust
-/// #![feature(generic_associated_types, type_alias_impl_trait)]
+/// #![feature(type_alias_impl_trait)]
 /// # use std::{cell::Cell, rc::Rc, future::Future};
 /// # use xitca_service::{Service, ready::ReadyService};
 ///
@@ -34,14 +34,14 @@ use core::{future::Future, ops::Deref, pin::Pin};
 ///     type Error = ();
 ///     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 ///
-///     fn call(&self, _req: ()) -> Self::Future<'_> {
+///     fn call<'s, 'f>(&'s self, _req: ()) -> Self::Future<'f> where 's: 'f {
 ///         async { Ok(()) }
 ///     }
 /// }
 ///
 /// impl ReadyService for Foo {
 ///     type Ready = Result<Permit, ()>;
-///     type ReadyFuture<'f> = impl Future<Output = Self::Ready>;
+///     type ReadyFuture<'f> = impl Future<Output = Self::Ready> + 'f;
 ///
 ///     fn ready(&self) -> Self::ReadyFuture<'_> {
 ///         async move {
