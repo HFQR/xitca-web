@@ -49,7 +49,7 @@ where
         {
             type Response = Object<Req, Res, Err>;
             type Error = BErr;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>  + 'f where Self: 'f, Arg: 'f;
+            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
             fn call<'s, 'f>(&'s self, req: Arg) -> Self::Future<'f>
             where

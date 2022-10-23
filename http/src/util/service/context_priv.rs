@@ -212,7 +212,7 @@ pub mod object {
 
             impl<C, I, Svc, BErr, Req, Res, Err> Service for ContextObjBuilder<I, Req, C>
             where
-                I: Service<Response = Svc, Error = BErr> + 'static,
+                I: Service<Response = Svc, Error = BErr>,
                 Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
             {
                 type Response =
