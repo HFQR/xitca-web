@@ -223,9 +223,12 @@ mod test {
     impl<S> Service<S> for Middleware {
         type Response = MiddlewareService<S>;
         type Error = Infallible;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-        fn call(&self, service: S) -> Self::Future<'_> {
+        fn call<'s>(&'s self, service: S) -> Self::Future<'s>
+        where
+            S: 's,
+        {
             async { Ok(MiddlewareService(service)) }
         }
     }
@@ -240,9 +243,12 @@ mod test {
     {
         type Response = Res;
         type Error = Err;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-        fn call(&self, mut req: WebRequest<'r, C, B>) -> Self::Future<'_> {
+        fn call<'s>(&'s self, mut req: WebRequest<'r, C, B>) -> Self::Future<'s>
+        where
+            'r: 's,
+        {
             async move { self.0.call(req.reborrow()).await }
         }
     }

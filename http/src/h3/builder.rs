@@ -25,9 +25,12 @@ where
 {
     type Response = H3Service<F::Response>;
     type Error = BuildError<Infallible, F::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
+    where
+        Arg: 's,
+    {
         async {
             let service = self.factory.call(arg).await.map_err(BuildError::Second)?;
             Ok(H3Service::new(service))

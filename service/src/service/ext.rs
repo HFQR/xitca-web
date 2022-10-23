@@ -93,9 +93,15 @@ mod test {
     impl<S: Clone> Service<S> for DummyMiddleware {
         type Response = DummyMiddlewareService<S>;
         type Error = Infallible;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
+        where
+            Self: 'f,
+            S: 'f;
 
-        fn call(&self, service: S) -> Self::Future<'_> {
+        fn call<'s>(&'s self, service: S) -> Self::Future<'s>
+        where
+            S: 's,
+        {
             async { Ok(DummyMiddlewareService(service)) }
         }
     }
@@ -106,10 +112,16 @@ mod test {
     {
         type Response = S::Response;
         type Error = S::Error;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where S: 'f;
+        type Future<'f> = S::Future<'f>
+        where
+            Self: 'f,
+            Req: 'f;
 
-        fn call(&self, req: Req) -> Self::Future<'_> {
-            async move { self.0.call(req).await }
+        fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+        where
+            Req: 's,
+        {
+            self.0.call(req)
         }
     }
 

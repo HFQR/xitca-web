@@ -61,9 +61,12 @@ impl TypeEraser<EraseErr> {
 impl<M, S> Service<S> for TypeEraser<M> {
     type Response = EraserService<M, S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call(&self, service: S) -> Self::Future<'_> {
+    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
+    where
+        S: 's,
+    {
         async {
             Ok(EraserService {
                 service,
@@ -88,13 +91,16 @@ where
 {
     type Response = WebResponse;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
     where
-        S: 'f;
+        Self: 'f, 'r: 'f;
 
     #[inline]
-    fn call(&self, req: WebRequest<'r, C, B>) -> Self::Future<'_> {
-        async move {
+    fn call<'s>(&'s self, req: WebRequest<'r, C, B>) -> Self::Future<'s>
+    where
+        'r: 's,
+    {
+        async {
             let res = self.service.call(req).await?;
             Ok(res.map(|b| ResponseBody::stream(StreamBody::new(b))))
         }
@@ -108,13 +114,16 @@ where
 {
     type Response = S::Response;
     type Error = Box<dyn error::Error + Send + Sync>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
     where
-        S: 'f;
+        Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
-        async move { self.service.call(req).await.map_err(|e| Box::new(e) as _) }
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    where
+        Req: 's,
+    {
+        async { self.service.call(req).await.map_err(|e| Box::new(e) as _) }
     }
 }
 

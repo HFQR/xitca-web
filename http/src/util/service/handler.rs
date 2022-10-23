@@ -45,11 +45,14 @@ where
 {
     type Response = O::Output;
     type Error = T::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
-        async move {
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    where
+        Req: 's,
+    {
+        async {
             let extract = T::Type::<'_>::from_request(&req).await?;
             let res = self.func.call(extract).await;
             Ok(res.respond_to(req).await)

@@ -50,17 +50,16 @@ impl TlsAcceptorBuilder {
     }
 }
 
-impl<Arg> Service<Arg> for TlsAcceptorBuilder {
+impl Service for TlsAcceptorBuilder {
     type Response = TlsAcceptorService;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call(&self, _: Arg) -> Self::Future<'_> {
-        async {
-            Ok(TlsAcceptorService {
-                acceptor: self.acceptor.clone(),
-            })
-        }
+    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
+        let service = TlsAcceptorService {
+            acceptor: self.acceptor.clone(),
+        };
+        async { Ok(service) }
     }
 }
 
@@ -98,15 +97,18 @@ impl TlsAcceptorService {
 impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
     type Response = TlsStream<Io>;
     type Error = RustlsError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Io: 'f;
 
-    fn call(&self, io: Io) -> Self::Future<'_> {
+    fn call<'s>(&'s self, io: Io) -> Self::Future<'s>
+    where
+        Io: 's,
+    {
         self.accept(io)
     }
 }
 
 impl<Io: AsyncIo> AsyncIo for TlsStream<Io> {
-    type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> where Self: 'f;
+    type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> + 'f where Self: 'f;
 
     #[inline]
     fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {

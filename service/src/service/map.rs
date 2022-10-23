@@ -14,13 +14,15 @@ where
 {
     type Response = PipelineT<SF::Response, SF1, Map>;
     type Error = SF::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
-        let transform = self.second.clone();
-        async move {
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
+    where
+        Arg: 's,
+    {
+        async {
             let service = self.first.call(arg).await?;
-            Ok(PipelineT::new(service, transform))
+            Ok(PipelineT::new(service, self.second.clone()))
         }
     }
 }
@@ -32,10 +34,13 @@ where
 {
     type Response = Res;
     type Error = S::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
-        async move { self.first.call(req).await.map(&self.second) }
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    where
+        Req: 's,
+    {
+        async { self.first.call(req).await.map(&self.second) }
     }
 }

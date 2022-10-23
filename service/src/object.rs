@@ -49,10 +49,13 @@ where
         {
             type Response = Object<Req, Res, Err>;
             type Error = BErr;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-            fn call(&self, req: Arg) -> Self::Future<'_> {
-                async move {
+            fn call<'s>(&'s self, req: Arg) -> Self::Future<'s>
+            where
+                Arg: 's,
+            {
+                async {
                     let service = self.0.call(req).await?;
                     Ok(Object::from_service(service))
                 }
@@ -108,11 +111,14 @@ mod helpers {
     {
         type Response = Inner::Response;
         type Error = Inner::Error;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
         #[inline]
-        fn call(&self, req: Req) -> Self::Future<'_> {
-            async move { ServiceObject::call(&*self.0, req).await }
+        fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+        where
+            Req: 's,
+        {
+            async { ServiceObject::call(&*self.0, req).await }
         }
     }
 

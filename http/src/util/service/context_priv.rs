@@ -129,10 +129,13 @@ where
 {
     type Response = ContextService<C, F::Response>;
     type Error = ContextError<CErr, F::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
-        async move {
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
+    where
+        Arg: 's,
+    {
+        async {
             let state = (self.ctx_factory)().await.map_err(ContextError::First)?;
             let service = self.service_factory.call(arg).await.map_err(ContextError::Second)?;
             Ok(ContextService { service, state })
@@ -151,10 +154,13 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    where
+        Req: 's,
+    {
         self.service.call(Context {
             req,
             state: &self.state,
@@ -204,15 +210,18 @@ pub mod object {
 
             impl<C, I, Svc, BErr, Req, Res, Err> Service for ContextObjBuilder<I, Req, C>
             where
-                I: Service<Response = Svc, Error = BErr> + 'static,
+                I: Service<Response = Svc, Error = BErr>,
                 Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
             {
                 type Response =
                     Wrapper<Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>>;
                 type Error = BErr;
-                type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+                type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-                fn call(&self, arg: ()) -> Self::Future<'_> {
+                fn call<'s>(&'s self, arg: ()) -> Self::Future<'s>
+                where
+                    (): 's,
+                {
                     async move {
                         let service = self.0.call(arg).await?;
                         Ok(Wrapper(Box::new(service) as _))

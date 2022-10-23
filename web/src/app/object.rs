@@ -30,9 +30,12 @@ where
         {
             type Response = Wrapper<Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>>;
             type Error = BErr;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-            fn call(&self, arg: ()) -> Self::Future<'_> {
+            fn call<'s>(&'s self, arg: ()) -> Self::Future<'s>
+            where
+                (): 's,
+            {
                 async move {
                     let service = self.0.call(arg).await?;
                     Ok(Wrapper(Box::new(service) as _))

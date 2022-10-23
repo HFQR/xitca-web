@@ -89,11 +89,14 @@ where
 {
     type Response = F::Response;
     type Error = F::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
     where
-        Self: 'f;
+        Self: 'f, Req: 'f;
 
-    fn call(&self, req: Req) -> Self::Future<'_> {
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    where
+        Req: 's,
+    {
         async move {
             match self {
                 Self::First(ref f) => f.call(req).await,
@@ -110,9 +113,7 @@ where
 {
     type Ready = Pipeline<F::Ready, S::Ready>;
 
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready>
-    where
-        Self: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> + 'f where Self: 'f;
 
     fn ready(&self) -> Self::ReadyFuture<'_> {
         async move {

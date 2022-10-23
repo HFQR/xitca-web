@@ -33,10 +33,13 @@ where
 {
     type Response = Svc;
     type Error = Err;
-    type Future<'f> = Fut where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
-        (self.0)(arg)
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
+    where
+        Arg: 's,
+    {
+        async { (self.0)(arg).await }
     }
 }
 
@@ -50,10 +53,13 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = Fut where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call(&self, req: Req) -> Self::Future<'_> {
-        (self.0)(req)
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    where
+        Req: 's,
+    {
+        async { (self.0)(req).await }
     }
 }

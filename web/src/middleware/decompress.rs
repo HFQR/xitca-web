@@ -20,9 +20,12 @@ pub struct Decompress;
 impl<S> Service<S> for Decompress {
     type Response = DecompressService<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-    fn call(&self, service: S) -> Self::Future<'_> {
+    fn call<'s>(&self, service: S) -> Self::Future<'s>
+    where
+        S: 's,
+    {
         async { Ok(DecompressService { service }) }
     }
 }
@@ -35,15 +38,18 @@ pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
 
 impl<'r, S, C, B, Res, Err> Service<WebRequest<'r, C, B>> for DecompressService<S>
 where
-    C: 'static,
-    B: WebStream + Default + 'static,
+    C: 'r,
+    B: WebStream + Default + 'r,
     S: for<'rs> Service<WebRequest<'rs, C, Coder<B>>, Response = Res, Error = Err>,
 {
     type Response = Res;
     type Error = DecompressServiceError<Err>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-    fn call(&self, mut req: WebRequest<'r, C, B>) -> Self::Future<'_> {
+    fn call<'s>(&'s self, mut req: WebRequest<'r, C, B>) -> Self::Future<'s>
+    where
+        'r: 's,
+    {
         async move {
             let (mut http_req, body) = req.take_request().replace_body(());
 

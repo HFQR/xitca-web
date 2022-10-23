@@ -211,9 +211,12 @@ where
     type Response =
         HttpService<net::Stream, F::Response, RequestBody, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = BuildError<FA::Error, F::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call(&self, arg: Arg) -> Self::Future<'_> {
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
+    where
+        Arg: 's,
+    {
         async {
             let tls_acceptor = self.tls_factory.call(()).await.map_err(BuildError::First)?;
             let service = self.factory.call(arg).await.map_err(BuildError::Second)?;
