@@ -51,10 +51,9 @@ where
             type Error = BErr;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-            fn call<'s, 'f>(&'s self, req: Arg) -> Self::Future<'f>
+            fn call<'s>(&'s self, req: Arg) -> Self::Future<'s>
             where
-                's: 'f,
-                Arg: 'f,
+                Arg: 's,
             {
                 async {
                     let service = self.0.call(req).await?;
@@ -115,10 +114,9 @@ mod helpers {
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
         #[inline]
-        fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+        fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
         where
-            's: 'f,
-            Req: 'f,
+            Req: 's,
         {
             async { ServiceObject::call(&*self.0, req).await }
         }

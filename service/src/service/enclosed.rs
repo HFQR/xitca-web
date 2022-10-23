@@ -13,10 +13,9 @@ where
     type Error = PipelineE<F::Error, T::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
     where
-        's: 'f,
-        Arg: 'f,
+        Arg: 's,
     {
         async {
             let service = self.first.call(arg).await.map_err(PipelineE::First)?;

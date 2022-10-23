@@ -35,10 +35,9 @@ where
     type Error = Err;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
     where
-        's: 'f,
-        Arg: 'f,
+        Arg: 's,
     {
         async { (self.0)(arg).await }
     }
@@ -57,10 +56,9 @@ where
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
     where
-        's: 'f,
-        Req: 'f,
+        Req: 's,
     {
         async { (self.0)(req).await }
     }

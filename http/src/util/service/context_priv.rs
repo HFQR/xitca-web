@@ -131,10 +131,9 @@ where
     type Error = ContextError<CErr, F::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
     where
-        's: 'f,
-        Arg: 'f,
+        Arg: 's,
     {
         async {
             let state = (self.ctx_factory)().await.map_err(ContextError::First)?;
@@ -158,10 +157,9 @@ where
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
     where
-        's: 'f,
-        Req: 'f,
+        Req: 's,
     {
         self.service.call(Context {
             req,
@@ -220,9 +218,9 @@ pub mod object {
                 type Error = BErr;
                 type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-                fn call<'s, 'f>(&'s self, arg: ()) -> Self::Future<'f>
+                fn call<'s>(&'s self, arg: ()) -> Self::Future<'s>
                 where
-                    's: 'f,
+                    (): 's,
                 {
                     async move {
                         let service = self.0.call(arg).await?;

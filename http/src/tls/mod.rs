@@ -28,10 +28,7 @@ impl Service for NoOpTlsAcceptorBuilder {
     type Error = TlsError;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call<'s, 'f>(&'s self, _: ()) -> Self::Future<'f>
-    where
-        's: 'f,
-    {
+    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
         async { Ok(NoOpTlsAcceptorService) }
     }
 }
@@ -44,11 +41,7 @@ impl<St> Service<St> for NoOpTlsAcceptorService {
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where St: 'f;
 
     #[inline(always)]
-    fn call<'s, 'f>(&self, io: St) -> Self::Future<'f>
-    where
-        's: 'f,
-        St: 'f,
-    {
+    fn call<'s>(&self, io: St) -> Self::Future<'s> {
         async { Ok(io) }
     }
 }

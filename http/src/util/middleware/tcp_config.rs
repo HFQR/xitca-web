@@ -66,10 +66,9 @@ impl<S> Service<S> for TcpConfig {
     type Error = Infallible;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-    fn call<'s, 'f>(&self, service: S) -> Self::Future<'f>
+    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
     where
-        's: 'f,
-        S: 'f,
+        S: 's,
     {
         let config = self.clone();
         async { Ok(TcpConfigService { config, service }) }
@@ -85,9 +84,9 @@ where
     type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn call<'s, 'f>(&'s self, req: TcpStream) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: TcpStream) -> Self::Future<'s>
     where
-        's: 'f,
+        TcpStream: 's,
     {
         self.try_apply_config(&req);
         self.service.call(req)
@@ -116,9 +115,9 @@ where
     type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn call<'s, 'f>(&'s self, req: ServerStream) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: ServerStream) -> Self::Future<'s>
     where
-        's: 'f,
+        ServerStream: 's,
     {
         // Windows OS specific lint.
         #[allow(irrefutable_let_patterns)]

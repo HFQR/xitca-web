@@ -33,10 +33,9 @@ where
     type Error = HttpServiceError<S::Error, BE>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-    fn call<'s, 'f>(&'s self, io: St) -> Self::Future<'f>
+    fn call<'s>(&'s self, io: St) -> Self::Future<'s>
     where
-        's: 'f,
-        St: 'f,
+        St: 's,
     {
         async {
             // tls accept timer.

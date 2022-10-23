@@ -108,10 +108,9 @@ where
     type Error = SF::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s, 'f>(&'s self, arg: Arg) -> Self::Future<'f>
+    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
     where
-        's: 'f,
-        Arg: 'f,
+        Arg: 's,
     {
         let futs = self
             .routes
@@ -146,10 +145,9 @@ where
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
     where
-        's: 'f,
-        Req: 'f,
+        Req: 's,
     {
         async {
             let service = self
@@ -225,10 +223,9 @@ mod test {
             type Error = Infallible;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-            fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+            fn call<'s>(&'s self, service: S) -> Self::Future<'s>
             where
-                's: 'f,
-                S: 'f,
+                S: 's,
             {
                 async {
                     Ok(MutatePathService {
@@ -252,10 +249,9 @@ mod test {
             type Error = Err;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f, 'r: 'f;
 
-            fn call<'s, 'f>(&'s self, mut req: Request<'r>) -> Self::Future<'f>
+            fn call<'s>(&'s self, mut req: Request<'r>) -> Self::Future<'s>
             where
-                's: 'f,
-                'r: 'f,
+                'r: 's,
             {
                 async move {
                     req.path = Some(self.path.as_str());
@@ -294,9 +290,9 @@ mod test {
                     type Error = BErr;
                     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-                    fn call<'s, 'f>(&'s self, arg: ()) -> Self::Future<'f>
+                    fn call<'s>(&'s self, arg: ()) -> Self::Future<'s>
                     where
-                        's: 'f,
+                        (): 's,
                     {
                         async move {
                             let service = self.0.call(arg).await?;

@@ -51,10 +51,7 @@ impl Service for TlsAcceptorBuilder {
     type Error = Infallible;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call<'s, 'f>(&'s self, _: ()) -> Self::Future<'f>
-    where
-        's: 'f,
-    {
+    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
         let service = TlsAcceptorService {
             acceptor: self.acceptor.clone(),
         };
@@ -73,10 +70,9 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Error = NativeTlsError;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where St: 'f;
 
-    fn call<'s, 'f>(&'s self, io: St) -> Self::Future<'f>
+    fn call<'s>(&'s self, io: St) -> Self::Future<'s>
     where
-        's: 'f,
-        St: 'f,
+        St: 's,
     {
         async move {
             let mut interest = Interest::READABLE;

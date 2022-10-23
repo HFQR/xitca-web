@@ -32,9 +32,9 @@ where
             type Error = BErr;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-            fn call<'s, 'f>(&'s self, arg: ()) -> Self::Future<'f>
+            fn call<'s>(&'s self, arg: ()) -> Self::Future<'s>
             where
-                's: 'f,
+                (): 's,
             {
                 async move {
                     let service = self.0.call(arg).await?;

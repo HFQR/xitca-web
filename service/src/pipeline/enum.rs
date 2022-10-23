@@ -4,7 +4,7 @@ use core::{
     future::Future,
 };
 
-use crate::service::Service;
+use crate::{ready::ReadyService, service::Service};
 
 /// A pipeline type where two variants have a parent-child/first-second relationship
 pub enum Pipeline<F, S> {
@@ -93,10 +93,9 @@ where
     where
         Self: 'f, Req: 'f;
 
-    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
     where
-        's: 'f,
-        Req: 'f,
+        Req: 's,
     {
         async move {
             match self {
@@ -107,26 +106,24 @@ where
     }
 }
 
-// impl<F, S> ReadyService for Pipeline<F, S>
-// where
-//     F: ReadyService,
-//     S: ReadyService,
-// {
-//     type Ready = Pipeline<F::Ready, S::Ready>;
+impl<F, S> ReadyService for Pipeline<F, S>
+where
+    F: ReadyService,
+    S: ReadyService,
+{
+    type Ready = Pipeline<F::Ready, S::Ready>;
 
-//     type ReadyFuture<'f> = impl Future<Output = Self::Ready>
-//     where
-//         Self: 'f;
+    type ReadyFuture<'f> = impl Future<Output = Self::Ready> + 'f where Self: 'f;
 
-//     fn ready(&self) -> Self::ReadyFuture<'_> {
-//         async move {
-//             match self {
-//                 Self::First(ref f) => Pipeline::First(f.ready().await),
-//                 Self::Second(ref s) => Pipeline::Second(s.ready().await),
-//             }
-//         }
-//     }
-// }
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        async move {
+            match self {
+                Self::First(ref f) => Pipeline::First(f.ready().await),
+                Self::Second(ref s) => Pipeline::Second(s.ready().await),
+            }
+        }
+    }
+}
 
 #[cfg(feature = "std")]
 impl<F, S> std::error::Error for Pipeline<F, S>

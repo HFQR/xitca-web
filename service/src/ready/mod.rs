@@ -34,7 +34,7 @@ use core::{future::Future, ops::Deref, pin::Pin};
 ///     type Error = ();
 ///     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 ///
-///     fn call<'s, 'f>(&'s self, _req: ()) -> Self::Future<'f> where 's: 'f {
+///     fn call<'s>(&'s self, _req: ()) -> Self::Future<'s> where (): 's {
 ///         async { Ok(()) }
 ///     }
 /// }

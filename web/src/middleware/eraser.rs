@@ -63,10 +63,9 @@ impl<M, S> Service<S> for TypeEraser<M> {
     type Error = Infallible;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
     where
-        's: 'f,
-        S: 'f,
+        S: 's,
     {
         async {
             Ok(EraserService {
@@ -97,10 +96,9 @@ where
         Self: 'f, 'r: 'f;
 
     #[inline]
-    fn call<'s, 'f>(&'s self, req: WebRequest<'r, C, B>) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: WebRequest<'r, C, B>) -> Self::Future<'s>
     where
-        's: 'f,
-        'r: 'f,
+        'r: 's,
     {
         async {
             let res = self.service.call(req).await?;
@@ -121,10 +119,9 @@ where
         Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
     where
-        's: 'f,
-        Req: 'f,
+        Req: 's,
     {
         async { self.service.call(req).await.map_err(|e| Box::new(e) as _) }
     }

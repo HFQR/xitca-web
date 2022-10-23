@@ -43,10 +43,7 @@ where
     type Error = Infallible;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn call<'s, 'f>(&'s self, _: ()) -> Self::Future<'f>
-    where
-        's: 'f,
-    {
+    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
         let service = self.service.clone();
         async {
             Ok(TowerCompatService {
@@ -81,10 +78,9 @@ where
     where
     Self: 'f, 'r: 'f;
 
-    fn call<'s, 'f>(&'s self, mut req: WebRequest<'r, C, ReqB>) -> Self::Future<'f>
+    fn call<'s>(&'s self, mut req: WebRequest<'r, C, ReqB>) -> Self::Future<'s>
     where
-        's: 'f,
-        'r: 'f,
+        'r: 's,
     {
         async move {
             let ctx = req.state().clone();

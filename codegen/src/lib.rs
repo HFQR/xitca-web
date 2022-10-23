@@ -111,7 +111,7 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             type Error = #err_ty;
             type Future<'f> = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, #arg_ty: 'f;
 
-            fn call<'s, 'f>(&'s self, #arg_ident: #arg_ty) -> Self::Future<'f> where 's: 'f, #arg_ty: 'f {
+            fn call<'s>(&'s self, #arg_ident: #arg_ty) -> Self::Future<'s> where #arg_ty: 's {
                 async move {
                     let #factory_ident = &self;
                     #(#factory_stmts)*
@@ -127,7 +127,7 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             type Future<'f> = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, #req_ty: 'f;
 
             #[inline]
-            fn call<'s, 'f>(&'s self, #req_ident: #req_ty) -> Self::Future<'f> where 's: 'f, #req_ty: 'f {
+            fn call<'s>(&'s self, #req_ident: #req_ty) -> Self::Future<'s> where #req_ty: 's {
                 async move {
                     #(#call_stmts)*
                 }

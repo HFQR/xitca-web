@@ -49,10 +49,9 @@ impl<S> Service<S> for Limit {
     type Error = Infallible;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-    fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
     where
-        's: 'f,
-        S: 'f,
+        S: 's,
     {
         async { Ok(LimitService { service, limit: *self }) }
     }
@@ -75,10 +74,9 @@ where
     type Error = LimitServiceError<Err>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-    fn call<'s, 'f>(&'s self, mut req: WebRequest<'r, C, B>) -> Self::Future<'f>
+    fn call<'s>(&'s self, mut req: WebRequest<'r, C, B>) -> Self::Future<'s>
     where
-        's: 'f,
-        'r: 'f,
+        'r: 's,
     {
         async move {
             let (mut http_req, body) = req.take_request().replace_body(());

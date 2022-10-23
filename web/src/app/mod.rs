@@ -225,10 +225,9 @@ mod test {
         type Error = Infallible;
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-        fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+        fn call<'s>(&'s self, service: S) -> Self::Future<'s>
         where
-            's: 'f,
-            S: 'f,
+            S: 's,
         {
             async { Ok(MiddlewareService(service)) }
         }
@@ -246,10 +245,9 @@ mod test {
         type Error = Err;
         type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-        fn call<'s, 'f>(&'s self, mut req: WebRequest<'r, C, B>) -> Self::Future<'f>
+        fn call<'s>(&'s self, mut req: WebRequest<'r, C, B>) -> Self::Future<'s>
         where
-            's: 'f,
-            'r: 'f,
+            'r: 's,
         {
             async move { self.0.call(req.reborrow()).await }
         }

@@ -12,10 +12,9 @@ impl<S> Service<S> for UncheckedReady {
     type Error = Infallible;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
     where
-        's: 'f,
-        S: 'f,
+        S: 's,
     {
         async { Ok(UncheckedReadyService { service }) }
     }
@@ -36,10 +35,9 @@ where
         S: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
     where
-        's: 'f,
-        Req: 'f,
+        Req: 's,
     {
         self.service.call(req)
     }

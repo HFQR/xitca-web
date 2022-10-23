@@ -98,10 +98,9 @@ mod test {
             Self: 'f,
             S: 'f;
 
-        fn call<'s, 'f>(&'s self, service: S) -> Self::Future<'f>
+        fn call<'s>(&'s self, service: S) -> Self::Future<'s>
         where
-            's: 'f,
-            S: 'f,
+            S: 's,
         {
             async { Ok(DummyMiddlewareService(service)) }
         }
@@ -118,10 +117,9 @@ mod test {
             Self: 'f,
             Req: 'f;
 
-        fn call<'s, 'f>(&'s self, req: Req) -> Self::Future<'f>
+        fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
         where
-            's: 'f,
-            Req: 'f,
+            Req: 's,
         {
             self.0.call(req)
         }
