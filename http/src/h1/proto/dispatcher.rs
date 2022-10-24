@@ -330,7 +330,11 @@ where
         encoder: &mut TransferCoding,
         body_reader: &mut BodyReader,
     ) -> Result<(), Error<S::Error, BE>> {
+        // clean up possible remaining data in read buffer.
+        body_reader.decode(&mut self.io.read_buf);
+
         pin!(body);
+
         loop {
             match self
                 .try_poll_body(body.as_mut())
@@ -367,15 +371,16 @@ where
     }
 
     async fn response_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<(), Error<S::Error, BE>> {
-        body_reader.decode(&mut self.io.read_buf);
-        debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
-
         let ready = self.io.ready(body_reader, &mut self.ctx).await?;
 
         if ready.is_readable() {
-            if let Err(e) = self.io.try_read() {
+            match self.io.try_read() {
+                Ok(_) => {
+                    body_reader.decode(&mut self.io.read_buf);
+                    debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
+                }
                 // TODO: transform to eof state for body reader to stop reading?
-                body_reader.tx.feed_error(e);
+                Err(e) => body_reader.tx.feed_error(e),
             }
         }
 
@@ -414,7 +419,7 @@ impl BodyReader {
     }
 
     fn decode<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut FlatBuf<READ_BUF_LIMIT>) {
-        loop {
+        while !self.decoder.is_eof() {
             match self.decoder.decode(&mut *read_buf) {
                 Ok(Some(bytes)) => self.tx.feed_data(bytes),
                 Err(e) => return self.tx.feed_error(e),
