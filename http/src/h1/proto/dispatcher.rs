@@ -419,7 +419,11 @@ impl BodyReader {
     }
 
     fn decode<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut FlatBuf<READ_BUF_LIMIT>) {
-        while !self.decoder.is_eof() {
+        if self.decoder.is_eof() {
+            return;
+        }
+
+        loop {
             match self.decoder.decode(&mut *read_buf) {
                 Ok(Some(bytes)) => self.tx.feed_data(bytes),
                 Err(e) => return self.tx.feed_error(e),
