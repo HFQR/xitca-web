@@ -368,7 +368,6 @@ where
 
     async fn response_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<(), Error<S::Error, BE>> {
         body_reader.decode(&mut self.io.read_buf);
-        debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
 
         let ready = self.io.ready(body_reader, &mut self.ctx).await?;
 
