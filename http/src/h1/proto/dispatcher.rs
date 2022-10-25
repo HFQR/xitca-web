@@ -375,10 +375,7 @@ where
 
         if ready.is_readable() {
             match self.io.try_read() {
-                Ok(_) => {
-                    body_reader.decode(&mut self.io.read_buf);
-                    debug_assert!(!self.io.read_buf.backpressure(), "Read buffer overflown. Please report");
-                }
+                Ok(_) => body_reader.decode(&mut self.io.read_buf),
                 // TODO: transform to eof state for body reader to stop reading?
                 Err(e) => body_reader.tx.feed_error(e),
             }
