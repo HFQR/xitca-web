@@ -330,11 +330,7 @@ where
         encoder: &mut TransferCoding,
         body_reader: &mut BodyReader,
     ) -> Result<(), Error<S::Error, BE>> {
-        // clean up possible remaining data in read buffer.
-        body_reader.decode(&mut self.io.read_buf);
-
         pin!(body);
-
         loop {
             match self
                 .try_poll_body(body.as_mut())
@@ -371,13 +367,14 @@ where
     }
 
     async fn response_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<(), Error<S::Error, BE>> {
+        body_reader.decode(&mut self.io.read_buf);
+
         let ready = self.io.ready(body_reader, &mut self.ctx).await?;
 
         if ready.is_readable() {
-            match self.io.try_read() {
-                Ok(_) => body_reader.decode(&mut self.io.read_buf),
+            if let Err(e) = self.io.try_read() {
                 // TODO: transform to eof state for body reader to stop reading?
-                Err(e) => body_reader.tx.feed_error(e),
+                body_reader.tx.feed_error(e);
             }
         }
 
