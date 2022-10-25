@@ -1,4 +1,4 @@
-# An alternative http library and web framework inspired by hyper and actix-web
+# An alternative http library and web framework inspired by hyper
 
 ## Requirement
 
