@@ -168,10 +168,14 @@ where
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) -> io::Result<Ready> {
         if !self.write_buf.want_write() {
-            body_reader.ready(ctx).await;
+            body_reader.ready(&mut self.read_buf, ctx).await;
             self.io.ready(Interest::READABLE).await
         } else {
-            match body_reader.ready(ctx).select(self.io.ready(Interest::WRITABLE)).await {
+            match body_reader
+                .ready(&mut self.read_buf, ctx)
+                .select(self.io.ready(Interest::WRITABLE))
+                .await
+            {
                 SelectOutput::A(_) => self.io.ready(Interest::READABLE | Interest::WRITABLE).await,
                 SelectOutput::B(res) => res,
             }
@@ -318,8 +322,7 @@ where
         }
 
         loop {
-            body_reader.decode(&mut self.io.read_buf);
-            body_reader.ready(&mut self.ctx).await;
+            body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
             self.io.read().await?;
         }
     }
@@ -367,8 +370,6 @@ where
     }
 
     async fn response_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<(), Error<S::Error, BE>> {
-        body_reader.decode(&mut self.io.read_buf);
-
         let ready = self.io.ready(body_reader, &mut self.ctx).await?;
 
         if ready.is_readable() {
@@ -412,22 +413,27 @@ impl BodyReader {
         (body_reader, body)
     }
 
-    fn decode<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut FlatBuf<READ_BUF_LIMIT>) {
-        loop {
-            match self.decoder.decode(&mut *read_buf) {
-                Ok(Some(bytes)) => self.tx.feed_data(bytes),
-                Err(e) => return self.tx.feed_error(e),
-                Ok(None) if self.decoder.is_eof() => return self.tx.feed_eof(),
-                _ => return,
-            }
-        }
-    }
-
-    // dispatcher MUST call this method before do any io reading for decode request body.
-    // a none ready state means the body consumer either is in backpressure or don't expect any more
-    // body.
-    async fn ready<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
+    // dispatcher MUST call this method before do any io reading.
+    // a none ready state means the body consumer either is in backpressure or don't expect any more body.
+    async fn ready<D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
+        &mut self,
+        read_buf: &mut FlatBuf<READ_BUF_LIMIT>,
+        ctx: &mut Context<'_, D, HEADER_LIMIT>,
+    ) {
         if !self.decoder.is_eof() {
+            loop {
+                match self.decoder.decode(&mut *read_buf) {
+                    Ok(Some(bytes)) => self.tx.feed_data(bytes),
+                    Err(e) => break self.tx.feed_error(e),
+                    Ok(None) if self.decoder.is_eof() => {
+                        self.tx.feed_eof();
+                        // use async recurision if/when it's possible?
+                        return pending().await;
+                    }
+                    _ => break,
+                }
+            }
+
             match self.tx.ready().await {
                 Ok(_) => return,
                 // BodyReader's only error case is when service future drop the request
@@ -438,6 +444,7 @@ impl BodyReader {
                 Err(_) => ctx.set_ctype(ConnectionType::Close),
             }
         }
+
         // just don't be ready when decoder is eof and service dropped body consumer.
         pending().await
     }
