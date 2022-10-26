@@ -34,7 +34,7 @@ use crate::{
 
 use super::{
     buf::{BufInterest, BufWrite, FlatBuf, ListBuf},
-    codec::TransferCoding,
+    codec::{ChunkResult, TransferCoding},
     context::{ConnectionType, Context},
     error::{Parse, ProtoError},
 };
@@ -420,33 +420,26 @@ impl BodyReader {
         read_buf: &mut FlatBuf<READ_BUF_LIMIT>,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) {
-        if !self.decoder.is_eof() {
-            loop {
-                match self.decoder.decode(&mut *read_buf) {
-                    Ok(Some(bytes)) => self.tx.feed_data(bytes),
-                    Err(e) => break self.tx.feed_error(e),
-                    Ok(None) if self.decoder.is_eof() => {
-                        self.tx.feed_eof();
-                        // use async recurision if/when it's possible?
-                        return pending().await;
-                    }
-                    _ => break,
+        match self.decoder.decode(&mut *read_buf) {
+            ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
+            ChunkResult::NoSufficientData => {
+                if self.tx.ready().await.is_err() {
+                    // BodyReader's only error case is when service future drop the request
+                    // body consumer half way. In this case notify Context to close connection afterwards.
+                    //
+                    // Service future is trusted to produce a meaningful response after it drops
+                    // the request body.
+                    ctx.set_ctype(ConnectionType::Close);
                 }
             }
-
-            match self.tx.ready().await {
-                Ok(_) => return,
-                // BodyReader's only error case is when service future drop the request
-                // body consumer half way. In this case notify Context to close connection afterwards.
-                //
-                // Service future is trusted to produce a meaningful response after it drops
-                // the request body.
-                Err(_) => ctx.set_ctype(ConnectionType::Close),
+            ChunkResult::Eof => {
+                self.tx.feed_eof();
+                // TODO: use async recursion if/when it's possible?
+                pending().await
             }
+            ChunkResult::AlreadyEof => pending().await,
+            ChunkResult::Err(e) => self.tx.feed_error(e),
         }
-
-        // just don't be ready when decoder is eof and service dropped body consumer.
-        pending().await
     }
 
     async fn wait_for_poll(&mut self) {

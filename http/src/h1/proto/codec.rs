@@ -1,4 +1,4 @@
-use std::{io, mem};
+use std::{fmt, io, mem};
 
 use tracing::{trace, warn};
 
@@ -14,16 +14,12 @@ use super::{
 pub enum TransferCoding {
     /// Default coder indicates the Request/Response does not have a body.
     Eof,
-
     /// Coder used when a Content-Length header is passed with a positive integer.
     Length(u64),
-
     /// Decoder used when Transfer-Encoding is `chunked`.
     DecodeChunked(ChunkedState, u64),
-
     /// Encoder for when Transfer-Encoding includes `chunked`.
     EncodeChunked,
-
     /// Upgrade type coder that pass through body as is without transforming.
     Upgrade,
 }
@@ -309,42 +305,75 @@ impl TransferCoding {
         }
     }
 
-    /// decode body. return Some(Bytes) when successfully decoded new data.
-    ///
-    /// # Panics:
-    /// Decode when Self is in EOF state would cause a panic. See [TransferCoding::is_eof] for.
-    /// It's suggested to call `is_eof` before/after calling `decode` to make sure.
-    pub fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Bytes>> {
-        if src.is_empty() {
-            return Ok(None);
-        }
-
+    /// decode body. See [ChunkResult] for detailed outcome.
+    pub fn decode(&mut self, src: &mut BytesMut) -> ChunkResult {
         match *self {
-            Self::Eof | Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
-                unreachable!("TransferCoding::decode must not be called after it reaches EOF state. See Self::is_eof for condition.")
+            // when decoder reaching eof state it would return ChunkResult::Eof and followed by
+            // ChunkResult::AlreadyEof if decode is called again.
+            // This multi stage behaviour is depended on by the caller to know the exact timing of
+            // when eof happens. (Expensive one time operations can be happening at Eof)
+            Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
+                *self = Self::Eof;
+                ChunkResult::Eof
             }
-            Self::Length(ref mut rem) => Ok(Some(bounded_split(rem, src))),
-            Self::Upgrade => Ok(Some(src.split().freeze())),
+            Self::Eof => ChunkResult::AlreadyEof,
+            ref _decoder if src.is_empty() => ChunkResult::NoSufficientData,
+            Self::Length(ref mut rem) => ChunkResult::Ok(bounded_split(rem, src)),
+            Self::Upgrade => ChunkResult::Ok(src.split().freeze()),
             Self::DecodeChunked(ref mut state, ref mut size) => {
                 loop {
                     let mut buf = None;
                     // advances the chunked state
-                    *state = match state.step(src, size, &mut buf)? {
-                        Some(state) => state,
-                        None => return Ok(None),
+                    *state = match state.step(src, size, &mut buf) {
+                        Ok(Some(state)) => state,
+                        Ok(None) => return ChunkResult::NoSufficientData,
+                        Err(e) => return ChunkResult::Err(e),
                     };
 
                     if matches!(state, ChunkedState::End) {
-                        return Ok(None);
+                        return self.decode(src);
                     }
 
                     if let Some(buf) = buf {
-                        return Ok(Some(buf));
+                        return ChunkResult::Ok(buf);
                     }
                 }
             }
             _ => unreachable!(),
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum ChunkResult {
+    /// non empty chunk data produced by coder.
+    Ok(Bytes),
+    /// io error type produced by coder that can be bubbled up to upstream caller.
+    Err(io::Error),
+    /// no sufficient data. More input bytes required.
+    NoSufficientData,
+    /// Codec reached EOF state and no more chunk can be produced.
+    Eof,
+    /// Codec already reached EOF state and no more chunk can be produced.
+    /// Used to hint io reader to stop reading more data and/or keep calling method on coder.
+    AlreadyEof,
+}
+
+impl fmt::Display for ChunkResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Ok(_) => f.write_str("chunked data."),
+            Self::NoSufficientData => f.write_str("no sufficient data. More input bytes required."),
+            Self::Eof => f.write_str("coder reached EOF state. no more chunk can be produced."),
+            Self::AlreadyEof => f.write_str("coder already reached EOF state. no more chunk can be produced."),
+            Self::Err(ref e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl From<io::Error> for ChunkResult {
+    fn from(e: io::Error) -> Self {
+        Self::Err(e)
     }
 }
 
@@ -449,19 +478,32 @@ mod test {
     #[test]
     fn test_read_chunked_single_read() {
         let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\n");
-        let buf = TransferCoding::decode_chunked().decode(mock_buf).unwrap().unwrap();
-        assert_eq!(16, buf.len());
-        let result = String::from_utf8(buf.as_ref().to_vec()).expect("decode String");
-        assert_eq!("1234567890abcdef", &result);
+
+        match TransferCoding::decode_chunked().decode(mock_buf) {
+            ChunkResult::Ok(buf) => {
+                assert_eq!(16, buf.len());
+                let result = String::from_utf8(buf.as_ref().to_vec()).expect("decode String");
+                assert_eq!("1234567890abcdef", &result);
+            }
+            state => panic!("{}", state),
+        }
     }
 
     #[test]
     fn test_read_chunked_trailer_with_missing_lf() {
         let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\nbad\r\r\n");
+
         let mut decoder = TransferCoding::decode_chunked();
-        decoder.decode(mock_buf).unwrap().unwrap();
-        let e = decoder.decode(mock_buf).unwrap_err();
-        assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
+
+        match decoder.decode(mock_buf) {
+            ChunkResult::Ok(_) => {}
+            state => panic!("{}", state),
+        }
+
+        match decoder.decode(mock_buf) {
+            ChunkResult::Err(e) => assert_eq!(e.kind(), io::ErrorKind::InvalidInput),
+            state => panic!("{}", state),
+        }
     }
 
     #[test]
@@ -470,16 +512,26 @@ mod test {
         let mut decoder = TransferCoding::decode_chunked();
 
         // normal read
-        let buf = decoder.decode(mock_buf).unwrap().unwrap();
-        assert_eq!(16, buf.len());
-        let result = String::from_utf8(buf.as_ref().to_vec()).unwrap();
-        assert_eq!("1234567890abcdef", &result);
+        match decoder.decode(mock_buf) {
+            ChunkResult::Ok(buf) => {
+                assert_eq!(16, buf.len());
+                let result = String::from_utf8(buf.as_ref().to_vec()).unwrap();
+                assert_eq!("1234567890abcdef", &result);
+            }
+            state => panic!("{}", state),
+        }
 
         // eof read
-        assert!(decoder.decode(mock_buf).unwrap().is_none());
+        match decoder.decode(mock_buf) {
+            ChunkResult::Eof => {}
+            state => panic!("{}", state),
+        }
 
-        // ensure eof state is observable.
-        assert!(decoder.is_eof());
+        // already meet eof
+        match decoder.decode(mock_buf) {
+            ChunkResult::AlreadyEof => {}
+            state => panic!("{}", state),
+        }
     }
 
     #[test]
