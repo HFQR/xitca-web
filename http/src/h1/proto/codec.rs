@@ -305,15 +305,13 @@ impl TransferCoding {
         }
     }
 
-    /// decode body.
-    ///
-    /// return Ok(Some(Bytes)) when successfully decoded new chunk.
-    /// return Ok(None) when no more chunk can be decoded.
+    /// decode body. See [ChunkResult] for detailed outcome.
     pub fn decode(&mut self, src: &mut BytesMut) -> ChunkResult {
         match *self {
-            // when decoder reaching eof state it would return Ok(None) and followed by
-            // CodecError::Eof if decode is called again. This multi stage behaviour is depended
-            // on to hint the caller the exact timing of when eof happens.
+            // when decoder reaching eof state it would return ChunkResult::Eof and followed by
+            // ChunkResult::AlreadyEof if decode is called again.
+            // This multi stage behaviour is depended on by the caller to know the exact timing of
+            // when eof happens. (Expensive one time operations can be happening at Eof)
             Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
                 *self = Self::Eof;
                 ChunkResult::Eof
