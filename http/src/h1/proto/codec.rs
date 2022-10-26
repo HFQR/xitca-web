@@ -320,7 +320,9 @@ impl TransferCoding {
         }
 
         match *self {
-            Self::Eof | Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => Ok(None),
+            Self::Eof | Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
+                unreachable!("TransferCoding::decode must not be called after it reaches EOF state. See Self::is_eof for condition.")
+            }
             Self::Length(ref mut rem) => Ok(Some(bounded_split(rem, src))),
             Self::Upgrade => Ok(Some(src.split().freeze())),
             Self::DecodeChunked(ref mut state, ref mut size) => {
