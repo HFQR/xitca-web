@@ -420,25 +420,32 @@ impl BodyReader {
         read_buf: &mut FlatBuf<READ_BUF_LIMIT>,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) {
-        match self.decoder.decode(&mut *read_buf) {
-            ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
-            ChunkResult::NoSufficientData => {
-                if self.tx.ready().await.is_err() {
-                    // BodyReader's only error case is when service future drop the request
-                    // body consumer half way. In this case notify Context to close connection afterwards.
-                    //
-                    // Service future is trusted to produce a meaningful response after it drops
-                    // the request body.
-                    ctx.set_ctype(ConnectionType::Close);
+        loop {
+            match self.decoder.decode(&mut *read_buf) {
+                ChunkResult::Ok(bytes) => {
+                    self.tx.feed_data(bytes);
+                    continue;
+                }
+                ChunkResult::NoSufficientData => break,
+                ChunkResult::Eof => self.tx.feed_eof(),
+                ChunkResult::AlreadyEof => {}
+                ChunkResult::Err(e) => {
+                    // TODO: transform to eof state to prevent more decoding?
+                    self.tx.feed_error(e);
+                    break;
                 }
             }
-            ChunkResult::Eof => {
-                self.tx.feed_eof();
-                // TODO: use async recursion if/when it's possible?
-                pending().await
-            }
-            ChunkResult::AlreadyEof => pending().await,
-            ChunkResult::Err(e) => self.tx.feed_error(e),
+
+            return pending().await;
+        }
+
+        if self.tx.ready().await.is_err() {
+            // BodyReader's only error case is when service future drop the request
+            // body consumer half way. In this case notify Context to close connection afterwards.
+            //
+            // Service future is trusted to produce a meaningful response after it drops
+            // the request body.
+            ctx.set_ctype(ConnectionType::Close);
         }
     }
 
