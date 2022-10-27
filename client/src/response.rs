@@ -18,9 +18,7 @@ use crate::{
 
 const DEFAULT_PAYLOAD_LIMIT: usize = 1024 * 1024 * 8;
 
-pub(crate) type DefaultResponse<'a> = Response<'a, DEFAULT_PAYLOAD_LIMIT>;
-
-pub struct Response<'a, const PAYLOAD_LIMIT: usize> {
+pub struct Response<'a, const PAYLOAD_LIMIT: usize = DEFAULT_PAYLOAD_LIMIT> {
     res: http::Response<ResponseBody<'a>>,
     timer: Pin<Box<Sleep>>,
     timeout: Duration,

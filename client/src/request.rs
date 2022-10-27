@@ -14,7 +14,7 @@ use crate::{
         header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE},
         Extensions, Method, Version,
     },
-    response::DefaultResponse,
+    response::Response,
     uri::Uri,
 };
 
@@ -153,7 +153,7 @@ impl<'a, B> Request<'a, B> {
 
     /// Send the request and return response asynchronously.
     #[allow(unused_variables, unused_mut)]
-    pub async fn send<E>(self) -> Result<DefaultResponse<'a>, Error>
+    pub async fn send<E>(self) -> Result<Response<'a>, Error>
     where
         B: Stream<Item = Result<Bytes, E>>,
         BodyError: From<E>,
@@ -219,7 +219,7 @@ impl<'a, B> Request<'a, B> {
                 return match crate::h2::proto::send(stream, date, req).timeout(timer.as_mut()).await {
                     Ok(Ok(res)) => {
                         let timeout = client.timeout_config.response_timeout;
-                        Ok(DefaultResponse::new(res, timer, timeout))
+                        Ok(Response::new(res, timer, timeout))
                     }
                     Ok(Err(e)) => {
                         conn.destroy_on_drop();
@@ -238,7 +238,7 @@ impl<'a, B> Request<'a, B> {
                 return match crate::h3::proto::send(c, date, req).timeout(timer.as_mut()).await {
                     Ok(Ok(res)) => {
                         let timeout = client.timeout_config.response_timeout;
-                        Ok(DefaultResponse::new(res, timer, timeout))
+                        Ok(Response::new(res, timer, timeout))
                     }
                     Ok(Err(e)) => {
                         conn.destroy_on_drop();
@@ -265,7 +265,7 @@ impl<'a, B> Request<'a, B> {
                 let res = res.map(|_| crate::body::ResponseBody::H1(body));
                 let timeout = client.timeout_config.response_timeout;
 
-                Ok(DefaultResponse::new(res, timer, timeout))
+                Ok(Response::new(res, timer, timeout))
             }
             Ok(Err(e)) => {
                 conn.destroy_on_drop();
