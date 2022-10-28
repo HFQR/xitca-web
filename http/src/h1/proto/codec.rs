@@ -96,7 +96,7 @@ macro_rules! byte (
 );
 
 impl ChunkedState {
-    pub fn step(&self, body: &mut BytesMut, size: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
+    pub fn step(&mut self, body: &mut BytesMut, size: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
         match *self {
             Self::Size => Self::read_size(body, size),
             Self::SizeLws => Self::read_size_lws(body),
@@ -317,7 +317,7 @@ impl TransferCoding {
                 ChunkResult::Eof
             }
             Self::Eof => ChunkResult::AlreadyEof,
-            ref _decoder if src.is_empty() => ChunkResult::NoSufficientData,
+            ref _decoder if src.is_empty() => ChunkResult::InsufficientData,
             Self::Length(ref mut rem) => ChunkResult::Ok(bounded_split(rem, src)),
             Self::Upgrade => ChunkResult::Ok(src.split().freeze()),
             Self::DecodeChunked(ref mut state, ref mut size) => {
@@ -326,7 +326,7 @@ impl TransferCoding {
                     // advances the chunked state
                     *state = match state.step(src, size, &mut buf) {
                         Ok(Some(state)) => state,
-                        Ok(None) => return ChunkResult::NoSufficientData,
+                        Ok(None) => return ChunkResult::InsufficientData,
                         Err(e) => return ChunkResult::Err(e),
                     };
 
@@ -350,12 +350,12 @@ pub enum ChunkResult {
     Ok(Bytes),
     /// io error type produced by coder that can be bubbled up to upstream caller.
     Err(io::Error),
-    /// no sufficient data. More input bytes required.
-    NoSufficientData,
-    /// Codec reached EOF state and no more chunk can be produced.
+    /// insufficient data. More input bytes required.
+    InsufficientData,
+    /// coder reached EOF state and no more chunk can be produced.
     Eof,
-    /// Codec already reached EOF state and no more chunk can be produced.
-    /// Used to hint io reader to stop reading more data and/or keep calling method on coder.
+    /// coder already reached EOF state and no more chunk can be produced.
+    /// used to hint calling stop filling input buffer with more data and/or calling method again.
     AlreadyEof,
 }
 
@@ -363,7 +363,7 @@ impl fmt::Display for ChunkResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Ok(_) => f.write_str("chunked data."),
-            Self::NoSufficientData => f.write_str("no sufficient data. More input bytes required."),
+            Self::InsufficientData => f.write_str("no sufficient data. More input bytes required."),
             Self::Eof => f.write_str("coder reached EOF state. no more chunk can be produced."),
             Self::AlreadyEof => f.write_str("coder already reached EOF state. no more chunk can be produced."),
             Self::Err(ref e) => fmt::Display::fmt(e, f),

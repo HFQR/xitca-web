@@ -426,7 +426,7 @@ impl BodyReader {
                     self.tx.feed_data(bytes);
                     continue;
                 }
-                ChunkResult::NoSufficientData => break,
+                ChunkResult::InsufficientData => break,
                 ChunkResult::Eof => self.tx.feed_eof(),
                 ChunkResult::AlreadyEof => {}
                 ChunkResult::Err(e) => {

@@ -46,7 +46,7 @@ where
         loop {
             match this.decoder.decode(this.buf.deref_mut()) {
                 ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
-                ChunkResult::NoSufficientData => {
+                ChunkResult::InsufficientData => {
                     let n = ready!(poll_read_buf(Pin::new(&mut *this.conn), cx, &mut *this.buf))?;
 
                     if n == 0 {
