@@ -112,18 +112,12 @@ where
     where
         Arg: 's,
     {
-        let futs = self
-            .routes
-            .iter()
-            .map(|(path, obj)| (*path, obj.call(arg.clone())))
-            .collect::<Vec<_>>();
-
-        async {
+        async move {
             let mut routes = matchit::Router::new();
 
-            for (path, fut) in futs {
-                let service = fut.await?;
-                routes.insert(path, service).unwrap();
+            for (path, service) in self.routes.iter() {
+                let service = service.call(arg.clone()).await?;
+                routes.insert(*path, service).unwrap();
             }
 
             Ok(RouterService { routes })
