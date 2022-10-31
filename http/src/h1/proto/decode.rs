@@ -19,7 +19,7 @@ use super::{
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
     // decode head and generate request and body decoder.
-    pub(super) fn decode_head<const READ_BUF_LIMIT: usize>(
+    pub fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Request<()>, TransferCoding)>, ProtoError> {
