@@ -29,12 +29,7 @@ where
         buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
 
-    pub(super) fn encode_head<W>(
-        &mut self,
-        parts: Parts,
-        size: BodySize,
-        buf: &mut W,
-    ) -> Result<TransferCoding, ProtoError>
+    pub fn encode_head<W>(&mut self, parts: Parts, size: BodySize, buf: &mut W) -> Result<TransferCoding, ProtoError>
     where
         W: BufWrite,
     {

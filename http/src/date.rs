@@ -28,7 +28,7 @@ pub trait DateTime {
 }
 
 /// Struct with Date update periodically at 500 milli seconds interval.
-pub(crate) struct DateTimeService {
+pub struct DateTimeService {
     state: Rc<RefCell<DateTimeState>>,
     handle: JoinHandle<()>,
 }
@@ -41,7 +41,7 @@ impl Drop for DateTimeService {
 }
 
 impl DateTimeService {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         // shared date and timer for Date and update async task.
         let state = Rc::new(RefCell::new(DateTimeState::new()));
         let state_clone = Rc::clone(&state);
@@ -59,8 +59,8 @@ impl DateTimeService {
         Self { state, handle }
     }
 
-    #[inline(always)]
-    pub(crate) fn get(&self) -> &DateTimeHandle {
+    #[inline]
+    pub fn get(&self) -> &DateTimeHandle {
         self.state.deref()
     }
 }
@@ -94,7 +94,7 @@ impl DateTimeState {
     }
 }
 
-impl fmt::Write for DateTimeState {
+impl Write for DateTimeState {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.date[..].copy_from_slice(s.as_bytes());
         Ok(())
@@ -106,7 +106,7 @@ impl DateTime for DateTimeHandle {
 
     // TODO: remove this allow
     #[allow(dead_code)]
-    #[inline(always)]
+    #[inline]
     fn with_date<F, O>(&self, f: F) -> O
     where
         F: FnOnce(&[u8]) -> O,
