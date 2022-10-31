@@ -6,10 +6,7 @@ use std::{
 
 use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
 
-use crate::{
-    http::{self, Method},
-    request::BorrowReq,
-};
+use crate::{http::Method, request::BorrowReq};
 
 mod next {
     pub struct Exist<S>(pub S);
@@ -117,15 +114,14 @@ where
     where
         Arg: 's,
     {
-        let route = self.route.call(arg.clone());
-        let next = self.next.0.call(arg);
-
-        let methods = self.methods.clone();
-
         async {
-            let route = route.await?;
-            let next = next::Exist(next.await?);
-            Ok(RouteService { methods, route, next })
+            let route = self.route.call(arg.clone()).await?;
+            let next = self.next.0.call(arg).await?;
+            Ok(RouteService {
+                methods: self.methods.clone(),
+                route,
+                next: next::Exist(next),
+            })
         }
     }
 }
@@ -144,11 +140,10 @@ where
     {
         async {
             let route = self.route.call(arg).await?;
-            let next = next::Empty;
             Ok(RouteService {
                 methods: self.methods.clone(),
                 route,
-                next,
+                next: next::Empty,
             })
         }
     }
@@ -164,7 +159,7 @@ impl<Req, R, N, E, const M: usize> Service<Req> for RouteService<R, next::Exist<
 where
     R: Service<Req, Error = E>,
     N: Service<Req, Response = R::Response, Error = RouteError<E>>,
-    Req: BorrowReq<http::Method>,
+    Req: BorrowReq<Method>,
 {
     type Response = R::Response;
     type Error = RouteError<E>;
@@ -188,7 +183,7 @@ where
 impl<Req, R, const M: usize> Service<Req> for RouteService<R, next::Empty, M>
 where
     R: Service<Req>,
-    Req: BorrowReq<http::Method>,
+    Req: BorrowReq<Method>,
 {
     type Response = R::Response;
     type Error = RouteError<R::Error>;

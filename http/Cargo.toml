@@ -24,7 +24,7 @@ util-service = ["matchit"]
 
 [dependencies]
 xitca-io = "0.1"
-xitca-service = { version = "0.1", features = ["alloc"] }
+xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3.17"
