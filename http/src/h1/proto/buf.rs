@@ -140,6 +140,63 @@ impl<const BUF_LIMIT: usize> BufWrite for FlatBuf<BUF_LIMIT> {
     }
 }
 
+impl BufInterest for BytesMut {
+    #[inline]
+    fn backpressure(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn want_write(&self) -> bool {
+        self.remaining() != 0
+    }
+}
+
+impl BufWrite for BytesMut {
+    #[inline]
+    fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>,
+    {
+        func(self)
+    }
+
+    #[inline]
+    fn write_static(&mut self, bytes: &'static [u8]) {
+        self.put_slice(bytes);
+    }
+
+    #[inline]
+    fn write_bytes(&mut self, bytes: Bytes) {
+        self.put_slice(bytes.as_ref());
+    }
+
+    fn write_chunked(&mut self, bytes: Bytes) {
+        write!(BufMutWriter(self), "{:X}\r\n", bytes.len()).unwrap();
+        self.reserve(bytes.len() + 2);
+        self.put_slice(bytes.as_ref());
+        self.put_slice(b"\r\n");
+    }
+
+    fn flush<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
+        let mut written = 0;
+        let len = self.remaining();
+
+        while written < len {
+            match io.write(&self[written..]) {
+                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                Ok(n) => written += n,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => return Err(e),
+            }
+        }
+
+        self.advance(written);
+
+        Ok(())
+    }
+}
+
 // an internal buffer to collect writes before flushes
 pub(super) struct ListBuf<B, const BUF_LIMIT: usize> {
     // Re-usable buffer that holds response head.
