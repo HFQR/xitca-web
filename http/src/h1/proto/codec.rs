@@ -55,7 +55,7 @@ impl TransferCoding {
     #[inline]
     pub fn is_eof(&self) -> bool {
         match self {
-            Self::Eof | Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => true,
+            Self::Eof => true,
             Self::EncodeChunked => unreachable!("TransferCoding can't decide eof state when encoding chunked data"),
             _ => false,
         }
@@ -317,7 +317,7 @@ impl TransferCoding {
                 ChunkResult::Eof
             }
             Self::Eof => ChunkResult::AlreadyEof,
-            ref _decoder if src.is_empty() => ChunkResult::InsufficientData,
+            ref _this if src.is_empty() => ChunkResult::InsufficientData,
             Self::Length(ref mut rem) => ChunkResult::Ok(bounded_split(rem, src)),
             Self::Upgrade => ChunkResult::Ok(src.split().freeze()),
             Self::DecodeChunked(ref mut state, ref mut size) => {
