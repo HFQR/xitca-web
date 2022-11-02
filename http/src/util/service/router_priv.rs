@@ -303,7 +303,7 @@ mod test {
         }
 
         async fn handler(req: Request<'_>) -> Result<Response<()>, Infallible> {
-            assert_eq!(req.path.as_deref(), Some("test"));
+            assert_eq!(req.path, Some("test"));
             Ok(Response::new(()))
         }
 

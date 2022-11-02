@@ -40,6 +40,12 @@ impl Drop for DateTimeService {
     }
 }
 
+impl Default for DateTimeService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DateTimeService {
     pub fn new() -> Self {
         // shared date and timer for Date and update async task.
