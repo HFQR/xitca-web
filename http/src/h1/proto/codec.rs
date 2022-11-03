@@ -262,6 +262,11 @@ impl TransferCoding {
         }
     }
 
+    #[inline]
+    pub fn set_eof(&mut self) {
+        *self = Self::Eof;
+    }
+
     /// Encode message. Return `EOF` state of encoder
     pub fn encode<W>(&mut self, mut bytes: Bytes, buf: &mut W)
     where
