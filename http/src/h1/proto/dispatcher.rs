@@ -423,31 +423,31 @@ impl BodyReader {
     ) {
         loop {
             match self.decoder.decode(&mut *read_buf) {
-                ChunkResult::Ok(bytes) => {
-                    self.tx.feed_data(bytes);
-                    continue;
-                }
-                ChunkResult::InsufficientData => break,
+                ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
+                // BodyReader's only error case is when service future drop the request
+                // body consumer half way. In this case notify Context to close connection afterwards.
+                // Service future is trusted to produce a meaningful response after it drops
+                // the request body.
+                ChunkResult::InsufficientData => match self.tx.ready().await {
+                    Ok(_) => return,
+                    Err(_) => self.set_close(ctx),
+                },
                 ChunkResult::Eof => self.tx.feed_eof(),
-                ChunkResult::AlreadyEof => {}
+                ChunkResult::AlreadyEof => pending().await,
                 ChunkResult::Err(e) => {
-                    // TODO: transform to eof state to prevent more decoding?
                     self.tx.feed_error(e);
-                    break;
+                    self.set_close(ctx);
                 }
             }
-
-            return pending().await;
         }
+    }
 
-        if self.tx.ready().await.is_err() {
-            // BodyReader's only error case is when service future drop the request
-            // body consumer half way. In this case notify Context to close connection afterwards.
-            //
-            // Service future is trusted to produce a meaningful response after it drops
-            // the request body.
-            ctx.set_ctype(ConnectionType::Close);
-        }
+    // prepare for close connection by end decoder and set context to closed connection regardless their current states.
+    #[cold]
+    #[inline(never)]
+    fn set_close<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
+        self.decoder.set_eof();
+        ctx.set_ctype(ConnectionType::Close);
     }
 
     async fn wait_for_poll(&mut self) {
