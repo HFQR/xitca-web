@@ -3,7 +3,7 @@ pub(crate) use xitca_http::{
     error::BodyError,
 };
 
-#[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
+#[cfg(any(feature = "http2", feature = "http3"))]
 pub(crate) use xitca_http::body::BodySize;
 
 use std::{

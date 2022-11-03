@@ -1,7 +1,7 @@
+use futures_core::stream::Stream;
 use xitca_http::h1::proto::{codec::TransferCoding, error::ProtoError};
 
 use crate::{
-    body::BodySize,
     bytes::{BufMut, BytesMut},
     http::{request::Parts, version::Version},
 };
@@ -9,12 +9,15 @@ use crate::{
 use super::context::Context;
 
 impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
-    pub(super) fn encode_head(
+    pub(super) fn encode_head<B>(
         &mut self,
         buf: &mut BytesMut,
         parts: Parts,
-        size: BodySize,
-    ) -> Result<TransferCoding, ProtoError> {
+        body: &B,
+    ) -> Result<TransferCoding, ProtoError>
+    where
+        B: Stream,
+    {
         let method = parts.method;
         let uri = parts.uri;
         let headers = parts.headers;
@@ -40,6 +43,6 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         buf.put_slice(path_and_query);
         buf.put_slice(version);
 
-        self.encode_headers(headers, extensions, size, buf, false)
+        self.encode_headers(headers, extensions, body, buf, false)
     }
 }

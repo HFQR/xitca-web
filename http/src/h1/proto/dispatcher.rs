@@ -18,7 +18,7 @@ use xitca_unsafe_collection::{
 };
 
 use crate::{
-    body::{BodySize, Once},
+    body::NoneBody,
     bytes::Bytes,
     config::HttpServiceConfig,
     date::DateTime,
@@ -245,8 +245,7 @@ where
                 match res {
                     Ok((req, mut body_reader)) => {
                         let (parts, res_body) = self.request_handler(req, &mut body_reader).await?.into_parts();
-                        let size = BodySize::from_stream(&res_body);
-                        let encoder = &mut self.encode_head(parts, size)?;
+                        let encoder = &mut self.encode_head(parts, &res_body)?;
                         self.response_handler(res_body, encoder, &mut body_reader).await?;
                         if self.ctx.is_connection_closed() {
                             break 'req;
@@ -288,9 +287,12 @@ where
         }
     }
 
-    fn encode_head(&mut self, parts: Parts, size: BodySize) -> Result<TransferCoding, Error<S::Error, BE>> {
+    fn encode_head<B>(&mut self, parts: Parts, body: &B) -> Result<TransferCoding, Error<S::Error, BE>>
+    where
+        B: Stream,
+    {
         self.ctx
-            .encode_head(parts, size, &mut self.io.write_buf)
+            .encode_head(parts, body, &mut self.io.write_buf)
             .map_err(Into::into)
     }
 
@@ -390,12 +392,11 @@ where
     #[inline(never)]
     fn request_error<F>(&mut self, func: F) -> Result<(), Error<S::Error, BE>>
     where
-        F: FnOnce() -> Response<Once<Bytes>>,
+        F: FnOnce() -> Response<NoneBody<Bytes>>,
     {
         self.ctx.set_ctype(ConnectionType::Close);
         let (parts, body) = func().into_parts();
-        let size = BodySize::from_stream(&body);
-        self.encode_head(parts, size).map(|_| ())
+        self.encode_head(parts, &body).map(|_| ())
     }
 }
 

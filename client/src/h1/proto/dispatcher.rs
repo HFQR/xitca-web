@@ -6,7 +6,7 @@ use xitca_http::h1::proto::{buf::FlatBuf, codec::TransferCoding, context::Connec
 use xitca_io::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    body::{BodyError, BodySize},
+    body::BodyError,
     bytes::{Bytes, BytesMut},
     date::DateTimeHandle,
     h1::Error,
@@ -55,7 +55,7 @@ where
     let mut buf = FlatBuf::<{ 1024 * 1024 }>::new();
 
     // encode request head and return transfer encoding for request body
-    let encoder = ctx.encode_head(&mut buf, parts, BodySize::from_stream(&body))?;
+    let encoder = ctx.encode_head(&mut buf, parts, &body)?;
 
     // send request head for potential intermediate handling like expect header.
     stream.write_all_buf(&mut *buf).await?;
