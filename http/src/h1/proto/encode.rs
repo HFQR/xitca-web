@@ -1,3 +1,4 @@
+use futures_core::stream::Stream;
 use tracing::{debug, warn};
 
 use crate::{
@@ -29,19 +30,18 @@ where
         buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
 
-    pub fn encode_head<W>(&mut self, parts: Parts, size: BodySize, buf: &mut W) -> Result<TransferCoding, ProtoError>
+    pub fn encode_head<B, W>(&mut self, parts: Parts, body: &B, buf: &mut W) -> Result<TransferCoding, ProtoError>
     where
+        B: Stream,
         W: BufWrite,
     {
-        buf.write_head(|buf| self.encode_head_inner(parts, size, buf))
+        buf.write_head(|buf| self.encode_head_inner(parts, body, buf))
     }
 
-    fn encode_head_inner(
-        &mut self,
-        parts: Parts,
-        size: BodySize,
-        buf: &mut BytesMut,
-    ) -> Result<TransferCoding, ProtoError> {
+    fn encode_head_inner<B>(&mut self, parts: Parts, body: &B, buf: &mut BytesMut) -> Result<TransferCoding, ProtoError>
+    where
+        B: Stream,
+    {
         let version = parts.version;
         let status = parts.status;
 
@@ -66,7 +66,7 @@ where
         // encode version, status code and reason
         encode_version_status_reason(buf, version, status);
 
-        self.encode_headers(parts.headers, parts.extensions, size, buf, skip_len)
+        self.encode_headers(parts.headers, parts.extensions, body, buf, skip_len)
     }
 }
 
@@ -106,14 +106,19 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
 where
     D: DateTime,
 {
-    pub fn encode_headers(
+    pub fn encode_headers<B>(
         &mut self,
         mut headers: HeaderMap,
         mut extensions: Extensions,
-        size: BodySize,
+        body: &B,
         buf: &mut BytesMut,
         mut skip_len: bool,
-    ) -> Result<TransferCoding, ProtoError> {
+    ) -> Result<TransferCoding, ProtoError>
+    where
+        B: Stream,
+    {
+        let size = BodySize::from_stream(body);
+
         let mut skip_date = false;
 
         let mut encoding = TransferCoding::eof();
