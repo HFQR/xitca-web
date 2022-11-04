@@ -241,23 +241,23 @@ where
 
             self.io.read().timeout(self.timer.as_mut()).await??;
 
-            'req: while let Some(res) = self.decode_head() {
+            while let Some(res) = self.decode_head() {
                 match res {
                     Ok((req, mut body_reader)) => {
                         let (parts, res_body) = self.request_handler(req, &mut body_reader).await?.into_parts();
                         let encoder = &mut self.encode_head(parts, &res_body)?;
                         self.response_handler(res_body, encoder, &mut body_reader).await?;
                         if self.ctx.is_connection_closed() {
-                            break 'req;
+                            break;
                         }
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         self.request_error(response::header_too_large)?;
-                        break 'req;
+                        break;
                     }
                     Err(ProtoError::Parse(_)) => {
                         self.request_error(response::bad_request)?;
-                        break 'req;
+                        break;
                     }
                     // TODO: handle error that are meant to be a response.
                     Err(e) => return Err(e.into()),
@@ -347,9 +347,17 @@ where
                     encoder.encode(bytes, &mut self.io.write_buf);
                 }
                 SelectOutput::A(None) => {
-                    // Request body is partial consumed. Close connection in case there are bytes
-                    // remain in socket.
-                    if !body_reader.decoder.is_eof() {
+                    if !body_reader.decoder.is_eof()
+                        // upgrade request like websocket is optimistically considered clean and the
+                        // connection is re-used by keep-alive. that said client/server that do not
+                        // handle this behaviour correctly can result in occasion broken connection
+                        // after keep-alive kicked in.
+                        // one example is client sending extra close/ping message which can stuck
+                        // in socket and mess up the next http request
+                        && !body_reader.decoder.is_upgrade()
+                    {
+                        // Request body is partial consumed. Close connection in case there are
+                        // bytes remain in socket.
                         self.ctx.set_ctype(ConnectionType::Close);
                     }
                     encoder.encode_eof(&mut self.io.write_buf);
