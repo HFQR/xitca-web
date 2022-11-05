@@ -22,7 +22,7 @@ impl<S> H3Service<S> {
 
 impl<S, ResB, BE> Service<UdpStream> for H3Service<S>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
     ResB: Stream<Item = Result<Bytes, BE>>,

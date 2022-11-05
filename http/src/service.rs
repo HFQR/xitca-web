@@ -78,8 +78,8 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
     Service<ServerStream>
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-    A: Service<TcpStream> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResB>>,
+    A: Service<TcpStream>,
     A::Response: AsyncIo + AsVersion + AsyncRead + AsyncWrite + Unpin,
     HttpServiceError<S::Error, BE>: From<A::Error>,
     S::Error: fmt::Debug,
@@ -88,7 +88,7 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
     fn call<'s>(&'s self, io: ServerStream) -> Self::Future<'s>
     where

@@ -31,10 +31,10 @@ impl<
         const WRITE_BUF_LIMIT: usize,
     > Service<St> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
+    S: Service<Request<RequestBody>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
-    A: Service<St, Response = TlsSt> + 'static,
+    A: Service<St, Response = TlsSt>,
     St: AsyncIo,
     TlsSt: AsyncRead + AsyncWrite + Unpin,
 
