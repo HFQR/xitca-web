@@ -90,7 +90,7 @@ impl Connector {
     }
 
     #[allow(unused_variables)]
-    pub(crate) async fn connect<S>(&self, stream: S, domain: &str) -> Result<(TlsStream<S>, Version), Error>
+    pub(crate) async fn connect<S>(&self, stream: S, domain: &str) -> Result<(TlsStream, Version), Error>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
@@ -106,12 +106,12 @@ impl Connector {
                     // Enable HTTP/2 over plain TCP connection with dangerous feature.
                     //
                     // *. This is meant for test and local network usage. DO NOT use in internet environment.
-                    Ok((TlsStream::NoOp(stream), Version::HTTP_2))
+                    Ok((Box::new(stream), Version::HTTP_2))
                 }
             }
             Self::Custom(ref connector) => {
                 let (stream, version) = connector.connect(Box::new(stream)).await?;
-                Ok((stream.into(), version))
+                Ok((stream, version))
             }
             #[cfg(feature = "openssl")]
             Self::Openssl(ref connector) => {
@@ -131,7 +131,7 @@ impl Connector {
                         }
                     });
 
-                Ok((stream.into(), version))
+                Ok((Box::new(stream), version))
             }
             #[cfg(feature = "rustls")]
             Self::Rustls(ref connector) => {
@@ -149,7 +149,7 @@ impl Connector {
                     }
                 });
 
-                Ok((stream.into(), version))
+                Ok((Box::new(stream), version))
             }
         }
     }

@@ -12,12 +12,10 @@ use tokio::{
 
 use xitca_http::http::uri::{Authority, PathAndQuery};
 
-use crate::uri::Uri;
-
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
-use crate::tls::stream::TlsStream;
+use crate::{tls::stream::TlsStream, uri::Uri};
 
 #[cfg(feature = "http1")]
 /// A convince type alias for typing connection without interacting with pool.
@@ -28,7 +26,7 @@ pub type ConnectionWithKey<'a> = crate::pool::Conn<'a, ConnectionKey, Connection
 #[non_exhaustive]
 pub enum Connection {
     Tcp(TcpStream),
-    Tls(TlsStream<TcpStream>),
+    Tls(TlsStream),
     #[cfg(unix)]
     Unix(UnixStream),
     #[cfg(feature = "http2")]
@@ -129,9 +127,9 @@ impl From<TcpStream> for Connection {
     }
 }
 
-impl From<TlsStream<TcpStream>> for Connection {
-    fn from(tcp: TlsStream<TcpStream>) -> Self {
-        Self::Tls(tcp)
+impl From<TlsStream> for Connection {
+    fn from(io: TlsStream) -> Self {
+        Self::Tls(io)
     }
 }
 
