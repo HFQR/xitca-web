@@ -24,9 +24,11 @@ impl<'a, C, B> WebRequest<'a, C, B> {
         Self { req, body, ctx }
     }
 
-    /// Construct an owned Self from &mut Self.
+    /// Reborrow Self so the ownership of WebRequest is not lost.
     ///
-    /// This is possible because all fields of `WebRequest` are Copy.
+    /// # Note:
+    ///
+    /// Reborrow is not pure and 0receiver of it can mutate Self in any way they like.
     ///
     /// # Example:
     /// ```rust
