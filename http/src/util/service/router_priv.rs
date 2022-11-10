@@ -39,12 +39,14 @@ pub struct MatchError {
 }
 
 impl MatchError {
-    /// Indicates whether a route exists at the same path with/without a trailing slash.
-    pub fn is_trailing_slash(&self) -> bool {
-        matches!(
-            self.inner,
-            matchit::MatchError::MissingTrailingSlash | matchit::MatchError::ExtraTrailingSlash
-        )
+    /// Indicates whether a route exists at the same path without a trailing slash.
+    pub fn missing_trailing_slash(&self) -> bool {
+        matches!(self.inner, matchit::MatchError::MissingTrailingSlash)
+    }
+
+    /// Indicates whether a route exists at the same path with a trailing slash.
+    pub fn extra_trailing_slash(&self) -> bool {
+        matches!(self.inner, matchit::MatchError::ExtraTrailingSlash)
     }
 }
 

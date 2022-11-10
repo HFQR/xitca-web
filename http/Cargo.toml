@@ -57,7 +57,7 @@ h3 = { version = "0.0.0", optional = true }
 h3-quinn = { version = "0.0.0", optional = true }
 
 # util service support
-matchit = { version = "0.6", optional = true }
+matchit = { version = "0.7", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.4.2", features = ["all"] }
