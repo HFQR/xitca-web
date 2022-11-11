@@ -144,14 +144,15 @@ where
 {
     fn drop(&mut self) {
         if let Some(mut conn) = self.conn.take() {
+            let want_drop = conn.state.is_expired() || self.destroy_on_drop;
             let mut conns = self.pool.conns.lock().unwrap();
             match conns.get_mut(&self.key) {
-                Some(Value::NonMultiplexable(_)) if conn.state.is_expired() || self.destroy_on_drop => return,
+                Some(Value::NonMultiplexable(_)) | None if want_drop => return,
                 Some(Value::NonMultiplexable(queue)) => {
                     conn.state.update_idle();
                     queue.push_back(conn);
                 }
-                Some(Value::Multiplexable(_)) if conn.state.is_expired() || self.destroy_on_drop => {
+                Some(Value::Multiplexable(_)) if want_drop => {
                     conns.remove(&self.key);
                 }
                 Some(Value::Multiplexable(conn)) => conn.state.update_idle(),
