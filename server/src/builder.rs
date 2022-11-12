@@ -276,7 +276,7 @@ impl Builder {
         Ok(self)
     }
 
-    pub fn bind_h3<N, A, F>(
+    pub fn bind_h3<N, A, F, St>(
         self,
         name: N,
         addr: A,
@@ -286,7 +286,8 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceFn<xitca_io::net::UdpStream>,
+        F: BuildServiceFn<St>,
+        St: From<Stream> + Send + 'static,
     {
         let addr = addr
             .to_socket_addrs()?

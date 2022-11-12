@@ -101,11 +101,11 @@ where
 
             match io {
                 #[cfg(feature = "http3")]
-                ServerStream::Udp(io) => super::h3::Dispatcher::new(io, &self.service)
+                ServerStream::Udp(io, _) => super::h3::Dispatcher::new(io, &self.service)
                     .run()
                     .await
                     .map_err(From::from),
-                ServerStream::Tcp(io) => {
+                ServerStream::Tcp(io, _) => {
                     #[allow(unused_mut)]
                     let mut tls_stream = self
                         .tls_acceptor
@@ -161,7 +161,7 @@ where
                 }
                 #[cfg(unix)]
                 #[allow(unused_mut)]
-                ServerStream::Unix(mut io) => {
+                ServerStream::Unix(mut io, _) => {
                     #[cfg(not(feature = "http1"))]
                     {
                         drop(io);

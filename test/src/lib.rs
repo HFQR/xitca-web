@@ -2,7 +2,8 @@ use std::{
     error, fmt, fs,
     future::Future,
     io,
-    net::{SocketAddr, TcpListener},
+    net::SocketAddr,
+    net::TcpListener,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -57,7 +58,7 @@ where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
-    test_server::<_, _, TcpStream>(move || {
+    test_server::<_, _, (TcpStream, SocketAddr)>(move || {
         let f = factory();
         HttpServiceBuilder::h1(f)
     })
@@ -74,7 +75,7 @@ where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
-    test_server::<_, _, TcpStream>(move || {
+    test_server::<_, _, (TcpStream, SocketAddr)>(move || {
         let f = factory();
         let config = HttpServiceConfig::new()
             .first_request_timeout(Duration::from_millis(500))

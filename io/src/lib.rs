@@ -41,7 +41,7 @@ pub mod net {
     #[cfg(not(target_family = "wasm"))]
     pub use tokio::net::TcpSocket;
 
-    use std::io;
+    use std::{io, net::SocketAddr};
 
     pub struct TcpStream(pub(crate) tokio::net::TcpStream);
 
@@ -73,6 +73,7 @@ pub mod net {
     mod unix {
         use std::{
             io,
+            net::{Ipv4Addr, SocketAddr, SocketAddrV4},
             os::unix::io::{AsRawFd, RawFd},
         };
 
@@ -96,7 +97,27 @@ pub mod net {
         impl From<Stream> for UnixStream {
             fn from(stream: Stream) -> Self {
                 match stream {
-                    Stream::Unix(unix) => unix,
+                    Stream::Unix(unix, _) => unix,
+                    _ => unreachable!("Can not be casted to UnixStream"),
+                }
+            }
+        }
+
+        impl From<Stream> for (UnixStream, SocketAddr) {
+            fn from(stream: Stream) -> Self {
+                match stream {
+                    // UnixStream can not have a ip based socket address but to keep consistence with TcpStream/UdpStream types a unspecified address
+                    // is hand out as a placeholder.
+                    Stream::Unix(unix, _) => (unix, SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))),
+                    _ => unreachable!("Can not be casted to UnixStream"),
+                }
+            }
+        }
+
+        impl From<Stream> for (UnixStream, tokio::net::unix::SocketAddr) {
+            fn from(stream: Stream) -> Self {
+                match stream {
+                    Stream::Unix(unix, addr) => (unix, addr),
                     _ => unreachable!("Can not be casted to UnixStream"),
                 }
             }
@@ -145,28 +166,29 @@ pub mod net {
         pub async fn accept(&self) -> io::Result<Stream> {
             match *self {
                 Self::Tcp(ref tcp) => {
-                    let (stream, _) = tcp.accept().await?;
+                    let (stream, addr) = tcp.accept().await?;
 
                     // This two way conversion is to deregister stream from the listener thread's poll
                     // and re-register it to current thread's poll.
                     let stream = stream.into_std()?;
                     let stream = TcpStream::from_std(stream)?;
-                    Ok(Stream::Tcp(stream))
+                    Ok(Stream::Tcp(stream, addr))
                 }
                 #[cfg(feature = "http3")]
                 Self::Udp(ref udp) => {
                     let stream = udp.accept().await?;
-                    Ok(Stream::Udp(stream))
+                    let addr = stream.peer_addr();
+                    Ok(Stream::Udp(stream, addr))
                 }
                 #[cfg(unix)]
                 Self::Unix(ref unix) => {
-                    let (stream, _) = unix.accept().await?;
+                    let (stream, addr) = unix.accept().await?;
 
                     // This two way conversion is to deregister stream from the listener thread's poll
                     // and re-register it to current thread's poll.
                     let stream = stream.into_std()?;
                     let stream = UnixStream::from_std(stream)?;
-                    Ok(Stream::Unix(stream))
+                    Ok(Stream::Unix(stream, addr))
                 }
             }
         }
@@ -174,17 +196,27 @@ pub mod net {
 
     /// A collection of stream types of different protocol.
     pub enum Stream {
-        Tcp(TcpStream),
+        Tcp(TcpStream, SocketAddr),
         #[cfg(feature = "http3")]
-        Udp(UdpStream),
+        Udp(UdpStream, SocketAddr),
         #[cfg(unix)]
-        Unix(UnixStream),
+        Unix(UnixStream, tokio::net::unix::SocketAddr),
     }
 
     impl From<Stream> for TcpStream {
         fn from(stream: Stream) -> Self {
             match stream {
-                Stream::Tcp(tcp) => tcp,
+                Stream::Tcp(tcp, _) => tcp,
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("Can not be casted to TcpStream"),
+            }
+        }
+    }
+
+    impl From<Stream> for (TcpStream, SocketAddr) {
+        fn from(stream: Stream) -> Self {
+            match stream {
+                Stream::Tcp(tcp, addr) => (tcp, addr),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("Can not be casted to TcpStream"),
             }
@@ -195,7 +227,17 @@ pub mod net {
     impl From<Stream> for UdpStream {
         fn from(stream: Stream) -> Self {
             match stream {
-                Stream::Udp(udp) => udp,
+                Stream::Udp(udp, _) => udp,
+                _ => unreachable!("Can not be casted to UdpStream"),
+            }
+        }
+    }
+
+    #[cfg(feature = "http3")]
+    impl From<Stream> for (UdpStream, SocketAddr) {
+        fn from(stream: Stream) -> Self {
+            match stream {
+                Stream::Udp(udp, addr) => (udp, addr),
                 _ => unreachable!("Can not be casted to UdpStream"),
             }
         }

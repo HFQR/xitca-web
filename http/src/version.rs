@@ -19,7 +19,7 @@ impl AsVersion for xitca_io::net::Stream {
     #[inline]
     fn as_version(&self) -> Version {
         match *self {
-            Self::Tcp(ref tcp) => tcp.as_version(),
+            Self::Tcp(ref tcp, _) => tcp.as_version(),
             #[cfg(unix)]
             Self::Unix(..) => Version::HTTP_11,
             #[cfg(feature = "http3")]

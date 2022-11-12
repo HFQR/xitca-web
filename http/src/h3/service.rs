@@ -1,4 +1,4 @@
-use std::{fmt, future::Future};
+use std::{fmt, future::Future, net::SocketAddr};
 
 use futures_core::Stream;
 use xitca_io::net::UdpStream;
@@ -20,7 +20,7 @@ impl<S> H3Service<S> {
     }
 }
 
-impl<S, ResB, BE> Service<UdpStream> for H3Service<S>
+impl<S, ResB, BE> Service<(UdpStream, SocketAddr)> for H3Service<S>
 where
     S: Service<Request<RequestBody>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
@@ -32,7 +32,7 @@ where
     type Error = HttpServiceError<S::Error, BE>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-    fn call<'s>(&'s self, stream: UdpStream) -> Self::Future<'s>
+    fn call<'s>(&'s self, (stream, _): (UdpStream, SocketAddr)) -> Self::Future<'s>
     where
         UdpStream: 's,
     {
