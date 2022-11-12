@@ -1,14 +1,13 @@
 use std::{
     future::Future,
     marker::PhantomData,
-    net::SocketAddr,
     pin::Pin,
     rc::Rc,
     sync::{Arc, Mutex},
 };
 
 use tokio::task::JoinHandle;
-use xitca_io::net::{Listener, Stream};
+use xitca_io::net::{Listener, SocketAddr, Stream};
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::worker::{self, ServiceAny};

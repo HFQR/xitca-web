@@ -3,7 +3,6 @@ mod shutdown;
 use std::{
     any::Any,
     io,
-    net::SocketAddr,
     rc::Rc,
     sync::{atomic::AtomicBool, Arc},
     thread,
@@ -12,7 +11,7 @@ use std::{
 
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
-use xitca_io::net::{Listener, Stream};
+use xitca_io::net::{Listener, SocketAddr, Stream};
 use xitca_service::{ready::ReadyService, Service};
 
 use self::shutdown::ShutdownHandle;

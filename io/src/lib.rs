@@ -41,7 +41,27 @@ pub mod net {
     #[cfg(not(target_family = "wasm"))]
     pub use tokio::net::TcpSocket;
 
-    use std::{io, net::SocketAddr};
+    use std::io;
+
+    /// A unified socket address representation to include Unix Socket address.
+    pub enum SocketAddr {
+        Std(std::net::SocketAddr),
+        #[cfg(unix)]
+        Unix(tokio::net::unix::SocketAddr),
+    }
+
+    impl From<std::net::SocketAddr> for SocketAddr {
+        fn from(addr: std::net::SocketAddr) -> Self {
+            Self::Std(addr)
+        }
+    }
+
+    #[cfg(unix)]
+    impl From<tokio::net::unix::SocketAddr> for SocketAddr {
+        fn from(addr: tokio::net::unix::SocketAddr) -> Self {
+            Self::Unix(addr)
+        }
+    }
 
     pub struct TcpStream(pub(crate) tokio::net::TcpStream);
 
@@ -151,13 +171,13 @@ pub mod net {
                     // and re-register it to current thread's poll.
                     let stream = stream.into_std()?;
                     let stream = TcpStream::from_std(stream)?;
-                    Ok((Stream::Tcp(stream), addr))
+                    Ok((Stream::Tcp(stream), addr.into()))
                 }
                 #[cfg(feature = "http3")]
                 Self::Udp(ref udp) => {
                     let stream = udp.accept().await?;
                     let addr = stream.peer_addr();
-                    Ok((Stream::Udp(stream), addr))
+                    Ok((Stream::Udp(stream), addr.into()))
                 }
                 #[cfg(unix)]
                 Self::Unix(ref unix) => {
@@ -167,7 +187,7 @@ pub mod net {
                     // and re-register it to current thread's poll.
                     let stream = stream.into_std()?;
                     let stream = UnixStream::from_std(stream)?;
-                    Ok((Stream::Unix(stream), addr))
+                    Ok((Stream::Unix(stream), addr.into()))
                 }
             }
         }

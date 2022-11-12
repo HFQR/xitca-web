@@ -1,7 +1,7 @@
-use std::{future::Future, net::SocketAddr};
+use std::future::Future;
 
 use futures_core::Stream;
-use xitca_io::io::AsyncIo;
+use xitca_io::{io::AsyncIo, net::SocketAddr};
 use xitca_service::Service;
 use xitca_unsafe_collection::pin;
 

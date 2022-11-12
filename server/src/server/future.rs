@@ -23,8 +23,7 @@ impl ServerFuture {
     /// # Examples:
     ///
     /// ```rust
-    /// # use std::net::SocketAddr;
-    /// # use xitca_io::net::TcpStream;
+    /// # use xitca_io::net::{SocketAddr, TcpStream};
     /// # use xitca_server::Builder;
     /// # use xitca_service::fn_service;
     /// # #[tokio::main]

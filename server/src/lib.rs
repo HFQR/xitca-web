@@ -17,9 +17,7 @@ compile_error!("io_uring can only be used on linux system");
 
 #[cfg(test)]
 mod test {
-    use std::net::SocketAddr;
-
-    use xitca_io::net::TcpStream;
+    use xitca_io::net::{SocketAddr, TcpStream};
     use xitca_service::fn_service;
 
     #[test]

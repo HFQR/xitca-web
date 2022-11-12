@@ -1,10 +1,10 @@
-use std::{fmt, future::Future, marker::PhantomData, net::SocketAddr, pin::Pin};
+use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
 
 use futures_core::Stream;
 use xitca_io::{
     io::{AsyncIo, AsyncRead, AsyncWrite},
     net::Stream as ServerStream,
-    net::TcpStream,
+    net::{SocketAddr, TcpStream},
 };
 use xitca_service::{ready::ReadyService, Service};
 use xitca_unsafe_collection::pin;

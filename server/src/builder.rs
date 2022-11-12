@@ -1,10 +1,4 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    net::{self, SocketAddr},
-    pin::Pin,
-    time::Duration,
-};
+use std::{collections::HashMap, future::Future, net, pin::Pin, time::Duration};
 
 #[cfg(not(target_family = "wasm"))]
 use std::io;
@@ -12,7 +6,7 @@ use std::io;
 #[cfg(not(target_family = "wasm"))]
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
-use xitca_io::net::Stream;
+use xitca_io::net::{SocketAddr, Stream};
 
 use crate::{
     net::AsListener,

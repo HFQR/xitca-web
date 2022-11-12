@@ -1,9 +1,9 @@
-use std::{convert::Infallible, future::Future, io, net::SocketAddr, time::Duration};
+use std::{convert::Infallible, future::Future, io, time::Duration};
 
 use socket2::{SockRef, TcpKeepalive};
 
 use tracing::warn;
-use xitca_io::net::{Stream as ServerStream, TcpStream};
+use xitca_io::net::{SocketAddr, Stream as ServerStream, TcpStream};
 use xitca_service::{ready::ReadyService, Service};
 
 /// A middleware for socket options config of [TcpStream].

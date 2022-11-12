@@ -1,7 +1,7 @@
-use std::{fmt, future::Future, net::SocketAddr};
+use std::{fmt, future::Future};
 
 use futures_core::Stream;
-use xitca_io::net::UdpStream;
+use xitca_io::net::{SocketAddr, UdpStream};
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::{bytes::Bytes, error::HttpServiceError, http::Response, request::Request};

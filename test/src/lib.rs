@@ -2,7 +2,7 @@ use std::{
     error, fmt, fs,
     future::Future,
     io,
-    net::{SocketAddr, TcpListener},
+    net::TcpListener,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -14,7 +14,7 @@ use xitca_http::{
 };
 use xitca_io::{
     bytes::Bytes,
-    net::{Stream as NetStream, TcpStream},
+    net::{SocketAddr, Stream as NetStream, TcpStream},
 };
 use xitca_server::{Builder, ServerFuture, ServerHandle};
 use xitca_service::{ready::ReadyService, Service};
@@ -131,12 +131,12 @@ where
 }
 
 pub struct TestServerHandle {
-    addr: SocketAddr,
+    addr: std::net::SocketAddr,
     handle: ServerFuture,
 }
 
 impl TestServerHandle {
-    pub fn addr(&self) -> SocketAddr {
+    pub fn addr(&self) -> std::net::SocketAddr {
         self.addr
     }
 
