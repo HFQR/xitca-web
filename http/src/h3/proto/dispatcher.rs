@@ -31,6 +31,7 @@ use crate::{
 /// Http/3 dispatcher
 pub(crate) struct Dispatcher<'a, S, ReqB> {
     io: UdpStream,
+    addr: RemoteAddr,
     service: &'a S,
     _req_body: PhantomData<ReqB>,
 }
@@ -45,9 +46,10 @@ where
 
     ReqB: From<RequestBody>,
 {
-    pub(crate) fn new(io: UdpStream, service: &'a S) -> Self {
+    pub(crate) fn new(io: UdpStream, addr: RemoteAddr, service: &'a S) -> Self {
         Self {
             io,
+            addr,
             service,
             _req_body: PhantomData,
         }
@@ -77,8 +79,7 @@ where
                     }));
 
                     // Reconstruct Request to attach crate body type.
-                    let req =
-                        Request::from_http(req, RemoteAddr::None).map_body(move |_| ReqB::from(RequestBody(body)));
+                    let req = Request::from_http(req, self.addr).map_body(move |_| ReqB::from(RequestBody(body)));
 
                     queue.push(async move {
                         let fut = self.service.call(req);

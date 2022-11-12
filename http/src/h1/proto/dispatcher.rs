@@ -27,7 +27,7 @@ use crate::{
         error::Error,
     },
     http::{response::Parts, Response},
-    request::Request,
+    request::{RemoteAddr, Request},
     response,
     util::{futures::Timeout, hint::unlikely, keep_alive::KeepAlive},
 };
@@ -53,6 +53,7 @@ pub(crate) async fn run<
     const WRITE_BUF_LIMIT: usize,
 >(
     io: &'a mut St,
+    addr: RemoteAddr,
     timer: Pin<&'a mut KeepAlive>,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     service: &'a S,
@@ -69,10 +70,14 @@ where
 
     let res = if is_vectored {
         let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();
-        Dispatcher::new(io, timer, config, service, date, write_buf).run().await
+        Dispatcher::new(io, addr, timer, config, service, date, write_buf)
+            .run()
+            .await
     } else {
         let write_buf = FlatBuf::<WRITE_BUF_LIMIT>::default();
-        Dispatcher::new(io, timer, config, service, date, write_buf).run().await
+        Dispatcher::new(io, addr, timer, config, service, date, write_buf)
+            .run()
+            .await
     };
 
     match res {
@@ -212,6 +217,7 @@ where
 {
     fn new(
         io: &'a mut St,
+        addr: RemoteAddr,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         service: &'a S,
@@ -222,7 +228,7 @@ where
             io: BufferedIo::new(io, write_buf),
             timer,
             ka_dur: config.keep_alive_timeout,
-            ctx: Context::new(date),
+            ctx: Context::with_remote_addr(addr, date),
             service,
             _phantom: PhantomData,
         }

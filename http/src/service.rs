@@ -101,11 +101,11 @@ where
 
             match io {
                 #[cfg(feature = "http3")]
-                ServerStream::Udp(io, _) => super::h3::Dispatcher::new(io, &self.service)
+                ServerStream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr.into(), &self.service)
                     .run()
                     .await
                     .map_err(From::from),
-                ServerStream::Tcp(io, _) => {
+                ServerStream::Tcp(io, addr) => {
                     #[allow(unused_mut)]
                     let mut tls_stream = self
                         .tls_acceptor
@@ -129,6 +129,7 @@ where
                         #[cfg(feature = "http1")]
                         Version::HTTP_11 | Version::HTTP_10 => super::h1::proto::run(
                             &mut tls_stream,
+                            addr.into(),
                             timer.as_mut(),
                             self.config,
                             &self.service,
@@ -147,6 +148,7 @@ where
 
                             super::h2::Dispatcher::new(
                                 &mut conn,
+                                addr.into(),
                                 timer.as_mut(),
                                 self.config.keep_alive_timeout,
                                 &self.service,
@@ -173,9 +175,16 @@ where
                         // update timer to first request timeout.
                         self.update_first_request_deadline(timer.as_mut());
 
-                        super::h1::proto::run(&mut io, timer.as_mut(), self.config, &self.service, self.date.get())
-                            .await
-                            .map_err(From::from)
+                        super::h1::proto::run(
+                            &mut io,
+                            Default::default(),
+                            timer.as_mut(),
+                            self.config,
+                            &self.service,
+                            self.date.get(),
+                        )
+                        .await
+                        .map_err(From::from)
                     }
                 }
             }

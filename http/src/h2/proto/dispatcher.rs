@@ -38,6 +38,7 @@ use crate::{
 /// Http/2 dispatcher
 pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
     io: &'a mut Connection<TlsSt, Bytes>,
+    addr: RemoteAddr,
     keep_alive: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     service: &'a S,
@@ -58,6 +59,7 @@ where
 {
     pub(crate) fn new(
         io: &'a mut Connection<TlsSt, Bytes>,
+        addr: RemoteAddr,
         keep_alive: Pin<&'a mut KeepAlive>,
         ka_dur: Duration,
         service: &'a S,
@@ -65,6 +67,7 @@ where
     ) -> Self {
         Self {
             io,
+            addr,
             keep_alive,
             ka_dur,
             service,
@@ -76,6 +79,7 @@ where
     pub(crate) async fn run(self) -> Result<(), Error<S::Error, BE>> {
         let Self {
             io,
+            addr,
             mut keep_alive,
             ka_dur,
             service,
@@ -105,8 +109,7 @@ where
                 SelectOutput::A(Some(Ok((req, tx)))) => {
                     // Convert http::Request body type to crate::h2::Body
                     // and reconstruct as HttpRequest.
-                    let req =
-                        Request::from_http(req, RemoteAddr::None).map_body(|body| ReqB::from(RequestBody::from(body)));
+                    let req = Request::from_http(req, addr).map_body(|body| ReqB::from(RequestBody::from(body)));
 
                     queue.push(async move {
                         let fut = service.call(req);

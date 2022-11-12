@@ -33,11 +33,11 @@ where
     type Error = HttpServiceError<S::Error, BE>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-    fn call<'s>(&'s self, (io, _): (St, SocketAddr)) -> Self::Future<'s>
+    fn call<'s>(&'s self, (io, addr): (St, SocketAddr)) -> Self::Future<'s>
     where
         St: 's,
     {
-        async {
+        async move {
             // tls accept timer.
             let timer = self.keep_alive();
             pin!(timer);
@@ -52,9 +52,16 @@ where
             // update timer to first request timeout.
             self.update_first_request_deadline(timer.as_mut());
 
-            proto::run(&mut io, timer.as_mut(), self.config, &self.service, self.date.get())
-                .await
-                .map_err(Into::into)
+            proto::run(
+                &mut io,
+                addr.into(),
+                timer.as_mut(),
+                self.config,
+                &self.service,
+                self.date.get(),
+            )
+            .await
+            .map_err(Into::into)
         }
     }
 }
