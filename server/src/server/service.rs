@@ -7,7 +7,7 @@ use std::{
 };
 
 use tokio::task::JoinHandle;
-use xitca_io::net::{Listener, SocketAddr, Stream};
+use xitca_io::net::{Listener, Stream};
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::worker::{self, ServiceAny};
@@ -21,7 +21,7 @@ pub(crate) struct Factory<F, Req> {
 
 impl<F, Req> Factory<F, Req>
 where
-    F: BuildServiceFn<(Req, SocketAddr)>,
+    F: BuildServiceFn<Req>,
     Req: From<Stream> + Send + 'static,
 {
     pub(crate) fn new_boxed(inner: F) -> Box<dyn _BuildService> {
@@ -44,7 +44,7 @@ pub(crate) trait _BuildService: Send + Sync {
 
 impl<F, Req> _BuildService for Factory<F, Req>
 where
-    F: BuildServiceFn<(Req, SocketAddr)>,
+    F: BuildServiceFn<Req>,
     Req: From<Stream> + Send + 'static,
 {
     fn _build<'s, 'f>(

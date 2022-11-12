@@ -2,6 +2,7 @@ use std::{
     error, fmt, fs,
     future::Future,
     io,
+    net::SocketAddr,
     net::TcpListener,
     pin::Pin,
     task::{Context, Poll},
@@ -14,7 +15,7 @@ use xitca_http::{
 };
 use xitca_io::{
     bytes::Bytes,
-    net::{SocketAddr, Stream as NetStream, TcpStream},
+    net::{Stream as NetStream, TcpStream},
 };
 use xitca_server::{Builder, ServerFuture, ServerHandle};
 use xitca_service::{ready::ReadyService, Service};
@@ -29,7 +30,7 @@ pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> T + Send + Sync + 'static,
     T: Service,
-    T::Response: ReadyService + Service<(Req, SocketAddr)>,
+    T::Response: ReadyService + Service<Req>,
     Req: From<NetStream> + Send + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;
@@ -57,7 +58,7 @@ where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
-    test_server::<_, _, TcpStream>(move || {
+    test_server::<_, _, (TcpStream, SocketAddr)>(move || {
         let f = factory();
         HttpServiceBuilder::h1(f)
     })
@@ -74,7 +75,7 @@ where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
-    test_server::<_, _, TcpStream>(move || {
+    test_server::<_, _, (TcpStream, SocketAddr)>(move || {
         let f = factory();
         let config = HttpServiceConfig::new()
             .first_request_timeout(Duration::from_millis(500))
@@ -131,12 +132,12 @@ where
 }
 
 pub struct TestServerHandle {
-    addr: std::net::SocketAddr,
+    addr: SocketAddr,
     handle: ServerFuture,
 }
 
 impl TestServerHandle {
-    pub fn addr(&self) -> std::net::SocketAddr {
+    pub fn addr(&self) -> SocketAddr {
         self.addr
     }
 

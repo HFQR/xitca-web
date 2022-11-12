@@ -6,7 +6,7 @@ use std::io;
 #[cfg(not(target_family = "wasm"))]
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
-use xitca_io::net::{SocketAddr, Stream};
+use xitca_io::net::Stream;
 
 use crate::{
     net::AsListener,
@@ -137,7 +137,7 @@ impl Builder {
     pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, factory: F) -> Self
     where
         N: AsRef<str>,
-        F: BuildServiceFn<(St, SocketAddr)>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         self._listen(name, Some(listener), factory)
@@ -155,7 +155,7 @@ impl Builder {
     where
         N: AsRef<str>,
         L: AsListener + 'static,
-        F: BuildServiceFn<(St, SocketAddr)>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         self.listeners
@@ -177,7 +177,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceFn<(St, SocketAddr)>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         let addr = addr
@@ -191,7 +191,7 @@ impl Builder {
     fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, factory: F) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: BuildServiceFn<(St, SocketAddr)>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         let socket = if addr.is_ipv4() {
@@ -216,7 +216,7 @@ impl Builder {
     where
         N: AsRef<str>,
         P: AsRef<std::path::Path>,
-        F: BuildServiceFn<(St, SocketAddr)>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         // The path must not exist when we try to bind.
@@ -236,7 +236,7 @@ impl Builder {
     pub fn listen_unix<N, F, St>(self, name: N, listener: std::os::unix::net::UnixListener, factory: F) -> Self
     where
         N: AsRef<str>,
-        F: BuildServiceFn<(St, SocketAddr)>,
+        F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
         self._listen(name, Some(listener), factory)
@@ -257,7 +257,7 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceFn<(Stream, SocketAddr)>,
+        F: BuildServiceFn<Stream>,
     {
         let addr = addr
             .to_socket_addrs()?
@@ -276,7 +276,7 @@ impl Builder {
         Ok(self)
     }
 
-    pub fn bind_h3<N, A, F>(
+    pub fn bind_h3<N, A, F, St>(
         self,
         name: N,
         addr: A,
@@ -286,7 +286,8 @@ impl Builder {
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceFn<(xitca_io::net::UdpStream, SocketAddr)>,
+        F: BuildServiceFn<St>,
+        St: From<Stream> + Send + 'static,
     {
         let addr = addr
             .to_socket_addrs()?

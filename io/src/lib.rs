@@ -41,27 +41,7 @@ pub mod net {
     #[cfg(not(target_family = "wasm"))]
     pub use tokio::net::TcpSocket;
 
-    use std::io;
-
-    /// A unified socket address representation to include Unix Socket address.
-    pub enum SocketAddr {
-        Std(std::net::SocketAddr),
-        #[cfg(unix)]
-        Unix(tokio::net::unix::SocketAddr),
-    }
-
-    impl From<std::net::SocketAddr> for SocketAddr {
-        fn from(addr: std::net::SocketAddr) -> Self {
-            Self::Std(addr)
-        }
-    }
-
-    #[cfg(unix)]
-    impl From<tokio::net::unix::SocketAddr> for SocketAddr {
-        fn from(addr: tokio::net::unix::SocketAddr) -> Self {
-            Self::Unix(addr)
-        }
-    }
+    use std::{io, net::SocketAddr};
 
     pub struct TcpStream(pub(crate) tokio::net::TcpStream);
 
@@ -116,7 +96,16 @@ pub mod net {
         impl From<Stream> for UnixStream {
             fn from(stream: Stream) -> Self {
                 match stream {
-                    Stream::Unix(unix) => unix,
+                    Stream::Unix(unix, _) => unix,
+                    _ => unreachable!("Can not be casted to UnixStream"),
+                }
+            }
+        }
+
+        impl From<Stream> for (UnixStream, tokio::net::unix::SocketAddr) {
+            fn from(stream: Stream) -> Self {
+                match stream {
+                    Stream::Unix(unix, addr) => (unix, addr),
                     _ => unreachable!("Can not be casted to UnixStream"),
                 }
             }
@@ -162,7 +151,7 @@ pub mod net {
     }
 
     impl Listener {
-        pub async fn accept(&self) -> io::Result<(Stream, SocketAddr)> {
+        pub async fn accept(&self) -> io::Result<Stream> {
             match *self {
                 Self::Tcp(ref tcp) => {
                     let (stream, addr) = tcp.accept().await?;
@@ -171,13 +160,13 @@ pub mod net {
                     // and re-register it to current thread's poll.
                     let stream = stream.into_std()?;
                     let stream = TcpStream::from_std(stream)?;
-                    Ok((Stream::Tcp(stream), addr.into()))
+                    Ok(Stream::Tcp(stream, addr))
                 }
                 #[cfg(feature = "http3")]
                 Self::Udp(ref udp) => {
                     let stream = udp.accept().await?;
                     let addr = stream.peer_addr();
-                    Ok((Stream::Udp(stream), addr.into()))
+                    Ok(Stream::Udp(stream, addr))
                 }
                 #[cfg(unix)]
                 Self::Unix(ref unix) => {
@@ -187,7 +176,7 @@ pub mod net {
                     // and re-register it to current thread's poll.
                     let stream = stream.into_std()?;
                     let stream = UnixStream::from_std(stream)?;
-                    Ok((Stream::Unix(stream), addr.into()))
+                    Ok(Stream::Unix(stream, addr))
                 }
             }
         }
@@ -195,17 +184,27 @@ pub mod net {
 
     /// A collection of stream types of different protocol.
     pub enum Stream {
-        Tcp(TcpStream),
+        Tcp(TcpStream, SocketAddr),
         #[cfg(feature = "http3")]
-        Udp(UdpStream),
+        Udp(UdpStream, SocketAddr),
         #[cfg(unix)]
-        Unix(UnixStream),
+        Unix(UnixStream, tokio::net::unix::SocketAddr),
     }
 
     impl From<Stream> for TcpStream {
         fn from(stream: Stream) -> Self {
             match stream {
-                Stream::Tcp(tcp) => tcp,
+                Stream::Tcp(tcp, _) => tcp,
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("Can not be casted to TcpStream"),
+            }
+        }
+    }
+
+    impl From<Stream> for (TcpStream, SocketAddr) {
+        fn from(stream: Stream) -> Self {
+            match stream {
+                Stream::Tcp(tcp, addr) => (tcp, addr),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("Can not be casted to TcpStream"),
             }
@@ -216,7 +215,17 @@ pub mod net {
     impl From<Stream> for UdpStream {
         fn from(stream: Stream) -> Self {
             match stream {
-                Stream::Udp(udp) => udp,
+                Stream::Udp(udp, _) => udp,
+                _ => unreachable!("Can not be casted to UdpStream"),
+            }
+        }
+    }
+
+    #[cfg(feature = "http3")]
+    impl From<Stream> for (UdpStream, SocketAddr) {
+        fn from(stream: Stream) -> Self {
+            match stream {
+                Stream::Udp(udp, addr) => (udp, addr),
                 _ => unreachable!("Can not be casted to UdpStream"),
             }
         }

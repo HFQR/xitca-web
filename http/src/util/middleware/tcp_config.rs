@@ -1,9 +1,9 @@
-use std::{convert::Infallible, future::Future, io, time::Duration};
+use std::{convert::Infallible, future::Future, io, net::SocketAddr, time::Duration};
 
 use socket2::{SockRef, TcpKeepalive};
 
 use tracing::warn;
-use xitca_io::net::{SocketAddr, Stream as ServerStream, TcpStream};
+use xitca_io::net::{Stream as ServerStream, TcpStream};
 use xitca_service::{ready::ReadyService, Service};
 
 /// A middleware for socket options config of [TcpStream].
@@ -75,6 +75,19 @@ impl<S> Service<S> for TcpConfig {
     }
 }
 
+impl<S> ReadyService for TcpConfigService<S>
+where
+    S: ReadyService,
+{
+    type Ready = S::Ready;
+    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
+
+    #[inline]
+    fn ready(&self) -> Self::ReadyFuture<'_> {
+        self.service.ready()
+    }
+}
+
 impl<S> Service<(TcpStream, SocketAddr)> for TcpConfigService<S>
 where
     S: Service<(TcpStream, SocketAddr)>,
@@ -93,39 +106,26 @@ where
     }
 }
 
-impl<S> ReadyService for TcpConfigService<S>
+impl<S> Service<ServerStream> for TcpConfigService<S>
 where
-    S: ReadyService,
-{
-    type Ready = S::Ready;
-    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
-
-    #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
-        self.service.ready()
-    }
-}
-
-impl<S> Service<(ServerStream, SocketAddr)> for TcpConfigService<S>
-where
-    S: Service<(ServerStream, SocketAddr)>,
+    S: Service<ServerStream>,
 {
     type Response = S::Response;
     type Error = S::Error;
     type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, (stream, addr): (ServerStream, SocketAddr)) -> Self::Future<'s>
+    fn call<'s>(&'s self, stream: ServerStream) -> Self::Future<'s>
     where
         ServerStream: 's,
     {
         // Windows OS specific lint.
         #[allow(irrefutable_let_patterns)]
-        if let ServerStream::Tcp(ref tcp) = stream {
+        if let ServerStream::Tcp(ref tcp, _) = stream {
             self.try_apply_config(tcp);
         }
 
-        self.service.call((stream, addr))
+        self.service.call(stream)
     }
 }
 

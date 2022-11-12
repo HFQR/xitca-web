@@ -1,7 +1,7 @@
-use std::future::Future;
+use std::{future::Future, net::SocketAddr};
 
 use futures_core::Stream;
-use xitca_io::{io::AsyncIo, net::SocketAddr};
+use xitca_io::io::AsyncIo;
 use xitca_service::Service;
 use xitca_unsafe_collection::pin;
 
@@ -58,3 +58,5 @@ where
         }
     }
 }
+
+// TODO: impl Service<UnixStream, tokio::net::unix::SocketAddr> is not included yet.

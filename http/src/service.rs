@@ -4,7 +4,7 @@ use futures_core::Stream;
 use xitca_io::{
     io::{AsyncIo, AsyncRead, AsyncWrite},
     net::Stream as ServerStream,
-    net::{SocketAddr, TcpStream},
+    net::TcpStream,
 };
 use xitca_service::{ready::ReadyService, Service};
 use xitca_unsafe_collection::pin;
@@ -75,7 +75,7 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 }
 
 impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<(ServerStream, SocketAddr)>
+    Service<ServerStream>
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResB>>,
@@ -90,7 +90,7 @@ where
     type Error = HttpServiceError<S::Error, BE>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-    fn call<'s>(&'s self, (io, _): (ServerStream, SocketAddr)) -> Self::Future<'s>
+    fn call<'s>(&'s self, io: ServerStream) -> Self::Future<'s>
     where
         ServerStream: 's,
     {
@@ -101,11 +101,11 @@ where
 
             match io {
                 #[cfg(feature = "http3")]
-                ServerStream::Udp(io) => super::h3::Dispatcher::new(io, &self.service)
+                ServerStream::Udp(io, _) => super::h3::Dispatcher::new(io, &self.service)
                     .run()
                     .await
                     .map_err(From::from),
-                ServerStream::Tcp(io) => {
+                ServerStream::Tcp(io, _) => {
                     #[allow(unused_mut)]
                     let mut tls_stream = self
                         .tls_acceptor
@@ -161,7 +161,7 @@ where
                 }
                 #[cfg(unix)]
                 #[allow(unused_mut)]
-                ServerStream::Unix(mut io) => {
+                ServerStream::Unix(mut io, _) => {
                     #[cfg(not(feature = "http1"))]
                     {
                         drop(io);
