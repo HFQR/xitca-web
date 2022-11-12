@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::Future, io, time::Duration};
+use std::{convert::Infallible, future::Future, io, net::SocketAddr, time::Duration};
 
 use socket2::{SockRef, TcpKeepalive};
 
@@ -75,21 +75,21 @@ impl<S> Service<S> for TcpConfig {
     }
 }
 
-impl<S> Service<TcpStream> for TcpConfigService<S>
+impl<S> Service<(TcpStream, SocketAddr)> for TcpConfigService<S>
 where
-    S: Service<TcpStream>,
+    S: Service<(TcpStream, SocketAddr)>,
 {
     type Response = S::Response;
     type Error = S::Error;
     type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: TcpStream) -> Self::Future<'s>
+    fn call<'s>(&'s self, (stream, addr): (TcpStream, SocketAddr)) -> Self::Future<'s>
     where
         TcpStream: 's,
     {
-        self.try_apply_config(&req);
-        self.service.call(req)
+        self.try_apply_config(&stream);
+        self.service.call((stream, addr))
     }
 }
 
@@ -106,26 +106,26 @@ where
     }
 }
 
-impl<S> Service<ServerStream> for TcpConfigService<S>
+impl<S> Service<(ServerStream, SocketAddr)> for TcpConfigService<S>
 where
-    S: Service<ServerStream>,
+    S: Service<(ServerStream, SocketAddr)>,
 {
     type Response = S::Response;
     type Error = S::Error;
     type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: ServerStream) -> Self::Future<'s>
+    fn call<'s>(&'s self, (stream, addr): (ServerStream, SocketAddr)) -> Self::Future<'s>
     where
         ServerStream: 's,
     {
         // Windows OS specific lint.
         #[allow(irrefutable_let_patterns)]
-        if let ServerStream::Tcp(ref tcp) = req {
+        if let ServerStream::Tcp(ref tcp) = stream {
             self.try_apply_config(tcp);
         }
 
-        self.service.call(req)
+        self.service.call((stream, addr))
     }
 }
 

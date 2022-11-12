@@ -1,6 +1,7 @@
 use std::{
     future::Future,
     marker::PhantomData,
+    net::SocketAddr,
     pin::Pin,
     rc::Rc,
     sync::{Arc, Mutex},
@@ -21,7 +22,7 @@ pub(crate) struct Factory<F, Req> {
 
 impl<F, Req> Factory<F, Req>
 where
-    F: BuildServiceFn<Req>,
+    F: BuildServiceFn<(Req, SocketAddr)>,
     Req: From<Stream> + Send + 'static,
 {
     pub(crate) fn new_boxed(inner: F) -> Box<dyn _BuildService> {
@@ -44,7 +45,7 @@ pub(crate) trait _BuildService: Send + Sync {
 
 impl<F, Req> _BuildService for Factory<F, Req>
 where
-    F: BuildServiceFn<Req>,
+    F: BuildServiceFn<(Req, SocketAddr)>,
     Req: From<Stream> + Send + 'static,
 {
     fn _build<'s, 'f>(

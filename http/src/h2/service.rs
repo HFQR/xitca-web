@@ -1,4 +1,4 @@
-use std::{fmt, future::Future};
+use std::{fmt, future::Future, net::SocketAddr};
 
 use futures_core::Stream;
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite};
@@ -29,7 +29,7 @@ impl<
         const HEADER_LIMIT: usize,
         const READ_BUF_LIMIT: usize,
         const WRITE_BUF_LIMIT: usize,
-    > Service<St> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    > Service<(St, SocketAddr)> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
@@ -47,7 +47,7 @@ where
     type Error = HttpServiceError<S::Error, BE>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, St: 'f;
 
-    fn call<'s>(&'s self, io: St) -> Self::Future<'s>
+    fn call<'s>(&'s self, (io, _): (St, SocketAddr)) -> Self::Future<'s>
     where
         St: 's,
     {

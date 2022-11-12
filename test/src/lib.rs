@@ -29,7 +29,7 @@ pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> T + Send + Sync + 'static,
     T: Service,
-    T::Response: ReadyService + Service<Req>,
+    T::Response: ReadyService + Service<(Req, SocketAddr)>,
     Req: From<NetStream> + Send + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;

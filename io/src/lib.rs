@@ -41,7 +41,7 @@ pub mod net {
     #[cfg(not(target_family = "wasm"))]
     pub use tokio::net::TcpSocket;
 
-    use std::io;
+    use std::{io, net::SocketAddr};
 
     pub struct TcpStream(pub(crate) tokio::net::TcpStream);
 
@@ -142,31 +142,32 @@ pub mod net {
     }
 
     impl Listener {
-        pub async fn accept(&self) -> io::Result<Stream> {
+        pub async fn accept(&self) -> io::Result<(Stream, SocketAddr)> {
             match *self {
                 Self::Tcp(ref tcp) => {
-                    let (stream, _) = tcp.accept().await?;
+                    let (stream, addr) = tcp.accept().await?;
 
                     // This two way conversion is to deregister stream from the listener thread's poll
                     // and re-register it to current thread's poll.
                     let stream = stream.into_std()?;
                     let stream = TcpStream::from_std(stream)?;
-                    Ok(Stream::Tcp(stream))
+                    Ok((Stream::Tcp(stream), addr))
                 }
                 #[cfg(feature = "http3")]
                 Self::Udp(ref udp) => {
                     let stream = udp.accept().await?;
-                    Ok(Stream::Udp(stream))
+                    let addr = stream.peer_addr();
+                    Ok((Stream::Udp(stream), addr))
                 }
                 #[cfg(unix)]
                 Self::Unix(ref unix) => {
-                    let (stream, _) = unix.accept().await?;
+                    let (stream, addr) = unix.accept().await?;
 
                     // This two way conversion is to deregister stream from the listener thread's poll
                     // and re-register it to current thread's poll.
                     let stream = stream.into_std()?;
                     let stream = UnixStream::from_std(stream)?;
-                    Ok(Stream::Unix(stream))
+                    Ok((Stream::Unix(stream), addr))
                 }
             }
         }

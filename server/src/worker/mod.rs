@@ -3,6 +3,7 @@ mod shutdown;
 use std::{
     any::Any,
     io,
+    net::SocketAddr,
     rc::Rc,
     sync::{atomic::AtomicBool, Arc},
     thread,
@@ -21,7 +22,7 @@ pub(crate) type ServiceAny = Rc<dyn Any>;
 
 pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S) -> JoinHandle<()>
 where
-    S: ReadyService + Service<Req> + Clone + 'static,
+    S: ReadyService + Service<(Req, SocketAddr)> + Clone + 'static,
     S::Ready: 'static,
     Req: From<Stream>,
 {
@@ -33,10 +34,10 @@ where
             let ready = service.ready().await;
 
             match listener.accept().await {
-                Ok(stream) => {
+                Ok((stream, addr)) => {
                     let service = service.clone();
                     tokio::task::spawn_local(async move {
-                        let _ = service.call(From::from(stream)).await;
+                        let _ = service.call((From::from(stream), addr)).await;
                         drop(ready);
                     });
                 }

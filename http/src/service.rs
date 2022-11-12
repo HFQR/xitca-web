@@ -1,4 +1,4 @@
-use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
+use std::{fmt, future::Future, marker::PhantomData, net::SocketAddr, pin::Pin};
 
 use futures_core::Stream;
 use xitca_io::{
@@ -75,7 +75,7 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 }
 
 impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<ServerStream>
+    Service<(ServerStream, SocketAddr)>
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestBody>, Response = Response<ResB>>,
@@ -90,7 +90,7 @@ where
     type Error = HttpServiceError<S::Error, BE>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-    fn call<'s>(&'s self, io: ServerStream) -> Self::Future<'s>
+    fn call<'s>(&'s self, (io, _): (ServerStream, SocketAddr)) -> Self::Future<'s>
     where
         ServerStream: 's,
     {
