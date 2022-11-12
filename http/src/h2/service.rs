@@ -47,11 +47,11 @@ where
     type Error = HttpServiceError<S::Error, BE>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, St: 'f;
 
-    fn call<'s>(&'s self, (io, _): (St, SocketAddr)) -> Self::Future<'s>
+    fn call<'s>(&'s self, (io, addr): (St, SocketAddr)) -> Self::Future<'s>
     where
         St: 's,
     {
-        async {
+        async move {
             // tls accept timer.
             let timer = self.keep_alive();
             pin!(timer);
@@ -75,6 +75,7 @@ where
 
             let dispatcher = Dispatcher::new(
                 &mut conn,
+                addr.into(),
                 timer.as_mut(),
                 self.config.keep_alive_timeout,
                 &self.service,

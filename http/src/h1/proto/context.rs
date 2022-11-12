@@ -8,7 +8,7 @@ use crate::{
 
 /// Context is connection specific struct contain states for processing.
 pub struct Context<'a, D, const HEADER_LIMIT: usize> {
-    remote_addr: RemoteAddr,
+    addr: RemoteAddr,
     state: ContextState,
     ctype: ConnectionType,
     /// header map reused by next request.
@@ -59,15 +59,23 @@ pub enum ConnectionType {
 }
 
 impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
-    /// Context is constructed with a reference of certain type that impl [DateTime] trait.
-    /// This trait is used to write date header to request/response.
+    /// Context is constructed with reference of certain type that impl [DateTime] trait.
     #[inline]
     pub fn new(date: &'a D) -> Self
     where
         D: DateTime,
     {
+        Self::with_remote_addr(Default::default(), date)
+    }
+
+    /// Context is constructed with [RemoteAddr] and reference of certain type that impl [DateTime] trait.
+    #[inline]
+    pub fn with_remote_addr(addr: RemoteAddr, date: &'a D) -> Self
+    where
+        D: DateTime,
+    {
         Self {
-            remote_addr: RemoteAddr::None,
+            addr,
             state: ContextState::new(),
             ctype: ConnectionType::Init,
             header: None,
@@ -167,7 +175,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
 
     /// Get remote socket address context associated with.
     #[inline]
-    pub fn remote_addr(&self) -> RemoteAddr {
-        self.remote_addr
+    pub fn remote_addr(&self) -> &RemoteAddr {
+        &self.addr
     }
 }

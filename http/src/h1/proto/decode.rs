@@ -75,7 +75,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     _ => {}
                 }
 
-                let mut req = Request::with_remote_addr((), self.remote_addr());
+                let mut req = Request::with_remote_addr((), *self.remote_addr());
 
                 let extensions = self.take_extensions();
 

@@ -32,12 +32,12 @@ where
     type Error = HttpServiceError<S::Error, BE>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-    fn call<'s>(&'s self, (stream, _): (UdpStream, SocketAddr)) -> Self::Future<'s>
+    fn call<'s>(&'s self, (stream, addr): (UdpStream, SocketAddr)) -> Self::Future<'s>
     where
         UdpStream: 's,
     {
         async move {
-            let dispatcher = Dispatcher::new(stream, &self.service);
+            let dispatcher = Dispatcher::new(stream, addr.into(), &self.service);
 
             dispatcher.run().await?;
 

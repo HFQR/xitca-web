@@ -11,9 +11,14 @@ use super::http;
 /// A simplified version of [SocketAddr] where only [IpAddr] and `Port` information is stored.
 #[derive(Debug, Copy, Clone)]
 pub enum RemoteAddr {
-    None,
     V4(Ipv4Addr, u16),
     V6(Ipv6Addr, u16),
+}
+
+impl Default for RemoteAddr {
+    fn default() -> Self {
+        Self::V4(Ipv4Addr::UNSPECIFIED, 0)
+    }
 }
 
 impl From<SocketAddr> for RemoteAddr {
@@ -33,33 +38,33 @@ impl From<SocketAddr> for RemoteAddr {
 /// get a direct reference to [http::Request] type.
 pub struct Request<B> {
     req: http::Request<B>,
-    remote_addr: RemoteAddr,
+    addr: RemoteAddr,
 }
 
 impl<B> Request<B> {
     #[inline(always)]
     pub fn new(body: B) -> Self {
-        Self::with_remote_addr(body, RemoteAddr::None)
+        Self::with_remote_addr(body, Default::default())
     }
 
     #[inline]
-    pub fn with_remote_addr(body: B, remote_addr: RemoteAddr) -> Self {
+    pub fn with_remote_addr(body: B, addr: RemoteAddr) -> Self {
         Self {
             req: http::Request::new(body),
-            remote_addr,
+            addr,
         }
     }
 
-    /// Construct from existing `http::Request` and optional `SocketAddr`.
+    /// Construct from existing [http::Request] and [RemoteAddr].
     #[inline]
-    pub fn from_http(req: http::Request<B>, remote_addr: RemoteAddr) -> Self {
-        Self { req, remote_addr }
+    pub fn from_http(req: http::Request<B>, addr: RemoteAddr) -> Self {
+        Self { req, addr }
     }
 
     /// Get remote socket address of this request's source.
     #[inline]
     pub fn remote_addr(&self) -> &RemoteAddr {
-        &self.remote_addr
+        &self.addr
     }
 
     #[inline]
@@ -69,7 +74,7 @@ impl<B> Request<B> {
     {
         Request {
             req: self.req.map(func),
-            remote_addr: self.remote_addr,
+            addr: self.addr,
         }
     }
 
@@ -78,13 +83,7 @@ impl<B> Request<B> {
         let (parts, b) = self.req.into_parts();
         let req = http::Request::from_parts(parts, b1);
 
-        (
-            Request {
-                req,
-                remote_addr: self.remote_addr,
-            },
-            b,
-        )
+        (Request { req, addr: self.addr }, b)
     }
 
     /// Forward to [http::Request::into_body]
