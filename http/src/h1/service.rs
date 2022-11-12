@@ -58,5 +58,3 @@ where
         }
     }
 }
-
-// TODO: impl Service<UnixStream, tokio::net::unix::SocketAddr> is not included yet.

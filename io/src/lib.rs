@@ -73,6 +73,7 @@ pub mod net {
     mod unix {
         use std::{
             io,
+            net::{Ipv4Addr, SocketAddr, SocketAddrV4},
             os::unix::io::{AsRawFd, RawFd},
         };
 
@@ -97,6 +98,17 @@ pub mod net {
             fn from(stream: Stream) -> Self {
                 match stream {
                     Stream::Unix(unix, _) => unix,
+                    _ => unreachable!("Can not be casted to UnixStream"),
+                }
+            }
+        }
+
+        impl From<Stream> for (UnixStream, SocketAddr) {
+            fn from(stream: Stream) -> Self {
+                match stream {
+                    // UnixStream can not have a ip based socket address but to keep consistence with TcpStream/UdpStream types a unspecified address
+                    // is hand out as a placeholder.
+                    Stream::Unix(unix, _) => (unix, SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))),
                     _ => unreachable!("Can not be casted to UnixStream"),
                 }
             }
