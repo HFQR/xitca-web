@@ -247,23 +247,23 @@ where
 
             self.io.read().timeout(self.timer.as_mut()).await??;
 
-            'req: while let Some(res) = self.decode_head() {
+            while let Some(res) = self.decode_head() {
                 match res {
                     Ok((req, mut body_reader)) => {
                         let (parts, res_body) = self.request_handler(req, &mut body_reader).await?.into_parts();
                         let encoder = &mut self.encode_head(parts, &res_body)?;
                         self.response_handler(res_body, encoder, &mut body_reader).await?;
                         if self.ctx.is_connection_closed() {
-                            break 'req;
+                            break;
                         }
                     }
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         self.request_error(response::header_too_large)?;
-                        break 'req;
+                        break;
                     }
                     Err(ProtoError::Parse(_)) => {
                         self.request_error(response::bad_request)?;
-                        break 'req;
+                        break;
                     }
                     // TODO: handle error that are meant to be a response.
                     Err(e) => return Err(e.into()),
