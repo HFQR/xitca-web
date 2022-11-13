@@ -111,27 +111,28 @@ mod test {
     use super::*;
 
     use xitca_service::{fn_service, ServiceExt};
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::request::Request;
 
-    #[tokio::test]
-    async fn state_middleware() {
+    #[test]
+    fn state_middleware() {
         let service = fn_service(|req: Request<()>| async move {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
         .enclosed(Extension::new(String::from("state")))
         .call(())
-        .await
+        .now_or_panic()
         .unwrap();
 
-        let res = service.call(Request::new(())).await.unwrap();
+        let res = service.call(Request::new(())).now_or_panic().unwrap();
 
         assert_eq!("996", res);
     }
 
-    #[tokio::test]
-    async fn state_factory_middleware() {
+    #[test]
+    fn state_factory_middleware() {
         let service = fn_service(|req: Request<()>| async move {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
@@ -140,26 +141,26 @@ mod test {
             Ok::<_, Infallible>(String::from("state"))
         }))
         .call(())
-        .await
+        .now_or_panic()
         .unwrap();
 
-        let res = service.call(Request::new(())).await.unwrap();
+        let res = service.call(Request::new(())).now_or_panic().unwrap();
 
         assert_eq!("996", res);
     }
 
-    #[tokio::test]
-    async fn state_middleware_http_request() {
+    #[test]
+    fn state_middleware_http_request() {
         let service = fn_service(|req: http::Request<()>| async move {
             assert_eq!("state", req.extensions().get::<String>().unwrap());
             Ok::<_, ()>("996")
         })
         .enclosed(Extension::new(String::from("state")))
         .call(())
-        .await
+        .now_or_panic()
         .unwrap();
 
-        let res = service.call(http::Request::new(())).await.unwrap();
+        let res = service.call(http::Request::new(())).now_or_panic().unwrap();
 
         assert_eq!("996", res);
     }
