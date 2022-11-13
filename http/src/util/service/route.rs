@@ -241,6 +241,7 @@ mod test {
     use std::convert::Infallible;
 
     use xitca_service::{fn_service, Service, ServiceExt};
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         body::{RequestBody, ResponseBody},
@@ -255,8 +256,8 @@ mod test {
         Ok(Response::new(ResponseBody::None))
     }
 
-    #[tokio::test]
-    async fn route_enclosed_fn2() {
+    #[test]
+    fn route_enclosed_fn2() {
         async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
         where
             S: Service<Req>,
@@ -269,78 +270,78 @@ mod test {
             .trace(fn_service(index))
             .enclosed_fn(enclosed);
 
-        let service = route.call(()).await.ok().unwrap();
+        let service = route.call(()).now_or_panic().ok().unwrap();
         let req = Request::new(RequestBody::None);
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::POST;
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
-        let err = service.call(req).await.err().unwrap();
+        let err = service.call(req).now_or_panic().err().unwrap();
         assert!(matches!(err, RouteError::First(MethodNotAllowed)));
     }
 
-    #[tokio::test]
-    async fn route_mixed() {
+    #[test]
+    fn route_mixed() {
         let route = get(fn_service(index)).next(Route::new(fn_service(index)).methods([Method::POST, Method::PUT]));
 
-        let service = route.call(()).await.ok().unwrap();
+        let service = route.call(()).now_or_panic().ok().unwrap();
         let req = Request::new(RequestBody::None);
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::POST;
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::DELETE;
-        let err = service.call(req).await.err().unwrap();
+        let err = service.call(req).now_or_panic().err().unwrap();
         assert!(matches!(err, RouteError::First(MethodNotAllowed)));
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
     }
 
-    #[tokio::test]
-    async fn route_struct() {
+    #[test]
+    fn route_struct() {
         let route = Route::new(fn_service(index))
             .methods([Method::POST, Method::PUT])
             .next(Route::new(fn_service(index)).methods([Method::GET]))
             .next(Route::new(fn_service(index)).methods([Method::OPTIONS]))
             .next(trace(fn_service(index)));
 
-        let service = route.call(()).await.ok().unwrap();
+        let service = route.call(()).now_or_panic().ok().unwrap();
         let req = Request::new(RequestBody::None);
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::POST;
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::DELETE;
-        let err = service.call(req).await.err().unwrap();
+        let err = service.call(req).now_or_panic().err().unwrap();
         assert!(matches!(err, RouteError::First(MethodNotAllowed)));
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::TRACE;
-        let res = service.call(req).await.ok().unwrap();
+        let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
     }
 
@@ -352,29 +353,29 @@ mod test {
             .methods([Method::GET, Method::PUT]);
     }
 
-    #[tokio::test]
-    async fn route_accept_crate_request() {
+    #[test]
+    fn route_accept_crate_request() {
         get(fn_service(|_: Request<()>| async {
             Ok::<_, Infallible>(Response::new(()))
         }))
         .call(())
-        .await
+        .now_or_panic()
         .unwrap()
         .call(Request::new(()))
-        .await
+        .now_or_panic()
         .unwrap();
     }
 
-    #[tokio::test]
-    async fn route_accept_http_request() {
+    #[test]
+    fn route_accept_http_request() {
         get(fn_service(|_: http::Request<()>| async {
             Ok::<_, Infallible>(Response::new(()))
         }))
         .call(())
-        .await
+        .now_or_panic()
         .unwrap()
         .call(http::Request::new(()))
-        .await
+        .now_or_panic()
         .unwrap();
     }
 }
