@@ -105,9 +105,8 @@ where
                     .run()
                     .await
                     .map_err(From::from),
-                ServerStream::Tcp(io, addr) => {
-                    #[allow(unused_mut)]
-                    let mut tls_stream = self
+                ServerStream::Tcp(io, _addr) => {
+                    let mut _tls_stream = self
                         .tls_acceptor
                         .call(io)
                         .timeout(timer.as_mut())
@@ -119,7 +118,7 @@ where
                         // regardless of AsVersion's outcome.
                         todo!("peek version is not implemented yet!")
                     } else {
-                        tls_stream.as_version()
+                        _tls_stream.as_version()
                     };
 
                     // update timer to first request timeout.
@@ -128,8 +127,8 @@ where
                     match version {
                         #[cfg(feature = "http1")]
                         Version::HTTP_11 | Version::HTTP_10 => super::h1::proto::run(
-                            &mut tls_stream,
-                            addr.into(),
+                            &mut _tls_stream,
+                            _addr.into(),
                             timer.as_mut(),
                             self.config,
                             &self.service,
@@ -141,14 +140,14 @@ where
                         Version::HTTP_2 => {
                             let mut conn = ::h2::server::Builder::new()
                                 .enable_connect_protocol()
-                                .handshake(tls_stream)
+                                .handshake(_tls_stream)
                                 .timeout(timer.as_mut())
                                 .await
                                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
 
                             super::h2::Dispatcher::new(
                                 &mut conn,
-                                addr.into(),
+                                _addr.into(),
                                 timer.as_mut(),
                                 self.config.keep_alive_timeout,
                                 &self.service,
@@ -162,11 +161,9 @@ where
                     }
                 }
                 #[cfg(unix)]
-                #[allow(unused_mut)]
-                ServerStream::Unix(mut io, _) => {
+                ServerStream::Unix(mut _io, _) => {
                     #[cfg(not(feature = "http1"))]
                     {
-                        drop(io);
                         Err(HttpServiceError::UnSupportedVersion(Version::HTTP_11))
                     }
 
@@ -176,7 +173,7 @@ where
                         self.update_first_request_deadline(timer.as_mut());
 
                         super::h1::proto::run(
-                            &mut io,
+                            &mut _io,
                             Default::default(),
                             timer.as_mut(),
                             self.config,
