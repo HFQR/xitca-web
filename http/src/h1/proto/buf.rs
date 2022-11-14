@@ -40,25 +40,18 @@ pub trait BufWrite: BufInterest {
 
 pub struct FlatBuf<const BUF_LIMIT: usize> {
     inner: BytesMut,
-    flush: Flush,
 }
 
 impl<const BUF_LIMIT: usize> FlatBuf<BUF_LIMIT> {
     #[inline]
     pub fn new() -> Self {
-        Self {
-            inner: BytesMut::new(),
-            flush: Default::default(),
-        }
+        Self { inner: BytesMut::new() }
     }
 }
 
 impl<const BUF_LIMIT: usize> From<BytesMut> for FlatBuf<BUF_LIMIT> {
     fn from(bytes_mut: BytesMut) -> Self {
-        Self {
-            inner: bytes_mut,
-            flush: Default::default(),
-        }
+        Self { inner: bytes_mut }
     }
 }
 
@@ -88,55 +81,39 @@ impl<const BUF_LIMIT: usize> BufInterest for FlatBuf<BUF_LIMIT> {
         self.remaining() >= BUF_LIMIT
     }
 
-    #[inline]
+    #[inline(always)]
     fn want_write(&self) -> bool {
-        self.remaining() != 0 || self.flush.want_flush()
+        self.inner.want_write()
     }
 }
 
 impl<const BUF_LIMIT: usize> BufWrite for FlatBuf<BUF_LIMIT> {
-    #[inline]
+    #[inline(always)]
     fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
-        func(&mut *self)
+        self.inner.write_head(func)
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_static(&mut self, bytes: &'static [u8]) {
-        self.put_slice(bytes);
+        self.inner.write_static(bytes)
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_bytes(&mut self, bytes: Bytes) {
-        self.put_slice(bytes.as_ref());
+        self.inner.write_bytes(bytes)
     }
 
+    #[inline(always)]
     fn write_chunked(&mut self, bytes: Bytes) {
-        write!(BufMutWriter(&mut **self), "{:X}\r\n", bytes.len()).unwrap();
-
-        self.reserve(bytes.len() + 2);
-        self.put_slice(bytes.as_ref());
-        self.put_slice(b"\r\n");
+        self.inner.write_chunked(bytes)
     }
 
+    #[inline(always)]
     fn flush<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
-        let mut written = 0;
-        let len = self.remaining();
-
-        while written < len {
-            match io.write(&self[written..]) {
-                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                Ok(n) => written += n,
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
-            }
-        }
-
-        self.advance(written);
-
-        self.flush.flush(io)
+        self.inner.flush(io)
     }
 }
 
@@ -181,7 +158,6 @@ impl BufWrite for BytesMut {
     fn flush<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
         let mut written = 0;
         let len = self.remaining();
-
         while written < len {
             match io.write(&self[written..]) {
                 Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
@@ -190,9 +166,7 @@ impl BufWrite for BytesMut {
                 Err(e) => return Err(e),
             }
         }
-
         self.advance(written);
-
         Ok(())
     }
 }
@@ -204,7 +178,6 @@ pub(super) struct ListBuf<B, const BUF_LIMIT: usize> {
     buf: BytesMut,
     // Deque of user buffers if strategy is Queue
     list: BufList<B, BUF_LIST_CNT>,
-    flush: Flush,
 }
 
 impl<B: Buf, const BUF_LIMIT: usize> Default for ListBuf<B, BUF_LIMIT> {
@@ -212,7 +185,6 @@ impl<B: Buf, const BUF_LIMIT: usize> Default for ListBuf<B, BUF_LIMIT> {
         Self {
             buf: BytesMut::new(),
             list: BufList::new(),
-            flush: Default::default(),
         }
     }
 }
@@ -248,7 +220,7 @@ impl<const BUF_LIMIT: usize> BufInterest for ListBuf<EncodedBuf<Bytes, Eof>, BUF
 
     #[inline]
     fn want_write(&self) -> bool {
-        self.list.remaining() != 0 || self.flush.want_flush()
+        self.list.remaining() != 0
     }
 }
 
@@ -279,7 +251,6 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
         let eof = Bytes::from(format!("{:X}\r\n", bytes.len()))
             .chain(bytes)
             .chain(b"\r\n" as &'static [u8]);
-
         self.buffer(EitherBuf::Right(EitherBuf::Left(eof)));
     }
 
@@ -288,7 +259,6 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
         while !queue.is_empty() {
             let mut buf = uninit::uninit_array::<_, BUF_LIST_CNT>();
             let slice = queue.chunks_vectored_uninit_into_init(&mut buf);
-
             match io.write_vectored(slice) {
                 Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(n) => queue.advance(n),
@@ -296,29 +266,6 @@ impl<const BUF_LIMIT: usize> BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LI
                 Err(e) => return Err(e),
             }
         }
-
-        self.flush.flush(io)
-    }
-}
-
-// a track type for given io's flush state.
-#[derive(Default)]
-struct Flush(bool);
-
-impl Flush {
-    // if flush want to write to io
-    fn want_flush(&self) -> bool {
-        self.0
-    }
-
-    // flush io and set self to want_flush when flush is blocked.
-    fn flush<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
-        match io.flush() {
-            Ok(_) => self.0 = false,
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => self.0 = true,
-            Err(e) => return Err(e),
-        }
-
         Ok(())
     }
 }
