@@ -162,7 +162,16 @@ where
             self.io.ready(Interest::WRITABLE).await?;
             self.try_write()?;
         }
-        Ok(())
+
+        loop {
+            match io::Write::flush(&mut self.io) {
+                Ok(()) => return Ok(()),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                Err(e) => return Err(e),
+            }
+
+            self.io.ready(Interest::WRITABLE).await?;
+        }
     }
 
     // Check readable and writable state of IO and ready state of request body reader.
