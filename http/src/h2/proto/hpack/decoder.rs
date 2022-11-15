@@ -838,8 +838,7 @@ mod test {
     fn test_decode_empty() {
         let mut de = Decoder::new(0);
         let mut buf = BytesMut::new();
-        let empty = de.decode(&mut Cursor::new(&mut buf), |_| {}).unwrap();
-        assert_eq!(empty, ());
+        de.decode(&mut Cursor::new(&mut buf), |_| {}).unwrap();
     }
 
     #[test]
@@ -900,11 +899,10 @@ mod test {
 
         // extend buf with the remaining header value
         buf.extend(&value[1..]);
-        let _ = de
-            .decode(&mut Cursor::new(&mut buf), |h| {
-                res.push(h);
-            })
-            .unwrap();
+        de.decode(&mut Cursor::new(&mut buf), |h| {
+            res.push(h);
+        })
+        .unwrap();
 
         assert_eq!(res.len(), 1);
         assert_eq!(de.table.size(), 0);
