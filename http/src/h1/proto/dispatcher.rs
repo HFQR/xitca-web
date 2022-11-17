@@ -169,7 +169,6 @@ where
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Err(e),
             }
-
             self.io.ready(Interest::WRITABLE).await?;
         }
     }
@@ -354,7 +353,7 @@ where
         loop {
             match self
                 .try_poll_body(body.as_mut())
-                .select(self.response_body_handler(body_reader))
+                .select(self.io.ready(body_reader, &mut self.ctx))
                 .await
             {
                 SelectOutput::A(Some(res)) => {
@@ -370,7 +369,17 @@ where
                     encoder.encode_eof(&mut self.io.write_buf);
                     return Ok(());
                 }
-                SelectOutput::B(res) => res?,
+                SelectOutput::B(Ok(ready)) => {
+                    if ready.is_readable() {
+                        if let Err(e) = self.io.try_read() {
+                            body_reader.feed_error(e, &mut self.ctx);
+                        }
+                    }
+                    if ready.is_writable() {
+                        self.io.try_write()?;
+                    }
+                }
+                SelectOutput::B(Err(e)) => return Err(e.into()),
             }
         }
     }
@@ -384,23 +393,6 @@ where
                 poll_fn(|cx| body.as_mut().poll_next(cx)).await
             }
         }
-    }
-
-    async fn response_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<(), Error<S::Error, BE>> {
-        let ready = self.io.ready(body_reader, &mut self.ctx).await?;
-
-        if ready.is_readable() {
-            if let Err(e) = self.io.try_read() {
-                // TODO: transform to eof state for body reader to stop reading?
-                body_reader.tx.feed_error(e);
-            }
-        }
-
-        if ready.is_writable() {
-            self.io.try_write()?;
-        }
-
-        Ok(())
     }
 
     #[cold]
@@ -449,12 +441,17 @@ impl BodyReader {
                 },
                 ChunkResult::Eof => self.tx.feed_eof(),
                 ChunkResult::AlreadyEof => pending().await,
-                ChunkResult::Err(e) => {
-                    self.tx.feed_error(e);
-                    self.set_close(ctx);
-                }
+                ChunkResult::Err(e) => self.feed_error(e, ctx),
             }
         }
+    }
+
+    // feed error to body sender and prepare for close connection.
+    #[cold]
+    #[inline(never)]
+    fn feed_error<D, const HEADER_LIMIT: usize>(&mut self, e: io::Error, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
+        self.tx.feed_error(e);
+        self.set_close(ctx);
     }
 
     // prepare for close connection by end decoder and set context to closed connection regardless their current states.
