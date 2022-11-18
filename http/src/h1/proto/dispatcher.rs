@@ -356,19 +356,7 @@ where
                 .select(self.io.ready(body_reader, &mut self.ctx))
                 .await
             {
-                SelectOutput::A(Some(res)) => {
-                    let bytes = res.map_err(Error::Body)?;
-                    encoder.encode(bytes, &mut self.io.write_buf);
-                }
-                SelectOutput::A(None) => {
-                    // Request body is partial consumed. Close connection in case there are bytes
-                    // remain in socket.
-                    if !body_reader.decoder.is_eof() {
-                        self.ctx.set_ctype(ConnectionType::Close);
-                    }
-                    encoder.encode_eof(&mut self.io.write_buf);
-                    return Ok(());
-                }
+                SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
                 SelectOutput::B(Ok(ready)) => {
                     if ready.is_readable() {
                         if let Err(e) = self.io.try_read() {
@@ -379,7 +367,17 @@ where
                         self.io.try_write()?;
                     }
                 }
+                SelectOutput::A(None) => {
+                    // Request body is partial consumed. Close connection in case there are bytes
+                    // remain in socket.
+                    if !body_reader.decoder.is_eof() {
+                        self.ctx.set_ctype(ConnectionType::Close);
+                    }
+                    encoder.encode_eof(&mut self.io.write_buf);
+                    return Ok(());
+                }
                 SelectOutput::B(Err(e)) => return Err(e.into()),
+                SelectOutput::A(Some(Err(e))) => return Err(Error::Body(e)),
             }
         }
     }

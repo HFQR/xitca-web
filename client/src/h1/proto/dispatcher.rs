@@ -2,7 +2,7 @@ use std::{future::poll_fn, io};
 
 use futures_core::Stream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use xitca_http::h1::proto::{buf::FlatBuf, codec::TransferCoding, context::ConnectionType};
+use xitca_http::h1::proto::{codec::TransferCoding, context::ConnectionType};
 use xitca_io::io::{AsyncRead, AsyncWrite};
 use xitca_unsafe_collection::pin;
 
@@ -24,7 +24,7 @@ pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
     mut req: http::Request<B>,
-) -> Result<(http::Response<()>, FlatBuf<{ 1024 * 1024 }>, TransferCoding, bool), Error>
+) -> Result<(http::Response<()>, BytesMut, TransferCoding, bool), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>>,
@@ -53,13 +53,13 @@ where
 
     // TODO: make const generic params configurable.
     let mut ctx = Context::<128>::new(&date);
-    let mut buf = FlatBuf::<{ 1024 * 1024 }>::new();
+    let mut buf = BytesMut::new();
 
     // encode request head and return transfer encoding for request body
     let encoder = ctx.encode_head(&mut buf, parts, &body)?;
 
     // send request head for potential intermediate handling like expect header.
-    stream.write_all_buf(&mut *buf).await?;
+    stream.write_all_buf(&mut buf).await?;
     stream.flush().await?;
 
     // TODO: concurrent read write is needed in case server decide to do two way
@@ -77,7 +77,7 @@ where
 
     // read response head and get body decoder.
     loop {
-        let n = stream.read_buf(&mut *buf).await?;
+        let n = stream.read_buf(&mut buf).await?;
 
         if n == 0 {
             return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
@@ -107,11 +107,11 @@ where
     }
 }
 
-async fn send_inner<S, B, E, const LIMIT: usize>(
+async fn send_inner<S, B, E>(
     stream: &mut S,
     mut encoder: TransferCoding,
     body: B,
-    buf: &mut FlatBuf<LIMIT>,
+    buf: &mut BytesMut,
 ) -> Result<(), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -126,12 +126,12 @@ where
             let bytes = bytes.map_err(BodyError::from)?;
             encoder.encode(bytes, buf);
             // we are not in a hurry here so write before handling next chunk.
-            stream.write_all_buf(&mut **buf).await?;
+            stream.write_all_buf(buf).await?;
         }
 
         // body is finished. encode eof and clean up.
         encoder.encode_eof(buf);
-        stream.write_all_buf(&mut **buf).await?;
+        stream.write_all_buf(buf).await?;
     }
 
     stream.flush().await.map_err(Into::into)

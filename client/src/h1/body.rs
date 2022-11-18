@@ -9,22 +9,19 @@ use futures_core::stream::Stream;
 use tokio::io::AsyncRead;
 use tokio_util::io::poll_read_buf;
 use xitca_http::{
-    bytes::Bytes,
+    bytes::{Bytes, BytesMut},
     error::BodyError,
-    h1::proto::{
-        buf::FlatBuf,
-        codec::{ChunkResult, TransferCoding},
-    },
+    h1::proto::codec::{ChunkResult, TransferCoding},
 };
 
 pub struct ResponseBody<C> {
     conn: C,
-    buf: FlatBuf<{ 1024 * 1024 }>,
+    buf: BytesMut,
     decoder: TransferCoding,
 }
 
 impl<C> ResponseBody<C> {
-    pub(crate) fn new(conn: C, buf: FlatBuf<{ 1024 * 1024 }>, decoder: TransferCoding) -> Self {
+    pub(crate) fn new(conn: C, buf: BytesMut, decoder: TransferCoding) -> Self {
         Self { conn, buf, decoder }
     }
 
@@ -44,10 +41,10 @@ where
         let this = self.get_mut();
 
         loop {
-            match this.decoder.decode(this.buf.deref_mut()) {
+            match this.decoder.decode(&mut this.buf) {
                 ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
                 ChunkResult::InsufficientData => {
-                    let n = ready!(poll_read_buf(Pin::new(&mut *this.conn), cx, &mut *this.buf))?;
+                    let n = ready!(poll_read_buf(Pin::new(&mut *this.conn), cx, &mut this.buf))?;
 
                     if n == 0 {
                         return Poll::Ready(Some(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())));
