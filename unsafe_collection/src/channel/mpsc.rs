@@ -6,15 +6,18 @@ use core::{
     cell::RefCell,
     fmt,
     future::{poll_fn, Future},
+    mem,
     pin::Pin,
     task::{Context, Poll, Waker},
 };
 
 use alloc::rc::Rc;
 
-use std::collections::linked_list::LinkedList;
-
-use crate::bound_queue::heap::{HeapQueue, Iter};
+use crate::{
+    bound_queue::heap::{HeapQueue, Iter},
+    list::{LinkedList, Node},
+    pin,
+};
 
 /// An async array that act in mpsc manner. There can be multiple `Sender`s and one `Receiver`.
 pub fn async_vec<T>(cap: usize) -> (Sender<T>, Receiver<T>) {
@@ -46,46 +49,80 @@ impl<T> Sender<T> {
         self.inner.borrow_mut().is_closed()
     }
 
-    pub async fn send(&self, value: T) -> Result<(), Error<T>> {
-        struct SendFuture<'a, T> {
-            sender: &'a Sender<T>,
-            value: Option<T>,
-        }
+    #[allow(clippy::await_holding_refcell_ref)] // clippy is dumb.
+    pub async fn send(&self, mut value: T) -> Result<(), Error<T>> {
+        loop {
+            let mut inner = self.inner.borrow_mut();
+            match inner.try_push(value) {
+                Ok(_) => {
+                    inner.wake_receiver();
+                    return Ok(());
+                }
+                Err(Error::Full(v)) => {
+                    value = v;
 
-        impl<T> Unpin for SendFuture<'_, T> {}
+                    let node = Node::new(Waiter::Init);
 
-        impl<T> Future for SendFuture<'_, T> {
-            type Output = Result<(), Error<T>>;
+                    pin!(node);
 
-            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-                let this = self.get_mut();
+                    // SAFETY
+                    // NodeGuard does not move the node nor leak the pointer on drop.
+                    unsafe {
+                        inner.waiters.push_front(node.as_mut());
+                    }
 
-                match this.value.take() {
-                    Some(value) => {
-                        let mut inner = this.sender.inner.borrow_mut();
-                        match inner.try_push(value) {
-                            Ok(_) => {
-                                inner.wake_receiver();
-                                Poll::Ready(Ok(()))
+                    drop(inner);
+
+                    struct NodeGuard<'a, T> {
+                        node: Pin<&'a mut Node<Waiter>>,
+                        sender: &'a Sender<T>,
+                    }
+
+                    impl<T> Drop for NodeGuard<'_, T> {
+                        fn drop(&mut self) {
+                            match self.node.as_ref().get_ref().get() {
+                                Waiter::Init | Waiter::Wait(..) => {
+                                    // SAFETY
+                                    // node is dropping before waked up by receiver. remove the node from list.
+                                    unsafe { self.sender.inner.borrow_mut().waiters.remove(self.node.as_mut()) };
+                                }
+                                _ => {}
                             }
-                            Err(Error::Full(value)) => {
-                                this.value = Some(value);
-                                inner.register_sender_waker(cx.waker());
-                                Poll::Pending
-                            }
-                            Err(e) => Poll::Ready(Err(e)),
                         }
                     }
-                    None => panic!("SendFuture polled after finish"),
+
+                    impl<T> Future for NodeGuard<'_, T> {
+                        type Output = ();
+
+                        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                            let this = self.get_mut();
+                            // SAFETY
+                            // not moving node.
+                            let node = unsafe { this.node.as_mut().get_unchecked_mut() };
+
+                            let state = node.get_mut();
+
+                            match *state {
+                                Waiter::Init => {
+                                    *state = Waiter::Wait(cx.waker().clone());
+                                    Poll::Pending
+                                }
+                                Waiter::Wait(ref waker) => {
+                                    if !cx.waker().will_wake(waker) {
+                                        *state = Waiter::Wait(cx.waker().clone());
+                                    }
+                                    Poll::Pending
+                                }
+                                Waiter::Waked => Poll::Ready(()),
+                            }
+                        }
+                    }
+
+                    NodeGuard { node, sender: self }.await
                 }
+                Err(e) => return Err(e),
             }
         }
-
-        SendFuture {
-            sender: self,
-            value: Some(value),
-        }
-        .await
     }
 }
 
@@ -97,8 +134,11 @@ impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         let mut inner = self.inner.borrow_mut();
         inner.set_close();
-        while let Some(waker) = inner.sender_waker.pop_front() {
-            waker.wake();
+        while let Some(node) = inner.waiters.pop_back() {
+            match mem::replace(node.get_mut(), Waiter::Waked) {
+                Waiter::Wait(waker) => waker.wake(),
+                Waiter::Init | Waiter::Waked => panic!("waiter is not in valid state"),
+            }
         }
     }
 }
@@ -144,17 +184,22 @@ impl<T> Receiver<T> {
 }
 
 struct AsyncVec<T> {
-    // TODO: use a more efficient list.
-    sender_waker: LinkedList<Waker>,
+    waiters: LinkedList<Waiter>,
     receiver_waker: Option<Waker>,
     queue: HeapQueue<T>,
     closed: bool,
 }
 
+enum Waiter {
+    Init,
+    Wait(Waker),
+    Waked,
+}
+
 impl<T> AsyncVec<T> {
     fn new(cap: usize) -> Self {
         Self {
-            sender_waker: LinkedList::new(),
+            waiters: LinkedList::new(),
             receiver_waker: None,
             queue: HeapQueue::with_capacity(cap),
             closed: false,
@@ -225,8 +270,11 @@ impl<T> AsyncVec<T> {
 
     fn wake_sender(&mut self, count: usize) {
         for _ in 0..count {
-            match self.sender_waker.pop_front() {
-                Some(waker) => waker.wake(),
+            match self.waiters.pop_back() {
+                Some(node) => match mem::replace(node.get_mut(), Waiter::Waked) {
+                    Waiter::Wait(waker) => waker.wake(),
+                    Waiter::Init | Waiter::Waked => panic!("Node is not in valid state"),
+                },
                 None => return,
             }
         }
@@ -234,14 +282,6 @@ impl<T> AsyncVec<T> {
 
     fn register_receiver_waker(&mut self, waker: &Waker) {
         self.receiver_waker = Some(waker.clone());
-    }
-
-    fn register_sender_waker(&mut self, waker: &Waker) {
-        if let Some(node) = self.sender_waker.iter_mut().find(|w| w.will_wake(waker)) {
-            *node = waker.clone();
-        } else {
-            self.sender_waker.push_back(waker.clone());
-        }
     }
 
     fn front_mut(&mut self) -> Option<&mut T> {
