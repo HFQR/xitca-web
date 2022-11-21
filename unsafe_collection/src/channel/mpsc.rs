@@ -162,28 +162,17 @@ impl<T> Receiver<T> {
         })
     }
 
-    /// iter through available items inside array.
     #[inline]
-    pub fn with_iter<F, O>(&mut self, func: F) -> O
+    pub fn with_vec<F, O>(&mut self, func: F) -> O
     where
-        F: for<'i> FnOnce(Iter<'i, T>) -> O,
-    {
-        let inner = self.inner.borrow_mut();
-        func(inner.iter())
-    }
-
-    /// Advance the array by iterate the array and pop drop items when given closure returns `true`.
-    pub fn advance_until<F>(&mut self, func: F)
-    where
-        F: FnMut(&mut T) -> bool,
+        F: FnOnce(&mut AsyncVec<T>) -> O,
     {
         let mut inner = self.inner.borrow_mut();
-        let count = inner.advance_until(func);
-        inner.wake_sender(count);
+        func(&mut *inner)
     }
 }
 
-struct AsyncVec<T> {
+pub struct AsyncVec<T> {
     waiters: LinkedList<Waiter>,
     receiver_waker: Option<Waker>,
     queue: HeapQueue<T>,
@@ -197,36 +186,19 @@ enum Waiter {
 }
 
 impl<T> AsyncVec<T> {
-    fn new(cap: usize) -> Self {
-        Self {
-            waiters: LinkedList::new(),
-            receiver_waker: None,
-            queue: HeapQueue::with_capacity(cap),
-            closed: false,
-        }
-    }
-
-    fn is_empty(&self) -> bool {
+    #[inline]
+    pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
     }
 
-    fn is_full(&self) -> bool {
-        self.queue.is_full()
-    }
-
-    fn set_close(&mut self) {
-        self.closed = true;
-    }
-
-    fn is_closed(&self) -> bool {
-        self.closed
-    }
-
-    fn iter(&self) -> Iter<'_, T> {
+    /// iter through available items inside array.
+    #[inline]
+    pub fn iter(&self) -> Iter<'_, T> {
         self.queue.iter()
     }
 
-    fn advance_until<F>(&mut self, mut func: F) -> usize
+    /// Advance the array by iterate the array and pop drop items when given closure returns `true`.
+    pub fn advance_until<F>(&mut self, mut func: F) -> usize
     where
         F: FnMut(&mut T) -> bool,
     {
@@ -246,7 +218,30 @@ impl<T> AsyncVec<T> {
             }
         }
 
+        self.wake_sender(count);
+
         count
+    }
+
+    fn new(cap: usize) -> Self {
+        Self {
+            waiters: LinkedList::new(),
+            receiver_waker: None,
+            queue: HeapQueue::with_capacity(cap),
+            closed: false,
+        }
+    }
+
+    fn is_full(&self) -> bool {
+        self.queue.is_full()
+    }
+
+    fn set_close(&mut self) {
+        self.closed = true;
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed
     }
 
     fn try_push(&mut self, value: T) -> Result<(), Error<T>> {
@@ -440,14 +435,14 @@ mod test {
             assert!(fut.poll(cx).is_ready());
         }
 
-        rx.with_iter(|iter| {
-            let items = iter.collect::<Vec<&usize>>();
+        rx.with_vec(|inner| {
+            let items = inner.iter().collect::<Vec<&usize>>();
 
             assert_eq!(items.len(), 8);
             assert_eq!(items[3], &3);
-        });
 
-        rx.advance_until(|i| *i < 8);
+            inner.advance_until(|i| *i < 8);
+        });
 
         let fut = rx.wait();
         pin!(fut);

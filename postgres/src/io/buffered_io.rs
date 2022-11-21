@@ -143,32 +143,36 @@ mod io_impl {
         }
 
         fn try_write2(&mut self) -> Result<(), Error> {
-            let res = self.rx.with_iter(|iter| {
-                let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
-                let slice = iovs.init_from(iter).into_init_with(|req| IoSlice::new(req.msg.chunk()));
-                self.io.write_vectored(slice)
-            });
+            self.rx.with_vec(|v| {
+                while !v.is_empty() {
+                    let mut iovs = uninit::uninit_array::<_, 8>();
+                    let slice = iovs
+                        .init_from(v.iter())
+                        .into_init_with(|req| IoSlice::new(req.msg.chunk()));
 
-            match res {
-                Ok(0) => Err(write_zero_err()),
-                Ok(mut n) => {
-                    self.rx.advance_until(|req| {
-                        let rem = req.msg.remaining();
+                    match self.io.write_vectored(slice) {
+                        Ok(0) => return Err(write_zero_err()),
+                        Ok(mut n) => {
+                            v.advance_until(|req| {
+                                let rem = req.msg.remaining();
 
-                        if rem > n {
-                            req.msg.advance(n);
-                            false
-                        } else {
-                            n -= rem;
-                            self.ctx.push_res(req.tx.take().unwrap());
-                            true
+                                if rem > n {
+                                    req.msg.advance(n);
+                                    false
+                                } else {
+                                    n -= rem;
+                                    self.ctx.push_res(req.tx.take().unwrap());
+                                    true
+                                }
+                            });
                         }
-                    });
-                    Ok(())
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(e) => return Err(e.into()),
+                    }
                 }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),
-                Err(e) => Err(e.into()),
-            }
+
+                Ok(())
+            })
         }
     }
 }
