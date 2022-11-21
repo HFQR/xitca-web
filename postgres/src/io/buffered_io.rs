@@ -145,7 +145,7 @@ mod io_impl {
         fn try_write2(&mut self) -> Result<(), Error> {
             self.rx.with_vec(|v| {
                 while !v.is_empty() {
-                    let mut iovs = uninit::uninit_array::<_, 8>();
+                    let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
                     let slice = iovs
                         .init_from(v.iter())
                         .into_init_with(|req| IoSlice::new(req.msg.chunk()));
