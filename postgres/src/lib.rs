@@ -34,13 +34,13 @@ pub struct Postgres<C, const BATCH_LIMIT: usize> {
     backlog: usize,
 }
 
-impl<C> Postgres<C, 20>
+impl<C> Postgres<C, 32>
 where
     Config: TryFrom<C>,
     Error: From<<Config as TryFrom<C>>::Error>,
 {
     pub fn new(cfg: C) -> Self {
-        Self { cfg, backlog: 128 }
+        Self { cfg, backlog: 32 }
     }
 }
 
