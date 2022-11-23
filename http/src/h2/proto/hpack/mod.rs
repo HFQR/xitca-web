@@ -1,7 +1,5 @@
 //! Copied from https://github.com/hyperium/h2
 
-#![allow(dead_code)]
-
 mod decoder;
 mod encoder;
 mod header;

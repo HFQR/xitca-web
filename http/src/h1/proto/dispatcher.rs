@@ -91,18 +91,8 @@ where
 }
 
 /// Http/1 dispatcher
-struct Dispatcher<
-    'a,
-    St,
-    S,
-    ReqB,
-    W,
-    D,
-    const HEADER_LIMIT: usize,
-    const READ_BUF_LIMIT: usize,
-    const WRITE_BUF_LIMIT: usize,
-> {
-    io: BufferedIo<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
+    io: BufferedIo<'a, St, W, READ_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
@@ -110,14 +100,13 @@ struct Dispatcher<
     _phantom: PhantomData<ReqB>,
 }
 
-struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
+struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize> {
     io: &'a mut St,
     read_buf: FlatBuf<READ_BUF_LIMIT>,
     write_buf: W,
 }
 
-impl<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    BufferedIo<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<'a, St, W, const READ_BUF_LIMIT: usize> BufferedIo<'a, St, W, READ_BUF_LIMIT>
 where
     St: AsyncIo,
     W: BufWrite,
@@ -202,19 +191,8 @@ where
     }
 }
 
-impl<
-        'a,
-        St,
-        S,
-        ReqB,
-        ResB,
-        BE,
-        W,
-        D,
-        const HEADER_LIMIT: usize,
-        const READ_BUF_LIMIT: usize,
-        const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
+    Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
@@ -223,7 +201,7 @@ where
     W: BufWrite,
     D: DateTime,
 {
-    fn new(
+    fn new<const WRITE_BUF_LIMIT: usize>(
         io: &'a mut St,
         addr: RemoteAddr,
         timer: Pin<&'a mut KeepAlive>,
