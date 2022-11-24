@@ -104,34 +104,6 @@ struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_B
     _phantom: PhantomData<ReqB>,
 }
 
-impl<'a, St, W, const READ_BUF_LIMIT: usize> BufferedIo<'a, St, W, READ_BUF_LIMIT>
-where
-    St: AsyncIo,
-    W: H1BufWrite,
-{
-    // Check readable and writable state of IO and ready state of request body reader.
-    // return error when runtime is shutdown.(See AsyncIo::ready for reason).
-    async fn ready<D, const HEADER_LIMIT: usize>(
-        &mut self,
-        body_reader: &mut BodyReader,
-        ctx: &mut Context<'_, D, HEADER_LIMIT>,
-    ) -> io::Result<Ready> {
-        if !self.write_buf.want_write() {
-            body_reader.ready(&mut self.read_buf, ctx).await;
-            self.io.ready(Interest::READABLE).await
-        } else {
-            match body_reader
-                .ready(&mut self.read_buf, ctx)
-                .select(self.io.ready(Interest::WRITABLE))
-                .await
-            {
-                SelectOutput::A(_) => self.io.ready(Interest::READABLE | Interest::WRITABLE).await,
-                SelectOutput::B(res) => res,
-            }
-        }
-    }
-}
-
 impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
     Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT>
 where
@@ -272,7 +244,7 @@ where
         loop {
             match self
                 .try_poll_body(body.as_mut())
-                .select(self.io.ready(body_reader, &mut self.ctx))
+                .select(io_ready(&mut self.io, body_reader, &mut self.ctx))
                 .await
             {
                 SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
@@ -321,6 +293,32 @@ where
         self.ctx.set_ctype(ConnectionType::Close);
         let (parts, body) = func().into_parts();
         self.encode_head(parts, &body).map(|_| ())
+    }
+}
+
+// Check readable and writable state of BufferedIo and ready state of request body reader.
+// return error when runtime is shutdown.(See AsyncIo::ready for reason).
+async fn io_ready<St, W, D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
+    io: &mut BufferedIo<'_, St, W, READ_BUF_LIMIT>,
+    body_reader: &mut BodyReader,
+    ctx: &mut Context<'_, D, HEADER_LIMIT>,
+) -> io::Result<Ready>
+where
+    St: AsyncIo,
+    W: H1BufWrite,
+{
+    if !io.write_buf.want_write() {
+        body_reader.ready(&mut io.read_buf, ctx).await;
+        io.io.ready(Interest::READABLE).await
+    } else {
+        match body_reader
+            .ready(&mut io.read_buf, ctx)
+            .select(io.io.ready(Interest::WRITABLE))
+            .await
+        {
+            SelectOutput::A(_) => io.io.ready(Interest::READABLE | Interest::WRITABLE).await,
+            SelectOutput::B(res) => res,
+        }
     }
 }
 
