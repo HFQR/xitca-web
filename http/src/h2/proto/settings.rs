@@ -92,8 +92,8 @@ impl Settings {
     }
 
     pub fn set_max_frame_size(&mut self, size: Option<u32>) {
-        if let Some(val) = size {
-            assert!(DEFAULT_MAX_FRAME_SIZE <= val && val <= MAX_MAX_FRAME_SIZE);
+        if let Some(ref val) = size {
+            assert!((DEFAULT_MAX_FRAME_SIZE..=MAX_MAX_FRAME_SIZE).contains(val));
         }
         self.max_frame_size = size;
     }

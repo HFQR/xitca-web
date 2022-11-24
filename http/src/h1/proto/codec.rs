@@ -395,7 +395,7 @@ fn bounded_split(rem: &mut u64, buf: &mut BytesMut) -> Bytes {
 
 #[cfg(test)]
 mod test {
-    use crate::h1::proto::buf_write::FlatBuf;
+    use crate::util::buffered_io::FlatBuf;
 
     use super::*;
 

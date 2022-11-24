@@ -12,7 +12,7 @@ mod sealed {
 
 /// [Buf::chunks_vectored] method but take slice of `MaybeUninit<T>` instead of `T`
 pub trait ChunkVectoredUninit: sealed::Sealed {
-    /// # Safety:
+    /// # Safety
     ///
     /// MUST write to dst slice continuously start from 0 index.
     /// MUST NOT skip to N + 1 index without writing initialized item to N index.
