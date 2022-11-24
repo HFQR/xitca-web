@@ -5,7 +5,7 @@ mod decode;
 mod dispatcher;
 mod encode;
 
-pub mod buf;
+pub mod buf_write;
 pub mod codec;
 pub mod context;
 pub mod error;

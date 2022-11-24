@@ -6,3 +6,4 @@ mod uninit;
 pub use buf_list::{BufList, EitherBuf};
 pub use byte_str::BytesStr;
 pub use io::read_buf;
+pub use uninit::ChunkVectoredUninit;

@@ -12,7 +12,6 @@ use tracing::trace;
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
 use xitca_unsafe_collection::{
-    bytes::read_buf,
     futures::{Select as _, SelectOutput},
     pin,
 };
@@ -29,11 +28,16 @@ use crate::{
     http::{response::Parts, Response},
     request::{RemoteAddr, Request},
     response,
-    util::{futures::Timeout, hint::unlikely, keep_alive::KeepAlive},
+    util::{
+        buffered_io::{BufferedIo, FlatBuf, ListBuf},
+        futures::Timeout,
+        hint::unlikely,
+        keep_alive::KeepAlive,
+    },
 };
 
 use super::{
-    buf::{BufInterest, BufWrite, FlatBuf, ListBuf},
+    buf_write::H1BufWrite,
     codec::{ChunkResult, TransferCoding},
     context::{ConnectionType, Context},
     error::{Parse, ProtoError},
@@ -91,18 +95,8 @@ where
 }
 
 /// Http/1 dispatcher
-struct Dispatcher<
-    'a,
-    St,
-    S,
-    ReqB,
-    W,
-    D,
-    const HEADER_LIMIT: usize,
-    const READ_BUF_LIMIT: usize,
-    const WRITE_BUF_LIMIT: usize,
-> {
-    io: BufferedIo<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
+    io: BufferedIo<'a, St, W, READ_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
@@ -110,120 +104,17 @@ struct Dispatcher<
     _phantom: PhantomData<ReqB>,
 }
 
-struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
-    io: &'a mut St,
-    read_buf: FlatBuf<READ_BUF_LIMIT>,
-    write_buf: W,
-}
-
-impl<'a, St, W, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    BufferedIo<'a, St, W, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
-where
-    St: AsyncIo,
-    W: BufWrite,
-{
-    fn new(io: &'a mut St, write_buf: W) -> Self {
-        Self {
-            io,
-            read_buf: FlatBuf::new(),
-            write_buf,
-        }
-    }
-
-    // read until blocked/read backpressure and advance read_buf.
-    fn try_read(&mut self) -> io::Result<()> {
-        loop {
-            match read_buf(self.io, &mut *self.read_buf) {
-                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
-                Ok(_) => {
-                    if self.read_buf.backpressure() {
-                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", self.read_buf.len());
-                        return Ok(());
-                    }
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.flush(self.io)
-    }
-
-    async fn read(&mut self) -> io::Result<()> {
-        self.io.ready(Interest::READABLE).await?;
-        self.try_read()
-    }
-
-    // drain write buffer and flush the io.
-    async fn drain_write(&mut self) -> io::Result<()> {
-        while self.write_buf.want_write() {
-            self.io.ready(Interest::WRITABLE).await?;
-            self.try_write()?;
-        }
-
-        loop {
-            match io::Write::flush(&mut self.io) {
-                Ok(()) => return Ok(()),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                Err(e) => return Err(e),
-            }
-            self.io.ready(Interest::WRITABLE).await?;
-        }
-    }
-
-    // Check readable and writable state of IO and ready state of request body reader.
-    // return error when runtime is shutdown.(See AsyncIo::ready for reason).
-    async fn ready<D, const HEADER_LIMIT: usize>(
-        &mut self,
-        body_reader: &mut BodyReader,
-        ctx: &mut Context<'_, D, HEADER_LIMIT>,
-    ) -> io::Result<Ready> {
-        if !self.write_buf.want_write() {
-            body_reader.ready(&mut self.read_buf, ctx).await;
-            self.io.ready(Interest::READABLE).await
-        } else {
-            match body_reader
-                .ready(&mut self.read_buf, ctx)
-                .select(self.io.ready(Interest::WRITABLE))
-                .await
-            {
-                SelectOutput::A(_) => self.io.ready(Interest::READABLE | Interest::WRITABLE).await,
-                SelectOutput::B(res) => res,
-            }
-        }
-    }
-
-    #[cold]
-    #[inline(never)]
-    async fn shutdown(&mut self) -> io::Result<()> {
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx)).await
-    }
-}
-
-impl<
-        'a,
-        St,
-        S,
-        ReqB,
-        ResB,
-        BE,
-        W,
-        D,
-        const HEADER_LIMIT: usize,
-        const READ_BUF_LIMIT: usize,
-        const WRITE_BUF_LIMIT: usize,
-    > Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
+    Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT>
 where
     S: Service<Request<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
-    W: BufWrite,
+    W: H1BufWrite,
     D: DateTime,
 {
-    fn new(
+    fn new<const WRITE_BUF_LIMIT: usize>(
         io: &'a mut St,
         addr: RemoteAddr,
         timer: Pin<&'a mut KeepAlive>,
@@ -353,7 +244,7 @@ where
         loop {
             match self
                 .try_poll_body(body.as_mut())
-                .select(self.io.ready(body_reader, &mut self.ctx))
+                .select(io_ready(&mut self.io, body_reader, &mut self.ctx))
                 .await
             {
                 SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
@@ -383,12 +274,12 @@ where
     }
 
     fn try_poll_body<'b>(&self, mut body: Pin<&'b mut ResB>) -> impl Future<Output = Option<Result<Bytes, BE>>> + 'b {
-        let write_backpressure = self.io.write_buf.backpressure();
+        let want_buf = self.io.write_buf.want_buf();
         async move {
-            if write_backpressure {
-                pending().await
-            } else {
+            if want_buf {
                 poll_fn(|cx| body.as_mut().poll_next(cx)).await
+            } else {
+                pending().await
             }
         }
     }
@@ -402,6 +293,32 @@ where
         self.ctx.set_ctype(ConnectionType::Close);
         let (parts, body) = func().into_parts();
         self.encode_head(parts, &body).map(|_| ())
+    }
+}
+
+// Check readable and writable state of BufferedIo and ready state of request body reader.
+// return error when runtime is shutdown.(See AsyncIo::ready for reason).
+async fn io_ready<St, W, D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
+    io: &mut BufferedIo<'_, St, W, READ_BUF_LIMIT>,
+    body_reader: &mut BodyReader,
+    ctx: &mut Context<'_, D, HEADER_LIMIT>,
+) -> io::Result<Ready>
+where
+    St: AsyncIo,
+    W: H1BufWrite,
+{
+    if !io.write_buf.want_write() {
+        body_reader.ready(&mut io.read_buf, ctx).await;
+        io.io.ready(Interest::READABLE).await
+    } else {
+        match body_reader
+            .ready(&mut io.read_buf, ctx)
+            .select(io.io.ready(Interest::WRITABLE))
+            .await
+        {
+            SelectOutput::A(_) => io.io.ready(Interest::READABLE | Interest::WRITABLE).await,
+            SelectOutput::B(res) => res,
+        }
     }
 }
 

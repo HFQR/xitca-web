@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    buf::BufWrite,
+    buf_write::H1BufWrite,
     codec::TransferCoding,
     context::{ConnectionType, Context},
     error::{Parse, ProtoError},
@@ -25,7 +25,7 @@ where
 {
     pub(super) fn encode_continue<W>(&mut self, buf: &mut W)
     where
-        W: BufWrite,
+        W: H1BufWrite,
     {
         buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
@@ -33,7 +33,7 @@ where
     pub fn encode_head<B, W>(&mut self, parts: Parts, body: &B, buf: &mut W) -> Result<TransferCoding, ProtoError>
     where
         B: Stream,
-        W: BufWrite,
+        W: H1BufWrite,
     {
         buf.write_head(|buf| self.encode_head_inner(parts, body, buf))
     }
