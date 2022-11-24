@@ -5,7 +5,7 @@ use tracing::{trace, warn};
 use crate::bytes::{Buf, Bytes, BytesMut};
 
 use super::{
-    buf::BufWrite,
+    buf_write::H1BufWrite,
     error::{Parse, ProtoError},
 };
 
@@ -270,7 +270,7 @@ impl TransferCoding {
     /// Encode message. Return `EOF` state of encoder
     pub fn encode<W>(&mut self, mut bytes: Bytes, buf: &mut W)
     where
-        W: BufWrite,
+        W: H1BufWrite,
     {
         // Skip encode empty bytes.
         // This is to avoid unnecessary extending on h1::proto::buf::ListBuf when user
@@ -300,7 +300,7 @@ impl TransferCoding {
     /// Encode eof. Return `EOF` state of encoder
     pub fn encode_eof<W>(&mut self, buf: &mut W)
     where
-        W: BufWrite,
+        W: H1BufWrite,
     {
         match *self {
             Self::Eof | Self::Upgrade | Self::Length(0) => {}
@@ -395,7 +395,7 @@ fn bounded_split(rem: &mut u64, buf: &mut BytesMut) -> Bytes {
 
 #[cfg(test)]
 mod test {
-    use crate::h1::proto::buf::FlatBuf;
+    use crate::h1::proto::buf_write::FlatBuf;
 
     use super::*;
 

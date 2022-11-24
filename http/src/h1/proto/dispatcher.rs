@@ -12,7 +12,6 @@ use tracing::trace;
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
 use xitca_unsafe_collection::{
-    bytes::read_buf,
     futures::{Select as _, SelectOutput},
     pin,
 };
@@ -29,11 +28,16 @@ use crate::{
     http::{response::Parts, Response},
     request::{RemoteAddr, Request},
     response,
-    util::{futures::Timeout, hint::unlikely, keep_alive::KeepAlive},
+    util::{
+        buffered_io::{BufferedIo, FlatBuf, ListBuf},
+        futures::Timeout,
+        hint::unlikely,
+        keep_alive::KeepAlive,
+    },
 };
 
 use super::{
-    buf::{BufInterest, BufWrite, FlatBuf, ListBuf},
+    buf_write::H1BufWrite,
     codec::{ChunkResult, TransferCoding},
     context::{ConnectionType, Context},
     error::{Parse, ProtoError},
@@ -100,68 +104,11 @@ struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_B
     _phantom: PhantomData<ReqB>,
 }
 
-struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize> {
-    io: &'a mut St,
-    read_buf: FlatBuf<READ_BUF_LIMIT>,
-    write_buf: W,
-}
-
 impl<'a, St, W, const READ_BUF_LIMIT: usize> BufferedIo<'a, St, W, READ_BUF_LIMIT>
 where
     St: AsyncIo,
-    W: BufWrite,
+    W: H1BufWrite,
 {
-    fn new(io: &'a mut St, write_buf: W) -> Self {
-        Self {
-            io,
-            read_buf: FlatBuf::new(),
-            write_buf,
-        }
-    }
-
-    // read until blocked/read backpressure and advance read_buf.
-    fn try_read(&mut self) -> io::Result<()> {
-        loop {
-            match read_buf(self.io, &mut *self.read_buf) {
-                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
-                Ok(_) => {
-                    if self.read_buf.backpressure() {
-                        trace!(target: "h1_dispatcher", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", self.read_buf.len());
-                        return Ok(());
-                    }
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.flush(self.io)
-    }
-
-    async fn read(&mut self) -> io::Result<()> {
-        self.io.ready(Interest::READABLE).await?;
-        self.try_read()
-    }
-
-    // drain write buffer and flush the io.
-    async fn drain_write(&mut self) -> io::Result<()> {
-        while self.write_buf.want_write() {
-            self.io.ready(Interest::WRITABLE).await?;
-            self.try_write()?;
-        }
-
-        loop {
-            match io::Write::flush(&mut self.io) {
-                Ok(()) => return Ok(()),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                Err(e) => return Err(e),
-            }
-            self.io.ready(Interest::WRITABLE).await?;
-        }
-    }
-
     // Check readable and writable state of IO and ready state of request body reader.
     // return error when runtime is shutdown.(See AsyncIo::ready for reason).
     async fn ready<D, const HEADER_LIMIT: usize>(
@@ -183,12 +130,6 @@ where
             }
         }
     }
-
-    #[cold]
-    #[inline(never)]
-    async fn shutdown(&mut self) -> io::Result<()> {
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx)).await
-    }
 }
 
 impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
@@ -198,7 +139,7 @@ where
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
-    W: BufWrite,
+    W: H1BufWrite,
     D: DateTime,
 {
     fn new<const WRITE_BUF_LIMIT: usize>(
@@ -361,12 +302,12 @@ where
     }
 
     fn try_poll_body<'b>(&self, mut body: Pin<&'b mut ResB>) -> impl Future<Output = Option<Result<Bytes, BE>>> + 'b {
-        let write_backpressure = self.io.write_buf.backpressure();
+        let want_buf = self.io.write_buf.want_buf();
         async move {
-            if write_backpressure {
-                pending().await
-            } else {
+            if want_buf {
                 poll_fn(|cx| body.as_mut().poll_next(cx)).await
+            } else {
+                pending().await
             }
         }
     }

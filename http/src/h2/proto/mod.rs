@@ -13,53 +13,43 @@ pub const HEADER_LEN: usize = 9;
 use std::io::{self};
 
 use xitca_io::{
-    bytes::{Buf, BytesMut},
-    io::{AsyncIo, Interest},
+    bytes::{Bytes, BytesMut},
+    io::AsyncIo,
 };
-use xitca_unsafe_collection::bytes::read_buf;
 
 use self::settings::Settings;
 
 const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-pub async fn handshake<Io>(mut io: Io) -> io::Result<()>
+pub async fn run<Io>(mut io: Io) -> io::Result<()>
 where
     Io: AsyncIo,
 {
-    let mut write_buf = BytesMut::new();
-    let mut r_buf = BytesMut::new();
+    let write_buf = ListBuf::<Bytes, 32>::default();
+    let mut io = BufferedIo::<_, _, { 1024 * 1024 }>::new(&mut io, write_buf);
 
     let settings = Settings::default();
 
-    settings.encode(&mut write_buf);
+    let mut buf = BytesMut::new();
 
-    while !write_buf.is_empty() {
-        match io.write(&write_buf) {
-            Ok(0) => todo!(),
-            Ok(n) => write_buf.advance(n),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            Err(e) => return Err(e),
-        }
-        io.ready(Interest::WRITABLE).await?;
-    }
+    settings.encode(&mut buf);
+
+    io.write_buf.buffer(buf.freeze());
+
+    io.drain_write().await?;
 
     loop {
-        io.ready(Interest::READABLE).await?;
-        match read_buf(&mut io, &mut r_buf) {
-            Ok(0) => todo!(),
-            Ok(_) => {
-                if r_buf.len() >= PREFACE.len() {
-                    if &r_buf[..PREFACE.len()] == PREFACE {
-                        break;
-                    } else {
-                        todo!()
-                    }
-                }
+        io.read().await?;
+        if io.read_buf.len() >= PREFACE.len() {
+            if &io.read_buf[..PREFACE.len()] == PREFACE {
+                break;
+            } else {
+                todo!()
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            Err(e) => return Err(e),
         }
     }
+
+    let mut _decoder = hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
 
     Ok(())
 }
@@ -86,6 +76,7 @@ macro_rules! unpack_octets_4 {
     };
 }
 
+use crate::util::buffered_io::{BufferedIo, ListBuf};
 use unpack_octets_4;
 
 #[cfg(test)]
