@@ -5,7 +5,7 @@ use std::{
     task::{ready, Context, Poll},
 };
 
-use crate::signals::{Signal, Signals};
+use crate::signals::{self, Signal, SignalFuture};
 
 use super::{handle::ServerHandle, Command, Server};
 
@@ -105,7 +105,7 @@ impl ServerFuture {
 
 pub struct ServerFutureInner {
     pub(crate) server: Server,
-    pub(crate) signals: Option<crate::signals::Signals>,
+    pub(crate) signals: Option<SignalFuture>,
 }
 
 impl Default for ServerFuture {
@@ -119,7 +119,7 @@ impl ServerFutureInner {
     fn new(server: Server, enable_signal: bool) -> Self {
         Self {
             server,
-            signals: enable_signal.then(Signals::start),
+            signals: enable_signal.then(signals::start),
         }
     }
 
