@@ -23,22 +23,21 @@ pub(crate) fn start() -> SignalFuture {
 
         use tokio::signal::unix;
 
-        let sig_map = [
+        let mut signals = [
             (unix::SignalKind::interrupt(), Signal::Int),
             (unix::SignalKind::hangup(), Signal::Hup),
             (unix::SignalKind::terminate(), Signal::Term),
             (unix::SignalKind::quit(), Signal::Quit),
-        ];
-
-        let mut signals = sig_map
-            .iter()
-            .filter_map(|(kind, sig)| {
-                unix::signal(*kind)
-                    .map(|tokio_sig| (*sig, tokio_sig))
-                    .map_err(|e| tracing::error!("Can not initialize stream handler for {:?} err: {}", sig, e))
-                    .ok()
-            })
-            .collect::<Vec<_>>();
+        ]
+        .iter()
+        .filter_map(|(kind, sig)| {
+            unix::signal(*kind)
+                .map(|tokio_sig| (*sig, tokio_sig))
+                .map_err(|e| tracing::error!("Can not initialize stream handler for {:?} err: {}", sig, e))
+                .ok()
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
 
         Box::pin(poll_fn(move |cx| {
             for (sig, fut) in signals.iter_mut() {
