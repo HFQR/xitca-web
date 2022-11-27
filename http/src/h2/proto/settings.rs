@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{convert::Infallible, fmt};
 
 use tracing::trace;
 use xitca_io::bytes::{BufMut, BytesMut};
@@ -132,91 +132,91 @@ impl Settings {
     }
     */
 
-    // pub fn load(head: Head, payload: &[u8]) -> Result<Settings, Infallible> {
-    //     use self::Setting::*;
-    //
-    //     // debug_assert_eq!(head.kind(), crate::frame::Kind::Settings);
-    //
-    //     if !head.stream_id().is_zero() {
-    //         todo!();
-    //         // return Err(Error::InvalidStreamId);
-    //     }
-    //
-    //     // Load the flag
-    //     let flag = SettingsFlags::load(head.flag());
-    //
-    //     if flag.is_ack() {
-    //         // Ensure that the payload is empty
-    //         if !payload.is_empty() {
-    //             todo!();
-    //             // return Err(Error::InvalidPayloadLength);
-    //         }
-    //
-    //         // Return the ACK frame
-    //         return Ok(Settings::ack());
-    //     }
-    //
-    //     // Ensure the payload length is correct, each setting is 6 bytes long.
-    //     if payload.len() % 6 != 0 {
-    //         tracing::debug!("invalid settings payload length; len={:?}", payload.len());
-    //         todo!();
-    //         // return Err(Error::InvalidPayloadAckSettings);
-    //     }
-    //
-    //     let mut settings = Settings::default();
-    //     debug_assert!(!settings.flags.is_ack());
-    //
-    //     for raw in payload.chunks(6) {
-    //         match Setting::load(raw) {
-    //             Some(HeaderTableSize(val)) => {
-    //                 settings.header_table_size = Some(val);
-    //             }
-    //             Some(EnablePush(val)) => match val {
-    //                 0 | 1 => {
-    //                     settings.enable_push = Some(val);
-    //                 }
-    //                 _ => {
-    //                     todo!();
-    //                     // return Err(Error::InvalidSettingValue);
-    //                 }
-    //             },
-    //             Some(MaxConcurrentStreams(val)) => {
-    //                 settings.max_concurrent_streams = Some(val);
-    //             }
-    //             Some(InitialWindowSize(val)) => {
-    //                 if val as usize > MAX_INITIAL_WINDOW_SIZE {
-    //                     todo!();
-    //                     // return Err(Error::InvalidSettingValue);
-    //                 } else {
-    //                     settings.initial_window_size = Some(val);
-    //                 }
-    //             }
-    //             Some(MaxFrameSize(val)) => {
-    //                 if val < DEFAULT_MAX_FRAME_SIZE || val > MAX_MAX_FRAME_SIZE {
-    //                     todo!();
-    //                     // return Err(Error::InvalidSettingValue);
-    //                 } else {
-    //                     settings.max_frame_size = Some(val);
-    //                 }
-    //             }
-    //             Some(MaxHeaderListSize(val)) => {
-    //                 settings.max_header_list_size = Some(val);
-    //             }
-    //             Some(EnableConnectProtocol(val)) => match val {
-    //                 0 | 1 => {
-    //                     settings.enable_connect_protocol = Some(val);
-    //                 }
-    //                 _ => {
-    //                     todo!();
-    //                     // return Err(Error::InvalidSettingValue);
-    //                 }
-    //             },
-    //             None => {}
-    //         }
-    //     }
-    //
-    //     Ok(settings)
-    // }
+    pub fn load(head: Head, payload: &[u8]) -> Result<Settings, Infallible> {
+        use self::Setting::*;
+
+        // debug_assert_eq!(head.kind(), crate::frame::Kind::Settings);
+
+        if !head.stream_id().is_zero() {
+            todo!();
+            // return Err(Error::InvalidStreamId);
+        }
+
+        // Load the flag
+        let flag = SettingsFlags::load(head.flag());
+
+        if flag.is_ack() {
+            // Ensure that the payload is empty
+            if !payload.is_empty() {
+                todo!();
+                // return Err(Error::InvalidPayloadLength);
+            }
+
+            // Return the ACK frame
+            return Ok(Settings::ack());
+        }
+
+        // Ensure the payload length is correct, each setting is 6 bytes long.
+        if payload.len() % 6 != 0 {
+            tracing::debug!("invalid settings payload length; len={:?}", payload.len());
+            todo!();
+            // return Err(Error::InvalidPayloadAckSettings);
+        }
+
+        let mut settings = Settings::default();
+        debug_assert!(!settings.flags.is_ack());
+
+        for raw in payload.chunks(6) {
+            match Setting::load(raw) {
+                Some(HeaderTableSize(val)) => {
+                    settings.header_table_size = Some(val);
+                }
+                Some(EnablePush(val)) => match val {
+                    0 | 1 => {
+                        settings.enable_push = Some(val);
+                    }
+                    _ => {
+                        todo!();
+                        // return Err(Error::InvalidSettingValue);
+                    }
+                },
+                Some(MaxConcurrentStreams(val)) => {
+                    settings.max_concurrent_streams = Some(val);
+                }
+                Some(InitialWindowSize(val)) => {
+                    if val as usize > MAX_INITIAL_WINDOW_SIZE {
+                        todo!();
+                        // return Err(Error::InvalidSettingValue);
+                    } else {
+                        settings.initial_window_size = Some(val);
+                    }
+                }
+                Some(MaxFrameSize(val)) => {
+                    if val < DEFAULT_MAX_FRAME_SIZE || val > MAX_MAX_FRAME_SIZE {
+                        todo!();
+                        // return Err(Error::InvalidSettingValue);
+                    } else {
+                        settings.max_frame_size = Some(val);
+                    }
+                }
+                Some(MaxHeaderListSize(val)) => {
+                    settings.max_header_list_size = Some(val);
+                }
+                Some(EnableConnectProtocol(val)) => match val {
+                    0 | 1 => {
+                        settings.enable_connect_protocol = Some(val);
+                    }
+                    _ => {
+                        todo!();
+                        // return Err(Error::InvalidSettingValue);
+                    }
+                },
+                None => {}
+            }
+        }
+
+        Ok(settings)
+    }
 
     fn payload_len(&self) -> usize {
         let mut len = 0;

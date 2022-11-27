@@ -7,5 +7,5 @@ mod huffman;
 mod table;
 
 pub(super) use self::decoder::Decoder;
-// pub(super) use self::encoder::Encoder;
-// pub(super) use self::header::Header;
+pub(super) use self::encoder::Encoder;
+pub(super) use self::header::Header;
