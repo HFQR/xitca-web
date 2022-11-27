@@ -15,6 +15,10 @@ impl BytesStr {
         Ok(BytesStr(bytes))
     }
 
+    pub fn copy_from_str(value: &str) -> Self {
+        BytesStr(Bytes::copy_from_slice(value.as_bytes()))
+    }
+
     pub fn as_str(&self) -> &str {
         // Safety: check valid utf-8 in constructor
         unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }

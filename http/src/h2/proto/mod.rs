@@ -2,7 +2,9 @@
 
 mod dispatcher;
 mod head;
+mod headers;
 mod hpack;
+mod priority;
 mod settings;
 mod stream_id;
 
@@ -25,6 +27,7 @@ const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 type BufferedIo<'i, Io, W> = buffered_io::BufferedIo<'i, Io, W, { 1024 * 1024 }>;
 
+/// Experimental h2 http layer.
 pub async fn run<Io>(mut io: Io) -> io::Result<()>
 where
     Io: AsyncIo,
@@ -42,7 +45,7 @@ where
 
     io.drain_write().await?;
 
-    let mut _decoder = hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
+    let mut decoder = hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
 
     // settings ack is parsed and ignored for now.
     {
@@ -50,17 +53,24 @@ where
 
         let head = head::Head::parse(&frame);
 
-        assert_eq!(head.kind(), head::Kind::Settings);
-        assert_eq!(head.flag(), 0);
-        assert!(head.stream_id().is_zero());
+        let _ = Settings::load(head, &frame).unwrap();
     }
 
     // naively assume a header frame is gonna come in.
     {
         let frame = recv_frame(&mut io).await?;
         let head = head::Head::parse(&frame);
-
         assert_eq!(head.kind(), head::Kind::Headers);
+
+        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
+
+        // TODO: Make Head::parse auto advance the frame?
+        frame.advance(6);
+
+        headers.load_hpack(&mut frame, 4096, &mut decoder).unwrap();
+        let (pseudo, headers) = headers.into_parts();
+        dbg!(pseudo);
+        dbg!(headers);
     }
 
     io.shutdown().await
