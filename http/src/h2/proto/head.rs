@@ -34,11 +34,13 @@ impl Head {
 
     /// Parse an HTTP/2 frame header
     pub fn parse(header: &[u8]) -> Head {
-        let (stream_id, _) = StreamId::parse(&header[5..]);
+        assert!(header.len() >= 6);
+
+        let (stream_id, _) = StreamId::parse(&header[2..]);
 
         Head {
-            kind: Kind::new(header[3]),
-            flag: header[4],
+            kind: Kind::new(header[0]),
+            flag: header[1],
             stream_id,
         }
     }

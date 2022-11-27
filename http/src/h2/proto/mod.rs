@@ -13,45 +13,95 @@ pub const HEADER_LEN: usize = 9;
 use std::io::{self};
 
 use xitca_io::{
-    bytes::{Bytes, BytesMut},
+    bytes::{Buf, Bytes, BytesMut},
     io::AsyncIo,
 };
+
+use crate::util::buffered_io::{self, BufWrite, ListBuf};
 
 use self::settings::Settings;
 
 const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+type BufferedIo<'i, Io, W> = buffered_io::BufferedIo<'i, Io, W, { 1024 * 1024 }>;
 
 pub async fn run<Io>(mut io: Io) -> io::Result<()>
 where
     Io: AsyncIo,
 {
     let write_buf = ListBuf::<Bytes, 32>::default();
-    let mut io = BufferedIo::<_, _, { 1024 * 1024 }>::new(&mut io, write_buf);
+    let mut io = BufferedIo::new(&mut io, write_buf);
+
+    prefix_check(&mut io).await?;
 
     let settings = Settings::default();
 
-    let mut buf = BytesMut::new();
-
-    settings.encode(&mut buf);
-
-    io.write_buf.buffer(buf.freeze());
+    settings.encode(&mut io.write_buf.buf);
+    let buf = io.write_buf.buf.split().freeze();
+    io.write_buf.buffer(buf);
 
     io.drain_write().await?;
 
-    loop {
-        io.read().await?;
-        if io.read_buf.len() >= PREFACE.len() {
-            if &io.read_buf[..PREFACE.len()] == PREFACE {
-                break;
-            } else {
-                todo!()
-            }
-        }
-    }
-
     let mut _decoder = hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
 
+    // settings ack is parsed and ignored for now.
+    {
+        let frame = recv_frame(&mut io).await?;
+
+        let head = head::Head::parse(&frame);
+
+        assert_eq!(head.kind(), head::Kind::Settings);
+        assert_eq!(head.flag(), 0);
+        assert!(head.stream_id().is_zero());
+    }
+
+    // naively assume a header frame is gonna come in.
+    {
+        let frame = recv_frame(&mut io).await?;
+        let head = head::Head::parse(&frame);
+
+        assert_eq!(head.kind(), head::Kind::Headers);
+    }
+
+    io.shutdown().await
+}
+
+#[cold]
+#[inline(never)]
+async fn prefix_check<Io, W>(io: &mut BufferedIo<'_, Io, W>) -> io::Result<()>
+where
+    Io: AsyncIo,
+    W: BufWrite,
+{
+    while io.read_buf.len() < PREFACE.len() {
+        io.read().await?;
+    }
+
+    if &io.read_buf[..PREFACE.len()] == PREFACE {
+        io.read_buf.advance(PREFACE.len());
+    } else {
+        todo!()
+    }
+
     Ok(())
+}
+
+async fn recv_frame<Io, W>(io: &mut BufferedIo<'_, Io, W>) -> io::Result<BytesMut>
+where
+    Io: AsyncIo,
+    W: BufWrite,
+{
+    while io.read_buf.len() < 3 {
+        io.read().await?;
+    }
+
+    let len = (io.read_buf.get_uint(3) + 6) as usize;
+
+    while io.read_buf.len() < len {
+        io.read().await?;
+    }
+
+    Ok(io.read_buf.split_to(len))
 }
 
 /// A helper macro that unpacks a sequence of 4 bytes found in the buffer with
@@ -76,7 +126,6 @@ macro_rules! unpack_octets_4 {
     };
 }
 
-use crate::util::buffered_io::{BufferedIo, ListBuf};
 use unpack_octets_4;
 
 #[cfg(test)]
