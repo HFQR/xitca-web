@@ -32,46 +32,56 @@ where
     let write_buf = ListBuf::<Bytes, 32>::default();
     let mut io = BufferedIo::new(&mut io, write_buf);
 
+    prefix_check(&mut io).await?;
+
     let settings = Settings::default();
 
-    let mut buf = BytesMut::new();
-
-    settings.encode(&mut buf);
-
-    io.write_buf.buffer(buf.freeze());
+    settings.encode(&mut io.write_buf.buf);
+    let buf = io.write_buf.buf.split().freeze();
+    io.write_buf.buffer(buf);
 
     io.drain_write().await?;
 
-    loop {
-        io.read().await?;
-        if io.read_buf.len() >= PREFACE.len() {
-            if &io.read_buf[..PREFACE.len()] == PREFACE {
-                io.read_buf.advance(PREFACE.len());
-                break;
-            } else {
-                todo!()
-            }
-        }
-    }
-
     let mut _decoder = hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
 
+    // settings ack is parsed and ignored for now.
     {
         let frame = recv_frame(&mut io).await?;
 
         let head = head::Head::parse(&frame);
 
-        // settings ack is ignored for now.
         assert_eq!(head.kind(), head::Kind::Settings);
         assert_eq!(head.flag(), 0);
         assert!(head.stream_id().is_zero());
     }
 
     // naively assume a header frame is gonna come in.
-    let frame = recv_frame(&mut io).await?;
-    let head = head::Head::parse(&frame);
+    {
+        let frame = recv_frame(&mut io).await?;
+        let head = head::Head::parse(&frame);
 
-    assert_eq!(head.kind(), head::Kind::Headers);
+        assert_eq!(head.kind(), head::Kind::Headers);
+    }
+
+    io.shutdown().await
+}
+
+#[cold]
+#[inline(never)]
+async fn prefix_check<Io, W>(io: &mut BufferedIo<'_, Io, W>) -> io::Result<()>
+where
+    Io: AsyncIo,
+    W: BufWrite,
+{
+    while io.read_buf.len() < PREFACE.len() {
+        io.read().await?;
+    }
+
+    if &io.read_buf[..PREFACE.len()] == PREFACE {
+        io.read_buf.advance(PREFACE.len());
+    } else {
+        todo!()
+    }
 
     Ok(())
 }
