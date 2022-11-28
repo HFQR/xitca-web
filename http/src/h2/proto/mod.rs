@@ -62,13 +62,13 @@ where
 
     // naively assume a header frame is gonna come in.
     {
-        let frame = recv_frame(&mut io).await?;
+        let mut frame = recv_frame(&mut io).await?;
         let head = head::Head::parse(&frame);
-
-        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
 
         // TODO: Make Head::parse auto advance the frame?
         frame.advance(6);
+
+        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
 
         headers.load_hpack(&mut frame, 4096, &mut decoder).unwrap();
         let (pseudo, headers) = headers.into_parts();
