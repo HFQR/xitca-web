@@ -10,18 +10,21 @@ mod stream_id;
 
 pub(crate) use dispatcher::Dispatcher;
 
-pub const HEADER_LEN: usize = 9;
-
-use std::io::{self};
+use std::io;
 
 use xitca_io::{
-    bytes::{Buf, Bytes, BytesMut},
+    bytes::{Buf, BufMut, Bytes, BytesMut},
     io::AsyncIo,
 };
 
-use crate::util::buffered_io::{self, BufWrite, ListBuf};
+use crate::{
+    http::{HeaderMap, StatusCode},
+    util::buffered_io::{self, BufWrite, ListBuf},
+};
 
 use self::settings::Settings;
+
+const HEADER_LEN: usize = 9;
 
 const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
@@ -46,6 +49,7 @@ where
     io.drain_write().await?;
 
     let mut decoder = hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
+    let mut encoder = hpack::Encoder::new(65535, 4096);
 
     // settings ack is parsed and ignored for now.
     {
@@ -58,20 +62,32 @@ where
 
     // naively assume a header frame is gonna come in.
     {
-        let frame = recv_frame(&mut io).await?;
+        let mut frame = recv_frame(&mut io).await?;
         let head = head::Head::parse(&frame);
-        assert_eq!(head.kind(), head::Kind::Headers);
-
-        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
 
         // TODO: Make Head::parse auto advance the frame?
         frame.advance(6);
+
+        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
 
         headers.load_hpack(&mut frame, 4096, &mut decoder).unwrap();
         let (pseudo, headers) = headers.into_parts();
         dbg!(pseudo);
         dbg!(headers);
     }
+
+    // naively send a header frame.
+    {
+        let pseudo = headers::Pseudo::response(StatusCode::OK);
+
+        let headers = headers::Headers::new(1.into(), pseudo, HeaderMap::new());
+        let mut buf = (&mut io.write_buf.buf).limit(4096);
+        headers.encode(&mut encoder, &mut buf);
+    }
+
+    let buf = io.write_buf.buf.split().freeze();
+    io.write_buf.buffer(buf);
+    io.drain_write().await?;
 
     io.shutdown().await
 }
