@@ -6,7 +6,6 @@ use xitca_io::net::TcpStream;
 use xitca_service::fn_service;
 
 #[tokio::test]
-#[should_panic]
 async fn h2_v2_get() {
     std::thread::spawn(|| server());
 
@@ -16,7 +15,9 @@ async fn h2_v2_get() {
 
     req.headers_mut().insert("foo", "bar".parse().unwrap());
 
-    let _ = req.version(Version::HTTP_2).send().await.unwrap();
+    let res = req.version(Version::HTTP_2).send().await.unwrap();
+
+    assert!(res.status().is_success());
 }
 
 fn server() -> std::io::Result<()> {
