@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use postgres_types::{Oid, Type};
-use xitca_io::bytes::{Bytes, BytesMut};
+use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 #[cfg(not(feature = "single-thread"))]
@@ -55,7 +55,7 @@ impl Client {
         self.tx.is_closed()
     }
 
-    pub(crate) async fn send(&self, msg: Bytes) -> Result<Response, Error> {
+    pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
         let (req, res) = Request::new_pair(msg);
         self.tx.send(req).await?;
         Ok(res)

@@ -36,13 +36,10 @@ impl<'a> StatementGuarded<'a> {
         if let Some(statement) = self.statement.take() {
             if !self.client.closed() {
                 let mut buf = BytesMut::new();
-
                 frontend::close(b'S', &statement.name, &mut buf).unwrap();
                 frontend::sync(&mut buf);
 
-                let msg = buf.freeze();
-
-                let _ = self.client.send(msg);
+                let _ = self.client.send(buf);
             }
         }
     }
