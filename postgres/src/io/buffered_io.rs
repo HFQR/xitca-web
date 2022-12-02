@@ -1,7 +1,7 @@
 use std::io;
 
 use xitca_io::{
-    bytes::BytesMut,
+    bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::{
@@ -20,7 +20,7 @@ use crate::{
     client::Client,
     error::{unexpected_eof_err, write_zero_err, Error},
     request::Request,
-    response::Response,
+    response::{Response, ResponseMessage},
 };
 
 use super::context::Context;
@@ -37,9 +37,7 @@ where
 {
     pub fn new_pair(io: Io, backlog: usize) -> (Client, Self) {
         let ctx = Context::<BATCH_LIMIT>::new();
-
         let (tx, rx) = channel(backlog);
-
         (Client::new(tx), Self { io, rx, ctx })
     }
 
@@ -53,21 +51,39 @@ where
         let mut buf = BytesMut::new();
         encoder(&mut buf)?;
 
-        let (req, res) = Request::new_pair(buf);
-
-        self.ctx.push_req(req);
-
-        while !self.ctx.req_is_empty() {
-            self.io.ready(Interest::WRITABLE).await?;
-            self.try_write()?;
+        while !buf.is_empty() {
+            match self.io.write(&buf) {
+                Ok(0) => return Err(Error::ToDo),
+                Ok(n) => buf.advance(n),
+                Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock) => {
+                    self.io.ready(Interest::WRITABLE).await?;
+                }
+                Err(e) => return Err(e.into()),
+            }
         }
 
-        loop {
-            self.io.ready(Interest::READABLE).await?;
-            self.try_read()?;
+        let (mut req, res) = Request::new_pair(BytesMut::new());
 
-            if self.ctx.try_response_once()? {
-                return Ok(res);
+        loop {
+            match read_buf(&mut self.io, &mut buf) {
+                Ok(0) => return Err(Error::ToDo),
+                Ok(_) => {
+                    if let Some(msg) = ResponseMessage::try_from_buf(&mut buf)? {
+                        match msg {
+                            ResponseMessage::Normal { buf, complete } => {
+                                req.tx.as_mut().unwrap().send(buf).await.unwrap();
+                                if complete {
+                                    return Ok(res);
+                                }
+                            }
+                            ResponseMessage::Async(_) => unreachable!("async message handling is not implemented"),
+                        }
+                    }
+                }
+                Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock) => {
+                    self.io.ready(Interest::READABLE).await?;
+                }
+                Err(e) => return Err(e.into()),
             }
         }
     }
@@ -86,24 +102,6 @@ where
                 Err(e) => return Err(e.into()),
             }
         }
-    }
-
-    // try write to async io with vectored write enabled.
-    fn try_write(&mut self) -> Result<(), Error> {
-        while !self.ctx.req_is_empty() {
-            let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
-
-            let slice = self.ctx.chunks_vectored(&mut iovs);
-
-            match self.io.write_vectored(slice) {
-                Ok(0) => return Err(write_zero_err()),
-                Ok(n) => self.ctx.advance(n),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        Ok(())
     }
 }
 
@@ -184,6 +182,21 @@ mod io_impl {
     where
         Io: AsyncIo,
     {
+        // try write to async io with vectored write enabled.
+        fn try_write(&mut self) -> Result<(), Error> {
+            while !self.ctx.req_is_empty() {
+                let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
+                let slice = self.ctx.chunks_vectored(&mut iovs);
+                match self.io.write_vectored(slice) {
+                    Ok(0) => return Err(write_zero_err()),
+                    Ok(n) => self.ctx.advance(n),
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            Ok(())
+        }
+
         pub async fn run(mut self) -> Result<(), Error> {
             loop {
                 match try_rx(&mut self.rx, &self.ctx)

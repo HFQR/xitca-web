@@ -1,7 +1,7 @@
-use std::{collections::VecDeque, io::IoSlice, mem::MaybeUninit};
+use std::collections::VecDeque;
 
-use xitca_io::bytes::{Buf, BytesMut};
-use xitca_unsafe_collection::{bound_queue::stack::StackQueue, uninit::PartialInit};
+use xitca_io::bytes::BytesMut;
+use xitca_unsafe_collection::bound_queue::stack::StackQueue;
 
 use crate::{
     error::Error,
@@ -22,19 +22,6 @@ impl<const LIMIT: usize> Context<LIMIT> {
             res: VecDeque::with_capacity(LIMIT * 2),
             buf: BytesMut::new(),
         }
-    }
-
-    #[cfg(not(feature = "single-thread"))]
-    pub(super) fn req_is_full(&self) -> bool {
-        self.req.is_full()
-    }
-
-    pub(super) const fn req_is_empty(&self) -> bool {
-        self.req.is_empty()
-    }
-
-    pub(super) fn push_req(&mut self, req: Request) {
-        self.req.push_back(req).expect("Out of bound must not happen.");
     }
 
     pub(super) fn push_res(&mut self, res: ResponseSender) {
@@ -68,32 +55,27 @@ impl<const LIMIT: usize> Context<LIMIT> {
 
         Ok(())
     }
+}
 
-    // only try parse response for once and return true when success.
-    pub(super) fn try_response_once(&mut self) -> Result<bool, Error> {
-        match ResponseMessage::try_from_buf(&mut self.buf)? {
-            Some(ResponseMessage::Normal { buf, complete }) => {
-                self.res
-                    .front_mut()
-                    .expect("Out of bound must not happen")
-                    .try_send(buf)
-                    .expect("Response channel is overflown.");
+#[cfg(not(feature = "single-thread"))]
+use {
+    std::{io::IoSlice, mem::MaybeUninit},
+    xitca_io::bytes::Buf,
+    xitca_unsafe_collection::uninit::PartialInit,
+};
 
-                if complete {
-                    let _ = self.res.pop_front();
-                }
-                Ok(true)
-            }
-            Some(ResponseMessage::Async(_)) => unreachable!("async message handling is not implemented"),
-            None => Ok(false),
-        }
+#[cfg(not(feature = "single-thread"))]
+impl<const LIMIT: usize> Context<LIMIT> {
+    pub(super) fn req_is_full(&self) -> bool {
+        self.req.is_full()
     }
 
-    // fill given &mut [MaybeUninit<IoSlice>] with Request's msg bytes and return the initialized
-    // slice.
-    pub(super) fn chunks_vectored<'a>(&'a self, dst: &'a mut [MaybeUninit<IoSlice<'a>>]) -> &[IoSlice<'a>] {
-        dst.init_from(self.req.iter())
-            .into_init_with(|req| IoSlice::new(req.msg.chunk()))
+    pub(super) const fn req_is_empty(&self) -> bool {
+        self.req.is_empty()
+    }
+
+    pub(super) fn push_req(&mut self, req: Request) {
+        self.req.push_back(req).expect("Out of bound must not happen.");
     }
 
     // remove requests that are sent and move the their tx fields to res queue.
@@ -120,5 +102,12 @@ impl<const LIMIT: usize> Context<LIMIT> {
 
             self.push_res(req.tx.take().unwrap());
         }
+    }
+
+    // fill given &mut [MaybeUninit<IoSlice>] with Request's msg bytes and return the initialized
+    // slice.
+    pub(super) fn chunks_vectored<'a>(&'a self, dst: &'a mut [MaybeUninit<IoSlice<'a>>]) -> &[IoSlice<'a>] {
+        dst.init_from(self.req.iter())
+            .into_init_with(|req| IoSlice::new(req.msg.chunk()))
     }
 }

@@ -39,7 +39,7 @@ impl<'a> StatementGuarded<'a> {
                 frontend::close(b'S', &statement.name, &mut buf).unwrap();
                 frontend::sync(&mut buf);
 
-                let _ = self.client.send(buf);
+                let _a = self.client.send(buf);
             }
         }
     }
