@@ -26,19 +26,15 @@ impl RequestBodyInner {
     fn new(eof: bool) -> Self {
         match eof {
             true => Self::None,
-            false => Self::Some(Rc::new(RefCell::new(Inner::new(false)))),
+            false => Self::Some(Default::default()),
         }
     }
 }
 
-/// Buffered stream of bytes chunks
+/// Buffered stream of request body chunk.
 ///
-/// Payload stores chunks in a vector. First chunk can be received with
-/// `.poll_read()` method. Payload stream is not thread safe. Payload does not
-/// notify current task when new data is available.
-///
-/// Payload stream can be used as `Response` body stream.
-#[derive(Clone, Debug)]
+/// impl [Stream] trait to produce chunk as [Bytes] type in async manner.
+#[derive(Debug)]
 pub struct RequestBody(RequestBodyInner);
 
 impl Default for RequestBody {
@@ -48,9 +44,7 @@ impl Default for RequestBody {
 }
 
 impl RequestBody {
-    // Create RequestBodySender together with RequestBody that share the same inner body state.
-    // RequestBodySender is used to mutate data/eof/error state and made the change observable
-    // from RequestBody owner.
+    // an async spsc channel where RequestBodySender used to push data and popped from RequestBody.
     pub(super) fn channel(eof: bool) -> (RequestBodySender, Self) {
         let inner = RequestBodyInner::new(eof);
         (RequestBodySender(inner.clone()), RequestBody(inner))
@@ -62,7 +56,7 @@ impl Stream for RequestBody {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
         match self.get_mut().0 {
-            RequestBodyInner::Some(ref mut inner) => inner.borrow_mut().poll_read(cx),
+            RequestBodyInner::Some(ref mut inner) => inner.borrow_mut().poll_next_unpin(cx),
             RequestBodyInner::None => Poll::Ready(None),
         }
     }
@@ -173,18 +167,18 @@ impl RequestBodySender {
 
 #[derive(Debug)]
 struct Inner {
-    len: usize,
     eof: bool,
+    len: usize,
     err: Option<io::Error>,
     items: VecDeque<Bytes>,
     task: Option<Waker>,
     io_task: Option<Waker>,
 }
 
-impl Inner {
-    fn new(eof: bool) -> Self {
+impl Default for Inner {
+    fn default() -> Self {
         Inner {
-            eof,
+            eof: false,
             len: 0,
             err: None,
             items: VecDeque::new(),
@@ -192,7 +186,9 @@ impl Inner {
             io_task: None,
         }
     }
+}
 
+impl Inner {
     /// Wake up future waiting for payload data to be available.
     fn wake(&mut self) {
         if let Some(waker) = self.task.take() {
@@ -248,7 +244,7 @@ impl Inner {
         self.len >= MAX_BUFFER_SIZE
     }
 
-    fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
+    fn poll_next_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
         if let Some(data) = self.items.pop_front() {
             self.len -= data.len();
             Poll::Ready(Some(Ok(data)))
