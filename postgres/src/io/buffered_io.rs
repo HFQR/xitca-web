@@ -52,9 +52,8 @@ where
     {
         let mut buf = BytesMut::new();
         encoder(&mut buf)?;
-        let msg = buf.freeze();
 
-        let (req, res) = Request::new_pair(msg);
+        let (req, res) = Request::new_pair(buf);
 
         self.ctx.push_req(req);
 

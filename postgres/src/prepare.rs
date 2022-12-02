@@ -9,7 +9,7 @@ use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid, Type};
 use tracing::debug;
-use xitca_io::bytes::Bytes;
+use xitca_io::bytes::BytesMut;
 
 use super::{
     client::Client,
@@ -224,7 +224,7 @@ impl Client {
         Ok(stmt)
     }
 
-    fn prepare_buf(&self, name: &str, query: &str, types: &[Type]) -> Result<Bytes, Error> {
+    fn prepare_buf(&self, name: &str, query: &str, types: &[Type]) -> Result<BytesMut, Error> {
         if types.is_empty() {
             debug!("preparing query {}: {}", name, query);
         } else {
@@ -235,8 +235,7 @@ impl Client {
             frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
             frontend::describe(b'S', name, buf)?;
             frontend::sync(buf);
-
-            Ok(buf.split().freeze())
+            Ok(buf.split())
         })
     }
 }

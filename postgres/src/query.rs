@@ -6,7 +6,7 @@ use std::{
 use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{BorrowToSql, IsNull, ToSql};
-use xitca_io::bytes::{Bytes, BytesMut};
+use xitca_io::bytes::BytesMut;
 
 use super::{client::Client, error::Error, response::Response, row::Row, slice_iter, statement::Statement};
 
@@ -34,7 +34,7 @@ impl Client {
     }
 }
 
-fn encode<P, I>(client: &Client, stmt: &Statement, params: I) -> Result<Bytes, Error>
+fn encode<P, I>(client: &Client, stmt: &Statement, params: I) -> Result<BytesMut, Error>
 where
     P: BorrowToSql,
     I: IntoIterator<Item = P>,
@@ -44,7 +44,7 @@ where
         encode_bind(stmt, params, "", buf)?;
         frontend::execute("", 0, buf).map_err(|_| Error::ToDo)?;
         frontend::sync(buf);
-        Ok(buf.split().freeze())
+        Ok(buf.split())
     })
 }
 
