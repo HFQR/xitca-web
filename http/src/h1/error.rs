@@ -24,10 +24,10 @@ where
         match *self {
             Self::KeepAliveExpire => write!(f, "Keep-Alive time expired"),
             Self::Closed => write!(f, "Closed"),
-            Self::Service(ref e) => write!(f, "{:?}", e),
-            Self::Body(ref e) => write!(f, "{:?}", e),
-            Self::Io(ref e) => write!(f, "{:?}", e),
-            Self::Proto(ref e) => write!(f, "{:?}", e),
+            Self::Service(ref e) => fmt::Debug::fmt(e, f),
+            Self::Body(ref e) => fmt::Debug::fmt(e, f),
+            Self::Io(ref e) => fmt::Debug::fmt(e, f),
+            Self::Proto(ref e) => fmt::Debug::fmt(e, f),
         }
     }
 }

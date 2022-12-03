@@ -192,7 +192,7 @@ impl Settings {
                     }
                 }
                 Some(MaxFrameSize(val)) => {
-                    if val < DEFAULT_MAX_FRAME_SIZE || val > MAX_MAX_FRAME_SIZE {
+                    if !(DEFAULT_MAX_FRAME_SIZE..=MAX_MAX_FRAME_SIZE).contains(&val) {
                         todo!();
                         // return Err(Error::InvalidSettingValue);
                     } else {
