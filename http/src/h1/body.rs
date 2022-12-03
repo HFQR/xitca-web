@@ -165,7 +165,7 @@ impl RequestBodySender {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Inner {
     eof: bool,
     len: usize,
@@ -173,19 +173,6 @@ struct Inner {
     items: VecDeque<Bytes>,
     task: Option<Waker>,
     io_task: Option<Waker>,
-}
-
-impl Default for Inner {
-    fn default() -> Self {
-        Inner {
-            eof: false,
-            len: 0,
-            err: None,
-            items: VecDeque::new(),
-            task: None,
-            io_task: None,
-        }
-    }
 }
 
 impl Inner {

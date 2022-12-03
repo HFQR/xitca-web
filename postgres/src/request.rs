@@ -11,7 +11,6 @@ pub struct Request {
 impl Request {
     pub(crate) fn new_pair(msg: BytesMut) -> (Request, Response) {
         let (tx, rx) = channel(8);
-
         (Request { tx: Some(tx), msg }, Response::new(rx))
     }
 }
