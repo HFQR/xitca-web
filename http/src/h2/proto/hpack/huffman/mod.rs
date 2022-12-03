@@ -148,7 +148,7 @@ mod test {
 
     #[test]
     fn encode_decode_str() {
-        const DATA: &'static [&'static str] = &[
+        const DATA: &[&str] = &[
             "hello world",
             ":method",
             ":scheme",
@@ -185,7 +185,7 @@ mod test {
 
     #[test]
     fn encode_decode_u8() {
-        const DATA: &'static [&'static [u8]] = &[b"\0", b"\0\0\0", b"\0\x01\x02\x03\x04\x05", b"\xFF\xF8"];
+        const DATA: &[&[u8]] = &[b"\0", b"\0\0\0", b"\0\x01\x02\x03\x04\x05", b"\xFF\xF8"];
 
         for s in DATA {
             let mut dst = BytesMut::with_capacity(s.len());

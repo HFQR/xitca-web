@@ -374,7 +374,7 @@ impl PushPromise {
     fn safe_and_cacheable(method: &Method) -> bool {
         // Cacheable: https://httpwg.org/specs/rfc7231.html#cacheable.methods
         // Safe: https://httpwg.org/specs/rfc7231.html#safe.methods
-        return method == Method::GET || method == Method::HEAD;
+        method == Method::GET || method == Method::HEAD
     }
 
     pub fn fields(&self) -> &HeaderMap {
