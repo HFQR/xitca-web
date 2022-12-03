@@ -40,17 +40,17 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Ignored => write!(f, "Error detail is ignored."),
-            Self::Service(ref e) => write!(f, "{:?}", e),
-            Self::Timeout(ref timeout) => write!(f, "{:?} is timed out", timeout),
-            Self::UnSupportedVersion(ref protocol) => write!(f, "Protocol: {:?} is not supported", protocol),
-            Self::Body(ref e) => write!(f, "{:?}", e),
-            Self::Tls(ref e) => write!(f, "{:?}", e),
+            Self::Service(ref e) => Debug::fmt(e, f),
+            Self::Timeout(ref timeout) => write!(f, "{timeout:?} is timed out"),
+            Self::UnSupportedVersion(ref protocol) => write!(f, "Protocol: {protocol:?} is not supported"),
+            Self::Body(ref e) => Debug::fmt(e, f),
+            Self::Tls(ref e) => Debug::fmt(e, f),
             #[cfg(feature = "http1")]
-            Self::H1(ref e) => write!(f, "{:?}", e),
+            Self::H1(ref e) => Debug::fmt(e, f),
             #[cfg(feature = "http2")]
-            Self::H2(ref e) => write!(f, "{:?}", e),
+            Self::H2(ref e) => Debug::fmt(e, f),
             #[cfg(feature = "http3")]
-            Self::H3(ref e) => write!(f, "{:?}", e),
+            Self::H3(ref e) => Debug::fmt(e, f),
         }
     }
 }
