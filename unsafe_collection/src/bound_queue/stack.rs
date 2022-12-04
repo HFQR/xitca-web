@@ -2,17 +2,17 @@ use core::mem::MaybeUninit;
 
 use crate::uninit;
 
-use super::{BoundedQuery, PushError, Queueable};
+use super::{Bounded, PushError, Queueable};
 
 pub struct StackQueue<T, const N: usize> {
-    inner: BoundedQuery<[MaybeUninit<T>; N]>,
+    inner: Bounded<[MaybeUninit<T>; N]>,
 }
 
 impl<T, const N: usize> StackQueue<T, N> {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            inner: BoundedQuery {
+            inner: Bounded {
                 queue: uninit::uninit_array(),
                 next: 0,
                 len: 0,

@@ -60,7 +60,7 @@ impl Connector {
         let mut ssl = SslConnector::builder(SslMethod::tls()).unwrap();
 
         ssl.set_alpn_protos(&alpn)
-            .unwrap_or_else(|e| panic!("Can not set ALPN protocol: {:?}", e));
+            .unwrap_or_else(|e| panic!("Can not set ALPN protocol: {e:?}"));
 
         Self::Openssl(ssl.build())
     }

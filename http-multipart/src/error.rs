@@ -28,15 +28,15 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::NoPostMethod => write!(f, "Only POST method is allowed for multipart"),
-            Self::NoContentDisposition => write!(f, "No Content-Disposition `form-data` header"),
-            Self::NoContentType => write!(f, "No Content-Type header found"),
-            Self::ParseContentType => write!(f, "Can not parse Content-Type header"),
-            Self::Boundary => write!(f, "Multipart boundary is not found"),
-            Self::Nested => write!(f, "Nested multipart is not supported"),
-            Self::UnexpectedEof => write!(f, "Multipart stream ended early than expected."),
-            Self::Header(ref e) => write!(f, "{}", e),
-            Self::Payload(ref e) => write!(f, "{}", e),
+            Self::NoPostMethod => f.write_str("Only POST method is allowed for multipart"),
+            Self::NoContentDisposition => f.write_str("No Content-Disposition `form-data` header"),
+            Self::NoContentType => f.write_str("No Content-Type header found"),
+            Self::ParseContentType => f.write_str("Can not parse Content-Type header"),
+            Self::Boundary => f.write_str("Multipart boundary is not found"),
+            Self::Nested => f.write_str("Nested multipart is not supported"),
+            Self::UnexpectedEof => f.write_str("Multipart stream ended early than expected."),
+            Self::Header(ref e) => fmt::Display::fmt(e, f),
+            Self::Payload(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }

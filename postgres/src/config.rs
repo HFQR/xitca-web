@@ -324,10 +324,7 @@ impl<'a> Parser<'a> {
         match self.it.next() {
             Some((_, c)) if c == target => Ok(()),
             Some((i, c)) => {
-                let _m = format!(
-                    "unexpected character at byte {}: expected `{}` but got `{}`",
-                    i, target, c
-                );
+                let _m = format!("unexpected character at byte {i}: expected `{target}` but got `{c}`");
                 Err(Error::ToDo)
             }
             None => Err(Error::ToDo),

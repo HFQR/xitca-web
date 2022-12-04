@@ -162,7 +162,7 @@ pub enum LimitError {
 impl fmt::Display for LimitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::BodyOverSize(size) => write!(f, "Body size reached limit: {} bytes.", size),
+            Self::BodyOverSize(size) => write!(f, "Body size reached limit: {size} bytes."),
         }
     }
 }

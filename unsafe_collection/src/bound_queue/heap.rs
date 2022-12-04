@@ -1,16 +1,16 @@
 use core::mem::ManuallyDrop;
 
-use super::{BoundedQuery, PushError, Queueable};
+use super::{Bounded, PushError, Queueable};
 
 pub struct HeapQueue<T> {
-    inner: BoundedQuery<HeapQueueInner<T>>,
+    inner: Bounded<HeapQueueInner<T>>,
 }
 
 impl<T> HeapQueue<T> {
     #[inline]
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            inner: BoundedQuery {
+            inner: Bounded {
                 queue: HeapQueueInner {
                     ptr: ManuallyDrop::new(Vec::with_capacity(cap)).as_mut_ptr(),
                     cap,

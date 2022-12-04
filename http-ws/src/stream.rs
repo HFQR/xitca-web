@@ -60,8 +60,8 @@ pub enum DecodeError<E> {
 impl<E> fmt::Debug for DecodeError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Protocol(ref e) => write!(f, "{:?}", e),
-            Self::Stream(..) => write!(f, "Input Stream error"),
+            Self::Protocol(ref e) => fmt::Debug::fmt(e, f),
+            Self::Stream(..) => f.write_str("Input Stream error"),
         }
     }
 }
@@ -69,8 +69,8 @@ impl<E> fmt::Debug for DecodeError<E> {
 impl<E> fmt::Display for DecodeError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Protocol(ref e) => write!(f, "{:?}", e),
-            Self::Stream(..) => write!(f, "Input Stream error"),
+            Self::Protocol(ref e) => fmt::Debug::fmt(e, f),
+            Self::Stream(..) => f.write_str("Input Stream error"),
         }
     }
 }

@@ -41,7 +41,7 @@ impl fmt::Display for FeatureError {
 #[cold]
 #[inline(never)]
 fn feature_error_fmt(encoding: impl fmt::Display, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "Content-Encoding: {} is not supported.", encoding)
+    write!(f, "Content-Encoding: {encoding} is not supported.")
 }
 
 impl error::Error for FeatureError {}
@@ -64,8 +64,8 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Io(ref e) => write!(f, "{:?}", e),
-            Self::Stream(ref e) => write!(f, "{:?}", e),
+            Self::Io(ref e) => fmt::Debug::fmt(e, f),
+            Self::Stream(ref e) => fmt::Debug::fmt(e, f),
         }
     }
 }
@@ -76,13 +76,23 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Io(ref e) => write!(f, "{e}"),
-            Self::Stream(ref e) => write!(f, "{e}"),
+            Self::Io(ref e) => fmt::Display::fmt(e, f),
+            Self::Stream(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
 
-impl<E> error::Error for CoderError<E> where E: fmt::Debug + fmt::Display {}
+impl<E> error::Error for CoderError<E>
+where
+    E: error::Error,
+{
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match *self {
+            Self::Io(ref e) => e.source(),
+            Self::Stream(ref e) => e.source(),
+        }
+    }
+}
 
 impl<E> From<io::Error> for CoderError<E> {
     fn from(e: io::Error) -> Self {
