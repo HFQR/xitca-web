@@ -267,6 +267,7 @@ mod test {
         }
     }
 
+    #[allow(clippy::borrow_interior_mutable_const)]
     #[test]
     fn test_app() {
         async fn middleware_fn<S, C, B, Res, Err>(service: &S, mut req: WebRequest<'_, C, B>) -> Result<Res, Infallible>
@@ -311,7 +312,6 @@ mod test {
 
         assert_eq!(res.status().as_u16(), 200);
 
-        #[allow(clippy::borrow_interior_mutable_const)]
         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
 
         let mut req = Request::default();
