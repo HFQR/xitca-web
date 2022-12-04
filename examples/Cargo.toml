@@ -44,6 +44,10 @@ path = "compression.rs"
 name = "tower-http"
 path = "tower-http.rs"
 
+[[example]]
+name = "cloudflare-worker"
+path = "cloudflare-worker.rs"
+
 [features]
 io-uring = ["tokio-uring", "xitca-web/io-uring"]
 
@@ -72,6 +76,7 @@ tower-http = { version = "0.3", features = ["fs", "set-header"] }
 tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.1", features = ["env-filter"] }
 openssl = "0.10"
+worker = "0.0.12"
 
 tokio-uring = { version = "0.4", optional = true }
 
