@@ -227,8 +227,8 @@ pub enum RustlsError {
 impl fmt::Debug for RustlsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Io(ref e) => write!(f, "{:?}", e),
-            Self::Tls(ref e) => write!(f, "{:?}", e),
+            Self::Io(ref e) => fmt::Debug::fmt(e, f),
+            Self::Tls(ref e) => fmt::Debug::fmt(e, f),
         }
     }
 }
@@ -236,8 +236,8 @@ impl fmt::Debug for RustlsError {
 impl fmt::Display for RustlsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Io(ref e) => write!(f, "{}", e),
-            Self::Tls(ref e) => write!(f, "{}", e),
+            Self::Io(ref e) => fmt::Display::fmt(e, f),
+            Self::Tls(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }

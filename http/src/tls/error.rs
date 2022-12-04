@@ -17,11 +17,11 @@ impl fmt::Debug for TlsError {
         match *self {
             Self::Infallible => unreachable!("Infallible error should never happen"),
             #[cfg(feature = "openssl")]
-            Self::Openssl(ref e) => write!(_f, "{:?}", e),
+            Self::Openssl(ref e) => fmt::Debug::fmt(e, _f),
             #[cfg(feature = "rustls")]
-            Self::Rustls(ref e) => write!(_f, "{:?}", e),
+            Self::Rustls(ref e) => fmt::Debug::fmt(e, _f),
             #[cfg(feature = "native-tls")]
-            Self::NativeTls(ref e) => write!(_f, "{:?}", e),
+            Self::NativeTls(ref e) => fmt::Debug::fmt(e, _f),
         }
     }
 }
@@ -31,11 +31,11 @@ impl fmt::Display for TlsError {
         match *self {
             Self::Infallible => unreachable!("Infallible error should never happen"),
             #[cfg(feature = "openssl")]
-            Self::Openssl(ref e) => write!(_f, "{:?}", e),
+            Self::Openssl(ref e) => fmt::Debug::fmt(e, _f),
             #[cfg(feature = "rustls")]
-            Self::Rustls(ref e) => write!(_f, "{:?}", e),
+            Self::Rustls(ref e) => fmt::Debug::fmt(e, _f),
             #[cfg(feature = "native-tls")]
-            Self::NativeTls(ref e) => write!(_f, "{}", e),
+            Self::NativeTls(ref e) => fmt::Display::fmt(e, _f),
         }
     }
 }

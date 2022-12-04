@@ -310,6 +310,8 @@ mod test {
         let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
+
+        #[allow(clippy::borrow_interior_mutable_const)]
         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
 
         let mut req = Request::default();

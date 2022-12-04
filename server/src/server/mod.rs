@@ -124,7 +124,7 @@ impl Server {
         // use a spawned thread to work around possible nest runtime issue.
         // *. Server::new is most likely already inside a tokio runtime.
         let listeners = thread::scope(|s| s.spawn(|| rt.block_on(fut)).join())
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e)))??;
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))??;
 
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
 

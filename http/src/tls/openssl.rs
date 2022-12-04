@@ -241,9 +241,9 @@ pub enum OpensslError {
 impl Debug for OpensslError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Io(ref e) => write!(f, "{:?}", e),
-            Self::Tls(ref e) => write!(f, "{:?}", e),
-            Self::Stack(ref e) => write!(f, "{:?}", e),
+            Self::Io(ref e) => Debug::fmt(e, f),
+            Self::Tls(ref e) => Debug::fmt(e, f),
+            Self::Stack(ref e) => Debug::fmt(e, f),
         }
     }
 }

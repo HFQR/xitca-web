@@ -177,8 +177,8 @@ impl BufInterest for BytesMut {
 impl BufWrite for BytesMut {
     fn write<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
         loop {
-            match io.write(&self) {
-                Ok(0) => return write_zero(self.is_empty()),
+            match io.write(self) {
+                Ok(0) => return write_zero(self.want_write()),
                 Ok(n) => {
                     self.advance(n);
                     if self.is_empty() {
@@ -254,7 +254,7 @@ where
             let mut buf = uninit_array::<_, BUF_LIST_CNT>();
             let slice = queue.chunks_vectored_uninit_into_init(&mut buf);
             match io.write_vectored(slice) {
-                Ok(0) => return write_zero(slice.is_empty()),
+                Ok(0) => return write_zero(self.want_write()),
                 Ok(n) => {
                     queue.advance(n);
                     if queue.is_empty() {
@@ -271,10 +271,10 @@ where
 
 #[cold]
 #[inline(never)]
-fn write_zero(is_buf_empty: bool) -> io::Result<()> {
+fn write_zero(want_write: bool) -> io::Result<()> {
     assert!(
-        !is_buf_empty,
-        "trying to write from empty buffer. BufWrite::write must be called on non empty buffer"
+        want_write,
+        "BufWrite::write must be called after BufInterest::want_write return true."
     );
     Err(io::ErrorKind::WriteZero.into())
 }

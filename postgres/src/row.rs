@@ -142,7 +142,7 @@ impl<'a> Row<'a> {
         'a: 'f,
     {
         self.try_get(&idx)
-            .unwrap_or_else(|e| panic!("error retrieving column {}: {}", idx, e))
+            .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
     }
 
     /// Like `Row::get`, but returns a `Result` rather than panicking.
