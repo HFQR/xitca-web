@@ -220,12 +220,13 @@ where
     // a hacky method that output S::Response as Ok part but never actually produce the value.
     async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<S::Response, Error<S::Error, BE>> {
         if self.ctx.is_expect_header() {
-            // Wait for body polled for expect header request.
-            body_reader.wait_for_poll().await;
-            // encode continue
-            self.ctx.encode_continue(&mut self.io.write_buf);
-            // use drain write to make sure continue is sent to client.
-            self.io.drain_write().await?;
+            // wait for service future to start polling RequestBody.
+            if body_reader.wait_for_poll().await.is_ok() {
+                // encode continue as service future want a body.
+                self.ctx.encode_continue(&mut self.io.write_buf);
+                // use drain write to make sure continue is sent to client.
+                self.io.drain_write().await?;
+            };
         }
 
         loop {
@@ -337,7 +338,7 @@ impl BodyReader {
     }
 
     // dispatcher MUST call this method before do any io reading.
-    // a none ready state means the body consumer either is in backpressure or don't expect any more body.
+    // a none ready state means the body consumer either is in backpressure or don't expect body.
     async fn ready<D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
         &mut self,
         read_buf: &mut FlatBuf<READ_BUF_LIMIT>,
@@ -346,12 +347,10 @@ impl BodyReader {
         loop {
             match self.decoder.decode(&mut *read_buf) {
                 ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
-                // BodyReader's only error case is when service future drop the request
-                // body consumer half way. In this case notify Context to close connection afterwards.
-                // Service future is trusted to produce a meaningful response after it drops
-                // the request body.
                 ChunkResult::InsufficientData => match self.tx.ready().await {
                     Ok(_) => return,
+                    // service future drop RequestBody half way so notify Context to close
+                    // connection afterwards.
                     Err(_) => self.set_close(ctx),
                 },
                 ChunkResult::Eof => self.tx.feed_eof(),
@@ -377,13 +376,12 @@ impl BodyReader {
         ctx.set_ctype(ConnectionType::Close);
     }
 
-    async fn wait_for_poll(&mut self) {
-        // The error case is the same condition as Self::ready method.
-        // Remote should not have sent any body until 100 continue is received
-        // which means it's safe(possibly) to keep the connection open on error path.
-        if self.tx.wait_for_poll().await.is_err() {
-            // like Self::ready method. just pending on error path
-            pending().await
-        }
+    // wait for service start to consume RequestBody.
+    async fn wait_for_poll(&mut self) -> io::Result<()> {
+        self.tx.wait_for_poll().await.map_err(|e| {
+            // IMPORTANT: service future drop RequestBody so set decoder to eof.
+            self.decoder.set_eof();
+            e
+        })
     }
 }
