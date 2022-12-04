@@ -28,7 +28,7 @@ pub trait Queueable {
     unsafe fn _write_unchecked(&mut self, idx: usize, item: Self::Item);
 }
 
-struct BoundedQuery<Q>
+struct Bounded<Q>
 where
     Q: Queueable,
 {
@@ -37,7 +37,7 @@ where
     len: usize,
 }
 
-impl<Q> BoundedQuery<Q>
+impl<Q> Bounded<Q>
 where
     Q: Queueable,
 {
@@ -149,7 +149,7 @@ where
     }
 }
 
-impl<Q> fmt::Debug for BoundedQuery<Q>
+impl<Q> fmt::Debug for Bounded<Q>
 where
     Q: Queueable,
 {
@@ -158,7 +158,7 @@ where
     }
 }
 
-impl<Q> Drop for BoundedQuery<Q>
+impl<Q> Drop for Bounded<Q>
 where
     Q: Queueable,
 {

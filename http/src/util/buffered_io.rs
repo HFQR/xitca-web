@@ -176,17 +176,19 @@ impl BufInterest for BytesMut {
 
 impl BufWrite for BytesMut {
     fn write<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
-        let mut written = 0;
-        let len = self.remaining();
-        while written < len {
-            match io.write(&self[written..]) {
-                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                Ok(n) => written += n,
+        loop {
+            match io.write(&self) {
+                Ok(0) => return write_zero(self.is_empty()),
+                Ok(n) => {
+                    self.advance(n);
+                    if self.is_empty() {
+                        break;
+                    }
+                }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e),
             }
         }
-        self.advance(written);
         Ok(())
     }
 }
@@ -248,16 +250,31 @@ where
 {
     fn write<Io: Write>(&mut self, io: &mut Io) -> io::Result<()> {
         let queue = &mut self.list;
-        while !queue.is_empty() {
+        loop {
             let mut buf = uninit_array::<_, BUF_LIST_CNT>();
             let slice = queue.chunks_vectored_uninit_into_init(&mut buf);
             match io.write_vectored(slice) {
-                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                Ok(n) => queue.advance(n),
+                Ok(0) => return write_zero(slice.is_empty()),
+                Ok(n) => {
+                    queue.advance(n);
+                    if queue.is_empty() {
+                        break;
+                    }
+                }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e),
             }
         }
         Ok(())
     }
+}
+
+#[cold]
+#[inline(never)]
+fn write_zero(is_buf_empty: bool) -> io::Result<()> {
+    assert!(
+        !is_buf_empty,
+        "trying to write from empty buffer. BufWrite::write must be called on non empty buffer"
+    );
+    Err(io::ErrorKind::WriteZero.into())
 }
