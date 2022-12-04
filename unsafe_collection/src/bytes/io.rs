@@ -27,3 +27,33 @@ where
 
     Ok(n)
 }
+
+#[cfg(test)]
+mod test {
+    use bytes_crate::BytesMut;
+
+    use super::*;
+
+    #[test]
+    fn test_read_buf() {
+        struct Io(&'static [u8]);
+
+        impl Read for Io {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                Ok(self
+                    .0
+                    .iter()
+                    .zip(buf.iter_mut())
+                    .map(|(a, b)| {
+                        *b = *a;
+                    })
+                    .count())
+            }
+        }
+
+        let io = &mut Io(b"996");
+        let buf = &mut BytesMut::new();
+        let n = read_buf(io, buf).unwrap();
+        assert_eq!(io.0, &buf[..n]);
+    }
+}
