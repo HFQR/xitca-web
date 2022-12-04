@@ -90,15 +90,18 @@ where
 
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
-        while !self.ctx.req_is_empty() {
+        loop {
             let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
-
             let slice = self.ctx.chunks_vectored(&mut iovs);
-
             match self.io.write_vectored(slice) {
-                Ok(0) => return Err(write_zero_err()),
-                Ok(n) => self.ctx.advance(n),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Ok(0) => return write_zero(self.ctx.req_is_empty()),
+                Ok(n) => {
+                    self.ctx.advance(n);
+                    if self.ctx.req_is_empty() {
+                        break;
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e.into()),
             }
         }
@@ -143,18 +146,17 @@ mod io_impl {
 
         fn try_write2(&mut self) -> Result<(), Error> {
             self.rx.with_vec(|v| {
-                while !v.is_empty() {
+                loop {
                     let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
                     let slice = iovs
                         .init_from(v.iter())
                         .into_init_with(|req| IoSlice::new(req.msg.chunk()));
 
                     match self.io.write_vectored(slice) {
-                        Ok(0) => return Err(write_zero_err()),
+                        Ok(0) => return write_zero(v.is_empty()),
                         Ok(mut n) => {
                             v.advance_until(|req| {
                                 let rem = req.msg.remaining();
-
                                 if rem > n {
                                     req.msg.advance(n);
                                     false
@@ -164,6 +166,9 @@ mod io_impl {
                                     true
                                 }
                             });
+                            if v.is_empty() {
+                                break;
+                            }
                         }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                         Err(e) => return Err(e.into()),
@@ -236,4 +241,11 @@ mod io_impl {
 
         io.ready(interest)
     }
+}
+
+#[cold]
+#[inline(never)]
+fn write_zero(is_buf_empty: bool) -> Result<(), Error> {
+    assert!(!is_buf_empty, "trying to write from empty buffer.");
+    Err(write_zero_err())
 }
