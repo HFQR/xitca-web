@@ -115,12 +115,10 @@ where
     fn call(&mut self, mut req: http::Request<CompatBody<FakeSend<ReqB>>>) -> Self::Future {
         let service = self.service.clone();
         async move {
-            let remote_addr = *req.extensions().get::<RemoteAddr>().unwrap();
+            let remote_addr = req.extensions_mut().remove::<RemoteAddr>().unwrap();
             let ctx = req
                 .extensions_mut()
-                .get_mut::<Option<FakeSync<FakeSend<C>>>>()
-                .unwrap()
-                .take()
+                .remove::<FakeSync<FakeSend<C>>>()
                 .unwrap()
                 .into_inner()
                 .into_inner();

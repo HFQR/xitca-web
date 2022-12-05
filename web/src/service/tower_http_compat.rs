@@ -85,9 +85,7 @@ where
         async move {
             let ctx = req.state().clone();
             let addr = *req.req().remote_addr();
-            req.req_mut()
-                .extensions_mut()
-                .insert(Some(FakeSync::new(FakeSend::new(ctx))));
+            req.req_mut().extensions_mut().insert(FakeSync::new(FakeSend::new(ctx)));
             req.req_mut().extensions_mut().insert(addr);
             let (parts, body) = req.take_request().into_parts();
             let req = http::Request::from_parts(parts, CompatBody::new(FakeSend::new(body)));
