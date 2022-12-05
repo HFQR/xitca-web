@@ -9,7 +9,7 @@ use std::{
 
 use tower_layer::Layer;
 use xitca_http::request::{RemoteAddr, Request};
-use xitca_unsafe_collection::fake_send_sync::FakeSend;
+use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
 use crate::{
     dev::service::Service,
@@ -101,7 +101,7 @@ impl<S, C, ReqB, ResB, Err> tower_service::Service<http::Request<CompatBody<Fake
     for CompatLayer<S, C, ReqB, ResB, Err>
 where
     S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
-    C: Send + Sync + Clone + 'static,
+    C: Clone + 'static,
 {
     type Response = http::Response<CompatBody<ResB>>;
     type Error = Err;
@@ -116,7 +116,14 @@ where
         let service = self.service.clone();
         async move {
             let remote_addr = *req.extensions().get::<RemoteAddr>().unwrap();
-            let ctx = req.extensions_mut().get_mut::<Option<C>>().unwrap().take().unwrap();
+            let ctx = req
+                .extensions_mut()
+                .get_mut::<Option<FakeSync<FakeSend<C>>>>()
+                .unwrap()
+                .take()
+                .unwrap()
+                .into_inner()
+                .into_inner();
             let (parts, body) = req.into_parts();
             let req = http::Request::from_parts(parts, ());
             let mut req = Request::from_http(req, remote_addr);
@@ -140,13 +147,14 @@ mod test {
 
     use super::*;
 
-    async fn handler(req: WebRequest<'_>) -> Result<WebResponse, Infallible> {
+    async fn handler(req: WebRequest<'_, &'static str>) -> Result<WebResponse, Infallible> {
+        assert_eq!(*req.state(), "996");
         Ok(req.into_response(Bytes::new()))
     }
 
     #[test]
     fn tower_set_status() {
-        let res = App::new()
+        let res = App::with_current_thread_state("996")
             .at("/", fn_service(handler))
             .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)))
             .finish()

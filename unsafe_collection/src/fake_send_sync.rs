@@ -118,7 +118,7 @@ impl<B> FakeSync<B> {
 
     /// Obtain ownership of inner value.
     #[inline]
-    pub fn inner(self) -> B {
+    pub fn into_inner(self) -> B {
         self.0
     }
 }
