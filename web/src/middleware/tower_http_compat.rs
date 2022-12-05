@@ -9,7 +9,7 @@ use std::{
 
 use tower_layer::Layer;
 use xitca_http::request::{RemoteAddr, Request};
-use xitca_unsafe_collection::no_send_send::NoSendSend;
+use xitca_unsafe_collection::fake_send_sync::FakeSend;
 
 use crate::{
     dev::service::Service,
@@ -97,7 +97,7 @@ pub struct CompatLayer<S, C, ReqB, ResB, Err> {
     _phantom: PhantomData<(C, ReqB, ResB, Err)>,
 }
 
-impl<S, C, ReqB, ResB, Err> tower_service::Service<http::Request<CompatBody<NoSendSend<ReqB>>>>
+impl<S, C, ReqB, ResB, Err> tower_service::Service<http::Request<CompatBody<FakeSend<ReqB>>>>
     for CompatLayer<S, C, ReqB, ResB, Err>
 where
     S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
@@ -112,7 +112,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, mut req: http::Request<CompatBody<NoSendSend<ReqB>>>) -> Self::Future {
+    fn call(&mut self, mut req: http::Request<CompatBody<FakeSend<ReqB>>>) -> Self::Future {
         let service = self.service.clone();
         async move {
             let remote_addr = *req.extensions().get::<RemoteAddr>().unwrap();

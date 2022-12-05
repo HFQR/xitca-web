@@ -10,7 +10,7 @@ use futures_core::stream::Stream;
 use http_body::{Body, SizeHint};
 use pin_project_lite::pin_project;
 use xitca_http::body::{none_body_hint, BodySize};
-use xitca_unsafe_collection::no_send_send::NoSendSend;
+use xitca_unsafe_collection::fake_send_sync::FakeSend;
 
 use crate::{
     dev::{
@@ -67,7 +67,7 @@ impl<S> TowerCompatService<S> {
 
 impl<'r, C, ReqB, S, ResB> Service<WebRequest<'r, C, ReqB>> for TowerCompatService<S>
 where
-    S: tower_service::Service<http::Request<CompatBody<NoSendSend<ReqB>>>, Response = http::Response<ResB>>,
+    S: tower_service::Service<http::Request<CompatBody<FakeSend<ReqB>>>, Response = http::Response<ResB>>,
     ResB: Body,
     C: Send + Sync + Clone + 'static,
     ReqB: Default + 'r,
@@ -88,7 +88,7 @@ where
             req.req_mut().extensions_mut().insert(Some(ctx));
             req.req_mut().extensions_mut().insert(addr);
             let (parts, body) = req.take_request().into_parts();
-            let req = http::Request::from_parts(parts, CompatBody::new(NoSendSend::new(body)));
+            let req = http::Request::from_parts(parts, CompatBody::new(FakeSend::new(body)));
             let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
             fut.await.map(|res| res.map(CompatBody::new))
         }
