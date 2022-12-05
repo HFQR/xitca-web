@@ -10,7 +10,7 @@ use futures_core::stream::Stream;
 use http_body::{Body, SizeHint};
 use pin_project_lite::pin_project;
 use xitca_http::body::{none_body_hint, BodySize};
-use xitca_unsafe_collection::fake_send_sync::FakeSend;
+use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
 use crate::{
     dev::{
@@ -69,7 +69,7 @@ impl<'r, C, ReqB, S, ResB> Service<WebRequest<'r, C, ReqB>> for TowerCompatServi
 where
     S: tower_service::Service<http::Request<CompatBody<FakeSend<ReqB>>>, Response = http::Response<ResB>>,
     ResB: Body,
-    C: Send + Sync + Clone + 'static,
+    C: Clone + 'static,
     ReqB: Default + 'r,
 {
     type Response = WebResponse<CompatBody<ResB>>;
@@ -85,7 +85,9 @@ where
         async move {
             let ctx = req.state().clone();
             let addr = *req.req().remote_addr();
-            req.req_mut().extensions_mut().insert(Some(ctx));
+            req.req_mut()
+                .extensions_mut()
+                .insert(Some(FakeSync::new(FakeSend::new(ctx))));
             req.req_mut().extensions_mut().insert(addr);
             let (parts, body) = req.take_request().into_parts();
             let req = http::Request::from_parts(parts, CompatBody::new(FakeSend::new(body)));
