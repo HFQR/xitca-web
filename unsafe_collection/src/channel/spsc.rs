@@ -324,8 +324,6 @@ impl<T> fmt::Display for SendError<T> {
 
 #[cfg(test)]
 mod test {
-    use alloc::sync::Arc;
-
     use crate::{futures::NoOpWaker, pin};
 
     use super::*;
@@ -404,7 +402,7 @@ mod test {
     fn drop() {
         let (mut tx, mut rx) = channel::<usize>(8);
 
-        let waker = Waker::from(Arc::new(NoOpWaker));
+        let waker = NoOpWaker::waker();
 
         let cx = &mut Context::from_waker(&waker);
 
