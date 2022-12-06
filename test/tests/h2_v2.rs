@@ -7,7 +7,7 @@ use xitca_service::fn_service;
 
 #[tokio::test]
 async fn h2_v2_get() {
-    std::thread::spawn(|| server());
+    std::thread::spawn(server);
 
     let c = Client::new();
 
