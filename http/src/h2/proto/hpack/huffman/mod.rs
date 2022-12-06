@@ -113,7 +113,7 @@ mod test {
     #[test]
     fn decode_single_byte() {
         assert_eq!("o", decode(&[0b00111111]).unwrap());
-        assert_eq!("0", decode(&[0x0 + 7]).unwrap());
+        assert_eq!("0", decode(&[7]).unwrap());
         assert_eq!("A", decode(&[(0x21 << 2) + 3]).unwrap());
     }
 
