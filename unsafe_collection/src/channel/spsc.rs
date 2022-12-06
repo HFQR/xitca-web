@@ -5,26 +5,27 @@
 extern crate alloc;
 
 use core::{
-    cell::UnsafeCell,
     fmt,
     future::{poll_fn, Future},
     marker::PhantomData,
     mem::ManuallyDrop,
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
 
 use alloc::{sync::Arc, vec::Vec};
 
 use cache_padded::CachePadded;
+use futures_core::task::__internal::AtomicWaker;
 
 struct Inner<T> {
     head: CachePadded<AtomicUsize>,
     tail: CachePadded<AtomicUsize>,
     buffer: *mut T,
     cap: usize,
-    waker: AtomicWaker,
+    tx_waker: AtomicWaker,
+    rx_waker: AtomicWaker,
     _marker: PhantomData<T>,
 }
 
@@ -90,7 +91,8 @@ pub fn channel<T>(cap: usize) -> (Sender<T>, Receiver<T>) {
         tail: CachePadded::new(AtomicUsize::new(0)),
         buffer: ManuallyDrop::new(Vec::with_capacity(cap)).as_mut_ptr(),
         cap,
-        waker: AtomicWaker::default(),
+        tx_waker: AtomicWaker::new(),
+        rx_waker: AtomicWaker::new(),
         _marker: PhantomData,
     });
 
@@ -124,7 +126,7 @@ impl<T> fmt::Debug for Sender<T> {
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        self.inner.waker.try_wake();
+        self.inner.rx_waker.wake();
     }
 }
 
@@ -137,7 +139,7 @@ impl<T> Sender<T> {
     pub fn try_send(&mut self, value: T) -> Result<(), SendError<T>> {
         match self.push(value) {
             Ok(_) => {
-                self.inner.waker.try_wake();
+                self.inner.rx_waker.wake();
                 Ok(())
             }
             Err(value) => Err(SendError::Full(value)),
@@ -146,7 +148,7 @@ impl<T> Sender<T> {
 
     pub async fn send(&mut self, value: T) -> Result<(), SendError<T>> {
         struct SendFuture<'a, T> {
-            producer: &'a mut Sender<T>,
+            tx: &'a mut Sender<T>,
             value: Option<T>,
         }
 
@@ -158,25 +160,33 @@ impl<T> Sender<T> {
                 // This is safe as Self is not moved in the following code.
                 let this = unsafe { self.get_unchecked_mut() };
 
-                match this
-                    .producer
-                    .try_send(this.value.take().expect("SendFuture polled after finished"))
+                fn send_once<T, F>(sender: &mut Sender<T>, value: T, on_full: F) -> Poll<Result<(), SendError<T>>>
+                where
+                    F: FnOnce(&mut Sender<T>, T) -> Poll<Result<(), SendError<T>>>,
                 {
-                    Ok(_) => {
-                        this.producer.inner.waker.try_wake();
-                        Poll::Ready(Ok(()))
-                    }
-                    Err(SendError::Full(value)) | Err(SendError::Closed(value)) => {
-                        this.producer.inner.waker.try_register(cx.waker());
-                        this.value = Some(value);
-                        Poll::Pending
+                    match sender.try_send(value) {
+                        Ok(_) => Poll::Ready(Ok(())),
+                        Err(SendError::Full(value)) => on_full(sender, value),
+                        Err(e) => Poll::Ready(Err(e)),
                     }
                 }
+
+                send_once(
+                    this.tx,
+                    this.value.take().expect("SendFuture polled after finished"),
+                    |tx, vaule| {
+                        tx.inner.tx_waker.register(cx.waker());
+                        send_once(tx, vaule, |_, value| {
+                            this.value = Some(value);
+                            Poll::Pending
+                        })
+                    },
+                )
             }
         }
 
         SendFuture {
-            producer: self,
+            tx: self,
             value: Some(value),
         }
         .await
@@ -234,20 +244,29 @@ impl<T> Receiver<T> {
     }
 
     pub fn poll_recv(&mut self, cx: &mut Context) -> Poll<Option<T>> {
-        match self.pop() {
-            Some(value) => {
-                self.inner.waker.try_wake();
-                Poll::Ready(Some(value))
-            }
-            None => {
-                if Arc::strong_count(&self.inner) == 1 {
-                    Poll::Ready(None)
-                } else {
-                    self.inner.waker.try_register(cx.waker());
-                    Poll::Pending
+        fn recv_once<T, F>(rx: &mut Receiver<T>, on_none: F) -> Poll<Option<T>>
+        where
+            F: FnOnce(&mut Receiver<T>) -> Poll<Option<T>>,
+        {
+            match rx.pop() {
+                Some(value) => {
+                    rx.inner.tx_waker.wake();
+                    Poll::Ready(Some(value))
+                }
+                None => {
+                    if Arc::strong_count(&rx.inner) == 1 {
+                        Poll::Ready(None)
+                    } else {
+                        on_none(rx)
+                    }
                 }
             }
         }
+
+        recv_once(self, |this| {
+            this.inner.rx_waker.register(cx.waker());
+            recv_once(this, |_| Poll::Pending)
+        })
     }
 
     fn pop(&mut self) -> Option<T> {
@@ -302,95 +321,6 @@ impl<T> fmt::Display for SendError<T> {
         }
     }
 }
-
-struct AtomicWaker {
-    state: AtomicUsize,
-    waker: UnsafeCell<Option<Waker>>,
-}
-
-const FREE: usize = 0;
-const OPERATING: usize = 0b01;
-const WAKING: usize = 0b10;
-
-impl AtomicWaker {
-    const fn new() -> Self {
-        AtomicWaker {
-            state: AtomicUsize::new(FREE),
-            waker: UnsafeCell::new(None),
-        }
-    }
-
-    fn try_register(&self, waker: &Waker) {
-        match self
-            .state
-            .compare_exchange(FREE, OPERATING, Ordering::Acquire, Ordering::Acquire)
-            .unwrap_or_else(|x| x)
-        {
-            FREE => {
-                // SAFETY:
-                //
-                // only dereference when holding OPERATING state change.
-                unsafe {
-                    // take old waker to potential wake the other part.
-                    let waker = (*self.waker.get()).replace(waker.clone());
-
-                    match self
-                        .state
-                        .compare_exchange(OPERATING, FREE, Ordering::AcqRel, Ordering::Acquire)
-                    {
-                        Ok(_) => {
-                            if let Some(waker) = waker {
-                                waker.wake();
-                            }
-                        }
-                        Err(state) => {
-                            debug_assert_eq!(state, OPERATING | WAKING);
-                            // retake waker and wake up self again.
-                            // the old waker can be ignored as the other part is trying to wake us
-                            // up and it's in active state already.
-                            let waker = (*self.waker.get()).take().unwrap();
-                            self.state.swap(FREE, Ordering::AcqRel);
-                            waker.wake();
-                        }
-                    }
-                }
-            }
-            _ => waker.wake_by_ref(),
-        }
-    }
-
-    fn try_wake(&self) {
-        match self.state.fetch_or(WAKING, Ordering::AcqRel) {
-            FREE => {
-                let waker = unsafe { (*self.waker.get()).take() };
-                self.state.fetch_and(!WAKING, Ordering::Release);
-                if let Some(waker) = waker {
-                    waker.wake();
-                }
-            }
-            state => {
-                debug_assert_ne!(state, WAKING);
-                debug_assert!(state == OPERATING || state == OPERATING | WAKING);
-            }
-        }
-    }
-}
-
-impl Default for AtomicWaker {
-    fn default() -> Self {
-        AtomicWaker::new()
-    }
-}
-
-impl fmt::Debug for AtomicWaker {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "AtomicWaker")
-    }
-}
-
-unsafe impl Send for AtomicWaker {}
-
-unsafe impl Sync for AtomicWaker {}
 
 #[cfg(test)]
 mod test {
