@@ -6,9 +6,11 @@ use worker::{self, event, Env, Error, Request, Response};
 use xitca_http::{http, util::service::Router};
 use xitca_service::{fn_service, object, Service, ServiceExt};
 
+type RouterService = Rc<dyn object::ServiceObject<http::Request<()>, Response = Response, Error = Error>>;
+
 // thread local for storing router service.
 thread_local! {
-    static R: RefCell<Option<Rc<dyn object::ServiceObject<http::Request<()>, Response = Response, Error = Error>>>> = RefCell::new(None);
+    static R: RefCell<Option<RouterService>> = RefCell::new(None);
 }
 
 #[event(fetch)]
