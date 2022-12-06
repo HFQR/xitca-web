@@ -1,10 +1,4 @@
-use std::{
-    future::Future,
-    marker::PhantomData,
-    pin::Pin,
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use std::{future::Future, marker::PhantomData, pin::Pin, rc::Rc, sync::Arc};
 
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
@@ -16,13 +10,13 @@ type LocalBoxFuture<'a, O> = Pin<Box<dyn Future<Output = O> + 'a>>;
 
 pub(crate) struct Factory<F, Req> {
     inner: F,
-    _t: PhantomData<Mutex<Req>>,
+    _t: PhantomData<fn(Req)>,
 }
 
 impl<F, Req> Factory<F, Req>
 where
     F: BuildServiceFn<Req>,
-    Req: From<Stream> + Send + 'static,
+    Req: From<Stream> + 'static,
 {
     pub(crate) fn new_boxed(inner: F) -> Box<dyn _BuildService> {
         Box::new(Self { inner, _t: PhantomData })
@@ -45,7 +39,7 @@ pub(crate) trait _BuildService: Send + Sync {
 impl<F, Req> _BuildService for Factory<F, Req>
 where
     F: BuildServiceFn<Req>,
-    Req: From<Stream> + Send + 'static,
+    Req: From<Stream> + 'static,
 {
     fn _build<'s, 'f>(
         &'s self,
@@ -71,10 +65,7 @@ where
 }
 
 /// helper trait to alias impl Fn() -> impl BuildService type and hide it's generic type params(other than the Req type).
-pub trait BuildServiceFn<Req>
-where
-    Self: Send + Sync + 'static,
-{
+pub trait BuildServiceFn<Req>: Send + Sync + 'static {
     type BuildService: Service<Response = Self::Service>;
     type Service: ReadyService + Service<Req>;
 
