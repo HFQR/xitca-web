@@ -128,7 +128,7 @@ impl Encoder {
                 encode_not_indexed(idx, header.value_slice(), header.is_sensitive(), dst);
             }
             Index::Inserted(_) => {
-                let header = self.table.resolve(&index);
+                let header = self.table.resolve(index);
 
                 assert!(!header.is_sensitive());
 
@@ -138,7 +138,7 @@ impl Encoder {
                 encode_str(header.value_slice(), dst);
             }
             Index::InsertedValue(idx, _) => {
-                let header = self.table.resolve(&index);
+                let header = self.table.resolve(index);
 
                 assert!(!header.is_sensitive());
 
@@ -146,7 +146,7 @@ impl Encoder {
                 encode_str(header.value_slice(), dst);
             }
             Index::NotIndexed(_) => {
-                let header = self.table.resolve(&index);
+                let header = self.table.resolve(index);
 
                 encode_not_indexed2(
                     header.name().as_slice(),

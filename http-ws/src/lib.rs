@@ -138,6 +138,8 @@ where
             // generate 24 bytes base64 encoded random key.
             let input = rand::random::<[u8; 16]>();
             let mut output = [0u8; 24];
+
+            #[allow(clippy::needless_borrow)] // clippy dumb.
             let n = base64::encode_config_slice(&input, base64::STANDARD, &mut output);
             assert_eq!(n, output.len());
 
