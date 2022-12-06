@@ -9,6 +9,7 @@ bytes = ["bytes_crate"]
 [dependencies]
 bytes_crate = { package = "bytes", version = "1.2", optional = true }
 cache-padded = "1.2.0"
+futures-core = { version = "0.3.25", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.21", features = ["rt", "sync"] }

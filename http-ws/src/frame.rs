@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn test_parse_frame_no_mask() {
         let mut buf = BytesMut::from(&[0b0000_0001u8, 0b0000_0001u8][..]);
-        buf.extend(&[1u8]);
+        buf.extend([1u8]);
 
         assert!(Parser::parse(&mut buf, true, 1024).is_err());
 
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn test_parse_frame_max_size() {
         let mut buf = BytesMut::from(&[0b0000_0001u8, 0b0000_0010u8][..]);
-        buf.extend(&[1u8, 1u8]);
+        buf.extend([1u8, 1u8]);
 
         assert!(Parser::parse(&mut buf, true, 1).is_err());
 
