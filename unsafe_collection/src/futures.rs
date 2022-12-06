@@ -1,11 +1,11 @@
+extern crate alloc;
+
 use core::{
     fmt,
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
-
-extern crate alloc;
 
 use alloc::{sync::Arc, task::Wake};
 
@@ -96,7 +96,7 @@ where
     type Output = F::Output;
 
     fn now_or_panic(&mut self) -> Self::Output {
-        let waker = Arc::new(DummyWaker).into();
+        let waker = Arc::new(NoOpWaker).into();
         let cx = &mut Context::from_waker(&waker);
 
         // SAFETY:
@@ -108,9 +108,17 @@ where
     }
 }
 
-struct DummyWaker;
+/// A waker that do nothing when [Waker::wake] and [Waker::wake_by_ref] is called.
+pub struct NoOpWaker;
 
-impl Wake for DummyWaker {
+impl NoOpWaker {
+    /// Construct a noop [Waker]
+    pub fn waker() -> Waker {
+        Waker::from(Arc::new(Self))
+    }
+}
+
+impl Wake for NoOpWaker {
     fn wake(self: Arc<Self>) {
         // do nothing.
     }

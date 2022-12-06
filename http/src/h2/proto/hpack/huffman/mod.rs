@@ -139,7 +139,7 @@ mod test {
 
         dst.clear();
         encode(b"0", &mut dst);
-        assert_eq!(&dst[..], &[0x0 + 7]);
+        assert_eq!(&dst[..], &[7]);
 
         dst.clear();
         encode(b"A", &mut dst);

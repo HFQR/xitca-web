@@ -316,11 +316,11 @@ impl<T> fmt::Debug for Error<T> {
 
 #[cfg(test)]
 mod test {
+    use alloc::sync::Arc;
+
+    use crate::{futures::NoOpWaker, pin};
+
     use super::*;
-
-    use alloc::{sync::Arc, task::Wake};
-
-    use crate::pin;
 
     #[test]
     fn push() {
@@ -407,19 +407,11 @@ mod test {
         assert_eq!(Arc::strong_count(&counter), 1);
     }
 
-    struct DummyWaker;
-
-    impl Wake for DummyWaker {
-        fn wake(self: Arc<Self>) {
-            // do nothing.
-        }
-    }
-
     #[test]
     fn mpsc() {
         let (tx, mut rx) = async_vec(8);
 
-        let waker = Waker::from(Arc::new(DummyWaker));
+        let waker = NoOpWaker::waker();
 
         let cx = &mut Context::from_waker(&waker);
 

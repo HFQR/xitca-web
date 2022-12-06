@@ -162,7 +162,10 @@ impl<T> Sender<T> {
                     .producer
                     .try_send(this.value.take().expect("SendFuture polled after finished"))
                 {
-                    Ok(_) => Poll::Ready(Ok(())),
+                    Ok(_) => {
+                        this.producer.inner.waker.try_wake();
+                        Poll::Ready(Ok(()))
+                    }
                     Err(SendError::Full(value)) | Err(SendError::Closed(value)) => {
                         this.producer.inner.waker.try_register(cx.waker());
                         this.value = Some(value);
@@ -232,7 +235,10 @@ impl<T> Receiver<T> {
 
     pub fn poll_recv(&mut self, cx: &mut Context) -> Poll<Option<T>> {
         match self.pop() {
-            Some(value) => Poll::Ready(Some(value)),
+            Some(value) => {
+                self.inner.waker.try_wake();
+                Poll::Ready(Some(value))
+            }
             None => {
                 if Arc::strong_count(&self.inner) == 1 {
                     Poll::Ready(None)
@@ -388,25 +394,17 @@ unsafe impl Sync for AtomicWaker {}
 
 #[cfg(test)]
 mod test {
+    use alloc::sync::Arc;
+
+    use crate::{futures::NoOpWaker, pin};
+
     use super::*;
-
-    use alloc::{sync::Arc, task::Wake};
-
-    use crate::pin;
-
-    struct DummyWaker;
-
-    impl Wake for DummyWaker {
-        fn wake(self: Arc<Self>) {
-            // do nothing.
-        }
-    }
 
     #[test]
     fn spsc() {
         let (mut tx, mut rx) = channel::<usize>(8);
 
-        let waker = Waker::from(Arc::new(DummyWaker));
+        let waker = NoOpWaker::waker();
 
         let cx = &mut Context::from_waker(&waker);
 
@@ -476,7 +474,7 @@ mod test {
     fn drop() {
         let (mut tx, mut rx) = channel::<usize>(8);
 
-        let waker = Waker::from(Arc::new(DummyWaker));
+        let waker = Waker::from(Arc::new(NoOpWaker));
 
         let cx = &mut Context::from_waker(&waker);
 
