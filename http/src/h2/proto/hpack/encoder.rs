@@ -123,7 +123,7 @@ impl Encoder {
                 encode_int(idx, 7, 0x80, dst);
             }
             Index::Name(idx, _) => {
-                let header = self.table.resolve(&index);
+                let header = self.table.resolve(index);
 
                 encode_not_indexed(idx, header.value_slice(), header.is_sensitive(), dst);
             }
