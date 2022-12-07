@@ -14,7 +14,7 @@ use tokio::{
 
 /// Trait for getting current date/time.
 ///
-/// This is usally used by a low resolution of timer to reduce frequent syscall to OS.
+/// This is usually used by a low resolution of timer to reduce frequent syscall to OS.
 pub trait DateTime {
     /// The size hint of slice by Self::date method.
     const DATE_VALUE_LENGTH: usize;

@@ -1,5 +1,3 @@
-use xitca_io::net::TcpStream;
-
 use crate::http::Version;
 
 /// A helper trait for get a protocol from certain types.
@@ -15,22 +13,27 @@ pub trait AsVersion {
     }
 }
 
-impl AsVersion for xitca_io::net::Stream {
-    #[inline]
-    fn as_version(&self) -> Version {
-        match *self {
-            Self::Tcp(ref tcp, _) => tcp.as_version(),
-            #[cfg(unix)]
-            Self::Unix(..) => Version::HTTP_11,
-            #[cfg(feature = "http3")]
-            Self::Udp(..) => Version::HTTP_3,
+#[cfg(feature = "runtime")]
+mod io_impl {
+    use super::*;
+
+    impl AsVersion for xitca_io::net::Stream {
+        #[inline]
+        fn as_version(&self) -> Version {
+            match *self {
+                Self::Tcp(ref tcp, _) => tcp.as_version(),
+                #[cfg(unix)]
+                Self::Unix(..) => Version::HTTP_11,
+                #[cfg(feature = "http3")]
+                Self::Udp(..) => Version::HTTP_3,
+            }
         }
     }
-}
 
-impl AsVersion for TcpStream {
-    #[inline]
-    fn as_version(&self) -> Version {
-        Version::HTTP_11
+    impl AsVersion for xitca_io::net::TcpStream {
+        #[inline]
+        fn as_version(&self) -> Version {
+            Version::HTTP_11
+        }
     }
 }

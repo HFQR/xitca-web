@@ -173,7 +173,7 @@ impl Sink<Message> for WebSocketInner<'_> {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => {
                 use std::io;
-                use xitca_io::io::AsyncWrite;
+                use tokio::io::AsyncWrite;
                 while !inner.send_buf.chunk().is_empty() {
                     match ready!(Pin::new(&mut **body.conn()).poll_write(_cx, inner.send_buf.chunk()))? {
                         0 => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
@@ -200,7 +200,7 @@ impl Sink<Message> for WebSocketInner<'_> {
         match self.get_mut().body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => {
-                xitca_io::io::AsyncWrite::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
+                tokio::io::AsyncWrite::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {

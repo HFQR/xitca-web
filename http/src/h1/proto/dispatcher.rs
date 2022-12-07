@@ -30,9 +30,8 @@ use crate::{
     response,
     util::{
         buffered_io::{BufferedIo, FlatBuf, ListBuf},
-        futures::Timeout,
         hint::unlikely,
-        keep_alive::KeepAlive,
+        timer::{KeepAlive, Timeout},
     },
 };
 

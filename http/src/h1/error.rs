@@ -1,6 +1,6 @@
 use std::{fmt, io};
 
-use crate::{error::HttpServiceError, util::keep_alive::KeepAliveExpired};
+use crate::{error::HttpServiceError, util::timer::KeepAliveExpired};
 
 use super::proto::error::ProtoError;
 

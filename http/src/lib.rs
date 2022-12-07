@@ -7,17 +7,20 @@
 #![forbid(unsafe_code)]
 #![feature(type_alias_impl_trait)]
 
+#[cfg(feature = "runtime")]
 mod builder;
+#[cfg(feature = "runtime")]
 mod service;
 mod tls;
 mod version;
 
 pub mod body;
-pub mod date;
 pub mod error;
 pub mod request;
 pub mod response;
 
+#[cfg(feature = "runtime")]
+pub mod date;
 #[cfg(feature = "http1")]
 pub mod h1;
 #[cfg(feature = "http2")]
@@ -112,10 +115,12 @@ pub mod http {
 pub use xitca_io::bytes;
 
 pub use body::{RequestBody, ResponseBody};
+#[cfg(feature = "runtime")]
 pub use builder::HttpServiceBuilder;
 pub use error::{BodyError, HttpServiceError};
 pub use request::Request;
 pub use response::Response;
+#[cfg(feature = "runtime")]
 pub use service::HttpService;
 
 // TODO: enable this conflict feature check.

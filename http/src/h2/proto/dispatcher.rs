@@ -32,7 +32,7 @@ use crate::{
         Version,
     },
     request::{RemoteAddr, Request},
-    util::{futures::Queue, keep_alive::KeepAlive},
+    util::{futures::Queue, timer::KeepAlive},
 };
 
 /// Http/2 dispatcher

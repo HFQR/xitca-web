@@ -1,5 +1,7 @@
 //! re-export of [tokio::io] types and extended AsyncIo trait on top of it.
 
+// TODO: io module should not re-export tokio types so AsyncIO trait does not depend on runtime
+// crate feature.
 pub use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 
 use core::{

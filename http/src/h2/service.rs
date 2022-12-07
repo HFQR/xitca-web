@@ -11,7 +11,7 @@ use crate::{
     http::Response,
     request::Request,
     service::HttpService,
-    util::futures::Timeout,
+    util::timer::Timeout,
 };
 
 use super::{body::RequestBody, proto::Dispatcher};

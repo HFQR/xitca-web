@@ -6,13 +6,13 @@ use std::{
 };
 
 use tracing::error;
-use xitca_service::pipeline::PipelineE;
 
 use super::http::Version;
 
 pub(crate) use super::tls::TlsError;
 
-pub(crate) type BuildError<Tls, Svc> = PipelineE<Tls, Svc>;
+#[cfg(feature = "runtime")]
+pub(crate) type BuildError<Tls, Svc> = xitca_service::pipeline::PipelineE<Tls, Svc>;
 
 /// HttpService layer error.
 pub enum HttpServiceError<S, B> {
