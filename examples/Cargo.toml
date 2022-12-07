@@ -9,6 +9,7 @@ members = [
     "multi-http-services",
     "tower-http",
     "unix",
+    "wasi",
     "websocket"
 ]
 
