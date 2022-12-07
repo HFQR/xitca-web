@@ -1,0 +1,19 @@
+name = "xitca-web-worker"
+type = "javascript"
+workers_dev = true
+compatibility_date = "2022-12-07"
+
+[vars]
+WORKERS_RS_VERSION = "0.0.12"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release" # required
+
+[build.upload]
+dir = "build/worker"
+format = "modules"
+main = "./shim.mjs"
+
+[[build.upload.rules]]
+globs = ["**/*.wasm"]
+type = "CompiledWasm"

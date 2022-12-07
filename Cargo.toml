@@ -9,7 +9,6 @@ members = [
     "service",
     "test",
     "web",
-    "examples",
     "http-encoding",
     "http-multipart",
     "http-ws",

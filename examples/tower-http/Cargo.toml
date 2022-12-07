@@ -1,0 +1,10 @@
+[package]
+name = "xitca-web-tower"
+version = "0.1.0"
+authors = ["fakeshadow <24548779@qq.com>"]
+edition = "2021"
+
+[dependencies]
+xitca-web = { version = "0.1", features = ["tower-http-compat"] }
+
+tower-http = { version = "0.3", features = ["fs", "set-header"] }

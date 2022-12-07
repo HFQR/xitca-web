@@ -1,8 +1,5 @@
 //! A Http server returns Hello World String as Response from multiple services.
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 use std::{convert::Infallible, fs, io, sync::Arc};
 
 use h3_quinn::quinn::ServerConfig;
@@ -85,8 +82,8 @@ async fn handler_h3(_: Request<h3::RequestBody>) -> Result<Response<ResponseBody
 fn h2_config() -> io::Result<SslAcceptor> {
     // set up openssl and alpn protocol.
     let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
-    builder.set_private_key_file("./cert/key.pem", SslFiletype::PEM)?;
-    builder.set_certificate_chain_file("./cert/cert.pem")?;
+    builder.set_private_key_file("../cert/key.pem", SslFiletype::PEM)?;
+    builder.set_certificate_chain_file("../cert/cert.pem")?;
 
     builder.set_alpn_select_callback(|_, protocols| {
         const H2: &[u8] = b"\x02h2";
@@ -107,8 +104,8 @@ fn h2_config() -> io::Result<SslAcceptor> {
 }
 
 fn h3_config() -> io::Result<ServerConfig> {
-    let cert = fs::read("./cert/cert.pem")?;
-    let key = fs::read("./cert/key.pem")?;
+    let cert = fs::read("../cert/cert.pem")?;
+    let key = fs::read("../cert/key.pem")?;
 
     let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
     let key = PrivateKey(key);
