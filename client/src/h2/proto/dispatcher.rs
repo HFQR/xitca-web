@@ -2,6 +2,7 @@ use std::{cmp, future::poll_fn, marker::PhantomData};
 
 use ::h2::{client, Reason};
 use futures_core::stream::Stream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use xitca_http::{
     date::DateTime,
     http::{
@@ -12,7 +13,6 @@ use xitca_http::{
         version::Version,
     },
 };
-use xitca_io::io::{AsyncRead, AsyncWrite};
 
 use crate::{
     body::{BodyError, BodySize, ResponseBody},

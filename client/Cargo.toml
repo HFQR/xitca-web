@@ -20,13 +20,12 @@ dangerous = ["tokio-rustls/dangerous_configuration"]
 
 [dependencies]
 xitca-http = { version = "0.1", default-features = false, features = ["runtime"] }
-xitca-io = { version = "0.1", features = ["runtime"] }
 xitca-unsafe-collection = "0.1"
 
 futures-core = { version = "0.3.17", default-features = false, features =["alloc"] }
 futures-util = { version = "0.3.17", default-features = false, features =["alloc"] }
 pin-project-lite = "0.2.9"
-tokio = { version = "1.21.1", features = ["io-util", "rt", "sync", "time"] }
+tokio = { version = "1.22", features = ["io-util", "rt", "sync", "time"] }
 tracing = { version = "0.1.36", default-features = false }
 
 # http/1 support
