@@ -1,0 +1,12 @@
+[package]
+name = "xitca-web-multipart"
+version = "0.1.0"
+authors = ["fakeshadow <24548779@qq.com>"]
+edition = "2021"
+
+[dependencies]
+xitca-web = { version = "0.1", features = ["multipart"] }
+
+futures-util = "0.3.25"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

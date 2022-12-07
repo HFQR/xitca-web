@@ -1,14 +1,6 @@
 //! A Http/1 server read a temporary file filled with dummy string
 //! and return it's content as response.
 
-/*
-   Need io-uring feature flag to start. e.g:
-   cargo run --example io-uring --features io-uring
-*/
-
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 use std::{io::Write, rc::Rc};
 
 use tempfile::NamedTempFile;
@@ -24,21 +16,19 @@ use xitca_web::{
 const HELLO: &[u8] = b"hello world!";
 
 fn main() -> std::io::Result<()> {
-    tokio_uring::start(async {
-        HttpServer::new(move || {
-            // a temporary file with 64 hello world string.
-            let mut file = NamedTempFile::new().unwrap();
-            for _ in 0..64 {
-                file.write_all(HELLO).unwrap();
-            }
-            App::with_current_thread_state(Rc::new(file))
-                .at("/", fn_service(handler))
-                .finish()
-        })
-        .bind("127.0.0.1:8080")?
-        .run()
-        .await
+    HttpServer::new(move || {
+        // a temporary file with 64 hello world string.
+        let mut file = NamedTempFile::new().unwrap();
+        for _ in 0..64 {
+            file.write_all(HELLO).unwrap();
+        }
+        App::with_current_thread_state(Rc::new(file))
+            .at("/", fn_service(handler))
+            .finish()
     })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .wait()
 }
 
 async fn handler(req: WebRequest<'_, Rc<NamedTempFile>>) -> Result<WebResponse, Box<dyn std::error::Error>> {

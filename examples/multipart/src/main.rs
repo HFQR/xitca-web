@@ -14,7 +14,6 @@ use xitca_web::{
 
 fn main() -> io::Result<()> {
     tracing_subscriber::fmt().with_env_filter("[xitca-logger]=info").init();
-
     HttpServer::new(|| {
         App::new()
             .at("/", post(handler_service(root)))

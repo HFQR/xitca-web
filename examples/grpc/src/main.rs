@@ -1,8 +1,5 @@
 //! A Http/2 server handling low level grpc call.
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 use futures_util::TryStreamExt;
 use prost::Message;
 use xitca_http::{
@@ -27,13 +24,10 @@ fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=info,[xitca-logger]=trace")
         .init();
-
     let factory = || {
         let route = Router::new().insert("/helloworld.Greeter/SayHello", post(fn_service(grpc)));
-
         HttpServiceBuilder::h2(route)
     };
-
     xitca_server::Builder::new()
         .bind("http/2", "localhost:50051", factory)?
         .build()

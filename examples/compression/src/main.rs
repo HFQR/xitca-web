@@ -13,7 +13,6 @@ fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=trace,[xitca-logger]=trace")
         .init();
-
     HttpServer::new(|| {
         App::new()
             .at("/", handler_service(root))

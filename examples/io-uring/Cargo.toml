@@ -1,0 +1,11 @@
+[package]
+name = "xitca-web-io-uring"
+version = "0.1.0"
+authors = ["fakeshadow <24548779@qq.com>"]
+edition = "2021"
+
+[dependencies]
+xitca-web = { version = "0.1", features = ["io-uring"] }
+
+tempfile = "3.3.0"
+tokio-uring = "0.4.0"
