@@ -128,8 +128,8 @@ where
     type Params = Req::Params;
 
     #[inline]
-    fn parse(path: &str, params: matchit::Params<'_, '_>) -> Self::Params {
-        Req::parse(path, params)
+    fn parse<'p>(path: &str, len: usize, iter: impl Iterator<Item = (&'p str, &'p str)>) -> Self::Params {
+        Req::parse(path, len, iter)
     }
 
     #[inline]

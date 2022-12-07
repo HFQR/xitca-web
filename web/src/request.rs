@@ -9,6 +9,7 @@ use xitca_http::{
     body::ResponseBody,
     http::IntoResponse,
     request::{BorrowReq, BorrowReqMut, Request},
+    util::service::router::AddParams,
 };
 
 use super::response::WebResponse;
@@ -160,6 +161,20 @@ where
 {
     fn borrow_mut(&mut self) -> &mut T {
         self.req_mut().borrow_mut()
+    }
+}
+
+impl<C, B> AddParams for WebRequest<'_, C, B> {
+    type Params = <Request<B> as AddParams>::Params;
+
+    #[inline]
+    fn parse<'p>(path: &str, len: usize, iter: impl Iterator<Item = (&'p str, &'p str)>) -> Self::Params {
+        Request::<B>::parse(path, len, iter)
+    }
+
+    #[inline]
+    fn add(&mut self, params: Self::Params) {
+        self.req.add(params)
     }
 }
 

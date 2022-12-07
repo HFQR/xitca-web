@@ -158,7 +158,7 @@ where
                 .at(path)
                 .map_err(|inner| RouterError::First(MatchError { inner }))?;
 
-            req.add(Req::parse(path, params));
+            req.add(Req::parse(path, params.len(), params.iter()));
 
             value.call(req).await.map_err(RouterError::Second)
         }
@@ -175,10 +175,10 @@ impl<S> ReadyService for RouterService<S> {
     }
 }
 
-pub(super) trait AddParams {
+pub trait AddParams {
     type Params;
 
-    fn parse(path: &str, params: matchit::Params<'_, '_>) -> Self::Params;
+    fn parse<'p>(path: &str, len: usize, iter: impl Iterator<Item = (&'p str, &'p str)>) -> Self::Params;
 
     fn add(&mut self, params: Self::Params);
 }
@@ -186,9 +186,9 @@ pub(super) trait AddParams {
 impl<B> AddParams for http::Request<B> {
     type Params = http::Params;
 
-    fn parse(_: &str, p: matchit::Params<'_, '_>) -> Self::Params {
-        let mut params = http::Params::with_capacity(p.len());
-        for (k, v) in p.iter() {
+    fn parse<'p>(_: &str, len: usize, iter: impl Iterator<Item = (&'p str, &'p str)>) -> Self::Params {
+        let mut params = http::Params::with_capacity(len);
+        for (k, v) in iter {
             params.insert(k.into(), v.into());
         }
         params
@@ -204,7 +204,7 @@ impl<B> AddParams for Request<B> {
     type Params = ();
 
     #[inline]
-    fn parse(_: &str, _: matchit::Params<'_, '_>) {
+    fn parse<'p>(_: &str, _: usize, _: impl Iterator<Item = (&'p str, &'p str)>) {
         // TODO: zero copy parse
     }
 
