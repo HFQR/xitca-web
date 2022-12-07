@@ -1,8 +1,9 @@
 use std::{future::poll_fn, io, net::SocketAddr, pin::Pin};
 
 use async_channel::Receiver;
-use futures_core::stream::Stream;
 use quinn::{Connecting, Endpoint, ServerConfig};
+
+use super::Stream;
 
 pub type UdpConnecting = Connecting;
 
@@ -71,6 +72,7 @@ impl UdpListenerBuilder {
         // Detach the Incoming> as a spawn task.
         // When Endpoint dropped incoming will be wakeup and get None to end task.
         tokio::spawn(async move {
+            use futures_core::stream::Stream;
             let mut incoming = Pin::new(&mut incoming);
             while let Some(conn) = poll_fn(|cx| incoming.as_mut().poll_next(cx)).await {
                 tx.send(conn).await.unwrap()
@@ -107,5 +109,23 @@ impl UdpStream {
     /// Get remote [`SocketAddr`] self connected to.
     pub fn peer_addr(&self) -> SocketAddr {
         self.connecting.remote_address()
+    }
+}
+
+impl From<Stream> for UdpStream {
+    fn from(stream: Stream) -> Self {
+        match stream {
+            Stream::Udp(udp, _) => udp,
+            _ => unreachable!("Can not be casted to UdpStream"),
+        }
+    }
+}
+
+impl From<Stream> for (UdpStream, SocketAddr) {
+    fn from(stream: Stream) -> Self {
+        match stream {
+            Stream::Udp(udp, addr) => (udp, addr),
+            _ => unreachable!("Can not be casted to UdpStream"),
+        }
     }
 }
