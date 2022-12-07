@@ -35,6 +35,42 @@ pub mod util;
 pub mod http {
     pub use http::*;
 
+    use std::{
+        collections::HashMap,
+        ops::{Deref, DerefMut},
+    };
+
+    pub struct Params(HashMap<String, String>);
+
+    impl Default for Params {
+        fn default() -> Self {
+            Self::with_capacity(0)
+        }
+    }
+
+    impl Params {
+        #[inline]
+        pub fn with_capacity(cap: usize) -> Self {
+            Self(HashMap::with_capacity(cap))
+        }
+    }
+
+    impl Deref for Params {
+        type Target = HashMap<String, String>;
+
+        #[inline]
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl DerefMut for Params {
+        #[inline]
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
     /// Some often used header value.
     #[allow(clippy::declare_interior_mutable_const)]
     pub mod const_header_value {

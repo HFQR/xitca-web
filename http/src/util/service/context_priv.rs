@@ -4,6 +4,8 @@ use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
 
 use crate::request::{BorrowReq, BorrowReqMut};
 
+use super::router_priv::AddParams;
+
 /// ServiceFactory type for constructing compile time checked stateful service.
 ///
 /// State is roughly doing the same thing as `move ||` style closure capture. The difference comes
@@ -99,6 +101,7 @@ impl<'a, Req, C> Context<'a, Req, C> {
     }
 }
 
+// in case Context is used inside Router or Route.
 impl<Req, C, T> BorrowReq<T> for Context<'_, Req, C>
 where
     Req: BorrowReq<T>,
@@ -114,6 +117,24 @@ where
 {
     fn borrow_mut(&mut self) -> &mut T {
         self.req.borrow_mut()
+    }
+}
+
+// in case Context is used inside Router.
+impl<Req, C> AddParams for Context<'_, Req, C>
+where
+    Req: AddParams,
+{
+    type Params = Req::Params;
+
+    #[inline]
+    fn parse(path: &str, params: matchit::Params<'_, '_>) -> Self::Params {
+        Req::parse(path, params)
+    }
+
+    #[inline]
+    fn add(&mut self, params: Self::Params) {
+        self.req.add(params)
     }
 }
 

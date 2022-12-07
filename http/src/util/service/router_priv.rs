@@ -13,7 +13,10 @@ use xitca_service::{
     Service,
 };
 
-use crate::{http, request::BorrowReq};
+use crate::{
+    http,
+    request::{BorrowReq, Request},
+};
 
 /// A [GenericRouter] specialized with [DefaultObjectConstructor]
 pub type Router<Req, Arg, BErr, Res, Err> =
@@ -137,24 +140,27 @@ pub struct RouterService<S> {
 impl<S, Req> Service<Req> for RouterService<S>
 where
     S: Service<Req>,
-    Req: BorrowReq<http::Uri>,
+    Req: BorrowReq<http::Uri> + AddParams,
 {
     type Response = S::Response;
     type Error = RouterError<S::Error>;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    fn call<'s>(&'s self, mut req: Req) -> Self::Future<'s>
     where
         Req: 's,
     {
         async {
-            let service = self
+            let path = req.borrow().path();
+            let matchit::Match { value, params } = self
                 .routes
-                .at(req.borrow().path())
+                .at(path)
                 .map_err(|inner| RouterError::First(MatchError { inner }))?;
 
-            service.value.call(req).await.map_err(RouterError::Second)
+            req.add(Req::parse(path, params));
+
+            value.call(req).await.map_err(RouterError::Second)
         }
     }
 }
@@ -166,6 +172,45 @@ impl<S> ReadyService for RouterService<S> {
     #[inline]
     fn ready(&self) -> Self::ReadyFuture<'_> {
         async {}
+    }
+}
+
+pub(super) trait AddParams {
+    type Params;
+
+    fn parse(path: &str, params: matchit::Params<'_, '_>) -> Self::Params;
+
+    fn add(&mut self, params: Self::Params);
+}
+
+impl<B> AddParams for http::Request<B> {
+    type Params = http::Params;
+
+    fn parse(_: &str, p: matchit::Params<'_, '_>) -> Self::Params {
+        let mut params = http::Params::with_capacity(p.len());
+        for (k, v) in p.iter() {
+            params.insert(k.into(), v.into());
+        }
+        params
+    }
+
+    #[inline]
+    fn add(&mut self, params: Self::Params) {
+        self.extensions_mut().insert(params);
+    }
+}
+
+impl<B> AddParams for Request<B> {
+    type Params = ();
+
+    #[inline]
+    fn parse(_: &str, _: matchit::Params<'_, '_>) {
+        // TODO: zero copy parse
+    }
+
+    #[inline]
+    fn add(&mut self, _: Self::Params) {
+        // TODO: zero copy parse
     }
 }
 
@@ -193,128 +238,6 @@ mod test {
             .call(Request::new(()))
             .now_or_panic()
             .unwrap();
-    }
-
-    // TODO: this test is a demenstration of possible lazliy populated liftime field of input Request type.
-    // When the syntax is stable this implementation should be added to various service types.
-    #[test]
-    fn router_accept_non_static_request() {
-        pub struct Request<'a> {
-            uri: http::Uri,
-            path: Option<&'a str>,
-        }
-
-        impl BorrowReq<http::Uri> for Request<'_> {
-            fn borrow(&self) -> &http::Uri {
-                &self.uri
-            }
-        }
-
-        let req = Request {
-            uri: http::Uri::from_static("/"),
-            path: None,
-        };
-
-        struct MutatePath;
-
-        impl<S> Service<S> for MutatePath {
-            type Response = MutatePathService<S>;
-            type Error = Infallible;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
-
-            fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-            where
-                S: 's,
-            {
-                async {
-                    Ok(MutatePathService {
-                        service,
-                        path: String::from("test"),
-                    })
-                }
-            }
-        }
-
-        struct MutatePathService<S> {
-            service: S,
-            path: String,
-        }
-
-        impl<'r, S, Res, Err> Service<Request<'r>> for MutatePathService<S>
-        where
-            S: for<'r2> Service<Request<'r2>, Response = Res, Error = Err>,
-        {
-            type Response = Res;
-            type Error = Err;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f, 'r: 'f;
-
-            fn call<'s>(&'s self, mut req: Request<'r>) -> Self::Future<'s>
-            where
-                'r: 's,
-            {
-                async move {
-                    req.path = Some(self.path.as_str());
-                    self.service.call(req).await
-                }
-            }
-        }
-
-        use std::boxed::Box;
-
-        use xitca_service::{
-            object::{Object, ObjectConstructor, ServiceObject, Wrapper},
-            Service,
-        };
-
-        pub struct NonStaticObj;
-
-        pub type TestServiceAlias<Res, Err> = impl for<'r> Service<Request<'r>, Response = Res, Error = Err>;
-
-        impl<I, Svc, BErr, Res, Err> ObjectConstructor<I> for NonStaticObj
-        where
-            I: Service<Response = Svc, Error = BErr> + 'static,
-            Svc: for<'r> Service<Request<'r>, Response = Res, Error = Err> + 'static,
-        {
-            type Object = Object<(), TestServiceAlias<Res, Err>, BErr>;
-
-            fn into_object(inner: I) -> Self::Object {
-                pub struct Obj<I>(I);
-
-                impl<I, Svc, BErr, Res, Err> Service for Obj<I>
-                where
-                    I: Service<Response = Svc, Error = BErr> + 'static,
-                    Svc: for<'r> Service<Request<'r>, Response = Res, Error = Err> + 'static,
-                {
-                    type Response = Wrapper<Box<dyn for<'r> ServiceObject<Request<'r>, Response = Res, Error = Err>>>;
-                    type Error = BErr;
-                    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
-
-                    fn call<'s>(&'s self, arg: ()) -> Self::Future<'s>
-                    where
-                        (): 's,
-                    {
-                        async move {
-                            let service = self.0.call(arg).await?;
-                            Ok(Wrapper(Box::new(service) as _))
-                        }
-                    }
-                }
-
-                Object::from_service(Obj(inner))
-            }
-        }
-
-        async fn handler(req: Request<'_>) -> Result<Response<()>, Infallible> {
-            assert_eq!(req.path, Some("test"));
-            Ok(Response::new(()))
-        }
-
-        let router = GenericRouter::with_custom_object::<NonStaticObj>()
-            .insert("/", fn_service(handler))
-            .enclosed(MutatePath);
-
-        let service = Service::call(&router, ()).now_or_panic().unwrap();
-        Service::call(&service, req).now_or_panic().unwrap();
     }
 
     #[test]
@@ -351,6 +274,36 @@ mod test {
             .now_or_panic()
             .unwrap()
             .call(http::Request::new(()))
+            .now_or_panic()
+            .unwrap();
+    }
+
+    #[test]
+    fn router_add_params_http() {
+        async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
+        where
+            S: Service<Req>,
+        {
+            service.call(req).await
+        }
+
+        let mut req = http::Request::new(());
+        *req.uri_mut() = http::Uri::from_static("/users/1");
+
+        Router::new()
+            .insert(
+                "/users/:id",
+                fn_service(|mut req: http::Request<()>| async move {
+                    let params = req.extensions_mut().remove::<http::Params>().unwrap();
+                    assert_eq!(params.get("id").unwrap(), "1");
+                    Ok::<_, Infallible>(Response::new(()))
+                }),
+            )
+            .enclosed_fn(enclosed)
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(req)
             .now_or_panic()
             .unwrap();
     }
