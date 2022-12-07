@@ -10,7 +10,7 @@ http3 = ["xitca-io/http3"]
 io-uring = ["tokio-uring"]
 
 [dependencies]
-xitca-io = "0.1"
+xitca-io = { version = "0.1", features = ["runtime"] }
 xitca-service = { version = "0.1", features = ["alloc"] }
 xitca-unsafe-collection = "0.1"
 

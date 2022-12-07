@@ -8,7 +8,7 @@ edition = "2021"
 single-thread = []
 
 [dependencies]
-xitca-io = "0.1"
+xitca-io = { version = "0.1", features = ["runtime"] }
 xitca-service = "0.1"
 xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
@@ -17,7 +17,7 @@ futures-core = { version = "0.3", default-features = false }
 percent-encoding = "2.1.0"
 postgres-protocol = "0.6.4"
 postgres-types = "0.2.3"
-tokio = { version = "1.21", features = ["sync"] }
+tokio = { version = "1.21", features = ["net", "sync"] }
 tracing = { version = "0.1.35", default-features = false }
 
 [dev-dependencies]

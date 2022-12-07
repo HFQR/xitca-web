@@ -17,7 +17,7 @@ use super::{
     error::{HttpServiceError, TimeoutError},
     http::{Response, Version},
     request::Request,
-    util::{futures::Timeout, keep_alive::KeepAlive},
+    util::timer::{KeepAlive, Timeout},
     version::AsVersion,
 };
 

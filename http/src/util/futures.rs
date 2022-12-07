@@ -1,52 +1,9 @@
-use std::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
-
-use pin_project_lite::pin_project;
-
-use super::keep_alive::{KeepAlive, KeepAliveExpired};
-
-pub(crate) trait Timeout: Sized {
-    fn timeout(self, timer: Pin<&mut KeepAlive>) -> TimeoutFuture<'_, Self>;
-}
-
-impl<F> Timeout for F
-where
-    F: Future,
-{
-    fn timeout(self, timer: Pin<&mut KeepAlive>) -> TimeoutFuture<'_, Self> {
-        TimeoutFuture { fut: self, timer }
-    }
-}
-
-pin_project! {
-    pub(crate) struct TimeoutFuture<'a, F> {
-        #[pin]
-        fut: F,
-        timer: Pin<&'a mut KeepAlive>
-    }
-}
-
-impl<F: Future> Future for TimeoutFuture<'_, F> {
-    type Output = Result<F::Output, KeepAliveExpired>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        match this.fut.poll(cx) {
-            Poll::Ready(res) => Poll::Ready(Ok(res)),
-            Poll::Pending => this.timer.as_mut().poll(cx).map(Err),
-        }
-    }
-}
-
 #[cfg(any(feature = "http2", feature = "http3"))]
 pub(crate) use queue::*;
 
 #[cfg(any(feature = "http2", feature = "http3"))]
 mod queue {
-    use super::*;
+    use std::future::Future;
 
     use futures_util::stream::{FuturesUnordered, StreamExt};
 
