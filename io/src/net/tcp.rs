@@ -2,6 +2,8 @@ use std::{io, net::SocketAddr};
 
 use super::Stream;
 
+pub use tokio::net::TcpListener;
+
 // TODO: possible remove the attribute when wasm support tcp socket.
 #[cfg(not(target_family = "wasm"))]
 pub use tokio::net::TcpSocket;

@@ -8,13 +8,11 @@ mod unix;
 
 #[cfg(feature = "http3")]
 pub use h3::*;
-pub use tcp::{TcpSocket, TcpStream};
+pub use tcp::{TcpListener, TcpSocket, TcpStream};
 #[cfg(unix)]
 pub use unix::{UnixListener, UnixStream};
 
 use std::{io, net::SocketAddr};
-
-use tokio::net::TcpListener;
 
 macro_rules! default_aio_impl {
     ($ty: ty) => {
