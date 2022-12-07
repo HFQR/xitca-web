@@ -14,7 +14,7 @@ ci-check-other = "hack check --workspace --exclude xitca-http --exclude xitca-cl
 ci-test-exclude-io-uring = "hack test --workspace --feature-powerset --exclude-features=io-uring --no-fail-fast -- --nocapture"
 ci-test = "test --workspace --all-features --no-fail-fast -- --nocapture"
 
-ci-check-examples-exclude-io-uring = "hack check --workspace --exclude io-uring --feature-powerset"
+ci-check-examples-exclude-io-uring = "hack check --workspace --exclude xitca-web-io-uring --feature-powerset"
 ci-check-examples = "hack check --workspace --feature-powerset"
 
 ci-miri-test = "miri test --package xitca-unsafe-collection --all-features --no-fail-fast -- --nocapture"
