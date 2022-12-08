@@ -250,7 +250,7 @@ jobs:
       - name: check-non-linux
         if: matrix.target.os != 'ubuntu-latest'
         run: |
-          cd examples && cargo ci-check-examples-exclude-unix
+          cd examples && cargo ci-check-examples-exclude-io-uring
 
       - name: check-linux
         if: matrix.target.os == 'ubuntu-latest'
