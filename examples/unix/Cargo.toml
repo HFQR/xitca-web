@@ -5,8 +5,4 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.1", features = ["io-uring"] }
-
-tempfile = "3.3.0"
-tokio = { version = "1.23.0", features = ["macros", "rt"]}
-tokio-uring = "0.4.0"
+xitca-web = "0.1"
