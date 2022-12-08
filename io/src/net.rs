@@ -8,7 +8,9 @@ mod unix;
 
 #[cfg(feature = "http3")]
 pub use h3::*;
-pub use tcp::{TcpListener, TcpSocket, TcpStream};
+#[cfg(not(target_family = "wasm"))]
+pub use tcp::TcpSocket;
+pub use tcp::{TcpListener, TcpStream};
 #[cfg(unix)]
 pub use unix::{UnixListener, UnixStream};
 
