@@ -2,9 +2,7 @@
 
 use xitca_web::{handler::handler_service, route::get, App, HttpServer};
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> std::io::Result<()> {
-    #[allow(unused_mut)]
+fn main() -> std::io::Result<()> {
     let mut server = HttpServer::new(|| App::new().at("/", get(handler_service(handler))).finish());
 
     #[cfg(unix)]
@@ -17,7 +15,7 @@ async fn main() -> std::io::Result<()> {
         server = server.bind("127.0.0.1:8080")?;
     }
 
-    server.run().await
+    server.run().wait()
 }
 
 async fn handler() -> &'static str {
