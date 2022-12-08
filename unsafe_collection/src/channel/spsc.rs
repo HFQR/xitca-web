@@ -174,9 +174,9 @@ impl<T> Sender<T> {
                 send_once(
                     this.tx,
                     this.value.take().expect("SendFuture polled after finished"),
-                    |tx, vaule| {
+                    |tx, value| {
                         tx.inner.tx_waker.register(cx.waker());
-                        send_once(tx, vaule, |_, value| {
+                        send_once(tx, value, |_, value| {
                             this.value = Some(value);
                             Poll::Pending
                         })

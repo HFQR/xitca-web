@@ -7,5 +7,5 @@ edition = "2021"
 [dependencies]
 xitca-web = { version = "0.1", features = ["websocket"] }
 
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+tracing = { version = "0.1.37", default-features = false }
+tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }

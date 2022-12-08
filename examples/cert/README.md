@@ -1,0 +1,1 @@
+# self-signed cert for testing tls implementations
