@@ -13,5 +13,5 @@ h3-quinn = "0.0"
 openssl = "0.10.44"
 rustls = "0.20.7"
 rustls-pemfile = "1.0.1"
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+tracing = { version = "0.1.37", default-features = false }
+tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }

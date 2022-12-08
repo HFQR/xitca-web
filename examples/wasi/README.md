@@ -1,13 +1,10 @@
 # a http/1 server example targeting wasm32-wasi
 
 ## Requirement
-
-
 - [wasmtime](https://docs.wasmtime.dev/)
 
 ## Setup
 - install wasmtime cli. <https://docs.wasmtime.dev/cli-install.html>
-
 - compile project.
     - unix
       ```bash
