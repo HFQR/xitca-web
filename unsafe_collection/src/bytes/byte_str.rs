@@ -29,7 +29,8 @@ impl BytesStr {
         self.0
     }
 
-    fn as_str(&self) -> &str {
+    #[inline]
+    pub fn as_str(&self) -> &str {
         // SAFETY: check valid utf-8 in constructor
         unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
     }
