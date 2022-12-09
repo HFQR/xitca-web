@@ -77,6 +77,18 @@ where
         self.queue._get_unchecked(idx)
     }
 
+    fn truncate(&mut self, n: usize) {
+        if self.len > n {
+            let delta = self.len - n;
+            self.len = n;
+            if delta > self.next {
+                self.next = self.queue.capacity() + self.next - delta;
+            } else {
+                self.next -= delta;
+            }
+        }
+    }
+
     fn front_mut(&mut self) -> Option<&mut Q::Item> {
         if self.is_empty() {
             None

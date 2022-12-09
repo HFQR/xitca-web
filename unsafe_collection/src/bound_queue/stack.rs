@@ -1,4 +1,4 @@
-use core::mem::MaybeUninit;
+use core::{fmt, mem::MaybeUninit};
 
 use crate::uninit;
 
@@ -56,6 +56,11 @@ impl<T, const N: usize> StackQueue<T, N> {
     }
 
     #[inline]
+    pub fn truncate(&mut self, n: usize) {
+        self.inner.truncate(n)
+    }
+
+    #[inline]
     pub fn clear(&mut self) {
         self.inner.clear();
     }
@@ -98,6 +103,12 @@ impl<T, const N: usize> Queueable for [MaybeUninit<T>; N] {
     #[inline]
     unsafe fn _write_unchecked(&mut self, idx: usize, item: Self::Item) {
         self.get_unchecked_mut(idx).write(item);
+    }
+}
+
+impl<T, const N: usize> fmt::Debug for StackQueue<T, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StackQueue<T, {N}>")
     }
 }
 
@@ -188,6 +199,31 @@ mod test {
         assert!(queue.push_back(1).is_ok());
 
         queue.clear();
+    }
+
+    #[test]
+    fn truncate() {
+        let mut queue = StackQueue::<_, 4>::new();
+
+        for i in 0..4 {
+            assert!(queue.push_back(i).is_ok());
+        }
+
+        queue.truncate(3);
+        assert!(queue.push_back(5).is_ok());
+        assert!(queue.is_full());
+
+        queue.truncate(0);
+        assert!(queue.is_empty());
+
+        for i in 0..4 {
+            assert!(queue.push_back(i).is_ok());
+        }
+
+        assert_eq!(queue.pop_front(), Some(0));
+        assert_eq!(queue.pop_front(), Some(1));
+
+        assert_eq!(queue.len(), 2);
     }
 
     #[test]

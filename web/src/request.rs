@@ -11,6 +11,7 @@ use xitca_http::{
     request::{BorrowReq, BorrowReqMut, Request},
     util::service::router::AddParams,
 };
+use xitca_unsafe_collection::bytes::BytesStr;
 
 use super::response::WebResponse;
 
@@ -168,7 +169,7 @@ impl<C, B> AddParams for WebRequest<'_, C, B> {
     type Params = <Request<B> as AddParams>::Params;
 
     #[inline]
-    fn parse<'p>(path: &str, len: usize, iter: impl Iterator<Item = (&'p str, &'p str)>) -> Self::Params {
+    fn parse<'v>(path: &str, len: usize, iter: impl Iterator<Item = (BytesStr, &'v str)>) -> Self::Params {
         Request::<B>::parse(path, len, iter)
     }
 

@@ -2,6 +2,7 @@ use std::{fmt, ops::Deref};
 
 use bytes_crate::Bytes;
 
+/// reference counted String type. cheap to Clone and share between multiple threads.
 #[derive(Clone, Default, Eq, PartialEq)]
 pub struct BytesStr(Bytes);
 
@@ -13,6 +14,12 @@ impl BytesStr {
     pub fn try_from(bytes: Bytes) -> Result<Self, std::str::Utf8Error> {
         std::str::from_utf8(bytes.as_ref())?;
         Ok(BytesStr(bytes))
+    }
+
+    pub fn try_from_slice(slice: impl AsRef<[u8]>) -> Result<Self, std::str::Utf8Error> {
+        let slice = slice.as_ref();
+        std::str::from_utf8(slice)?;
+        Ok(BytesStr(Bytes::copy_from_slice(slice)))
     }
 
     pub fn copy_from_str(value: &str) -> Self {

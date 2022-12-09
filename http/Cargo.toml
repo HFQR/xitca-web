@@ -22,7 +22,7 @@ native-tls = ["dep:native-tls", "runtime"]
 runtime = ["xitca-io/runtime", "tokio"]
 
 # unstable features that are subject to be changed at anytime.
-util-service = ["matchit"]
+util-service = ["xitca-router"]
 
 [dependencies]
 xitca-io = "0.1"
@@ -61,7 +61,7 @@ h3-quinn = { version = "0.0.0", optional = true }
 tokio = { version = "1.22", features = ["time"], optional = true }
 
 # util service support
-matchit = { version = "0.7", optional = true }
+xitca-router = { version = "0.1", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.4.2", features = ["all"] }
