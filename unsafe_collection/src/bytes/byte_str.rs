@@ -11,6 +11,11 @@ use bytes_crate::Bytes;
 pub struct BytesStr(Bytes);
 
 impl BytesStr {
+    #[inline]
+    pub const fn new() -> Self {
+        Self(Bytes::new())
+    }
+
     /// Compile time static str to BytesStr conversion.
     #[inline]
     pub const fn from_static(value: &'static str) -> Self {

@@ -30,7 +30,25 @@ pub struct Node<T> {
     pub(crate) children: Vec<Self>,
 }
 
+impl<T> Default for Node<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> Node<T> {
+    pub const fn new() -> Self {
+        Self {
+            prefix: BytesStr::new(),
+            wild_child: false,
+            node_type: NodeType::Static,
+            indices: Vec::new(),
+            children: Vec::new(),
+            value: None,
+            priority: 0,
+        }
+    }
+
     pub fn insert(&mut self, route: impl Into<String>, val: T) -> Result<(), InsertError> {
         let route = route.into().into_bytes();
         let mut prefix = route.as_ref();
@@ -557,20 +575,6 @@ where
             indices: self.indices.clone(),
             children: self.children.clone(),
             priority: self.priority,
-        }
-    }
-}
-
-impl<T> Default for Node<T> {
-    fn default() -> Self {
-        Self {
-            prefix: BytesStr::default(),
-            wild_child: false,
-            node_type: NodeType::Static,
-            indices: Vec::new(),
-            children: Vec::new(),
-            value: None,
-            priority: 0,
         }
     }
 }
