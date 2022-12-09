@@ -13,7 +13,7 @@ struct Param<'v> {
 
 impl<'v> Param<'v> {
     fn key_str(&self) -> &str {
-        self.key.as_str()
+        self.key.as_ref()
     }
 
     fn value_str(&self) -> &'v str {
@@ -92,7 +92,7 @@ impl<'v> Params<'v> {
         }
 
         let param = Param {
-            key: BytesStr::try_from_slice(key).unwrap(),
+            key: BytesStr::try_from(key).unwrap(),
             value: std::str::from_utf8(value).unwrap(),
         };
         match self.kind {

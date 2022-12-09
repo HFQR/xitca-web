@@ -1,4 +1,8 @@
-use std::{fmt, ops::Deref};
+use core::{
+    fmt,
+    ops::{Deref, RangeBounds},
+    str::Utf8Error,
+};
 
 use bytes_crate::Bytes;
 
@@ -7,37 +11,58 @@ use bytes_crate::Bytes;
 pub struct BytesStr(Bytes);
 
 impl BytesStr {
+    /// Compile time static str to BytesStr conversion.
+    #[inline]
     pub const fn from_static(value: &'static str) -> Self {
         BytesStr(Bytes::from_static(value.as_bytes()))
     }
 
-    pub fn try_from(bytes: Bytes) -> Result<Self, std::str::Utf8Error> {
-        std::str::from_utf8(bytes.as_ref())?;
-        Ok(BytesStr(bytes))
+    /// Returns a slice of self for the provided range.
+    #[inline]
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+        Self(self.0.slice(range))
     }
 
-    pub fn try_from_slice(slice: impl AsRef<[u8]>) -> Result<Self, std::str::Utf8Error> {
-        let slice = slice.as_ref();
-        std::str::from_utf8(slice)?;
-        Ok(BytesStr(Bytes::copy_from_slice(slice)))
+    /// Get ownership of inner [Bytes] value.
+    #[inline]
+    pub fn into_inner(self) -> Bytes {
+        self.0
     }
 
-    pub fn copy_from_str(value: &str) -> Self {
-        BytesStr(Bytes::copy_from_slice(value.as_bytes()))
-    }
-
+    #[inline]
     pub fn as_str(&self) -> &str {
         // SAFETY: check valid utf-8 in constructor
         unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
     }
+}
 
-    pub fn into_inner(self) -> Bytes {
-        self.0
+impl From<&str> for BytesStr {
+    fn from(value: &str) -> Self {
+        BytesStr(Bytes::copy_from_slice(value.as_bytes()))
+    }
+}
+
+impl TryFrom<Bytes> for BytesStr {
+    type Error = Utf8Error;
+
+    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
+        std::str::from_utf8(value.as_ref())?;
+        Ok(BytesStr(value))
+    }
+}
+
+impl TryFrom<&[u8]> for BytesStr {
+    type Error = Utf8Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        std::str::from_utf8(value)?;
+        Ok(BytesStr(Bytes::copy_from_slice(value)))
     }
 }
 
 impl Deref for BytesStr {
     type Target = str;
+
     fn deref(&self) -> &str {
         self.as_str()
     }
@@ -58,5 +83,11 @@ impl AsRef<str> for BytesStr {
 impl fmt::Debug for BytesStr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl PartialEq<str> for BytesStr {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
     }
 }

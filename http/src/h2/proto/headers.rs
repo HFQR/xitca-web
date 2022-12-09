@@ -529,7 +529,7 @@ impl Pseudo {
 
         let mut path = parts
             .path_and_query
-            .map(|v| BytesStr::copy_from_str(v.as_str()))
+            .map(|v| BytesStr::from(v.as_str()))
             .unwrap_or(BytesStr::from_static(""));
 
         match method {
@@ -559,7 +559,7 @@ impl Pseudo {
         // If the URI includes an authority component, add it to the pseudo
         // headers
         if let Some(authority) = parts.authority {
-            pseudo.set_authority(BytesStr::copy_from_str(authority.as_str()));
+            pseudo.set_authority(BytesStr::from(authority.as_str()));
         }
 
         pseudo
@@ -585,7 +585,7 @@ impl Pseudo {
         let bytes_str = match scheme.as_str() {
             "http" => BytesStr::from_static("http"),
             "https" => BytesStr::from_static("https"),
-            s => BytesStr::copy_from_str(s),
+            s => BytesStr::from(s),
         };
         self.scheme = Some(bytes_str);
     }
