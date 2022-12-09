@@ -74,7 +74,7 @@ impl<T> Node<T> {
 
                 current.children = vec![child];
                 current.indices = current.prefix.as_bytes()[i..=i].to_owned();
-                current.prefix = BytesStr::try_from(&prefix[..i]).unwrap();
+                current.prefix = BytesStr::try_from(&prefix[..i])?;
                 current.wild_child = false;
             }
 
@@ -193,7 +193,7 @@ impl<T> Node<T> {
                 // no wildcard, simply use the current node
                 (None, _) => {
                     current.value = Some(val);
-                    current.prefix = BytesStr::try_from(prefix).unwrap();
+                    current.prefix = BytesStr::try_from(prefix)?;
                     return Ok(());
                 }
             };
@@ -207,13 +207,13 @@ impl<T> Node<T> {
             if wildcard[0] == b':' {
                 // insert prefix before the current wildcard
                 if wildcard_index > 0 {
-                    current.prefix = BytesStr::try_from(&prefix[..wildcard_index]).unwrap();
+                    current.prefix = BytesStr::try_from(&prefix[..wildcard_index])?;
                     prefix = &prefix[wildcard_index..];
                 }
 
                 let child = Self {
                     node_type: NodeType::Param,
-                    prefix: BytesStr::try_from(wildcard).unwrap(),
+                    prefix: BytesStr::try_from(wildcard)?,
                     ..Self::default()
                 };
 
@@ -262,12 +262,12 @@ impl<T> Node<T> {
             }
 
             if wildcard_index > 0 {
-                current.prefix = BytesStr::try_from(&prefix[..wildcard_index]).unwrap();
+                current.prefix = BytesStr::try_from(&prefix[..wildcard_index])?;
                 prefix = &prefix[wildcard_index..];
             }
 
             let child = Self {
-                prefix: BytesStr::try_from(prefix).unwrap(),
+                prefix: BytesStr::try_from(prefix)?,
                 node_type: NodeType::CatchAll,
                 value: Some(val),
                 priority: 1,
