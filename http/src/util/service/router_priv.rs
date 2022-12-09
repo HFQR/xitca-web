@@ -6,6 +6,7 @@ use std::{
     marker::PhantomData,
 };
 
+use xitca_router::{BytesStr, Match};
 use xitca_service::{
     object::{DefaultObject, DefaultObjectConstructor, ObjectConstructor},
     pipeline::PipelineE,
@@ -38,18 +39,18 @@ pub type RouterError<E> = PipelineE<MatchError, E>;
 
 /// Error for request failed to match on services inside Router.
 pub struct MatchError {
-    inner: matchit::MatchError,
+    inner: xitca_router::MatchError,
 }
 
 impl MatchError {
     /// Indicates whether a route exists at the same path with a trailing slash.
     pub fn missing_trailing_slash(&self) -> bool {
-        matches!(self.inner, matchit::MatchError::MissingTrailingSlash)
+        matches!(self.inner, xitca_router::MatchError::MissingTrailingSlash)
     }
 
     /// Indicates whether a route exists at the same path without a trailing slash.
     pub fn extra_trailing_slash(&self) -> bool {
-        matches!(self.inner, matchit::MatchError::ExtraTrailingSlash)
+        matches!(self.inner, xitca_router::MatchError::ExtraTrailingSlash)
     }
 }
 
@@ -121,7 +122,7 @@ where
         Arg: 's,
     {
         async move {
-            let mut routes = matchit::Router::new();
+            let mut routes = xitca_router::Router::new();
 
             for (path, service) in self.routes.iter() {
                 let service = service.call(arg.clone()).await?;
@@ -134,7 +135,7 @@ where
 }
 
 pub struct RouterService<S> {
-    routes: matchit::Router<S>,
+    routes: xitca_router::Router<S>,
 }
 
 impl<S, Req> Service<Req> for RouterService<S>
@@ -153,12 +154,12 @@ where
     {
         async {
             let path = req.borrow().path();
-            let matchit::Match { value, params } = self
+            let Match { value, params } = self
                 .routes
                 .at(path)
                 .map_err(|inner| RouterError::First(MatchError { inner }))?;
 
-            req.add(Req::parse(path, params.len(), params.iter()));
+            req.add(Req::parse(path, params.len(), params.into_iter()));
 
             value.call(req).await.map_err(RouterError::Second)
         }
@@ -178,7 +179,7 @@ impl<S> ReadyService for RouterService<S> {
 pub trait AddParams {
     type Params;
 
-    fn parse<'p>(path: &str, len: usize, iter: impl Iterator<Item = (&'p str, &'p str)>) -> Self::Params;
+    fn parse<'v>(path: &str, len: usize, iter: impl Iterator<Item = (BytesStr, &'v str)>) -> Self::Params;
 
     fn add(&mut self, params: Self::Params);
 }
@@ -186,10 +187,10 @@ pub trait AddParams {
 impl<B> AddParams for http::Request<B> {
     type Params = http::Params;
 
-    fn parse<'p>(_: &str, len: usize, iter: impl Iterator<Item = (&'p str, &'p str)>) -> Self::Params {
+    fn parse<'v>(_: &str, len: usize, iter: impl Iterator<Item = (BytesStr, &'v str)>) -> Self::Params {
         let mut params = http::Params::with_capacity(len);
         for (k, v) in iter {
-            params.insert(k.into(), v.into());
+            params.insert(k, v.into());
         }
         params
     }
@@ -204,7 +205,7 @@ impl<B> AddParams for Request<B> {
     type Params = ();
 
     #[inline]
-    fn parse<'p>(_: &str, _: usize, _: impl Iterator<Item = (&'p str, &'p str)>) {
+    fn parse<'v>(_: &str, _: usize, _: impl Iterator<Item = (BytesStr, &'v str)>) {
         // TODO: zero copy parse
     }
 

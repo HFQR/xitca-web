@@ -7,9 +7,9 @@ edition = "2021"
 # default include only http1.
 default = ["http1"]
 # http1 specific feature.
-http1 = ["xitca-unsafe-collection/bytes", "httparse", "itoa", "runtime"]
+http1 = ["httparse", "itoa", "runtime"]
 # http2 specific feature.
-http2 = ["xitca-unsafe-collection/bytes", "h2", "fnv", "futures-util/alloc", "runtime"]
+http2 = ["h2", "fnv", "futures-util/alloc", "runtime"]
 # http3 specific feature.
 http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
 # openssl as server side tls.
@@ -22,12 +22,12 @@ native-tls = ["dep:native-tls", "runtime"]
 runtime = ["xitca-io/runtime", "tokio"]
 
 # unstable features that are subject to be changed at anytime.
-util-service = ["matchit"]
+util-service = ["xitca-router"]
 
 [dependencies]
 xitca-io = "0.1"
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
-xitca-unsafe-collection = "0.1"
+xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
 futures-core = "0.3.17"
 http = "0.2.8"
@@ -61,7 +61,7 @@ h3-quinn = { version = "0.0.0", optional = true }
 tokio = { version = "1.22", features = ["time"], optional = true }
 
 # util service support
-matchit = { version = "0.7", optional = true }
+xitca-router = { version = "0.1", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.4.2", features = ["all"] }

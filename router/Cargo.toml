@@ -1,0 +1,19 @@
+[package]
+name = "xitca-router"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
+
+[dev-dependencies]
+criterion = "0.4.0"
+matchit = "0.7"
+
+[features]
+default = []
+test_helpers = []
+
+[[bench]]
+name = "bench"
+harness = false

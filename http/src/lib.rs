@@ -35,12 +35,11 @@ pub mod util;
 pub mod http {
     pub use http::*;
 
-    use std::{
-        collections::HashMap,
-        ops::{Deref, DerefMut},
-    };
+    use std::ops::{Deref, DerefMut};
 
-    pub struct Params(HashMap<String, String>);
+    use xitca_unsafe_collection::bytes::BytesStr;
+
+    pub struct Params(Vec<(BytesStr, String)>);
 
     impl Default for Params {
         fn default() -> Self {
@@ -51,12 +50,30 @@ pub mod http {
     impl Params {
         #[inline]
         pub fn with_capacity(cap: usize) -> Self {
-            Self(HashMap::with_capacity(cap))
+            Self(Vec::with_capacity(cap))
+        }
+
+        pub fn insert(&mut self, key: BytesStr, value: String) {
+            self.0.push((key, value))
+        }
+
+        pub fn get(&self, key: &str) -> Option<&str> {
+            self.0
+                .iter()
+                .find_map(|(k, v)| (k.as_str() == key).then_some(v.as_str()))
+        }
+
+        pub fn remove(&mut self, key: &str) -> Option<(BytesStr, String)> {
+            self.0
+                .iter()
+                .enumerate()
+                .find_map(|(i, v)| (v.0.as_str() == key).then_some(i))
+                .map(|i| self.0.swap_remove(i))
         }
     }
 
     impl Deref for Params {
-        type Target = HashMap<String, String>;
+        type Target = Vec<(BytesStr, String)>;
 
         #[inline]
         fn deref(&self) -> &Self::Target {
