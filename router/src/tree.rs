@@ -62,7 +62,7 @@ impl<T> Node<T> {
             // split edge
             if i < current.prefix.len() {
                 let mut child = Self {
-                    prefix: current.prefix.slice(1..),
+                    prefix: current.prefix.slice(i..),
                     wild_child: current.wild_child,
                     indices: current.indices.clone(),
                     value: current.value.take(),
