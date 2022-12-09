@@ -1,16 +1,18 @@
-use core::fmt;
+use core::{fmt, str::Utf8Error};
 
 use super::tree::Node;
 
 /// Represents errors that can occur when inserting a new route.
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InsertError {
     /// Attempted to insert a path that conflicts with an existing route.
     Conflict {
         /// The existing route that the insertion is conflicting with.
         with: String,
     },
+    /// Route path is not in utf-8 format.
+    Parse(Utf8Error),
     /// Only one parameter per route segment is allowed.
     TooManyParams,
     /// Parameters must be registered with a name.
@@ -28,6 +30,7 @@ impl fmt::Display for InsertError {
                     "insertion failed due to conflict with previously registered route: {with}",
                 )
             }
+            Self::Parse(ref e) => fmt::Display::fmt(e, f),
             Self::TooManyParams => f.write_str("only one parameter is allowed per path segment"),
             Self::UnnamedParam => f.write_str("parameters must be registered with a name"),
             Self::InvalidCatchAll => f.write_str("catch-all parameters are only allowed at the end of a route"),
@@ -37,17 +40,23 @@ impl fmt::Display for InsertError {
 
 impl std::error::Error for InsertError {}
 
+impl From<Utf8Error> for InsertError {
+    fn from(e: Utf8Error) -> Self {
+        Self::Parse(e)
+    }
+}
+
 impl InsertError {
     pub(crate) fn conflict<T>(route: &[u8], prefix: &[u8], current: &Node<T>) -> Self {
         let mut route = route[..route.len() - prefix.len()].to_owned();
 
-        if !route.ends_with(&current.prefix) {
-            route.extend_from_slice(&current.prefix);
+        if !route.ends_with(current.prefix.as_bytes()) {
+            route.extend_from_slice(current.prefix.as_bytes());
         }
 
         let mut current = current.children.first();
         while let Some(node) = current {
-            route.extend_from_slice(&node.prefix);
+            route.extend_from_slice(node.prefix.as_bytes());
             current = node.children.first();
         }
 

@@ -6,5 +6,7 @@ mod router;
 mod tree;
 
 pub use error::{InsertError, MatchError};
-pub use params::{BytesStr, Params, ParamsIter};
+pub use params::{Params, ParamsIter};
 pub use router::{Match, Router};
+
+pub use xitca_unsafe_collection::bytes::BytesStr;
