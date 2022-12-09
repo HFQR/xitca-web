@@ -2,7 +2,7 @@ use core::slice;
 
 use xitca_unsafe_collection::bound_queue::stack::{self, StackQueue};
 
-pub use xitca_unsafe_collection::bytes::BytesStr;
+use super::BytesStr;
 
 /// A single URL parameter, consisting of a key and a value.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -78,7 +78,7 @@ impl<'v> Params<'v> {
     }
 
     /// Inserts a key value parameter pair into the list.
-    pub(crate) fn push(&mut self, key: &[u8], value: &'v [u8]) {
+    pub(crate) fn push(&mut self, key: BytesStr, value: &'v [u8]) {
         #[cold]
         #[inline(never)]
         fn drain_to_vec<T, const LEN: usize>(value: T, q: &mut StackQueue<T, LEN>) -> Vec<T> {
@@ -92,7 +92,7 @@ impl<'v> Params<'v> {
         }
 
         let param = Param {
-            key: BytesStr::try_from(key).unwrap(),
+            key,
             value: std::str::from_utf8(value).unwrap(),
         };
         match self.kind {
@@ -200,7 +200,7 @@ mod tests {
 
         let mut params = Params::new();
         for (key, value) in vec.clone() {
-            params.push(key.as_bytes(), value.as_bytes());
+            params.push(key.into(), value.as_bytes());
             assert_eq!(params.get(key), Some(value));
         }
 
@@ -218,7 +218,7 @@ mod tests {
 
         let mut params = Params::new();
         for (key, value) in vec.clone() {
-            params.push(key.as_bytes(), value.as_bytes());
+            params.push(key.into(), value.as_bytes());
             assert_eq!(params.get(key), Some(value));
         }
 

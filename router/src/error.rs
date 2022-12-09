@@ -41,13 +41,13 @@ impl InsertError {
     pub(crate) fn conflict<T>(route: &[u8], prefix: &[u8], current: &Node<T>) -> Self {
         let mut route = route[..route.len() - prefix.len()].to_owned();
 
-        if !route.ends_with(&current.prefix) {
-            route.extend_from_slice(&current.prefix);
+        if !route.ends_with(current.prefix.as_bytes()) {
+            route.extend_from_slice(current.prefix.as_bytes());
         }
 
         let mut current = current.children.first();
         while let Some(node) = current {
-            route.extend_from_slice(&node.prefix);
+            route.extend_from_slice(node.prefix.as_bytes());
             current = node.children.first();
         }
 

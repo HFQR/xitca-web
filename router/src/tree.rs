@@ -2,6 +2,8 @@ use crate::{InsertError, MatchError, Params};
 
 use core::{cmp::min, mem};
 
+use super::BytesStr;
+
 /// The types of nodes the tree can hold
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
 enum NodeType {
@@ -24,7 +26,7 @@ pub struct Node<T> {
     indices: Vec<u8>,
     node_type: NodeType,
     value: Option<T>,
-    pub(crate) prefix: Vec<u8>,
+    pub(crate) prefix: BytesStr,
     pub(crate) children: Vec<Self>,
 }
 
@@ -53,14 +55,14 @@ impl<T> Node<T> {
             let mut i = 0;
             let max = min(prefix.len(), current.prefix.len());
 
-            while i < max && prefix[i] == current.prefix[i] {
+            while i < max && prefix[i] == current.prefix.as_bytes()[i] {
                 i += 1;
             }
 
             // split edge
             if i < current.prefix.len() {
                 let mut child = Self {
-                    prefix: current.prefix[i..].to_owned(),
+                    prefix: current.prefix.slice(1..),
                     wild_child: current.wild_child,
                     indices: current.indices.clone(),
                     value: current.value.take(),
@@ -71,8 +73,8 @@ impl<T> Node<T> {
                 mem::swap(&mut current.children, &mut child.children);
 
                 current.children = vec![child];
-                current.indices = current.prefix[i..=i].to_owned();
-                current.prefix = prefix[..i].to_owned();
+                current.indices = current.prefix.as_bytes()[i..=i].to_owned();
+                current.prefix = BytesStr::try_from(&prefix[..i]).unwrap();
                 current.wild_child = false;
             }
 
@@ -111,7 +113,7 @@ impl<T> Node<T> {
 
                     // check if the wildcard matches
                     if prefix.len() >= current.prefix.len()
-                        && current.prefix == prefix[..current.prefix.len()]
+                        && current.prefix.eq(&prefix[..current.prefix.len()])
                         // adding a child to a catchall Node is not possible
                         && current.node_type != NodeType::CatchAll
                         // check for longer wildcard, e.g. :name and :names
@@ -191,7 +193,7 @@ impl<T> Node<T> {
                 // no wildcard, simply use the current node
                 (None, _) => {
                     current.value = Some(val);
-                    current.prefix = prefix.to_owned();
+                    current.prefix = BytesStr::try_from(prefix).unwrap();
                     return Ok(());
                 }
             };
@@ -205,13 +207,13 @@ impl<T> Node<T> {
             if wildcard[0] == b':' {
                 // insert prefix before the current wildcard
                 if wildcard_index > 0 {
-                    current.prefix = prefix[..wildcard_index].to_owned();
+                    current.prefix = BytesStr::try_from(&prefix[..wildcard_index]).unwrap();
                     prefix = &prefix[wildcard_index..];
                 }
 
                 let child = Self {
                     node_type: NodeType::Param,
-                    prefix: wildcard.to_owned(),
+                    prefix: BytesStr::try_from(wildcard).unwrap(),
                     ..Self::default()
                 };
 
@@ -260,12 +262,12 @@ impl<T> Node<T> {
             }
 
             if wildcard_index > 0 {
-                current.prefix = prefix[..wildcard_index].to_owned();
+                current.prefix = BytesStr::try_from(&prefix[..wildcard_index]).unwrap();
                 prefix = &prefix[wildcard_index..];
             }
 
             let child = Self {
-                prefix: prefix.to_owned(),
+                prefix: BytesStr::try_from(prefix).unwrap(),
                 node_type: NodeType::CatchAll,
                 value: Some(val),
                 priority: 1,
@@ -326,7 +328,7 @@ impl<T> Node<T> {
                 let (prefix, rest) = path.split_at(current.prefix.len());
 
                 // prefix matches
-                if prefix == current.prefix {
+                if current.prefix.eq(prefix) {
                     let first = rest[0];
                     let consumed = path;
                     path = rest;
@@ -346,7 +348,7 @@ impl<T> Node<T> {
                             }
 
                             // child won't match because of an extra trailing slash
-                            if path == b"/" && current.children[i].prefix != b"/" && current.value.is_some() {
+                            if path == b"/" && current.children[i].prefix.ne("/") && current.value.is_some() {
                                 return Err(MatchError::ExtraTrailingSlash);
                             }
 
@@ -379,18 +381,18 @@ impl<T> Node<T> {
                     match current.node_type {
                         NodeType::Param => {
                             // check if there are more segments in the path other than this parameter
-                            match path.iter().position(|&c| c == b'/') {
+                            return match path.iter().position(|&c| c == b'/') {
                                 Some(i) => {
                                     let (param, rest) = path.split_at(i);
 
                                     if let [child] = current.children.as_slice() {
                                         // child won't match because of an extra trailing slash
-                                        if rest == b"/" && child.prefix != b"/" && current.value.is_some() {
+                                        if rest == b"/" && child.prefix.ne("/") && current.value.is_some() {
                                             return Err(MatchError::ExtraTrailingSlash);
                                         }
 
                                         // store the parameter value
-                                        params.push(&current.prefix[1..], param);
+                                        params.push(current.prefix.slice(1..), param);
 
                                         // continue with the child node
                                         path = rest;
@@ -405,12 +407,12 @@ impl<T> Node<T> {
                                         return Err(MatchError::ExtraTrailingSlash);
                                     }
 
-                                    return Err(MatchError::NotFound);
+                                    Err(MatchError::NotFound)
                                 }
                                 // this is the last path segment
                                 None => {
                                     // store the parameter value
-                                    params.push(&current.prefix[1..], path);
+                                    params.push(current.prefix.slice(1..), path);
 
                                     // found the matching value
                                     if let Some(ref value) = current.value {
@@ -421,7 +423,7 @@ impl<T> Node<T> {
                                     if let [child] = current.children.as_slice() {
                                         current = child;
 
-                                        if (current.prefix == b"/" && current.value.is_some())
+                                        if (current.prefix.eq("/") && current.value.is_some())
                                             || (current.prefix.is_empty() && current.indices == b"/")
                                         {
                                             return Err(MatchError::MissingTrailingSlash);
@@ -434,16 +436,16 @@ impl<T> Node<T> {
                                     }
 
                                     // this node doesn't have the value, no match
-                                    return Err(MatchError::NotFound);
+                                    Err(MatchError::NotFound)
                                 }
-                            }
+                            };
                         }
                         NodeType::CatchAll => {
                             // catch all segments are only allowed at the end of the route,
                             // either this node has the value or there is no match
                             return match current.value {
                                 Some(ref value) => {
-                                    params.push(&current.prefix[1..], path);
+                                    params.push(current.prefix.slice(1..), path);
                                     Ok((value, params))
                                 }
                                 None => Err(MatchError::NotFound),
@@ -455,7 +457,7 @@ impl<T> Node<T> {
             }
 
             // this is it, we should have reached the node containing the value
-            if path == current.prefix {
+            if current.prefix.eq(path) {
                 if let Some(ref value) = current.value {
                     return Ok((value, params));
                 }
@@ -485,7 +487,7 @@ impl<T> Node<T> {
             }
 
             // nothing matches, check for a missing trailing slash
-            if current.prefix.split_last() == Some((&b'/', path)) && current.value.is_some() {
+            if current.prefix.as_bytes().split_last() == Some((&b'/', path)) && current.value.is_some() {
                 return Err(MatchError::MissingTrailingSlash);
             }
 
@@ -562,7 +564,7 @@ where
 impl<T> Default for Node<T> {
     fn default() -> Self {
         Self {
-            prefix: Vec::new(),
+            prefix: BytesStr::default(),
             wild_child: false,
             node_type: NodeType::Static,
             indices: Vec::new(),
@@ -587,7 +589,7 @@ const _: () = {
 
             let mut fmt = f.debug_struct("Node");
             fmt.field("value", &value);
-            fmt.field("prefix", &std::str::from_utf8(&self.prefix));
+            fmt.field("prefix", &self.prefix.as_str());
             fmt.field("node_type", &self.node_type);
             fmt.field("children", &self.children);
             fmt.field("indices", &indices);
