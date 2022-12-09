@@ -23,7 +23,6 @@ pub struct Node<T> {
     wild_child: bool,
     indices: Vec<u8>,
     node_type: NodeType,
-    // see `at_inner` for why an unsafe cell is needed.
     value: Option<T>,
     pub(crate) prefix: Vec<u8>,
     pub(crate) children: Vec<Self>,
