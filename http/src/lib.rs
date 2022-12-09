@@ -53,21 +53,20 @@ pub mod http {
             Self(Vec::with_capacity(cap))
         }
 
+        #[inline]
         pub fn insert(&mut self, key: BytesStr, value: String) {
             self.0.push((key, value))
         }
 
         pub fn get(&self, key: &str) -> Option<&str> {
-            self.0
-                .iter()
-                .find_map(|(k, v)| (k.as_str() == key).then_some(v.as_str()))
+            self.0.iter().find_map(|(k, v)| k.eq(key).then_some(v.as_str()))
         }
 
         pub fn remove(&mut self, key: &str) -> Option<(BytesStr, String)> {
             self.0
                 .iter()
                 .enumerate()
-                .find_map(|(i, v)| (v.0.as_str() == key).then_some(i))
+                .find_map(|(i, v)| v.0.eq(key).then_some(i))
                 .map(|i| self.0.swap_remove(i))
         }
     }

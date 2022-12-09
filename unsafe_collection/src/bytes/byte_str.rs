@@ -29,7 +29,6 @@ impl BytesStr {
         self.0
     }
 
-    #[inline]
     fn as_str(&self) -> &str {
         // SAFETY: check valid utf-8 in constructor
         unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
@@ -83,5 +82,11 @@ impl AsRef<str> for BytesStr {
 impl fmt::Debug for BytesStr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl PartialEq<str> for BytesStr {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
     }
 }
