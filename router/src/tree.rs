@@ -1,6 +1,6 @@
-use crate::{InsertError, MatchError, Params};
-
 use core::{cmp::min, mem};
+
+use crate::{InsertError, MatchError, Params};
 
 use super::BytesStr;
 
@@ -20,6 +20,7 @@ enum NodeType {
 /// A radix tree used for URL path matching.
 ///
 /// See [the crate documentation](crate) for details.
+#[derive(Clone)]
 pub struct Node<T> {
     priority: u32,
     wild_child: bool,
@@ -560,23 +561,6 @@ fn find_wildcard(path: &[u8]) -> (Option<(&[u8], usize)>, bool) {
     }
 
     (None, false)
-}
-
-impl<T> Clone for Node<T>
-where
-    T: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            value: self.value.as_ref().cloned(),
-            prefix: self.prefix.clone(),
-            wild_child: self.wild_child,
-            node_type: self.node_type,
-            indices: self.indices.clone(),
-            children: self.children.clone(),
-            priority: self.priority,
-        }
-    }
 }
 
 // visualize the tree structure when debugging
