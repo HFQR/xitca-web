@@ -1,6 +1,6 @@
-use core::slice;
+use alloc::vec::{self, Vec};
 
-use xitca_unsafe_collection::bound_queue::stack::{self, StackQueue};
+use xitca_unsafe_collection::bound_queue::stack::StackQueue;
 
 use super::BytesStr;
 
@@ -64,11 +64,6 @@ impl<'v> Params<'v> {
         }
     }
 
-    /// Returns an iterator over the parameters in the list.
-    pub fn iter(&self) -> ParamsIter<'_, 'v> {
-        ParamsIter::new(self)
-    }
-
     /// Returns `true` if there are no parameters in the list.
     pub fn is_empty(&self) -> bool {
         match self.kind {
@@ -106,46 +101,17 @@ impl<'v> Params<'v> {
     }
 }
 
-/// An iterator over the keys and values of a route's [parameters](crate::Params).
-pub struct ParamsIter<'ps, 'v> {
-    kind: ParamsIterKind<'ps, 'v>,
-}
-
-impl<'ps, 'v> ParamsIter<'ps, 'v> {
-    fn new(params: &'ps Params<'v>) -> Self {
-        let kind = match params.kind {
-            ParamsKind::Inline(ref q) => ParamsIterKind::Inline(q.iter()),
-            ParamsKind::Heap(ref q) => ParamsIterKind::Heap(q.iter()),
-        };
-        Self { kind }
-    }
-}
-
-enum ParamsIterKind<'ps, 'v> {
-    Inline(stack::Iter<'ps, Param<'v>, 2>),
-    Heap(slice::Iter<'ps, Param<'v>>),
-}
-
-impl<'ps, 'v> Iterator for ParamsIter<'ps, 'v>
-where
-    Self: 'v,
-{
-    type Item = (&'v str, &'v str);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.kind {
-            ParamsIterKind::Inline(ref mut iter) => iter.next().map(|p| (p.key_str(), p.value_str())),
-            ParamsIterKind::Heap(ref mut iter) => iter.next().map(|p| (p.key_str(), p.value_str())),
-        }
-    }
-}
-
 impl<'v> IntoIterator for Params<'v> {
     type Item = (BytesStr, &'v str);
     type IntoIter = ParamsIntoIter<'v>;
 
     fn into_iter(self) -> Self::IntoIter {
-        ParamsIntoIter::new(self)
+        let kind = match self.kind {
+            ParamsKind::Inline(q) => ParamsIntoIterKind::Inline(q),
+            ParamsKind::Heap(q) => ParamsIntoIterKind::Heap(q.into_iter()),
+        };
+
+        ParamsIntoIter { kind }
     }
 }
 
@@ -153,19 +119,9 @@ pub struct ParamsIntoIter<'v> {
     kind: ParamsIntoIterKind<'v>,
 }
 
-impl<'v> ParamsIntoIter<'v> {
-    fn new(params: Params<'v>) -> Self {
-        let kind = match params.kind {
-            ParamsKind::Inline(q) => ParamsIntoIterKind::Inline(q),
-            ParamsKind::Heap(q) => ParamsIntoIterKind::Heap(q.into_iter()),
-        };
-        Self { kind }
-    }
-}
-
 enum ParamsIntoIterKind<'v> {
     Inline(StackQueue<Param<'v>, 2>),
-    Heap(std::vec::IntoIter<Param<'v>>),
+    Heap(vec::IntoIter<Param<'v>>),
 }
 
 impl<'v> Iterator for ParamsIntoIter<'v> {
@@ -209,7 +165,7 @@ mod tests {
             _ => panic!(),
         }
 
-        assert!(params.iter().eq(vec.clone()));
+        assert!(params.into_iter().eq(vec.iter().map(|(k, v)| ((*k).into(), *v))));
     }
 
     #[test]
@@ -227,7 +183,7 @@ mod tests {
             _ => panic!(),
         }
 
-        assert!(params.iter().eq(vec.clone()));
+        assert!(params.into_iter().eq(vec.iter().map(|(k, v)| ((*k).into(), *v))));
     }
 
     #[test]
