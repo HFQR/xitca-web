@@ -1,13 +1,12 @@
 use core::{
-    fmt,
     ops::{Deref, RangeBounds},
-    str::Utf8Error,
+    str::{self, Utf8Error},
 };
 
 use bytes_crate::Bytes;
 
 /// reference counted String type. cheap to Clone and share between multiple threads.
-#[derive(Clone, Default, Eq, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq, Hash)]
 pub struct BytesStr(Bytes);
 
 impl BytesStr {
@@ -37,7 +36,7 @@ impl BytesStr {
     #[inline]
     pub fn as_str(&self) -> &str {
         // SAFETY: check valid utf-8 in constructor
-        unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
+        unsafe { str::from_utf8_unchecked(self.0.as_ref()) }
     }
 }
 
@@ -51,7 +50,7 @@ impl TryFrom<Bytes> for BytesStr {
     type Error = Utf8Error;
 
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
-        std::str::from_utf8(value.as_ref())?;
+        str::from_utf8(value.as_ref())?;
         Ok(BytesStr(value))
     }
 }
@@ -60,7 +59,7 @@ impl TryFrom<&[u8]> for BytesStr {
     type Error = Utf8Error;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        std::str::from_utf8(value)?;
+        str::from_utf8(value)?;
         Ok(BytesStr(Bytes::copy_from_slice(value)))
     }
 }
@@ -85,12 +84,6 @@ impl AsRef<str> for BytesStr {
     #[inline]
     fn as_ref(&self) -> &str {
         self.as_str()
-    }
-}
-
-impl fmt::Debug for BytesStr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, f)
     }
 }
 

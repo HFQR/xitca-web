@@ -5,7 +5,7 @@ use xitca_unsafe_collection::bound_queue::stack::{self, StackQueue};
 use super::BytesStr;
 
 /// A single URL parameter, consisting of a key and a value.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 struct Param<'v> {
     key: BytesStr,
     value: &'v str,

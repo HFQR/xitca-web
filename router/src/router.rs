@@ -1,5 +1,4 @@
-use crate::tree::Node;
-use crate::{InsertError, MatchError, Params};
+use super::{tree::Node, InsertError, MatchError, Params};
 
 /// A URL router.
 ///
@@ -49,10 +48,9 @@ impl<T> Router<T> {
     /// # }
     /// ```
     pub fn at<'m, 'p>(&'m self, path: &'p str) -> Result<Match<'p, &'m T>, MatchError> {
-        match self.root.at(path.as_bytes()) {
-            Ok((value, params)) => Ok(Match { value, params }),
-            Err(e) => Err(e),
-        }
+        self.root
+            .at(path.as_bytes())
+            .map(|(value, params)| Match { value, params })
     }
 
     #[cfg(feature = "test_helpers")]
