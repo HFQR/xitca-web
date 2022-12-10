@@ -16,10 +16,14 @@ fn compare_routers(c: &mut Criterion) {
     for route in register!(colon) {
         matchit.insert(route, true).unwrap();
     }
+
     group.bench_function("matchit", |b| {
         b.iter(|| {
             for route in black_box(call()) {
-                black_box(matchit.at(route).unwrap());
+                black_box(matchit.at(route).unwrap().params.iter().for_each(|(k, v)| {
+                    let _k = String::from(k);
+                    let _v = String::from(v);
+                }));
             }
         });
     });
@@ -31,7 +35,10 @@ fn compare_routers(c: &mut Criterion) {
     group.bench_function("xitca-router", |b| {
         b.iter(|| {
             for route in black_box(call()) {
-                black_box(matchit.at(route).unwrap());
+                black_box(xitca.at(route).unwrap().params.into_iter().for_each(|(k, v)| {
+                    let _k = k;
+                    let _v = String::from(v);
+                }));
             }
         });
     });
