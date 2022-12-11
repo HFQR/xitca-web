@@ -1,3 +1,5 @@
+pub use xitca_router::Params;
+
 use std::{
     collections::HashMap,
     error,
@@ -6,7 +8,6 @@ use std::{
     marker::PhantomData,
 };
 
-use xitca_router::{BytesStr, Match};
 use xitca_service::{
     object::{DefaultObject, DefaultObjectConstructor, ObjectConstructor},
     pipeline::PipelineE,
@@ -154,14 +155,14 @@ where
     {
         async {
             let path = req.borrow().path();
-            let Match { value, params } = self
+            let node = self
                 .routes
                 .at(path)
                 .map_err(|inner| RouterError::First(MatchError { inner }))?;
 
-            req.add(Req::parse(path, params.len(), params.into_iter()));
+            req.add_params(node.params);
 
-            value.call(req).await.map_err(RouterError::Second)
+            node.value.call(req).await.map_err(RouterError::Second)
         }
     }
 }
@@ -177,40 +178,19 @@ impl<S> ReadyService for RouterService<S> {
 }
 
 pub trait AddParams {
-    type Params;
-
-    fn parse<'v>(path: &str, len: usize, iter: impl Iterator<Item = (BytesStr, &'v str)>) -> Self::Params;
-
-    fn add(&mut self, params: Self::Params);
+    fn add_params(&mut self, params: Params);
 }
 
 impl<B> AddParams for http::Request<B> {
-    type Params = http::Params;
-
-    fn parse<'v>(_: &str, len: usize, iter: impl Iterator<Item = (BytesStr, &'v str)>) -> Self::Params {
-        let mut params = http::Params::with_capacity(len);
-        for (k, v) in iter {
-            params.insert(k, v.into());
-        }
-        params
-    }
-
     #[inline]
-    fn add(&mut self, params: Self::Params) {
+    fn add_params(&mut self, params: Params) {
         self.extensions_mut().insert(params);
     }
 }
 
 impl<B> AddParams for Request<B> {
-    type Params = ();
-
     #[inline]
-    fn parse<'v>(_: &str, _: usize, _: impl Iterator<Item = (BytesStr, &'v str)>) {
-        // TODO: zero copy parse
-    }
-
-    #[inline]
-    fn add(&mut self, _: Self::Params) {
+    fn add_params(&mut self, _: Params) {
         // TODO: zero copy parse
     }
 }
@@ -295,7 +275,7 @@ mod test {
             .insert(
                 "/users/:id",
                 fn_service(|mut req: http::Request<()>| async move {
-                    let params = req.extensions_mut().remove::<http::Params>().unwrap();
+                    let params = req.extensions_mut().remove::<Params>().unwrap();
                     assert_eq!(params.get("id").unwrap(), "1");
                     Ok::<_, Infallible>(Response::new(()))
                 }),

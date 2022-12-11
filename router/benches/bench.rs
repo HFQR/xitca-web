@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn call() -> impl IntoIterator<Item = &'static str> {
@@ -16,14 +18,20 @@ fn compare_routers(c: &mut Criterion) {
     for route in register!(colon) {
         matchit.insert(route, true).unwrap();
     }
-
     group.bench_function("matchit", |b| {
         b.iter(|| {
             for route in black_box(call()) {
-                black_box(matchit.at(route).unwrap().params.iter().for_each(|(k, v)| {
-                    let _k = String::from(k);
-                    let _v = String::from(v);
-                }));
+                black_box(
+                    matchit
+                        .at(route)
+                        .unwrap()
+                        .params
+                        .iter()
+                        // as of writing the bench this is roughly what axum do to erase lifetime
+                        // of params.
+                        .map(|(k, v)| (Arc::<str>::from(k), Arc::<str>::from(v)))
+                        .collect::<Vec<_>>(),
+                );
             }
         });
     });
@@ -35,10 +43,7 @@ fn compare_routers(c: &mut Criterion) {
     group.bench_function("xitca-router", |b| {
         b.iter(|| {
             for route in black_box(call()) {
-                black_box(xitca.at(route).unwrap().params.into_iter().for_each(|(k, v)| {
-                    let _k = k;
-                    let _v = String::from(v);
-                }));
+                black_box(xitca.at(route).unwrap().params);
             }
         });
     });
