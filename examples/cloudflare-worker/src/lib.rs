@@ -8,7 +8,7 @@ use xitca_http::{
     http,
     util::service::{
         route::{get, post, RouteError},
-        router::{Router, RouterError},
+        router::{Router, RouterError, Params},
     },
 };
 use xitca_service::{fn_service, object, Service, ServiceExt};
@@ -104,7 +104,7 @@ async fn index(_: http::Request<()>) -> Result<Response> {
 
 async fn form(mut req: http::Request<()>) -> Result<Response> {
     // extract path params from http::request.
-    let params = req.extensions_mut().remove::<http::Params>().unwrap();
+    let params = req.extensions_mut().remove::<Params>().unwrap();
     // extract worker::Request from http::Request.
     let mut req = req
         .extensions_mut()

@@ -1,11 +1,10 @@
 use std::{future::Future, marker::PhantomData};
 
 use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
-use xitca_unsafe_collection::bytes::BytesStr;
 
 use crate::request::{BorrowReq, BorrowReqMut};
 
-use super::router_priv::AddParams;
+use super::router_priv::{AddParams, Params};
 
 /// ServiceFactory type for constructing compile time checked stateful service.
 ///
@@ -126,16 +125,9 @@ impl<Req, C> AddParams for Context<'_, Req, C>
 where
     Req: AddParams,
 {
-    type Params = Req::Params;
-
     #[inline]
-    fn parse<'v>(path: &str, len: usize, iter: impl Iterator<Item = (BytesStr, &'v str)>) -> Self::Params {
-        Req::parse(path, len, iter)
-    }
-
-    #[inline]
-    fn add(&mut self, params: Self::Params) {
-        self.req.add(params)
+    fn add_params(&mut self, params: Params) {
+        self.req.add_params(params)
     }
 }
 

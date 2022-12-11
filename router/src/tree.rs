@@ -1,8 +1,8 @@
 use core::{cmp::min, mem};
 
-use crate::{InsertError, MatchError, Params};
+use xitca_unsafe_collection::bytes::BytesStr;
 
-use super::BytesStr;
+use crate::{InsertError, MatchError, Params};
 
 /// The types of nodes the tree can hold
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
@@ -332,7 +332,7 @@ impl<T> Node<T> {
     // It's a bit sad that we have to introduce unsafe here but rust doesn't really have a way
     // to abstract over mutability, so UnsafeCell lets us avoid having to duplicate logic between
     // `at` and `at_mut`.
-    pub fn at<'n, 'p>(&'n self, full_path: &'p [u8]) -> Result<(&'n T, Params<'p>), MatchError> {
+    pub fn at(&self, full_path: &[u8]) -> Result<(&T, Params), MatchError> {
         let mut current = self;
         let mut path = full_path;
         let mut backtracking = false;

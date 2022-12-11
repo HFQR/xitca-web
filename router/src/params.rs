@@ -1,38 +1,54 @@
 use alloc::vec::{self, Vec};
 
-use xitca_unsafe_collection::bound_queue::stack::StackQueue;
-
-use super::BytesStr;
+use xitca_unsafe_collection::{bound_queue::stack::StackQueue, bytes::BytesStr};
 
 /// A single URL parameter, consisting of a key and a value.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-struct Param<'v> {
+struct Param {
     key: BytesStr,
-    value: &'v str,
+    value: BytesStr,
 }
 
-impl<'v> Param<'v> {
+impl Param {
     fn key_str(&self) -> &str {
-        self.key.as_ref()
+        self.key.as_str()
     }
 
-    fn value_str(&self) -> &'v str {
-        self.value
+    fn value_str(&self) -> &str {
+        self.value.as_str()
     }
 }
 
 #[derive(Debug)]
-pub struct Params<'v> {
-    kind: ParamsKind<'v>,
+pub struct Params {
+    kind: ParamsKind,
+}
+
+impl Clone for Params {
+    fn clone(&self) -> Self {
+        let kind = match self.kind {
+            ParamsKind::Inline(ref q) => {
+                // TODO: this impl is not good. StackQueue should be able to drain params or offer
+                // internal clone.
+                let mut q2 = StackQueue::<_, 2>::new();
+                for p in q.iter() {
+                    let _ = q2.push_back(p.clone());
+                }
+                ParamsKind::Inline(q2)
+            }
+            ParamsKind::Heap(ref q) => ParamsKind::Heap(q.clone()),
+        };
+        Self { kind }
+    }
 }
 
 #[derive(Debug)]
-enum ParamsKind<'v> {
-    Inline(StackQueue<Param<'v>, 2>),
-    Heap(Vec<Param<'v>>),
+enum ParamsKind {
+    Inline(StackQueue<Param, 2>),
+    Heap(Vec<Param>),
 }
 
-impl<'v> Params<'v> {
+impl Params {
     pub(crate) const fn new() -> Self {
         Self {
             kind: ParamsKind::Inline(StackQueue::new()),
@@ -55,7 +71,7 @@ impl<'v> Params<'v> {
     }
 
     /// Returns the value of the first parameter registered under the given key.
-    pub fn get(&self, key: impl AsRef<str>) -> Option<&'v str> {
+    pub fn get(&self, key: impl AsRef<str>) -> Option<&str> {
         let key = key.as_ref();
 
         match self.kind {
@@ -73,7 +89,7 @@ impl<'v> Params<'v> {
     }
 
     /// Inserts a key value parameter pair into the list.
-    pub(crate) fn push(&mut self, key: BytesStr, value: &'v [u8]) {
+    pub(crate) fn push(&mut self, key: BytesStr, value: &[u8]) {
         #[cold]
         #[inline(never)]
         fn drain_to_vec<T, const LEN: usize>(value: T, q: &mut StackQueue<T, LEN>) -> Vec<T> {
@@ -88,7 +104,7 @@ impl<'v> Params<'v> {
 
         let param = Param {
             key,
-            value: std::str::from_utf8(value).unwrap(),
+            value: BytesStr::try_from(value).unwrap(),
         };
         match self.kind {
             ParamsKind::Inline(ref mut q) => {
@@ -101,9 +117,9 @@ impl<'v> Params<'v> {
     }
 }
 
-impl<'v> IntoIterator for Params<'v> {
-    type Item = (BytesStr, &'v str);
-    type IntoIter = ParamsIntoIter<'v>;
+impl IntoIterator for Params {
+    type Item = (BytesStr, BytesStr);
+    type IntoIter = ParamsIntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         let kind = match self.kind {
@@ -115,22 +131,32 @@ impl<'v> IntoIterator for Params<'v> {
     }
 }
 
-pub struct ParamsIntoIter<'v> {
-    kind: ParamsIntoIterKind<'v>,
+pub struct ParamsIntoIter {
+    kind: ParamsIntoIterKind,
 }
 
-enum ParamsIntoIterKind<'v> {
-    Inline(StackQueue<Param<'v>, 2>),
-    Heap(vec::IntoIter<Param<'v>>),
+enum ParamsIntoIterKind {
+    Inline(StackQueue<Param, 2>),
+    Heap(vec::IntoIter<Param>),
 }
 
-impl<'v> Iterator for ParamsIntoIter<'v> {
-    type Item = (BytesStr, &'v str);
+impl Iterator for ParamsIntoIter {
+    type Item = (BytesStr, BytesStr);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.kind {
             ParamsIntoIterKind::Inline(ref mut q) => q.pop_front().map(|p| (p.key, p.value)),
             ParamsIntoIterKind::Heap(ref mut iter) => iter.next().map(|p| (p.key, p.value)),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self.kind {
+            ParamsIntoIterKind::Inline(ref q) => {
+                let len = q.len();
+                (len, Some(len))
+            }
+            ParamsIntoIterKind::Heap(ref q) => q.size_hint(),
         }
     }
 }
@@ -165,7 +191,9 @@ mod tests {
             _ => panic!(),
         }
 
-        assert!(params.into_iter().eq(vec.iter().map(|(k, v)| ((*k).into(), *v))));
+        assert!(params
+            .into_iter()
+            .eq(vec.iter().map(|(k, v)| ((*k).into(), (*v).into()))));
     }
 
     #[test]
@@ -183,7 +211,9 @@ mod tests {
             _ => panic!(),
         }
 
-        assert!(params.into_iter().eq(vec.iter().map(|(k, v)| ((*k).into(), *v))));
+        assert!(params
+            .into_iter()
+            .eq(vec.iter().map(|(k, v)| ((*k).into(), (*v).into()))));
     }
 
     #[test]
