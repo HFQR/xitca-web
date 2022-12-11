@@ -275,7 +275,7 @@ mod test {
             .insert(
                 "/users/:id",
                 fn_service(|mut req: http::Request<()>| async move {
-                    let params = req.extensions_mut().remove::<http::Params>().unwrap();
+                    let params = req.extensions_mut().remove::<Params>().unwrap();
                     assert_eq!(params.get("id").unwrap(), "1");
                     Ok::<_, Infallible>(Response::new(()))
                 }),
