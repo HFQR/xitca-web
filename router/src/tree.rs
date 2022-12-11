@@ -391,7 +391,7 @@ impl<T> Node<T> {
                         }
 
                         // nothing found
-                        return Err(MatchError::NotFound);
+                        break;
                     }
 
                     // handle the wildcard child, which is always at the end of the list
@@ -400,7 +400,7 @@ impl<T> Node<T> {
                     match current.node_type {
                         NodeType::Param => {
                             // check if there are more segments in the path other than this parameter
-                            return match path.iter().position(|&c| c == b'/') {
+                            match path.iter().position(|&c| c == b'/') {
                                 Some(i) => {
                                     let (param, rest) = path.split_at(i);
 
@@ -426,7 +426,7 @@ impl<T> Node<T> {
                                         return Err(MatchError::ExtraTrailingSlash);
                                     }
 
-                                    Err(MatchError::NotFound)
+                                    break;
                                 }
                                 // this is the last path segment
                                 None => {
@@ -455,20 +455,19 @@ impl<T> Node<T> {
                                     }
 
                                     // this node doesn't have the value, no match
-                                    Err(MatchError::NotFound)
+                                    break;
                                 }
                             };
                         }
                         NodeType::CatchAll => {
                             // catch all segments are only allowed at the end of the route,
                             // either this node has the value or there is no match
-                            return match current.value {
-                                Some(ref value) => {
-                                    params.push(current.prefix.slice(1..), path);
-                                    Ok((value, params))
-                                }
-                                None => Err(MatchError::NotFound),
-                            };
+                            if let Some(ref value) = current.value {
+                                params.push(current.prefix.slice(1..), path);
+                                return Ok((value, params));
+                            }
+
+                            break;
                         }
                         _ => unreachable!(),
                     }
@@ -502,7 +501,7 @@ impl<T> Node<T> {
                     }
                 }
 
-                return Err(MatchError::NotFound);
+                break;
             }
 
             // nothing matches, check for a missing trailing slash
@@ -515,8 +514,10 @@ impl<T> Node<T> {
                 try_backtrack!();
             }
 
-            return Err(MatchError::NotFound);
+            break;
         }
+
+        Err(MatchError::NotFound)
     }
 
     #[cfg(feature = "test_helpers")]
@@ -540,12 +541,7 @@ impl<T> Node<T> {
 
 // Searches for a wildcard segment and checks the path for invalid characters.
 fn find_wildcard(path: &[u8]) -> (Option<(&[u8], usize)>, bool) {
-    for (start, &c) in path.iter().enumerate() {
-        // a wildcard starts with ':' (param) or '*' (catch-all)
-        if c != b':' && c != b'*' {
-            continue;
-        };
-
+    if let Some(start) = path.iter().position(|&c| c == b':' || c == b'*') {
         // find end and check for invalid characters
         let mut valid = true;
 
