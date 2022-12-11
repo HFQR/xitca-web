@@ -19,9 +19,11 @@ impl Param {
     }
 }
 
+type Inline = StackQueue<Param, 2>;
+
 #[derive(Debug)]
 pub struct Params {
-    kind: ParamsKind,
+    kind: ParamsKind<Inline, Vec<Param>>,
 }
 
 impl Clone for Params {
@@ -30,7 +32,7 @@ impl Clone for Params {
             ParamsKind::Inline(ref q) => {
                 // TODO: this impl is not good. StackQueue should be able to drain params or offer
                 // internal clone.
-                let mut q2 = StackQueue::<_, 2>::new();
+                let mut q2 = Inline::new();
                 for p in q.iter() {
                     let _ = q2.push_back(p.clone());
                 }
@@ -43,15 +45,15 @@ impl Clone for Params {
 }
 
 #[derive(Debug)]
-enum ParamsKind {
-    Inline(StackQueue<Param, 2>),
-    Heap(Vec<Param>),
+enum ParamsKind<I, P> {
+    Inline(I),
+    Heap(P),
 }
 
 impl Params {
     pub(crate) const fn new() -> Self {
         Self {
-            kind: ParamsKind::Inline(StackQueue::new()),
+            kind: ParamsKind::Inline(Inline::new()),
         }
     }
 
@@ -81,11 +83,9 @@ impl Params {
     }
 
     /// Returns `true` if there are no parameters in the list.
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        match self.kind {
-            ParamsKind::Inline(ref q) => q.is_empty(),
-            ParamsKind::Heap(ref q) => q.is_empty(),
-        }
+        self.len() == 0
     }
 
     /// Inserts a key value parameter pair into the list.
@@ -123,8 +123,8 @@ impl IntoIterator for Params {
 
     fn into_iter(self) -> Self::IntoIter {
         let kind = match self.kind {
-            ParamsKind::Inline(q) => ParamsIntoIterKind::Inline(q),
-            ParamsKind::Heap(q) => ParamsIntoIterKind::Heap(q.into_iter()),
+            ParamsKind::Inline(q) => ParamsKind::Inline(q),
+            ParamsKind::Heap(q) => ParamsKind::Heap(q.into_iter()),
         };
 
         ParamsIntoIter { kind }
@@ -132,12 +132,7 @@ impl IntoIterator for Params {
 }
 
 pub struct ParamsIntoIter {
-    kind: ParamsIntoIterKind,
-}
-
-enum ParamsIntoIterKind {
-    Inline(StackQueue<Param, 2>),
-    Heap(vec::IntoIter<Param>),
+    kind: ParamsKind<Inline, vec::IntoIter<Param>>,
 }
 
 impl Iterator for ParamsIntoIter {
@@ -145,18 +140,18 @@ impl Iterator for ParamsIntoIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.kind {
-            ParamsIntoIterKind::Inline(ref mut q) => q.pop_front().map(|p| (p.key, p.value)),
-            ParamsIntoIterKind::Heap(ref mut iter) => iter.next().map(|p| (p.key, p.value)),
+            ParamsKind::Inline(ref mut q) => q.pop_front().map(|p| (p.key, p.value)),
+            ParamsKind::Heap(ref mut iter) => iter.next().map(|p| (p.key, p.value)),
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self.kind {
-            ParamsIntoIterKind::Inline(ref q) => {
+            ParamsKind::Inline(ref q) => {
                 let len = q.len();
                 (len, Some(len))
             }
-            ParamsIntoIterKind::Heap(ref q) => q.size_hint(),
+            ParamsKind::Heap(ref q) => q.size_hint(),
         }
     }
 }
