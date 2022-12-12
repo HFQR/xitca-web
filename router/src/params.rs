@@ -21,6 +21,25 @@ impl Param {
 
 type Inline = StackQueue<Param, 2>;
 
+/// A list of parameters returned by a route match.
+///
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let mut router = xitca_router::Router::new();
+/// # router.insert("/users/:id", true)?;
+/// let matched = router.at("/users/1")?;
+///
+/// // you can get a specific value by key
+/// let id = matched.params.get("id");
+/// assert_eq!(id, Some("1"));
+///
+/// // or iterate through the keys and values
+/// for (key, value) in matched.params.into_iter() {
+///     println!("key: {}, value: {}", key, value);
+/// }
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct Params {
     kind: ParamsKind<Inline, Vec<Param>>,
