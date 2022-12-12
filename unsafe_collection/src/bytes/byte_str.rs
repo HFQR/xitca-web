@@ -80,13 +80,6 @@ impl Deref for BytesStr {
     }
 }
 
-impl AsRef<[u8]> for BytesStr {
-    #[inline]
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
 impl AsRef<str> for BytesStr {
     #[inline]
     fn as_ref(&self) -> &str {
@@ -98,12 +91,5 @@ impl PartialEq<str> for BytesStr {
     #[inline]
     fn eq(&self, other: &str) -> bool {
         self.as_str() == other
-    }
-}
-
-impl PartialEq<[u8]> for BytesStr {
-    #[inline]
-    fn eq(&self, other: &[u8]) -> bool {
-        self.0.as_ref() == other
     }
 }

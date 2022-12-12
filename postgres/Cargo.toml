@@ -10,7 +10,7 @@ single-thread = []
 [dependencies]
 xitca-io = { version = "0.1", features = ["runtime"] }
 xitca-service = "0.1"
-xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
+xitca-unsafe-collection = { version = "0.1", features = ["bytes", "channel"] }
 
 fallible-iterator = "0.2"
 futures-core = { version = "0.3", default-features = false }
