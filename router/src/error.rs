@@ -77,7 +77,8 @@ pub enum MatchError {
 }
 
 impl MatchError {
-    pub(crate) fn unsure(full_path: &[u8]) -> Self {
+    pub(crate) fn unsure(full_path: &str) -> Self {
+        let full_path = full_path.as_bytes();
         if full_path[full_path.len() - 1] == b'/' {
             MatchError::ExtraTrailingSlash
         } else {

@@ -302,7 +302,7 @@ impl<T> Node<T> {
 }
 
 struct Skipped<'n, 'p, T> {
-    path: &'p [u8],
+    path: &'p str,
     node: &'n Node<T>,
     params: usize,
 }
@@ -332,7 +332,7 @@ impl<T> Node<T> {
     // It's a bit sad that we have to introduce unsafe here but rust doesn't really have a way
     // to abstract over mutability, so UnsafeCell lets us avoid having to duplicate logic between
     // `at` and `at_mut`.
-    pub fn at(&self, full_path: &[u8]) -> Result<(&T, Params), MatchError> {
+    pub fn at(&self, full_path: &str) -> Result<(&T, Params), MatchError> {
         let mut current = self;
         let mut path = full_path;
         let mut backtracking = false;
@@ -348,13 +348,14 @@ impl<T> Node<T> {
 
                 // prefix matches
                 if current.prefix.eq(prefix) {
-                    let first = rest[0];
                     let consumed = path;
                     path = rest;
 
                     // try searching for a matching static child unless we are currently
                     // backtracking, which would mean we already traversed them
                     if !backtracking {
+                        let first = path.as_bytes()[0];
+
                         if let Some(i) = current.indices.iter().position(|&c| c == first) {
                             // keep track of wildcard routes we skipped to backtrack to later if
                             // we don't find a math
@@ -367,7 +368,7 @@ impl<T> Node<T> {
                             }
 
                             // child won't match because of an extra trailing slash
-                            if path == b"/" && current.children[i].prefix.ne("/") && current.value.is_some() {
+                            if path == "/" && current.children[i].prefix.ne("/") && current.value.is_some() {
                                 return Err(MatchError::ExtraTrailingSlash);
                             }
 
@@ -381,12 +382,12 @@ impl<T> Node<T> {
                     // there is no match
                     if !current.wild_child {
                         // extra trailing slash
-                        if path == b"/" && current.value.is_some() {
+                        if path == "/" && current.value.is_some() {
                             return Err(MatchError::ExtraTrailingSlash);
                         }
 
                         // try backtracking
-                        if path != b"/" {
+                        if path != "/" {
                             try_backtrack!();
                         }
 
@@ -400,13 +401,13 @@ impl<T> Node<T> {
                     match current.node_type {
                         NodeType::Param => {
                             // check if there are more segments in the path other than this parameter
-                            match path.iter().position(|&c| c == b'/') {
+                            match path.chars().position(|c| c == '/') {
                                 Some(i) => {
                                     let (param, rest) = path.split_at(i);
 
                                     if let [child] = current.children.as_slice() {
                                         // child won't match because of an extra trailing slash
-                                        if rest == b"/" && child.prefix.ne("/") && current.value.is_some() {
+                                        if rest == "/" && child.prefix.ne("/") && current.value.is_some() {
                                             return Err(MatchError::ExtraTrailingSlash);
                                         }
 
@@ -449,7 +450,7 @@ impl<T> Node<T> {
                                         }
 
                                         // no match, try backtracking
-                                        if path != b"/" {
+                                        if path != "/" {
                                             try_backtrack!();
                                         }
                                     }
@@ -481,12 +482,12 @@ impl<T> Node<T> {
                 }
 
                 // nope, try backtracking
-                if path != b"/" {
+                if path != "/" {
                     try_backtrack!();
                 }
 
                 // TODO: does this always means there is an extra trailing slash?
-                if path == b"/" && current.wild_child && current.node_type != NodeType::Root {
+                if path == "/" && current.wild_child && current.node_type != NodeType::Root {
                     return Err(MatchError::unsure(full_path));
                 }
 
@@ -505,12 +506,12 @@ impl<T> Node<T> {
             }
 
             // nothing matches, check for a missing trailing slash
-            if current.prefix.as_bytes().split_last() == Some((&b'/', path)) && current.value.is_some() {
+            if current.prefix.as_bytes().split_last() == Some((&b'/', path.as_bytes())) && current.value.is_some() {
                 return Err(MatchError::MissingTrailingSlash);
             }
 
             // last chance, try backtracking
-            if path != b"/" {
+            if path != "/" {
                 try_backtrack!();
             }
 
