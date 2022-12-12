@@ -16,18 +16,16 @@ jobs:
         target:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
-        version:
-          - ${{ env.ver }}
-    name: http check @ ${{ matrix.target.name }} - ${{ matrix.version }}
+    name: http check @ ${{ matrix.target.name }} - ${{ env.ver }}
     runs-on: ${{ matrix.target.os }}
 
     steps:
     - uses: actions/checkout@v3
 
-    - name: Install ${{ matrix.version }}
+    - name: Install ${{ env.ver }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        toolchain: ${{ env.ver }}-${{ matrix.target.triple }}
         profile: minimal
         override: true
 
@@ -52,7 +50,7 @@ jobs:
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-http"
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ env.ver }} cargo ci-check-http"
 
     - name: Clear the cargo caches
       run: |
@@ -65,18 +63,16 @@ jobs:
         target:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
-        version:
-          - ${{ env.ver }}
-    name: web check @ ${{ matrix.target.name }} - ${{ matrix.version }}
+    name: web check @ ${{ matrix.target.name }} - ${{ env.ver }}
     runs-on: ${{ matrix.target.os }}
 
     steps:
     - uses: actions/checkout@v3
 
-    - name: Install ${{ matrix.version }}
+    - name: Install ${{ env.ver }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        toolchain: ${{ env.ver }}-${{ matrix.target.triple }}
         profile: minimal
         override: true
 
@@ -101,7 +97,7 @@ jobs:
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-web"
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ env.ver }} cargo ci-check-web"
 
     - name: Clear the cargo caches
       run: |
@@ -114,18 +110,16 @@ jobs:
         target:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
-        version:
-          - ${{ env.ver }}
-    name: client check @ ${{ matrix.target.name }} - ${{ matrix.version }}
+    name: client check @ ${{ matrix.target.name }} - ${{ env.ver }}
     runs-on: ${{ matrix.target.os }}
 
     steps:
     - uses: actions/checkout@v3
 
-    - name: Install ${{ matrix.version }}
+    - name: Install ${{ env.ver }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        toolchain: ${{ env.ver }}-${{ matrix.target.triple }}
         profile: minimal
         override: true
 
@@ -150,7 +144,7 @@ jobs:
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-client"
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ env.ver }} cargo ci-check-client"
 
     - name: Clear the cargo caches
       run: |
@@ -163,18 +157,16 @@ jobs:
         target:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
-        version:
-          - ${{ env.ver }}
-    name: test and other check @ ${{ matrix.target.name }} - ${{ matrix.version }}
+    name: test and other check @ ${{ matrix.target.name }} - ${{ env.ver }}
     runs-on: ${{ matrix.target.os }}  
     
     steps:
     - uses: actions/checkout@v3
 
-    - name: Install ${{ matrix.version }}
+    - name: Install ${{ env.ver }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        toolchain: ${{ env.ver }}-${{ matrix.target.triple }}
         profile: minimal
         override: true
 
@@ -199,7 +191,7 @@ jobs:
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-other"     
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ env.ver }} cargo ci-check-other"     
 
 #    - name: tests-non-linux
 #      if: matrix.target.os != 'ubuntu-latest'
@@ -209,7 +201,7 @@ jobs:
     - name: tests-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test"  
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ env.ver }} cargo ci-test"  
 
     - name: Clear the cargo caches
       run: |
@@ -222,18 +214,16 @@ jobs:
         target:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
-        version:
-          - ${{ env.ver }}
-    name: example check @ ${{ matrix.target.name }} - ${{ matrix.version }}
+    name: example check @ ${{ matrix.target.name }} - ${{ env.ver }}
     runs-on: ${{ matrix.target.os }}
 
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install ${{ matrix.version }}
+      - name: Install ${{ env.ver }}
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+          toolchain: $${{ env.ver }}-${{ matrix.target.triple }}
           profile: minimal
           override: true
 
@@ -258,7 +248,7 @@ jobs:
       - name: check-linux
         if: matrix.target.os == 'ubuntu-latest'
         run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && cd examples && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-examples"     
+          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && cd examples && RUSTUP_TOOLCHAIN=${{ env.ver }} cargo ci-check-examples"     
 
       - name: Clear the cargo caches
         run: |
