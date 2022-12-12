@@ -521,7 +521,7 @@ impl<T> Node<T> {
     }
 
     #[cfg(feature = "test_helpers")]
-    pub fn check_priorities(&self) -> Result<u32, (u32, u32)> {
+    pub(super) fn check_priorities(&self) -> Result<u32, (u32, u32)> {
         let mut priority: u32 = 0;
         for child in &self.children {
             priority += child.check_priorities()?;
