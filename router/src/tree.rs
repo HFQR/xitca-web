@@ -132,7 +132,7 @@ impl<T> Node<T> {
 
                     // check if the wildcard matches
                     if prefix.len() >= current.prefix.len()
-                        && current.prefix.eq(&prefix[..current.prefix.len()])
+                        && current.prefix.as_bytes() == &prefix[..current.prefix.len()]
                         // adding a child to a catchall Node is not possible
                         && current.node_type != NodeType::CatchAll
                         // check for longer wildcard, e.g. :name and :names
@@ -574,7 +574,7 @@ const _: () = {
 
             let mut fmt = f.debug_struct("Node");
             fmt.field("value", &value);
-            fmt.field("prefix", &self.prefix.as_str());
+            fmt.field("prefix", &self.prefix.as_ref());
             fmt.field("node_type", &self.node_type);
             fmt.field("children", &self.children);
             fmt.field("indices", &indices);

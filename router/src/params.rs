@@ -11,11 +11,11 @@ struct Param {
 
 impl Param {
     fn key_str(&self) -> &str {
-        self.key.as_str()
+        self.key.as_ref()
     }
 
     fn value_str(&self) -> &str {
-        self.value.as_str()
+        self.value.as_ref()
     }
 }
 

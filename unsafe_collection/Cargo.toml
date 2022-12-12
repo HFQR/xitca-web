@@ -5,11 +5,12 @@ edition = "2021"
 
 [features]
 bytes = ["bytes_crate"]
+channel = ["cache-padded", "futures-core"]
 
 [dependencies]
 bytes_crate = { package = "bytes", version = "1.2", optional = true }
-cache-padded = "1.2.0"
-futures-core = { version = "0.3.25", default-features = false }
+cache-padded = { version = "1.2.0", optional = true }
+futures-core = { version = "0.3.25", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.21", features = ["rt", "sync"] }
