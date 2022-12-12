@@ -47,10 +47,9 @@ impl<T> Router<T> {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn at(&self, path: &str) -> Result<Match<&T>, MatchError> {
-        self.root
-            .at(path.as_bytes())
-            .map(|(value, params)| Match { value, params })
+        self.root.at(path).map(|(value, params)| Match { value, params })
     }
 
     #[cfg(feature = "test_helpers")]

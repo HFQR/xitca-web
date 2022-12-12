@@ -108,7 +108,7 @@ impl Params {
     }
 
     /// Inserts a key value parameter pair into the list.
-    pub(crate) fn push(&mut self, key: BytesStr, value: &[u8]) {
+    pub(crate) fn push(&mut self, key: BytesStr, value: &str) {
         #[cold]
         #[inline(never)]
         fn drain_to_vec<T, const LEN: usize>(value: T, q: &mut StackQueue<T, LEN>) -> Vec<T> {
@@ -123,7 +123,7 @@ impl Params {
 
         let param = Param {
             key,
-            value: BytesStr::try_from(value).unwrap(),
+            value: BytesStr::from(value),
         };
         match self.kind {
             ParamsKind::Inline(ref mut q) => {
@@ -196,7 +196,7 @@ mod tests {
 
         let mut params = Params::new();
         for (key, value) in vec.clone() {
-            params.push(key.into(), value.as_bytes());
+            params.push(key.into(), value);
             assert_eq!(params.get(key), Some(value));
         }
 
@@ -216,7 +216,7 @@ mod tests {
 
         let mut params = Params::new();
         for (key, value) in vec.clone() {
-            params.push(key.into(), value.as_bytes());
+            params.push(key.into(), value);
             assert_eq!(params.get(key), Some(value));
         }
 

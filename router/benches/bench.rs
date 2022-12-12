@@ -18,6 +18,38 @@ fn compare(c: &mut Criterion) {
     for route in register!(colon) {
         matchit.insert(route, true).unwrap();
     }
+
+    group.bench_function("matchit", |b| {
+        b.iter(|| {
+            for route in black_box(call()) {
+                black_box(matchit.at(route).unwrap());
+            }
+        });
+    });
+
+    let mut xitca = xitca_router::Router::new();
+    for route in register!(colon) {
+        xitca.insert(route, true).unwrap();
+    }
+    group.bench_function("xitca", |b| {
+        b.iter(|| {
+            for route in black_box(call()) {
+                black_box(xitca.at(route).unwrap());
+            }
+        });
+    });
+
+    group.finish();
+}
+
+fn compare_erase(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Compare lifetime erase");
+
+    let mut matchit = matchit::Router::new();
+    for route in register!(colon) {
+        matchit.insert(route, true).unwrap();
+    }
+
     group.bench_function("matchit", |b| {
         b.iter(|| {
             for route in black_box(call()) {
@@ -52,7 +84,7 @@ fn compare(c: &mut Criterion) {
 }
 
 fn compare_empty_path(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Compare Empty Path");
+    let mut group = c.benchmark_group("Compare empty Params");
 
     let mut matchit = matchit::Router::new();
     matchit.insert("/", true).unwrap();
@@ -71,7 +103,7 @@ fn compare_empty_path(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, compare, compare_empty_path);
+criterion_group!(benches, compare, compare_erase, compare_empty_path);
 criterion_main!(benches);
 
 macro_rules! register {
