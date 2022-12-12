@@ -1,12 +1,6 @@
-pub use xitca_router::Params;
+pub use xitca_router::{MatchError, Params};
 
-use std::{
-    collections::HashMap,
-    error,
-    fmt::{self, Debug, Display, Formatter},
-    future::Future,
-    marker::PhantomData,
-};
+use std::{collections::HashMap, future::Future, marker::PhantomData};
 
 use xitca_service::{
     object::{DefaultObject, DefaultObjectConstructor, ObjectConstructor},
@@ -37,37 +31,6 @@ pub struct GenericRouter<ObjCons, SF> {
 /// `First` variant contains [MatchError] error.
 /// `Second` variant contains error returned by the services passed to Router.
 pub type RouterError<E> = PipelineE<MatchError, E>;
-
-/// Error for request failed to match on services inside Router.
-pub struct MatchError {
-    inner: xitca_router::MatchError,
-}
-
-impl MatchError {
-    /// Indicates whether a route exists at the same path with a trailing slash.
-    pub fn missing_trailing_slash(&self) -> bool {
-        matches!(self.inner, xitca_router::MatchError::MissingTrailingSlash)
-    }
-
-    /// Indicates whether a route exists at the same path without a trailing slash.
-    pub fn extra_trailing_slash(&self) -> bool {
-        matches!(self.inner, xitca_router::MatchError::ExtraTrailingSlash)
-    }
-}
-
-impl Debug for MatchError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Debug::fmt(&self.inner, f)
-    }
-}
-
-impl Display for MatchError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.inner, f)
-    }
-}
-
-impl error::Error for MatchError {}
 
 impl<ObjCons, SF> Default for GenericRouter<ObjCons, SF> {
     fn default() -> Self {
@@ -154,15 +117,12 @@ where
         Req: 's,
     {
         async {
-            let path = req.borrow().path();
-            let node = self
-                .routes
-                .at(path)
-                .map_err(|inner| RouterError::First(MatchError { inner }))?;
+            let xitca_router::Match { value, params } =
+                self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
 
-            req.add_params(node.params);
+            req.add_params(params);
 
-            node.value.call(req).await.map_err(RouterError::Second)
+            value.call(req).await.map_err(RouterError::Second)
         }
     }
 }

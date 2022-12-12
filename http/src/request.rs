@@ -49,14 +49,11 @@ impl<B> Request<B> {
 
     #[inline]
     pub fn with_remote_addr(body: B, addr: RemoteAddr) -> Self {
-        Self {
-            req: http::Request::new(body),
-            addr,
-        }
+        Self::from_http(http::Request::new(body), addr)
     }
 
     /// Construct from existing [http::Request] and [RemoteAddr].
-    #[inline]
+    #[inline(always)]
     pub fn from_http(req: http::Request<B>, addr: RemoteAddr) -> Self {
         Self { req, addr }
     }

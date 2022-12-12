@@ -2,10 +2,8 @@
 //! type for lifetime elision.
 //!
 //! ```rust
-//! use xitca_router::Router;
-//!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut router = Router::new();
+//! let mut router = xitca_router::Router::new();
 //! router.insert("/home", "Welcome!")?;
 //! router.insert("/users/:id", "A User")?;
 //!
@@ -31,9 +29,8 @@
 //! Named parameters like `/:id` match anything until the next `/` or the end of the path:
 //!
 //! ```rust
-//! # use xitca_router::Router;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut m = Router::new();
+//! let mut m = xitca_router::Router::new();
 //! m.insert("/users/:id", true)?;
 //!
 //! assert_eq!(m.at("/users/1")?.params.get("id"), Some("1"));
@@ -49,9 +46,8 @@
 //! Catch-all parameters start with `*` and match everything after the `/`. They must always be at the **end** of the route:
 //!
 //! ```rust
-//! # use xitca_router::Router;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut m = Router::new();
+//! let mut m = xitca_router::Router::new();
 //! m.insert("/*p", true)?;
 //!
 //! assert_eq!(m.at("/foo.js")?.params.get("p"), Some("foo.js"));
@@ -66,9 +62,8 @@
 //! Static and dynamic route segments are allowed to overlap. If they do, static segments will be given higher priority:
 //!
 //! ```rust
-//! # use xitca_router::Router;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut m = Router::new();
+//! let mut m = xitca_router::Router::new();
 //! m.insert("/", "Welcome!").unwrap()    ;  // priority: 1
 //! m.insert("/about", "About Me").unwrap(); // priority: 1
 //! m.insert("/*filepath", "...").unwrap();  // priority: 2
