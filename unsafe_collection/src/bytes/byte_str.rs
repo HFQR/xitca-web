@@ -1,4 +1,5 @@
 use core::{
+    fmt,
     ops::{Deref, RangeBounds},
     str::{self, Utf8Error},
 };
@@ -8,6 +9,12 @@ use bytes_crate::Bytes;
 /// reference counted String type. cheap to Clone and share between multiple threads.
 #[derive(Clone, Default, Debug, Eq, PartialEq, Hash)]
 pub struct BytesStr(Bytes);
+
+impl fmt::Display for BytesStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 impl BytesStr {
     #[inline]

@@ -11,8 +11,8 @@ fn call() -> impl IntoIterator<Item = &'static str> {
     ]
 }
 
-fn compare_routers(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Compare Routers");
+fn compare(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Compare");
 
     let mut matchit = matchit::Router::new();
     for route in register!(colon) {
@@ -40,7 +40,7 @@ fn compare_routers(c: &mut Criterion) {
     for route in register!(colon) {
         xitca.insert(route, true).unwrap();
     }
-    group.bench_function("xitca-router", |b| {
+    group.bench_function("xitca", |b| {
         b.iter(|| {
             for route in black_box(call()) {
                 black_box(xitca.at(route).unwrap().params);
@@ -51,7 +51,27 @@ fn compare_routers(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, compare_routers);
+fn compare_empty_path(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Compare Empty Path");
+
+    let mut matchit = matchit::Router::new();
+    matchit.insert("/", true).unwrap();
+    group.bench_function("matchit", |b| {
+        b.iter(|| {
+            black_box(matchit.at(black_box("/")).unwrap());
+        });
+    });
+
+    let mut xitca = xitca_router::Router::new();
+    xitca.insert("/", true).unwrap();
+    group.bench_function("xitca", |b| {
+        b.iter(|| black_box(xitca.at(black_box("/")).unwrap()));
+    });
+
+    group.finish();
+}
+
+criterion_group!(benches, compare, compare_empty_path);
 criterion_main!(benches);
 
 macro_rules! register {
