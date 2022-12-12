@@ -103,6 +103,7 @@ impl<B> Drop for FakeSend<B> {
     }
 }
 
+// TODO: remove when ::core::sync::Exclusive stabled.
 pub struct FakeSync<B>(B);
 
 // SAFETY:
