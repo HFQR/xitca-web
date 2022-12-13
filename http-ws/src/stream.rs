@@ -1,7 +1,7 @@
-use std::{
+use core::{
     fmt,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use bytes::{Bytes, BytesMut};
@@ -9,8 +9,10 @@ use futures_core::Stream;
 use pin_project_lite::pin_project;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-use super::codec::{Codec, Message};
-use super::error::ProtocolError;
+use super::{
+    codec::{Codec, Message},
+    error::ProtocolError,
+};
 
 pin_project! {
     /// Decode `S` type into Stream of websocket [Message].
@@ -127,7 +129,7 @@ where
 pub struct EncodeStream {
     codec: Codec,
     buf: BytesMut,
-    rx: Option<Receiver<Message>>,
+    rx: Receiver<Message>,
 }
 
 impl EncodeStream {
@@ -140,7 +142,7 @@ impl EncodeStream {
         let stream = EncodeStream {
             codec,
             buf: BytesMut::new(),
-            rx: Some(rx),
+            rx,
         };
 
         (tx, stream)
@@ -152,26 +154,12 @@ impl Stream for EncodeStream {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-
-        while let Some(rx) = this.rx.as_mut() {
-            match rx.poll_recv(cx) {
-                Poll::Ready(Some(msg)) => match this.codec.encode(msg, &mut this.buf) {
-                    Ok(()) => continue,
-                    Err(ref e) if matches!(e, ProtocolError::Closed) => {}
-                    Err(e) => return Poll::Ready(Some(Err(e))),
-                },
-                Poll::Ready(None) => {}
-                Poll::Pending => break,
+        match ready!(this.rx.poll_recv(cx)) {
+            Some(msg) => {
+                this.codec.encode(msg, &mut this.buf)?;
+                Poll::Ready(Some(Ok(this.buf.split().freeze())))
             }
-            this.rx = None;
-        }
-
-        if !this.buf.is_empty() {
-            Poll::Ready(Some(Ok(this.buf.split().freeze())))
-        } else if this.rx.is_none() {
-            Poll::Ready(None)
-        } else {
-            Poll::Pending
+            None => Poll::Ready(None),
         }
     }
 }

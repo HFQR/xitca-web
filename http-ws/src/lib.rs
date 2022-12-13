@@ -88,9 +88,11 @@ mod frame;
 mod mask;
 mod proto;
 
-pub use self::codec::{Codec, Item, Message};
-pub use self::error::{HandshakeError, ProtocolError};
-pub use self::proto::{hash_key, CloseCode, CloseReason, OpCode};
+pub use self::{
+    codec::{Codec, Item, Message},
+    error::{HandshakeError, ProtocolError},
+    proto::{hash_key, CloseCode, CloseReason, OpCode},
+};
 
 #[allow(clippy::declare_interior_mutable_const)]
 mod const_header {
@@ -140,7 +142,7 @@ where
             let mut output = [0u8; 24];
 
             #[allow(clippy::needless_borrow)] // clippy dumb.
-            let n = base64::encode_config_slice(&input, base64::STANDARD, &mut output);
+            let n = base64::encode_engine_slice(&input, &mut output, &base64::engine::DEFAULT_ENGINE);
             assert_eq!(n, output.len());
 
             req.headers_mut()
@@ -389,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wserror_http_response() {
+    fn test_ws_error_http_response() {
         let res = Builder::from(HandshakeError::GetMethodRequired).body(()).unwrap();
         assert_eq!(res.status(), StatusCode::METHOD_NOT_ALLOWED);
         let res = Builder::from(HandshakeError::NoWebsocketUpgrade).body(()).unwrap();

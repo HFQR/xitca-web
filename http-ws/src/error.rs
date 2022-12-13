@@ -1,4 +1,6 @@
-use std::{error, fmt};
+use core::fmt;
+
+use std::error;
 
 use super::proto::OpCode;
 
