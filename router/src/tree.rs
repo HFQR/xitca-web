@@ -2,7 +2,7 @@ use core::{cmp::min, mem};
 
 use xitca_unsafe_collection::bytes::BytesStr;
 
-use crate::{InsertError, MatchError, Params};
+use super::{params::Params, InsertError, MatchError};
 
 /// The types of nodes the tree can hold
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
@@ -392,86 +392,82 @@ impl<T> Node<T> {
                         }
 
                         // nothing found
-                        break;
-                    }
+                    } else {
+                        // handle the wildcard child, which is always at the end of the list
+                        current = current.children.last().unwrap();
 
-                    // handle the wildcard child, which is always at the end of the list
-                    current = current.children.last().unwrap();
+                        match current.node_type {
+                            NodeType::Param => {
+                                // check if there are more segments in the path other than this parameter
+                                match path.chars().position(|c| c == '/') {
+                                    Some(i) => {
+                                        let (param, rest) = path.split_at(i);
 
-                    match current.node_type {
-                        NodeType::Param => {
-                            // check if there are more segments in the path other than this parameter
-                            match path.chars().position(|c| c == '/') {
-                                Some(i) => {
-                                    let (param, rest) = path.split_at(i);
+                                        if let [child] = current.children.as_slice() {
+                                            // child won't match because of an extra trailing slash
+                                            if rest == "/" && child.prefix.ne("/") && current.value.is_some() {
+                                                return Err(MatchError::ExtraTrailingSlash);
+                                            }
 
-                                    if let [child] = current.children.as_slice() {
-                                        // child won't match because of an extra trailing slash
-                                        if rest == "/" && child.prefix.ne("/") && current.value.is_some() {
+                                            // store the parameter value
+                                            params.push(current.prefix.slice(1..), param);
+
+                                            // continue with the child node
+                                            path = rest;
+                                            current = child;
+                                            backtracking = false;
+                                            continue 'walk;
+                                        }
+
+                                        // this node has no children yet the path has more segments...
+                                        // either the path has an extra trailing slash or there is no match
+                                        if path.len() == i + 1 {
                                             return Err(MatchError::ExtraTrailingSlash);
                                         }
-
+                                    }
+                                    // this is the last path segment
+                                    None => {
                                         // store the parameter value
-                                        params.push(current.prefix.slice(1..), param);
+                                        params.push(current.prefix.slice(1..), path);
 
-                                        // continue with the child node
-                                        path = rest;
-                                        current = child;
-                                        backtracking = false;
-                                        continue 'walk;
-                                    }
-
-                                    // this node has no children yet the path has more segments...
-                                    // either the path has an extra trailing slash or there is no match
-                                    if path.len() == i + 1 {
-                                        return Err(MatchError::ExtraTrailingSlash);
-                                    }
-
-                                    break;
-                                }
-                                // this is the last path segment
-                                None => {
-                                    // store the parameter value
-                                    params.push(current.prefix.slice(1..), path);
-
-                                    // found the matching value
-                                    if let Some(ref value) = current.value {
-                                        return Ok((value, params));
-                                    }
-
-                                    // check the child node in case the path is missing a trailing slash
-                                    if let [child] = current.children.as_slice() {
-                                        current = child;
-
-                                        if (current.prefix.eq("/") && current.value.is_some())
-                                            || (current.prefix.is_empty() && current.indices == b"/")
-                                        {
-                                            return Err(MatchError::MissingTrailingSlash);
+                                        // found the matching value
+                                        if let Some(ref value) = current.value {
+                                            return Ok((value, params));
                                         }
 
-                                        // no match, try backtracking
-                                        if path != "/" {
-                                            try_backtrack!();
-                                        }
-                                    }
+                                        // check the child node in case the path is missing a trailing slash
+                                        if let [child] = current.children.as_slice() {
+                                            current = child;
 
-                                    // this node doesn't have the value, no match
-                                    break;
-                                }
-                            };
-                        }
-                        NodeType::CatchAll => {
-                            // catch all segments are only allowed at the end of the route,
-                            // either this node has the value or there is no match
-                            if let Some(ref value) = current.value {
-                                params.push(current.prefix.slice(1..), path);
-                                return Ok((value, params));
+                                            if (current.prefix.eq("/") && current.value.is_some())
+                                                || (current.prefix.is_empty() && current.indices == b"/")
+                                            {
+                                                return Err(MatchError::MissingTrailingSlash);
+                                            }
+
+                                            // no match, try backtracking
+                                            if path != "/" {
+                                                try_backtrack!();
+                                            }
+                                        }
+
+                                        // this node doesn't have the value, no match
+                                    }
+                                };
                             }
-
-                            break;
-                        }
-                        _ => unreachable!(),
+                            NodeType::CatchAll => {
+                                // catch all segments are only allowed at the end of the route,
+                                // either this node has the value or there is no match
+                                if let Some(ref value) = current.value {
+                                    params.push(current.prefix.slice(1..), path);
+                                    return Ok((value, params));
+                                }
+                            }
+                            _ => unreachable!(),
+                        };
                     }
+
+                    break;
                 }
             }
 

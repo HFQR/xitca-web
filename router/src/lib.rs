@@ -77,10 +77,10 @@
 extern crate alloc;
 
 mod error;
-mod params;
 mod router;
 mod tree;
 
+pub mod params;
+
 pub use error::{InsertError, MatchError};
-pub use params::{Params, ParamsIntoIter};
 pub use router::{Match, Router};

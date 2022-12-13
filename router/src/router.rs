@@ -1,4 +1,4 @@
-use super::{tree::Node, InsertError, MatchError, Params};
+use super::{params::Params, tree::Node, InsertError, MatchError};
 
 /// A URL router.
 ///

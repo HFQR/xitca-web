@@ -1,4 +1,4 @@
-pub use xitca_router::{MatchError, Params};
+pub use xitca_router::{params::Params, MatchError};
 
 use std::{collections::HashMap, future::Future, marker::PhantomData};
 
@@ -151,7 +151,9 @@ impl<B> AddParams for http::Request<B> {
 impl<B> AddParams for Request<B> {
     #[inline]
     fn add_params(&mut self, _: Params) {
-        // TODO: zero copy parse
+        // TODO: attach Params to Request<B>.
+        // Consider the tradeoff between adding to extensions (Boxing Params with heap allocation)
+        // or adding to Request's field (Making Request type even larger adding type copy cost.)
     }
 }
 
