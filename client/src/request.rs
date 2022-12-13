@@ -151,7 +151,7 @@ impl<'a, B> Request<'a, B> {
         Request::new(req, client).timeout(timeout)
     }
 
-    /// Send the request and return response asynchronously.
+    /// Send the request and wait for response asynchronously.
     #[allow(unused_variables, unused_mut)]
     pub async fn send<E>(self) -> Result<Response<'a>, Error>
     where
