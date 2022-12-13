@@ -1,6 +1,6 @@
 
 [package]
-name = "matchit-fuzz"
+name = "xitca-router-fuzz"
 version = "0.0.0"
 authors = ["Automatically generated"]
 publish = false

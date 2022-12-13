@@ -167,7 +167,10 @@ where
 impl<C, B> AddParams for WebRequest<'_, C, B> {
     #[inline]
     fn add_params(&mut self, params: Params) {
-        self.req.add_params(params)
+        // FIXME: this is wrong on purpose. WebRequest should forward to xitca_http::Request's
+        // implementation but until the best practice to pass Params around figured out this should
+        // left be. See <xitca_http::Request<_> as AddParams>::add_params for detail.
+        self.req_mut().extensions_mut().insert(params);
     }
 }
 

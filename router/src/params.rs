@@ -1,6 +1,6 @@
 use alloc::vec::{self, Vec};
 
-use xitca_unsafe_collection::{bound_queue::stack::StackQueue, bytes::BytesStr};
+use xitca_unsafe_collection::{bound_queue::stack, bytes::BytesStr};
 
 /// A single URL parameter, consisting of a key and a value.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -19,7 +19,7 @@ impl Param {
     }
 }
 
-type Inline = StackQueue<Param, 2>;
+type Inline = stack::StackQueue<Param, 2>;
 
 /// A list of parameters returned by a route match.
 ///
@@ -34,7 +34,7 @@ type Inline = StackQueue<Param, 2>;
 /// assert_eq!(id, Some("1"));
 ///
 /// // or iterate through the keys and values
-/// for (key, value) in matched.params.into_iter() {
+/// for (key, value) in matched.params.iter() {
 ///     println!("key: {}, value: {}", key, value);
 /// }
 /// # Ok(())
@@ -43,6 +43,12 @@ type Inline = StackQueue<Param, 2>;
 #[derive(Debug)]
 pub struct Params {
     kind: ParamsKind<Inline, Vec<Param>>,
+}
+
+#[derive(Debug)]
+enum ParamsKind<I, P> {
+    Inline(I),
+    Heap(P),
 }
 
 impl Clone for Params {
@@ -63,41 +69,12 @@ impl Clone for Params {
     }
 }
 
-#[derive(Debug)]
-enum ParamsKind<I, P> {
-    Inline(I),
-    Heap(P),
-}
-
 impl Params {
-    pub(crate) const fn new() -> Self {
-        Self {
-            kind: ParamsKind::Inline(Inline::new()),
-        }
-    }
-
     /// Returns the number of parameters.
     pub fn len(&self) -> usize {
         match self.kind {
             ParamsKind::Inline(ref q) => q.len(),
             ParamsKind::Heap(ref vec) => vec.len(),
-        }
-    }
-
-    pub(crate) fn truncate(&mut self, n: usize) {
-        match self.kind {
-            ParamsKind::Inline(ref mut q) => q.truncate(n),
-            ParamsKind::Heap(ref mut vec) => vec.truncate(n),
-        }
-    }
-
-    /// Returns the value of the first parameter registered under the given key.
-    pub fn get(&self, key: impl AsRef<str>) -> Option<&str> {
-        let key = key.as_ref();
-
-        match self.kind {
-            ParamsKind::Inline(ref q) => q.iter().find(|param| param.key_str() == key).map(Param::value_str),
-            ParamsKind::Heap(ref q) => q.iter().find(|param| param.key_str() == key).map(Param::value_str),
         }
     }
 
@@ -107,13 +84,45 @@ impl Params {
         self.len() == 0
     }
 
+    /// Returns the value of the first parameter registered under the given key.
+    pub fn get(&self, key: impl AsRef<str>) -> Option<&str> {
+        let key = key.as_ref();
+        match self.kind {
+            ParamsKind::Inline(ref q) => q.iter().find(|param| param.key_str() == key).map(Param::value_str),
+            ParamsKind::Heap(ref q) => q.iter().find(|param| param.key_str() == key).map(Param::value_str),
+        }
+    }
+
+    pub fn iter(&self) -> Iter<'_> {
+        let kind = match self.kind {
+            ParamsKind::Inline(ref q) => ParamsKind::Inline(q.iter()),
+            ParamsKind::Heap(ref q) => ParamsKind::Heap(q.iter()),
+        };
+        Iter { kind }
+    }
+}
+
+impl Params {
+    pub(super) const fn new() -> Self {
+        Self {
+            kind: ParamsKind::Inline(Inline::new()),
+        }
+    }
+
+    pub(super) fn truncate(&mut self, n: usize) {
+        match self.kind {
+            ParamsKind::Inline(ref mut q) => q.truncate(n),
+            ParamsKind::Heap(ref mut vec) => vec.truncate(n),
+        }
+    }
+
     /// Inserts a key value parameter pair into the list.
-    pub(crate) fn push(&mut self, key: BytesStr, value: &str) {
+    pub(super) fn push(&mut self, key: BytesStr, value: &str) {
         #[cold]
         #[inline(never)]
-        fn drain_to_vec<T, const LEN: usize>(value: T, q: &mut StackQueue<T, LEN>) -> Vec<T> {
+        fn drain_to_vec(value: Param, q: &mut Inline) -> Vec<Param> {
             // respect vector's exponential growth practice.
-            let mut v = Vec::with_capacity(LEN * 2);
+            let mut v = Vec::with_capacity(4);
             while let Some(value) = q.pop_front() {
                 v.push(value);
             }
@@ -138,7 +147,7 @@ impl Params {
 
 impl IntoIterator for Params {
     type Item = (BytesStr, BytesStr);
-    type IntoIter = ParamsIntoIter;
+    type IntoIter = IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         let kind = match self.kind {
@@ -146,15 +155,37 @@ impl IntoIterator for Params {
             ParamsKind::Heap(q) => ParamsKind::Heap(q.into_iter()),
         };
 
-        ParamsIntoIter { kind }
+        IntoIter { kind }
     }
 }
 
-pub struct ParamsIntoIter {
+pub struct Iter<'a> {
+    kind: ParamsKind<stack::Iter<'a, Param, 2>, core::slice::Iter<'a, Param>>,
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = (&'a str, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.kind {
+            ParamsKind::Inline(ref mut q) => q.next().map(|p| (p.key.as_ref(), p.value.as_ref())),
+            ParamsKind::Heap(ref mut iter) => iter.next().map(|p| (p.key.as_ref(), p.value.as_ref())),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self.kind {
+            ParamsKind::Inline(ref q) => q.size_hint(),
+            ParamsKind::Heap(ref q) => q.size_hint(),
+        }
+    }
+}
+
+pub struct IntoIter {
     kind: ParamsKind<Inline, vec::IntoIter<Param>>,
 }
 
-impl Iterator for ParamsIntoIter {
+impl Iterator for IntoIter {
     type Item = (BytesStr, BytesStr);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -207,7 +238,7 @@ mod tests {
 
         assert!(params
             .into_iter()
-            .eq(vec.iter().map(|(k, v)| ((*k).into(), (*v).into()))));
+            .eq(vec.into_iter().map(|(k, v)| (k.into(), v.into()))));
     }
 
     #[test]
@@ -225,9 +256,7 @@ mod tests {
             _ => panic!(),
         }
 
-        assert!(params
-            .into_iter()
-            .eq(vec.iter().map(|(k, v)| ((*k).into(), (*v).into()))));
+        assert!(params.iter().eq(vec));
     }
 
     #[test]
