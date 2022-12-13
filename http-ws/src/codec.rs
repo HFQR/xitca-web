@@ -47,6 +47,7 @@ struct Flags(u8);
 impl Flags {
     const SERVER: u8 = 0b0001;
     const CONTINUATION: u8 = 0b0010;
+    const CLOSED: u8 = 0b0100;
 
     #[inline(always)]
     fn remove(&mut self, other: u8) {
@@ -116,13 +117,20 @@ impl Codec {
 
 impl Codec {
     pub fn encode(&mut self, item: Message, dst: &mut BytesMut) -> Result<(), ProtocolError> {
+        if self.flags.contains(Flags::CLOSED) {
+            return Err(ProtocolError::Closed);
+        }
+
         let mask = !self.flags.contains(Flags::SERVER);
         match item {
             Message::Text(bytes) => Parser::write_message(dst, bytes, OpCode::Text, true, mask),
             Message::Binary(bytes) => Parser::write_message(dst, bytes, OpCode::Binary, true, mask),
             Message::Ping(bytes) => Parser::write_message(dst, bytes, OpCode::Ping, true, mask),
             Message::Pong(bytes) => Parser::write_message(dst, bytes, OpCode::Pong, true, mask),
-            Message::Close(reason) => Parser::write_close(dst, reason, mask),
+            Message::Close(reason) => {
+                Parser::write_close(dst, reason, mask);
+                self.flags.insert(Flags::CLOSED);
+            }
             Message::Continuation(cont) => match cont {
                 Item::Continue(_) | Item::Last(_) if !self.flags.contains(Flags::CONTINUATION) => {
                     return Err(ProtocolError::ContinuationNotStarted)

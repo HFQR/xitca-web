@@ -13,7 +13,7 @@ use super::codec::{Codec, Message};
 use super::error::ProtocolError;
 
 pin_project! {
-    /// Decode `S` type into Stream of websocket [Message](super::codec::Message).
+    /// Decode `S` type into Stream of websocket [Message].
     /// `S` type must impl `Stream` trait and output `Result<T, E>` as `Stream::Item`
     /// where `T` type impl `AsRef<[u8]>` trait. (`&[u8]` is needed for parsing messages)
     pub struct DecodeStream<S, E> {
@@ -123,7 +123,7 @@ where
     }
 }
 
-/// Encode a stream of [Message](super::codec::Message) into [Bytes](bytes::Bytes).
+/// Encode a stream of [Message] into [Bytes].
 pub struct EncodeStream {
     codec: Codec,
     buf: BytesMut,
@@ -155,10 +155,15 @@ impl Stream for EncodeStream {
 
         while let Some(rx) = this.rx.as_mut() {
             match rx.poll_recv(cx) {
-                Poll::Ready(Some(msg)) => this.codec.encode(msg, &mut this.buf)?,
-                Poll::Ready(None) => this.rx = None,
+                Poll::Ready(Some(msg)) => match this.codec.encode(msg, &mut this.buf) {
+                    Ok(()) => continue,
+                    Err(ref e) if matches!(e, ProtocolError::Closed) => {}
+                    Err(e) => return Poll::Ready(Some(Err(e))),
+                },
+                Poll::Ready(None) => {}
                 Poll::Pending => break,
             }
+            this.rx = None;
         }
 
         if !this.buf.is_empty() {
