@@ -1,17 +1,81 @@
 pub use http_ws::Message;
 
-use std::{
+use core::{
+    ops::{Deref, DerefMut},
     pin::Pin,
-    sync::Mutex,
     task::{ready, Context, Poll},
+    time::Duration,
 };
+
+use std::sync::Mutex;
 
 use futures_core::stream::Stream;
 use futures_util::sink::Sink;
 use http_ws::Codec;
-use xitca_http::bytes::{Buf, BytesMut};
+use xitca_http::bytes::{Buf, Bytes, BytesMut};
 
-use super::{body::ResponseBody, error::Error};
+use super::{
+    body::{BodyError, ResponseBody},
+    error::Error,
+    http::{Method, Version},
+    request::Request,
+};
+
+pub struct WsRequest<'a, B>(Request<'a, B>);
+
+impl<'a, B> Deref for WsRequest<'a, B> {
+    type Target = Request<'a, B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, B> DerefMut for WsRequest<'a, B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, B> WsRequest<'a, B> {
+    pub(super) fn new(req: Request<'a, B>) -> Self {
+        Self(req)
+    }
+
+    /// Set HTTP method of this request.
+    pub fn method(mut self, method: Method) -> Self {
+        self.0 = self.0.method(method);
+        self
+    }
+
+    #[doc(hidden)]
+    /// Set HTTP version of this request.
+    ///
+    /// By default request's HTTP version depends on network stream
+    pub fn version(mut self, version: Version) -> Self {
+        self.0 = self.0.version(version);
+        self
+    }
+
+    /// Set timeout of this request.
+    ///
+    /// The value passed would override global [TimeoutConfig].
+    pub fn timeout(mut self, dur: Duration) -> Self {
+        self.0 = self.0.timeout(dur);
+        self
+    }
+
+    /// Send the request and wait for response asynchronously.
+    pub async fn send<E>(self) -> Result<WebSocket<'a>, Error>
+    where
+        B: Stream<Item = Result<Bytes, E>>,
+        BodyError: From<E>,
+    {
+        let res = self.0.send().await?;
+        let body = res.res.into_body();
+        WebSocket::try_from_body(body)
+    }
+}
 
 /// sender part of websocket connection.
 /// [Sink] trait is used to asynchronously send message.

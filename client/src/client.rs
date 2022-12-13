@@ -151,21 +151,21 @@ impl Client {
 
     #[cfg(feature = "websocket")]
     /// Start a new websocket request.
-    pub fn ws(&self, url: &str) -> Result<Request<'_, NoneBody<Bytes>>, Error> {
+    pub fn ws(&self, url: &str) -> Result<crate::ws::WsRequest<'_, NoneBody<Bytes>>, Error> {
         self._ws(url, Version::HTTP_11)
     }
 
     #[cfg(all(feature = "websocket", feature = "http2"))]
     /// Start a new websocket request with HTTP/2.
-    pub fn ws2(&self, url: &str) -> Result<Request<'_, NoneBody<Bytes>>, Error> {
+    pub fn ws2(&self, url: &str) -> Result<crate::ws::WsRequest<'_, NoneBody<Bytes>>, Error> {
         self._ws(url, Version::HTTP_2)
     }
 
     #[cfg(feature = "websocket")]
-    /// Start a new websocket request with given [Version]. must be either `HTTP_11` or `HTTP_2`
-    pub fn _ws(&self, url: &str, version: Version) -> Result<Request<'_, NoneBody<Bytes>>, Error> {
+    fn _ws(&self, url: &str, version: Version) -> Result<crate::ws::WsRequest<'_, NoneBody<Bytes>>, Error> {
         let req = http_ws::client_request_from_uri(url, version)?.map(|_| Default::default());
-        Ok(Request::new(req, self))
+        let req = Request::new(req, self);
+        Ok(crate::ws::WsRequest::new(req))
     }
 }
 

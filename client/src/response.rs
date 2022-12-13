@@ -19,7 +19,7 @@ use crate::{
 const DEFAULT_PAYLOAD_LIMIT: usize = 1024 * 1024 * 8;
 
 pub struct Response<'a, const PAYLOAD_LIMIT: usize = DEFAULT_PAYLOAD_LIMIT> {
-    res: http::Response<ResponseBody<'a>>,
+    pub(crate) res: http::Response<ResponseBody<'a>>,
     timer: Pin<Box<Sleep>>,
     timeout: Duration,
 }
@@ -109,12 +109,6 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
 
         let bytes = self.collect::<BytesMut>().await?;
         Ok(serde_json::from_slice(bytes.chunk())?)
-    }
-
-    #[cfg(feature = "websocket")]
-    pub fn ws(self) -> Result<crate::ws::WebSocket<'a>, Error> {
-        let body = self.res.into_body();
-        crate::ws::WebSocket::try_from_body(body)
     }
 
     async fn collect<B>(self) -> Result<B, Error>
