@@ -41,7 +41,7 @@ async fn message() -> Result<(), Error> {
 async fn message_h2() -> Result<(), Error> {
     let mut handle = test_h2_server(|| fn_service(handler))?;
 
-    let server_url = format!("https://{}/", handle.ip_port_string());
+    let server_url = format!("wss://{}/", handle.ip_port_string());
 
     let c = Client::new();
     let (mut tx, mut rx) = c.ws2(&server_url)?.send().await?.ws()?.split();
