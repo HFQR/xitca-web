@@ -1,7 +1,5 @@
 //! Copy from [actix-http](https://github.com/actix/actix-web)
 
-use std::convert::TryFrom;
-
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tracing::debug;
 

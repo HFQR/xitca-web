@@ -1,9 +1,6 @@
 //! Copy from [actix-http](https://github.com/actix/actix-web)
 
-use std::{
-    convert::{From, Into},
-    fmt,
-};
+use core::fmt;
 
 use tracing::error;
 
@@ -216,7 +213,7 @@ pub fn hash_key(key: &[u8]) -> [u8; 28] {
 
     let mut hash_b64 = [0; 28];
     #[allow(clippy::needless_borrow)] // clippy dumb.
-    let n = base64::encode_config_slice(&hash, base64::STANDARD, &mut hash_b64);
+    let n = base64::encode_engine_slice(&hash, &mut hash_b64, &base64::engine::DEFAULT_ENGINE);
     assert_eq!(n, 28);
 
     hash_b64
