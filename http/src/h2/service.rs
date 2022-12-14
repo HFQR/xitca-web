@@ -8,8 +8,7 @@ use xitca_unsafe_collection::pin;
 use crate::{
     bytes::Bytes,
     error::{HttpServiceError, TimeoutError},
-    http::Response,
-    request::Request,
+    http::{Request, RequestExt, Response},
     service::HttpService,
     util::timer::Timeout,
 };
@@ -31,7 +30,7 @@ impl<
         const WRITE_BUF_LIMIT: usize,
     > Service<(St, SocketAddr)> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResB>>,
+    S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
     A: Service<St, Response = TlsSt>,
@@ -75,7 +74,7 @@ where
 
             let dispatcher = Dispatcher::new(
                 &mut conn,
-                addr.into(),
+                addr,
                 timer.as_mut(),
                 self.config.keep_alive_timeout,
                 &self.service,

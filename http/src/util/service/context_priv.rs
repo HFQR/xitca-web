@@ -2,9 +2,7 @@ use std::{future::Future, marker::PhantomData};
 
 use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
 
-use crate::request::{BorrowReq, BorrowReqMut};
-
-use super::router_priv::{AddParams, Params};
+use crate::http::{BorrowReq, BorrowReqMut};
 
 /// ServiceFactory type for constructing compile time checked stateful service.
 ///
@@ -101,33 +99,25 @@ impl<'a, Req, C> Context<'a, Req, C> {
     }
 }
 
-// in case Context is used inside Router or Route.
-impl<Req, C, T> BorrowReq<T> for Context<'_, Req, C>
+// impls to forward trait from Req type.
+// BorrowReq/Mut are traits needed for nesting Router/Route service inside Context service.
+impl<T, Req, C> BorrowReq<T> for Context<'_, Req, C>
 where
     Req: BorrowReq<T>,
 {
+    #[inline]
     fn borrow(&self) -> &T {
         self.req.borrow()
     }
 }
 
-impl<Req, C, T> BorrowReqMut<T> for Context<'_, Req, C>
+impl<T, Req, C> BorrowReqMut<T> for Context<'_, Req, C>
 where
     Req: BorrowReqMut<T>,
 {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut T {
         self.req.borrow_mut()
-    }
-}
-
-// in case Context is used inside Router.
-impl<Req, C> AddParams for Context<'_, Req, C>
-where
-    Req: AddParams,
-{
-    #[inline]
-    fn add_params(&mut self, params: Params) {
-        self.req.add_params(params)
     }
 }
 
@@ -256,8 +246,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        http::Response,
-        request::Request,
+        http::{Request, RequestExt, Response},
         util::service::{route::get, GenericRouter},
     };
 
@@ -282,21 +271,20 @@ mod test {
 
     #[test]
     fn test_state_and_then() {
-        let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
+        let res = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(fn_service(into_context).and_then(fn_service(ctx_handler)))
             .call(())
             .now_or_panic()
             .ok()
+            .unwrap()
+            .call(Request::default())
+            .now_or_panic()
             .unwrap();
-
-        let req = Request::default();
-
-        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
     }
 
-    async fn handler(req: Context<'_, Request<()>, String>) -> Result<Response<()>, Infallible> {
+    async fn handler(req: Context<'_, Request<RequestExt<()>>, String>) -> Result<Response<()>, Infallible> {
         let (_, state) = req.into_parts();
         assert_eq!(state, "string_state");
         Ok(Response::new(()))
@@ -311,20 +299,19 @@ mod test {
             service.call(req).await
         }
 
-        let router = GenericRouter::with_custom_object::<super::object::ContextObjectConstructor<_, _>>()
+        let router = GenericRouter::with_custom_object::<object::ContextObjectConstructor<_, _>>()
             .insert("/", get(fn_service(handler)))
             .enclosed_fn(enclosed);
 
-        let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
+        let res = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
             .service(router)
             .call(())
             .now_or_panic()
             .ok()
+            .unwrap()
+            .call(Request::default())
+            .now_or_panic()
             .unwrap();
-
-        let req = Request::default();
-
-        let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
     }

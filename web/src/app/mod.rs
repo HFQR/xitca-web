@@ -1,6 +1,6 @@
 mod object;
 
-use std::{
+use core::{
     cell::RefCell,
     convert::Infallible,
     fmt,
@@ -8,12 +8,9 @@ use std::{
 };
 
 use futures_core::stream::Stream;
-use xitca_http::{
-    request::Request,
-    util::service::{
-        context::{Context, ContextBuilder},
-        router::GenericRouter,
-    },
+use xitca_http::util::service::{
+    context::{Context, ContextBuilder},
+    router::GenericRouter,
 };
 
 use crate::{
@@ -25,6 +22,7 @@ use crate::{
         },
     },
     handler::Responder,
+    http::{Request, RequestExt},
     request::WebRequest,
     response::{ResponseBody, WebResponse},
 };
@@ -122,7 +120,8 @@ where
     pub fn finish<C, Fut, CErr, ReqB, ResB, E, Err>(
         self,
     ) -> impl Service<
-        Response = impl ReadyService + Service<Request<ReqB>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
+        Response = impl ReadyService
+                       + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
         Error = impl fmt::Debug,
     >
     where
@@ -161,14 +160,16 @@ where
     }
 }
 
-async fn map_request<B, C, S, Res, Err>(service: &S, req: Context<'_, Request<B>, C>) -> Result<Res, Err>
+async fn map_request<B, C, S, Res, Err>(service: &S, req: Context<'_, Request<RequestExt<B>>, C>) -> Result<Res, Err>
 where
     C: 'static,
     B: 'static,
     S: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>,
 {
     let (req, state) = req.into_parts();
-    let (mut req, body) = req.replace_body(());
+    let (parts, ext) = req.into_parts();
+    let (ext, body) = ext.replace_body(());
+    let mut req = Request::from_parts(parts, ext);
     let mut body = RefCell::new(body);
     let req = WebRequest::new(&mut req, &mut body, state);
     service.call(req).await

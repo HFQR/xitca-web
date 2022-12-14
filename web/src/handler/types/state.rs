@@ -51,7 +51,7 @@ mod test {
     use super::*;
 
     use xitca_codegen::State;
-    use xitca_http::request::Request;
+    use xitca_http::Request;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{dev::service::Service, handler::handler_service, request::WebRequest, route::get, App};

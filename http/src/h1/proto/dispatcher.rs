@@ -2,6 +2,7 @@ use std::{
     future::{pending, poll_fn, Future},
     io,
     marker::PhantomData,
+    net::SocketAddr,
     ops::DerefMut,
     pin::Pin,
     time::Duration,
@@ -25,8 +26,7 @@ use crate::{
         body::{RequestBody, RequestBodySender},
         error::Error,
     },
-    http::{response::Parts, Response},
-    request::{RemoteAddr, Request},
+    http::{response::Parts, Request, RequestExt, Response},
     response,
     util::{
         buffered_io::{BufferedIo, FlatBuf, ListBuf},
@@ -56,14 +56,14 @@ pub(crate) async fn run<
     const WRITE_BUF_LIMIT: usize,
 >(
     io: &'a mut St,
-    addr: RemoteAddr,
+    addr: SocketAddr,
     timer: Pin<&'a mut KeepAlive>,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     service: &'a S,
     date: &'a D,
 ) -> Result<(), Error<S::Error, BE>>
 where
-    S: Service<Request<ReqB>, Response = Response<ResB>>,
+    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
@@ -106,7 +106,7 @@ struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_B
 impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
     Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT>
 where
-    S: Service<Request<ReqB>, Response = Response<ResB>>,
+    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
@@ -115,7 +115,7 @@ where
 {
     fn new<const WRITE_BUF_LIMIT: usize>(
         io: &'a mut St,
-        addr: RemoteAddr,
+        addr: SocketAddr,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         service: &'a S,
@@ -126,7 +126,7 @@ where
             io: BufferedIo::new(io, write_buf),
             timer,
             ka_dur: config.keep_alive_timeout,
-            ctx: Context::with_remote_addr(addr, date),
+            ctx: Context::with_addr(addr, date),
             service,
             _phantom: PhantomData,
         }
@@ -183,7 +183,7 @@ where
         match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut()) {
             Ok(Some((req, decoder))) => {
                 let (body_reader, body) = BodyReader::from_coding(decoder);
-                let req = req.map_body(move |_| ReqB::from(body));
+                let req = req.map(move |ext| ext.map_body(move |_| ReqB::from(body)));
                 Some(Ok((req, body_reader)))
             }
             Ok(None) => None,
@@ -202,7 +202,7 @@ where
 
     async fn request_handler(
         &mut self,
-        req: Request<ReqB>,
+        req: Request<RequestExt<ReqB>>,
         body_reader: &mut BodyReader,
     ) -> Result<S::Response, Error<S::Error, BE>> {
         match self
@@ -322,7 +322,7 @@ where
     }
 }
 
-type DecodedHead<ReqB> = (Request<ReqB>, BodyReader);
+type DecodedHead<ReqB> = (Request<RequestExt<ReqB>>, BodyReader);
 
 struct BodyReader {
     decoder: TransferCoding,

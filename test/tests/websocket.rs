@@ -74,7 +74,8 @@ where
     B: Stream<Item = Result<Bytes, E>> + Unpin + 'static,
     E: 'static,
 {
-    let (req, body) = req.replace_body(());
+    let (parts, body) = req.into_parts();
+    let req = Request::from_parts(parts, ());
     let (mut decode, res, tx) = ws(&req, body)?;
 
     // spawn websocket message handling logic task.

@@ -1,6 +1,8 @@
 pub use xitca_router::{params::Params, MatchError};
 
-use std::{collections::HashMap, future::Future, marker::PhantomData};
+use core::{future::Future, marker::PhantomData};
+
+use std::collections::HashMap;
 
 use xitca_service::{
     object::{DefaultObject, DefaultObjectConstructor, ObjectConstructor},
@@ -9,10 +11,7 @@ use xitca_service::{
     Service,
 };
 
-use crate::{
-    http,
-    request::{BorrowReq, Request},
-};
+use crate::http::{BorrowReq, BorrowReqMut, Uri};
 
 /// A [GenericRouter] specialized with [DefaultObjectConstructor]
 pub type Router<Req, Arg, BErr, Res, Err> =
@@ -105,7 +104,7 @@ pub struct RouterService<S> {
 impl<S, Req> Service<Req> for RouterService<S>
 where
     S: Service<Req>,
-    Req: BorrowReq<http::Uri> + AddParams,
+    Req: BorrowReq<Uri> + BorrowReqMut<Params>,
 {
     type Response = S::Response;
     type Error = RouterError<S::Error>;
@@ -120,7 +119,7 @@ where
             let xitca_router::Match { value, params } =
                 self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
 
-            req.add_params(params);
+            *req.borrow_mut() = params;
 
             value.call(req).await.map_err(RouterError::Second)
         }
@@ -137,26 +136,6 @@ impl<S> ReadyService for RouterService<S> {
     }
 }
 
-pub trait AddParams {
-    fn add_params(&mut self, params: Params);
-}
-
-impl<B> AddParams for http::Request<B> {
-    #[inline]
-    fn add_params(&mut self, params: Params) {
-        self.extensions_mut().insert(params);
-    }
-}
-
-impl<B> AddParams for Request<B> {
-    #[inline]
-    fn add_params(&mut self, _: Params) {
-        // TODO: attach Params to Request<B>.
-        // Consider the tradeoff between adding to extensions (Boxing Params with heap allocation)
-        // or adding to Request's field (Making Request type even larger adding type copy cost.)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::convert::Infallible;
@@ -164,36 +143,21 @@ mod test {
     use xitca_service::{fn_service, Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{http, request::Request, response::Response};
+    use crate::http::{Request, RequestExt, Response};
 
     use super::*;
 
     #[test]
-    fn router_accept_crate_request() {
+    fn router_accept_request() {
         Router::new()
             .insert(
                 "/",
-                fn_service(|_: Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
+                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(Request::new(()))
-            .now_or_panic()
-            .unwrap();
-    }
-
-    #[test]
-    fn router_accept_http_request() {
-        Router::new()
-            .insert(
-                "/",
-                fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
-            )
-            .call(())
-            .now_or_panic()
-            .unwrap()
-            .call(http::Request::new(()))
+            .call(Request::default())
             .now_or_panic()
             .unwrap();
     }
@@ -210,13 +174,13 @@ mod test {
         Router::new()
             .insert(
                 "/",
-                fn_service(|_: http::Request<()>| async { Ok::<_, Infallible>(Response::new(())) }),
+                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
             )
             .enclosed_fn(enclosed)
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(http::Request::new(()))
+            .call(Request::default())
             .now_or_panic()
             .unwrap();
     }
@@ -230,14 +194,13 @@ mod test {
             service.call(req).await
         }
 
-        let mut req = http::Request::new(());
-        *req.uri_mut() = http::Uri::from_static("/users/1");
+        let req = Request::builder().uri("/users/1").body(Default::default()).unwrap();
 
         Router::new()
             .insert(
                 "/users/:id",
-                fn_service(|mut req: http::Request<()>| async move {
-                    let params = req.extensions_mut().remove::<Params>().unwrap();
+                fn_service(|req: Request<RequestExt<()>>| async move {
+                    let params = req.body().params();
                     assert_eq!(params.get("id").unwrap(), "1");
                     Ok::<_, Infallible>(Response::new(()))
                 }),

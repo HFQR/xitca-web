@@ -4,7 +4,11 @@ use futures_core::Stream;
 use xitca_io::net::UdpStream;
 use xitca_service::{ready::ReadyService, Service};
 
-use crate::{bytes::Bytes, error::HttpServiceError, http::Response, request::Request};
+use crate::{
+    bytes::Bytes,
+    error::HttpServiceError,
+    http::{Request, RequestExt, Response},
+};
 
 use super::{body::RequestBody, proto::Dispatcher};
 
@@ -22,7 +26,7 @@ impl<S> H3Service<S> {
 
 impl<S, ResB, BE> Service<(UdpStream, SocketAddr)> for H3Service<S>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResB>>,
+    S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -37,7 +41,7 @@ where
         UdpStream: 's,
     {
         async move {
-            let dispatcher = Dispatcher::new(stream, addr.into(), &self.service);
+            let dispatcher = Dispatcher::new(stream, addr, &self.service);
 
             dispatcher.run().await?;
 

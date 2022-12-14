@@ -4,15 +4,16 @@ use futures_core::stream::Stream;
 use xitca_http::{
     body::RequestBody,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
-    request::Request,
-    response::Response,
     HttpServiceBuilder,
 };
 use xitca_server::{Builder, ServerFuture};
 
-use crate::dev::{
-    bytes::Bytes,
-    service::{ready::ReadyService, Service},
+use crate::{
+    dev::{
+        bytes::Bytes,
+        service::{ready::ReadyService, Service},
+    },
+    http::{Request, RequestExt, Response},
 };
 
 pub struct HttpServer<
@@ -169,8 +170,8 @@ where
     pub fn bind<A: std::net::ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
         I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -188,8 +189,8 @@ where
     pub fn listen<ResB, BE>(mut self, listener: std::net::TcpListener) -> std::io::Result<Self>
     where
         I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -212,8 +213,8 @@ where
     ) -> std::io::Result<Self>
     where
         I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -268,8 +269,8 @@ where
     ) -> std::io::Result<Self>
     where
         I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
@@ -301,8 +302,8 @@ where
     pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
     where
         I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestBody>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestBody>>>::Error: fmt::Debug,
+        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,

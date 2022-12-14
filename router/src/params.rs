@@ -51,6 +51,12 @@ enum ParamsKind<I, P> {
     Heap(P),
 }
 
+impl Default for Params {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Clone for Params {
     fn clone(&self) -> Self {
         let kind = match self.kind {

@@ -1,11 +1,11 @@
-use std::{cell::RefCell, convert::Infallible, future::Future};
+use core::{cell::RefCell, convert::Infallible, future::Future};
 
 use http_encoding::{error::EncodingError, Coder};
 
 use crate::{
     dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
     handler::Responder,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, StatusCode},
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode},
     request::WebRequest,
     response::WebResponse,
     stream::WebStream,
@@ -51,13 +51,16 @@ where
         'r: 's,
     {
         async move {
-            let (mut http_req, body) = req.take_request().replace_body(());
+            let (parts, ext) = req.take_request().into_parts();
+            let ctx = req.ctx;
+            let (ext, body) = ext.replace_body(());
+            let req = Request::from_parts(parts, ());
 
-            let decoder = http_encoding::try_decoder(&*http_req, body).map_err(DecompressServiceError::First)?;
-
+            let decoder = http_encoding::try_decoder(&req, body).map_err(DecompressServiceError::First)?;
             let mut body = RefCell::new(decoder);
+            let mut req = req.map(|_| ext);
 
-            let req = WebRequest::new(&mut http_req, &mut body, req.ctx);
+            let req = WebRequest::new(&mut req, &mut body, ctx);
 
             self.service.call(req).await.map_err(DecompressServiceError::Second)
         }
@@ -92,14 +95,14 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for EncodingError {
 #[cfg(test)]
 mod test {
     use http_encoding::{encoder, ContentEncoding};
-    use xitca_http::{body::Once, Request};
+    use xitca_http::body::{Once, RequestBody};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{dev::bytes::Bytes, http::header::CONTENT_ENCODING};
 
     use crate::{
         handler::handler_service,
-        request::RequestBody,
+        http::{Request, RequestExt},
         response::{ResponseBody, WebResponse},
         test::collect_body,
         App,
@@ -128,7 +131,7 @@ mod test {
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(Request::new(RequestBody::default()))
+            .call(Request::new(RequestExt::<RequestBody>::default()))
             .now_or_panic()
             .ok()
             .unwrap();
@@ -136,6 +139,7 @@ mod test {
 
     #[test]
     fn plain() {
+        let req = Request::new(RequestExt::<()>::default().map_body(|_| Once::new(Q)));
         App::new()
             .at("/", handler_service(handler))
             .enclosed(Decompress)
@@ -143,7 +147,7 @@ mod test {
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(Request::new(Once::new(Q)))
+            .call(req)
             .now_or_panic()
             .ok()
             .unwrap();
@@ -178,7 +182,8 @@ mod test {
 
         let body = collect_body(body).now_or_panic().unwrap();
 
-        let mut req = Request::new(Once::new(Bytes::from(body)));
+        let mut req =
+            Request::new(Once::new(Bytes::from(body))).map(|body| RequestExt::<()>::default().map_body(|_| body));
         req.headers_mut()
             .insert(CONTENT_ENCODING, parts.headers.remove(CONTENT_ENCODING).unwrap());
 

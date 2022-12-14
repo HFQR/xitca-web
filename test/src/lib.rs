@@ -11,7 +11,11 @@ use std::{
 
 use futures_util::Stream;
 use xitca_http::{
-    body::ResponseBody, config::HttpServiceConfig, h1, h2, h3, http::Response, HttpServiceBuilder, Request,
+    body::ResponseBody,
+    config::HttpServiceConfig,
+    h1, h2, h3,
+    http::{Request, RequestExt, Response},
+    HttpServiceBuilder,
 };
 use xitca_io::{
     bytes::Bytes,
@@ -52,8 +56,8 @@ pub fn test_h1_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
     I: Service + 'static,
-    I::Response: ReadyService + Service<Request<h1::RequestBody>, Response = HResponse<B>> + 'static,
-    <I::Response as Service<Request<h1::RequestBody>>>::Error: fmt::Debug,
+    I::Response: ReadyService + Service<Request<RequestExt<h1::RequestBody>>, Response = HResponse<B>> + 'static,
+    <I::Response as Service<Request<RequestExt<h1::RequestBody>>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
@@ -69,8 +73,8 @@ pub fn test_h2_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
     I: Service + 'static,
-    I::Response: ReadyService + Service<Request<h2::RequestBody>, Response = HResponse<B>> + 'static,
-    <I::Response as Service<Request<h2::RequestBody>>>::Error: fmt::Debug,
+    I::Response: ReadyService + Service<Request<RequestExt<h2::RequestBody>>, Response = HResponse<B>> + 'static,
+    <I::Response as Service<Request<RequestExt<h2::RequestBody>>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
@@ -90,8 +94,8 @@ pub fn test_h3_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
 where
     F: Fn() -> I + Send + Sync + 'static,
     I: Service + 'static,
-    I::Response: ReadyService + Service<Request<h3::RequestBody>, Response = HResponse<B>> + 'static,
-    <I::Response as Service<Request<h3::RequestBody>>>::Error: fmt::Debug,
+    I::Response: ReadyService + Service<Request<RequestExt<h3::RequestBody>>, Response = HResponse<B>> + 'static,
+    <I::Response as Service<Request<RequestExt<h3::RequestBody>>>>::Error: fmt::Debug,
     I::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,

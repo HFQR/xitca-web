@@ -8,7 +8,7 @@ use xitca_http::{
     http,
     util::service::{
         route::{get, post, RouteError},
-        router::{Router, RouterError, Params},
+        router::{Router, RouterError},
     },
 };
 use xitca_service::{fn_service, object, Service, ServiceExt};
@@ -19,8 +19,11 @@ thread_local! {
     static R: RefCell<Option<RouterService>> = RefCell::new(None);
 }
 
+// type alias for http request type
+type HttpRequest = http::Request<http::RequestExt<()>>;
+
 // type alias to reduce type complexity.
-type RouterService = Rc<dyn object::ServiceObject<http::Request<()>, Response = Response, Error = Error>>;
+type RouterService = Rc<dyn object::ServiceObject<HttpRequest, Response = Response, Error = Error>>;
 
 fn log_request(req: &Request) {
     console_log!(
@@ -57,7 +60,7 @@ pub async fn main(req: Request, env: Env, _: Context) -> Result<Response> {
     let router = R.with(|r| r.borrow().as_ref().cloned().unwrap());
 
     // convert worker request to http request.
-    let mut http_req = http::Request::new(());
+    let mut http_req = http::Request::default();
 
     // naive url to uri conversion. only request path is covered.
     *http_req.uri_mut() = req
@@ -83,9 +86,9 @@ pub async fn main(req: Request, env: Env, _: Context) -> Result<Response> {
 }
 
 // error handler
-async fn error_handler<S>(service: &S, req: http::Request<()>) -> Result<Response>
+async fn error_handler<S>(service: &S, req: HttpRequest) -> Result<Response>
 where
-    S: Service<http::Request<()>, Response = Response, Error = RouterError<RouteError<Error>>>,
+    S: Service<HttpRequest, Response = Response, Error = RouterError<RouteError<Error>>>,
 {
     match service.call(req).await {
         Ok(res) => Ok(res),
@@ -98,22 +101,21 @@ where
     }
 }
 
-async fn index(_: http::Request<()>) -> Result<Response> {
+async fn index(_: HttpRequest) -> Result<Response> {
     Response::ok("Hello from Workers!")
 }
 
-async fn form(mut req: http::Request<()>) -> Result<Response> {
-    // extract path params from http::request.
-    let params = req.extensions_mut().remove::<Params>().unwrap();
+async fn form(mut http: HttpRequest) -> Result<Response> {
     // extract worker::Request from http::Request.
-    let mut req = req
+    let mut req = http
         .extensions_mut()
         .remove::<FakeSync<FakeSend<Request>>>()
         .unwrap()
         .into_inner()
         .into_inner();
 
-    if let Some(name) = params.get("field") {
+    // reference params http::request.
+    if let Some(name) = http.body().params().get("field") {
         if let Ok(form) = req.form_data().await {
             if let Some(entry) = form.get(name) {
                 return match entry {
@@ -127,7 +129,7 @@ async fn form(mut req: http::Request<()>) -> Result<Response> {
     Response::error("BadRequest", 400)
 }
 
-async fn version(mut req: http::Request<()>) -> Result<Response> {
+async fn version(mut req: HttpRequest) -> Result<Response> {
     // extract worker::Env from http::Request.
     let env = req
         .extensions_mut()

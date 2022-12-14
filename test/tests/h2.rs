@@ -6,8 +6,7 @@ use xitca_http::{
     body::ResponseBody,
     bytes::{Bytes, BytesMut},
     h2,
-    http::{header, Method, Response, Version},
-    Request,
+    http::{header, Method, Request, RequestExt, Response, Version},
 };
 use xitca_service::fn_service;
 use xitca_test::{test_h2_server, Error};
@@ -108,7 +107,7 @@ async fn h2_keepalive() -> Result<(), Error> {
     Ok(())
 }
 
-async fn handle(req: Request<h2::RequestBody>) -> Result<Response<ResponseBody>, Error> {
+async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
     // Some yield for testing h2 dispatcher's concurrent future handling.
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;

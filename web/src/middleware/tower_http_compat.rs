@@ -1,19 +1,19 @@
-use std::{
+use core::{
     cell::RefCell,
     convert::Infallible,
     future::Future,
     marker::PhantomData,
-    rc::Rc,
     task::{Context, Poll},
 };
 
+use std::rc::Rc;
+
 use tower_layer::Layer;
-use xitca_http::request::{RemoteAddr, Request};
 use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
 use crate::{
     dev::service::Service,
-    http,
+    http::{Request, RequestExt, Response},
     request::WebRequest,
     response::WebResponse,
     service::tower_http_compat::{CompatBody, TowerCompatService},
@@ -97,13 +97,13 @@ pub struct CompatLayer<S, C, ReqB, ResB, Err> {
     _phantom: PhantomData<(C, ReqB, ResB, Err)>,
 }
 
-impl<S, C, ReqB, ResB, Err> tower_service::Service<http::Request<CompatBody<FakeSend<ReqB>>>>
+impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>>
     for CompatLayer<S, C, ReqB, ResB, Err>
 where
     S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
     C: Clone + 'static,
 {
-    type Response = http::Response<CompatBody<ResB>>;
+    type Response = Response<CompatBody<ResB>>;
     type Error = Err;
     type Future = impl Future<Output = Result<Self::Response, Self::Error>>;
 
@@ -112,21 +112,24 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, mut req: http::Request<CompatBody<FakeSend<ReqB>>>) -> Self::Future {
+    fn call(&mut self, req: Request<CompatBody<FakeSend<RequestExt<ReqB>>>>) -> Self::Future {
         let service = self.service.clone();
         async move {
-            let remote_addr = req.extensions_mut().remove::<RemoteAddr>().unwrap();
-            let ctx = req
-                .extensions_mut()
+            let (mut parts, body) = req.into_parts();
+
+            let ctx = parts
+                .extensions
                 .remove::<FakeSync<FakeSend<C>>>()
                 .unwrap()
                 .into_inner()
                 .into_inner();
-            let (parts, body) = req.into_parts();
-            let req = http::Request::from_parts(parts, ());
-            let mut req = Request::from_http(req, remote_addr);
-            let mut body = RefCell::new(body.into_inner().into_inner());
+
+            let (ext, body) = body.into_inner().into_inner().replace_body(());
+
+            let mut req = Request::from_parts(parts, ext);
+            let mut body = RefCell::new(body);
             let req = WebRequest::new(&mut req, &mut body, &ctx);
+
             service.call(req).await.map(|res| res.map(CompatBody::new))
         }
     }

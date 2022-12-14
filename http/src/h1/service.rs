@@ -8,8 +8,7 @@ use xitca_unsafe_collection::pin;
 use crate::{
     bytes::Bytes,
     error::{HttpServiceError, TimeoutError},
-    http::Response,
-    request::Request,
+    http::{Request, RequestExt, Response},
     service::HttpService,
     util::timer::Timeout,
 };
@@ -22,7 +21,7 @@ pub type H1Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: us
 impl<St, S, B, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     Service<(St, SocketAddr)> for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<B>>,
+    S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
     A: Service<St>,
     St: AsyncIo,
     A::Response: AsyncIo,
@@ -54,7 +53,7 @@ where
 
             proto::run(
                 &mut io,
-                addr.into(),
+                addr,
                 timer.as_mut(),
                 self.config,
                 &self.service,
