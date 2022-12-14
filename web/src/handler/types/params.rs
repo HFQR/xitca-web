@@ -560,8 +560,7 @@ mod tests {
             .remove::<router::Params>()
             .unwrap();
 
-        let s: () = Deserialize::deserialize(Params2::new(&params)).unwrap();
-        assert_eq!(s, ());
+        let _: () = Deserialize::deserialize(Params2::new(&params)).unwrap();
 
         let MyStruct { key, value } = Deserialize::deserialize(Params2::new(&params)).unwrap();
         assert_eq!(key, "name");
