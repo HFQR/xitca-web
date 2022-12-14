@@ -17,6 +17,9 @@ io-uring = ["xitca-server/io-uring"]
 openssl = ["xitca-http/openssl", "openssl-crate"]
 rustls = ["xitca-http/rustls", "rustls-crate"]
 
+# params type extractor
+params = ["serde"]
+
 # json type extractor/respodner
 json = ["serde", "serde_json"]
 
@@ -56,8 +59,10 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 # rustls
 rustls-crate = { package = "rustls", version = "0.20", optional = true }
 
-# json
+# params, json and urlencoded shared
 serde = { version = "1", optional = true }
+
+# json
 serde_json = { version = "1", optional = true }
 
 # urlencoded

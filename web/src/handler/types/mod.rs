@@ -9,6 +9,9 @@ pub mod string;
 pub mod uri;
 pub mod vec;
 
+#[cfg(feature = "params")]
+pub mod params;
+
 #[cfg(feature = "urlencoded")]
 pub mod query;
 
