@@ -10,6 +10,7 @@ use core::{
 use std::net::SocketAddr;
 
 use futures_core::stream::Stream;
+use pin_project_lite::pin_project;
 
 /// Some often used header value.
 #[allow(clippy::declare_interior_mutable_const)]
@@ -89,11 +90,14 @@ where
 #[cfg(feature = "util-service")]
 use super::util::service::router::Params;
 
-/// typed http extension
-#[derive(Debug)]
-pub struct RequestExt<B> {
-    body: B,
-    ext: Extension,
+pin_project! {
+    /// typed http extension
+    #[derive(Debug)]
+    pub struct RequestExt<B> {
+        #[pin]
+        body: B,
+        ext: Extension,
+    }
 }
 
 // a separate extension type contain information can not be carried by http::Request. the goal is
@@ -176,14 +180,16 @@ where
 
 impl<B> Stream for RequestExt<B>
 where
-    B: Stream + Unpin,
+    B: Stream,
 {
     type Item = B::Item;
 
+    #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.get_mut().body).poll_next(cx)
+        self.project().body.poll_next(cx)
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.body.size_hint()
     }
@@ -196,26 +202,11 @@ impl<B> Borrow<SocketAddr> for RequestExt<B> {
     }
 }
 
-impl<B> BorrowMut<SocketAddr> for RequestExt<B> {
-    #[inline]
-    fn borrow_mut(&mut self) -> &mut SocketAddr {
-        self.socket_addr_mut()
-    }
-}
-
 #[cfg(feature = "util-service")]
 impl<B> Borrow<Params> for RequestExt<B> {
     #[inline]
     fn borrow(&self) -> &Params {
         self.params()
-    }
-}
-
-#[cfg(feature = "util-service")]
-impl<B> BorrowMut<Params> for RequestExt<B> {
-    #[inline]
-    fn borrow_mut(&mut self) -> &mut Params {
-        self.params_mut()
     }
 }
 
@@ -232,18 +223,21 @@ pub trait BorrowReqMut<T> {
 }
 
 impl<Ext> BorrowReq<Uri> for Request<Ext> {
+    #[inline]
     fn borrow(&self) -> &Uri {
         self.uri()
     }
 }
 
 impl<Ext> BorrowReq<Method> for Request<Ext> {
+    #[inline]
     fn borrow(&self) -> &Method {
         self.method()
     }
 }
 
 impl<Ext> BorrowReqMut<Extensions> for Request<Ext> {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut Extensions {
         self.extensions_mut()
     }
@@ -253,6 +247,7 @@ impl<T, B> BorrowReq<T> for Request<RequestExt<B>>
 where
     RequestExt<B>: Borrow<T>,
 {
+    #[inline]
     fn borrow(&self) -> &T {
         self.body().borrow()
     }
@@ -262,6 +257,7 @@ impl<T, B> BorrowReqMut<T> for Request<RequestExt<B>>
 where
     RequestExt<B>: BorrowMut<T>,
 {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut T {
         self.body_mut().borrow_mut()
     }
