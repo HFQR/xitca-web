@@ -2,6 +2,7 @@ use std::{
     fmt,
     future::{poll_fn, Future},
     marker::PhantomData,
+    net::SocketAddr,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -23,22 +24,21 @@ use crate::{
     bytes::{Buf, Bytes},
     error::HttpServiceError,
     h3::{body::RequestBody, error::Error},
-    http::Response,
-    request::{RemoteAddr, Request},
+    http::{Extension, Request, RequestExt, Response},
     util::futures::Queue,
 };
 
 /// Http/3 dispatcher
 pub(crate) struct Dispatcher<'a, S, ReqB> {
     io: UdpStream,
-    addr: RemoteAddr,
+    addr: SocketAddr,
     service: &'a S,
     _req_body: PhantomData<ReqB>,
 }
 
 impl<'a, S, ReqB, ResB, BE> Dispatcher<'a, S, ReqB>
 where
-    S: Service<Request<ReqB>, Response = Response<ResB>>,
+    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -46,7 +46,7 @@ where
 
     ReqB: From<RequestBody>,
 {
-    pub(crate) fn new(io: UdpStream, addr: RemoteAddr, service: &'a S) -> Self {
+    pub(crate) fn new(io: UdpStream, addr: SocketAddr, service: &'a S) -> Self {
         Self {
             io,
             addr,
@@ -79,7 +79,10 @@ where
                     }));
 
                     // Reconstruct Request to attach crate body type.
-                    let req = Request::from_http(req, self.addr).map_body(move |_| ReqB::from(RequestBody(body)));
+                    let req = req.map(|_| {
+                        let body = ReqB::from(RequestBody(body));
+                        RequestExt::from_parts(body, Extension::new(self.addr))
+                    });
 
                     queue.push(async move {
                         let fut = self.service.call(req);

@@ -29,7 +29,7 @@ where
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
         async {
-            let params = req.req().extensions().get::<router::Params>().unwrap();
+            let params = req.req().body().params();
             let params = T::deserialize(Params2::new(params)).map_err(_ParseError::Params)?;
 
             Ok(Params(params))
@@ -495,19 +495,20 @@ impl<'de> de::VariantAccess<'de> for UnitVariant {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
+    use core::convert::Infallible;
 
     use serde::{de, Deserialize};
-    use xitca_http::util::service::handler::handler_service;
-    use xitca_http::{Request, RequestBody};
-
-    use xitca_http::util::service::router::Router;
+    use xitca_http::{
+        util::service::{handler::handler_service, router::Router},
+        RequestBody,
+    };
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::test::collect_string_body;
     use crate::{
         dev::service::{fn_service, Service},
-        http, App,
+        http::{Request, RequestExt, Uri},
+        test::collect_string_body,
+        App,
     };
 
     use super::*;
@@ -539,7 +540,7 @@ mod tests {
         Val2,
     }
 
-    async fn handler(req: http::Request<()>) -> Result<http::Request<()>, Infallible> {
+    async fn handler(req: Request<RequestExt<()>>) -> Result<Request<RequestExt<()>>, Infallible> {
         Ok(req)
     }
 
@@ -551,71 +552,72 @@ mod tests {
             .now_or_panic()
             .unwrap();
 
-        let req = http::Request::builder().uri("/name/user1/").body(()).unwrap();
-        let params = service
-            .call(req)
-            .now_or_panic()
+        let req = Request::builder()
+            .uri("/name/user1/")
+            .body(())
             .unwrap()
-            .extensions_mut()
-            .remove::<router::Params>()
-            .unwrap();
+            .map(|_| RequestExt::<()>::default());
 
-        let _: () = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
 
-        let MyStruct { key, value } = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let params = res.body().params();
+
+        let _: () = Deserialize::deserialize(Params2::new(params)).unwrap();
+
+        let MyStruct { key, value } = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(key, "name");
         assert_eq!(value, "user1");
 
-        let (key, value): (String, &str) = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let (key, value): (String, &str) = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(key, "name");
         assert_eq!(value, "user1");
 
-        let s: &str = de::Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let s: &str = de::Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(s, "name");
 
-        let req = http::Request::builder().uri("/name/32/").body(()).unwrap();
-        let params = service
-            .call(req)
-            .now_or_panic()
+        let req = Request::builder()
+            .uri("/name/32/")
+            .body(())
             .unwrap()
-            .extensions_mut()
-            .remove::<router::Params>()
-            .unwrap();
+            .map(|_| RequestExt::<()>::default());
 
-        let Test1(key, value) = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
+        let params = res.body().params();
+
+        let Test1(key, value) = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(key, "name");
         assert_eq!(value, 32);
 
-        let Test2 { key, value } = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let Test2 { key, value } = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(key, "name");
         assert_eq!(value, 32);
 
         #[derive(Deserialize)]
         struct T(Test1);
-        let T(Test1(key, value)) = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let T(Test1(key, value)) = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(key, "name");
         assert_eq!(value, 32);
 
-        let s: Result<(Test2,), _> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<(Test2,), _> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
 
-        let (key, value): (String, u8) = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let (key, value): (String, u8) = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(key, "name");
         assert_eq!(value, 32);
 
-        let res: Vec<String> = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let res: Vec<String> = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(res[0], "name");
         assert_eq!(res[1], "32");
 
         #[derive(Debug, Deserialize)]
         struct S2(());
-        let s: Result<S2, de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<S2, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_ok());
 
-        let s: Result<(), de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<(), de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_ok());
 
-        let s: Result<(String, ()), de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<(String, ()), de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_ok());
     }
 
@@ -627,28 +629,27 @@ mod tests {
             .now_or_panic()
             .unwrap();
 
-        let req = http::Request::builder().uri("/name/32/").body(()).unwrap();
-
-        let params = service
-            .call(req)
-            .now_or_panic()
+        let req = Request::builder()
+            .uri("/name/32/")
+            .body(())
             .unwrap()
-            .extensions_mut()
-            .remove::<router::Params>()
-            .unwrap();
+            .map(|_| RequestExt::<()>::default());
 
-        let i: i8 = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
+        let params = res.body().params();
+
+        let i: i8 = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(i, 32);
 
-        let i: (i8,) = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let i: (i8,) = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(i, (32,));
 
-        let i: Result<(i8, i8), _> = Deserialize::deserialize(Params2::new(&params));
+        let i: Result<(i8, i8), _> = Deserialize::deserialize(Params2::new(params));
         assert!(i.is_err());
 
         #[derive(Deserialize)]
         struct Test(i8);
-        let i: Test = Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let i: Test = Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(i.0, 32);
     }
 
@@ -660,17 +661,16 @@ mod tests {
             .now_or_panic()
             .unwrap();
 
-        let req = http::Request::builder().uri("/val1/").body(()).unwrap();
-
-        let params = service
-            .call(req)
-            .now_or_panic()
+        let req = Request::builder()
+            .uri("/val1/")
+            .body(())
             .unwrap()
-            .extensions_mut()
-            .remove::<router::Params>()
-            .unwrap();
+            .map(|_| RequestExt::<()>::default());
 
-        let i: TestEnum = de::Deserialize::deserialize(Params2::new(&params)).unwrap();
+        let res = service.call(req).now_or_panic().unwrap();
+        let params = res.body().params();
+
+        let i: TestEnum = de::Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(i, TestEnum::Val1);
 
         // let service = Router::new()
@@ -679,10 +679,16 @@ mod tests {
         //     .now_or_panic()
         //     .unwrap();
         //
-        // let req = http::Request::builder().uri("/val1/").body(()).unwrap();
+        // let req = http::Request::builder()
+        //     .uri("/val1/")
+        //     .body(())
+        //     .unwrap()
+        //     .map(|_| RequestExt::<()>::default());
         //
-        // let i: (TestEnum, TestEnum) =
-        //     de::Deserialize::deserialize(Params::new(&params)).unwrap();
+        // let res = service.call(req).now_or_panic().unwrap();
+        // let params = res.body().params();
+        //
+        // let i: (TestEnum, TestEnum) = de::Deserialize::deserialize(Params2::new(params)).unwrap();
         // assert_eq!(i, (TestEnum::Val1, TestEnum::Val2));
     }
 
@@ -695,29 +701,28 @@ mod tests {
             .now_or_panic()
             .unwrap();
 
-        let req = http::Request::builder().uri("/name/").body(()).unwrap();
-
-        let params = service
-            .call(req)
-            .now_or_panic()
+        let req = Request::builder()
+            .uri("/name/")
+            .body(())
             .unwrap()
-            .extensions_mut()
-            .remove::<router::Params>()
-            .unwrap();
+            .map(|_| RequestExt::<()>::default());
 
-        let s: Result<Test1, de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let res = service.call(req).now_or_panic().unwrap();
+        let params = res.body().params();
+
+        let s: Result<Test1, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
         assert!(format!("{:?}", s).contains("wrong number of parameters"));
 
-        let s: Result<Test2, de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<Test2, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
         assert!(format!("{:?}", s).contains("can not parse"));
 
-        let s: Result<(String, String), de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<(String, String), de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
         assert!(format!("{:?}", s).contains("wrong number of parameters"));
 
-        let s: Result<u32, de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<u32, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
         assert!(format!("{:?}", s).contains("can not parse"));
 
@@ -725,25 +730,24 @@ mod tests {
         struct S {
             _inner: (String,),
         }
-        let s: Result<S, de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<S, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
         assert!(format!("{:?}", s).contains("missing field `_inner`"));
 
-        let req = http::Request::builder().uri("/").body(()).unwrap();
-
-        let params = service
-            .call(req)
-            .now_or_panic()
+        let req = Request::builder()
+            .uri("/")
+            .body(RequestExt::<()>::default())
             .unwrap()
-            .extensions_mut()
-            .remove::<router::Params>()
-            .unwrap();
+            .map(|_| RequestExt::<()>::default());
 
-        let s: Result<&str, de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let res = service.call(req).now_or_panic().unwrap();
+        let params = res.body().params();
+
+        let s: Result<&str, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
         assert!(format!("{:?}", s).contains("expected at least one parameters"));
 
-        let s: Result<TestEnum, de::value::Error> = Deserialize::deserialize(Params2::new(&params));
+        let s: Result<TestEnum, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
         assert!(format!("{:?}", s).contains("expected at least one parameters"));
     }
@@ -756,8 +760,8 @@ mod tests {
 
     #[test]
     fn from_request_extract() {
-        let mut req = Request::new(RequestBody::None);
-        *req.uri_mut() = http::Uri::from_static("/qingling/dagongren/");
+        let mut req = Request::new(RequestExt::<RequestBody>::default());
+        *req.uri_mut() = Uri::from_static("/qingling/dagongren/");
 
         let res = App::new()
             .at("/:key/:value/", handler_service(handler2))

@@ -1,20 +1,19 @@
-use std::mem;
+use std::{mem, net::SocketAddr};
 
 use crate::{
     date::DateTime,
     http::{header::HeaderMap, Extensions},
-    request::RemoteAddr,
 };
 
 /// Context is connection specific struct contain states for processing.
 pub struct Context<'a, D, const HEADER_LIMIT: usize> {
-    addr: RemoteAddr,
+    addr: SocketAddr,
     state: ContextState,
     ctype: ConnectionType,
-    /// header map reused by next request.
+    // header map reused by next request.
     header: Option<HeaderMap>,
-    /// extension reused by next request.
-    extensions: Extensions,
+    // http extensions reused by next request.
+    exts: Extensions,
     pub(super) date: &'a D,
 }
 
@@ -65,12 +64,12 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     where
         D: DateTime,
     {
-        Self::with_remote_addr(Default::default(), date)
+        Self::with_addr(crate::unspecified_socket_addr(), date)
     }
 
-    /// Context is constructed with [RemoteAddr] and reference of certain type that impl [DateTime] trait.
+    /// Context is constructed with [SocketAddr] and reference of certain type that impl [DateTime] trait.
     #[inline]
-    pub fn with_remote_addr(addr: RemoteAddr, date: &'a D) -> Self
+    pub fn with_addr(addr: SocketAddr, date: &'a D) -> Self
     where
         D: DateTime,
     {
@@ -79,7 +78,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
             state: ContextState::new(),
             ctype: ConnectionType::Init,
             header: None,
-            extensions: Extensions::new(),
+            exts: Extensions::new(),
             date,
         }
     }
@@ -92,10 +91,10 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.header.take().unwrap_or_else(HeaderMap::new)
     }
 
-    /// Take ownership of Extension stored in Context.
+    /// Take ownership of Extensions stored in Context.
     #[inline]
     pub fn take_extensions(&mut self) -> Extensions {
-        mem::take(&mut self.extensions)
+        mem::take(&mut self.exts)
     }
 
     /// Replace a new HeaderMap in current Context.
@@ -109,7 +108,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     #[inline]
     pub fn replace_extensions(&mut self, extensions: Extensions) {
         debug_assert!(extensions.is_empty());
-        self.extensions = extensions;
+        self.exts = extensions;
     }
 
     /// Reset Context's state to partial default state.
@@ -175,7 +174,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
 
     /// Get remote socket address context associated with.
     #[inline]
-    pub fn remote_addr(&self) -> &RemoteAddr {
+    pub fn socket_addr(&self) -> &SocketAddr {
         &self.addr
     }
 }

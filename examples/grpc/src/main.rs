@@ -11,6 +11,7 @@ use xitca_http::{
         header::{HeaderName, HeaderValue, CONTENT_TYPE, TRAILER},
         IntoResponse, Response,
     },
+    request_ext::RequestExt,
     util::service::{route::post, Router},
     HttpServiceBuilder, Request,
 };
@@ -34,7 +35,7 @@ fn main() -> std::io::Result<()> {
         .wait()
 }
 
-async fn grpc(mut req: Request<RequestBody>) -> Result<Response<Once<Bytes>>, anyhow::Error> {
+async fn grpc(mut req: Request<RequestExt<RequestBody>>) -> Result<Response<Once<Bytes>>, anyhow::Error> {
     let body = req.body_mut();
 
     let mut buf = BytesMut::new();

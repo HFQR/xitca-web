@@ -15,8 +15,7 @@ use super::{
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
     error::{HttpServiceError, TimeoutError},
-    http::{Response, Version},
-    request::Request,
+    http::{Request, RequestExt, Response, Version},
     util::timer::{KeepAlive, Timeout},
     version::AsVersion,
 };
@@ -78,7 +77,7 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
     Service<ServerStream>
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestBody>, Response = Response<ResB>>,
+    S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     A: Service<TcpStream>,
     A::Response: AsyncIo + AsVersion + AsyncRead + AsyncWrite + Unpin,
     HttpServiceError<S::Error, BE>: From<A::Error>,
@@ -128,7 +127,7 @@ where
                         #[cfg(feature = "http1")]
                         Version::HTTP_11 | Version::HTTP_10 => super::h1::proto::run(
                             &mut _tls_stream,
-                            _addr.into(),
+                            _addr,
                             timer.as_mut(),
                             self.config,
                             &self.service,
@@ -174,7 +173,7 @@ where
 
                         super::h1::proto::run(
                             &mut _io,
-                            Default::default(),
+                            crate::unspecified_socket_addr(),
                             timer.as_mut(),
                             self.config,
                             &self.service,

@@ -4,8 +4,7 @@ use xitca_http::{
     body::ResponseBody,
     bytes::{Bytes, BytesMut},
     h3,
-    http::{header, Method, Response, Version},
-    Request,
+    http::{header, Method, Request, RequestExt, Response, Version},
 };
 use xitca_service::fn_service;
 use xitca_test::{test_h3_server, Error};
@@ -57,7 +56,7 @@ async fn h3_post() -> Result<(), Error> {
     Ok(())
 }
 
-async fn handle(req: Request<h3::RequestBody>) -> Result<Response<ResponseBody>, Error> {
+async fn handle(req: Request<RequestExt<h3::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
     // Some yield for testing h3 dispatcher's concurrent future handling.
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;

@@ -290,15 +290,13 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        http::StatusCode,
-        request::Request,
-        response::Response,
+        http::{Request, RequestExt, Response, StatusCode},
         util::service::{route::get, Router},
     };
 
     use super::*;
 
-    async fn handler(e1: String, e2: u32, (_, e3): (&Request<()>, u64)) -> StatusCode {
+    async fn handler(e1: String, e2: u32, (_, e3): (&Request<RequestExt<()>>, u64)) -> StatusCode {
         assert_eq!(e1, "996");
         assert_eq!(e2, 996);
         assert_eq!(e3, 996);
@@ -306,11 +304,11 @@ mod test {
         StatusCode::MULTI_STATUS
     }
 
-    impl Responder<Request<()>> for StatusCode {
+    impl Responder<Request<RequestExt<()>>> for StatusCode {
         type Output = Response<()>;
         type Future = impl Future<Output = Self::Output>;
 
-        fn respond_to(self, _: Request<()>) -> Self::Future {
+        fn respond_to(self, _: Request<RequestExt<()>>) -> Self::Future {
             async move {
                 let mut res = Response::new(());
                 *res.status_mut() = self;
@@ -319,42 +317,42 @@ mod test {
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for String {
+    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for String {
         type Type<'f> = Self;
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<()>) -> Self::Future {
+        fn from_request(_: &'a Request<RequestExt<()>>) -> Self::Future {
             ready(Ok(String::from("996")))
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for u32 {
+    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u32 {
         type Type<'f> = Self;
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<()>) -> Self::Future {
+        fn from_request(_: &'a Request<RequestExt<()>>) -> Self::Future {
             ready(Ok(996))
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for u64 {
+    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u64 {
         type Type<'f> = Self;
         type Error = Infallible;
         type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<()>) -> Self::Future {
+        fn from_request(_: &'a Request<RequestExt<()>>) -> Self::Future {
             ready(Ok(996))
         }
     }
 
-    impl<'a> FromRequest<'a, Request<()>> for &'a Request<()> {
-        type Type<'f> = &'f Request<()>;
+    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for &'a Request<RequestExt<()>> {
+        type Type<'f> = &'f Request<RequestExt<()>>;
         type Error = Infallible;
         type Future = impl Future<Output = Result<Self, Self::Error>>;
 
-        fn from_request(req: &'a Request<()>) -> Self::Future {
+        fn from_request(req: &'a Request<RequestExt<()>>) -> Self::Future {
             async move { Ok(req) }
         }
     }
@@ -373,7 +371,7 @@ mod test {
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(Request::new(()))
+            .call(Request::default())
             .now_or_panic()
             .unwrap();
 
@@ -387,7 +385,7 @@ mod test {
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(Request::new(()))
+            .call(Request::default())
             .now_or_panic()
             .unwrap();
 

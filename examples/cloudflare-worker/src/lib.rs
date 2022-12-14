@@ -8,7 +8,7 @@ use xitca_http::{
     http,
     util::service::{
         route::{get, post, RouteError},
-        router::{Router, RouterError, Params},
+        router::{Params, Router, RouterError},
     },
 };
 use xitca_service::{fn_service, object, Service, ServiceExt};
@@ -20,7 +20,7 @@ thread_local! {
 }
 
 // type alias to reduce type complexity.
-type RouterService = Rc<dyn object::ServiceObject<http::Request<()>, Response = Response, Error = Error>>;
+type RouterService = Rc<dyn object::ServiceObject<http::Request<<>>, Response = Response, Error = Error>>;
 
 fn log_request(req: &Request) {
     console_log!(

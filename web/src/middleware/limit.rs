@@ -9,6 +9,7 @@ use std::{
 
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
+use xitca_http::Request;
 
 use crate::{
     dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
@@ -79,10 +80,13 @@ where
         'r: 's,
     {
         async move {
-            let (mut http_req, body) = req.take_request().replace_body(());
+            let (parts, ext) = req.take_request().into_parts();
+            let ctx = req.ctx;
+            let (ext, body) = ext.replace_body(());
             let mut body = RefCell::new(LimitBody::new(body, self.limit.request_body_size));
+            let mut req = Request::from_parts(parts, ext);
 
-            let req = WebRequest::new(&mut http_req, &mut body, req.ctx);
+            let req = WebRequest::new(&mut req, &mut body, ctx);
 
             self.service.call(req).await.map_err(LimitServiceError::Second)
         }
@@ -185,13 +189,13 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for LimitError {
 mod test {
     use std::future::poll_fn;
 
-    use xitca_http::Request;
     use xitca_unsafe_collection::{futures::NowOrPanic, pin};
 
     use crate::{
         dev::bytes::Bytes,
         error::BodyError,
         handler::{body::Body, handler_service},
+        http::{Request, RequestExt},
         response::StreamBody,
         test::collect_body,
         App,
@@ -218,8 +222,8 @@ mod test {
         let item = || async { Ok::<_, BodyError>(Bytes::from_static(chunk)) };
 
         let body = stream::once(item()).chain(stream::once(item()));
-
-        let req = Request::new(StreamBody::new(body));
+        let ext = RequestExt::default().map_body(|_: ()| StreamBody::new(body));
+        let req = Request::new(ext);
 
         let body = App::new()
             .at("/", handler_service(handler))

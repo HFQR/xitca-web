@@ -1,17 +1,17 @@
-use std::{future::Future, ops::Deref};
+use core::{future::Future, ops::Deref};
 
 use crate::{
     handler::{error::ExtractError, FromRequest},
-    http::request::Request,
+    http::{Request, RequestExt},
     request::WebRequest,
     stream::WebStream,
 };
 
 #[derive(Debug)]
-pub struct RequestRef<'a>(pub &'a Request<()>);
+pub struct RequestRef<'a>(pub &'a Request<RequestExt<()>>);
 
 impl Deref for RequestRef<'_> {
-    type Target = Request<()>;
+    type Target = Request<RequestExt<()>>;
 
     fn deref(&self) -> &Self::Target {
         self.0

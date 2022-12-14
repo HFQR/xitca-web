@@ -2,6 +2,7 @@ use std::{
     cmp, fmt,
     future::{poll_fn, Future},
     marker::PhantomData,
+    net::SocketAddr,
     pin::Pin,
     task::{ready, Context, Poll},
     time::Duration,
@@ -28,17 +29,15 @@ use crate::{
     h2::{body::RequestBody, error::Error},
     http::{
         header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRAILER},
-        response::Response,
-        Version,
+        Extension, Request, RequestExt, Response, Version,
     },
-    request::{RemoteAddr, Request},
     util::{futures::Queue, timer::KeepAlive},
 };
 
 /// Http/2 dispatcher
 pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
     io: &'a mut Connection<TlsSt, Bytes>,
-    addr: RemoteAddr,
+    addr: SocketAddr,
     keep_alive: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
     service: &'a S,
@@ -48,7 +47,7 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
 
 impl<'a, TlsSt, S, ReqB, ResB, BE> Dispatcher<'a, TlsSt, S, ReqB>
 where
-    S: Service<Request<ReqB>, Response = Response<ResB>>,
+    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -59,7 +58,7 @@ where
 {
     pub(crate) fn new(
         io: &'a mut Connection<TlsSt, Bytes>,
-        addr: RemoteAddr,
+        addr: SocketAddr,
         keep_alive: Pin<&'a mut KeepAlive>,
         ka_dur: Duration,
         service: &'a S,
@@ -109,7 +108,10 @@ where
                 SelectOutput::A(Some(Ok((req, tx)))) => {
                     // Convert http::Request body type to crate::h2::Body
                     // and reconstruct as HttpRequest.
-                    let req = Request::from_http(req, addr).map_body(|body| ReqB::from(RequestBody::from(body)));
+                    let req = req.map(|body| {
+                        let body = ReqB::from(RequestBody::from(body));
+                        RequestExt::from_parts(body, Extension::new(addr))
+                    });
 
                     queue.push(async move {
                         let fut = service.call(req);

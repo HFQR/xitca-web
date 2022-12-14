@@ -1,11 +1,11 @@
-use std::{
+use core::{
     convert::Infallible,
     future::{ready, Future, Ready},
 };
 
 use xitca_service::{ready::ReadyService, Service};
 
-use crate::{http, request::BorrowReqMut};
+use crate::http::{BorrowReqMut, Extensions};
 
 #[derive(Clone)]
 pub struct Extension<F: Clone = ()> {
@@ -71,11 +71,11 @@ where
     }
 }
 
-impl<S, Req, St> Service<Req> for ExtensionService<S, St>
+impl<S, St, Req> Service<Req> for ExtensionService<S, St>
 where
     S: Service<Req>,
-    Req: BorrowReqMut<http::Extensions>,
     St: Send + Sync + Clone + 'static,
+    Req: BorrowReqMut<Extensions>,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -108,12 +108,12 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use xitca_service::{fn_service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::request::Request;
+    use crate::http::Request;
+
+    use super::*;
 
     #[test]
     fn state_middleware() {

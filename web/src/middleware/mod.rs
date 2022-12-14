@@ -13,12 +13,13 @@ pub use xitca_service::middleware::UncheckedReady;
 
 #[cfg(test)]
 mod test {
-    use xitca_http::{body::RequestBody, request::Request};
+    use xitca_http::body::RequestBody;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         dev::service::Service,
         handler::{extension::ExtensionRef, handler_service},
+        http::{Request, RequestExt},
         test::collect_string_body,
         App,
     };
@@ -39,7 +40,7 @@ mod test {
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(Request::<RequestBody>::default())
+            .call(Request::new(RequestExt::<RequestBody>::default()))
             .now_or_panic()
             .unwrap()
             .into_body();

@@ -16,7 +16,7 @@ mod version;
 
 pub mod body;
 pub mod error;
-pub mod request;
+pub mod http;
 pub mod response;
 
 #[cfg(feature = "runtime")]
@@ -31,100 +31,21 @@ pub mod h3;
 pub mod config;
 pub mod util;
 
-/// re-export http crate as module.
-pub mod http {
-    pub use http::*;
-
-    /// Some often used header value.
-    #[allow(clippy::declare_interior_mutable_const)]
-    pub mod const_header_value {
-        use ::http::header::HeaderValue;
-
-        macro_rules! const_value {
-            ($(($ident: ident, $expr: expr)), *) => {
-                $(
-                   pub const $ident: HeaderValue = HeaderValue::from_static($expr);
-                )*
-            }
-        }
-
-        const_value!(
-            (TEXT, "text/plain"),
-            (TEXT_UTF8, "text/plain; charset=utf-8"),
-            (JSON, "application/json"),
-            (TEXT_HTML_UTF8, "text/html; charset=utf-8"),
-            (GRPC, "application/grpc"),
-            (WEBSOCKET, "websocket")
-        );
-    }
-
-    /// Some often used header name.
-    #[allow(clippy::declare_interior_mutable_const)]
-    pub mod const_header_name {
-        use ::http::header::HeaderName;
-
-        macro_rules! const_name {
-            ($(($ident: ident, $expr: expr)), *) => {
-                $(
-                   pub const $ident: HeaderName = HeaderName::from_static($expr);
-                )*
-            }
-        }
-
-        const_name!((PROTOCOL, "protocol"));
-    }
-
-    /// Helper trait for convert a [Request] to [Response].
-    /// This is for re-use request's heap allocation and pass down the context data inside [Extensions]
-    pub trait IntoResponse<B, ResB> {
-        fn into_response(self, body: B) -> Response<ResB>;
-
-        fn as_response(&mut self, body: B) -> Response<ResB>
-        where
-            Self: Default,
-        {
-            std::mem::take(self).into_response(body)
-        }
-    }
-
-    impl<ReqB, B, ResB> IntoResponse<B, ResB> for super::request::Request<ReqB>
-    where
-        B: Into<ResB>,
-    {
-        fn into_response(self, body: B) -> Response<ResB> {
-            let (
-                request::Parts {
-                    mut headers,
-                    extensions,
-                    ..
-                },
-                _,
-            ) = self.into_parts();
-            headers.clear();
-
-            let mut res = Response::new(body.into());
-            *res.headers_mut() = headers;
-            *res.extensions_mut() = extensions;
-
-            res
-        }
-    }
-}
-
 /// re-export bytes crate as module.
 pub use xitca_io::bytes;
 
-pub use body::{RequestBody, ResponseBody};
+pub use self::body::{RequestBody, ResponseBody};
+pub use self::error::{BodyError, HttpServiceError};
+pub use self::http::{Request, Response};
 #[cfg(feature = "runtime")]
-pub use builder::HttpServiceBuilder;
-pub use error::{BodyError, HttpServiceError};
-pub use request::Request;
-pub use response::Response;
-#[cfg(feature = "runtime")]
-pub use service::HttpService;
+pub use self::{builder::HttpServiceBuilder, service::HttpService};
 
 // TODO: enable this conflict feature check.
 // temporary compile error for conflicted feature combination.
 // #[cfg(not(feature = "http1"))]
 // #[cfg(all(feature = "http2", feature = "native-tls"))]
 // compile_error!("http2 feature can not use native-tls");
+
+pub(crate) fn unspecified_socket_addr() -> std::net::SocketAddr {
+    std::net::SocketAddr::V4(std::net::SocketAddrV4::new(std::net::Ipv4Addr::UNSPECIFIED, 0))
+}

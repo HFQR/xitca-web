@@ -27,19 +27,18 @@ where
 
 #[cfg(test)]
 mod test {
-    use xitca_http::{body::Once, request::Request};
-    use xitca_unsafe_collection::futures::NowOrPanic;
-    use xitca_unsafe_collection::pin;
+    use xitca_http::body::Once;
+    use xitca_unsafe_collection::{futures::NowOrPanic, pin};
 
-    use crate::test::collect_body;
     use crate::{
         dev::{bytes::Bytes, service::Service},
         handler::handler_service,
         http::{
             header::{HeaderValue, CONTENT_TYPE, TRANSFER_ENCODING},
-            Method,
+            Method, Request, RequestExt,
         },
         route::post,
+        test::collect_body,
         App,
     };
 
@@ -88,7 +87,7 @@ mod test {
             testdata\r\n\
             --abbc761f78ff4d7cb7573b5a23f96ef0--\r\n";
 
-        let mut req = Request::new(Once::new(Bytes::from_static(body)));
+        let mut req = Request::new(RequestExt::<()>::default().map_body(|_| Once::new(Bytes::from_static(body))));
         *req.method_mut() = Method::POST;
         req.headers_mut().insert(
             CONTENT_TYPE,

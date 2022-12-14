@@ -17,7 +17,7 @@ use crate::{
         bytes::Buf,
         service::{ready::ReadyService, Service},
     },
-    http::{self, header::HeaderMap},
+    http::{header::HeaderMap, Request, RequestExt, Response},
     request::WebRequest,
     response::WebResponse,
 };
@@ -67,7 +67,7 @@ impl<S> TowerCompatService<S> {
 
 impl<'r, C, ReqB, S, ResB> Service<WebRequest<'r, C, ReqB>> for TowerCompatService<S>
 where
-    S: tower_service::Service<http::Request<CompatBody<FakeSend<ReqB>>>, Response = http::Response<ResB>>,
+    S: tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>, Response = Response<ResB>>,
     ResB: Body,
     C: Clone + 'static,
     ReqB: Default + 'r,
@@ -84,11 +84,9 @@ where
     {
         async move {
             let ctx = req.state().clone();
-            let addr = *req.req().remote_addr();
-            req.req_mut().extensions_mut().insert(FakeSync::new(FakeSend::new(ctx)));
-            req.req_mut().extensions_mut().insert(addr);
-            let (parts, body) = req.take_request().into_parts();
-            let req = http::Request::from_parts(parts, CompatBody::new(FakeSend::new(body)));
+            let (mut parts, ext) = req.take_request().into_parts();
+            parts.extensions.insert(FakeSync::new(FakeSend::new(ctx)));
+            let req = Request::from_parts(parts, CompatBody::new(FakeSend::new(ext)));
             let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
             fut.await.map(|res| res.map(CompatBody::new))
         }

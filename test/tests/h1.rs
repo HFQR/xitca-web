@@ -12,9 +12,8 @@ use xitca_http::{
     h1,
     http::{
         header::{self, HeaderValue, CONNECTION},
-        Method, Response,
+        Method, Request, RequestExt, Response,
     },
-    Request,
 };
 use xitca_service::fn_service;
 use xitca_test::{test_h1_server, Error};
@@ -216,7 +215,7 @@ async fn h1_keepalive() -> Result<(), Error> {
     Ok(())
 }
 
-async fn handle(req: Request<h1::RequestBody>) -> Result<Response<ResponseBody>, Error> {
+async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
     // Some yield for testing h1 dispatcher's concurrent future handling.
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;

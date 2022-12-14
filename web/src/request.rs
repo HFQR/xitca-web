@@ -1,27 +1,24 @@
 pub use xitca_http::body::RequestBody;
 
-use std::{
+use core::{
     cell::{Ref, RefCell, RefMut},
     mem,
 };
 
-use xitca_http::{
-    body::ResponseBody,
-    http::IntoResponse,
-    request::{BorrowReq, BorrowReqMut, Request},
-    util::service::router::{AddParams, Params},
-};
+use xitca_http::body::ResponseBody;
+
+use crate::http::{BorrowReq, BorrowReqMut, IntoResponse, Request, RequestExt};
 
 use super::response::WebResponse;
 
 pub struct WebRequest<'a, C = (), B = RequestBody> {
-    pub(crate) req: &'a mut Request<()>,
+    pub(crate) req: &'a mut Request<RequestExt<()>>,
     pub(crate) body: &'a mut RefCell<B>,
     pub(crate) ctx: &'a C,
 }
 
 impl<'a, C, B> WebRequest<'a, C, B> {
-    pub(crate) fn new(req: &'a mut Request<()>, body: &'a mut RefCell<B>, ctx: &'a C) -> Self {
+    pub(crate) fn new(req: &'a mut Request<RequestExt<()>>, body: &'a mut RefCell<B>, ctx: &'a C) -> Self {
         Self { req, body, ctx }
     }
 
@@ -65,13 +62,13 @@ impl<'a, C, B> WebRequest<'a, C, B> {
 
     /// Get an immutable reference of [Request]
     #[inline]
-    pub fn req(&self) -> &Request<()> {
+    pub fn req(&self) -> &Request<RequestExt<()>> {
         self.req
     }
 
     /// Get a mutable reference of [Request]
     #[inline]
-    pub fn req_mut(&mut self) -> &mut Request<()> {
+    pub fn req_mut(&mut self) -> &mut Request<RequestExt<()>> {
         self.req
     }
 
@@ -95,13 +92,13 @@ impl<'a, C, B> WebRequest<'a, C, B> {
         self.body.get_mut()
     }
 
-    pub fn take_request(&mut self) -> Request<B>
+    pub fn take_request(&mut self) -> Request<RequestExt<B>>
     where
         B: Default,
     {
         let head = mem::take(self.req_mut());
         let body = self.take_body_mut();
-        head.map_body(|_| body)
+        head.map(|ext| ext.map_body(|_| body))
     }
 
     /// Transform self to a WebResponse with given body type.
@@ -139,7 +136,7 @@ impl<'a, C, B> WebRequest<'a, C, B> {
 impl<C> WebRequest<'_, C> {
     pub(crate) fn new_test(ctx: C) -> TestRequest<C> {
         TestRequest {
-            req: Request::new(()),
+            req: Request::new(RequestExt::default()),
             body: RefCell::new(RequestBody::None),
             ctx,
         }
@@ -148,7 +145,7 @@ impl<C> WebRequest<'_, C> {
 
 impl<C, B, T> BorrowReq<T> for WebRequest<'_, C, B>
 where
-    Request<()>: BorrowReq<T>,
+    Request<RequestExt<()>>: BorrowReq<T>,
 {
     fn borrow(&self) -> &T {
         self.req().borrow()
@@ -157,26 +154,16 @@ where
 
 impl<C, B, T> BorrowReqMut<T> for WebRequest<'_, C, B>
 where
-    Request<()>: BorrowReqMut<T>,
+    Request<RequestExt<()>>: BorrowReqMut<T>,
 {
     fn borrow_mut(&mut self) -> &mut T {
         self.req_mut().borrow_mut()
     }
 }
 
-impl<C, B> AddParams for WebRequest<'_, C, B> {
-    #[inline]
-    fn add_params(&mut self, params: Params) {
-        // FIXME: this is wrong on purpose. WebRequest should forward to xitca_http::Request's
-        // implementation but until the best practice to pass Params around figured out this should
-        // left be. See <xitca_http::Request<_> as AddParams>::add_params for detail.
-        self.req_mut().extensions_mut().insert(params);
-    }
-}
-
 #[cfg(test)]
 pub(crate) struct TestRequest<C> {
-    pub(crate) req: Request<()>,
+    pub(crate) req: Request<RequestExt<()>>,
     pub(crate) body: RefCell<RequestBody>,
     pub(crate) ctx: C,
 }

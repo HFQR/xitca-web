@@ -142,7 +142,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use xitca_http::{body::Once, request::Request};
+    use xitca_http::{body::Once, Request};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{dev::service::ServiceExt, handler::handler_service, App};

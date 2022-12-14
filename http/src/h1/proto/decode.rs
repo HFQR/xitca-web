@@ -5,9 +5,8 @@ use crate::{
     bytes::{Buf, Bytes, BytesMut},
     http::{
         header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
-        Method, Uri, Version,
+        Extension, Method, Request, RequestExt, Uri, Version,
     },
-    request::Request,
 };
 
 use super::{
@@ -22,7 +21,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
     pub fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
-    ) -> Result<Option<(Request<()>, TransferCoding)>, ProtoError> {
+    ) -> Result<Option<(Request<RequestExt<()>>, TransferCoding)>, ProtoError> {
         let mut req = httparse::Request::new(&mut []);
         let mut headers = uninit::uninit_array::<_, MAX_HEADERS>();
 
@@ -75,7 +74,8 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     _ => {}
                 }
 
-                let mut req = Request::with_remote_addr((), *self.remote_addr());
+                let ext = Extension::new(*self.socket_addr());
+                let mut req = Request::new(RequestExt::from_parts((), ext));
 
                 let extensions = self.take_extensions();
 

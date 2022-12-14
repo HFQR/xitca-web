@@ -1,12 +1,10 @@
-use std::{
-    error,
-    fmt::{self, Debug, Display, Formatter},
-    future::Future,
-};
+use core::{fmt, future::Future};
+
+use std::error;
 
 use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
 
-use crate::{http::Method, request::BorrowReq};
+use crate::http::{BorrowReq, Method};
 
 mod next {
     pub struct Exist<S>(pub S);
@@ -155,7 +153,7 @@ pub struct RouteService<R, N, const M: usize> {
     next: N,
 }
 
-impl<Req, R, N, E, const M: usize> Service<Req> for RouteService<R, next::Exist<N>, M>
+impl<R, N, Req, E, const M: usize> Service<Req> for RouteService<R, next::Exist<N>, M>
 where
     R: Service<Req, Error = E>,
     N: Service<Req, Response = R::Response, Error = RouteError<E>>,
@@ -180,7 +178,7 @@ where
     }
 }
 
-impl<Req, R, const M: usize> Service<Req> for RouteService<R, next::Empty, M>
+impl<R, Req, const M: usize> Service<Req> for RouteService<R, next::Empty, M>
 where
     R: Service<Req>,
     Req: BorrowReq<Method>,
@@ -222,14 +220,14 @@ pub type RouteError<E> = PipelineE<MethodNotAllowed, E>;
 /// Error type of Method not allow for route.
 pub struct MethodNotAllowed;
 
-impl Debug for MethodNotAllowed {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Debug for MethodNotAllowed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MethodNotAllowed").finish()
     }
 }
 
-impl Display for MethodNotAllowed {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Display for MethodNotAllowed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Method is not allowed")
     }
 }
@@ -245,8 +243,7 @@ mod test {
 
     use crate::{
         body::{RequestBody, ResponseBody},
-        http,
-        request::Request,
+        http::Request,
         response::Response,
     };
 
@@ -361,20 +358,7 @@ mod test {
         .call(())
         .now_or_panic()
         .unwrap()
-        .call(Request::new(()))
-        .now_or_panic()
-        .unwrap();
-    }
-
-    #[test]
-    fn route_accept_http_request() {
-        get(fn_service(|_: http::Request<()>| async {
-            Ok::<_, Infallible>(Response::new(()))
-        }))
-        .call(())
-        .now_or_panic()
-        .unwrap()
-        .call(http::Request::new(()))
+        .call(Request::default())
         .now_or_panic()
         .unwrap();
     }
