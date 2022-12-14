@@ -64,6 +64,8 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             _ParseError::String(ref e) => fmt::Display::fmt(e, f),
+            #[cfg(feature = "params")]
+            _ParseError::Params(ref e) => fmt::Display::fmt(e, f),
             #[cfg(feature = "json")]
             _ParseError::JsonString(ref e) => fmt::Display::fmt(e, f),
             #[cfg(feature = "urlencoded")]
@@ -76,6 +78,8 @@ impl fmt::Display for ParseError {
 #[derive(Debug)]
 pub(super) enum _ParseError {
     String(Utf8Error),
+    #[cfg(feature = "params")]
+    Params(serde::de::value::Error),
     #[cfg(feature = "json")]
     JsonString(serde_json::Error),
     #[cfg(feature = "urlencoded")]
