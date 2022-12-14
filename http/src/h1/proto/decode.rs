@@ -16,12 +16,14 @@ use super::{
     header::HeaderIndex,
 };
 
+type Decoded = (Request<RequestExt<()>>, TransferCoding);
+
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
     // decode head and generate request and body decoder.
     pub fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
         buf: &mut BytesMut,
-    ) -> Result<Option<(Request<RequestExt<()>>, TransferCoding)>, ProtoError> {
+    ) -> Result<Option<Decoded>, ProtoError> {
         let mut req = httparse::Request::new(&mut []);
         let mut headers = uninit::uninit_array::<_, MAX_HEADERS>();
 

@@ -9,11 +9,10 @@ use xitca_http::{
     http::{
         const_header_value::GRPC,
         header::{HeaderName, HeaderValue, CONTENT_TYPE, TRAILER},
-        IntoResponse, Response,
+        IntoResponse, Request, RequestExt, Response,
     },
-    request_ext::RequestExt,
     util::service::{route::post, Router},
-    HttpServiceBuilder, Request,
+    HttpServiceBuilder,
 };
 use xitca_service::fn_service;
 

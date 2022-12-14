@@ -100,7 +100,7 @@ where
 
             match io {
                 #[cfg(feature = "http3")]
-                ServerStream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr.into(), &self.service)
+                ServerStream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr, &self.service)
                     .run()
                     .await
                     .map_err(From::from),
@@ -146,7 +146,7 @@ where
 
                             super::h2::Dispatcher::new(
                                 &mut conn,
-                                _addr.into(),
+                                _addr,
                                 timer.as_mut(),
                                 self.config.keep_alive_timeout,
                                 &self.service,
