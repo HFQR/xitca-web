@@ -210,6 +210,14 @@ impl<B> Borrow<Params> for RequestExt<B> {
     }
 }
 
+#[cfg(feature = "util-service")]
+impl<B> BorrowMut<Params> for RequestExt<B> {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut Params {
+        self.params_mut()
+    }
+}
+
 /// trait for Borrow &T from &Self.
 /// used for foreign types (from xitca-http pov) that can be impl with [Borrow] trait.
 pub trait BorrowReq<T> {
