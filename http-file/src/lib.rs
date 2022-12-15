@@ -1,31 +1,34 @@
 //! local file serving with http.
 
-use core::{
-    future::Future,
-    pin::Pin,
-    task::{ready, Context, Poll},
-};
+mod chunk;
+
+pub use chunk::ChunkReadStream;
 
 use std::path::{Component, Path, PathBuf};
 
-use bytes::{Bytes, BytesMut};
-use futures_core::stream::Stream;
 use http::{Method, Request, Response};
 use percent_encoding::percent_decode;
-use pin_project_lite::pin_project;
-use tokio_uring::fs::File;
 
 pub struct ServeDir {
+    chunk_size: usize,
     base_path: PathBuf,
 }
 
 impl ServeDir {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { base_path: path.into() }
+        Self {
+            chunk_size: 4096,
+            base_path: path.into(),
+        }
     }
 
-    pub async fn serve<Ext>(&self, req: Request<Ext>) -> Result<Response<()>, ()> {
-        if matches!(*req.method(), Method::HEAD | Method::GET) {
+    pub fn chunk_size(&mut self, size: usize) -> &mut Self {
+        self.chunk_size = size;
+        self
+    }
+
+    pub async fn serve<Ext>(&self, req: Request<Ext>) -> Result<Response<ChunkReadStream>, ()> {
+        if !matches!(*req.method(), Method::HEAD | Method::GET) {
             return Err(());
         }
 
@@ -33,20 +36,11 @@ impl ServeDir {
 
         assert!(!path.is_dir());
 
-        let file = File::open(path).await.unwrap();
+        let file = tokio::fs::File::open(path).await.unwrap();
 
-        async fn callback(bytes: BytesMut, file: File, offset: usize) -> (BytesMut, File, usize) {
-            let (res, buf) = file.read_at(bytes, offset as _).await;
-            let n = res.unwrap();
-            todo!()
-        }
+        let stream = chunk::chunk_read_stream(file, self.chunk_size);
 
-        let body = ChunkedRead {
-            callback,
-            fut: callback(BytesMut::new(), file, 0),
-        };
-
-        Ok(Response::new(()))
+        Ok(Response::new(stream))
     }
 }
 
@@ -79,29 +73,37 @@ impl ServeDir {
     }
 }
 
-pin_project! {
-    pub struct ChunkedRead<F, Fut> {
-        callback: F,
-        #[pin]
-        fut: Fut
+#[cfg(test)]
+mod test {
+    use core::future::poll_fn;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn basic() {
+        let dir = ServeDir::new("sample");
+        let req = Request::builder().uri("/test.txt").body(()).unwrap();
+
+        let mut file = dir.serve(req).await.unwrap().into_body();
+
+        let mut res = String::new();
+
+        while let Some(Ok(bytes)) = poll_fn(|cx| file.as_mut().poll_next(cx)).await {
+            res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
+        }
+
+        assert_eq!(res, "hello, world!");
     }
-}
-impl<F, Fut> Stream for ChunkedRead<F, Fut>
-where
-    F: FnMut(BytesMut, File, usize) -> Fut + Unpin,
-    Fut: Future<Output = (BytesMut, File)>,
-{
-    type Item = Bytes;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
+    #[tokio::test]
+    async fn method() {
+        let dir = ServeDir::new("sample");
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/test.txt")
+            .body(())
+            .unwrap();
 
-        let (mut bytes, file) = ready!(this.fut.as_mut().poll(cx));
-
-        let chunk = bytes.split().freeze();
-
-        this.fut.set((this.callback)(bytes, file, 0));
-
-        Poll::Ready(Some(chunk))
+        assert!(dir.serve(req).await.is_err());
     }
 }
