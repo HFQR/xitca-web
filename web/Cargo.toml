@@ -8,7 +8,7 @@ default = []
 
 # extended http versions.
 http2 = ["xitca-http/http2"]
-http3 = ["xitca-http/http3", "xitca-io/http3"]
+http3 = ["xitca-http/http3"]
 
 # linux io-uring async io.
 io-uring = ["xitca-server/io-uring"]
@@ -45,7 +45,6 @@ tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 
 [dependencies]
 xitca-http = { version = "0.1", features = ["util-service"] }
-xitca-io = "0.1"
 xitca-server = { version = "0.1" }
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = "0.1"
