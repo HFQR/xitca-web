@@ -121,7 +121,7 @@ where
     }
 }
 
-/// Error type for [ContextBuilder] as [Service] and [ContextService] as [Service]
+/// Error type for [ContextBuilder] and it's service type.
 pub type ContextError<A, B> = PipelineE<A, B>;
 
 impl<CF, Fut, C, CErr, F, Arg> Service<Arg> for ContextBuilder<CF, C, F>

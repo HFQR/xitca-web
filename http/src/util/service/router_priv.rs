@@ -17,7 +17,7 @@ use crate::http::{BorrowReq, BorrowReqMut, Uri};
 pub type Router<Req, Arg, BErr, Res, Err> =
     GenericRouter<DefaultObjectConstructor<Req, Arg>, DefaultObject<Arg, Req, BErr, Res, Err>>;
 
-/// Simple router for matching on [Request]'s path and call according service.
+/// Simple router for matching on [Request](crate::http::Request)'s path and call according service.
 ///
 /// An [ObjectConstructor] must be specified as a type prameter
 /// in order to determine how the router type-erases node services.

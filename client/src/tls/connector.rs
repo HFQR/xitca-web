@@ -176,9 +176,7 @@ impl Connector {
 /// # }
 /// ```
 pub trait TlsConnect: Send + Sync {
-    /// Box<dyn Io> is an async read/write type.
-    ///
-    /// See [Io] trait for detail.
+    /// `Box<dyn Io>` is an async read/write type. See [Io] trait for detail.
     #[allow(clippy::type_complexity)]
     fn connect<'s, 'f>(&'s self, io: Box<dyn Io>) -> BoxFuture<'f, Result<(Box<dyn Io>, Version), Error>>
     where
