@@ -76,7 +76,7 @@ impl Statement {
         &self.columns
     }
 
-    /// Convert self to [StatementGuarded] which would cancel the statement on drop.
+    /// Convert self to a drop guarded statement which would cancel on drop.
     pub fn into_guarded(self, client: &Client) -> StatementGuarded<'_> {
         StatementGuarded {
             statement: Some(self),

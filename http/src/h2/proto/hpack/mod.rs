@@ -1,4 +1,4 @@
-//! Copied from https://github.com/hyperium/h2
+//! Copied from <https://github.com/hyperium/h2>
 
 mod decoder;
 mod encoder;
