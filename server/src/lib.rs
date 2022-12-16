@@ -23,7 +23,7 @@ mod test {
     #[test]
     fn test_builder() {
         let listener = std::net::TcpListener::bind("localhost:0").unwrap();
-        let _ = crate::builder::Builder::new()
+        let _server = crate::builder::Builder::new()
             .listen("test", listener, || {
                 fn_service(|_: TcpStream| async { Ok::<_, ()>(()) })
             })

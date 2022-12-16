@@ -411,7 +411,7 @@ mod test {
 
         // Now try encoding entries that should exist in the table
         for i in 1..65 {
-            let key = format!("x-hello-world-{:02}", i);
+            let key = format!("x-hello-world-{i:02}");
             let res = encode(&mut encoder, vec![header(&key, &key)]);
             assert_eq!(0x80 | (61 + (65 - i)), res[0]);
         }
