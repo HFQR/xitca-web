@@ -43,25 +43,24 @@ impl ServeDir {
 
         let ct = mime_guess::from_path(&path)
             .first_raw()
-            .map(HeaderValue::from_static)
-            .unwrap_or_else(|| HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()));
+            .unwrap_or_else(|| mime::APPLICATION_OCTET_STREAM.as_ref());
 
-        let (file, _) = tokio::task::spawn_blocking(move || {
-            use std::{fs, io};
+        let (file, md) = tokio::task::spawn_blocking(move || {
+            use std::{fs::File, io};
 
-            use tokio::fs::File;
-
-            let file = fs::File::open(path)?;
+            let file = File::open(path)?;
             let meta = file.metadata()?;
-            Ok::<_, io::Error>((File::from_std(file), meta))
+            Ok::<_, io::Error>((file.into(), meta))
         })
         .await
         .unwrap()?;
 
-        let stream = chunk::chunk_read_stream(file, self.chunk_size);
+        let size = md.len();
+
+        let stream = chunk::chunk_read_stream(file, size, self.chunk_size);
         let mut res = Response::new(stream);
 
-        res.headers_mut().insert(CONTENT_TYPE, ct);
+        res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(ct));
 
         Ok(res)
     }
@@ -140,7 +139,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn content_type() {
+    async fn response_headers() {
         let dir = ServeDir::new("sample");
         let req = Request::builder().uri("/test.txt").body(()).unwrap();
         let res = dir.serve(&req).await.unwrap();

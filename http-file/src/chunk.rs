@@ -13,6 +13,7 @@ use tokio::{fs::File, io::AsyncReadExt};
 
 pin_project! {
     struct ChunkedReader<F, Fut> {
+        size: u64,
         chunk_size: usize,
         read: F,
         #[pin]
@@ -22,8 +23,9 @@ pin_project! {
 
 pub type ChunkReadStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>>>>;
 
-pub(super) fn chunk_read_stream(file: File, chunk_size: usize) -> ChunkReadStream {
+pub(super) fn chunk_read_stream(file: File, size: u64, chunk_size: usize) -> ChunkReadStream {
     Box::pin(ChunkedReader {
+        size,
         chunk_size,
         read,
         on_flight: read(file, BytesMut::with_capacity(chunk_size)),
@@ -49,13 +51,43 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
+
+        if *this.size == 0 {
+            return Poll::Ready(None);
+        }
+
         Poll::Ready(ready!(this.on_flight.as_mut().poll(cx))?.map(|(mut bytes, file, n)| {
-            let chunk = bytes.split_to(n).freeze();
+            let mut chunk = bytes.split_to(n);
+
+            let n = n as u64;
+
+            if *this.size <= n {
+                // an unlikely case happen when some write to file while it's read.
+                if *this.size < n {
+                    // split the size and drop the extra part.
+                    // only the self.size bytes of data were promised to client.
+                    chunk = chunk.split_to(*this.size as usize);
+                }
+                *this.size = 0;
+                return Ok(chunk.freeze());
+            }
+
+            *this.size -= n;
+
+            let chunk = chunk.freeze();
+
             // TODO: better handling additional memory alloc?
             // the goal should be linear growth targeting page size.
             bytes.reserve(*this.chunk_size);
             this.on_flight.set((this.read)(file, bytes));
+
             Ok(chunk)
         }))
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let size = self.size as usize;
+        (size, Some(size))
     }
 }
