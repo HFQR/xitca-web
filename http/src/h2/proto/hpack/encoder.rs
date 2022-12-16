@@ -371,7 +371,7 @@ mod test {
 
         // Fill the table
         for i in 0..64 {
-            let key = format!("x-hello-world-{:02}", i);
+            let key = format!("x-hello-world-{i:02}");
             let res = encode(&mut encoder, vec![header(&key, &key)]);
 
             assert_eq!(&[0b01000000, 0x80 | 12], &res[0..2]);
@@ -392,7 +392,7 @@ mod test {
 
         // Find existing headers
         for i in 0..64 {
-            let key = format!("x-hello-world-{:02}", i);
+            let key = format!("x-hello-world-{i:02}");
             let res = encode(&mut encoder, vec![header(&key, &key)]);
             assert_eq!(0x80, res[0] & 0x80);
         }
@@ -411,7 +411,7 @@ mod test {
 
         // Now try encoding entries that should exist in the table
         for i in 1..65 {
-            let key = format!("x-hello-world-{:02}", i);
+            let key = format!("x-hello-world-{i:02}");
             let res = encode(&mut encoder, vec![header(&key, &key)]);
             assert_eq!(0x80 | (61 + (65 - i)), res[0]);
         }

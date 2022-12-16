@@ -712,19 +712,19 @@ mod tests {
 
         let s: Result<Test1, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
-        assert!(format!("{:?}", s).contains("wrong number of parameters"));
+        assert!(format!("{s:?}").contains("wrong number of parameters"));
 
         let s: Result<Test2, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
-        assert!(format!("{:?}", s).contains("can not parse"));
+        assert!(format!("{s:?}").contains("can not parse"));
 
         let s: Result<(String, String), de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
-        assert!(format!("{:?}", s).contains("wrong number of parameters"));
+        assert!(format!("{s:?}").contains("wrong number of parameters"));
 
         let s: Result<u32, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
-        assert!(format!("{:?}", s).contains("can not parse"));
+        assert!(format!("{s:?}").contains("can not parse"));
 
         #[derive(Debug, Deserialize)]
         struct S {
@@ -732,7 +732,7 @@ mod tests {
         }
         let s: Result<S, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
-        assert!(format!("{:?}", s).contains("missing field `_inner`"));
+        assert!(format!("{s:?}").contains("missing field `_inner`"));
 
         let req = Request::builder()
             .uri("/")
@@ -745,11 +745,11 @@ mod tests {
 
         let s: Result<&str, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
-        assert!(format!("{:?}", s).contains("expected at least one parameters"));
+        assert!(format!("{s:?}").contains("expected at least one parameters"));
 
         let s: Result<TestEnum, de::value::Error> = Deserialize::deserialize(Params2::new(params));
         assert!(s.is_err());
-        assert!(format!("{:?}", s).contains("expected at least one parameters"));
+        assert!(format!("{s:?}").contains("expected at least one parameters"));
     }
 
     async fn handler2(Params(MyStruct { key, value }): Params<MyStruct>) -> &'static str {
