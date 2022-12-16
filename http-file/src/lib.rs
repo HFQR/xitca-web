@@ -1,5 +1,7 @@
 //! local file serving with http.
 
+#![feature(type_alias_impl_trait)]
+
 mod chunk;
 mod error;
 
@@ -14,12 +16,14 @@ use http::{
 use mime_guess::mime;
 use percent_encoding::percent_decode;
 
+#[derive(Clone)]
 pub struct ServeDir {
     chunk_size: usize,
     base_path: PathBuf,
 }
 
 impl ServeDir {
+    /// Construct a new ServeDir with given path.
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             chunk_size: 4096,
@@ -32,6 +36,38 @@ impl ServeDir {
         self
     }
 
+    /// try to find a matching file from given input request.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use http_file::ServeDir;
+    /// # use http::Request;
+    /// async fn serve(req: &Request<()>) {
+    ///     let dir = ServeDir::new("sample");
+    ///     let res = dir.serve(&req).await;
+    /// }
+    /// ```
+    ///
+    /// # Note
+    /// Due to different callers would potentially handing the response body in different way the
+    /// output [Response] does not carry `content-length` header.
+    /// If the file is supposed to be served as sized body rather than `transfer-encoding: chunked`
+    /// one can get the body length with following method:
+    /// ```rust
+    /// # use http_file::ChunkReadStream;
+    /// use futures::Stream;
+    /// use http::{header::{CONTENT_LENGTH, HeaderValue}, Response};
+    ///
+    /// fn add_content_length(res: &mut Response<ChunkReadStream>) {
+    ///     if let (lower, Some(upper)) = res.body().size_hint() {
+    ///         // when lower and upper size hint is the same non zero value it means the size
+    ///         // would be the exact length of file body stream.
+    ///         if lower == upper && lower != 0 {
+    ///             res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(lower));
+    ///         }
+    ///     }
+    /// }
+    /// ```
     pub async fn serve<Ext>(&self, req: &Request<Ext>) -> Result<Response<ChunkReadStream>, ServeError> {
         if !matches!(*req.method(), Method::HEAD | Method::GET) {
             return Err(ServeError::MethodNotAllowed);
@@ -47,7 +83,6 @@ impl ServeDir {
 
         let (file, md) = tokio::task::spawn_blocking(move || {
             use std::{fs::File, io};
-
             let file = File::open(path)?;
             let meta = file.metadata()?;
             Ok::<_, io::Error>((file.into(), meta))
@@ -99,6 +134,8 @@ impl ServeDir {
 mod test {
     use core::future::poll_fn;
 
+    use futures_core::stream::Stream;
+
     use super::*;
 
     #[tokio::test]
@@ -106,11 +143,16 @@ mod test {
         let dir = ServeDir::new("sample");
         let req = Request::builder().uri("/test.txt").body(()).unwrap();
 
-        let mut file = dir.serve(&req).await.unwrap().into_body();
+        let mut stream = Box::pin(dir.serve(&req).await.unwrap().into_body());
+
+        let (low, high) = stream.size_hint();
+
+        assert_eq!(low, high.unwrap());
+        assert_eq!(low, "hello, world!".len());
 
         let mut res = String::new();
 
-        while let Some(Ok(bytes)) = poll_fn(|cx| file.as_mut().poll_next(cx)).await {
+        while let Some(Ok(bytes)) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
             res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
         }
 
@@ -147,5 +189,15 @@ mod test {
             res.headers().get(CONTENT_TYPE).unwrap(),
             HeaderValue::from_static("text/plain")
         );
+    }
+
+    #[tokio::test]
+    async fn body_size_hint() {
+        let dir = ServeDir::new("sample");
+        let req = Request::builder().uri("/test.txt").body(()).unwrap();
+        let res = dir.serve(&req).await.unwrap();
+        let (lower, Some(upper)) = res.body().size_hint() else { panic!("ChunkReadStream does not have a size") };
+        assert_eq!(lower, upper);
+        assert_eq!(lower, "hello, world!".len());
     }
 }

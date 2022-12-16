@@ -1,7 +1,7 @@
 //! use tower_http ServeDir service and SetResponseHeaderLayer layer with xitca-web to serve file.
 //!
 //! *. to simplify runtime path detection this example assume you always run it from
-//! examples/tower-http-compat
+//! examples/tower-http/
 
 use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 use xitca_web::{

@@ -2,6 +2,7 @@
 members = [
     "cloudflare-worker",
     "compression",
+    "file",
     "grpc",
     "hello-world",
     "io-uring",
@@ -22,6 +23,7 @@ xitca-service = { path = "../service" }
 xitca-web = { path = "../web" }
 xitca-unsafe-collection = { path = "../unsafe_collection" }
 http-encoding = { path = "../http-encoding" }
+http-file = { path = "../http-file" }
 http-multipart = { path = "../http-multipart" }
 http-ws = { path = "../http-ws" }
 

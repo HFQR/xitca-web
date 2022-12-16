@@ -21,15 +21,15 @@ pin_project! {
     }
 }
 
-pub type ChunkReadStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>>>>;
+pub type ChunkReadStream = impl Stream<Item = io::Result<Bytes>> + Send;
 
 pub(super) fn chunk_read_stream(file: File, size: u64, chunk_size: usize) -> ChunkReadStream {
-    Box::pin(ChunkedReader {
+    ChunkedReader {
         size,
         chunk_size,
         read,
         on_flight: read(file, BytesMut::with_capacity(chunk_size)),
-    })
+    }
 }
 
 async fn read(mut file: File, mut bytes: BytesMut) -> io::Result<Option<(BytesMut, File, usize)>> {
@@ -62,11 +62,11 @@ where
             let n = n as u64;
 
             if *this.size <= n {
-                // an unlikely case happen when some write to file while it's read.
                 if *this.size < n {
-                    // split the size and drop the extra part.
-                    // only the self.size bytes of data were promised to client.
-                    chunk = chunk.split_to(*this.size as usize);
+                    // an unlikely case happen when someone append data to file while it's being
+                    // read.
+                    // drop the extra part. only self.size bytes of data were promised to client.
+                    chunk.truncate(*this.size as usize);
                 }
                 *this.size = 0;
                 return Ok(chunk.freeze());
@@ -74,14 +74,12 @@ where
 
             *this.size -= n;
 
-            let chunk = chunk.freeze();
-
             // TODO: better handling additional memory alloc?
             // the goal should be linear growth targeting page size.
             bytes.reserve(*this.chunk_size);
             this.on_flight.set((this.read)(file, bytes));
 
-            Ok(chunk)
+            Ok(chunk.freeze())
         }))
     }
 
