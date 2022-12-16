@@ -83,6 +83,20 @@ impl<A, B> fmt::Debug for SelectOutput<A, B> {
     }
 }
 
+/// Trait for trying to complete future in a single poll. And panic when fail to do so.
+///
+/// Useful for async code that only expose async API but not really doing stuff in async manner.
+///
+/// # Examples
+/// ```rust
+/// # use xitca_unsafe_collection::futures::NowOrPanic;
+///
+/// async fn looks_like() {
+///     // nothing async really happened.
+/// }
+///
+/// looks_like().now_or_panic();
+/// ```
 pub trait NowOrPanic: Sized {
     type Output;
 
