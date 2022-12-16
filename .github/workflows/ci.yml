@@ -14,7 +14,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2022-09-14
+          - nightly-2022-11-03
     name: http check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -33,7 +33,7 @@ jobs:
       run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
     - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v1.2.0
+      uses: Swatinem/rust-cache@v2
 
     - name: Install cargo-hack
       uses: actions-rs/cargo@v1
@@ -63,7 +63,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2022-09-14
+          - nightly-2022-11-03
     name: web check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -82,7 +82,7 @@ jobs:
       run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
     - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v1.2.0
+      uses: Swatinem/rust-cache@v2
 
     - name: Install cargo-hack
       uses: actions-rs/cargo@v1
@@ -112,7 +112,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2022-09-14
+          - nightly-2022-11-03
     name: client check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -131,7 +131,7 @@ jobs:
       run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
     - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v1.2.0
+      uses: Swatinem/rust-cache@v2
 
     - name: Install cargo-hack
       uses: actions-rs/cargo@v1
@@ -161,7 +161,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2022-09-14
+          - nightly-2022-11-03
     name: test and other check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}  
     
@@ -180,7 +180,7 @@ jobs:
       run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
     - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v1.2.0
+      uses: Swatinem/rust-cache@v2
 
     - name: Install cargo-hack
       uses: actions-rs/cargo@v1
@@ -220,7 +220,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2022-09-14
+          - nightly-2022-11-03
     name: example check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -239,7 +239,7 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
       - name: Cache Dependencies
-        uses: Swatinem/rust-cache@v1.2.0
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-hack
         uses: actions-rs/cargo@v1
