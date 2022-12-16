@@ -1,12 +1,17 @@
 //! local file serving with http.
 
 mod chunk;
+mod error;
 
-pub use chunk::ChunkReadStream;
+pub use self::{chunk::ChunkReadStream, error::ServeError};
 
 use std::path::{Component, Path, PathBuf};
 
-use http::{Method, Request, Response};
+use http::{
+    header::{HeaderValue, CONTENT_TYPE},
+    Method, Request, Response,
+};
+use mime_guess::mime;
 use percent_encoding::percent_decode;
 
 pub struct ServeDir {
@@ -27,20 +32,38 @@ impl ServeDir {
         self
     }
 
-    pub async fn serve<Ext>(&self, req: Request<Ext>) -> Result<Response<ChunkReadStream>, ()> {
+    pub async fn serve<Ext>(&self, req: &Request<Ext>) -> Result<Response<ChunkReadStream>, ServeError> {
         if !matches!(*req.method(), Method::HEAD | Method::GET) {
-            return Err(());
+            return Err(ServeError::MethodNotAllowed);
         }
 
-        let path = self.path_check(req.uri().path()).unwrap();
+        let path = self.path_check(req.uri().path()).ok_or(ServeError::InvalidPath)?;
 
         assert!(!path.is_dir());
 
-        let file = tokio::fs::File::open(path).await.unwrap();
+        let ct = mime_guess::from_path(&path)
+            .first_raw()
+            .map(HeaderValue::from_static)
+            .unwrap_or_else(|| HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()));
+
+        let (file, _) = tokio::task::spawn_blocking(move || {
+            use std::{fs, io};
+
+            use tokio::fs::File;
+
+            let file = fs::File::open(path)?;
+            let meta = file.metadata()?;
+            Ok::<_, io::Error>((File::from_std(file), meta))
+        })
+        .await
+        .unwrap()?;
 
         let stream = chunk::chunk_read_stream(file, self.chunk_size);
+        let mut res = Response::new(stream);
 
-        Ok(Response::new(stream))
+        res.headers_mut().insert(CONTENT_TYPE, ct);
+
+        Ok(res)
     }
 }
 
@@ -84,7 +107,7 @@ mod test {
         let dir = ServeDir::new("sample");
         let req = Request::builder().uri("/test.txt").body(()).unwrap();
 
-        let mut file = dir.serve(req).await.unwrap().into_body();
+        let mut file = dir.serve(&req).await.unwrap().into_body();
 
         let mut res = String::new();
 
@@ -103,7 +126,27 @@ mod test {
             .uri("/test.txt")
             .body(())
             .unwrap();
+        assert!(matches!(
+            dir.serve(&req).await.err(),
+            Some(ServeError::MethodNotAllowed)
+        ));
+    }
 
-        assert!(dir.serve(req).await.is_err());
+    #[tokio::test]
+    async fn invalid_path() {
+        let dir = ServeDir::new("sample");
+        let req = Request::builder().uri("/../test.txt").body(()).unwrap();
+        assert!(matches!(dir.serve(&req).await.err(), Some(ServeError::InvalidPath)));
+    }
+
+    #[tokio::test]
+    async fn content_type() {
+        let dir = ServeDir::new("sample");
+        let req = Request::builder().uri("/test.txt").body(()).unwrap();
+        let res = dir.serve(&req).await.unwrap();
+        assert_eq!(
+            res.headers().get(CONTENT_TYPE).unwrap(),
+            HeaderValue::from_static("text/plain")
+        );
     }
 }

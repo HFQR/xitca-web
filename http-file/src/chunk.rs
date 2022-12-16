@@ -52,7 +52,7 @@ where
         Poll::Ready(ready!(this.on_flight.as_mut().poll(cx))?.map(|(mut bytes, file, n)| {
             let chunk = bytes.split_to(n).freeze();
             // TODO: better handling additional memory alloc?
-            // the goal should
+            // the goal should be linear growth targeting page size.
             bytes.reserve(*this.chunk_size);
             this.on_flight.set((this.read)(file, bytes));
             Ok(chunk)
