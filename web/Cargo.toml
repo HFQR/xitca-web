@@ -4,18 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
+default = ["http1"]
 
 # extended http versions.
-http2 = ["xitca-http/http2"]
-http3 = ["xitca-http/http3"]
+http1 = ["__server", "xitca-http/http1"]
+http2 = ["__server", "xitca-http/http2"]
+http3 = ["__server", "xitca-http/http3"]
 
 # linux io-uring async io.
-io-uring = ["xitca-server/io-uring"]
+io-uring = ["__server", "xitca-server/io-uring"]
 
 # tls transport layer
-openssl = ["xitca-http/openssl", "openssl-crate"]
-rustls = ["xitca-http/rustls", "rustls-crate"]
+openssl = ["__server", "xitca-http/openssl", "openssl-crate"]
+rustls = ["__server", "xitca-http/rustls", "rustls-crate"]
 
 # params type extractor
 params = ["serde"]
@@ -40,17 +41,22 @@ websocket = ["http-ws", "tokio"]
 # proc macro code generation
 codegen = ["xitca-codegen"]
 
-# experimental tower-http Layer compat.
+# experimental tower-http Layer compat
 tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 
+# private http server feature
+__server = ["xitca-http/runtime", "xitca-server"]
+
 [dependencies]
-xitca-http = { version = "0.1", features = ["util-service"] }
-xitca-server = { version = "0.1" }
+xitca-http = { version = "0.1", features = ["util-service"], default-features = false }
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3"
 pin-project-lite = "0.2.9"
+
+# http server
+xitca-server = { version = "0.1", optional = true }
 
 # openssl
 openssl-crate = { package = "openssl", version = "0.10", optional = true }
@@ -75,7 +81,7 @@ http-multipart = { version = "0.1", optional = true }
 
 # websocket
 http-ws = { version = "0.1", optional = true }
-tokio = { version = "1.21", features = ["sync"], optional = true }
+tokio = { version = "1.23", features = ["rt", "sync", "time"], optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }

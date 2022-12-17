@@ -15,7 +15,7 @@ use super::{
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
     error::{HttpServiceError, TimeoutError},
-    http::{Request, RequestExt, Response, Version},
+    http::{Request, RequestExt, Response},
     util::timer::{KeepAlive, Timeout},
     version::AsVersion,
 };
@@ -125,7 +125,7 @@ where
 
                     match version {
                         #[cfg(feature = "http1")]
-                        Version::HTTP_11 | Version::HTTP_10 => super::h1::proto::run(
+                        super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::proto::run(
                             &mut _tls_stream,
                             _addr,
                             timer.as_mut(),
@@ -136,7 +136,7 @@ where
                         .await
                         .map_err(From::from),
                         #[cfg(feature = "http2")]
-                        Version::HTTP_2 => {
+                        super::http::Version::HTTP_2 => {
                             let mut conn = ::h2::server::Builder::new()
                                 .enable_connect_protocol()
                                 .handshake(_tls_stream)
@@ -163,7 +163,7 @@ where
                 ServerStream::Unix(mut _io, _) => {
                     #[cfg(not(feature = "http1"))]
                     {
-                        Err(HttpServiceError::UnSupportedVersion(Version::HTTP_11))
+                        Err(HttpServiceError::UnSupportedVersion(super::http::Version::HTTP_11))
                     }
 
                     #[cfg(feature = "http1")]
