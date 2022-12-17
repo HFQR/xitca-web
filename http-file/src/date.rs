@@ -14,8 +14,8 @@ use httpdate::HttpDate;
 
 use super::error::ServeError;
 
-pub(super) fn modified_check<Ext>(req: &Request<Ext>, md: &Metadata) -> Result<Option<HttpDate>, ServeError> {
-    let modified_time = match md.modified() {
+pub(super) fn mod_date_check<Ext>(req: &Request<Ext>, md: &Metadata) -> Result<Option<HttpDate>, ServeError> {
+    let mod_date = match md.modified() {
         Ok(modified) => HttpDate::from(modified),
         Err(_) => {
             #[cold]
@@ -32,25 +32,22 @@ pub(super) fn modified_check<Ext>(req: &Request<Ext>, md: &Metadata) -> Result<O
         }
     };
 
-    let if_unmodified_since = header_value_to_http_date(req.headers().get(IF_UNMODIFIED_SINCE));
-    let if_modified_since = header_value_to_http_date(req.headers().get(IF_MODIFIED_SINCE));
-
-    if let Some(ref time) = if_unmodified_since {
-        if time < &modified_time {
+    if let Some(ref date) = to_http_date(req.headers().get(IF_UNMODIFIED_SINCE)) {
+        if date < &mod_date {
             return Err(ServeError::PreconditionFailed);
         }
     }
 
-    if let Some(ref time) = if_modified_since {
-        if time >= &modified_time {
+    if let Some(ref date) = to_http_date(req.headers().get(IF_MODIFIED_SINCE)) {
+        if date >= &mod_date {
             return Err(ServeError::NotModified);
         }
     }
 
-    Ok(Some(modified_time))
+    Ok(Some(mod_date))
 }
 
-fn header_value_to_http_date(header: Option<&HeaderValue>) -> Option<HttpDate> {
+fn to_http_date(header: Option<&HeaderValue>) -> Option<HttpDate> {
     header.and_then(|v| {
         std::str::from_utf8(v.as_ref())
             .ok()

@@ -92,7 +92,7 @@ impl ServeDir {
         .await
         .unwrap()?;
 
-        let modified = date::modified_check(req, &md)?;
+        let modified = date::mod_date_check(req, &md)?;
 
         let size = md.len();
 
