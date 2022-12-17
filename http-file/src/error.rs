@@ -1,7 +1,8 @@
 use core::fmt;
 
-use http::{request::Parts, Request, Response, StatusCode};
 use std::{error, io};
+
+use http::{request::Parts, Request, Response, StatusCode};
 
 /// high level error types for serving file.
 /// see [into_response_from] and [into_response] for way of converting error to [Response] type.
@@ -59,9 +60,15 @@ impl ServeError {
         self._into_response(Response::new(()))
     }
 
-    // FIXME: handle error status.
     fn _into_response(self, mut res: Response<()>) -> Response<()> {
-        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        match self {
+            Self::MethodNotAllowed => *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED,
+            Self::InvalidPath => *res.status_mut() = StatusCode::BAD_REQUEST,
+            Self::NotModified => *res.status_mut() = StatusCode::NOT_MODIFIED,
+            Self::PreconditionFailed => *res.status_mut() = StatusCode::PRECONDITION_FAILED,
+            Self::NotFound => *res.status_mut() = StatusCode::NOT_FOUND,
+            Self::Io(_) => *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR,
+        }
         res
     }
 }

@@ -34,7 +34,7 @@ fn main() -> std::io::Result<()> {
 async fn index(RequestRef(req): RequestRef<'_>, StateRef(dir): StateRef<'_, ServeDir>) -> WebResponse {
     match dir.serve(req).await {
         Ok(res) => res.map(|body| ResponseBody::stream(StreamBody::new(body))),
-        Err(e) => WebResponse::builder().status(400).body(format!("{e}").into()).unwrap(),
+        Err(e) => e.into_response().map(|_| ResponseBody::None),
     }
 }
 
