@@ -11,6 +11,7 @@ members = [
     "test",
     "web",
     "http-encoding",
+    "http-file",
     "http-multipart",
     "http-ws",
     "unsafe_collection"
@@ -28,6 +29,7 @@ xitca-service = { path = "./service" }
 xitca-web = { path = "./web" }
 xitca-unsafe-collection = { path = "./unsafe_collection" }
 http-encoding = { path = "./http-encoding" }
+http-file = { path = "http-file" }
 http-multipart = { path = "./http-multipart" }
 http-ws = { path = "./http-ws" }
 
