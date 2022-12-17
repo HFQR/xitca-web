@@ -7,12 +7,16 @@ mod error;
 
 pub use self::{chunk::ChunkReadStream, error::ServeError};
 
-use std::path::{Component, Path, PathBuf};
+use std::{
+    fs::Metadata,
+    path::{Component, Path, PathBuf},
+};
 
 use http::{
-    header::{HeaderValue, CONTENT_TYPE},
+    header::{HeaderValue, CONTENT_TYPE, IF_MODIFIED_SINCE, IF_UNMODIFIED_SINCE},
     Method, Request, Response,
 };
+use httpdate::HttpDate;
 use mime_guess::mime;
 use percent_encoding::percent_decode;
 
@@ -36,7 +40,8 @@ impl ServeDir {
         self
     }
 
-    /// try to find a matching file from given input request.
+    /// try to find a matching file from given input request and generate http response with stream
+    /// reader of matched file.
     ///
     /// # Examples
     /// ```rust
@@ -49,7 +54,7 @@ impl ServeDir {
     /// ```
     ///
     /// # Note
-    /// Due to different callers would potentially handing the response body in different way the
+    /// Due to different callers would potentially handling the response body in different way the
     /// output [Response] does not carry `content-length` header.
     /// If the file is supposed to be served as sized body rather than `transfer-encoding: chunked`
     /// one can get the body length with following method:
@@ -90,6 +95,8 @@ impl ServeDir {
         .await
         .unwrap()?;
 
+        modified_check(req, &md)?;
+
         let size = md.len();
 
         let stream = chunk::chunk_read_stream(file, size, self.chunk_size);
@@ -128,6 +135,51 @@ impl ServeDir {
 
         Some(path)
     }
+}
+
+fn modified_check<Ext>(req: &Request<Ext>, md: &Metadata) -> Result<(), ServeError> {
+    let modified_time = match md.modified() {
+        Ok(modified) => HttpDate::from(modified),
+        Err(_) => {
+            #[cold]
+            #[inline(never)]
+            fn precondition_check<Ext>(req: &Request<Ext>) -> Result<(), ServeError> {
+                if req.headers().contains_key(IF_UNMODIFIED_SINCE) {
+                    Err(ServeError::PreconditionFailed)
+                } else {
+                    Ok(())
+                }
+            }
+
+            return precondition_check(req);
+        }
+    };
+
+    let if_unmodified_since = header_value_to_http_date(req.headers().get(IF_UNMODIFIED_SINCE));
+    let if_modified_since = header_value_to_http_date(req.headers().get(IF_MODIFIED_SINCE));
+
+    if let Some(ref time) = if_unmodified_since {
+        if time < &modified_time {
+            return Err(ServeError::PreconditionFailed);
+        }
+    }
+
+    if let Some(time) = if_modified_since {
+        if time >= modified_time {
+            return Err(ServeError::NotModified);
+        }
+    }
+
+    Ok(())
+}
+
+fn header_value_to_http_date(header: Option<&HeaderValue>) -> Option<HttpDate> {
+    header.and_then(|v| {
+        std::str::from_utf8(v.as_ref())
+            .ok()
+            .map(<HttpDate as std::str::FromStr>::from_str)
+            .and_then(Result::ok)
+    })
 }
 
 #[cfg(test)]
