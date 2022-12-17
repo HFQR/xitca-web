@@ -92,6 +92,7 @@ impl From<io::Error> for ServeError {
     fn from(e: io::Error) -> Self {
         match e.kind() {
             io::ErrorKind::NotFound => Self::NotFound,
+            io::ErrorKind::PermissionDenied => Self::InvalidPath,
             _ => Self::Io(e),
         }
     }

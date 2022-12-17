@@ -3,20 +3,17 @@
 #![feature(type_alias_impl_trait)]
 
 mod chunk;
+mod date;
 mod error;
 
 pub use self::{chunk::ChunkReadStream, error::ServeError};
 
-use std::{
-    fs::Metadata,
-    path::{Component, Path, PathBuf},
-};
+use std::path::{Component, Path, PathBuf};
 
 use http::{
-    header::{HeaderValue, CONTENT_TYPE, IF_MODIFIED_SINCE, IF_UNMODIFIED_SINCE},
+    header::{HeaderValue, CONTENT_TYPE, LAST_MODIFIED},
     Method, Request, Response,
 };
-use httpdate::HttpDate;
 use mime_guess::mime;
 use percent_encoding::percent_decode;
 
@@ -95,7 +92,7 @@ impl ServeDir {
         .await
         .unwrap()?;
 
-        modified_check(req, &md)?;
+        let modified = date::modified_check(req, &md)?;
 
         let size = md.len();
 
@@ -103,6 +100,13 @@ impl ServeDir {
         let mut res = Response::new(stream);
 
         res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(ct));
+
+        if let Some(modified) = modified {
+            let bytes = date::date_to_bytes(modified);
+            if let Ok(val) = HeaderValue::from_maybe_shared(bytes) {
+                res.headers_mut().insert(LAST_MODIFIED, val);
+            }
+        }
 
         Ok(res)
     }
@@ -135,51 +139,6 @@ impl ServeDir {
 
         Some(path)
     }
-}
-
-fn modified_check<Ext>(req: &Request<Ext>, md: &Metadata) -> Result<(), ServeError> {
-    let modified_time = match md.modified() {
-        Ok(modified) => HttpDate::from(modified),
-        Err(_) => {
-            #[cold]
-            #[inline(never)]
-            fn precondition_check<Ext>(req: &Request<Ext>) -> Result<(), ServeError> {
-                if req.headers().contains_key(IF_UNMODIFIED_SINCE) {
-                    Err(ServeError::PreconditionFailed)
-                } else {
-                    Ok(())
-                }
-            }
-
-            return precondition_check(req);
-        }
-    };
-
-    let if_unmodified_since = header_value_to_http_date(req.headers().get(IF_UNMODIFIED_SINCE));
-    let if_modified_since = header_value_to_http_date(req.headers().get(IF_MODIFIED_SINCE));
-
-    if let Some(ref time) = if_unmodified_since {
-        if time < &modified_time {
-            return Err(ServeError::PreconditionFailed);
-        }
-    }
-
-    if let Some(time) = if_modified_since {
-        if time >= modified_time {
-            return Err(ServeError::NotModified);
-        }
-    }
-
-    Ok(())
-}
-
-fn header_value_to_http_date(header: Option<&HeaderValue>) -> Option<HttpDate> {
-    header.and_then(|v| {
-        std::str::from_utf8(v.as_ref())
-            .ok()
-            .map(<HttpDate as std::str::FromStr>::from_str)
-            .and_then(Result::ok)
-    })
 }
 
 #[cfg(test)]
