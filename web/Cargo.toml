@@ -7,16 +7,16 @@ edition = "2021"
 default = ["http1"]
 
 # extended http versions.
-http1 = ["xitca-http/http1", "xitca-server"]
-http2 = ["xitca-http/http2", "xitca-server"]
-http3 = ["xitca-http/http3", "xitca-server"]
+http1 = ["__server", "xitca-http/http1"]
+http2 = ["__server", "xitca-http/http2"]
+http3 = ["__server", "xitca-http/http3"]
 
 # linux io-uring async io.
-io-uring = ["xitca-server/io-uring"]
+io-uring = ["__server", "xitca-server/io-uring"]
 
 # tls transport layer
-openssl = ["xitca-http/openssl", "xitca-server", "openssl-crate"]
-rustls = ["xitca-http/rustls", "xitca-server", "rustls-crate"]
+openssl = ["__server", "xitca-http/openssl", "openssl-crate"]
+rustls = ["__server", "xitca-http/rustls", "rustls-crate"]
 
 # params type extractor
 params = ["serde"]
@@ -41,8 +41,11 @@ websocket = ["http-ws", "tokio"]
 # proc macro code generation
 codegen = ["xitca-codegen"]
 
-# experimental tower-http Layer compat.
+# experimental tower-http Layer compat
 tower-http-compat = ["tower-service", "tower-layer", "http-body"]
+
+# private http server feature
+__server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
 xitca-http = { version = "0.1", features = ["util-service"], default-features = false }

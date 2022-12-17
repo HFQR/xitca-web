@@ -2,7 +2,7 @@
 #![feature(type_alias_impl_trait)]
 
 mod app;
-#[cfg(feature = "server")]
+#[cfg(feature = "__server")]
 mod server;
 
 pub mod error;
@@ -58,7 +58,7 @@ pub mod dev {
 }
 
 pub use app::App;
-#[cfg(feature = "server")]
+#[cfg(feature = "__server")]
 pub use server::HttpServer;
 pub use stream::WebStream;
 
