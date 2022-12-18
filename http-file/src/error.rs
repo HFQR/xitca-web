@@ -2,7 +2,7 @@ use core::fmt;
 
 use std::{error, io};
 
-use http::{request::Parts, Request, Response, StatusCode};
+use http::{header::ALLOW, request::Parts, HeaderValue, Request, Response, StatusCode};
 
 /// high level error types for serving file.
 /// see [into_response_from] and [into_response] for way of converting error to [Response] type.
@@ -62,7 +62,10 @@ impl ServeError {
 
     fn _into_response(self, mut res: Response<()>) -> Response<()> {
         match self {
-            Self::MethodNotAllowed => *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED,
+            Self::MethodNotAllowed => {
+                *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
+                res.headers_mut().insert(ALLOW, HeaderValue::from_static("GET,HEAD"));
+            }
             Self::InvalidPath => *res.status_mut() = StatusCode::BAD_REQUEST,
             Self::NotModified => *res.status_mut() = StatusCode::NOT_MODIFIED,
             Self::PreconditionFailed => *res.status_mut() = StatusCode::PRECONDITION_FAILED,

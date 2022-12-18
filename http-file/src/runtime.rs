@@ -6,7 +6,7 @@ use bytes::BytesMut;
 
 /// trait for generic over async file systems.
 pub trait AsyncFs: Clone {
-    type File: ChunkRead;
+    type File: ChunkRead + Meta;
     type OpenFuture: Future<Output = io::Result<Self::File>>;
 
     /// open a file from given path.
@@ -23,7 +23,7 @@ pub trait Meta {
 }
 
 /// trait for chunk read from file and populate [BytesMut]
-pub trait ChunkRead: Meta + Sized {
+pub trait ChunkRead: Sized {
     /// future must own Self and BytesMut. usize is the count of bytes that is written to BytesMut.
     type Future: Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
 

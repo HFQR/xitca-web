@@ -13,13 +13,13 @@ pub use self::{chunk::ChunkReader, error::ServeError};
 use std::path::{Component, Path, PathBuf};
 
 use http::{
-    header::{HeaderValue, CONTENT_TYPE, LAST_MODIFIED},
+    header::{HeaderValue, CONTENT_LENGTH, CONTENT_TYPE, LAST_MODIFIED},
     Method, Request, Response,
 };
 use mime_guess::mime;
 use percent_encoding::percent_decode;
 
-use self::runtime::AsyncFs;
+use self::runtime::{AsyncFs, Meta};
 
 #[cfg(feature = "tokio")]
 #[derive(Clone)]
@@ -79,26 +79,6 @@ impl<FS: AsyncFs> ServeDir<FS> {
     ///     let res = dir.serve(&req).await;
     /// }
     /// ```
-    ///
-    /// # Note
-    /// Due to different callers would potentially handling the response body in different way the
-    /// output [Response] does not carry `content-length` header.
-    /// If the file is supposed to be served as sized body rather than `transfer-encoding: chunked`
-    /// one can get the body length with following method:
-    /// ```rust
-    /// use futures::Stream;
-    /// use http::{header::{CONTENT_LENGTH, HeaderValue}, Response};
-    ///
-    /// fn add_content_length<S: Stream>(res: &mut Response<S>) {
-    ///     if let (lower, Some(upper)) = res.body().size_hint() {
-    ///         // when lower and upper size hint is the same non zero value it means the size
-    ///         // would be the exact length of file body stream.
-    ///         if lower == upper && lower != 0 {
-    ///             res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(lower));
-    ///         }
-    ///     }
-    /// }
-    /// ```
     pub async fn serve<Ext>(&self, req: &Request<Ext>) -> Result<Response<ChunkReader<FS::File>>, ServeError> {
         if !matches!(*req.method(), Method::HEAD | Method::GET) {
             return Err(ServeError::MethodNotAllowed);
@@ -106,7 +86,9 @@ impl<FS: AsyncFs> ServeDir<FS> {
 
         let path = self.path_check(req.uri().path()).ok_or(ServeError::InvalidPath)?;
 
-        assert!(!path.is_dir());
+        if path.is_dir() {
+            return Err(ServeError::InvalidPath);
+        }
 
         let ct = mime_guess::from_path(&path)
             .first_raw()
@@ -116,10 +98,17 @@ impl<FS: AsyncFs> ServeDir<FS> {
 
         let modified = date::mod_date_check(req, &mut file)?;
 
-        let stream = ChunkReader::new(file, self.chunk_size);
+        let size = file.len();
+
+        let stream = if matches!(*req.method(), Method::HEAD) {
+            ChunkReader::empty()
+        } else {
+            ChunkReader::reader(file, size, self.chunk_size)
+        };
         let mut res = Response::new(stream);
 
         res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(ct));
+        res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(size));
 
         if let Some(modified) = modified {
             let bytes = date::date_to_bytes(modified);
@@ -214,10 +203,34 @@ mod test {
             .uri("/test.txt")
             .body(())
             .unwrap();
-        assert!(matches!(
-            dir.serve(&req).await.err(),
-            Some(ServeError::MethodNotAllowed)
-        ));
+
+        let e = dir.serve(&req).await.err().unwrap();
+        assert!(matches!(e, ServeError::MethodNotAllowed));
+    }
+
+    #[tokio::test]
+    async fn head_method_body_check() {
+        let dir = ServeDir::new("sample");
+        let req = Request::builder()
+            .method(Method::HEAD)
+            .uri("/test.txt")
+            .body(())
+            .unwrap();
+
+        let res = dir.serve(&req).await.unwrap();
+
+        assert_eq!(
+            res.headers().get(CONTENT_LENGTH).unwrap(),
+            HeaderValue::from("hello, world!".len())
+        );
+
+        let mut stream = Box::pin(res.into_body());
+
+        assert_eq!(stream.size_hint(), (usize::MAX, Some(0)));
+
+        let body_chunk = poll_fn(|cx| stream.as_mut().poll_next(cx)).await;
+
+        assert!(body_chunk.is_none())
     }
 
     #[tokio::test]
@@ -235,6 +248,10 @@ mod test {
         assert_eq!(
             res.headers().get(CONTENT_TYPE).unwrap(),
             HeaderValue::from_static("text/plain")
+        );
+        assert_eq!(
+            res.headers().get(CONTENT_LENGTH).unwrap(),
+            HeaderValue::from("hello, world!".len())
         );
     }
 

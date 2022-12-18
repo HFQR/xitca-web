@@ -13,7 +13,63 @@ use pin_project_lite::pin_project;
 use super::runtime::ChunkRead;
 
 pin_project! {
-    pub struct ChunkReader<F>
+    #[project = ChunkReaderProj]
+    pub enum ChunkReader<F>
+    where
+        F: ChunkRead,
+    {
+        Empty,
+        Reader {
+            #[pin]
+            reader:  _ChunkReader<F>
+        }
+    }
+}
+
+impl<F> ChunkReader<F>
+where
+    F: ChunkRead,
+{
+    pub(super) fn empty() -> Self {
+        Self::Empty
+    }
+
+    pub(super) fn reader(file: F, size: u64, chunk_size: usize) -> Self {
+        Self::Reader {
+            reader: _ChunkReader {
+                chunk_size,
+                size,
+                on_flight: file.next(BytesMut::with_capacity(chunk_size)),
+            },
+        }
+    }
+}
+
+impl<F> Stream for ChunkReader<F>
+where
+    F: ChunkRead,
+{
+    type Item = io::Result<Bytes>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.project() {
+            ChunkReaderProj::Empty => Poll::Ready(None),
+            ChunkReaderProj::Reader { reader } => reader.poll_next(cx),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            // see xitca_http::body::none_body_hint for reason. this is a library hack.
+            Self::Empty => (usize::MAX, Some(0)),
+            Self::Reader { ref reader } => reader.size_hint(),
+        }
+    }
+}
+
+pin_project! {
+    #[doc(hidden)]
+    pub struct _ChunkReader<F>
     where
         F: ChunkRead,
     {
@@ -24,20 +80,7 @@ pin_project! {
     }
 }
 
-impl<F> ChunkReader<F>
-where
-    F: ChunkRead,
-{
-    pub(super) fn new(file: F, chunk_size: usize) -> Self {
-        Self {
-            chunk_size,
-            size: file.len(),
-            on_flight: file.next(BytesMut::with_capacity(chunk_size)),
-        }
-    }
-}
-
-impl<F> Stream for ChunkReader<F>
+impl<F> Stream for _ChunkReader<F>
 where
     F: ChunkRead,
 {
