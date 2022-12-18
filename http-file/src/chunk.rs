@@ -13,7 +13,7 @@ use pin_project_lite::pin_project;
 use super::runtime::ChunkRead;
 
 pin_project! {
-    pub struct ChunkedReader<F>
+    pub struct ChunkReader<F>
     where
         F: ChunkRead,
     {
@@ -24,18 +24,20 @@ pin_project! {
     }
 }
 
-pub(super) fn chunk_read_stream<F>(file: F, chunk_size: usize) -> ChunkedReader<F>
+impl<F> ChunkReader<F>
 where
     F: ChunkRead,
 {
-    ChunkedReader {
-        chunk_size,
-        size: file.len(),
-        on_flight: file.next(BytesMut::with_capacity(chunk_size)),
+    pub(super) fn new(file: F, chunk_size: usize) -> Self {
+        Self {
+            chunk_size,
+            size: file.len(),
+            on_flight: file.next(BytesMut::with_capacity(chunk_size)),
+        }
     }
 }
 
-impl<F> Stream for ChunkedReader<F>
+impl<F> Stream for ChunkReader<F>
 where
     F: ChunkRead,
 {

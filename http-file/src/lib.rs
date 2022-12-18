@@ -8,7 +8,7 @@ mod chunk;
 mod date;
 mod error;
 
-pub use self::{chunk::ChunkedReader, error::ServeError};
+pub use self::{chunk::ChunkReader, error::ServeError};
 
 use std::path::{Component, Path, PathBuf};
 
@@ -99,7 +99,7 @@ impl<FS: AsyncFs> ServeDir<FS> {
     ///     }
     /// }
     /// ```
-    pub async fn serve<Ext>(&self, req: &Request<Ext>) -> Result<Response<ChunkedReader<FS::File>>, ServeError> {
+    pub async fn serve<Ext>(&self, req: &Request<Ext>) -> Result<Response<ChunkReader<FS::File>>, ServeError> {
         if !matches!(*req.method(), Method::HEAD | Method::GET) {
             return Err(ServeError::MethodNotAllowed);
         }
@@ -116,7 +116,7 @@ impl<FS: AsyncFs> ServeDir<FS> {
 
         let modified = date::mod_date_check(req, &mut file)?;
 
-        let stream = chunk::chunk_read_stream(file, self.chunk_size);
+        let stream = ChunkReader::new(file, self.chunk_size);
         let mut res = Response::new(stream);
 
         res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(ct));

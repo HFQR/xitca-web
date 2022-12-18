@@ -24,6 +24,7 @@ pub trait Meta {
 
 /// trait for chunk read from file and populate [BytesMut]
 pub trait ChunkRead: Meta + Sized {
+    /// future must own Self and BytesMut. usize is the count of bytes that is written to BytesMut.
     type Future: Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
 
     fn next(self, buf: BytesMut) -> Self::Future;
