@@ -168,6 +168,8 @@ mod test {
 
     use super::*;
 
+    fn assert_send<F: Send>(_: &F) {}
+
     #[tokio::test]
     async fn basic() {
         let dir = ServeDir::new("sample");
@@ -189,28 +191,18 @@ mod test {
         assert_eq!(res, "hello, world!");
     }
 
-    #[cfg(feature = "tokio-uring")]
-    #[test]
-    fn basic_tokio_uring() {
-        tokio_uring::start(async {
-            let dir = ServeDir::new_tokio_uring("sample");
-            let req = Request::builder().uri("/test.txt").body(()).unwrap();
+    #[tokio::test]
+    async fn tokio_fs_assert_send() {
+        let dir = ServeDir::new("sample");
+        let req = Request::builder().uri("/test.txt").body(()).unwrap();
 
-            let mut stream = Box::pin(dir.serve(&req).await.unwrap().into_body());
+        let fut = dir.serve(&req);
 
-            let (low, high) = stream.size_hint();
+        assert_send(&fut);
 
-            assert_eq!(low, high.unwrap());
-            assert_eq!(low, "hello, world!".len());
+        let res = fut.await.unwrap();
 
-            let mut res = String::new();
-
-            while let Some(Ok(bytes)) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-                res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
-            }
-
-            assert_eq!(res, "hello, world!");
-        })
+        assert_send(&res);
     }
 
     #[tokio::test]
@@ -253,5 +245,44 @@ mod test {
         let (lower, Some(upper)) = res.body().size_hint() else { panic!("ChunkReadStream does not have a size") };
         assert_eq!(lower, upper);
         assert_eq!(lower, "hello, world!".len());
+    }
+
+    #[cfg(feature = "tokio-uring")]
+    #[test]
+    fn basic_tokio_uring() {
+        tokio_uring::start(async {
+            let dir = ServeDir::new_tokio_uring("sample");
+            let req = Request::builder().uri("/test.txt").body(()).unwrap();
+
+            let mut stream = Box::pin(dir.serve(&req).await.unwrap().into_body());
+
+            let (low, high) = stream.size_hint();
+
+            assert_eq!(low, high.unwrap());
+            assert_eq!(low, "hello, world!".len());
+
+            let mut res = String::new();
+
+            while let Some(Ok(bytes)) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+                res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
+            }
+
+            assert_eq!(res, "hello, world!");
+        })
+    }
+
+    #[cfg(feature = "tokio-uring")]
+    #[test]
+    fn tokio_uring_assert_send() {
+        tokio_uring::start(async {
+            let dir = ServeDir::new_tokio_uring("sample");
+            let req = Request::builder().uri("/test.txt").body(()).unwrap();
+
+            let fut = dir.serve(&req);
+
+            assert_send(&fut);
+
+            let _ = fut.await.unwrap();
+        })
     }
 }
