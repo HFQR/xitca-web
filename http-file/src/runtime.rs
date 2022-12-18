@@ -4,19 +4,25 @@ use std::{io, path::PathBuf, time::SystemTime};
 
 use bytes::BytesMut;
 
+/// trait for generic over async file systems.
 pub trait AsyncFs: Clone {
     type File: ChunkRead;
     type OpenFuture: Future<Output = io::Result<Self::File>>;
 
+    /// open a file from given path.
     fn open(&self, path: PathBuf) -> Self::OpenFuture;
 }
 
+/// trait for generic over file metadata.
 pub trait Meta {
+    /// the last time when file is modified. optional
     fn modified(&mut self) -> Option<SystemTime>;
 
+    /// the length hint of file.
     fn len(&self) -> u64;
 }
 
+/// trait for chunk read from file and populate [BytesMut]
 pub trait ChunkRead: Meta + Sized {
     type Future: Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
 

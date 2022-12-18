@@ -2,10 +2,11 @@
 
 #![feature(type_alias_impl_trait)]
 
+pub mod runtime;
+
 mod chunk;
 mod date;
 mod error;
-mod runtime;
 
 pub use self::{chunk::ChunkedReader, error::ServeError};
 
@@ -22,7 +23,7 @@ use self::runtime::AsyncFs;
 
 #[cfg(feature = "default")]
 #[derive(Clone)]
-pub struct ServeDir<FS: AsyncFs = crate::runtime::TokioFs> {
+pub struct ServeDir<FS: AsyncFs = runtime::TokioFs> {
     chunk_size: usize,
     base_path: PathBuf,
     async_fs: FS,
@@ -37,18 +38,18 @@ pub struct ServeDir<FS: AsyncFs> {
 }
 
 #[cfg(feature = "default")]
-impl ServeDir<crate::runtime::TokioFs> {
+impl ServeDir<runtime::TokioFs> {
     /// Construct a new ServeDir with given path.
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self::with_fs(path, crate::runtime::TokioFs)
+        Self::with_fs(path, runtime::TokioFs)
     }
 }
 
 #[cfg(feature = "tokio-uring")]
-impl ServeDir<crate::runtime::TokioUringFs> {
+impl ServeDir<runtime::TokioUringFs> {
     /// Construct a new ServeDir with given path.
     pub fn new_tokio_uring(path: impl Into<PathBuf>) -> Self {
-        Self::with_fs(path, crate::runtime::TokioUringFs)
+        Self::with_fs(path, runtime::TokioUringFs)
     }
 }
 

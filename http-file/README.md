@@ -12,7 +12,6 @@ async fn serve(req: &Request<()>) {
 
 ## Requirement
 - nightly Rust
-- [tokio](https://crates.io/crates/tokio) runtime context for "async" I/O
 - [http](https://crates.io/crates/http) and [futures](https://crates.io/crates/futures) for http types and async streaming interaction[^1]
 
 ## Current state
