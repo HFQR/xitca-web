@@ -21,7 +21,7 @@ use percent_encoding::percent_decode;
 
 use self::runtime::AsyncFs;
 
-#[cfg(feature = "default")]
+#[cfg(feature = "tokio")]
 #[derive(Clone)]
 pub struct ServeDir<FS: AsyncFs = runtime::TokioFs> {
     chunk_size: usize,
@@ -29,7 +29,7 @@ pub struct ServeDir<FS: AsyncFs = runtime::TokioFs> {
     async_fs: FS,
 }
 
-#[cfg(not(feature = "default"))]
+#[cfg(not(feature = "tokio"))]
 #[derive(Clone)]
 pub struct ServeDir<FS: AsyncFs> {
     chunk_size: usize,

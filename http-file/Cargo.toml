@@ -5,8 +5,8 @@ edition = "2021"
 
 [features]
 default = ["tokio"]
-tokio = ["dep:tokio"]
-tokio-uring = ["dep:tokio-uring"]
+tokio = ["tokio/fs", "tokio/io-util"]
+tokio-uring = ["dep:tokio", "dep:tokio-uring"]
 
 [dependencies]
 bytes = "1.3.0"
@@ -17,7 +17,7 @@ mime_guess = "2.0.4"
 percent-encoding = "2.2.0"
 pin-project-lite = "0.2.9"
 
-tokio = { version = "1.23.0", features = ["fs", "io-util"], optional = true }
+tokio = { version = "1.23.0", features = ["rt"], optional = true }
 tokio-uring = { version = "0.4", features = ["bytes"], optional = true }
 
 [dev-dependencies]
