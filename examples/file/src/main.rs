@@ -5,10 +5,10 @@ use http_file::ServeDir;
 use xitca_web::{
     dev::service::Service,
     handler::{handler_service, request::RequestRef, state::StateRef},
-    http::Uri,
+    http::{Method, Uri},
     request::WebRequest,
     response::{ResponseBody, StreamBody, WebResponse},
-    route::get,
+    route::Route,
     App, HttpServer,
 };
 
@@ -20,7 +20,10 @@ fn main() -> std::io::Result<()> {
         // use serve dir service as app state.
         App::with_multi_thread_state(serve.clone())
             // catch all request path.
-            .at("/*path", get(handler_service(index)))
+            .at(
+                "/*path",
+                Route::new([Method::GET, Method::HEAD]).route(handler_service(index)),
+            )
             // a simple middleware to intercept empty path and replace it with index.html
             .enclosed_fn(path)
             .finish()
