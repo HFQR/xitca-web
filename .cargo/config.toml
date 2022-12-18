@@ -8,7 +8,7 @@ ci-check-web = "hack check --package xitca-web --each-feature --no-dev-deps"
 ci-check-client-exclude-io-uring = "hack check --package xitca-client --each-feature --no-dev-deps --exclude-features=io-uring"
 ci-check-client = "hack check --package xitca-client --each-feature --no-dev-deps"
 
-ci-check-other-exclude-io-uring = "hack check --workspace --exclude xitca-http --exclude xitca-client --exclude xitca-web --feature-powerset --exclude-features=io-uring"
+ci-check-other-exclude-io-uring = "hack check --workspace --exclude xitca-http --exclude xitca-client --exclude xitca-web --feature-powerset --exclude-features=io-uring,tokio-uring"
 ci-check-other = "hack check --workspace --exclude xitca-http --exclude xitca-client --exclude xitca-web --feature-powerset"
 
 ci-test-exclude-io-uring = "hack test --workspace --feature-powerset --exclude-features=io-uring --no-fail-fast -- --nocapture"
