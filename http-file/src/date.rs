@@ -3,8 +3,6 @@ use core::{
     str::FromStr,
 };
 
-use std::fs::Metadata;
-
 use bytes::{Bytes, BytesMut};
 use http::{
     header::{HeaderValue, IF_MODIFIED_SINCE, IF_UNMODIFIED_SINCE},
@@ -12,12 +10,12 @@ use http::{
 };
 use httpdate::HttpDate;
 
-use super::error::ServeError;
+use super::{error::ServeError, runtime::Meta};
 
-pub(super) fn mod_date_check<Ext>(req: &Request<Ext>, md: &Metadata) -> Result<Option<HttpDate>, ServeError> {
-    let mod_date = match md.modified() {
-        Ok(modified) => HttpDate::from(modified),
-        Err(_) => {
+pub(super) fn mod_date_check<Ext>(req: &Request<Ext>, meta: &mut impl Meta) -> Result<Option<HttpDate>, ServeError> {
+    let mod_date = match meta.modified() {
+        Some(modified) => HttpDate::from(modified),
+        None => {
             #[cold]
             #[inline(never)]
             fn precondition_check<Ext>(req: &Request<Ext>) -> Result<Option<HttpDate>, ServeError> {

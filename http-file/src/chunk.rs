@@ -9,43 +9,35 @@ use std::io;
 use bytes::{Bytes, BytesMut};
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
-use tokio::{fs::File, io::AsyncReadExt};
+
+use super::runtime::ChunkRead;
 
 pin_project! {
-    struct ChunkedReader<F, Fut> {
-        size: u64,
+    pub struct ChunkedReader<F>
+    where
+        F: ChunkRead,
+    {
         chunk_size: usize,
-        read: F,
+        size: u64,
         #[pin]
-        on_flight: Fut
+        on_flight: F::Future
     }
 }
 
-pub type ChunkReadStream = impl Stream<Item = io::Result<Bytes>> + Send;
-
-pub(super) fn chunk_read_stream(file: File, size: u64, chunk_size: usize) -> ChunkReadStream {
-    ChunkedReader {
-        size,
-        chunk_size,
-        read,
-        on_flight: read(file, BytesMut::with_capacity(chunk_size)),
-    }
-}
-
-async fn read(mut file: File, mut bytes: BytesMut) -> io::Result<Option<(BytesMut, File, usize)>> {
-    let n = file.read_buf(&mut bytes).await?;
-
-    if n == 0 {
-        Ok(None)
-    } else {
-        Ok(Some((bytes, file, n)))
-    }
-}
-
-impl<F, Fut> Stream for ChunkedReader<F, Fut>
+pub(super) fn chunk_read_stream<F>(file: F, chunk_size: usize) -> ChunkedReader<F>
 where
-    F: FnMut(File, BytesMut) -> Fut,
-    Fut: Future<Output = io::Result<Option<(BytesMut, File, usize)>>>,
+    F: ChunkRead,
+{
+    ChunkedReader {
+        chunk_size,
+        size: file.len(),
+        on_flight: file.next(BytesMut::with_capacity(chunk_size)),
+    }
+}
+
+impl<F> Stream for ChunkedReader<F>
+where
+    F: ChunkRead,
 {
     type Item = io::Result<Bytes>;
 
@@ -56,7 +48,7 @@ where
             return Poll::Ready(None);
         }
 
-        Poll::Ready(ready!(this.on_flight.as_mut().poll(cx))?.map(|(mut bytes, file, n)| {
+        Poll::Ready(ready!(this.on_flight.as_mut().poll(cx))?.map(|(file, mut bytes, n)| {
             let mut chunk = bytes.split_to(n);
 
             let n = n as u64;
@@ -77,7 +69,7 @@ where
             // TODO: better handling additional memory alloc?
             // the goal should be linear growth targeting page size.
             bytes.reserve(*this.chunk_size);
-            this.on_flight.set((this.read)(file, bytes));
+            this.on_flight.set(file.next(bytes));
 
             Ok(chunk.freeze())
         }))

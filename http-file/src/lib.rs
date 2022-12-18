@@ -5,8 +5,9 @@
 mod chunk;
 mod date;
 mod error;
+mod runtime;
 
-pub use self::{chunk::ChunkReadStream, error::ServeError};
+pub use self::{chunk::ChunkedReader, error::ServeError};
 
 use std::path::{Component, Path, PathBuf};
 
@@ -17,18 +18,46 @@ use http::{
 use mime_guess::mime;
 use percent_encoding::percent_decode;
 
+use self::runtime::AsyncFs;
+
+#[cfg(feature = "default")]
 #[derive(Clone)]
-pub struct ServeDir {
+pub struct ServeDir<FS: AsyncFs = crate::runtime::TokioFs> {
     chunk_size: usize,
     base_path: PathBuf,
+    async_fs: FS,
 }
 
-impl ServeDir {
+#[cfg(not(feature = "default"))]
+#[derive(Clone)]
+pub struct ServeDir<FS: AsyncFs> {
+    chunk_size: usize,
+    base_path: PathBuf,
+    async_fs: FS,
+}
+
+#[cfg(feature = "default")]
+impl ServeDir<crate::runtime::TokioFs> {
     /// Construct a new ServeDir with given path.
     pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self::with_fs(path, crate::runtime::TokioFs)
+    }
+}
+
+#[cfg(feature = "tokio-uring")]
+impl ServeDir<crate::runtime::TokioUringFs> {
+    /// Construct a new ServeDir with given path.
+    pub fn new_tokio_uring(path: impl Into<PathBuf>) -> Self {
+        Self::with_fs(path, crate::runtime::TokioUringFs)
+    }
+}
+
+impl<FS: AsyncFs> ServeDir<FS> {
+    pub fn with_fs(path: impl Into<PathBuf>, async_fs: FS) -> Self {
         Self {
             chunk_size: 4096,
             base_path: path.into(),
+            async_fs,
         }
     }
 
@@ -56,11 +85,10 @@ impl ServeDir {
     /// If the file is supposed to be served as sized body rather than `transfer-encoding: chunked`
     /// one can get the body length with following method:
     /// ```rust
-    /// # use http_file::ChunkReadStream;
     /// use futures::Stream;
     /// use http::{header::{CONTENT_LENGTH, HeaderValue}, Response};
     ///
-    /// fn add_content_length(res: &mut Response<ChunkReadStream>) {
+    /// fn add_content_length<S: Stream>(res: &mut Response<S>) {
     ///     if let (lower, Some(upper)) = res.body().size_hint() {
     ///         // when lower and upper size hint is the same non zero value it means the size
     ///         // would be the exact length of file body stream.
@@ -70,7 +98,7 @@ impl ServeDir {
     ///     }
     /// }
     /// ```
-    pub async fn serve<Ext>(&self, req: &Request<Ext>) -> Result<Response<ChunkReadStream>, ServeError> {
+    pub async fn serve<Ext>(&self, req: &Request<Ext>) -> Result<Response<ChunkedReader<FS::File>>, ServeError> {
         if !matches!(*req.method(), Method::HEAD | Method::GET) {
             return Err(ServeError::MethodNotAllowed);
         }
@@ -83,20 +111,11 @@ impl ServeDir {
             .first_raw()
             .unwrap_or_else(|| mime::APPLICATION_OCTET_STREAM.as_ref());
 
-        let (file, md) = tokio::task::spawn_blocking(move || {
-            use std::{fs::File, io};
-            let file = File::open(path)?;
-            let meta = file.metadata()?;
-            Ok::<_, io::Error>((file.into(), meta))
-        })
-        .await
-        .unwrap()?;
+        let mut file = self.async_fs.open(path).await?;
 
-        let modified = date::mod_date_check(req, &md)?;
+        let modified = date::mod_date_check(req, &mut file)?;
 
-        let size = md.len();
-
-        let stream = chunk::chunk_read_stream(file, size, self.chunk_size);
+        let stream = chunk::chunk_read_stream(file, self.chunk_size);
         let mut res = Response::new(stream);
 
         res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(ct));
@@ -112,7 +131,7 @@ impl ServeDir {
     }
 }
 
-impl ServeDir {
+impl<FS: AsyncFs> ServeDir<FS> {
     fn path_check(&self, path: &str) -> Option<PathBuf> {
         let path = path.trim_start_matches('/').as_bytes();
 
@@ -168,6 +187,30 @@ mod test {
         }
 
         assert_eq!(res, "hello, world!");
+    }
+
+    #[cfg(feature = "tokio-uring")]
+    #[test]
+    fn basic_tokio_uring() {
+        tokio_uring::start(async {
+            let dir = ServeDir::new_tokio_uring("sample");
+            let req = Request::builder().uri("/test.txt").body(()).unwrap();
+
+            let mut stream = Box::pin(dir.serve(&req).await.unwrap().into_body());
+
+            let (low, high) = stream.size_hint();
+
+            assert_eq!(low, high.unwrap());
+            assert_eq!(low, "hello, world!".len());
+
+            let mut res = String::new();
+
+            while let Some(Ok(bytes)) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+                res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
+            }
+
+            assert_eq!(res, "hello, world!");
+        })
     }
 
     #[tokio::test]
