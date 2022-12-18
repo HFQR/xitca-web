@@ -14,7 +14,7 @@ mod next {
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {
         pub fn $method_fn<R>(route: R) -> Route<R, next::Empty, 1> {
-            Route::new(route).methods([Method::$method])
+            Route::new([Method::$method]).route(route)
         }
     };
 }
@@ -35,12 +35,21 @@ pub struct Route<R, N, const M: usize> {
     next: N,
 }
 
-impl Route<(), (), 0> {
-    pub fn new<R>(route: R) -> Route<R, next::Empty, 0> {
-        Route {
-            methods: [],
-            route,
+impl<const N: usize> Route<(), next::Empty, N> {
+    pub fn new(methods: [Method; N]) -> Self {
+        assert!(N > 0, "Route method can not be empty");
+        Self {
+            methods,
+            route: (),
             next: next::Empty,
+        }
+    }
+
+    pub fn route<R>(self, route: R) -> Route<R, next::Empty, N> {
+        Route {
+            methods: self.methods,
+            route,
+            next: self.next,
         }
     }
 }
@@ -48,29 +57,12 @@ impl Route<(), (), 0> {
 macro_rules! route_method {
     ($method_fn: ident, $method: ident) => {
         pub fn $method_fn<R1>(self, $method_fn: R1) -> Route<R, next::Exist<Route<R1, N, 1>>, M> {
-            self.next(Route::new($method_fn).methods([Method::$method]))
+            self.next(Route::new([Method::$method]).route($method_fn))
         }
     };
 }
 
 impl<R, N, const M: usize> Route<R, N, M> {
-    pub fn methods<const M1: usize>(self, methods: [Method; M1]) -> Route<R, N, M1> {
-        assert!(M1 > 0, "Route method can not be empty");
-
-        if M != 0 {
-            panic!(
-                "Trying to overwrite existing {:?} methods with {:?}",
-                self.methods, methods
-            );
-        }
-
-        Route {
-            methods,
-            route: self.route,
-            next: self.next,
-        }
-    }
-
     // TODO is this really the intended behavior? insert `next` between `self` and `self.next`?
     pub fn next<R1, const M1: usize>(
         self,
@@ -285,7 +277,7 @@ mod test {
 
     #[test]
     fn route_mixed() {
-        let route = get(fn_service(index)).next(Route::new(fn_service(index)).methods([Method::POST, Method::PUT]));
+        let route = get(fn_service(index)).next(Route::new([Method::POST, Method::PUT]).route(fn_service(index)));
 
         let service = route.call(()).now_or_panic().ok().unwrap();
         let req = Request::new(RequestBody::None);
@@ -310,10 +302,10 @@ mod test {
 
     #[test]
     fn route_struct() {
-        let route = Route::new(fn_service(index))
-            .methods([Method::POST, Method::PUT])
-            .next(Route::new(fn_service(index)).methods([Method::GET]))
-            .next(Route::new(fn_service(index)).methods([Method::OPTIONS]))
+        let route = Route::new([Method::POST, Method::PUT])
+            .route(fn_service(index))
+            .next(Route::new([Method::GET]).route(fn_service(index)))
+            .next(Route::new([Method::GET]).route(fn_service(index)))
             .next(trace(fn_service(index)));
 
         let service = route.call(()).now_or_panic().ok().unwrap();
@@ -340,14 +332,6 @@ mod test {
         *req.method_mut() = Method::TRACE;
         let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
-    }
-
-    #[should_panic]
-    #[test]
-    fn overwrite_method_panic() {
-        let _ = Route::new(fn_service(index))
-            .methods([Method::POST, Method::PUT])
-            .methods([Method::GET, Method::PUT]);
     }
 
     #[test]
