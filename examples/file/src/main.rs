@@ -3,7 +3,7 @@
 
 use http_file::ServeDir;
 use xitca_web::{
-    dev::service::Service,
+    dev::{bytes::Bytes, service::Service},
     handler::{handler_service, request::RequestRef, state::StateRef},
     http::{Method, Uri},
     request::WebRequest,
@@ -22,6 +22,7 @@ fn main() -> std::io::Result<()> {
             // catch all request path.
             .at(
                 "/*path",
+                // only accept get/post method.
                 Route::new([Method::GET, Method::HEAD]).route(handler_service(index)),
             )
             // a simple middleware to intercept empty path and replace it with index.html
@@ -36,8 +37,10 @@ fn main() -> std::io::Result<()> {
 // extract request and serve dir state and start serving file.
 async fn index(RequestRef(req): RequestRef<'_>, StateRef(dir): StateRef<'_, ServeDir>) -> WebResponse {
     match dir.serve(req).await {
+        // map async file read stream to response body stream.
         Ok(res) => res.map(|body| ResponseBody::stream(StreamBody::new(body))),
-        Err(e) => e.into_response().map(|_| ResponseBody::None),
+        // map error to empty body response.
+        Err(e) => e.into_response().map(|_| ResponseBody::bytes(Bytes::new())),
     }
 }
 
