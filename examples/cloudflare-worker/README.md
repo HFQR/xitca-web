@@ -5,12 +5,15 @@
 - wrangler 1
 
 ## API
-Same as auto generated worker template
+Same as auto generated worker template with additional static stie.
 ```
 GET  /
 POST /form/<field_name_string> 
 GET  /worker-version
 ```
+
+## Example site
+https://xitca-web-worker.fakeshadow.workers.dev/
 
 ## Usage
 ```bash

@@ -5,7 +5,7 @@ use std::{io, path::PathBuf, time::SystemTime};
 use bytes::BytesMut;
 
 /// trait for generic over async file systems.
-pub trait AsyncFs: Clone {
+pub trait AsyncFs {
     type File: ChunkRead + Meta;
     type OpenFuture: Future<Output = io::Result<Self::File>>;
 

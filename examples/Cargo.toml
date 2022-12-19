@@ -29,3 +29,6 @@ http-ws = { path = "../http-ws" }
 
 h3 = { git = "https://github.com/hyperium/h3.git" }
 h3-quinn = { git = "https://github.com/hyperium/h3.git" }
+
+[profile.dev]
+debug-assertions = false
