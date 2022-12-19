@@ -1,9 +1,15 @@
-use std::{convert::Infallible, error, future::Future, io};
+use core::{convert::Infallible, future::Future};
+
+use std::{error, io};
 
 use crate::{
     dev::bytes::Bytes,
     error::{MatchError, MethodNotAllowed},
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, StatusCode},
+    http::{
+        const_header_value::TEXT_UTF8,
+        header::{ALLOW, CONTENT_TYPE},
+        StatusCode,
+    },
     request::WebRequest,
     response::WebResponse,
     stream::WebStream,
@@ -154,6 +160,21 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MethodNotAllowed {
 
     fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
         let mut res = req.into_response(Bytes::new());
+
+        let allowed = self.allowed_methods();
+
+        let len = allowed.iter().fold(0, |a, m| a + m.as_str().len() + 1);
+
+        let mut methods = String::with_capacity(len);
+
+        for method in allowed {
+            methods.push_str(method.as_str());
+            methods.push(',');
+        }
+        methods.pop();
+
+        res.headers_mut().insert(ALLOW, methods.parse().unwrap());
+
         *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
         async { res }
     }
