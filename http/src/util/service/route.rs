@@ -164,7 +164,13 @@ where
             if self.methods.contains(req.borrow()) {
                 self.route.call(req).await.map_err(RouteError::Second)
             } else {
-                self.next.0.call(req).await
+                match self.next.0.call(req).await {
+                    Err(RouteError::First(mut e)) => {
+                        e.0.extend_from_slice(&self.methods);
+                        Err(RouteError::First(e))
+                    }
+                    res => res,
+                }
             }
         }
     }
@@ -188,7 +194,9 @@ where
             if self.methods.contains(req.borrow()) {
                 self.route.call(req).await.map_err(RouteError::Second)
             } else {
-                Err(RouteError::First(MethodNotAllowed))
+                Err(RouteError::First(MethodNotAllowed(
+                    self.methods.iter().cloned().collect(),
+                )))
             }
         }
     }
@@ -210,7 +218,14 @@ impl<R, N, const M: usize> ReadyService for RouteService<R, N, M> {
 pub type RouteError<E> = PipelineE<MethodNotAllowed, E>;
 
 /// Error type of Method not allow for route.
-pub struct MethodNotAllowed;
+pub struct MethodNotAllowed(Vec<Method>);
+
+impl MethodNotAllowed {
+    /// slice of allowed methods of current route.
+    pub fn allowed_methods(&self) -> &[Method] {
+        &self.0
+    }
+}
 
 impl fmt::Debug for MethodNotAllowed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -272,7 +287,7 @@ mod test {
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
         let err = service.call(req).now_or_panic().err().unwrap();
-        assert!(matches!(err, RouteError::First(MethodNotAllowed)));
+        assert!(matches!(err, RouteError::First(MethodNotAllowed(_))));
     }
 
     #[test]
@@ -292,7 +307,7 @@ mod test {
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::DELETE;
         let err = service.call(req).now_or_panic().err().unwrap();
-        assert!(matches!(err, RouteError::First(MethodNotAllowed)));
+        assert!(matches!(err, RouteError::First(MethodNotAllowed(_))));
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
@@ -305,7 +320,7 @@ mod test {
         let route = Route::new([Method::POST, Method::PUT])
             .route(fn_service(index))
             .next(Route::new([Method::GET]).route(fn_service(index)))
-            .next(Route::new([Method::GET]).route(fn_service(index)))
+            .next(Route::new([Method::OPTIONS]).route(fn_service(index)))
             .next(trace(fn_service(index)));
 
         let service = route.call(()).now_or_panic().ok().unwrap();
@@ -320,8 +335,21 @@ mod test {
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::DELETE;
-        let err = service.call(req).now_or_panic().err().unwrap();
-        assert!(matches!(err, RouteError::First(MethodNotAllowed)));
+
+        let RouteError::First(e) = service.call(req).now_or_panic().err().unwrap() else {
+            panic!("route does not return error on unallowed method request");
+        };
+
+        let allowed = e.allowed_methods();
+
+        assert_eq!(allowed.len(), 5);
+        // strict allowed method order does not matter.
+        // as long as the test can produce deterministic prediction it's fine.
+        assert_eq!(allowed[0], Method::GET);
+        assert_eq!(allowed[1], Method::OPTIONS);
+        assert_eq!(allowed[2], Method::TRACE);
+        assert_eq!(allowed[3], Method::POST);
+        assert_eq!(allowed[4], Method::PUT);
 
         let mut req = Request::new(RequestBody::None);
         *req.method_mut() = Method::PUT;
