@@ -7,4 +7,4 @@ edition = "2021"
 [dependencies]
 xitca-web = { version = "0.1", features = ["tower-http-compat"] }
 
-tower-http = { version = "0.3", features = ["fs", "set-header"] }
+tower-http = { version = "0.3", features = ["fs", "compression-gzip"] }

@@ -170,16 +170,23 @@ where
             if self.methods.contains(req.borrow()) {
                 self.route.call(req).await.map_err(RouteError::Second)
             } else {
-                match self.next.0.call(req).await {
-                    Err(RouteError::First(mut e)) => {
-                        e.0.extend_from_slice(&self.methods);
-                        Err(RouteError::First(e))
-                    }
-                    res => res,
-                }
+                self.next
+                    .0
+                    .call(req)
+                    .await
+                    .map_err(|e| try_append_allowed(e, &self.methods))
             }
         }
     }
+}
+
+#[cold]
+#[inline(never)]
+fn try_append_allowed<E>(mut e: RouteError<E>, methods: &[Method]) -> RouteError<E> {
+    if let RouteError::First(ref mut e) = e {
+        e.0.extend_from_slice(methods);
+    }
+    e
 }
 
 impl<R, Req, const M: usize> Service<Req> for RouteService<R, next::Empty, M>
