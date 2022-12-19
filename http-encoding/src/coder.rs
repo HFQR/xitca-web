@@ -58,6 +58,12 @@ where
             None => Poll::Ready(None),
         }
     }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // forward size_hint to coder as it determines the data length after (de)compress.
+        self.coder.size_hint(&self.body)
+    }
 }
 
 pub trait Code<T>: Sized {
@@ -66,6 +72,15 @@ pub trait Code<T>: Sized {
     fn code(&mut self, item: T) -> io::Result<Option<Self::Item>>;
 
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>>;
+
+    /// A helper method for overriding associated input stream's size_hint.
+    /// by default it returns value the same as [Stream::size_hint]'s default value.
+    /// in other word the default prediction is (de)compress can not hint an exact size.
+    #[allow(unused_variables)]
+    #[inline]
+    fn size_hint(&self, stream: &impl Stream) -> (usize, Option<usize>) {
+        (0, None)
+    }
 }
 
 /// coder serve as pass through that just forward items.
@@ -83,8 +98,17 @@ where
         ))
     }
 
+    #[inline]
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
         Ok(None)
+    }
+
+    // noop coder can take advantage of not doing any de/encoding work and hint the output stream
+    // size. this would help downstream to infer the size of body and avoid going through
+    // transfer-encoding: chunked when possible.
+    #[inline]
+    fn size_hint(&self, stream: &impl Stream) -> (usize, Option<usize>) {
+        stream.size_hint()
     }
 }
 
@@ -149,6 +173,24 @@ where
             Self::DecodeDe(ref mut coder) => <super::deflate::Decoder as Code<T>>::code_eof(coder),
             #[cfg(feature = "de")]
             Self::EncodeDe(ref mut coder) => <super::deflate::Encoder as Code<T>>::code_eof(coder),
+        }
+    }
+
+    fn size_hint(&self, stream: &impl Stream) -> (usize, Option<usize>) {
+        match self {
+            Self::NoOp(ref coder) => <NoOpCode as Code<T>>::size_hint(coder, stream),
+            #[cfg(feature = "br")]
+            Self::DecodeBr(ref coder) => <super::brotli::Decoder as Code<T>>::size_hint(coder, stream),
+            #[cfg(feature = "br")]
+            Self::EncodeBr(ref coder) => <super::brotli::Encoder as Code<T>>::size_hint(coder, stream),
+            #[cfg(feature = "gz")]
+            Self::DecodeGz(ref coder) => <super::gzip::Decoder as Code<T>>::size_hint(coder, stream),
+            #[cfg(feature = "gz")]
+            Self::EncodeGz(ref coder) => <super::gzip::Encoder as Code<T>>::size_hint(coder, stream),
+            #[cfg(feature = "de")]
+            Self::DecodeDe(ref coder) => <super::deflate::Decoder as Code<T>>::size_hint(coder, stream),
+            #[cfg(feature = "de")]
+            Self::EncodeDe(ref coder) => <super::deflate::Encoder as Code<T>>::size_hint(coder, stream),
         }
     }
 }

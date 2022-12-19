@@ -48,8 +48,17 @@ where
         'r: 's,
     {
         async {
-            let encoding = ContentEncoding::from_headers(req.req().headers());
+            let mut encoding = ContentEncoding::from_headers(req.req().headers());
             let res = self.service.call(req).await?;
+
+            // TODO: expose encoding filter as public api.
+            match res.body().size_hint() {
+                (low, Some(up)) if low == up && low < 64 => encoding = ContentEncoding::NoOp,
+                // this variant is a crate hack. see xitca_http::body::none_body_hint for detail.
+                (usize::MAX, Some(0)) => encoding = ContentEncoding::NoOp,
+                _ => {}
+            }
+
             Ok(encoder(res, encoding))
         }
     }
