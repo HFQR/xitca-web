@@ -36,7 +36,7 @@ pub struct Route<R, N, const M: usize> {
 }
 
 impl<const N: usize> Route<(), next::Empty, N> {
-    pub fn new(methods: [Method; N]) -> Self {
+    pub const fn new(methods: [Method; N]) -> Self {
         assert!(N > 0, "Route method can not be empty");
         Self {
             methods,
@@ -68,6 +68,12 @@ impl<R, N, const M: usize> Route<R, N, M> {
         self,
         next: Route<R1, next::Empty, M1>,
     ) -> Route<R, next::Exist<Route<R1, N, M1>>, M> {
+        for m in next.methods.iter() {
+            if self.methods.contains(m) {
+                panic!("{m} method already exists. Route can not contain overlapping methods.");
+            }
+        }
+
         Route {
             methods: self.methods,
             route: self.route,
@@ -313,6 +319,20 @@ mod test {
         *req.method_mut() = Method::PUT;
         let res = service.call(req).now_or_panic().ok().unwrap();
         assert_eq!(res.status().as_u16(), 200);
+    }
+
+    #[test]
+    #[should_panic]
+    fn nest_route_panic() {
+        let _ = Route::new([Method::POST, Method::GET])
+            .route(fn_service(index))
+            .next(get(fn_service(index)));
+    }
+
+    #[test]
+    #[should_panic]
+    fn empty_route_panic() {
+        let _ = Route::new([]).route(fn_service(index));
     }
 
     #[test]
