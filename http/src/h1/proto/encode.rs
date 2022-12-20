@@ -134,7 +134,6 @@ where
                 None => true,
             };
 
-            // TODO: more spec check needed. the current check barely does anything.
             match name {
                 CONTENT_LENGTH => {
                     debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");

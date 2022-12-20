@@ -1,3 +1,5 @@
+//! runtime module contains traits for introducing custom async file system impl.
+
 use core::future::Future;
 
 use std::{io, path::PathBuf, time::SystemTime};
@@ -22,16 +24,17 @@ pub trait Meta {
     fn len(&self) -> u64;
 }
 
-/// trait for chunk read from file and populate [BytesMut]
+/// trait for async chunk read from file.
 pub trait ChunkRead: Sized {
-    /// future must own Self and BytesMut. usize is the count of bytes that is written to BytesMut.
     type Future: Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
 
+    /// async read of Self and write into given [BytesMut].
+    /// return the count of bytes that were written on success.
     fn next(self, buf: BytesMut) -> Self::Future;
 }
 
 #[cfg(feature = "tokio")]
-pub(crate) use tokio_impl::*;
+pub(crate) use tokio_impl::TokioFs;
 
 #[cfg(feature = "tokio")]
 mod tokio_impl {
@@ -99,7 +102,7 @@ mod tokio_impl {
 }
 
 #[cfg(feature = "tokio-uring")]
-pub(crate) use tokio_uring_impl::*;
+pub(crate) use tokio_uring_impl::TokioUringFs;
 
 #[cfg(feature = "tokio-uring")]
 mod tokio_uring_impl {
