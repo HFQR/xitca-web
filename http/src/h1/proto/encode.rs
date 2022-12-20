@@ -6,7 +6,7 @@ use crate::{
     bytes::BytesMut,
     date::DateTime,
     http::{
-        header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING},
+        header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TE, TRANSFER_ENCODING},
         response::Parts,
         Extensions, StatusCode, Version,
     },
@@ -76,7 +76,7 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
     match (version, status) {
         // happy path shortcut.
         (Version::HTTP_11, StatusCode::OK) => {
-            buf.extend_from_slice(b"HTTP/1.1 200 OK\r\n");
+            buf.extend_from_slice(b"HTTP/1.1 200 OK");
             return;
         }
         (Version::HTTP_11, _) => {
@@ -95,11 +95,10 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
     let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();
     let status = status.as_str().as_bytes();
 
-    buf.reserve(status.len() + reason.len() + 3);
+    buf.reserve(status.len() + reason.len() + 1);
     buf.extend_from_slice(status);
     buf.extend_from_slice(b" ");
     buf.extend_from_slice(reason);
-    buf.extend_from_slice(b"\r\n");
 }
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
@@ -123,8 +122,17 @@ where
 
         let mut encoding = TransferCoding::eof();
 
-        for (name, value) in headers.drain() {
-            let name = name.expect("Handling optional header name is not implemented");
+        // use the shortest header name as default
+        let mut name = TE;
+
+        for (next_name, value) in headers.drain() {
+            let is_continue = match next_name {
+                Some(next_name) => {
+                    name = next_name;
+                    false
+                }
+                None => true,
+            };
 
             // TODO: more spec check needed. the current check barely does anything.
             match name {
@@ -165,18 +173,25 @@ where
                 _ => {}
             }
 
-            let name = name.as_str().as_bytes();
             let value = value.as_bytes();
 
-            buf.reserve(name.len() + value.len() + 4);
-            buf.extend_from_slice(name);
-            buf.extend_from_slice(b": ");
-            buf.extend_from_slice(value);
-            buf.extend_from_slice(b"\r\n");
+            if is_continue {
+                buf.reserve(value.len() + 1);
+                buf.extend_from_slice(b",");
+                buf.extend_from_slice(value);
+            } else {
+                let name = name.as_str().as_bytes();
+
+                buf.reserve(name.len() + value.len() + 4);
+                buf.extend_from_slice(b"\r\n");
+                buf.extend_from_slice(name);
+                buf.extend_from_slice(b": ");
+                buf.extend_from_slice(value);
+            }
         }
 
         if matches!(self.ctype(), ConnectionType::Close) {
-            buf.extend_from_slice(b"connection: close\r\n");
+            buf.extend_from_slice(b"\r\nconnection: close");
         }
 
         // encode transfer-encoding or content-length
@@ -186,7 +201,7 @@ where
                     encoding = TransferCoding::eof();
                 }
                 BodySize::Stream => {
-                    buf.extend_from_slice(b"transfer-encoding: chunked\r\n");
+                    buf.extend_from_slice(b"\r\ntransfer-encoding: chunked");
                     encoding = TransferCoding::encode_chunked();
                 }
                 BodySize::Sized(size) => {
@@ -194,9 +209,8 @@ where
                     let buffer = buffer.format(size).as_bytes();
 
                     buf.reserve(buffer.len() + 18);
-                    buf.extend_from_slice(b"content-length: ");
+                    buf.extend_from_slice(b"\r\ncontent-length: ");
                     buf.extend_from_slice(buffer);
-                    buf.extend_from_slice(b"\r\n");
 
                     encoding = TransferCoding::length(size as u64);
                 }
@@ -214,13 +228,12 @@ where
 
         // set date header if there is not any.
         if !skip_date {
-            buf.reserve(D::DATE_VALUE_LENGTH + 10);
-            buf.extend_from_slice(b"date: ");
+            buf.reserve(D::DATE_VALUE_LENGTH + 12);
+            buf.extend_from_slice(b"\r\ndate: ");
             self.date.with_date(|slice| buf.extend_from_slice(slice));
-            buf.extend_from_slice(b"\r\n\r\n");
-        } else {
-            buf.extend_from_slice(b"\r\n");
         }
+
+        buf.extend_from_slice(b"\r\n\r\n");
 
         // put header map back to cache.
         self.replace_headers(headers);
@@ -230,5 +243,51 @@ where
         self.replace_extensions(extensions);
 
         Ok(encoding)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        body::{Once, StreamBody},
+        bytes::Bytes,
+        date::DateTimeService,
+        http::{HeaderValue, Response},
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn append_header() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let date = DateTimeService::new();
+                let mut ctx = Context::<_, 64>::new(date.get());
+
+                let mut res = Response::new(StreamBody::new(Once::new(Bytes::new())));
+
+                res.headers_mut()
+                    .insert(CONNECTION, HeaderValue::from_static("keep-alive"));
+                res.headers_mut()
+                    .append(CONNECTION, HeaderValue::from_static("upgrade"));
+
+                let (parts, body) = res.into_parts();
+
+                let mut buf = BytesMut::new();
+                ctx.encode_head(parts, &body, &mut buf).unwrap();
+
+                let mut header = [httparse::EMPTY_HEADER; 8];
+                let mut res = httparse::Response::new(&mut header);
+
+                let httparse::Status::Complete(_) = res.parse(buf.as_ref()).unwrap()
+                    else { panic!("failed to parse response") };
+
+                for h in header {
+                    if h.name == "connection" {
+                        assert_eq!(h.value, b"keep-alive,upgrade");
+                    }
+                }
+            })
+            .await
     }
 }
