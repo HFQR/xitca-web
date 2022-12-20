@@ -265,7 +265,7 @@ mod test {
         assert_eq!(lower, "hello, world!".len());
     }
 
-    #[cfg(feature = "tokio-uring")]
+    #[cfg(all(target_os = "linux", feature = "tokio-uring"))]
     #[test]
     fn basic_tokio_uring() {
         tokio_uring::start(async {

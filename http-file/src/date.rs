@@ -12,7 +12,10 @@ use httpdate::HttpDate;
 
 use super::{error::ServeError, runtime::Meta};
 
-pub(super) fn mod_date_check<Ext>(req: &Request<Ext>, meta: &mut impl Meta) -> Result<Option<HttpDate>, ServeError> {
+pub(super) fn mod_date_check<Ext, M>(req: &Request<Ext>, meta: &mut M) -> Result<Option<HttpDate>, ServeError>
+where
+    M: Meta,
+{
     let mod_date = match meta.modified() {
         Some(modified) => HttpDate::from(modified),
         None => {
