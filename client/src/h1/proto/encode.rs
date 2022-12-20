@@ -28,15 +28,15 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         let method = method.as_str().as_bytes();
         let path_and_query = uri.path_and_query().map(|u| u.as_str()).unwrap_or("/").as_bytes();
         let version = match version {
-            Version::HTTP_09 => b" HTTP/0.9\r\n",
-            Version::HTTP_10 => b" HTTP/1.0\r\n",
-            Version::HTTP_11 => b" HTTP/1.1\r\n",
-            Version::HTTP_2 => b" HTTP/2.0\r\n",
-            Version::HTTP_3 => b" HTTP/3.0\r\n",
+            Version::HTTP_09 => b" HTTP/0.9",
+            Version::HTTP_10 => b" HTTP/1.0",
+            Version::HTTP_11 => b" HTTP/1.1",
+            Version::HTTP_2 => b" HTTP/2.0",
+            Version::HTTP_3 => b" HTTP/3.0",
             _ => todo!("handle error"),
         };
 
-        buf.reserve(method.len() + 1 + path_and_query.len() + 11);
+        buf.reserve(method.len() + 1 + path_and_query.len() + 9);
 
         buf.put_slice(method);
         buf.put_slice(b" ");
