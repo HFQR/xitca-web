@@ -95,7 +95,7 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
     let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();
     let status = status.as_str().as_bytes();
 
-    buf.reserve(status.len() + reason.len() + 3);
+    buf.reserve(status.len() + reason.len() + 1);
     buf.extend_from_slice(status);
     buf.extend_from_slice(b" ");
     buf.extend_from_slice(reason);
