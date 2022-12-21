@@ -112,23 +112,19 @@ impl<FS: AsyncFs> ServeDir<FS> {
             .and_then(|range| http_range_header::parse_range_header(range).ok())
             .map(|range| range.validate(size))
         {
-            match range {
-                Ok(mut range) => {
-                    let (start, end) = range
-                        .pop()
-                        .expect("http_range_header produced empty range")
-                        .into_inner();
+            let (start, end) = range
+                .map_err(|_| ServeError::RangeNotSatisfied(size))?
+                .pop()
+                .expect("http_range_header produced empty range")
+                .into_inner();
 
-                    file.seek(SeekFrom::Start(start)).await?;
+            file.seek(SeekFrom::Start(start)).await?;
 
-                    *res.status_mut() = StatusCode::PARTIAL_CONTENT;
-                    let val = HeaderValue::try_from(format!("bytes {start}-{end}/{size}")).unwrap();
-                    res.headers_mut().insert(CONTENT_RANGE, val);
+            *res.status_mut() = StatusCode::PARTIAL_CONTENT;
+            let val = HeaderValue::try_from(format!("bytes {start}-{end}/{size}")).unwrap();
+            res.headers_mut().insert(CONTENT_RANGE, val);
 
-                    size = end - start + 1;
-                }
-                Err(_) => return Err(ServeError::RangeNotSatisfied(size)),
-            }
+            size = end - start + 1;
         }
 
         res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(ct));
