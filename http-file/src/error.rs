@@ -8,6 +8,8 @@ use http::{
     HeaderValue, Request, Response, StatusCode,
 };
 
+use super::buf::buf_write_header;
+
 /// high level error types for serving file.
 /// see [into_response_from] and [into_response] for way of converting error to [Response] type.
 ///
@@ -83,8 +85,8 @@ impl ServeError {
             Self::PreconditionFailed => *res.status_mut() = StatusCode::PRECONDITION_FAILED,
             Self::RangeNotSatisfied(size) => {
                 *res.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
-                res.headers_mut()
-                    .insert(CONTENT_RANGE, HeaderValue::try_from(format!("bytes */{size}")).unwrap());
+                let val = buf_write_header!(0, "bytes */{size}");
+                res.headers_mut().insert(CONTENT_RANGE, val);
             }
             Self::NotFound => *res.status_mut() = StatusCode::NOT_FOUND,
             Self::Io(_) => *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR,
@@ -116,5 +118,22 @@ impl From<io::Error> for ServeError {
             io::ErrorKind::PermissionDenied => Self::InvalidPath,
             _ => Self::Io(e),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn response() {
+        assert_eq!(
+            ServeError::RangeNotSatisfied(128)
+                .into_response()
+                .headers_mut()
+                .remove(CONTENT_RANGE)
+                .unwrap(),
+            HeaderValue::from_static("bytes */128")
+        )
     }
 }
