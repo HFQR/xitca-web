@@ -1,16 +1,12 @@
-use core::{
-    fmt::{self, Write},
-    str::FromStr,
-};
+use core::str::FromStr;
 
-use bytes::{Bytes, BytesMut};
 use http::{
     header::{HeaderValue, IF_MODIFIED_SINCE, IF_UNMODIFIED_SINCE},
     Request,
 };
 use httpdate::HttpDate;
 
-use super::{error::ServeError, runtime::Meta};
+use super::{buf::buf_write_header, error::ServeError, runtime::Meta};
 
 pub(super) fn mod_date_check<Ext, M>(req: &Request<Ext>, meta: &mut M) -> Result<Option<HttpDate>, ServeError>
 where
@@ -57,17 +53,6 @@ fn to_http_date(header: Option<&HeaderValue>) -> Option<HttpDate> {
     })
 }
 
-pub(super) fn date_to_bytes(date: HttpDate) -> Bytes {
-    struct BytesMutWriter<'a>(&'a mut BytesMut);
-
-    impl Write for BytesMutWriter<'_> {
-        fn write_str(&mut self, s: &str) -> fmt::Result {
-            self.0.extend_from_slice(s.as_bytes());
-            Ok(())
-        }
-    }
-
-    let mut bytes = BytesMut::with_capacity(29);
-    write!(&mut BytesMutWriter(&mut bytes), "{date}").unwrap();
-    bytes.freeze()
+pub(super) fn date_to_header(date: HttpDate) -> HeaderValue {
+    buf_write_header!(29, "{date}")
 }
