@@ -2,8 +2,11 @@ use core::fmt;
 
 use std::{error, io};
 
-use http::header::CONTENT_RANGE;
-use http::{header::ALLOW, request::Parts, HeaderValue, Request, Response, StatusCode};
+use http::{
+    header::{ALLOW, CONTENT_RANGE},
+    request::Parts,
+    HeaderValue, Request, Response, StatusCode,
+};
 
 /// high level error types for serving file.
 /// see [into_response_from] and [into_response] for way of converting error to [Response] type.

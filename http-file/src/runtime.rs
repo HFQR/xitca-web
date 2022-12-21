@@ -36,6 +36,7 @@ pub trait ChunkRead: Sized {
 
     type Future: Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
 
+    /// seek file to skip n bytes with given offset.
     fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_>;
 
     /// async read of Self and write into given [BytesMut].
