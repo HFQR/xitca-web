@@ -350,6 +350,7 @@ mod test {
     }
 
     #[cfg(all(target_os = "linux", feature = "tokio-uring"))]
+    #[test]
     fn ranged_tokio_uring() {
         tokio_uring::start(test_range(ServeDir::new_tokio_uring("sample")))
     }
