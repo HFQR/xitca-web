@@ -4,6 +4,7 @@
 
 pub mod runtime;
 
+mod buf;
 mod chunk;
 mod date;
 mod error;
@@ -21,7 +22,10 @@ use http::{
 };
 use mime_guess::mime;
 
-use self::runtime::{AsyncFs, ChunkRead, Meta};
+use self::{
+    buf::buf_write_header,
+    runtime::{AsyncFs, ChunkRead, Meta},
+};
 
 #[cfg(feature = "tokio")]
 #[derive(Clone)]
@@ -121,7 +125,7 @@ impl<FS: AsyncFs> ServeDir<FS> {
             file.seek(SeekFrom::Start(start)).await?;
 
             *res.status_mut() = StatusCode::PARTIAL_CONTENT;
-            let val = HeaderValue::try_from(format!("bytes {start}-{end}/{size}")).unwrap();
+            let val = buf_write_header!(0, "bytes {start}-{end}/{size}");
             res.headers_mut().insert(CONTENT_RANGE, val);
 
             size = end - start + 1;
@@ -133,10 +137,8 @@ impl<FS: AsyncFs> ServeDir<FS> {
             .insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
 
         if let Some(modified) = modified {
-            let bytes = date::date_to_bytes(modified);
-            if let Ok(val) = HeaderValue::from_maybe_shared(bytes) {
-                res.headers_mut().insert(LAST_MODIFIED, val);
-            }
+            let val = date::date_to_header(modified);
+            res.headers_mut().insert(LAST_MODIFIED, val);
         }
 
         let stream = if matches!(*req.method(), Method::HEAD) {
