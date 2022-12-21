@@ -7,7 +7,19 @@ use xitca_service::fn_service;
 
 #[tokio::test]
 async fn h2_v2_get() {
-    std::thread::spawn(server);
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let factory = || fn_service(|(stream, _): (TcpStream, SocketAddr)| h2::run(stream));
+        let server = xitca_server::Builder::new()
+            .bind("qa", "localhost:8080", factory)?
+            .build();
+
+        tx.send(()).unwrap();
+
+        server.wait()
+    });
+
+    rx.recv().unwrap();
 
     let c = Client::new();
 
