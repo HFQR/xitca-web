@@ -16,6 +16,6 @@ async fn serve(req: &Request<()>) {
 
 ## Current state
 - serving directory with sized files.
-- every feature rather than above is missing. no range support, no content-encoding support. etc
+- no content-encoding support.
 
 [^1]: see project `Cargo.toml` for dependency versioning.

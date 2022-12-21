@@ -10,16 +10,18 @@ mod error;
 
 pub use self::{chunk::ChunkReader, error::ServeError};
 
-use std::path::{Component, Path, PathBuf};
+use std::{
+    io::SeekFrom,
+    path::{Component, Path, PathBuf},
+};
 
 use http::{
-    header::{HeaderValue, CONTENT_LENGTH, CONTENT_TYPE, LAST_MODIFIED},
-    Method, Request, Response,
+    header::{HeaderValue, ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, LAST_MODIFIED, RANGE},
+    Method, Request, Response, StatusCode,
 };
 use mime_guess::mime;
-use percent_encoding::percent_decode;
 
-use self::runtime::{AsyncFs, Meta};
+use self::runtime::{AsyncFs, ChunkRead, Meta};
 
 #[cfg(feature = "tokio")]
 #[derive(Clone)]
@@ -84,8 +86,9 @@ impl<FS: AsyncFs> ServeDir<FS> {
             return Err(ServeError::MethodNotAllowed);
         }
 
-        let path = self.path_check(req.uri().path()).ok_or(ServeError::InvalidPath)?;
+        let path = self.path_check(req.uri().path())?;
 
+        // TODO: enable nest dir serving?
         if path.is_dir() {
             return Err(ServeError::InvalidPath);
         }
@@ -98,17 +101,36 @@ impl<FS: AsyncFs> ServeDir<FS> {
 
         let modified = date::mod_date_check(req, &mut file)?;
 
-        let size = file.len();
+        let mut res = Response::new(());
 
-        let stream = if matches!(*req.method(), Method::HEAD) {
-            ChunkReader::empty()
-        } else {
-            ChunkReader::reader(file, size, self.chunk_size)
-        };
-        let mut res = Response::new(stream);
+        let mut size = file.len();
+
+        if let Some(range) = req
+            .headers()
+            .get(RANGE)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|range| http_range_header::parse_range_header(range).ok())
+            .map(|range| range.validate(size))
+        {
+            let (start, end) = range
+                .map_err(|_| ServeError::RangeNotSatisfied(size))?
+                .pop()
+                .expect("http_range_header produced empty range")
+                .into_inner();
+
+            file.seek(SeekFrom::Start(start)).await?;
+
+            *res.status_mut() = StatusCode::PARTIAL_CONTENT;
+            let val = HeaderValue::try_from(format!("bytes {start}-{end}/{size}")).unwrap();
+            res.headers_mut().insert(CONTENT_RANGE, val);
+
+            size = end - start + 1;
+        }
 
         res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(ct));
         res.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(size));
+        res.headers_mut()
+            .insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
 
         if let Some(modified) = modified {
             let bytes = date::date_to_bytes(modified);
@@ -117,15 +139,23 @@ impl<FS: AsyncFs> ServeDir<FS> {
             }
         }
 
-        Ok(res)
+        let stream = if matches!(*req.method(), Method::HEAD) {
+            ChunkReader::empty()
+        } else {
+            ChunkReader::reader(file, size, self.chunk_size)
+        };
+
+        Ok(res.map(|_| stream))
     }
 }
 
 impl<FS: AsyncFs> ServeDir<FS> {
-    fn path_check(&self, path: &str) -> Option<PathBuf> {
+    fn path_check(&self, path: &str) -> Result<PathBuf, ServeError> {
         let path = path.trim_start_matches('/').as_bytes();
 
-        let path_decoded = percent_decode(path).decode_utf8().ok()?;
+        let path_decoded = percent_encoding::percent_decode(path)
+            .decode_utf8()
+            .map_err(|_| ServeError::InvalidPath)?;
         let path_decoded = Path::new(&*path_decoded);
 
         let mut path = self.base_path.clone();
@@ -137,16 +167,18 @@ impl<FS: AsyncFs> ServeDir<FS> {
                         .components()
                         .any(|c| !matches!(c, Component::Normal(_)))
                     {
-                        return None;
+                        return Err(ServeError::InvalidPath);
                     }
                     path.push(comp)
                 }
                 Component::CurDir => {}
-                Component::Prefix(_) | Component::RootDir | Component::ParentDir => return None,
+                Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
+                    return Err(ServeError::InvalidPath)
+                }
             }
         }
 
-        Some(path)
+        Ok(path)
     }
 }
 
@@ -286,21 +318,6 @@ mod test {
             }
 
             assert_eq!(res, "hello, world!");
-        })
-    }
-
-    #[cfg(feature = "tokio-uring")]
-    #[test]
-    fn tokio_uring_assert_send() {
-        tokio_uring::start(async {
-            let dir = ServeDir::new_tokio_uring("sample");
-            let req = Request::builder().uri("/test.txt").body(()).unwrap();
-
-            let fut = dir.serve(&req);
-
-            assert_send(&fut);
-
-            let _ = fut.await.unwrap();
         })
     }
 }

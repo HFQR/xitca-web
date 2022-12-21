@@ -3,7 +3,11 @@
 /// *. `debug-assertions` must be set to false in profile to enable in memory file.
 use core::{future::Future, time::Duration};
 
-use std::{io, path::PathBuf, time::SystemTime};
+use std::{
+    io::{self, SeekFrom},
+    path::PathBuf,
+    time::SystemTime,
+};
 
 use rust_embed::{EmbeddedFile, RustEmbed};
 
@@ -49,7 +53,14 @@ impl Meta for StaticFile {
 }
 
 impl ChunkRead for StaticFile {
+    type SeekFuture<'f> = impl Future<Output = io::Result<()>> + Send + 'f where Self: 'f;
     type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>> + Send;
+
+    fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_> {
+        let SeekFrom::Start(pos) = pos else { unreachable!("") };
+        self.pos += pos;
+        async { Ok(()) }
+    }
 
     fn next(mut self, mut buf: BytesMut) -> Self::Future {
         async {

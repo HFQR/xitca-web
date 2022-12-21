@@ -2,7 +2,11 @@
 
 use core::future::Future;
 
-use std::{io, path::PathBuf, time::SystemTime};
+use std::{
+    io::{self, SeekFrom},
+    path::PathBuf,
+    time::SystemTime,
+};
 
 use bytes::BytesMut;
 
@@ -26,10 +30,20 @@ pub trait Meta {
 
 /// trait for async chunk read from file.
 pub trait ChunkRead: Sized {
+    type SeekFuture<'f>: Future<Output = io::Result<()>> + 'f
+    where
+        Self: 'f;
+
     type Future: Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
 
+    /// seek file to skip n bytes with given offset.
+    fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_>;
+
     /// async read of Self and write into given [BytesMut].
-    /// return the count of bytes that were written on success.
+    /// return Ok(Some(Self, BytesMut, usize)) after successful read where usize is the byte count
+    /// of data written into buffer.
+    /// return Ok(None) when self has reached EOF and can not do more read anymore.
+    /// return Err(io::Error) when read error occur.
     fn next(self, buf: BytesMut) -> Self::Future;
 }
 
@@ -38,7 +52,10 @@ pub(crate) use tokio_impl::TokioFs;
 
 #[cfg(feature = "tokio")]
 mod tokio_impl {
-    use tokio::{fs::File, io::AsyncReadExt};
+    use tokio::{
+        fs::File,
+        io::{AsyncReadExt, AsyncSeekExt},
+    };
 
     use super::*;
 
@@ -85,12 +102,17 @@ mod tokio_impl {
     }
 
     impl ChunkRead for TokioFile {
+        type SeekFuture<'f> = impl Future<Output = io::Result<()>> + Send + 'f where Self: 'f;
+
         type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>> + Send;
+
+        fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_> {
+            async move { self.file.seek(pos).await.map(|_| ()) }
+        }
 
         fn next(mut self, mut buf: BytesMut) -> Self::Future {
             async {
                 let n = self.file.read_buf(&mut buf).await?;
-
                 if n == 0 {
                     Ok(None)
                 } else {
@@ -157,7 +179,15 @@ mod tokio_uring_impl {
     }
 
     impl ChunkRead for TokioUringFile {
+        type SeekFuture<'f> = impl Future<Output = io::Result<()>> + 'f where Self: 'f;
+
         type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
+
+        fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_> {
+            let SeekFrom::Start(pos) = pos else { unreachable!("ChunkRead::seek only accept pos as SeekFrom::Start variant") };
+            self.pos += pos;
+            async { Ok(()) }
+        }
 
         fn next(mut self, buf: BytesMut) -> Self::Future {
             async {

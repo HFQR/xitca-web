@@ -2,7 +2,11 @@ use core::fmt;
 
 use std::{error, io};
 
-use http::{header::ALLOW, request::Parts, HeaderValue, Request, Response, StatusCode};
+use http::{
+    header::{ALLOW, CONTENT_RANGE},
+    request::Parts,
+    HeaderValue, Request, Response, StatusCode,
+};
 
 /// high level error types for serving file.
 /// see [into_response_from] and [into_response] for way of converting error to [Response] type.
@@ -11,11 +15,19 @@ use http::{header::ALLOW, request::Parts, HeaderValue, Request, Response, Status
 /// [into_response]: ServeError::into_response
 #[derive(Debug)]
 pub enum ServeError {
+    /// request method is not allowed. only GET/HEAD methods are allowed.
     MethodNotAllowed,
+    /// requested file path is invalid.
     InvalidPath,
+    /// requested file has not been modified.
     NotModified,
+    /// requested file has been modified before given precondition time.
     PreconditionFailed,
+    /// requested file range is not satisfied. u64 is the max range of file.
+    RangeNotSatisfied(u64),
+    /// can not find requested file.
     NotFound,
+    /// I/O error from file system.
     Io(io::Error),
 }
 
@@ -69,6 +81,11 @@ impl ServeError {
             Self::InvalidPath => *res.status_mut() = StatusCode::BAD_REQUEST,
             Self::NotModified => *res.status_mut() = StatusCode::NOT_MODIFIED,
             Self::PreconditionFailed => *res.status_mut() = StatusCode::PRECONDITION_FAILED,
+            Self::RangeNotSatisfied(size) => {
+                *res.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
+                res.headers_mut()
+                    .insert(CONTENT_RANGE, HeaderValue::try_from(format!("bytes */{size}")).unwrap());
+            }
             Self::NotFound => *res.status_mut() = StatusCode::NOT_FOUND,
             Self::Io(_) => *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -83,6 +100,7 @@ impl fmt::Display for ServeError {
             Self::InvalidPath => f.write_str("file path is not valid"),
             Self::NotModified => f.write_str("file has not been modified"),
             Self::PreconditionFailed => f.write_str("precondition failed. file has been modified"),
+            Self::RangeNotSatisfied(size) => write!(f, "range is out of bound. max range of file is {size}"),
             Self::NotFound => f.write_str("file can not be found"),
             Self::Io(ref e) => fmt::Display::fmt(e, f),
         }
