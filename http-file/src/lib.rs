@@ -193,27 +193,6 @@ mod test {
     fn assert_send<F: Send>(_: &F) {}
 
     #[tokio::test]
-    async fn basic() {
-        let dir = ServeDir::new("sample");
-        let req = Request::builder().uri("/test.txt").body(()).unwrap();
-
-        let mut stream = Box::pin(dir.serve(&req).await.unwrap().into_body());
-
-        let (low, high) = stream.size_hint();
-
-        assert_eq!(low, high.unwrap());
-        assert_eq!(low, "hello, world!".len());
-
-        let mut res = String::new();
-
-        while let Some(Ok(bytes)) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-            res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
-        }
-
-        assert_eq!(res, "hello, world!");
-    }
-
-    #[tokio::test]
     async fn tokio_fs_assert_send() {
         let dir = ServeDir::new("sample");
         let req = Request::builder().uri("/test.txt").body(()).unwrap();
@@ -282,6 +261,10 @@ mod test {
             HeaderValue::from_static("text/plain")
         );
         assert_eq!(
+            res.headers().get(ACCEPT_RANGES).unwrap(),
+            HeaderValue::from_static("bytes")
+        );
+        assert_eq!(
             res.headers().get(CONTENT_LENGTH).unwrap(),
             HeaderValue::from("hello, world!".len())
         );
@@ -297,27 +280,75 @@ mod test {
         assert_eq!(lower, "hello, world!".len());
     }
 
+    async fn _basic<FS: AsyncFs>(dir: ServeDir<FS>) {
+        let req = Request::builder().uri("/test.txt").body(()).unwrap();
+
+        let mut stream = Box::pin(dir.serve(&req).await.unwrap().into_body());
+
+        let (low, high) = stream.size_hint();
+
+        assert_eq!(low, high.unwrap());
+        assert_eq!(low, "hello, world!".len());
+
+        let mut res = String::new();
+
+        while let Some(Ok(bytes)) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+            res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
+        }
+
+        assert_eq!(res, "hello, world!");
+    }
+
+    #[tokio::test]
+    async fn basic() {
+        _basic(ServeDir::new("sample")).await;
+    }
+
     #[cfg(all(target_os = "linux", feature = "tokio-uring"))]
     #[test]
     fn basic_tokio_uring() {
-        tokio_uring::start(async {
-            let dir = ServeDir::new_tokio_uring("sample");
-            let req = Request::builder().uri("/test.txt").body(()).unwrap();
+        tokio_uring::start(_basic(ServeDir::new_tokio_uring("sample")));
+    }
 
-            let mut stream = Box::pin(dir.serve(&req).await.unwrap().into_body());
+    async fn test_range<FS: AsyncFs>(dir: ServeDir<FS>) {
+        let req = Request::builder()
+            .uri("/test.txt")
+            .header("range", "bytes=2-12")
+            .body(())
+            .unwrap();
+        let res = dir.serve(&req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            res.headers().get(CONTENT_TYPE).unwrap(),
+            HeaderValue::from_static("text/plain")
+        );
+        assert_eq!(
+            res.headers().get(CONTENT_RANGE).unwrap(),
+            HeaderValue::from_static("bytes 2-12/13")
+        );
+        assert_eq!(
+            res.headers().get(CONTENT_LENGTH).unwrap(),
+            HeaderValue::from("llo, world!".len())
+        );
 
-            let (low, high) = stream.size_hint();
+        let mut stream = Box::pin(res.into_body());
 
-            assert_eq!(low, high.unwrap());
-            assert_eq!(low, "hello, world!".len());
+        let mut res = String::new();
 
-            let mut res = String::new();
+        while let Some(Ok(bytes)) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+            res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
+        }
 
-            while let Some(Ok(bytes)) = poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-                res.push_str(std::str::from_utf8(bytes.as_ref()).unwrap());
-            }
+        assert_eq!("llo, world!", res);
+    }
 
-            assert_eq!(res, "hello, world!");
-        })
+    #[tokio::test]
+    async fn ranged() {
+        test_range(ServeDir::new("sample")).await;
+    }
+
+    #[cfg(all(target_os = "linux", feature = "tokio-uring"))]
+    fn ranged_tokio_uring() {
+        tokio_uring::start(test_range(ServeDir::new_tokio_uring("sample")))
     }
 }
