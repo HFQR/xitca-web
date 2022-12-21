@@ -30,7 +30,7 @@ where
             ContentEncoding::Deflate => {
                 update_header(&mut parts.headers, "deflate");
                 FeaturedCode::EncodeDe(super::deflate::Encoder::new(
-                    super::writer::Writer::new(),
+                    super::writer::BytesMutWriter::new(),
                     flate2::Compression::fast(),
                 ))
             }
@@ -38,7 +38,7 @@ where
             ContentEncoding::Gzip => {
                 update_header(&mut parts.headers, "gzip");
                 FeaturedCode::EncodeGz(super::gzip::Encoder::new(
-                    super::writer::Writer::new(),
+                    super::writer::BytesMutWriter::new(),
                     flate2::Compression::fast(),
                 ))
             }

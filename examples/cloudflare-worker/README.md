@@ -2,7 +2,8 @@
 
 ## Requirement
 - nightly Rust
-- wrangler 1
+- [cloudflare workers](https://workers.cloudflare.com/)
+- [wrangler v1](https://crates.io/crates/wrangler)
 
 ## API
 Same as auto generated worker template with additional static stie.

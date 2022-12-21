@@ -20,18 +20,18 @@ mod brotli {
     use brotli2::write::{BrotliDecoder, BrotliEncoder};
     use bytes::Bytes;
 
-    use super::{coder::Code, writer::Writer};
+    use super::{coder::Code, writer::BytesMutWriter};
 
-    pub type Decoder = BrotliDecoder<Writer>;
-    pub struct Encoder(Option<BrotliEncoder<Writer>>);
+    pub type Decoder = BrotliDecoder<BytesMutWriter>;
+    pub struct Encoder(Option<BrotliEncoder<BytesMutWriter>>);
 
     impl Encoder {
         pub(crate) fn new(level: u32) -> Self {
-            Self(Some(BrotliEncoder::new(Writer::new(), level)))
+            Self(Some(BrotliEncoder::new(BytesMutWriter::new(), level)))
         }
     }
 
-    impl<T> Code<T> for BrotliDecoder<Writer>
+    impl<T> Code<T> for BrotliDecoder<BytesMutWriter>
     where
         T: AsRef<[u8]>,
     {
@@ -91,24 +91,24 @@ mod brotli {
 
 #[cfg(feature = "gz")]
 mod gzip {
-    use super::writer::Writer;
+    use super::writer::BytesMutWriter;
 
     use flate2::write::{GzDecoder, GzEncoder};
 
-    pub type Decoder = GzDecoder<Writer>;
-    pub type Encoder = GzEncoder<Writer>;
+    pub type Decoder = GzDecoder<BytesMutWriter>;
+    pub type Encoder = GzEncoder<BytesMutWriter>;
 
     code_impl!(GzDecoder);
     code_impl!(GzEncoder);
 }
 #[cfg(feature = "de")]
 mod deflate {
-    use super::writer::Writer;
+    use super::writer::BytesMutWriter;
 
     use flate2::write::{DeflateDecoder, DeflateEncoder};
 
-    pub type Decoder = DeflateDecoder<Writer>;
-    pub type Encoder = DeflateEncoder<Writer>;
+    pub type Decoder = DeflateDecoder<BytesMutWriter>;
+    pub type Encoder = DeflateEncoder<BytesMutWriter>;
 
     code_impl!(DeflateDecoder);
     code_impl!(DeflateEncoder);

@@ -14,6 +14,7 @@ use rust_embed::{EmbeddedFile, RustEmbed};
 use http_file::runtime::{AsyncFs, ChunkRead, Meta};
 use xitca_http::bytes::BytesMut;
 
+// folder is relative path pointing at examples/file/static to reuse the static files.
 #[derive(RustEmbed)]
 #[folder = "../file/static"]
 pub struct Files;
