@@ -31,11 +31,3 @@ async fn h2_v2_get() {
 
     assert!(res.status().is_success());
 }
-
-fn server() -> std::io::Result<()> {
-    let factory = || fn_service(|(stream, _): (TcpStream, SocketAddr)| h2::run(stream));
-    xitca_server::Builder::new()
-        .bind("qa", "localhost:8080", factory)?
-        .build()
-        .wait()
-}

@@ -1,30 +1,28 @@
 use std::io;
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 
-pub struct Writer {
-    buf: BytesMut,
-}
+pub struct BytesMutWriter(BytesMut);
 
-impl Writer {
-    pub(super) fn new() -> Writer {
-        Writer { buf: BytesMut::new() }
+impl BytesMutWriter {
+    pub(super) fn new() -> Self {
+        Self(BytesMut::new())
     }
 
     pub(super) fn take(&mut self) -> Bytes {
-        self.buf.split().freeze()
+        self.0.split().freeze()
     }
 
     #[cfg(feature = "br")]
     pub(super) fn take_owned(self) -> Bytes {
-        self.buf.freeze()
+        self.0.freeze()
     }
 }
 
-impl io::Write for Writer {
+impl io::Write for BytesMutWriter {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.buf.put_slice(buf);
+        self.0.extend_from_slice(buf);
         Ok(buf.len())
     }
 

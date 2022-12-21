@@ -1,8 +1,9 @@
-use std::{
-    io,
+use core::{
     pin::Pin,
     task::{ready, Context, Poll},
 };
+
+use std::io;
 
 use bytes::Bytes;
 use futures_core::stream::Stream;
@@ -43,13 +44,9 @@ where
         let mut this = self.project();
 
         while let Some(res) = ready!(this.body.as_mut().poll_next(cx)) {
-            match res {
-                Ok(item) => {
-                    if let Some(item) = this.coder.code(item)? {
-                        return Poll::Ready(Some(Ok(item)));
-                    }
-                }
-                Err(e) => return Poll::Ready(Some(Err(CoderError::Stream(e)))),
+            let item = res.map_err(CoderError::Stream)?;
+            if let Some(item) = this.coder.code(item)? {
+                return Poll::Ready(Some(Ok(item)));
             }
         }
 
@@ -198,7 +195,7 @@ where
 #[cfg(any(feature = "gz", feature = "de"))]
 macro_rules! code_impl {
     ($coder: ident) => {
-        impl<T> crate::Code<T> for $coder<crate::writer::Writer>
+        impl<T> crate::Code<T> for $coder<crate::writer::BytesMutWriter>
         where
             T: AsRef<[u8]>,
         {
@@ -230,7 +227,7 @@ macro_rules! code_impl {
 }
 
 fn try_downcast_to_bytes<T: 'static>(item: T) -> Result<Bytes, T> {
-    use std::any::Any;
+    use core::any::Any;
 
     let item = &mut Some(item);
     match (item as &mut dyn Any).downcast_mut::<Option<Bytes>>() {
