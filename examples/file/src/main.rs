@@ -26,8 +26,9 @@ fn main() -> std::io::Result<()> {
                 // only accept get/post method.
                 Route::new([Method::GET, Method::HEAD]).route(handler_service(index)),
             )
+            // compression middleware
             .enclosed(Compress)
-            // a simple middleware to intercept empty path and replace it with index.html
+            // simple function middleware that intercept empty path and replace it with index.html
             .enclosed_fn(path)
             .finish()
     })
