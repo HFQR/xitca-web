@@ -18,20 +18,16 @@ pub enum ContentEncoding {
 
 impl ContentEncoding {
     pub fn from_headers(headers: &HeaderMap) -> Self {
-        let mut preferred_encoding = Self::NoOp;
-        let mut max_qval = 0;
+        let mut prefer = ContentEncodingWithQValue::default();
 
-        for (encoding, qval) in Self::_from_headers(headers) {
-            if qval.0 > max_qval {
-                preferred_encoding = encoding;
-                max_qval = qval.0;
-            }
+        for encoding in Self::_from_headers(headers) {
+            prefer.try_update(encoding);
         }
 
-        preferred_encoding
+        prefer.enc
     }
 
-    fn _from_headers(headers: &HeaderMap) -> impl Iterator<Item = (Self, QValue)> + '_ {
+    fn _from_headers(headers: &HeaderMap) -> impl Iterator<Item = ContentEncodingWithQValue> + '_ {
         headers
             .get_all(ACCEPT_ENCODING)
             .iter()
@@ -39,18 +35,13 @@ impl ContentEncoding {
             .flat_map(|s| s.split(','))
             .filter_map(|v| {
                 let mut v = v.splitn(2, ';');
-
-                let encoding = Self::try_parse(v.next().unwrap().trim())
-                    // fallback to no-op encoding when preferred encoding is not supported.
-                    .unwrap_or(ContentEncoding::NoOp);
-
-                let qval = if let Some(qval) = v.next() {
-                    QValue::parse(qval.trim())?
-                } else {
-                    QValue::one()
-                };
-
-                Some((encoding, qval))
+                Self::try_parse(v.next().unwrap().trim()).ok().map(|enc| {
+                    let val = v
+                        .next()
+                        .and_then(|v| QValue::parse(v.trim()))
+                        .unwrap_or_else(QValue::one);
+                    ContentEncodingWithQValue { enc, val }
+                })
             })
     }
 
@@ -69,11 +60,46 @@ impl ContentEncoding {
     }
 }
 
+struct ContentEncodingWithQValue {
+    enc: ContentEncoding,
+    val: QValue,
+}
+
+impl Default for ContentEncodingWithQValue {
+    fn default() -> Self {
+        Self {
+            enc: ContentEncoding::NoOp,
+            val: QValue::zero(),
+        }
+    }
+}
+
+impl ContentEncodingWithQValue {
+    fn try_update(&mut self, other: Self) {
+        if other.val > self.val {
+            match other.enc {
+                #[cfg(not(feature = "br"))]
+                ContentEncoding::Br => return,
+                #[cfg(not(feature = "de"))]
+                ContentEncoding::Deflate => return,
+                #[cfg(not(feature = "gz"))]
+                ContentEncoding::Gzip => return,
+                _ => {}
+            };
+            *self = other;
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct QValue(u16);
 
 impl QValue {
-    fn one() -> Self {
+    const fn zero() -> Self {
+        Self(0)
+    }
+
+    const fn one() -> Self {
         Self(1000)
     }
 

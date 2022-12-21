@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.1", features = ["compress-gz"] }
+xitca-web = { version = "0.1", features = ["compress-br"] }
 http-file = "0.1"

@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::Future};
+use core::{convert::Infallible, future::Future};
 
 use http_encoding::{encoder, Coder, ContentEncoding};
 
