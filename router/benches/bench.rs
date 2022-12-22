@@ -61,7 +61,7 @@ fn compare_erase(c: &mut Criterion) {
                         .iter()
                         // as of writing the bench this is roughly what axum do to erase lifetime
                         // of params.
-                        .map(|(k, v)| (Arc::<str>::from(k), Arc::<str>::from(v)))
+                        .map(|(k, v)| (Arc::<str>::from(k), String::from(v)))
                         .collect::<Vec<_>>(),
                 );
             }
