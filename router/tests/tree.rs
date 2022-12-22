@@ -588,7 +588,7 @@ macro_rules! match_tests {
                             );
                         }
 
-                        let expected_params = vec![$((BytesStr::from($key), BytesStr::from($val))),*];
+                        let expected_params = vec![$((BytesStr::from($key), String::from($val))),*];
                         let got_params = result.params.into_iter().collect::<Vec<_>>();
 
                         assert_eq!(
