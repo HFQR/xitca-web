@@ -1,4 +1,7 @@
-use alloc::vec::{self, Vec};
+use alloc::{
+    string::String,
+    vec::{self, Vec},
+};
 
 use xitca_unsafe_collection::{bound_queue::stack, bytes::BytesStr};
 
@@ -6,7 +9,7 @@ use xitca_unsafe_collection::{bound_queue::stack, bytes::BytesStr};
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 struct Param {
     key: BytesStr,
-    value: BytesStr,
+    value: String,
 }
 
 impl Param {
@@ -138,7 +141,7 @@ impl Params {
 
         let param = Param {
             key,
-            value: BytesStr::from(value),
+            value: value.into(),
         };
         match self.kind {
             ParamsKind::Inline(ref mut q) => {
@@ -152,7 +155,7 @@ impl Params {
 }
 
 impl IntoIterator for Params {
-    type Item = (BytesStr, BytesStr);
+    type Item = (BytesStr, String);
     type IntoIter = IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -192,7 +195,7 @@ pub struct IntoIter {
 }
 
 impl Iterator for IntoIter {
-    type Item = (BytesStr, BytesStr);
+    type Item = (BytesStr, String);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.kind {
