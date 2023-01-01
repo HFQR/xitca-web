@@ -13,8 +13,8 @@ mod next {
 
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {
-        pub fn $method_fn<R>(route: R) -> Route<R, next::Empty, 1> {
-            Route::new([Method::$method]).route(route)
+        pub const fn $method_fn<R>(route: R) -> Route<R, next::Empty, 1> {
+            Route::_new([Method::$method], route)
         }
     };
 }
@@ -38,11 +38,7 @@ pub struct Route<R, N, const M: usize> {
 impl<const N: usize> Route<(), next::Empty, N> {
     pub const fn new(methods: [Method; N]) -> Self {
         assert!(N > 0, "Route method can not be empty");
-        Self {
-            methods,
-            route: (),
-            next: next::Empty,
-        }
+        Self::_new(methods, ())
     }
 
     pub fn route<R>(self, route: R) -> Route<R, next::Empty, N> {
@@ -50,6 +46,14 @@ impl<const N: usize> Route<(), next::Empty, N> {
             methods: self.methods,
             route,
             next: self.next,
+        }
+    }
+
+    const fn _new<R>(methods: [Method; N], route: R) -> Route<R, next::Empty, N> {
+        Route {
+            methods,
+            route,
+            next: next::Empty,
         }
     }
 }
