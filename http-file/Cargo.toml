@@ -5,7 +5,9 @@ edition = "2021"
 
 [features]
 default = ["tokio"]
+# tokio runtime as async file system
 tokio = ["tokio/fs", "tokio/io-util"]
+# tokio-uring as async file system. (can be used together with tokio feature)
 tokio-uring = ["dep:tokio", "dep:tokio-uring"]
 
 [dependencies]
