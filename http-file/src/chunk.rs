@@ -13,6 +13,7 @@ use pin_project_lite::pin_project;
 use super::runtime::ChunkRead;
 
 pin_project! {
+    /// chunked file reader with async [Stream]
     #[project = ChunkReaderProj]
     pub enum ChunkReader<F>
     where
