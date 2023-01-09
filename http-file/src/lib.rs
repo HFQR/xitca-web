@@ -60,6 +60,8 @@ impl ServeDir<runtime::TokioUringFs> {
 }
 
 impl<FS: AsyncFs> ServeDir<FS> {
+    /// construct a new ServeDir with given path and async file system type. The type must impl
+    /// [AsyncFs] trait for properly handling file streaming.
     pub fn with_fs(path: impl Into<PathBuf>, async_fs: FS) -> Self {
         Self {
             chunk_size: 4096,
@@ -68,6 +70,9 @@ impl<FS: AsyncFs> ServeDir<FS> {
         }
     }
 
+    /// hint for chunk size of async file streaming.
+    /// it's a best effort upper bound and should not be trusted to produce exact chunk size as
+    /// under/over shoot can happen
     pub fn chunk_size(&mut self, size: usize) -> &mut Self {
         self.chunk_size = size;
         self
