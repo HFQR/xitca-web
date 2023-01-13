@@ -1,7 +1,7 @@
-use std::{
+use core::{
     fmt,
     ops::{Deref, DerefMut},
-    pin::Pin,
+    pin::{pin, Pin},
     time::Duration,
 };
 
@@ -118,7 +118,7 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
         let (res, body) = self.res.into_parts();
         let mut timer = self.timer;
 
-        tokio::pin!(body);
+        let mut body = pin!(body);
 
         let limit = res
             .headers

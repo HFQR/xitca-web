@@ -9,20 +9,6 @@ use core::{
 
 use alloc::{sync::Arc, task::Wake};
 
-#[macro_export]
-macro_rules! pin {
-    ($($x:ident),* $(,)?) => { $(
-        // Move the value to ensure that it is owned
-        let mut $x = $x;
-        // Shadow the original binding so that it can't be directly accessed
-        // ever again.
-        #[allow(unused_mut)]
-        let mut $x = unsafe {
-            core::pin::Pin::new_unchecked(&mut $x)
-        };
-    )* }
-}
-
 pub trait Select: Sized {
     fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>;
 }
@@ -140,9 +126,9 @@ impl Wake for NoOpWaker {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use core::{future::poll_fn, pin::pin};
 
-    use core::future::poll_fn;
+    use super::*;
 
     #[test]
     fn test_select() {
@@ -156,8 +142,6 @@ mod test {
         }
         .select(async { 321 });
 
-        pin!(fut);
-
-        matches!(fut.now_or_panic(), SelectOutput::B(321));
+        matches!(pin!(fut).now_or_panic(), SelectOutput::B(321));
     }
 }

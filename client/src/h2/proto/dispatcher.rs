@@ -1,4 +1,4 @@
-use std::{cmp, future::poll_fn, marker::PhantomData};
+use core::{cmp, future::poll_fn, marker::PhantomData, pin::pin};
 
 use ::h2::{client, Reason};
 use futures_core::stream::Stream;
@@ -88,7 +88,7 @@ where
     let (fut, mut stream) = stream.send_request(req, end_of_stream)?;
 
     if !is_eof {
-        tokio::pin!(body);
+        let mut body = pin!(body);
 
         while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
             let mut chunk = res.map_err(BodyError::from)?;

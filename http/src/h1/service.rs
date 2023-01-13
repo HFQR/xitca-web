@@ -1,9 +1,10 @@
-use std::{future::Future, net::SocketAddr};
+use core::{future::Future, pin::pin};
+
+use std::net::SocketAddr;
 
 use futures_core::Stream;
 use xitca_io::io::AsyncIo;
 use xitca_service::Service;
-use xitca_unsafe_collection::pin;
 
 use crate::{
     bytes::Bytes,
@@ -39,7 +40,7 @@ where
         async move {
             // tls accept timer.
             let timer = self.keep_alive();
-            pin!(timer);
+            let mut timer = pin!(timer);
 
             let mut io = self
                 .tls_acceptor
@@ -51,16 +52,9 @@ where
             // update timer to first request timeout.
             self.update_first_request_deadline(timer.as_mut());
 
-            proto::run(
-                &mut io,
-                addr,
-                timer.as_mut(),
-                self.config,
-                &self.service,
-                self.date.get(),
-            )
-            .await
-            .map_err(Into::into)
+            proto::run(&mut io, addr, timer, self.config, &self.service, self.date.get())
+                .await
+                .map_err(Into::into)
         }
     }
 }

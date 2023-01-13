@@ -1,4 +1,4 @@
-use std::future::Future;
+use core::future::Future;
 
 use crate::{
     handler::{ExtractError, FromRequest},
@@ -27,8 +27,10 @@ where
 
 #[cfg(test)]
 mod test {
+    use core::pin::pin;
+
     use xitca_http::body::Once;
-    use xitca_unsafe_collection::{futures::NowOrPanic, pin};
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         dev::{bytes::Bytes, service::Service},
@@ -45,7 +47,7 @@ mod test {
     use super::*;
 
     async fn handler(multipart: Multipart<'_, Once<Bytes>>) -> Vec<u8> {
-        pin!(multipart);
+        let mut multipart = pin!(multipart);
 
         let mut res = Vec::new();
 

@@ -1,9 +1,10 @@
-use std::{fmt, future::Future, net::SocketAddr};
+use core::{fmt, future::Future, pin::pin};
+
+use std::net::SocketAddr;
 
 use futures_core::Stream;
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite};
 use xitca_service::Service;
-use xitca_unsafe_collection::pin;
 
 use crate::{
     bytes::Bytes,
@@ -53,7 +54,7 @@ where
         async move {
             // tls accept timer.
             let timer = self.keep_alive();
-            pin!(timer);
+            let mut timer = pin!(timer);
 
             let tls_stream = self
                 .tls_acceptor
@@ -75,7 +76,7 @@ where
             let dispatcher = Dispatcher::new(
                 &mut conn,
                 addr,
-                timer.as_mut(),
+                timer,
                 self.config.keep_alive_timeout,
                 &self.service,
                 self.date.get(),

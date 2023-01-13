@@ -1,11 +1,12 @@
-use std::{
+use core::{
     fmt,
     future::{poll_fn, Future},
     marker::PhantomData,
-    net::SocketAddr,
-    pin::Pin,
+    pin::{pin, Pin},
     task::{ready, Context, Poll},
 };
+
+use std::net::SocketAddr;
 
 use ::h3::{
     quic::SendStream,
@@ -15,10 +16,7 @@ use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 use xitca_io::net::UdpStream;
 use xitca_service::Service;
-use xitca_unsafe_collection::{
-    futures::{Select, SelectOutput},
-    pin,
-};
+use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
     bytes::{Buf, Bytes},
@@ -119,7 +117,7 @@ where
 
     stream.send_response(res).await?;
 
-    pin!(body);
+    let mut body = pin!(body);
 
     while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
         let bytes = res.map_err(Error::Body)?;

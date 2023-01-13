@@ -1,4 +1,6 @@
-use std::{future::poll_fn, marker::PhantomData, net::SocketAddr};
+use core::{future::poll_fn, marker::PhantomData, pin::pin};
+
+use std::net::SocketAddr;
 
 use ::h3_quinn::quinn::Endpoint;
 use futures_core::stream::Stream;
@@ -61,7 +63,7 @@ where
     let mut stream = stream.send_request(req).await?;
 
     if !is_eof {
-        tokio::pin!(body);
+        let mut body = pin!(body);
         while let Some(bytes) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
             let bytes = bytes.map_err(BodyError::from)?;
             stream.send_data(bytes).await?;

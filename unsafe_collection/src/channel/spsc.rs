@@ -324,7 +324,9 @@ impl<T> fmt::Display for SendError<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::{futures::NoOpWaker, pin};
+    use core::pin::pin;
+
+    use crate::futures::NoOpWaker;
 
     use super::*;
 
@@ -338,22 +340,19 @@ mod test {
 
         for i in 0..8 {
             let fut = tx.send(i);
-            pin!(fut);
-            assert!(fut.poll(cx).is_ready());
+            assert!(pin!(fut).poll(cx).is_ready());
         }
 
         for i in 0..8 {
             let fut = rx.recv();
-            pin!(fut);
-            match fut.poll(cx) {
+            match pin!(fut).poll(cx) {
                 Poll::Ready(Some(i2)) => assert_eq!(i, i2),
                 _ => unreachable!(),
             }
         }
 
         let fut = rx.recv();
-        pin!(fut);
-        assert!(fut.poll(cx).is_pending());
+        assert!(pin!(fut).poll(cx).is_pending());
     }
 
     #[test]
@@ -408,30 +407,27 @@ mod test {
 
         {
             let fut = tx.send(996);
-            pin!(fut);
-            assert!(fut.poll(cx).is_ready());
+            assert!(pin!(fut).poll(cx).is_ready());
         }
 
         {
             {
                 let fut = rx.recv();
-                pin!(fut);
-                match fut.poll(cx) {
+                match pin!(fut).poll(cx) {
                     Poll::Ready(Some(i)) => assert_eq!(i, 996),
                     _ => unreachable!(),
                 }
             }
 
             let fut = rx.recv();
-            pin!(fut);
 
-            assert!(fut.poll(cx).is_pending());
+            assert!(pin!(fut).poll(cx).is_pending());
 
             let _tx = tx;
         }
 
         let fut = rx.recv();
-        pin!(fut);
+        let fut = pin!(fut);
         match fut.poll(cx) {
             Poll::Ready(None) => {}
             _ => unreachable!(),
