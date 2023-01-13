@@ -1,7 +1,6 @@
-use std::future::poll_fn;
+use core::{future::poll_fn, pin::pin};
 
 use futures_core::stream::Stream;
-use xitca_unsafe_collection::pin;
 
 use crate::dev::service::pipeline::PipelineE;
 
@@ -11,7 +10,7 @@ where
     B: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
 {
-    pin!(body);
+    let mut body = pin!(body);
 
     let mut res = Vec::new();
 

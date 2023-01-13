@@ -187,9 +187,9 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for LimitError {
 
 #[cfg(test)]
 mod test {
-    use std::future::poll_fn;
+    use core::{future::poll_fn, pin::pin};
 
-    use xitca_unsafe_collection::{futures::NowOrPanic, pin};
+    use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         dev::bytes::Bytes,
@@ -204,7 +204,7 @@ mod test {
     use super::*;
 
     async fn handler<B: WebStream>(Body(body): Body<B>) -> String {
-        pin!(body);
+        let mut body = pin!(body);
 
         let chunk = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().unwrap();
 

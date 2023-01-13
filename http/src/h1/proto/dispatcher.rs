@@ -1,21 +1,18 @@
-use std::{
+use core::{
     future::{pending, poll_fn, Future},
-    io,
     marker::PhantomData,
-    net::SocketAddr,
     ops::DerefMut,
-    pin::Pin,
+    pin::{pin, Pin},
     time::Duration,
 };
+
+use std::{io, net::SocketAddr};
 
 use futures_core::stream::Stream;
 use tracing::trace;
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
-use xitca_unsafe_collection::{
-    futures::{Select as _, SelectOutput},
-    pin,
-};
+use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
 use crate::{
     body::NoneBody,
@@ -240,7 +237,7 @@ where
         encoder: &mut TransferCoding,
         body_reader: &mut BodyReader,
     ) -> Result<(), Error<S::Error, BE>> {
-        pin!(body);
+        let mut body = pin!(body);
         loop {
             match self
                 .try_poll_body(body.as_mut())

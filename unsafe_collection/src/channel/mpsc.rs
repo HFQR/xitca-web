@@ -7,7 +7,7 @@ use core::{
     fmt,
     future::{poll_fn, Future},
     mem,
-    pin::Pin,
+    pin::{pin, Pin},
     task::{Context, Poll, Waker},
 };
 
@@ -16,7 +16,6 @@ use alloc::rc::Rc;
 use crate::{
     bound_queue::heap::{HeapQueue, Iter},
     list::{LinkedList, Node},
-    pin,
 };
 
 /// An async array that act in mpsc manner. There can be multiple `Sender`s and one `Receiver`.
@@ -63,7 +62,7 @@ impl<T> Sender<T> {
 
                     let node = Node::new(Waiter::Init);
 
-                    pin!(node);
+                    let mut node = pin!(node);
 
                     // SAFETY
                     // NodeGuard does not move the node nor leak the pointer on drop.
@@ -318,7 +317,7 @@ impl<T> fmt::Debug for Error<T> {
 mod test {
     use alloc::sync::Arc;
 
-    use crate::{futures::NoOpWaker, pin};
+    use crate::futures::NoOpWaker;
 
     use super::*;
 
@@ -417,14 +416,12 @@ mod test {
 
         for i in 0..8 {
             let fut = tx.send(i);
-            pin!(fut);
-            assert!(fut.poll(cx).is_ready());
+            assert!(pin!(fut).poll(cx).is_ready());
         }
 
         {
             let fut = rx.wait();
-            pin!(fut);
-            assert!(fut.poll(cx).is_ready());
+            assert!(pin!(fut).poll(cx).is_ready());
         }
 
         rx.with_vec(|inner| {
@@ -437,7 +434,6 @@ mod test {
         });
 
         let fut = rx.wait();
-        pin!(fut);
-        assert!(fut.poll(cx).is_pending());
+        assert!(pin!(fut).poll(cx).is_pending());
     }
 }

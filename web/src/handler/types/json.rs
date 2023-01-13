@@ -1,11 +1,11 @@
-use std::{
+use core::{
     fmt,
     future::{poll_fn, Future},
     ops::{Deref, DerefMut},
+    pin::pin,
 };
 
 use serde::{de::DeserializeOwned, ser::Serialize};
-use xitca_unsafe_collection::pin;
 
 use crate::{
     dev::bytes::{BufMutWriter, BytesMut},
@@ -80,7 +80,7 @@ where
 
             let Body(body) = Body::from_request(req).await?;
 
-            pin!(body);
+            let mut body = pin!(body);
 
             let mut buf = BytesMut::new();
 

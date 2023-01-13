@@ -1,6 +1,7 @@
-use std::future::{poll_fn, Future};
-
-use xitca_unsafe_collection::pin;
+use core::{
+    future::{poll_fn, Future},
+    pin::pin,
+};
 
 use crate::{
     handler::{error::ExtractError, FromRequest, Responder},
@@ -22,7 +23,7 @@ where
         let body = req.take_body_ref();
 
         async {
-            pin!(body);
+            let mut body = pin!(body);
 
             let mut vec = Vec::new();
 

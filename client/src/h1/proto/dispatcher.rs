@@ -1,10 +1,11 @@
-use std::{future::poll_fn, io};
+use core::{future::poll_fn, pin::pin};
+
+use std::io;
 
 use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use xitca_http::h1::proto::{codec::TransferCoding, context::ConnectionType};
-use xitca_unsafe_collection::pin;
 
 use crate::{
     body::BodyError,
@@ -119,7 +120,7 @@ where
     BodyError: From<E>,
 {
     if !encoder.is_eof() {
-        pin!(body);
+        let mut body = pin!(body);
 
         // poll request body and encode.
         while let Some(bytes) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {

@@ -1,4 +1,9 @@
-use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
+use core::{
+    fmt,
+    future::Future,
+    marker::PhantomData,
+    pin::{pin, Pin},
+};
 
 use futures_core::Stream;
 use xitca_io::{
@@ -7,7 +12,6 @@ use xitca_io::{
     net::TcpStream,
 };
 use xitca_service::{ready::ReadyService, Service};
-use xitca_unsafe_collection::pin;
 
 use super::{
     body::RequestBody,
@@ -96,7 +100,7 @@ where
         async {
             // tls accept timer.
             let timer = self.keep_alive();
-            pin!(timer);
+            let mut timer = pin!(timer);
 
             match io {
                 #[cfg(feature = "http3")]

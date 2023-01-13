@@ -1,6 +1,6 @@
-use std::{
+use core::{
     future::{poll_fn, Future},
-    pin::Pin,
+    pin::{pin, Pin},
     time::Duration,
 };
 
@@ -13,10 +13,7 @@ use http_ws::{
     WsOutput,
 };
 use tokio::{sync::mpsc::Sender, time::Instant};
-use xitca_unsafe_collection::{
-    futures::{Select, SelectOutput},
-    pin,
-};
+use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
     dev::bytes::Bytes,
@@ -190,8 +187,8 @@ where
 {
     let sleep = tokio::time::sleep(ping_interval);
 
-    pin!(sleep);
-    pin!(decode);
+    let mut sleep = pin!(sleep);
+    let mut decode = pin!(decode);
 
     let mut un_answered_ping = 0u8;
 
