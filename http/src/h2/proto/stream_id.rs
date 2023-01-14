@@ -26,9 +26,8 @@ impl StreamId {
     /// Parse the stream ID
     #[inline]
     pub fn parse(buf: &[u8]) -> (StreamId, bool) {
-        let mut ubuf = [0; 4];
-        ubuf.copy_from_slice(&buf[0..4]);
-        let unpacked = u32::from_be_bytes(ubuf);
+        let bytes = <[u8; 4]>::try_from(&buf[0..4]).unwrap();
+        let unpacked = u32::from_be_bytes(bytes);
         let flag = unpacked & STREAM_ID_MASK == STREAM_ID_MASK;
 
         // Now clear the most significant bit, as that is reserved and MUST be
@@ -38,33 +37,33 @@ impl StreamId {
 
     /// Returns true if this stream ID corresponds to a stream that
     /// was initiated by the client.
-    pub fn is_client_initiated(&self) -> bool {
+    pub const fn is_client_initiated(&self) -> bool {
         let id = self.0;
         id != 0 && id % 2 == 1
     }
 
     /// Returns true if this stream ID corresponds to a stream that
     /// was initiated by the server.
-    pub fn is_server_initiated(&self) -> bool {
+    pub const fn is_server_initiated(&self) -> bool {
         let id = self.0;
         id != 0 && id % 2 == 0
     }
 
     /// Return a new `StreamId` for stream 0.
     #[inline]
-    pub fn zero() -> StreamId {
+    pub const fn zero() -> StreamId {
         StreamId::ZERO
     }
 
     /// Returns true if this stream ID is zero.
-    pub fn is_zero(&self) -> bool {
+    pub const fn is_zero(&self) -> bool {
         self.0 == 0
     }
 
     /// Returns the next stream ID initiated by the same peer as this stream
     /// ID, or an error if incrementing this stream ID would overflow the
     /// maximum.
-    pub fn next_id(&self) -> Result<StreamId, StreamIdOverflow> {
+    pub const fn next_id(&self) -> Result<StreamId, StreamIdOverflow> {
         let next = self.0 + 2;
         if next > StreamId::MAX.0 {
             Err(StreamIdOverflow)
