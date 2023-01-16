@@ -1,5 +1,5 @@
 use alloc::{
-    string::String,
+    boxed::Box,
     vec::{self, Vec},
 };
 
@@ -9,7 +9,7 @@ use xitca_unsafe_collection::{bound_queue::stack, bytes::BytesStr};
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 struct Param {
     key: BytesStr,
-    value: String,
+    value: Box<str>,
 }
 
 impl Param {
@@ -155,7 +155,7 @@ impl Params {
 }
 
 impl IntoIterator for Params {
-    type Item = (BytesStr, String);
+    type Item = (BytesStr, Box<str>);
     type IntoIter = IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -195,7 +195,7 @@ pub struct IntoIter {
 }
 
 impl Iterator for IntoIter {
-    type Item = (BytesStr, String);
+    type Item = (BytesStr, Box<str>);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.kind {
