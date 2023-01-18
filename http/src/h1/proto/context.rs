@@ -1,9 +1,6 @@
 use std::{mem, net::SocketAddr};
 
-use crate::{
-    date::DateTime,
-    http::{header::HeaderMap, Extensions},
-};
+use crate::http::{header::HeaderMap, Extensions};
 
 /// Context is connection specific struct contain states for processing.
 pub struct Context<'a, D, const HEADER_LIMIT: usize> {
@@ -17,18 +14,16 @@ pub struct Context<'a, D, const HEADER_LIMIT: usize> {
     pub(super) date: &'a D,
 }
 
-/// A set of state for current request that are used after request's ownership is passed
-/// to service call.
+// A set of state for current request that are used after request's ownership is passed
+// to service call.
 struct ContextState(u8);
 
 impl ContextState {
-    /// Enable when current request has 100-continue header.
+    // Enable when current request has 100-continue header.
     const EXPECT: u8 = 0b_0001;
-
-    /// Enable when current request is CONNECT method.
+    // Enable when current request is CONNECT method.
     const CONNECT: u8 = 0b_0010;
-
-    /// Enable when current request is HEAD method.
+    // Enable when current request is HEAD method.
     const HEAD: u8 = 0b_0100;
 
     const fn new() -> Self {
@@ -49,10 +44,8 @@ impl ContextState {
 pub enum ConnectionType {
     /// A connection that has no request yet.
     Init,
-
     /// Close connection after response with flush and shutdown IO.
     Close,
-
     /// Keep connection alive after response
     KeepAlive,
 }
@@ -60,19 +53,13 @@ pub enum ConnectionType {
 impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     /// Context is constructed with reference of certain type that impl [DateTime] trait.
     #[inline]
-    pub fn new(date: &'a D) -> Self
-    where
-        D: DateTime,
-    {
+    pub fn new(date: &'a D) -> Self {
         Self::with_addr(crate::unspecified_socket_addr(), date)
     }
 
     /// Context is constructed with [SocketAddr] and reference of certain type that impl [DateTime] trait.
     #[inline]
-    pub fn with_addr(addr: SocketAddr, date: &'a D) -> Self
-    where
-        D: DateTime,
-    {
+    pub fn with_addr(addr: SocketAddr, date: &'a D) -> Self {
         Self {
             addr,
             state: ContextState::new(),

@@ -53,7 +53,6 @@ pub mod route {
 
 pub mod dev {
     pub use xitca_http::bytes;
-
     pub use xitca_service as service;
 }
 
