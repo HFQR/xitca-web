@@ -73,7 +73,7 @@ impl Parser {
                 return Ok(None);
             }
 
-            let mask = TryFrom::try_from(&src[idx..idx + 4]).unwrap();
+            let mask = <[u8; 4]>::try_from(&src[idx..idx + 4]).unwrap();
 
             idx += 4;
 
@@ -144,51 +144,46 @@ impl Parser {
     /// Generate binary representation
     pub fn write_message<B: AsRef<[u8]>>(dst: &mut BytesMut, pl: B, op: OpCode, fin: bool, mask: bool) {
         let payload = pl.as_ref();
-        let one: u8 = if fin { 0x80 | Into::<u8>::into(op) } else { op.into() };
-        let payload_len = payload.len();
-        let (two, p_len) = if mask {
-            (0x80, payload_len + 4)
-        } else {
-            (0, payload_len)
-        };
+        let one = if fin { 0x80 | u8::from(op) } else { u8::from(op) };
+        let len = payload.len();
+        let (two, len_maybe_mask) = if mask { (0x80, len + 4) } else { (0, len) };
 
-        if payload_len < 126 {
-            dst.reserve(p_len + 2 + if mask { 4 } else { 0 });
-            dst.put_slice(&[one, two | payload_len as u8]);
-        } else if payload_len <= 65_535 {
-            dst.reserve(p_len + 4 + if mask { 4 } else { 0 });
+        if len < 126 {
+            dst.reserve(len_maybe_mask + 2);
+            dst.put_slice(&[one, two | len as u8]);
+        } else if len <= 65_535 {
+            dst.reserve(len_maybe_mask + 4);
             dst.put_slice(&[one, two | 126]);
-            dst.put_u16(payload_len as u16);
+            dst.put_u16(len as u16);
         } else {
-            dst.reserve(p_len + 10 + if mask { 4 } else { 0 });
+            dst.reserve(len_maybe_mask + 10);
             dst.put_slice(&[one, two | 127]);
-            dst.put_u64(payload_len as u64);
+            dst.put_u64(len as u64);
         };
 
         if mask {
             let mask = rand::random::<[u8; 4]>();
-            dst.put_slice(mask.as_ref());
-            dst.put_slice(payload.as_ref());
-            let pos = dst.len() - payload_len;
+            dst.put_slice(&mask);
+            dst.put_slice(payload);
+            let pos = dst.len() - len;
             apply_mask(&mut dst[pos..], mask);
         } else {
-            dst.put_slice(payload.as_ref());
+            dst.put_slice(payload);
         }
     }
 
     /// Create a new Close control frame.
     #[inline]
     pub fn write_close(dst: &mut BytesMut, reason: Option<CloseReason>, mask: bool) {
-        let payload = match reason {
-            None => Vec::new(),
-            Some(reason) => {
-                let mut payload = Into::<u16>::into(reason.code).to_be_bytes().to_vec();
+        let payload = reason
+            .map(|reason| {
+                let mut payload = u16::from(reason.code).to_be_bytes().to_vec();
                 if let Some(description) = reason.description {
                     payload.extend(description.as_bytes());
                 }
                 payload
-            }
-        };
+            })
+            .unwrap_or_else(Vec::new);
 
         Parser::write_message(dst, payload, OpCode::Close, true, mask)
     }
