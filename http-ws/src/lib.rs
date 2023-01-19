@@ -142,7 +142,9 @@ where
             let mut output = [0u8; 24];
 
             #[allow(clippy::needless_borrow)] // clippy dumb.
-            let n = base64::encode_engine_slice(&input, &mut output, &base64::engine::DEFAULT_ENGINE);
+            let n =
+                base64::engine::Engine::encode_slice(&base64::engine::general_purpose::STANDARD, &input, &mut output)
+                    .unwrap();
             assert_eq!(n, output.len());
 
             req.headers_mut()
