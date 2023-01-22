@@ -173,71 +173,64 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 mod test {
     use super::*;
 
-    use tokio::task::LocalSet;
+    #[test]
+    fn transfer_encoding() {
+        let mut ctx = Context::<_, 4>::new(&());
 
-    #[tokio::test]
-    async fn transfer_encoding() {
-        LocalSet::new()
-            .run_until(async {
-                let date = crate::date::DateTimeService::new();
-                let mut ctx = Context::<_, 4>::new(date.get());
-
-                let head = b"\
+        let head = b"\
                 GET / HTTP/1.1\r\n\
                 Transfer-Encoding: gzip, chunked\r\n\
                 \r\n\
                 ";
-                let mut buf = BytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
-                let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
-                assert_eq!(
-                    req.headers().get(TRANSFER_ENCODING).unwrap().to_str().unwrap(),
-                    "gzip, chunked"
-                );
+        let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        assert_eq!(
+            req.headers().get(TRANSFER_ENCODING).unwrap().to_str().unwrap(),
+            "gzip, chunked"
+        );
 
-                match decoder {
-                    TransferCoding::DecodeChunked(_, _) => {}
-                    _ => panic!("trasnfer coding is not decoded chunked"),
-                };
+        assert!(
+            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            "transfer coding is not decoded to chunked"
+        );
 
-                ctx.reset();
+        ctx.reset();
 
-                let head = b"\
+        let head = b"\
                 GET / HTTP/1.1\r\n\
                 Transfer-Encoding: chunked\r\n\
                 \r\n\
                 ";
-                let mut buf = BytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
-                let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
-                assert_eq!(
-                    req.headers().get(TRANSFER_ENCODING).unwrap().to_str().unwrap(),
-                    "chunked"
-                );
+        let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        assert_eq!(
+            req.headers().get(TRANSFER_ENCODING).unwrap().to_str().unwrap(),
+            "chunked"
+        );
 
-                match decoder {
-                    TransferCoding::DecodeChunked(_, _) => {}
-                    _ => panic!("trasnfer coding is not decoded chunked"),
-                };
+        assert!(
+            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            "transfer coding is not decoded to chunked"
+        );
 
-                let head = b"\
+        let head = b"\
                 GET / HTTP/1.1\r\n\
                 Transfer-Encoding: identity\r\n\
                 \r\n\
                 ";
-                let mut buf = BytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
-                assert!(ctx.decode_head::<128>(&mut buf).is_err());
+        assert!(ctx.decode_head::<128>(&mut buf).is_err());
 
-                let head = b"\
+        let head = b"\
                 GET / HTTP/1.1\r\n\
                 Transfer-Encoding: chunked, gzip\r\n\
                 \r\n\
                 ";
-                let mut buf = BytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
-                assert!(ctx.decode_head::<128>(&mut buf).is_err());
-            })
-            .await
+        assert!(ctx.decode_head::<128>(&mut buf).is_err());
     }
 }
