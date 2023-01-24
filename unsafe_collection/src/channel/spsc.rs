@@ -326,7 +326,7 @@ impl<T> fmt::Display for SendError<T> {
 mod test {
     use core::pin::pin;
 
-    use crate::futures::NoOpWaker;
+    use crate::futures::noop_waker;
 
     use super::*;
 
@@ -334,7 +334,7 @@ mod test {
     fn spsc() {
         let (mut tx, mut rx) = channel::<usize>(8);
 
-        let waker = NoOpWaker::waker();
+        let waker = noop_waker();
 
         let cx = &mut Context::from_waker(&waker);
 
@@ -401,7 +401,7 @@ mod test {
     fn drop() {
         let (mut tx, mut rx) = channel::<usize>(8);
 
-        let waker = NoOpWaker::waker();
+        let waker = noop_waker();
 
         let cx = &mut Context::from_waker(&waker);
 
