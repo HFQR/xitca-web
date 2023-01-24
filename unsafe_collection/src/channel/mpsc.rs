@@ -317,7 +317,7 @@ impl<T> fmt::Debug for Error<T> {
 mod test {
     use alloc::sync::Arc;
 
-    use crate::futures::NoOpWaker;
+    use crate::futures::noop_waker;
 
     use super::*;
 
@@ -410,7 +410,7 @@ mod test {
     fn mpsc() {
         let (tx, mut rx) = async_vec(8);
 
-        let waker = NoOpWaker::waker();
+        let waker = noop_waker();
 
         let cx = &mut Context::from_waker(&waker);
 

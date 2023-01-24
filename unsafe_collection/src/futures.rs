@@ -1,16 +1,16 @@
-extern crate alloc;
-
 use core::{
     fmt,
     future::Future,
     pin::Pin,
-    task::{Context, Poll, Waker},
+    ptr,
+    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
 
-use alloc::{sync::Arc, task::Wake};
-
+/// Biased select always prioritize polling Self.
 pub trait Select: Sized {
-    fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>;
+    fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>
+    where
+        Fut: Future;
 }
 
 impl<F> Select for F
@@ -18,7 +18,10 @@ where
     F: Future,
 {
     #[inline]
-    fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut> {
+    fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>
+    where
+        Fut: Future,
+    {
         SelectFuture {
             fut1: self,
             fut2: other,
@@ -96,7 +99,7 @@ where
     type Output = F::Output;
 
     fn now_or_panic(&mut self) -> Self::Output {
-        let waker = Arc::new(NoOpWaker).into();
+        let waker = noop_waker();
         let cx = &mut Context::from_waker(&waker);
 
         // SAFETY:
@@ -108,20 +111,16 @@ where
     }
 }
 
-/// A waker that do nothing when [Waker::wake] and [Waker::wake_by_ref] is called.
-pub struct NoOpWaker;
+const TBL: RawWakerVTable = RawWakerVTable::new(|_| raw_waker(), |_| {}, |_| {}, |_| {});
 
-impl NoOpWaker {
-    /// Construct a noop [Waker]
-    pub fn waker() -> Waker {
-        Waker::from(Arc::new(Self))
-    }
+const fn raw_waker() -> RawWaker {
+    RawWaker::new(ptr::null(), &TBL)
 }
 
-impl Wake for NoOpWaker {
-    fn wake(self: Arc<Self>) {
-        // do nothing.
-    }
+pub(crate) fn noop_waker() -> Waker {
+    // SAFETY:
+    // no op waker uphold all the rules of RawWaker and RawWakerVTable
+    unsafe { Waker::from_raw(raw_waker()) }
 }
 
 #[cfg(test)]
