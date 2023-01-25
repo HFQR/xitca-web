@@ -1,15 +1,14 @@
-use alloc::{
-    boxed::Box,
-    vec::{self, Vec},
-};
+use core::slice;
 
-use xitca_unsafe_collection::{bound_queue::stack, bytes::BytesStr};
+use alloc::vec::{self, Vec};
+
+use xitca_unsafe_collection::{bytes::BytesStr, small_str::SmallBoxedStr};
 
 /// A single URL parameter, consisting of a key and a value.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 struct Param {
     key: BytesStr,
-    value: Box<str>,
+    value: SmallBoxedStr,
 }
 
 impl Param {
@@ -21,8 +20,6 @@ impl Param {
         self.value.as_ref()
     }
 }
-
-type Inline = stack::StackQueue<Param, 2>;
 
 /// A list of parameters returned by a route match.
 ///
@@ -43,15 +40,9 @@ type Inline = stack::StackQueue<Param, 2>;
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Params {
-    kind: ParamsKind<Inline, Vec<Param>>,
-}
-
-#[derive(Debug)]
-enum ParamsKind<I, P> {
-    Inline(I),
-    Heap(P),
+    inner: Vec<Param>,
 }
 
 impl Default for Params {
@@ -60,31 +51,11 @@ impl Default for Params {
     }
 }
 
-impl Clone for Params {
-    fn clone(&self) -> Self {
-        let kind = match self.kind {
-            ParamsKind::Inline(ref q) => {
-                // TODO: this impl is not good. StackQueue should be able to drain params or offer
-                // internal clone.
-                let mut q2 = Inline::new();
-                for p in q.iter() {
-                    let _ = q2.push_back(p.clone());
-                }
-                ParamsKind::Inline(q2)
-            }
-            ParamsKind::Heap(ref q) => ParamsKind::Heap(q.clone()),
-        };
-        Self { kind }
-    }
-}
-
 impl Params {
     /// Returns the number of parameters.
+    #[inline]
     pub fn len(&self) -> usize {
-        match self.kind {
-            ParamsKind::Inline(ref q) => q.len(),
-            ParamsKind::Heap(ref vec) => vec.len(),
-        }
+        self.inner.len()
     }
 
     /// Returns `true` if there are no parameters in the list.
@@ -94,124 +65,84 @@ impl Params {
     }
 
     /// Returns the value of the first parameter registered under the given key.
+    #[inline]
     pub fn get(&self, key: impl AsRef<str>) -> Option<&str> {
-        let key = key.as_ref();
-        match self.kind {
-            ParamsKind::Inline(ref q) => q.iter().find(|param| param.key_str() == key).map(Param::value_str),
-            ParamsKind::Heap(ref q) => q.iter().find(|param| param.key_str() == key).map(Param::value_str),
-        }
+        self.inner
+            .iter()
+            .find(|param| param.key_str() == key.as_ref())
+            .map(Param::value_str)
     }
 
+    #[inline]
     pub fn iter(&self) -> Iter<'_> {
-        let kind = match self.kind {
-            ParamsKind::Inline(ref q) => ParamsKind::Inline(q.iter()),
-            ParamsKind::Heap(ref q) => ParamsKind::Heap(q.iter()),
-        };
-        Iter { kind }
+        Iter {
+            inner: self.inner.iter(),
+        }
     }
 }
 
 impl Params {
     pub(super) const fn new() -> Self {
-        Self {
-            kind: ParamsKind::Inline(Inline::new()),
-        }
+        Self { inner: Vec::new() }
     }
 
     pub(super) fn truncate(&mut self, n: usize) {
-        match self.kind {
-            ParamsKind::Inline(ref mut q) => q.truncate(n),
-            ParamsKind::Heap(ref mut vec) => vec.truncate(n),
-        }
+        self.inner.truncate(n)
     }
 
-    /// Inserts a key value parameter pair into the list.
     pub(super) fn push(&mut self, key: BytesStr, value: &str) {
-        #[cold]
-        #[inline(never)]
-        fn drain_to_vec(value: Param, q: &mut Inline) -> Vec<Param> {
-            // respect vector's exponential growth practice.
-            let mut v = Vec::with_capacity(4);
-            while let Some(value) = q.pop_front() {
-                v.push(value);
-            }
-            v.push(value);
-            v
-        }
-
-        let param = Param {
+        self.inner.push(Param {
             key,
             value: value.into(),
-        };
-        match self.kind {
-            ParamsKind::Inline(ref mut q) => {
-                if let Err(e) = q.push_back(param) {
-                    self.kind = ParamsKind::Heap(drain_to_vec(e.into_inner(), q));
-                }
-            }
-            ParamsKind::Heap(ref mut q) => q.push(param),
-        }
+        });
     }
 }
 
 impl IntoIterator for Params {
-    type Item = (BytesStr, Box<str>);
+    type Item = (BytesStr, SmallBoxedStr);
     type IntoIter = IntoIter;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        let kind = match self.kind {
-            ParamsKind::Inline(q) => ParamsKind::Inline(q),
-            ParamsKind::Heap(q) => ParamsKind::Heap(q.into_iter()),
-        };
-
-        IntoIter { kind }
+        IntoIter {
+            inner: self.inner.into_iter(),
+        }
     }
 }
 
 pub struct Iter<'a> {
-    kind: ParamsKind<stack::Iter<'a, Param, 2>, core::slice::Iter<'a, Param>>,
+    inner: slice::Iter<'a, Param>,
 }
 
 impl<'a> Iterator for Iter<'a> {
     type Item = (&'a str, &'a str);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        match self.kind {
-            ParamsKind::Inline(ref mut q) => q.next().map(|p| (p.key.as_ref(), p.value.as_ref())),
-            ParamsKind::Heap(ref mut iter) => iter.next().map(|p| (p.key.as_ref(), p.value.as_ref())),
-        }
+        self.inner.next().map(|p| (p.key.as_ref(), p.value.as_ref()))
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        match self.kind {
-            ParamsKind::Inline(ref q) => q.size_hint(),
-            ParamsKind::Heap(ref q) => q.size_hint(),
-        }
+        self.inner.size_hint()
     }
 }
 
 pub struct IntoIter {
-    kind: ParamsKind<Inline, vec::IntoIter<Param>>,
+    inner: vec::IntoIter<Param>,
 }
 
 impl Iterator for IntoIter {
-    type Item = (BytesStr, Box<str>);
+    type Item = (BytesStr, SmallBoxedStr);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        match self.kind {
-            ParamsKind::Inline(ref mut q) => q.pop_front().map(|p| (p.key, p.value)),
-            ParamsKind::Heap(ref mut iter) => iter.next().map(|p| (p.key, p.value)),
-        }
+        self.inner.next().map(|p| (p.key, p.value))
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        match self.kind {
-            ParamsKind::Inline(ref q) => {
-                let len = q.len();
-                (len, Some(len))
-            }
-            ParamsKind::Heap(ref q) => q.size_hint(),
-        }
+        self.inner.size_hint()
     }
 }
 
@@ -222,50 +153,6 @@ mod tests {
     #[test]
     fn no_alloc() {
         assert!(Params::new().is_empty());
-    }
-
-    #[test]
-    fn heap_alloc() {
-        let vec = vec![
-            ("hello", "hello"),
-            ("world", "world"),
-            ("foo", "foo"),
-            ("bar", "bar"),
-            ("baz", "baz"),
-        ];
-
-        let mut params = Params::new();
-        for (key, value) in vec.clone() {
-            params.push(key.into(), value);
-            assert_eq!(params.get(key), Some(value));
-        }
-
-        match params.kind {
-            ParamsKind::Heap(..) => {}
-            _ => panic!(),
-        }
-
-        assert!(params
-            .into_iter()
-            .eq(vec.into_iter().map(|(k, v)| (k.into(), v.into()))));
-    }
-
-    #[test]
-    fn stack_alloc() {
-        let vec = vec![("hello", "hello"), ("world", "world")];
-
-        let mut params = Params::new();
-        for (key, value) in vec.clone() {
-            params.push(key.into(), value);
-            assert_eq!(params.get(key), Some(value));
-        }
-
-        match params.kind {
-            ParamsKind::Inline(..) => {}
-            _ => panic!(),
-        }
-
-        assert!(params.iter().eq(vec));
     }
 
     #[test]

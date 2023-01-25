@@ -7,6 +7,7 @@ pub mod bound_queue;
 pub mod fake_send_sync;
 pub mod futures;
 pub mod no_hash;
+pub mod small_str;
 pub mod uninit;
 
 #[cfg(feature = "bytes")]
