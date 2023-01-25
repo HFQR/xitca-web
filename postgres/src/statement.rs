@@ -39,7 +39,6 @@ impl<'a> StatementGuarded<'a> {
                 frontend::close(b'S', &statement.name, &mut buf).unwrap();
                 frontend::sync(&mut buf);
 
-                // TODO: fix this send. right now it's lazy and do nothing.
                 let _f = self.client.send(buf);
             }
         }

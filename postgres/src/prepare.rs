@@ -36,7 +36,7 @@ impl Client {
 
         let buf = self.prepare_buf(name.as_str(), query, types)?;
 
-        let mut res = self.send(buf).await?;
+        let mut res = self.send(buf)?;
 
         match res.recv().await? {
             backend::Message::ParseComplete => {}

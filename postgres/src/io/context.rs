@@ -24,7 +24,6 @@ impl<const LIMIT: usize> Context<LIMIT> {
         }
     }
 
-    #[cfg(not(feature = "single-thread"))]
     pub(super) fn req_is_full(&self) -> bool {
         self.req.is_full()
     }

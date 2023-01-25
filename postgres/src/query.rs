@@ -23,7 +23,7 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
     {
         let buf = encode(self, stmt, params)?;
-        let mut res = self.send(buf).await?;
+        let mut res = self.send(buf)?;
 
         match res.recv().await? {
             backend::Message::BindComplete => {}
