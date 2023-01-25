@@ -1,5 +1,6 @@
+use core::convert::Infallible;
+
 use super::{head::Head, stream_id::StreamId};
-use std::convert::Infallible;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
@@ -11,12 +12,10 @@ pub struct Priority {
 pub struct StreamDependency {
     /// The ID of the stream dependency target
     dependency_id: StreamId,
-
     /// The weight for the stream. The value exposed (and set) here is always in
     /// the range [0, 255], instead of [1, 256] (as defined in section 5.3.2.)
     /// so that the value fits into a `u8`.
     weight: u8,
-
     /// True if the stream dependency is exclusive.
     is_exclusive: bool,
 }

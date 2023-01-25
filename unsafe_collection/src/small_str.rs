@@ -1,52 +1,141 @@
-extern crate alloc;
-
 use core::{
     fmt,
     hash::{Hash, Hasher},
-    mem::MaybeUninit,
     str,
 };
 
-use alloc::boxed::Box;
+use inner::Inner;
 
-use super::uninit::{slice_assume_init, uninit_array, PartialInit};
+mod inner {
+    extern crate alloc;
 
-/// Data structure aiming to have the same memory size of Box<str> that being able to store bytes
-/// on stack and only allocate on heap only when necessary.
-#[derive(Clone)]
-pub enum SmallBoxedStr {
-    Inline([MaybeUninit<u8>; 7], u8),
-    Heap(Box<str>),
+    use core::{mem::MaybeUninit, ptr, slice};
+
+    use alloc::boxed::Box;
+
+    use crate::uninit::{slice_assume_init, uninit_array, PartialInit};
+
+    // union is used as it can stably fit 8 bytes inline while enum requires one byte for tag.
+    pub(super) union Inner {
+        inline: [MaybeUninit<u8>; 8],
+        heap: *mut u8,
+    }
+
+    impl Inner {
+        fn heap_from_slice(slice: &[u8]) -> Self {
+            let boxed = Box::<[u8]>::from(slice);
+            let heap = Box::into_raw(boxed) as *mut _;
+            Self { heap }
+        }
+
+        pub(super) const fn empty() -> Self {
+            Self { inline: uninit_array() }
+        }
+
+        pub(super) fn from_slice(slice: &[u8]) -> Self {
+            let len = slice.len();
+            if len > 8 {
+                Inner::heap_from_slice(slice)
+            } else {
+                let mut inline = uninit_array();
+                let slice = inline.init_from(slice.iter()).into_init_with(|f| *f);
+                debug_assert_eq!(slice.len(), len);
+                Inner { inline }
+            }
+        }
+
+        // SAFETY:
+        // caller must make sure len equals to the length of input &[u8] when constructing Self with
+        // Inner::from_slice function.
+        pub(super) unsafe fn as_slice(&self, len: usize) -> &[u8] {
+            if len > 8 {
+                let ptr = self.heap;
+                slice::from_raw_parts(ptr, len)
+            } else {
+                let s = &self.inline[..len];
+                slice_assume_init(s)
+            }
+        }
+
+        // SAFETY:
+        // caller must make sure len equals to the length of input &[u8] when constructing Self with
+        // Inner::from_slice function.
+        pub(super) unsafe fn clone_with(&self, len: usize) -> Self {
+            if len > 8 {
+                let ptr = self.heap;
+                let slice = slice::from_raw_parts(ptr, len);
+                Inner::heap_from_slice(slice)
+            } else {
+                let inline = self.inline;
+                Inner { inline }
+            }
+        }
+
+        // SAFETY:
+        // caller must make sure len equals to the length of input &[u8] when constructing Self with
+        // Inner::from_slice function.
+        pub(super) unsafe fn drop_with(&mut self, len: usize) {
+            if len > 8 {
+                let ptr = self.heap;
+                let ptr = ptr::slice_from_raw_parts_mut(ptr, len);
+                drop(Box::from_raw(ptr));
+            }
+
+            // inline field is Copy which do not need explicit destruction.
+        }
+    }
+}
+
+/// Data structure aiming to have the same memory size of Box<str> that being able to store str
+/// on stack and only allocate on heap when necessary.
+pub struct SmallBoxedStr {
+    len: usize,
+    inner: Inner,
 }
 
 impl SmallBoxedStr {
     #[inline]
     pub const fn new() -> Self {
-        Self::Inline(uninit_array(), 0)
+        Self {
+            len: 0,
+            inner: Inner::empty(),
+        }
     }
 
-    pub fn as_str(&self) -> &str {
-        match *self {
-            Self::Inline(ref arr, len) => {
-                let s = &arr[..len as usize];
-                // SAFETY:
-                // length and str validation are guaranteed when constructing SmallBoxedStr.
-                unsafe { str::from_utf8_unchecked(slice_assume_init(s)) }
-            }
-            Self::Heap(ref boxed) => boxed,
-        }
+    fn as_str(&self) -> &str {
+        // SAFETY
+        // len validation is guaranteed when constructing.
+        let slice = unsafe { self.inner.as_slice(self.len) };
+
+        // SAFETY
+        // str validation is guaranteed when constructing.
+        unsafe { str::from_utf8_unchecked(slice) }
     }
 
     fn from_str(str: &str) -> Self {
-        let len = str.len();
-        if len > 7 {
-            Self::Heap(Box::from(str))
-        } else {
-            let mut array = uninit_array();
-            let slice = array.init_from(str.as_bytes().iter()).into_init_with(|f| *f);
-            debug_assert_eq!(slice.len(), len);
-            Self::Inline(array, len as u8)
+        Self {
+            len: str.len(),
+            inner: Inner::from_slice(str.as_bytes()),
         }
+    }
+}
+
+impl Clone for SmallBoxedStr {
+    fn clone(&self) -> Self {
+        Self {
+            len: self.len,
+            // SAFETY:
+            // length is guaranteed when constructing.
+            inner: unsafe { self.inner.clone_with(self.len) },
+        }
+    }
+}
+
+impl Drop for SmallBoxedStr {
+    fn drop(&mut self) {
+        // SAFETY:
+        // length is guaranteed when constructing.
+        unsafe { self.inner.drop_with(self.len) };
     }
 }
 
@@ -100,7 +189,7 @@ mod test {
 
     #[test]
     fn size() {
-        assert_eq!(mem::size_of::<SmallBoxedStr>(), mem::size_of::<Box<str>>());
+        assert_eq!(mem::size_of::<SmallBoxedStr>(), 16);
     }
 
     #[test]
@@ -111,12 +200,21 @@ mod test {
 
     #[test]
     fn from_str() {
-        let s = SmallBoxedStr::from("1234567");
-        assert_eq!(s.as_str(), "1234567");
-        assert!(matches!(s, SmallBoxedStr::Inline(_, _)));
-
-        let s = SmallBoxedStr::from_str("12345678");
+        let s = SmallBoxedStr::from("12345678");
         assert_eq!(s.as_str(), "12345678");
-        assert!(matches!(s, SmallBoxedStr::Heap(_)));
+
+        let s = SmallBoxedStr::from_str("123456789");
+        assert_eq!(s.as_str(), "123456789");
+    }
+
+    #[test]
+    fn clone_and_drop() {
+        let s = SmallBoxedStr::from_str("1234567890");
+        assert_eq!(s.as_str(), "1234567890");
+
+        let s1 = s.clone();
+        assert_eq!(s.as_str(), s1.as_str());
+        drop(s);
+        drop(s1);
     }
 }
