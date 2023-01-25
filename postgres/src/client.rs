@@ -4,16 +4,12 @@ use postgres_types::{Oid, Type};
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
-#[cfg(not(feature = "single-thread"))]
-use tokio::sync::mpsc::Sender;
-
-#[cfg(feature = "single-thread")]
-use xitca_unsafe_collection::channel::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
 
 use super::{error::Error, request::Request, response::Response, statement::Statement, util::lock::Lock};
 
 pub struct Client {
-    pub(crate) tx: Sender<Request>,
+    pub(crate) tx: UnboundedSender<Request>,
     pub(crate) buf: Lock<BytesMut>,
     cached_typeinfo: Lock<CachedTypeInfo>,
 }
@@ -38,7 +34,7 @@ struct CachedTypeInfo {
 }
 
 impl Client {
-    pub(crate) fn new(tx: Sender<Request>) -> Self {
+    pub(crate) fn new(tx: UnboundedSender<Request>) -> Self {
         Self {
             tx,
             buf: Lock::new(BytesMut::new()),
@@ -55,9 +51,9 @@ impl Client {
         self.tx.is_closed()
     }
 
-    pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
+    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
         let (req, res) = Request::new_pair(msg);
-        self.tx.send(req).await?;
+        self.tx.send(req)?;
         Ok(res)
     }
 
