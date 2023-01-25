@@ -104,6 +104,12 @@ mod test {
     }
 
     #[test]
+    fn empty() {
+        let s = SmallBoxedStr::new();
+        assert!(s.as_str().is_empty());
+    }
+
+    #[test]
     fn from_str() {
         let s = SmallBoxedStr::from("1234567");
         assert_eq!(s.as_str(), "1234567");
