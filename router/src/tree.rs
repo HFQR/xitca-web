@@ -50,6 +50,7 @@ impl<T> Node<T> {
         }
     }
 
+    #[inline(never)]
     pub fn insert(&mut self, route: impl Into<String>, val: T) -> Result<(), InsertError> {
         let route = route.into().into_bytes();
         let mut prefix = route.as_ref();

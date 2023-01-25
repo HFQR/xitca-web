@@ -39,13 +39,6 @@ impl<T> From<SendError<T>> for Error {
     }
 }
 
-#[cfg(feature = "single-thread")]
-impl<T> From<xitca_unsafe_collection::channel::mpsc::Error<T>> for Error {
-    fn from(_: xitca_unsafe_collection::channel::mpsc::Error<T>) -> Self {
-        write_zero_err()
-    }
-}
-
 #[derive(Debug)]
 pub enum AuthenticationError {
     MissingUserName,
