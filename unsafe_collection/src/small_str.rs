@@ -120,6 +120,11 @@ impl SmallBoxedStr {
     }
 }
 
+// SAFETY
+// it's safe to share SmallBoxedStr between threads.
+unsafe impl Send for SmallBoxedStr {}
+unsafe impl Sync for SmallBoxedStr {}
+
 impl Clone for SmallBoxedStr {
     fn clone(&self) -> Self {
         Self {
