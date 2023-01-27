@@ -145,7 +145,19 @@ where
             while let Some(res) = self.decode_head() {
                 match res {
                     Ok((req, mut body_reader)) => {
-                        let (parts, res_body) = self.request_handler(req, &mut body_reader).await?.into_parts();
+                        let res = match self
+                            .service
+                            .call(req)
+                            .select(self.request_body_handler(&mut body_reader))
+                            .await
+                        {
+                            SelectOutput::A(Ok(res)) | SelectOutput::B(Ok(res)) => res,
+                            SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
+                            SelectOutput::B(Err(e)) => return Err(e),
+                        };
+
+                        let (parts, res_body) = res.into_parts();
+
                         let encoder = &mut self.encode_head(parts, &res_body)?;
                         self.response_handler(res_body, encoder, &mut body_reader).await?;
                         if self.ctx.is_connection_closed() {
@@ -195,22 +207,6 @@ where
         self.ctx
             .encode_head(parts, body, &mut self.io.write_buf)
             .map_err(Into::into)
-    }
-
-    async fn request_handler(
-        &mut self,
-        req: Request<RequestExt<ReqB>>,
-        body_reader: &mut BodyReader,
-    ) -> Result<S::Response, Error<S::Error, BE>> {
-        match self
-            .service
-            .call(req)
-            .select(self.request_body_handler(body_reader))
-            .await
-        {
-            SelectOutput::A(res) => Result::map_err(res, Error::Service),
-            SelectOutput::B(res) => res,
-        }
     }
 
     // a hacky method that output S::Response as Ok part but never actually produce the value.
