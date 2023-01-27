@@ -142,28 +142,31 @@ where
 
             self.io.read().timeout(self.timer.as_mut()).await??;
 
-            while let Some(res) = self.decode_head() {
-                match res {
-                    Ok((req, mut body_reader)) => {
-                        let res = match self
+            loop {
+                match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut()) {
+                    Ok(Some((req, decoder))) => {
+                        let (mut body_reader, body) = BodyReader::from_coding(decoder);
+                        let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
+
+                        let (parts, res_body) = match self
                             .service
                             .call(req)
                             .select(self.request_body_handler(&mut body_reader))
                             .await
                         {
-                            SelectOutput::A(Ok(res)) => res,
+                            SelectOutput::A(Ok(res)) => res.into_parts(),
                             SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
                             SelectOutput::B(e) => return Err(e),
                         };
 
-                        let (parts, res_body) = res.into_parts();
-
                         let encoder = &mut self.encode_head(parts, &res_body)?;
                         self.response_handler(res_body, encoder, &mut body_reader).await?;
+
                         if self.ctx.is_connection_closed() {
                             break;
                         }
                     }
+                    Ok(None) => break,
                     Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
                         self.request_error(response::header_too_large)?;
                         break;
@@ -174,7 +177,7 @@ where
                     }
                     // TODO: handle error that are meant to be a response.
                     Err(e) => return Err(e.into()),
-                };
+                }
             }
 
             // TODO: add timeout for drain write?
@@ -186,18 +189,6 @@ where
     fn update_timer(&mut self) {
         let now = self.ctx.date.now() + self.ka_dur;
         self.timer.as_mut().update(now);
-    }
-
-    fn decode_head(&mut self) -> Option<Result<DecodedHead<ReqB>, ProtoError>> {
-        match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut()) {
-            Ok(Some((req, decoder))) => {
-                let (body_reader, body) = BodyReader::from_coding(decoder);
-                let req = req.map(move |ext| ext.map_body(move |_| ReqB::from(body)));
-                Some(Ok((req, body_reader)))
-            }
-            Ok(None) => None,
-            Err(e) => Some(Err(e)),
-        }
     }
 
     fn encode_head<B>(&mut self, parts: Parts, body: &B) -> Result<TransferCoding, Error<S::Error, BE>>
