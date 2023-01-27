@@ -310,8 +310,6 @@ where
     }
 }
 
-type DecodedHead<ReqB> = (Request<RequestExt<ReqB>>, BodyReader);
-
 struct BodyReader {
     decoder: TransferCoding,
     tx: RequestBodySender,
