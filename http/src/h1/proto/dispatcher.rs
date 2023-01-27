@@ -151,9 +151,9 @@ where
                             .select(self.request_body_handler(&mut body_reader))
                             .await
                         {
-                            SelectOutput::A(Ok(res)) | SelectOutput::B(Ok(res)) => res,
+                            SelectOutput::A(Ok(res)) => res,
                             SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
-                            SelectOutput::B(Err(e)) => return Err(e),
+                            SelectOutput::B(e) => return Err(e),
                         };
 
                         let (parts, res_body) = res.into_parts();
@@ -209,21 +209,25 @@ where
             .map_err(Into::into)
     }
 
-    // a hacky method that output S::Response as Ok part but never actually produce the value.
-    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<S::Response, Error<S::Error, BE>> {
+    // an associated future of self.service that runs until service is resolved or error produced.
+    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Error<S::Error, BE> {
         if self.ctx.is_expect_header() {
             // wait for service future to start polling RequestBody.
             if body_reader.wait_for_poll().await.is_ok() {
                 // encode continue as service future want a body.
                 self.ctx.encode_continue(&mut self.io.write_buf);
                 // use drain write to make sure continue is sent to client.
-                self.io.drain_write().await?;
+                if let Err(e) = self.io.drain_write().await {
+                    return Error::from(e);
+                }
             };
         }
 
         loop {
             body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
-            self.io.read().await?;
+            if let Err(e) = self.io.read().await {
+                return Error::from(e);
+            }
         }
     }
 
