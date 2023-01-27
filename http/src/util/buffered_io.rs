@@ -1,10 +1,11 @@
-use std::{
+use core::{
     fmt,
-    future::poll_fn,
-    io::{self, Write},
+    future::{poll_fn, Future},
     ops::{Deref, DerefMut},
     pin::Pin,
 };
+
+use std::io::{self, Write};
 
 use tracing::trace;
 use xitca_io::{
@@ -88,8 +89,8 @@ where
     /// shutdown Io gracefully.
     #[cold]
     #[inline(never)]
-    pub async fn shutdown(&mut self) -> io::Result<()> {
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx)).await
+    pub fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
+        poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx))
     }
 }
 

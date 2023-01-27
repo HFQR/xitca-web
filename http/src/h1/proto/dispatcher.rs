@@ -145,7 +145,19 @@ where
             while let Some(res) = self.decode_head() {
                 match res {
                     Ok((req, mut body_reader)) => {
-                        let (parts, res_body) = self.request_handler(req, &mut body_reader).await?.into_parts();
+                        let res = match self
+                            .service
+                            .call(req)
+                            .select(self.request_body_handler(&mut body_reader))
+                            .await
+                        {
+                            SelectOutput::A(Ok(res)) => res,
+                            SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
+                            SelectOutput::B(e) => return Err(e),
+                        };
+
+                        let (parts, res_body) = res.into_parts();
+
                         let encoder = &mut self.encode_head(parts, &res_body)?;
                         self.response_handler(res_body, encoder, &mut body_reader).await?;
                         if self.ctx.is_connection_closed() {
@@ -197,37 +209,25 @@ where
             .map_err(Into::into)
     }
 
-    async fn request_handler(
-        &mut self,
-        req: Request<RequestExt<ReqB>>,
-        body_reader: &mut BodyReader,
-    ) -> Result<S::Response, Error<S::Error, BE>> {
-        match self
-            .service
-            .call(req)
-            .select(self.request_body_handler(body_reader))
-            .await
-        {
-            SelectOutput::A(res) => Result::map_err(res, Error::Service),
-            SelectOutput::B(res) => res,
-        }
-    }
-
-    // a hacky method that output S::Response as Ok part but never actually produce the value.
-    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<S::Response, Error<S::Error, BE>> {
+    // an associated future of self.service that runs until service is resolved or error produced.
+    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Error<S::Error, BE> {
         if self.ctx.is_expect_header() {
             // wait for service future to start polling RequestBody.
             if body_reader.wait_for_poll().await.is_ok() {
                 // encode continue as service future want a body.
                 self.ctx.encode_continue(&mut self.io.write_buf);
                 // use drain write to make sure continue is sent to client.
-                self.io.drain_write().await?;
+                if let Err(e) = self.io.drain_write().await {
+                    return Error::from(e);
+                }
             };
         }
 
         loop {
             body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
-            self.io.read().await?;
+            if let Err(e) = self.io.read().await {
+                return Error::from(e);
+            }
         }
     }
 
