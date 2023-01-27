@@ -9,22 +9,29 @@ use inner::Inner;
 mod inner {
     extern crate alloc;
 
-    use core::{mem::MaybeUninit, ptr, slice};
+    use core::{
+        mem::MaybeUninit,
+        ptr::{self, NonNull},
+        slice,
+    };
 
     use alloc::boxed::Box;
 
-    use crate::uninit::{slice_assume_init, uninit_array, PartialInit};
+    use crate::uninit::{slice_assume_init, uninit_array};
 
     // union is used as it can stably fit 8 bytes inline while enum requires one byte for tag.
     pub(super) union Inner {
         inline: [MaybeUninit<u8>; 8],
-        heap: *mut u8,
+        heap: NonNull<u8>,
     }
 
     impl Inner {
         fn heap_from_slice(slice: &[u8]) -> Self {
             let boxed = Box::<[u8]>::from(slice);
-            let heap = Box::into_raw(boxed) as *mut _;
+            let ptr = Box::into_raw(boxed).cast();
+            // SAFETY:
+            // boxed is not null.
+            let heap = unsafe { NonNull::new_unchecked(ptr) };
             Self { heap }
         }
 
@@ -38,8 +45,13 @@ mod inner {
                 Inner::heap_from_slice(slice)
             } else {
                 let mut inline = uninit_array();
-                let slice = inline.init_from(slice.iter()).into_init_with(|f| *f);
-                debug_assert_eq!(slice.len(), len);
+
+                // SAFETY:
+                // copy slice to inlined array.
+                unsafe {
+                    ptr::copy_nonoverlapping(slice.as_ptr(), inline.as_mut_ptr().cast(), len);
+                }
+
                 Inner { inline }
             }
         }
@@ -49,7 +61,7 @@ mod inner {
         // Inner::from_slice function.
         pub(super) unsafe fn as_slice(&self, len: usize) -> &[u8] {
             if len > 8 {
-                let ptr = self.heap;
+                let ptr = self.heap.as_ptr();
                 slice::from_raw_parts(ptr, len)
             } else {
                 let s = &self.inline[..len];
@@ -62,7 +74,7 @@ mod inner {
         // Inner::from_slice function.
         pub(super) unsafe fn clone_with(&self, len: usize) -> Self {
             if len > 8 {
-                let ptr = self.heap;
+                let ptr = self.heap.as_ptr();
                 let slice = slice::from_raw_parts(ptr, len);
                 Inner::heap_from_slice(slice)
             } else {
@@ -74,9 +86,10 @@ mod inner {
         // SAFETY:
         // caller must make sure len equals to the length of input &[u8] when constructing Self with
         // Inner::from_slice function.
+        // caller must not call this method multiple times on a single Self instance.
         pub(super) unsafe fn drop_with(&mut self, len: usize) {
             if len > 8 {
-                let ptr = self.heap;
+                let ptr = self.heap.as_ptr();
                 let ptr = ptr::slice_from_raw_parts_mut(ptr, len);
                 drop(Box::from_raw(ptr));
             }
