@@ -36,7 +36,7 @@ compress-de = ["http-encoding/de"]
 multipart = ["http-multipart"]
 
 # websocket type extractor/responder
-websocket = ["http-ws", "tokio"]
+websocket = ["http-ws/stream", "tokio"]
 
 # proc macro code generation
 codegen = ["xitca-codegen"]

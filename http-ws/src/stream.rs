@@ -1,11 +1,14 @@
 use core::{
     fmt,
+    future::Future,
     pin::Pin,
     task::{ready, Context, Poll},
 };
 
+use std::error;
+
 use bytes::{Bytes, BytesMut};
-use futures_core::Stream;
+use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -48,7 +51,7 @@ where
     /// Make an [EncodeStream] from current DecodeStream.
     ///
     /// This API is to share the same codec for both decode and encode stream.
-    pub fn encode_stream(&self) -> (Sender<Message>, EncodeStream) {
+    pub fn encode_stream(&self) -> (EncodeSender, EncodeStream) {
         let codec = self.codec.duplicate();
         EncodeStream::new(codec)
     }
@@ -135,7 +138,7 @@ pub struct EncodeStream {
 impl EncodeStream {
     /// Construct new stream with given codec.
     #[inline]
-    pub fn new(codec: Codec) -> (Sender<Message>, Self) {
+    pub fn new(codec: Codec) -> (EncodeSender, Self) {
         let cap = codec.capacity();
         let (tx, rx) = channel(cap);
 
@@ -145,7 +148,7 @@ impl EncodeStream {
             rx,
         };
 
-        (tx, stream)
+        (EncodeSender::new(tx), stream)
     }
 }
 
@@ -161,5 +164,51 @@ impl Stream for EncodeStream {
             }
             None => Poll::Ready(None),
         }
+    }
+}
+
+/// channel sender that can add [Message] to [EncodeStream]. new message would be encoded and sent
+/// to client asynchronously.
+#[derive(Debug, Clone)]
+pub struct EncodeSender(Sender<Message>);
+
+#[derive(Debug)]
+pub struct SendError(Message);
+
+impl SendError {
+    pub fn into_inner(self) -> Message {
+        self.0
+    }
+}
+
+impl fmt::Display for SendError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("EncodeStream already finished")
+    }
+}
+
+impl error::Error for SendError {}
+
+impl EncodeSender {
+    fn new(tx: Sender<Message>) -> Self {
+        Self(tx)
+    }
+
+    /// add [Message] to [EncodeStream].
+    #[inline]
+    pub async fn send(&self, msg: Message) -> Result<(), SendError> {
+        self.0.send(msg).await.map_err(|e| SendError(e.0))
+    }
+
+    /// add [Message::Text] variant to [EncodeStream].
+    #[inline]
+    pub fn text(&self, txt: impl Into<String>) -> impl Future<Output = Result<(), SendError>> + '_ {
+        self.send(Message::Text(Bytes::from(txt.into())))
+    }
+
+    /// add [Message::Binary] variant to [EncodeStream].
+    #[inline]
+    pub fn binary(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), SendError>> + '_ {
+        self.send(Message::Binary(bin.into()))
     }
 }

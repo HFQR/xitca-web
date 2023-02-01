@@ -7,12 +7,11 @@ use core::{
 pub use http_ws::Message;
 
 use futures_core::stream::Stream;
-use http_ws::HandshakeError;
 use http_ws::{
-    stream::{DecodeError, DecodeStream},
-    WsOutput,
+    stream::{DecodeError, DecodeStream, EncodeSender},
+    HandshakeError, WsOutput,
 };
-use tokio::{sync::mpsc::Sender, time::Instant};
+use tokio::time::{sleep, Instant};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
@@ -24,11 +23,9 @@ use crate::{
     stream::WebStream,
 };
 
-pub type WsSender = Sender<Message>;
-
 type BoxFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 
-type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut WsSender, Message) -> BoxFuture<'a>>;
+type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut EncodeSender, Message) -> BoxFuture<'a>>;
 
 type OnErrCB<E> = Box<dyn FnMut(DecodeError<E>) -> BoxFuture<'static>>;
 
@@ -80,14 +77,14 @@ where
 
     /// Get a reference of Websocket message sender.
     /// Can be used to send [Message] to client.
-    pub fn msg_sender(&self) -> &WsSender {
+    pub fn msg_sender(&self) -> &EncodeSender {
         &self.ws.2
     }
 
     /// Async function that would be called when new message arrived from client.
     pub fn on_msg<F>(&mut self, func: F) -> &mut Self
     where
-        F: for<'a> FnMut(&'a mut WsSender, Message) -> BoxFuture<'a> + 'static,
+        F: for<'a> FnMut(&'a mut EncodeSender, Message) -> BoxFuture<'a> + 'static,
     {
         self.on_msg = Box::new(func);
         self
@@ -177,7 +174,7 @@ async fn spawn_task<B>(
     ping_interval: Duration,
     max_unanswered_ping: u8,
     decode: DecodeStream<B, B::Error>,
-    mut tx: WsSender,
+    mut tx: EncodeSender,
     mut on_msg: OnMsgCB,
     mut on_err: OnErrCB<B::Error>,
     on_close: OnCloseCB,
@@ -185,9 +182,7 @@ async fn spawn_task<B>(
 where
     B: WebStream,
 {
-    let sleep = tokio::time::sleep(ping_interval);
-
-    let mut sleep = pin!(sleep);
+    let mut sleep = pin!(sleep(ping_interval));
     let mut decode = pin!(decode);
 
     let mut un_answered_ping = 0u8;

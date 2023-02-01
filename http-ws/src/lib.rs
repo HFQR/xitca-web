@@ -253,14 +253,10 @@ fn ws_version_check(headers: &HeaderMap) -> Result<(), HandshakeError> {
 pub mod stream;
 
 #[cfg(feature = "stream")]
-pub use self::stream::{DecodeError, DecodeStream, EncodeStream};
+pub use self::stream::{DecodeError, DecodeStream, EncodeSender, EncodeStream};
 
 #[cfg(feature = "stream")]
-pub type WsOutput<B, E> = (
-    DecodeStream<B, E>,
-    Response<EncodeStream>,
-    tokio::sync::mpsc::Sender<Message>,
-);
+pub type WsOutput<B, E> = (DecodeStream<B, E>, Response<EncodeStream>, EncodeSender);
 
 #[cfg(feature = "stream")]
 /// A shortcut for generating a set of response types with given [Request] and `<Body>` type.
