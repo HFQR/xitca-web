@@ -4,15 +4,15 @@ use core::{
 };
 
 use crate::{
+    body::BodyStream,
     handler::{error::ExtractError, FromRequest, Responder},
     request::WebRequest,
     response::WebResponse,
-    stream::WebStream,
 };
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Vec<u8>
 where
-    B: WebStream + Default,
+    B: BodyStream + Default,
 {
     type Type<'b> = Vec<u8>;
     type Error = ExtractError<B::Error>;

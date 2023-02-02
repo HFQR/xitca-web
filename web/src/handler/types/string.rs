@@ -1,17 +1,17 @@
 use std::future::Future;
 
 use crate::{
+    body::BodyStream,
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest,
     },
     request::WebRequest,
-    stream::WebStream,
 };
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for String
 where
-    B: WebStream + Default,
+    B: BodyStream + Default,
 {
     type Type<'b> = String;
     type Error = ExtractError<B::Error>;

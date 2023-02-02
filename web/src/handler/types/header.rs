@@ -1,10 +1,10 @@
 use std::{fmt, future::Future, ops::Deref};
 
 use crate::{
+    body::BodyStream,
     handler::{error::ExtractError, FromRequest},
     http::header::{self, HeaderValue},
     request::WebRequest,
-    stream::WebStream,
 };
 
 macro_rules! const_header_name {
@@ -59,7 +59,7 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
 
 impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebRequest<'r, C, B>> for HeaderRef<'a, HEADER_NAME>
 where
-    B: WebStream,
+    B: BodyStream,
 {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
     type Error = ExtractError<B::Error>;

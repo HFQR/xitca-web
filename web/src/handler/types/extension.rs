@@ -1,10 +1,10 @@
 use std::{fmt, future::Future, ops::Deref};
 
 use crate::{
+    body::BodyStream,
     handler::{error::ExtractError, FromRequest},
     http::Extensions,
     request::WebRequest,
-    stream::WebStream,
 };
 
 /// Extract immutable reference of element stored inside [Extensions]
@@ -27,7 +27,7 @@ impl<T> Deref for ExtensionRef<'_, T> {
 impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionRef<'a, T>
 where
     T: Send + Sync + 'static,
-    B: WebStream,
+    B: BodyStream,
 {
     type Type<'b> = ExtensionRef<'b, T>;
     type Error = ExtractError<B::Error>;
@@ -59,7 +59,7 @@ impl Deref for ExtensionsRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionsRef<'a>
 where
-    B: WebStream,
+    B: BodyStream,
 {
     type Type<'b> = ExtensionsRef<'b>;
     type Error = ExtractError<B::Error>;

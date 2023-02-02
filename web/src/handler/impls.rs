@@ -3,6 +3,7 @@ use core::{convert::Infallible, future::Future};
 use std::{error, io};
 
 use crate::{
+    body::BodyStream,
     dev::bytes::Bytes,
     error::{MatchError, MethodNotAllowed},
     http::{
@@ -12,14 +13,13 @@ use crate::{
     },
     request::WebRequest,
     response::WebResponse,
-    stream::WebStream,
 };
 
 use super::{error::ExtractError, FromRequest, Responder};
 
 impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Result<T, E>
 where
-    B: WebStream,
+    B: BodyStream,
     T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>, Error = E>,
 {
     type Type<'b> = Result<T, E>;
@@ -34,7 +34,7 @@ where
 
 impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for Option<T>
 where
-    B: WebStream,
+    B: BodyStream,
     T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>>,
 {
     type Type<'b> = Option<T>;
@@ -50,7 +50,7 @@ where
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for &'a WebRequest<'a, C, B>
 where
     C: 'static,
-    B: WebStream + 'static,
+    B: BodyStream + 'static,
 {
     type Type<'b> = &'b WebRequest<'b, C, B>;
     type Error = ExtractError<B::Error>;
@@ -64,7 +64,7 @@ where
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ()
 where
-    B: WebStream,
+    B: BodyStream,
 {
     type Type<'b> = ();
     type Error = ExtractError<B::Error>;

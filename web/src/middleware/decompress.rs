@@ -3,12 +3,12 @@ use core::{cell::RefCell, convert::Infallible, future::Future};
 use http_encoding::{error::EncodingError, Coder};
 
 use crate::{
+    body::BodyStream,
     dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
     handler::Responder,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode},
     request::WebRequest,
     response::WebResponse,
-    stream::WebStream,
 };
 
 /// A decompress middleware look into [WebRequest]'s `Content-Encoding` header and
@@ -39,7 +39,7 @@ pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
 impl<'r, S, C, B, Res, Err> Service<WebRequest<'r, C, B>> for DecompressService<S>
 where
     C: 'r,
-    B: WebStream + Default + 'r,
+    B: BodyStream + Default + 'r,
     S: for<'rs> Service<WebRequest<'rs, C, Coder<B>>, Response = Res, Error = Err>,
 {
     type Response = Res;
@@ -101,9 +101,10 @@ mod test {
     use crate::{dev::bytes::Bytes, http::header::CONTENT_ENCODING};
 
     use crate::{
+        body::ResponseBody,
         handler::handler_service,
         http::{Request, RequestExt},
-        response::{ResponseBody, WebResponse},
+        response::WebResponse,
         test::collect_body,
         App,
     };

@@ -5,11 +5,9 @@ use core::{
     mem,
 };
 
-use xitca_http::body::ResponseBody;
-
 use crate::http::{BorrowReq, BorrowReqMut, IntoResponse, Request, RequestExt};
 
-use super::response::WebResponse;
+use super::{body::ResponseBody, response::WebResponse};
 
 pub struct WebRequest<'a, C = (), B = RequestBody> {
     pub(crate) req: &'a mut Request<RequestExt<()>>,

@@ -14,6 +14,7 @@ use xitca_http::util::service::{
 };
 
 use crate::{
+    body::ResponseBody,
     dev::{
         bytes::Bytes,
         service::{
@@ -24,7 +25,7 @@ use crate::{
     handler::Responder,
     http::{Request, RequestExt},
     request::WebRequest,
-    response::{ResponseBody, WebResponse},
+    response::WebResponse,
 };
 
 use self::object::WebObjectConstructor;

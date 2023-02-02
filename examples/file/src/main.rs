@@ -3,12 +3,13 @@
 
 use http_file::ServeDir;
 use xitca_web::{
+    body::ResponseBody,
     dev::{bytes::Bytes, service::Service},
     handler::{handler_service, request::RequestRef, state::StateRef},
     http::{Method, Uri},
     middleware::compress::Compress,
     request::WebRequest,
-    response::{ResponseBody, StreamBody, WebResponse},
+    response::WebResponse,
     route::Route,
     App, HttpServer,
 };
@@ -41,7 +42,7 @@ fn main() -> std::io::Result<()> {
 async fn index(RequestRef(req): RequestRef<'_>, StateRef(dir): StateRef<'_, ServeDir>) -> WebResponse {
     match dir.serve(req).await {
         // map async file read stream to response body stream.
-        Ok(res) => res.map(|body| ResponseBody::stream(StreamBody::new(body))),
+        Ok(res) => res.map(ResponseBody::box_stream),
         // map error to empty body response.
         Err(e) => e.into_response().map(|_| ResponseBody::bytes(Bytes::new())),
     }

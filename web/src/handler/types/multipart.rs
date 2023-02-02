@@ -1,16 +1,16 @@
 use core::future::Future;
 
 use crate::{
+    body::BodyStream,
     handler::{ExtractError, FromRequest},
     request::{RequestBody, WebRequest},
-    stream::WebStream,
 };
 
 pub type Multipart<'a, B = RequestBody> = http_multipart::Multipart<'a, B>;
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Multipart<'a, B>
 where
-    B: WebStream + Default,
+    B: BodyStream + Default,
 {
     type Type<'b> = Multipart<'b, B>;
     type Error = ExtractError<B::Error>;
