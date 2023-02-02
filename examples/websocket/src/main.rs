@@ -35,7 +35,7 @@ async fn handler(mut ws: WebSocket) -> WebSocket {
                     Message::Text(bytes) => {
                         let str = String::from_utf8_lossy(bytes.as_ref());
                         info!("Got text message: {str}");
-                        tx.send(Message::Text(format!("Echo: {str}").into())).await.unwrap();
+                        tx.text(format!("Echo: {str}")).await.unwrap();
                     }
                     Message::Ping(_) | Message::Pong(_) | Message::Close(_) => {
                         unreachable!("ping/pong/close messages are managed automatically by WebSocket type and exclueded from on_msg function");
