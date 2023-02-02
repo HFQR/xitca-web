@@ -15,7 +15,7 @@ use tokio::time::{sleep, Instant};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
-    body::{BodyStream, BoxStreamBody, RequestBody},
+    body::{BodyStream, RequestBody, ResponseBody},
     dev::bytes::Bytes,
     handler::{error::ExtractError, FromRequest, Responder},
     http::header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
@@ -164,7 +164,7 @@ where
             let _ = spawn_task(ping_interval, max_unanswered_ping, decode, tx, on_msg, on_err, on_close).await;
         });
 
-        let res = res.map(|body| BoxStreamBody::new(body).into());
+        let res = res.map(ResponseBody::box_stream);
 
         async { res }
     }

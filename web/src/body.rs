@@ -2,7 +2,7 @@ use std::error;
 
 use futures_core::stream::Stream;
 
-pub use xitca_http::body::{BoxStreamBody, RequestBody, ResponseBody};
+pub use xitca_http::body::{BoxStream, RequestBody, ResponseBody};
 
 /// A extended trait for [Stream] that specify additional type info of the [Stream::Item] type.
 pub trait BodyStream: Stream<Item = Result<Self::Chunk, Self::Error>> {

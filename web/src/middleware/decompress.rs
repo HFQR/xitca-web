@@ -101,9 +101,10 @@ mod test {
     use crate::{dev::bytes::Bytes, http::header::CONTENT_ENCODING};
 
     use crate::{
+        body::ResponseBody,
         handler::handler_service,
         http::{Request, RequestExt},
-        response::{ResponseBody, WebResponse},
+        response::WebResponse,
         test::collect_body,
         App,
     };

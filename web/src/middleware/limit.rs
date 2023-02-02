@@ -192,11 +192,11 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
+        body::BoxStream,
         dev::bytes::Bytes,
         error::BodyError,
         handler::{body::Body, handler_service},
         http::{Request, RequestExt},
-        response::StreamBody,
         test::collect_body,
         App,
     };
@@ -222,7 +222,7 @@ mod test {
         let item = || async { Ok::<_, BodyError>(Bytes::from_static(chunk)) };
 
         let body = stream::once(item()).chain(stream::once(item()));
-        let ext = RequestExt::default().map_body(|_: ()| StreamBody::new(body));
+        let ext = RequestExt::default().map_body(|_: ()| BoxStream::new(body));
         let req = Request::new(ext);
 
         let body = App::new()

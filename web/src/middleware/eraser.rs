@@ -3,7 +3,7 @@ use std::{convert::Infallible, error, future::Future, marker::PhantomData};
 use xitca_http::ResponseBody;
 
 use crate::{
-    body::{BodyStream, BoxStreamBody},
+    body::BodyStream,
     dev::{
         bytes::Bytes,
         service::{ready::ReadyService, Service},
@@ -102,7 +102,7 @@ where
     {
         async {
             let res = self.service.call(req).await?;
-            Ok(res.map(|b| ResponseBody::stream(BoxStreamBody::new(b))))
+            Ok(res.map(ResponseBody::box_stream))
         }
     }
 }

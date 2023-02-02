@@ -127,44 +127,47 @@ where
 }
 
 /// type erased stream body.
-pub struct BoxStreamBody(LocalBoxStream<'static, Result<Bytes, BodyError>>);
+pub struct BoxStream(LocalBoxStream<'static, Result<Bytes, BodyError>>);
 
-impl Default for BoxStreamBody {
+impl Default for BoxStream {
     fn default() -> Self {
         Self::new(NoneBody::default())
     }
 }
 
-impl BoxStreamBody {
+impl BoxStream {
+    #[inline]
     pub fn new<B, E>(body: B) -> Self
     where
         B: Stream<Item = Result<Bytes, E>> + 'static,
         E: error::Error + Send + Sync + 'static,
     {
-        Self(Box::pin(BoxStreamBodyMapErr { body }))
+        Self(Box::pin(BoxStreamMapErr { body }))
     }
 }
 
-impl Stream for BoxStreamBody {
+impl Stream for BoxStream {
     type Item = Result<Bytes, BodyError>;
 
+    #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.get_mut().0.as_mut().poll_next(cx)
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
     }
 }
 
 pin_project! {
-    struct BoxStreamBodyMapErr<B> {
+    struct BoxStreamMapErr<B> {
         #[pin]
         body: B
     }
 }
 
-impl<B, T, E> Stream for BoxStreamBodyMapErr<B>
+impl<B, T, E> Stream for BoxStreamMapErr<B>
 where
     B: Stream<Item = Result<T, E>>,
     E: error::Error + Send + Sync + 'static,
@@ -178,6 +181,7 @@ where
             .map_err(|e| BodyError::from(Box::new(e) as Box<dyn error::Error + Send + Sync>))
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.body.size_hint()
     }
@@ -188,7 +192,7 @@ pin_project! {
     /// Generic type is for custom pinned response body(type implement [Stream](futures_core::Stream)).
     #[project = ResponseBodyProj]
     #[project_replace = ResponseBodyProjReplace]
-    pub enum ResponseBody<B = BoxStreamBody> {
+    pub enum ResponseBody<B = BoxStream> {
         None,
         Bytes {
             bytes: Bytes,
@@ -197,6 +201,18 @@ pin_project! {
             #[pin]
             stream: B,
         },
+    }
+}
+
+impl ResponseBody {
+    /// Construct a new Stream variant of ResponseBody with default type as [BoxStream]
+    #[inline]
+    pub fn box_stream<B, E>(stream: B) -> Self
+    where
+        B: Stream<Item = Result<Bytes, E>> + 'static,
+        E: error::Error + Send + Sync + 'static,
+    {
+        Self::stream(BoxStream::new(stream))
     }
 }
 
@@ -256,8 +272,8 @@ where
     }
 }
 
-impl From<BoxStreamBody> for ResponseBody {
-    fn from(stream: BoxStreamBody) -> Self {
+impl From<BoxStream> for ResponseBody {
+    fn from(stream: BoxStream) -> Self {
         Self::stream(stream)
     }
 }
@@ -330,10 +346,10 @@ mod test {
 
     #[test]
     fn stream_body_size_hint() {
-        let body = BoxStreamBody::new(Once::new(Bytes::new()));
+        let body = BoxStream::new(Once::new(Bytes::new()));
         assert_eq!(BodySize::from_stream(&body), BodySize::Sized(0));
 
-        let body = BoxStreamBody::new(NoneBody::<Bytes>::default());
+        let body = BoxStream::new(NoneBody::<Bytes>::default());
         assert_eq!(BodySize::from_stream(&body), BodySize::None);
     }
 }
