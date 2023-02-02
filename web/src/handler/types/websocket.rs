@@ -15,12 +15,12 @@ use tokio::time::{sleep, Instant};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
-    body::BodyStream,
+    body::{BodyStream, BoxStreamBody, RequestBody},
     dev::bytes::Bytes,
     handler::{error::ExtractError, FromRequest, Responder},
     http::header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
-    request::{RequestBody, WebRequest},
-    response::{StreamBody, WebResponse},
+    request::WebRequest,
+    response::WebResponse,
 };
 
 type BoxFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
@@ -164,7 +164,7 @@ where
             let _ = spawn_task(ping_interval, max_unanswered_ping, decode, tx, on_msg, on_err, on_close).await;
         });
 
-        let res = res.map(|body| StreamBody::new(body).into());
+        let res = res.map(|body| BoxStreamBody::new(body).into());
 
         async { res }
     }
