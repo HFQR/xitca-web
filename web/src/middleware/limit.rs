@@ -12,12 +12,12 @@ use pin_project_lite::pin_project;
 use xitca_http::Request;
 
 use crate::{
+    body::BodyStream,
     dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
     handler::Responder,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, status::StatusCode},
     request::WebRequest,
     response::WebResponse,
-    stream::WebStream,
 };
 
 #[derive(Copy, Clone)]
@@ -68,7 +68,7 @@ pub type LimitServiceError<E> = PipelineE<LimitError, E>;
 impl<'r, S, C, B, Res, Err> Service<WebRequest<'r, C, B>> for LimitService<S>
 where
     C: 'r,
-    B: WebStream + Default + 'r,
+    B: BodyStream + Default + 'r,
     S: for<'rs> Service<WebRequest<'rs, C, LimitBody<B>>, Response = Res, Error = Err>,
 {
     type Response = Res;
@@ -133,7 +133,7 @@ impl<B> LimitBody<B> {
 
 impl<B> Stream for LimitBody<B>
 where
-    B: WebStream,
+    B: BodyStream,
 {
     type Item = Result<B::Chunk, LimitBodyError<B::Error>>;
 
@@ -203,7 +203,7 @@ mod test {
 
     use super::*;
 
-    async fn handler<B: WebStream>(Body(body): Body<B>) -> String {
+    async fn handler<B: BodyStream>(Body(body): Body<B>) -> String {
         let mut body = pin!(body);
 
         let chunk = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().unwrap();

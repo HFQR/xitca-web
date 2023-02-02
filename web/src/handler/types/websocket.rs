@@ -15,12 +15,12 @@ use tokio::time::{sleep, Instant};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
+    body::BodyStream,
     dev::bytes::Bytes,
     handler::{error::ExtractError, FromRequest, Responder},
     http::header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
     request::{RequestBody, WebRequest},
     response::{StreamBody, WebResponse},
-    stream::WebStream,
 };
 
 type BoxFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
@@ -33,7 +33,7 @@ type OnCloseCB = Box<dyn FnOnce() -> BoxFuture<'static>>;
 
 pub struct WebSocket<B = RequestBody>
 where
-    B: WebStream,
+    B: BodyStream,
 {
     ws: WsOutput<B, B::Error>,
     ping_interval: Duration,
@@ -45,7 +45,7 @@ where
 
 impl<B> WebSocket<B>
 where
-    B: WebStream,
+    B: BodyStream,
 {
     fn new(ws: WsOutput<B, B::Error>) -> Self {
         Self {
@@ -124,7 +124,7 @@ impl<E> From<HandshakeError> for ExtractError<E> {
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for WebSocket<B>
 where
     C: 'static,
-    B: WebStream + Default + 'static,
+    B: BodyStream + Default + 'static,
 {
     type Type<'b> = WebSocket<B>;
     type Error = ExtractError<B::Error>;
@@ -143,7 +143,7 @@ where
 
 impl<'r, C, B> Responder<WebRequest<'r, C, B>> for WebSocket<B>
 where
-    B: WebStream + 'static,
+    B: BodyStream + 'static,
 {
     type Output = WebResponse;
     type Future = impl Future<Output = Self::Output>;
@@ -180,7 +180,7 @@ async fn spawn_task<B>(
     on_close: OnCloseCB,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    B: WebStream,
+    B: BodyStream,
 {
     let mut sleep = pin!(sleep(ping_interval));
     let mut decode = pin!(decode);

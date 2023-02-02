@@ -5,13 +5,13 @@ mod app;
 #[cfg(feature = "__server")]
 mod server;
 
+pub mod body;
 pub mod error;
 pub mod handler;
 pub mod middleware;
 pub mod request;
 pub mod response;
 pub mod service;
-pub mod stream;
 pub mod test;
 
 #[cfg(feature = "codegen")]
@@ -57,8 +57,8 @@ pub mod dev {
 }
 
 pub use app::App;
+pub use body::BodyStream;
 #[cfg(feature = "__server")]
 pub use server::HttpServer;
-pub use stream::WebStream;
 
 pub use xitca_http::http;

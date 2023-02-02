@@ -7,7 +7,7 @@ use std::{
 
 use xitca_client::Client;
 use xitca_http::{
-    body::{ResponseBody, StreamBody},
+    body::{BoxStreamBody, ResponseBody},
     bytes::{Bytes, BytesMut},
     h1,
     http::{
@@ -228,7 +228,7 @@ async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<Re
             let ty = req.headers().get(header::CONTENT_TYPE).unwrap().clone();
 
             let body = req.into_body();
-            let mut res = Response::new(ResponseBody::stream(StreamBody::new(body)));
+            let mut res = Response::new(ResponseBody::stream(BoxStreamBody::new(body)));
 
             res.headers_mut().insert(header::CONTENT_LENGTH, length);
             res.headers_mut().insert(header::CONTENT_TYPE, ty);

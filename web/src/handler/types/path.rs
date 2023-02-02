@@ -1,9 +1,9 @@
 use std::{future::Future, ops::Deref};
 
 use crate::{
+    body::BodyStream,
     handler::{error::ExtractError, FromRequest},
     request::WebRequest,
-    stream::WebStream,
 };
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ impl Deref for PathRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for PathRef<'a>
 where
-    B: WebStream,
+    B: BodyStream,
 {
     type Type<'b> = PathRef<'b>;
     type Error = ExtractError<B::Error>;

@@ -1,16 +1,16 @@
 use std::future::Future;
 
 use crate::{
+    body::BodyStream,
     handler::{error::ExtractError, FromRequest},
     request::WebRequest,
-    stream::WebStream,
 };
 
 pub struct Body<B>(pub B);
 
 impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Body<B>
 where
-    B: WebStream + Default,
+    B: BodyStream + Default,
 {
     type Type<'b> = Body<B>;
     type Error = ExtractError<B::Error>;

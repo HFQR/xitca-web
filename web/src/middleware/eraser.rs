@@ -3,13 +3,13 @@ use std::{convert::Infallible, error, future::Future, marker::PhantomData};
 use xitca_http::ResponseBody;
 
 use crate::{
+    body::{BodyStream, BoxStreamBody},
     dev::{
         bytes::Bytes,
         service::{ready::ReadyService, Service},
     },
     request::WebRequest,
-    response::{StreamBody, WebResponse},
-    stream::WebStream,
+    response::WebResponse,
 };
 
 #[doc(hidden)]
@@ -86,8 +86,8 @@ where
     S: for<'rs> Service<WebRequest<'rs, C, B>, Response = WebResponse<ResB>, Error = Err>,
     C: 'r,
     B: 'r,
-    ResB: WebStream<Chunk = Bytes> + 'static,
-    <ResB as WebStream>::Error: Send + Sync,
+    ResB: BodyStream<Chunk = Bytes> + 'static,
+    <ResB as BodyStream>::Error: Send + Sync,
 {
     type Response = WebResponse;
     type Error = Err;
@@ -102,7 +102,7 @@ where
     {
         async {
             let res = self.service.call(req).await?;
-            Ok(res.map(|b| ResponseBody::stream(StreamBody::new(b))))
+            Ok(res.map(|b| ResponseBody::stream(BoxStreamBody::new(b))))
         }
     }
 }

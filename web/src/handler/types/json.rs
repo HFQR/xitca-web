@@ -8,6 +8,7 @@ use core::{
 use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::{
+    body::BodyStream,
     dev::bytes::{BufMutWriter, BytesMut},
     handler::{
         error::{ExtractError, _ParseError},
@@ -16,7 +17,6 @@ use crate::{
     http::{const_header_value::JSON, header::CONTENT_TYPE},
     request::WebRequest,
     response::WebResponse,
-    stream::WebStream,
 };
 
 use super::{
@@ -60,7 +60,7 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
 
 impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, C, B>> for Json<T, LIMIT>
 where
-    B: WebStream + Default,
+    B: BodyStream + Default,
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;

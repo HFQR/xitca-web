@@ -126,25 +126,26 @@ where
     }
 }
 
-pub struct StreamBody(LocalBoxStream<'static, Result<Bytes, BodyError>>);
+/// type erased stream body.
+pub struct BoxStreamBody(LocalBoxStream<'static, Result<Bytes, BodyError>>);
 
-impl Default for StreamBody {
+impl Default for BoxStreamBody {
     fn default() -> Self {
         Self::new(NoneBody::default())
     }
 }
 
-impl StreamBody {
+impl BoxStreamBody {
     pub fn new<B, E>(body: B) -> Self
     where
         B: Stream<Item = Result<Bytes, E>> + 'static,
         E: error::Error + Send + Sync + 'static,
     {
-        Self(Box::pin(MapStreamBody { body }))
+        Self(Box::pin(BoxStreamBodyMapErr { body }))
     }
 }
 
-impl Stream for StreamBody {
+impl Stream for BoxStreamBody {
     type Item = Result<Bytes, BodyError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -157,13 +158,13 @@ impl Stream for StreamBody {
 }
 
 pin_project! {
-    struct MapStreamBody<B> {
+    struct BoxStreamBodyMapErr<B> {
         #[pin]
         body: B
     }
 }
 
-impl<B, T, E> Stream for MapStreamBody<B>
+impl<B, T, E> Stream for BoxStreamBodyMapErr<B>
 where
     B: Stream<Item = Result<T, E>>,
     E: error::Error + Send + Sync + 'static,
@@ -187,7 +188,7 @@ pin_project! {
     /// Generic type is for custom pinned response body(type implement [Stream](futures_core::Stream)).
     #[project = ResponseBodyProj]
     #[project_replace = ResponseBodyProjReplace]
-    pub enum ResponseBody<B = StreamBody> {
+    pub enum ResponseBody<B = BoxStreamBody> {
         None,
         Bytes {
             bytes: Bytes,
@@ -255,8 +256,8 @@ where
     }
 }
 
-impl From<StreamBody> for ResponseBody {
-    fn from(stream: StreamBody) -> Self {
+impl From<BoxStreamBody> for ResponseBody {
+    fn from(stream: BoxStreamBody) -> Self {
         Self::stream(stream)
     }
 }
@@ -329,10 +330,10 @@ mod test {
 
     #[test]
     fn stream_body_size_hint() {
-        let body = StreamBody::new(Once::new(Bytes::new()));
+        let body = BoxStreamBody::new(Once::new(Bytes::new()));
         assert_eq!(BodySize::from_stream(&body), BodySize::Sized(0));
 
-        let body = StreamBody::new(NoneBody::<Bytes>::default());
+        let body = BoxStreamBody::new(NoneBody::<Bytes>::default());
         assert_eq!(BodySize::from_stream(&body), BodySize::None);
     }
 }

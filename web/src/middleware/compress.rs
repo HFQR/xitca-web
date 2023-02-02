@@ -3,10 +3,10 @@ use core::{convert::Infallible, future::Future};
 use http_encoding::{encoder, Coder, ContentEncoding};
 
 use crate::{
+    body::BodyStream,
     dev::service::{ready::ReadyService, Service},
     request::WebRequest,
     response::WebResponse,
-    stream::WebStream,
 };
 
 /// A compress middleware look into [WebRequest]'s `Accept-Encoding` header and
@@ -37,7 +37,7 @@ where
     C: 'r,
     ReqB: 'r,
     S: for<'rs> Service<WebRequest<'rs, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
-    ResB: WebStream,
+    ResB: BodyStream,
 {
     type Response = WebResponse<Coder<ResB>>;
     type Error = Err;
