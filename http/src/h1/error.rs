@@ -43,7 +43,7 @@ impl<S, B> From<io::Error> for Error<S, B> {
         use io::ErrorKind;
         match e.kind() {
             ErrorKind::ConnectionReset | ErrorKind::UnexpectedEof | ErrorKind::WriteZero => Self::Closed,
-            ErrorKind::WouldBlock => panic!("WouldBlock error should never be treated as error."),
+            ErrorKind::WouldBlock => unreachable!("WouldBlock error should never be treated as error."),
             _ => Self::Io(e),
         }
     }

@@ -87,8 +87,6 @@ where
     }
 
     /// shutdown Io gracefully.
-    #[cold]
-    #[inline(never)]
     pub fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
         poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx))
     }
