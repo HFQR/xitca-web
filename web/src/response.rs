@@ -1,6 +1,6 @@
 pub use xitca_http::http::response::Builder as WebResponseBuilder;
 
-use xitca_http::response::Response;
+use xitca_http::http::Response;
 
 use super::body::ResponseBody;
 

@@ -1,4 +1,5 @@
 use core::{
+    convert::Infallible,
     future::{pending, poll_fn, Future},
     marker::PhantomData,
     ops::DerefMut,
@@ -23,8 +24,10 @@ use crate::{
         body::{RequestBody, RequestBodySender},
         error::Error,
     },
-    http::{response::Parts, Request, RequestExt, Response},
-    response,
+    http::{
+        response::{Parts, Response},
+        Request, RequestExt, StatusCode,
+    },
     util::{
         buffered_io::{BufferedIo, FlatBuf, ListBuf},
         hint::unlikely,
@@ -68,7 +71,7 @@ where
 {
     let is_vectored = config.vectored_write && io.is_vectored_write();
 
-    let res = if is_vectored {
+    if is_vectored {
         let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();
         Dispatcher::new(io, addr, timer, config, service, date, write_buf)
             .run()
@@ -78,15 +81,6 @@ where
         Dispatcher::new(io, addr, timer, config, service, date, write_buf)
             .run()
             .await
-    };
-
-    match res {
-        Ok(_) | Err(Error::Closed) => Ok(()),
-        Err(Error::KeepAliveExpire) => {
-            trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
-            Ok(())
-        }
-        Err(e) => Err(e),
     }
 }
 
@@ -130,53 +124,55 @@ where
     }
 
     async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
+        match self._run().await {
+            Ok(_) => {}
+            Err(Error::KeepAliveExpire) => match self.ctx.ctype() {
+                ConnectionType::Init => self.request_error(timeout),
+                _ => {
+                    trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
+                    return Ok(());
+                }
+            },
+            Err(Error::Proto(ProtoError::Parse(Parse::HeaderTooLarge))) => self.request_error(header_too_large),
+            Err(Error::Proto(ProtoError::Parse(_))) => self.request_error(bad_request),
+            Err(e) => return Err(e),
+        }
+
+        self.io.drain_write().await?;
+        self.io.shutdown().await.map_err(Into::into)
+    }
+
+    async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
             match self.ctx.ctype() {
-                ConnectionType::Init => {}
                 ConnectionType::KeepAlive => self.update_timer(),
-                ConnectionType::Close => {
-                    unlikely();
-                    return self.io.shutdown().await.map_err(Into::into);
-                }
+                ConnectionType::Init => unlikely(),
+                ConnectionType::Close => unreachable!("closed connection must not do more read."),
             }
 
             self.io.read().timeout(self.timer.as_mut()).await??;
 
-            loop {
-                match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut()) {
-                    Ok(Some((req, decoder))) => {
-                        let (mut body_reader, body) = BodyReader::from_coding(decoder);
-                        let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
+            while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
+                let (mut body_reader, body) = BodyReader::from_coding(decoder);
+                let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
-                        let (parts, res_body) = match self
-                            .service
-                            .call(req)
-                            .select(self.request_body_handler(&mut body_reader))
-                            .await
-                        {
-                            SelectOutput::A(Ok(res)) => res.into_parts(),
-                            SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
-                            SelectOutput::B(e) => return Err(e),
-                        };
+                let (parts, res_body) = match self
+                    .service
+                    .call(req)
+                    .select(self.request_body_handler(&mut body_reader))
+                    .await
+                {
+                    SelectOutput::A(Ok(res)) => res.into_parts(),
+                    SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
+                    SelectOutput::B(Err(e)) => return Err(e),
+                    SelectOutput::B(Ok(i)) => match i {},
+                };
 
-                        let encoder = &mut self.encode_head(parts, &res_body)?;
-                        self.response_handler(res_body, encoder, &mut body_reader).await?;
+                let encoder = &mut self.encode_head(parts, &res_body)?;
+                self.response_handler(res_body, encoder, &mut body_reader).await?;
 
-                        if self.ctx.is_connection_closed() {
-                            break;
-                        }
-                    }
-                    Ok(None) => break,
-                    Err(ProtoError::Parse(Parse::HeaderTooLarge)) => {
-                        self.request_error(response::header_too_large)?;
-                        break;
-                    }
-                    Err(ProtoError::Parse(_)) => {
-                        self.request_error(response::bad_request)?;
-                        break;
-                    }
-                    // TODO: handle error that are meant to be a response.
-                    Err(e) => return Err(e.into()),
+                if self.ctx.is_connection_closed() {
+                    return Ok(());
                 }
             }
 
@@ -201,24 +197,20 @@ where
     }
 
     // an associated future of self.service that runs until service is resolved or error produced.
-    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Error<S::Error, BE> {
+    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<Infallible, Error<S::Error, BE>> {
         if self.ctx.is_expect_header() {
             // wait for service future to start polling RequestBody.
             if body_reader.wait_for_poll().await.is_ok() {
                 // encode continue as service future want a body.
                 self.ctx.encode_continue(&mut self.io.write_buf);
                 // use drain write to make sure continue is sent to client.
-                if let Err(e) = self.io.drain_write().await {
-                    return Error::from(e);
-                }
-            };
+                self.io.drain_write().await?;
+            }
         }
 
         loop {
             body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
-            if let Err(e) = self.io.read().await {
-                return Error::from(e);
-            }
+            self.io.read().await?;
         }
     }
 
@@ -274,13 +266,13 @@ where
 
     #[cold]
     #[inline(never)]
-    fn request_error<F>(&mut self, func: F) -> Result<(), Error<S::Error, BE>>
+    fn request_error<F>(&mut self, func: F)
     where
         F: FnOnce() -> Response<NoneBody<Bytes>>,
     {
         self.ctx.set_ctype(ConnectionType::Close);
         let (parts, body) = func().into_parts();
-        self.encode_head(parts, &body).map(|_| ())
+        assert!(self.encode_head(parts, &body).is_ok(), "request_error must be correct");
     }
 }
 
@@ -369,4 +361,22 @@ impl BodyReader {
             e
         })
     }
+}
+
+fn header_too_large() -> Response<NoneBody<Bytes>> {
+    status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
+}
+
+fn timeout() -> Response<NoneBody<Bytes>> {
+    status_only(StatusCode::REQUEST_TIMEOUT)
+}
+
+fn bad_request() -> Response<NoneBody<Bytes>> {
+    status_only(StatusCode::BAD_REQUEST)
+}
+
+#[cold]
+#[inline(never)]
+fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
+    Response::builder().status(status).body(NoneBody::default()).unwrap()
 }

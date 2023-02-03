@@ -17,7 +17,6 @@ mod version;
 pub mod body;
 pub mod error;
 pub mod http;
-pub mod response;
 
 #[cfg(feature = "runtime")]
 pub mod date;
