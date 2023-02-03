@@ -267,8 +267,7 @@ mod test {
 
     use crate::{
         body::{RequestBody, ResponseBody},
-        http::Request,
-        response::Response,
+        http::{Request, Response},
     };
 
     use super::*;
