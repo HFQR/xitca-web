@@ -45,6 +45,6 @@ pub use self::{builder::HttpServiceBuilder, service::HttpService};
 // #[cfg(all(feature = "http2", feature = "native-tls"))]
 // compile_error!("http2 feature can not use native-tls");
 
-pub(crate) const fn unspecified_socket_addr() -> std::net::SocketAddr {
+pub(crate) fn unspecified_socket_addr() -> std::net::SocketAddr {
     std::net::SocketAddr::V4(std::net::SocketAddrV4::new(std::net::Ipv4Addr::UNSPECIFIED, 0))
 }
