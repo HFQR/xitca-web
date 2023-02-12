@@ -6,6 +6,12 @@ pub struct HeapQueue<T, const CAP: usize> {
     inner: Bounded<HeapQueueInner<T, CAP>>,
 }
 
+impl<T, const CAP: usize> Default for HeapQueue<T, CAP> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T, const CAP: usize> HeapQueue<T, CAP> {
     #[inline]
     pub fn new() -> Self {
