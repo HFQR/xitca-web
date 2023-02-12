@@ -234,9 +234,9 @@ where
                     }
                 }
                 SelectOutput::A(None) => {
-                    // Request body is partial consumed. Close connection in case there are bytes
-                    // remain in socket.
                     if !body_reader.decoder.is_eof() {
+                        // request body is partial consumed. close connection in case there are
+                        // bytes remain in socket.
                         self.ctx.set_ctype(ConnectionType::Close);
                     }
                     encoder.encode_eof(&mut self.io.write_buf);

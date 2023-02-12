@@ -4,7 +4,10 @@ use core::{
     time::Duration,
 };
 
-pub use http_ws::Message;
+use http_ws::{
+    Item,
+    Message as WsMessage
+};
 
 use futures_core::stream::Stream;
 use http_ws::{
@@ -12,7 +15,10 @@ use http_ws::{
     HandshakeError, WsOutput,
 };
 use tokio::time::{sleep, Instant};
-use xitca_unsafe_collection::futures::{Select, SelectOutput};
+use xitca_unsafe_collection::{
+    bytes::BytesStr,
+    futures::{Select, SelectOutput}
+};
 
 use crate::{
     body::{BodyStream, RequestBody, ResponseBody},
@@ -22,6 +28,15 @@ use crate::{
     request::WebRequest,
     response::WebResponse,
 };
+
+/// simplified websocket message type.
+/// for more variant of message please reference [http_ws::Message] type.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Message {
+    Text(BytesStr),
+    Binary(Bytes),
+    Continuation(Item),
+}
 
 type BoxFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 
@@ -58,14 +73,14 @@ where
         }
     }
 
-    /// Set interval duration of server side [Message::Ping] to client.
+    /// Set interval duration of server side ping message to client.
     pub fn set_ping_interval(&mut self, dur: Duration) -> &mut Self {
         self.ping_interval = dur;
         self
     }
 
-    /// Set max number of consecutive server side [Message::Ping] messages that are not
-    /// answered by client with [Message::Pong].
+    /// Set max number of consecutive server side ping messages that are not
+    /// answered by client.
     ///
     /// # Panic:
     /// when 0 is passed as argument.
@@ -76,7 +91,7 @@ where
     }
 
     /// Get a reference of Websocket message sender.
-    /// Can be used to send [Message] to client.
+    /// Can be used to send message to client.
     pub fn msg_sender(&self) -> &EncodeSender {
         &self.ws.2
     }
@@ -192,30 +207,39 @@ where
 
     loop {
         match poll_fn(|cx| decode.as_mut().poll_next(cx)).select(sleep.as_mut()).await {
-            SelectOutput::A(Some(Ok(msg))) => match msg {
-                Message::Pong(_) => {
-                    if let Some(num) = un_answered_ping.checked_sub(1) {
-                        un_answered_ping = num;
+            SelectOutput::A(Some(Ok(msg))) => {
+                let msg = match msg {
+                    WsMessage::Pong(_) => {
+                        if let Some(num) = un_answered_ping.checked_sub(1) {
+                            un_answered_ping = num;
+                        }
+                        continue;
                     }
-                }
-                Message::Ping(ping) => {
-                    tx.send(Message::Pong(ping)).await?;
-                }
-                Message::Close(reason) => {
-                    tx.send(Message::Close(reason)).await?;
-                    break;
-                }
-                msg => on_msg(&mut tx, msg).await,
+                    WsMessage::Ping(ping) => {
+                        tx.send(WsMessage::Pong(ping)).await?;
+                        continue;
+                    }
+                    WsMessage::Close(reason) => {
+                        tx.send(WsMessage::Close(reason)).await?;
+                        break;
+                    }
+                    WsMessage::Text(txt) => Message::Text(BytesStr::try_from(txt).unwrap()),
+                    WsMessage::Binary(bin) => Message::Binary(bin),
+                    WsMessage::Continuation(item) => Message::Continuation(item),
+                    WsMessage::Nop => continue,
+                };
+
+                on_msg(&mut tx, msg).await
             },
             SelectOutput::A(Some(Err(e))) => on_err(e).await,
             SelectOutput::A(None) => break,
             SelectOutput::B(_) => {
                 if un_answered_ping > max_unanswered_ping {
-                    tx.send(Message::Close(None)).await?;
+                    tx.send(WsMessage::Close(None)).await?;
                     break;
                 } else {
                     un_answered_ping += 1;
-                    tx.send(Message::Ping(Bytes::new())).await?;
+                    tx.send(WsMessage::Ping(Bytes::new())).await?;
                     sleep.as_mut().reset(Instant::now() + ping_interval);
                 }
             }
