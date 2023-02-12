@@ -2,18 +2,17 @@ use core::mem::ManuallyDrop;
 
 use super::{Bounded, PushError, Queueable};
 
-pub struct HeapQueue<T> {
-    inner: Bounded<HeapQueueInner<T>>,
+pub struct HeapQueue<T, const CAP: usize> {
+    inner: Bounded<HeapQueueInner<T, CAP>>,
 }
 
-impl<T> HeapQueue<T> {
+impl<T, const CAP: usize> HeapQueue<T, CAP> {
     #[inline]
-    pub fn with_capacity(cap: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             inner: Bounded {
                 queue: HeapQueueInner {
-                    ptr: ManuallyDrop::new(Vec::with_capacity(cap)).as_mut_ptr(),
-                    cap,
+                    ptr: ManuallyDrop::new(Vec::with_capacity(CAP)).as_mut_ptr(),
                 },
                 next: 0,
                 len: 0,
@@ -78,36 +77,35 @@ impl<T> HeapQueue<T> {
     }
 
     #[inline]
-    pub fn iter(&self) -> Iter<'_, T> {
+    pub fn iter(&self) -> Iter<'_, T, CAP> {
         self.inner.iter()
     }
 }
 
-pub type Iter<'a, T> = super::Iter<'a, HeapQueueInner<T>>;
+pub type Iter<'a, T, const CAP: usize> = super::Iter<'a, HeapQueueInner<T, CAP>>;
 
 #[doc(hidden)]
-pub struct HeapQueueInner<T> {
+pub struct HeapQueueInner<T, const CAP: usize> {
     ptr: *mut T,
-    cap: usize,
 }
 
-impl<T> Drop for HeapQueueInner<T> {
+impl<T, const CAP: usize> Drop for HeapQueueInner<T, CAP> {
     fn drop(&mut self) {
         // SAFETY:
         // deallocate the pointer but don't drop anything.
         // *. BoundQueue is tasked with drop all remaining item.
         unsafe {
-            Vec::from_raw_parts(self.ptr, 0, self.cap);
+            Vec::from_raw_parts(self.ptr, 0, CAP);
         }
     }
 }
 
-impl<T> Queueable for HeapQueueInner<T> {
+impl<T, const CAP: usize> Queueable for HeapQueueInner<T, CAP> {
     type Item = T;
 
     #[inline(always)]
     fn capacity(&self) -> usize {
-        self.cap
+        CAP
     }
 
     // SAFETY: see trait definition.
@@ -141,7 +139,7 @@ mod test {
 
     #[test]
     fn iterate() {
-        let mut queue = HeapQueue::with_capacity(5);
+        let mut queue = HeapQueue::<_, 5>::new();
 
         queue.push_back("996").ok().unwrap();
         queue.push_back("231").ok().unwrap();
@@ -165,7 +163,7 @@ mod test {
 
     #[test]
     fn cap() {
-        let mut queue = HeapQueue::with_capacity(3);
+        let mut queue = HeapQueue::<_, 3>::new();
 
         queue.push_back("996").ok().unwrap();
         queue.push_back("231").ok().unwrap();
@@ -186,7 +184,7 @@ mod test {
 
     #[test]
     fn front_mut() {
-        let mut queue = HeapQueue::with_capacity(3);
+        let mut queue = HeapQueue::<_, 3>::new();
 
         assert_eq!(None, queue.front_mut());
 
@@ -208,7 +206,7 @@ mod test {
 
     #[test]
     fn wrap() {
-        let mut queue = HeapQueue::with_capacity(4);
+        let mut queue = HeapQueue::<_, 4>::new();
 
         for i in 0..4 {
             assert!(queue.push_back(i).is_ok());
@@ -233,11 +231,11 @@ mod test {
         let item = Arc::new(123);
 
         {
-            let _queue = HeapQueue::<usize>::with_capacity(3);
+            let _queue = HeapQueue::<usize, 3>::new();
         }
 
         {
-            let mut queue = HeapQueue::with_capacity(3);
+            let mut queue = HeapQueue::<_, 3>::new();
 
             queue.push_back(item.clone()).ok().unwrap();
             queue.push_back(item.clone()).ok().unwrap();
@@ -248,7 +246,7 @@ mod test {
         assert_eq!(Arc::strong_count(&item), 1);
 
         {
-            let mut queue = HeapQueue::with_capacity(3);
+            let mut queue = HeapQueue::<_, 3>::new();
 
             queue.push_back(item.clone()).ok().unwrap();
 
@@ -258,7 +256,7 @@ mod test {
         assert_eq!(Arc::strong_count(&item), 1);
 
         {
-            let mut queue = HeapQueue::with_capacity(3);
+            let mut queue = HeapQueue::<_, 3>::new();
 
             queue.push_back(item.clone()).ok().unwrap();
             queue.push_back(item.clone()).ok().unwrap();
