@@ -4,8 +4,10 @@ use std::time::Duration;
 
 use tracing::{error, info};
 use xitca_web::{
-    handler::handler_service,
-    handler::websocket::{Message, WebSocket},
+    handler::{
+        handler_service,
+        websocket::{Message, WebSocket}
+    },
     route::get,
     App, HttpServer,
 };
@@ -30,19 +32,11 @@ async fn handler(mut ws: WebSocket) -> WebSocket {
         // async function that called on every incoming websocket message.
         .on_msg(|tx, msg| {
             Box::pin(async move {
-                match msg {
-                    // echo back text message.
-                    Message::Text(bytes) => {
-                        let str = String::from_utf8_lossy(bytes.as_ref());
-                        info!("Got text message: {str}");
-                        tx.text(format!("Echo: {str}")).await.unwrap();
-                    }
-                    Message::Ping(_) | Message::Pong(_) | Message::Close(_) => {
-                        unreachable!("ping/pong/close messages are managed automatically by WebSocket type and exclueded from on_msg function");
-                    }
-                    _ => {
-                        // ignore all other types of message.
-                    }
+                // ignore non text message.
+                if let Message::Text(txt) = msg {
+                    info!("Got text message: {txt}");
+                    // echo back text.
+                    tx.text(format!("Echo: {txt}")).await.unwrap();
                 }
             })
         })
