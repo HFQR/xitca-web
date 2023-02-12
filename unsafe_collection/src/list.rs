@@ -1,5 +1,7 @@
 //! From https://github.com/ibraheemdev/firefly
 
+#![allow(dead_code)]
+
 use core::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 pub struct LinkedList<T> {
