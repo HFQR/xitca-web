@@ -4,10 +4,7 @@ use core::{
     time::Duration,
 };
 
-use http_ws::{
-    Item,
-    Message as WsMessage
-};
+use http_ws::{Item, Message as WsMessage};
 
 use futures_core::stream::Stream;
 use http_ws::{
@@ -17,7 +14,7 @@ use http_ws::{
 use tokio::time::{sleep, Instant};
 use xitca_unsafe_collection::{
     bytes::BytesStr,
-    futures::{Select, SelectOutput}
+    futures::{Select, SelectOutput},
 };
 
 use crate::{
@@ -230,7 +227,7 @@ where
                 };
 
                 on_msg(&mut tx, msg).await
-            },
+            }
             SelectOutput::A(Some(Err(e))) => on_err(e).await,
             SelectOutput::A(None) => break,
             SelectOutput::B(_) => {
