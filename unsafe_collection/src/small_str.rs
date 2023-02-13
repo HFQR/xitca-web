@@ -26,12 +26,12 @@ mod inner {
     }
 
     impl Inner {
-        fn heap_from_slice(slice: &[u8]) -> Self {
+        // SAFETY:
+        // given slice must not be empty.
+        unsafe fn heap_from_slice(slice: &[u8]) -> Self {
             let boxed = Box::<[u8]>::from(slice);
             let ptr = Box::into_raw(boxed).cast();
-            // SAFETY:
-            // boxed is not null.
-            let heap = unsafe { NonNull::new_unchecked(ptr) };
+            let heap = NonNull::new_unchecked(ptr);
             Self { heap }
         }
 
@@ -42,7 +42,9 @@ mod inner {
         pub(super) fn from_slice(slice: &[u8]) -> Self {
             let len = slice.len();
             if len > 8 {
-                Inner::heap_from_slice(slice)
+                // SAFETY:
+                // slice is not empty
+                unsafe { Inner::heap_from_slice(slice) }
             } else {
                 let mut inline = uninit_array();
 
@@ -219,19 +221,19 @@ mod test {
     #[test]
     fn from_str() {
         let s = SmallBoxedStr::from("12345678");
-        assert_eq!(s.as_str(), "12345678");
+        assert_eq!(&s, "12345678");
 
         let s = SmallBoxedStr::from_str("123456789");
-        assert_eq!(s.as_str(), "123456789");
+        assert_eq!(&s, "123456789");
     }
 
     #[test]
     fn clone_and_drop() {
         let s = SmallBoxedStr::from_str("1234567890");
-        assert_eq!(s.as_str(), "1234567890");
+        assert_eq!(&s, "1234567890");
 
         let s1 = s.clone();
-        assert_eq!(s.as_str(), s1.as_str());
+        assert_eq!(s, s1);
         drop(s);
         drop(s1);
     }
