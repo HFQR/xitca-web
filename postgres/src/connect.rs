@@ -38,10 +38,7 @@ pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
 
 #[cold]
 #[inline(never)]
-pub(crate) async fn authenticate<Io, const BATCH_LIMIT: usize>(
-    io: &mut BufferedIo<Io, BATCH_LIMIT>,
-    cfg: Config,
-) -> Result<(), Error>
+pub(crate) async fn authenticate<Io>(io: &mut BufferedIo<Io>, cfg: Config) -> Result<(), Error>
 where
     Io: AsyncIo,
 {
@@ -132,11 +129,7 @@ where
 
 #[cold]
 #[inline(never)]
-async fn password<Io, P, const BATCH_LIMIT: usize>(
-    res: &mut Response,
-    io: &mut BufferedIo<Io, BATCH_LIMIT>,
-    pass: P,
-) -> Result<(), Error>
+async fn password<Io, P>(res: &mut Response, io: &mut BufferedIo<Io>, pass: P) -> Result<(), Error>
 where
     Io: AsyncIo,
     P: AsRef<[u8]>,

@@ -2,13 +2,12 @@ use std::{future::pending, io};
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use xitca_io::{
-    bytes::BytesMut,
+    bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::{
     bytes::read_buf,
     futures::{Select as _, SelectOutput},
-    uninit,
 };
 
 use crate::{
@@ -20,18 +19,18 @@ use crate::{
 
 use super::context::Context;
 
-pub struct BufferedIo<Io, const BATCH_LIMIT: usize> {
+pub struct BufferedIo<Io> {
     io: Io,
     rx: UnboundedReceiver<Request>,
-    ctx: Context<BATCH_LIMIT>,
+    ctx: Context,
 }
 
-impl<Io, const BATCH_LIMIT: usize> BufferedIo<Io, BATCH_LIMIT>
+impl<Io> BufferedIo<Io>
 where
     Io: AsyncIo,
 {
     pub fn new_pair(io: Io, _: usize) -> (Client, Self) {
-        let ctx = Context::<BATCH_LIMIT>::new();
+        let ctx = Context::new();
 
         let (tx, rx) = unbounded_channel();
 
@@ -50,7 +49,7 @@ where
 
         let (req, res) = Request::new_pair(buf);
 
-        self.ctx.push_req(req);
+        self.ctx.push_concurrent_req(req);
 
         while !self.ctx.req_is_empty() {
             self.io.ready(Interest::WRITABLE).await?;
@@ -74,7 +73,7 @@ where
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
         loop {
-            match read_buf(&mut self.io, &mut self.ctx.buf) {
+            match read_buf(&mut self.io, &mut self.ctx.res_buf) {
                 Ok(0) => return Err(unexpected_eof_err()),
                 Ok(_) => continue,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
@@ -86,12 +85,10 @@ where
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
         loop {
-            let mut iovs = uninit::uninit_array::<_, BATCH_LIMIT>();
-            let slice = self.ctx.chunks_vectored(&mut iovs);
-            match self.io.write_vectored(slice) {
+            match self.io.write(&self.ctx.req_buf) {
                 Ok(0) => return write_zero(self.ctx.req_is_empty()),
                 Ok(n) => {
-                    self.ctx.advance(n);
+                    self.ctx.req_buf.advance(n);
                     if self.ctx.req_is_empty() {
                         break;
                     }
@@ -111,7 +108,7 @@ where
                 .await
             {
                 // batch message and keep polling.
-                SelectOutput::A(Some(msg)) => self.ctx.push_req(msg),
+                SelectOutput::A(Some(req)) => self.ctx.push_concurrent_req(req),
                 // client is gone.
                 SelectOutput::A(None) => break,
                 SelectOutput::B(ready) => {
@@ -133,18 +130,15 @@ where
     }
 }
 
-async fn try_rx<const BATCH_LIMIT: usize>(
-    rx: &mut UnboundedReceiver<Request>,
-    ctx: &Context<BATCH_LIMIT>,
-) -> Option<Request> {
-    if ctx.req_is_full() {
+async fn try_rx(rx: &mut UnboundedReceiver<Request>, ctx: &Context) -> Option<Request> {
+    if ctx.throttled() {
         pending().await
     } else {
         rx.recv().await
     }
 }
 
-fn try_io<'i, Io, const BATCH_LIMIT: usize>(io: &'i mut Io, ctx: &Context<BATCH_LIMIT>) -> Io::ReadyFuture<'i>
+fn try_io<'i, Io>(io: &'i mut Io, ctx: &Context) -> Io::ReadyFuture<'i>
 where
     Io: AsyncIo,
 {
