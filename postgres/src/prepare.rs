@@ -25,14 +25,13 @@ type BoxedFuture<'a> = Pin<Box<dyn Future<Output = Result<Type, Error>> + Send +
 
 impl Client {
     pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<'_>, Error> {
-        let stmt = self._prepare(query, types).await?;
-        Ok(stmt.into_guarded(self))
+        self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
     }
 }
 
 impl Client {
     async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
-        let name = format!("s{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
+        let name = format!("s{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
         let buf = self.prepare_buf(name.as_str(), query, types)?;
 

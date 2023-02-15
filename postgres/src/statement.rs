@@ -4,7 +4,6 @@ use std::fmt;
 
 use postgres_protocol::message::frontend;
 use postgres_types::Type;
-use xitca_io::bytes::BytesMut;
 
 use super::Client;
 
@@ -35,11 +34,13 @@ impl<'a> StatementGuarded<'a> {
     fn cancel(&mut self) {
         if let Some(statement) = self.statement.take() {
             if !self.client.closed() {
-                let mut buf = BytesMut::new();
-                frontend::close(b'S', &statement.name, &mut buf).unwrap();
-                frontend::sync(&mut buf);
+                let msg = self.client.with_buf(|b| {
+                    frontend::close(b'S', &statement.name, b).unwrap();
+                    frontend::sync(b);
+                    b.split()
+                });
 
-                let _f = self.client.send(buf);
+                let _f = self.client.send(msg);
             }
         }
     }

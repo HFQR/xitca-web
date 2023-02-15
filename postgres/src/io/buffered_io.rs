@@ -31,9 +31,7 @@ where
 {
     pub fn new_pair(io: Io, _: usize) -> (Client, Self) {
         let ctx = Context::new();
-
         let (tx, rx) = unbounded_channel();
-
         (Client::new(tx), Self { io, rx, ctx })
     }
 
