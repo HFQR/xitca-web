@@ -37,7 +37,7 @@ impl Client {
     pub(crate) fn new(tx: UnboundedSender<Request>) -> Self {
         Self {
             tx,
-            buf: Lock::new(BytesMut::new()),
+            buf: Lock::new(BytesMut::with_capacity(4096)),
             cached_typeinfo: Lock::new(CachedTypeInfo {
                 typeinfo: None,
                 typeinfo_composite: None,
