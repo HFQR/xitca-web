@@ -1,8 +1,14 @@
-use std::{future::pending, io};
+use std::{future::pending, io, sync::Arc};
 
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::{
+    sync::{
+        mpsc::{unbounded_channel, UnboundedReceiver},
+        Notify,
+    },
+    task::JoinHandle,
+};
 use xitca_io::{
-    bytes::{Buf, BytesMut},
+    bytes::Buf,
     io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::{
@@ -14,7 +20,6 @@ use crate::{
     client::Client,
     error::{unexpected_eof_err, write_zero_err, Error},
     request::Request,
-    response::Response,
 };
 
 use super::context::Context;
@@ -33,35 +38,6 @@ where
         let ctx = Context::new();
         let (tx, rx) = unbounded_channel();
         (Client::new(tx), Self { io, rx, ctx })
-    }
-
-    // send request in self blocking manner. this call would not utilize concurrent read/write nor
-    // pipeline/batch. A single response is returned.
-    pub async fn linear_request<F, E>(&mut self, encoder: F) -> Result<Response, Error>
-    where
-        F: FnOnce(&mut BytesMut) -> Result<(), E>,
-        Error: From<E>,
-    {
-        let mut buf = BytesMut::new();
-        encoder(&mut buf)?;
-
-        let (req, res) = Request::new_pair(buf);
-
-        self.ctx.push_concurrent_req(req);
-
-        while !self.ctx.req_is_empty() {
-            self.io.ready(Interest::WRITABLE).await?;
-            self.try_write()?;
-        }
-
-        loop {
-            self.io.ready(Interest::READABLE).await?;
-            self.try_read()?;
-
-            if self.ctx.try_response_once()? {
-                return Ok(res);
-            }
-        }
     }
 
     pub fn clear_ctx(&mut self) {
@@ -100,6 +76,24 @@ where
     }
 
     pub async fn run(mut self) -> Result<(), Error> {
+        self._run().await
+    }
+
+    pub(crate) fn spawn_run(mut self) -> (JoinHandle<Self>, Arc<Notify>)
+    where
+        Io: 'static,
+    {
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+        let handle = tokio::task::spawn_local(async move {
+            let _ = self._run().select(notify2.notified()).await;
+            self
+        });
+
+        (handle, notify)
+    }
+
+    async fn _run(&mut self) -> Result<(), Error> {
         loop {
             match try_rx(&mut self.rx, &self.ctx)
                 .select(try_io(&mut self.io, &self.ctx))

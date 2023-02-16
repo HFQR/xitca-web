@@ -70,24 +70,4 @@ impl Context {
 
         Ok(())
     }
-
-    // only try parse response for once and return true when success.
-    pub(super) fn try_response_once(&mut self) -> Result<bool, Error> {
-        match ResponseMessage::try_from_buf(&mut self.res_buf)? {
-            Some(ResponseMessage::Normal { buf, complete }) => {
-                self.concurrent_res
-                    .front_mut()
-                    .expect("Out of bound must not happen")
-                    .try_send(buf)
-                    .expect("Response channel is overflown.");
-
-                if complete {
-                    let _ = self.concurrent_res.pop_front();
-                }
-                Ok(true)
-            }
-            Some(ResponseMessage::Async(_)) => unreachable!("async message handling is not implemented"),
-            None => Ok(false),
-        }
-    }
 }
