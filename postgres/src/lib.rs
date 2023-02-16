@@ -84,9 +84,15 @@ where
         let cfg = Config::try_from(self.cfg)?;
         let io = connect::connect(&cfg).await?;
 
-        let (cli, mut io) = io::buffered_io::BufferedIo::new_pair(io, self.backlog);
+        let (cli, io) = io::buffered_io::BufferedIo::new_pair(io, self.backlog);
 
-        connect::authenticate(&mut io, cfg).await?;
+        let (handle, notify) = io.spawn_run();
+
+        let ret = cli.authenticate(cfg).await;
+        // stop spawn_run regardless of authentication outcome.
+        notify.notify_waiters();
+        let mut io = handle.await.unwrap();
+        ret?;
 
         // clear context before continue.
         io.clear_ctx();
