@@ -34,13 +34,16 @@ impl<'a> StatementGuarded<'a> {
     fn cancel(&mut self) {
         if let Some(statement) = self.statement.take() {
             if !self.client.closed() {
-                let msg = self.client.with_buf(|b| {
-                    frontend::close(b'S', &statement.name, b).unwrap();
-                    frontend::sync(b);
-                    b.split()
+                let res = self.client.with_buf_fallible(|b| {
+                    frontend::close(b'S', &statement.name, b).map(|_| {
+                        frontend::sync(b);
+                        b.split()
+                    })
                 });
 
-                let _f = self.client.send(msg);
+                if let Ok(msg) = res {
+                    let _f = self.client.send(msg);
+                }
             }
         }
     }

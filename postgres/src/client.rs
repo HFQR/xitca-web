@@ -93,14 +93,16 @@ impl Client {
         self.cached_typeinfo.lock().types.clear();
     }
 
-    pub(crate) fn with_buf<F, R>(&self, f: F) -> R
+    pub(crate) fn with_buf_fallible<F, T, E>(&self, f: F) -> Result<T, E>
     where
-        F: FnOnce(&mut BytesMut) -> R,
+        F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
         let mut buf = self.buf.lock();
-        let r = f(&mut buf);
-        buf.clear();
-        r
+        let res = f(&mut buf);
+        if res.is_err() {
+            buf.clear();
+        }
+        res
     }
 }
 

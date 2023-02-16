@@ -40,7 +40,7 @@ where
     I: IntoIterator<Item = P>,
     I::IntoIter: ExactSizeIterator,
 {
-    client.with_buf(|buf| {
+    client.with_buf_fallible(|buf| {
         encode_bind(stmt, params, "", buf)?;
         frontend::execute("", 0, buf).map_err(|_| Error::ToDo)?;
         frontend::sync(buf);
