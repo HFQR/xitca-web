@@ -230,7 +230,7 @@ impl Client {
             debug!("preparing query {} with types {:?}: {}", name, types, query);
         }
 
-        self.with_buf(|buf| {
+        self.with_buf_fallible(|buf| {
             frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
             frontend::describe(b'S', name, buf)?;
             frontend::sync(buf);
