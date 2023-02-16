@@ -35,9 +35,10 @@ impl<'a> StatementGuarded<'a> {
         if let Some(statement) = self.statement.take() {
             if !self.client.closed() {
                 let res = self.client.with_buf_fallible(|b| {
-                    frontend::close(b'S', &statement.name, b)?;
-                    frontend::sync(b);
-                    Ok(b.split())
+                    frontend::close(b'S', &statement.name, b).map(|_| {
+                        frontend::sync(b);
+                        b.split()
+                    })
                 });
 
                 if let Ok(msg) = res {
