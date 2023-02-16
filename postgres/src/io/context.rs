@@ -46,7 +46,9 @@ impl Context {
             "concurrent request MUST NOT be pushed to Context when there is in process exclusive request"
         );
         self.req_buf.unsplit(msg);
-        self.concurrent_res.push_back(tx);
+        if let Some(tx) = tx {
+            self.concurrent_res.push_back(tx);
+        }
     }
 
     pub(super) fn try_response(&mut self) -> Result<(), Error> {
@@ -54,11 +56,11 @@ impl Context {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
                     // TODO: unbounded?
-                    self.concurrent_res
+                    let _ = self
+                        .concurrent_res
                         .front_mut()
                         .expect("Out of bound must not happen")
-                        .try_send(buf)
-                        .expect("Response channel is overflown.");
+                        .try_send(buf);
 
                     if complete {
                         let _ = self.concurrent_res.pop_front();

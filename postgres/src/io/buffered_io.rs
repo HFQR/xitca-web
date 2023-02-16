@@ -81,11 +81,12 @@ where
 
     pub(crate) fn spawn_run(mut self) -> (JoinHandle<Self>, Arc<Notify>)
     where
-        Io: 'static,
+        Io: Send + 'static,
+        for<'r> <Io as AsyncIo>::ReadyFuture<'r>: Send,
     {
         let notify = Arc::new(Notify::new());
         let notify2 = notify.clone();
-        let handle = tokio::task::spawn_local(async move {
+        let handle = tokio::task::spawn(async move {
             let _ = self._run().select(notify2.notified()).await;
             self
         });

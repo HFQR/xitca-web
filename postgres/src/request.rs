@@ -4,13 +4,18 @@ use xitca_unsafe_collection::channel::spsc::channel;
 use super::{response::Response, response::ResponseSender};
 
 pub struct Request {
-    pub(crate) tx: ResponseSender,
+    pub(crate) tx: Option<ResponseSender>,
     pub(crate) msg: BytesMut,
 }
 
 impl Request {
-    pub(crate) fn new_pair(msg: BytesMut) -> (Request, Response) {
+    // a Request that does not care for a response from database.
+    pub(crate) fn new(msg: BytesMut) -> Self {
+        Self { tx: None, msg }
+    }
+
+    pub(crate) fn new_pair(msg: BytesMut) -> (Self, Response) {
         let (tx, rx) = channel(8);
-        (Request { tx, msg }, Response::new(rx))
+        (Self { tx: Some(tx), msg }, Response::new(rx))
     }
 }

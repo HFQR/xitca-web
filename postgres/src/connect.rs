@@ -1,9 +1,6 @@
-// use fallible_iterator::FallibleIterator;
+use fallible_iterator::FallibleIterator;
 use postgres_protocol::{
-    authentication::{
-        self,
-        // sasl
-    },
+    authentication::{self, sasl},
     message::{backend, frontend},
 };
 use xitca_io::net::TcpStream;
@@ -37,95 +34,99 @@ pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
     }
 }
 
-#[cold]
-#[inline(never)]
-pub(crate) async fn authenticate(cli: &Client, cfg: Config) -> Result<(), Error> {
-    let mut params = vec![("client_encoding", "UTF8")];
-    if let Some(user) = &cfg.user {
-        params.push(("user", &**user));
-    }
-    if let Some(dbname) = &cfg.dbname {
-        params.push(("database", &**dbname));
-    }
-    if let Some(options) = &cfg.options {
-        params.push(("options", &**options));
-    }
-    if let Some(application_name) = &cfg.application_name {
-        params.push(("application_name", &**application_name));
-    }
-
-    let msg = cli.with_buf_fallible(|buf| frontend::startup_message(params, buf).map(|_| buf.split()))?;
-
-    let mut res = cli.send(msg)?;
-
-    match res.recv().await? {
-        backend::Message::AuthenticationOk => {}
-        backend::Message::AuthenticationCleartextPassword => {
-            let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
-            password(cli, &mut res, pass).await?
+impl Client {
+    #[cold]
+    #[inline(never)]
+    pub(crate) async fn authenticate(&self, cfg: Config) -> Result<(), Error> {
+        let mut params = vec![("client_encoding", "UTF8")];
+        if let Some(user) = &cfg.user {
+            params.push(("user", &**user));
         }
-        backend::Message::AuthenticationMd5Password(body) => {
-            let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
-            let user = cfg.get_user().ok_or(AuthenticationError::MissingUserName)?.as_bytes();
-            let pass = authentication::md5_hash(user, pass, body.salt());
-            password(cli, &mut res, pass).await?
+        if let Some(dbname) = &cfg.dbname {
+            params.push(("database", &**dbname));
         }
-        backend::Message::AuthenticationSasl(_body) => {
-            todo!()
-            // let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
-            //
-            // let mut is_scram = false;
-            // let mut is_scram_plus = false;
-            // let mut mechanisms = body.mechanisms();
-            // let channel_binding = None;
-            //
-            // while let Some(mechanism) = mechanisms.next()? {
-            //     match mechanism {
-            //         sasl::SCRAM_SHA_256 => is_scram = true,
-            //         sasl::SCRAM_SHA_256_PLUS => is_scram_plus = true,
-            //         _ => {}
-            //     }
-            // }
-            //
-            // let (channel_binding, mechanism) = match (channel_binding, is_scram_plus, is_scram) {
-            //     // TODO: return "unsupported SASL mechanism" error.
-            //     (_, false, false) => return Err(Error::ToDo),
-            //     (Some(binding), true, _) => (binding, sasl::SCRAM_SHA_256_PLUS),
-            //     (Some(_), false, true) => (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256),
-            //     (None, _, _) => (sasl::ChannelBinding::unsupported(), sasl::SCRAM_SHA_256),
-            // };
-            //
-            // let mut scram = sasl::ScramSha256::new(pass, channel_binding);
-            //
-            // io.linear_request(|buf| frontend::sasl_initial_response(mechanism, scram.message(), buf))
-            //     .await?;
-            //
-            // let body = match res.recv().await? {
-            //     backend::Message::AuthenticationSaslContinue(body) => body,
-            //     _ => return Err(Error::ToDo),
-            // };
-            //
-            // scram.update(body.data())?;
-            //
-            // io.linear_request(|buf| frontend::sasl_response(scram.message(), buf))
-            //     .await?;
-            //
-            // let body = match res.recv().await? {
-            //     backend::Message::AuthenticationSaslFinal(body) => body,
-            //     _ => return Err(Error::ToDo),
-            // };
-            //
-            // scram.finish(body.data())?;
+        if let Some(options) = &cfg.options {
+            params.push(("options", &**options));
         }
-        _ => {}
-    };
+        if let Some(application_name) = &cfg.application_name {
+            params.push(("application_name", &**application_name));
+        }
 
-    // let (process_id, secret_key) = read_info(res).await?;
-    //
-    // println!("process_id: {}", process_id);
-    // println!("secret_key: {}", secret_key);
+        let msg = self.with_buf_fallible(|buf| frontend::startup_message(params, buf).map(|_| buf.split()))?;
 
-    Ok(())
+        let mut res = self.send(msg)?;
+
+        match res.recv().await? {
+            backend::Message::AuthenticationOk => {}
+            backend::Message::AuthenticationCleartextPassword => {
+                let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
+                password(self, &mut res, pass).await?
+            }
+            backend::Message::AuthenticationMd5Password(body) => {
+                let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
+                let user = cfg.get_user().ok_or(AuthenticationError::MissingUserName)?.as_bytes();
+                let pass = authentication::md5_hash(user, pass, body.salt());
+                password(self, &mut res, pass).await?
+            }
+            backend::Message::AuthenticationSasl(body) => {
+                let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
+
+                let mut is_scram = false;
+                let mut is_scram_plus = false;
+                let mut mechanisms = body.mechanisms();
+                let channel_binding = None;
+
+                while let Some(mechanism) = mechanisms.next()? {
+                    match mechanism {
+                        sasl::SCRAM_SHA_256 => is_scram = true,
+                        sasl::SCRAM_SHA_256_PLUS => is_scram_plus = true,
+                        _ => {}
+                    }
+                }
+
+                let (channel_binding, mechanism) = match (channel_binding, is_scram_plus, is_scram) {
+                    // TODO: return "unsupported SASL mechanism" error.
+                    (_, false, false) => return Err(Error::ToDo),
+                    (Some(binding), true, _) => (binding, sasl::SCRAM_SHA_256_PLUS),
+                    (Some(_), false, true) => (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256),
+                    (None, _, _) => (sasl::ChannelBinding::unsupported(), sasl::SCRAM_SHA_256),
+                };
+
+                let mut scram = sasl::ScramSha256::new(pass, channel_binding);
+
+                let msg = self.with_buf_fallible(|buf| {
+                    frontend::sasl_initial_response(mechanism, scram.message(), buf).map(|_| buf.split())
+                })?;
+                self.send2(msg)?;
+
+                let body = match res.recv().await? {
+                    backend::Message::AuthenticationSaslContinue(body) => body,
+                    _ => return Err(Error::ToDo),
+                };
+
+                scram.update(body.data())?;
+
+                let msg =
+                    self.with_buf_fallible(|buf| frontend::sasl_response(scram.message(), buf).map(|_| buf.split()))?;
+                self.send2(msg)?;
+
+                let body = match res.recv().await? {
+                    backend::Message::AuthenticationSaslFinal(body) => body,
+                    _ => return Err(Error::ToDo),
+                };
+
+                scram.finish(body.data())?;
+            }
+            _ => {}
+        };
+
+        // let (process_id, secret_key) = read_info(res).await?;
+        //
+        // println!("process_id: {}", process_id);
+        // println!("secret_key: {}", secret_key);
+
+        Ok(())
+    }
 }
 
 #[cold]
@@ -136,7 +137,7 @@ where
 {
     let msg = cli.with_buf_fallible(|buf| frontend::password_message(pass.as_ref(), buf).map(|_| buf.split()))?;
 
-    cli.send(msg)?;
+    cli.send2(msg)?;
 
     match res.recv().await? {
         backend::Message::AuthenticationOk => tracing::trace!("authenticated successful"),

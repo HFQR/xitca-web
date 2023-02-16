@@ -88,11 +88,11 @@ where
 
         let (handle, notify) = io.spawn_run();
 
-        connect::authenticate(&cli, cfg).await?;
-
+        let ret = cli.authenticate(cfg).await;
+        // stop spawn_run regardless of authentication outcome.
         notify.notify_waiters();
-
         let mut io = handle.await.unwrap();
+        ret?;
 
         // clear context before continue.
         io.clear_ctx();

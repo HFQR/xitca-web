@@ -57,6 +57,13 @@ impl Client {
         Ok(res)
     }
 
+    // send a message to database without concerning a response.
+    pub(crate) fn send2(&self, msg: BytesMut) -> Result<(), Error> {
+        let req = Request::new(msg);
+        self.tx.send(req)?;
+        Ok(())
+    }
+
     pub fn typeinfo(&self) -> Option<Statement> {
         self.cached_typeinfo.lock().typeinfo.clone()
     }
