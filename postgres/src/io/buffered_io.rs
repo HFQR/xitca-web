@@ -5,7 +5,7 @@ use tokio::{
     task::JoinHandle,
 };
 use xitca_io::{
-    bytes::Buf,
+    bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::{
@@ -22,6 +22,8 @@ use super::context::Context;
 
 pub struct BufferedIo<Io> {
     io: Io,
+    write_buf: BytesMut,
+    read_buf: BytesMut,
     rx: UnboundedReceiver<Request>,
     ctx: Context,
 }
@@ -33,19 +35,23 @@ where
     pub(crate) fn new(io: Io, rx: UnboundedReceiver<Request>) -> Self {
         Self {
             io,
+            write_buf: BytesMut::new(),
+            read_buf: BytesMut::new(),
             rx,
             ctx: Context::new(),
         }
     }
 
-    pub(crate) fn clear_ctx(&mut self) {
+    pub(crate) fn clear(&mut self) {
+        self.write_buf.clear();
+        self.read_buf.clear();
         self.ctx.clear();
     }
 
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
         loop {
-            match read_buf(&mut self.io, &mut self.ctx.res_buf) {
+            match read_buf(&mut self.io, &mut self.read_buf) {
                 Ok(0) => return Err(unexpected_eof_err()),
                 Ok(_) => continue,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
@@ -57,11 +63,11 @@ where
     // try write to async io with vectored write enabled.
     fn try_write(&mut self) -> Result<(), Error> {
         loop {
-            match self.io.write(&self.ctx.req_buf) {
-                Ok(0) => return write_zero(self.ctx.req_is_empty()),
+            match self.io.write(&self.write_buf) {
+                Ok(0) => return Err(write_zero_err()),
                 Ok(n) => {
-                    self.ctx.req_buf.advance(n);
-                    if self.ctx.req_is_empty() {
+                    self.write_buf.advance(n);
+                    if self.write_buf.is_empty() {
                         break;
                     }
                 }
@@ -94,12 +100,18 @@ where
 
     async fn _run(&mut self) -> Result<(), Error> {
         loop {
-            match try_rx(&mut self.rx, &self.ctx)
-                .select(try_io(&mut self.io, &self.ctx))
+            let want_write = !self.write_buf.is_empty();
+            match try_rx(&mut self.rx, &mut self.ctx)
+                .select(try_io(&mut self.io, want_write))
                 .await
             {
                 // batch message and keep polling.
-                SelectOutput::A(Some(req)) => self.ctx.push_concurrent_req(req),
+                SelectOutput::A(Some(req)) => {
+                    self.write_buf.unsplit(req.msg);
+                    if let Some(tx) = req.tx {
+                        self.ctx.push_concurrent_req(tx);
+                    }
+                }
                 // client is gone.
                 SelectOutput::A(None) => break,
                 SelectOutput::B(ready) => {
@@ -107,7 +119,7 @@ where
 
                     if ready.is_readable() {
                         self.try_read()?;
-                        self.ctx.handle_response()?;
+                        self.ctx.try_decode(&mut self.read_buf)?;
                     }
 
                     if ready.is_writable() {
@@ -121,7 +133,7 @@ where
     }
 }
 
-async fn try_rx(rx: &mut UnboundedReceiver<Request>, ctx: &Context) -> Option<Request> {
+async fn try_rx(rx: &mut UnboundedReceiver<Request>, ctx: &mut Context) -> Option<Request> {
     if ctx.throttled() {
         pending().await
     } else {
@@ -129,22 +141,15 @@ async fn try_rx(rx: &mut UnboundedReceiver<Request>, ctx: &Context) -> Option<Re
     }
 }
 
-fn try_io<'i, Io>(io: &'i mut Io, ctx: &Context) -> Io::ReadyFuture<'i>
+fn try_io<Io>(io: &mut Io, want_write: bool) -> Io::ReadyFuture<'_>
 where
     Io: AsyncIo,
 {
-    let interest = if ctx.req_is_empty() {
-        Interest::READABLE
-    } else {
+    let interest = if want_write {
         Interest::READABLE | Interest::WRITABLE
+    } else {
+        Interest::READABLE
     };
 
     io.ready(interest)
-}
-
-#[cold]
-#[inline(never)]
-fn write_zero(is_buf_empty: bool) -> Result<(), Error> {
-    assert!(!is_buf_empty, "trying to write from empty buffer.");
-    Err(write_zero_err())
 }
