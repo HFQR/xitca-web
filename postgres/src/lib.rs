@@ -93,8 +93,8 @@ where
         let mut io = handle.await.unwrap();
         ret?;
 
-        // clear context before continue.
-        io.clear_ctx();
+        // clear context before continue in case auth artifacts remain in buffer.
+        io.clear();
 
         Ok((cli, io.run()))
     }
