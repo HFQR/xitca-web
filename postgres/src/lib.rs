@@ -24,8 +24,6 @@ pub use self::statement::Statement;
 
 pub use postgres_types::ToSql;
 
-use std::future::Future;
-
 use crate::error::Error;
 
 #[derive(Debug)]
@@ -73,18 +71,19 @@ where
     /// let cfg = String::from("postgres://user:pass@localhost/db");
     /// let (cli, task) = Postgres::new(cfg).connect().await.unwrap();
     ///
-    /// // tokio::spawn would work too.
-    /// tokio::task::spawn_local(task);
+    /// tokio::spawn(task);
     ///
     /// let stmt = cli.prepare("SELECT *", &[]).await.unwrap();
     /// # }
     ///
     /// ```
-    pub async fn connect(self) -> Result<(Client, impl task_fut::TaskFut), Error> {
+    pub async fn connect(self) -> Result<(Client, impl std::future::Future<Output = Result<(), Error>> + Send), Error> {
         let cfg = Config::try_from(self.cfg)?;
         let io = connect::connect(&cfg).await?;
 
-        let (cli, io) = io::buffered_io::BufferedIo::new_pair(io, self.backlog);
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let cli = Client::new(tx);
+        let io = io::buffered_io::BufferedIo::new(io, rx);
 
         let (handle, notify) = io.spawn_run();
 
@@ -98,33 +97,6 @@ where
         io.clear_ctx();
 
         Ok((cli, io.run()))
-    }
-}
-
-mod task_fut {
-    use super::*;
-
-    pub trait TaskFut
-    where
-        Self: Future,
-        Self::Output: Send,
-    {
-    }
-
-    #[cfg(not(feature = "single-thread"))]
-    impl<F> TaskFut for F
-    where
-        F: Future + Send + 'static,
-        F::Output: Send,
-    {
-    }
-
-    #[cfg(feature = "single-thread")]
-    impl<F> TaskFut for F
-    where
-        F: Future + 'static,
-        F::Output: Send,
-    {
     }
 }
 

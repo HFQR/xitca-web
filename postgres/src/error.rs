@@ -14,7 +14,7 @@ impl fmt::Display for Error {
         match *self {
             Self::Authentication(ref e) => fmt::Display::fmt(e, f),
             Self::Io(ref e) => fmt::Display::fmt(e, f),
-            Self::ToDo => write!(f, "error informant is yet implemented"),
+            Self::ToDo => f.write_str("error informant is yet implemented"),
         }
     }
 }
@@ -48,8 +48,8 @@ pub enum AuthenticationError {
 impl fmt::Display for AuthenticationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::MissingUserName => write!(f, "username is missing for authentication"),
-            Self::MissingPassWord => write!(f, "password is missing for authentication"),
+            Self::MissingUserName => f.write_str("username is missing for authentication"),
+            Self::MissingPassWord => f.write_str("password is missing for authentication"),
         }
     }
 }

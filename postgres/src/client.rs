@@ -28,7 +28,6 @@ struct CachedTypeInfo {
     /// Corresponds to [TYPEINFO_QUERY](prepare::TYPEINFO_COMPOSITE_QUERY) (or
     /// its fallback).
     typeinfo_enum: Option<Statement>,
-
     /// Cache of types already looked up.
     types: HashMap<Oid, Type, NoHashBuilder>,
 }

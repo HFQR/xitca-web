@@ -51,7 +51,7 @@ impl Context {
         }
     }
 
-    pub(super) fn try_response(&mut self) -> Result<(), Error> {
+    pub(super) fn handle_response(&mut self) -> Result<(), Error> {
         while let Some(res) = ResponseMessage::try_from_buf(&mut self.res_buf)? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
