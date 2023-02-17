@@ -1,10 +1,7 @@
 use std::{future::pending, io, sync::Arc};
 
 use tokio::{
-    sync::{
-        mpsc::{unbounded_channel, UnboundedReceiver},
-        Notify,
-    },
+    sync::{mpsc::UnboundedReceiver, Notify},
     task::JoinHandle,
 };
 use xitca_io::{
@@ -17,7 +14,6 @@ use xitca_unsafe_collection::{
 };
 
 use crate::{
-    client::Client,
     error::{unexpected_eof_err, write_zero_err, Error},
     request::Request,
 };
@@ -34,13 +30,15 @@ impl<Io> BufferedIo<Io>
 where
     Io: AsyncIo,
 {
-    pub fn new_pair(io: Io, _: usize) -> (Client, Self) {
-        let ctx = Context::new();
-        let (tx, rx) = unbounded_channel();
-        (Client::new(tx), Self { io, rx, ctx })
+    pub(crate) fn new(io: Io, rx: UnboundedReceiver<Request>) -> Self {
+        Self {
+            io,
+            rx,
+            ctx: Context::new(),
+        }
     }
 
-    pub fn clear_ctx(&mut self) {
+    pub(crate) fn clear_ctx(&mut self) {
         self.ctx.clear();
     }
 
@@ -109,7 +107,7 @@ where
 
                     if ready.is_readable() {
                         self.try_read()?;
-                        self.ctx.try_response()?;
+                        self.ctx.handle_response()?;
                     }
 
                     if ready.is_writable() {

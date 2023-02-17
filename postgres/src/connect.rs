@@ -53,7 +53,6 @@ impl Client {
         }
 
         let msg = self.with_buf_fallible(|buf| frontend::startup_message(params, buf).map(|_| buf.split()))?;
-
         let mut res = self.send(msg)?;
 
         match res.recv().await? {
