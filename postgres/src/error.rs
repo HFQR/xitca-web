@@ -43,6 +43,7 @@ impl<T> From<SendError<T>> for Error {
 pub enum AuthenticationError {
     MissingUserName,
     MissingPassWord,
+    WrongPassWord,
 }
 
 impl fmt::Display for AuthenticationError {
@@ -50,6 +51,7 @@ impl fmt::Display for AuthenticationError {
         match *self {
             Self::MissingUserName => f.write_str("username is missing for authentication"),
             Self::MissingPassWord => f.write_str("password is missing for authentication"),
+            Self::WrongPassWord => f.write_str("password is wrong for authentication"),
         }
     }
 }
