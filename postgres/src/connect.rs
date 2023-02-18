@@ -139,11 +139,9 @@ where
     cli.send2(msg)?;
 
     match res.recv().await? {
-        backend::Message::AuthenticationOk => tracing::trace!("authenticated successful"),
-        _ => panic!("password authentication failed"),
+        backend::Message::AuthenticationOk => Ok(()),
+        _ => Err(Error::from(AuthenticationError::WrongPassWord)),
     }
-
-    Ok(())
 }
 
 // #[cold]
