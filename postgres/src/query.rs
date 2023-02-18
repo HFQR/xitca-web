@@ -48,7 +48,7 @@ where
     })
 }
 
-pub fn encode_bind<P, I>(stmt: &Statement, params: I, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
+fn encode_bind<P, I>(stmt: &Statement, params: I, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
 where
     P: BorrowToSql,
     I: IntoIterator<Item = P>,
