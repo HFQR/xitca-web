@@ -94,7 +94,6 @@ where
             let _ = self._run().select(notify2.notified()).await;
             self
         });
-
         (handle, notify)
     }
 
@@ -107,7 +106,7 @@ where
             {
                 // batch message and keep polling.
                 SelectOutput::A(Some(req)) => {
-                    self.write_buf.unsplit(req.msg);
+                    self.write_buf.extend_from_slice(req.msg.as_ref());
                     if let Some(tx) = req.tx {
                         self.ctx.push_concurrent_req(tx);
                     }
@@ -116,12 +115,10 @@ where
                 SelectOutput::A(None) => break,
                 SelectOutput::B(ready) => {
                     let ready = ready?;
-
                     if ready.is_readable() {
                         self.try_read()?;
                         self.ctx.try_decode(&mut self.read_buf)?;
                     }
-
                     if ready.is_writable() {
                         self.try_write()?;
                     }
