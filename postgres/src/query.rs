@@ -16,13 +16,13 @@ impl Client {
         self.query_raw(stmt, slice_iter(params)).await
     }
 
-    pub async fn query_raw<'a, P, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub async fn query_raw<'a, I, P>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        P: BorrowToSql,
         I: IntoIterator<Item = P>,
         I::IntoIter: ExactSizeIterator,
+        P: BorrowToSql,
     {
-        let buf = encode(self, stmt, params)?;
+        let buf = encode(self, stmt, params.into_iter())?;
         let mut res = self.send(buf)?;
 
         match res.recv().await? {
@@ -37,25 +37,8 @@ impl Client {
 fn encode<P, I>(client: &Client, stmt: &Statement, params: I) -> Result<BytesMut, Error>
 where
     P: BorrowToSql,
-    I: IntoIterator<Item = P>,
-    I::IntoIter: ExactSizeIterator,
+    I: ExactSizeIterator<Item = P>,
 {
-    client.with_buf_fallible(|buf| {
-        encode_bind(stmt, params, "", buf)?;
-        frontend::execute("", 0, buf).map_err(|_| Error::ToDo)?;
-        frontend::sync(buf);
-        Ok(buf.split())
-    })
-}
-
-fn encode_bind<P, I>(stmt: &Statement, params: I, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
-where
-    P: BorrowToSql,
-    I: IntoIterator<Item = P>,
-    I::IntoIter: ExactSizeIterator,
-{
-    let params = params.into_iter();
-
     assert_eq!(
         stmt.params().len(),
         params.len(),
@@ -64,6 +47,19 @@ where
         params.len()
     );
 
+    client.with_buf_fallible(|buf| {
+        encode_bind(stmt, params, "", buf)?;
+        frontend::execute("", 0, buf).map_err(|_| Error::ToDo)?;
+        frontend::sync(buf);
+        Ok(buf.split())
+    })
+}
+
+fn encode_bind<I, P>(stmt: &Statement, params: I, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
+where
+    P: BorrowToSql,
+    I: ExactSizeIterator<Item = P>,
+{
     let mut error_idx = 0;
     let r = frontend::bind(
         portal,
