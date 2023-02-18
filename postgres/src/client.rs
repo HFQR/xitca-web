@@ -39,7 +39,7 @@ impl Client {
             buf: Lock::new(BytesMut::new()),
             cached_typeinfo: Lock::new(CachedTypeInfo {
                 typeinfo: None,
-                typeinfo_composite: None,do
+                typeinfo_composite: None,
                 typeinfo_enum: None,
                 types: HashMap::default(),
             }),
