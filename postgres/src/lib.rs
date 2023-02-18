@@ -22,7 +22,7 @@ pub use self::config::Config;
 pub use self::row::Row;
 pub use self::statement::Statement;
 
-pub use postgres_types::ToSql;
+pub use postgres_types::{ToSql, Type};
 
 use crate::error::Error;
 
