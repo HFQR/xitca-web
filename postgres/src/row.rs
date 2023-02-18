@@ -135,9 +135,8 @@ impl<'a> Row<'a> {
     ///
     /// Panics if the index is out of bounds or if the value cannot be converted to the specified type.
     #[inline]
-    pub fn get<'f, I, T>(&'a self, idx: I) -> T
+    pub fn get<'f, T>(&'a self, idx: impl RowIndex + fmt::Display) -> T
     where
-        I: RowIndex + fmt::Display,
         T: FromSql<'f>,
         'a: 'f,
     {
@@ -146,9 +145,8 @@ impl<'a> Row<'a> {
     }
 
     /// Like `Row::get`, but returns a `Result` rather than panicking.
-    pub fn try_get<'f, I, T>(&'a self, idx: I) -> Result<T, Error>
+    pub fn try_get<'f, T>(&'a self, idx: impl RowIndex + fmt::Display) -> Result<T, Error>
     where
-        I: RowIndex + fmt::Display,
         T: FromSql<'f>,
         'a: 'f,
     {
