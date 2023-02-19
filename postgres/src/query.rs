@@ -8,7 +8,14 @@ use postgres_protocol::message::{backend, frontend};
 use postgres_types::{BorrowToSql, IsNull, ToSql};
 use xitca_io::bytes::BytesMut;
 
-use super::{client::Client, error::Error, response::Response, row::Row, slice_iter, statement::Statement};
+use super::{
+    client::Client,
+    error::Error,
+    response::Response,
+    row::Row,
+    slice_iter,
+    statement::{Column, Statement},
+};
 
 impl Client {
     #[inline]
@@ -30,7 +37,10 @@ impl Client {
             _ => return Err(Error::ToDo),
         }
 
-        Ok(RowStream::new(stmt, res))
+        Ok(RowStream {
+            col: stmt.columns(),
+            res,
+        })
     }
 }
 
@@ -87,14 +97,8 @@ where
 
 /// A stream of table rows.
 pub struct RowStream<'a> {
-    stmt: &'a Statement,
+    col: &'a [Column],
     res: Response,
-}
-
-impl<'a> RowStream<'a> {
-    fn new(stmt: &'a Statement, res: Response) -> Self {
-        Self { stmt, res }
-    }
 }
 
 impl<'a> Stream for RowStream<'a> {
@@ -104,9 +108,7 @@ impl<'a> Stream for RowStream<'a> {
         let this = self.get_mut();
         loop {
             match ready!(this.res.poll_recv(cx)?) {
-                backend::Message::DataRow(body) => {
-                    return Poll::Ready(Some(Ok(Row::try_new(this.stmt.columns(), body)?)))
-                }
+                backend::Message::DataRow(body) => return Poll::Ready(Some(Ok(Row::try_new(this.col, body)?))),
                 backend::Message::EmptyQueryResponse
                 | backend::Message::CommandComplete(_)
                 | backend::Message::PortalSuspended => {}
