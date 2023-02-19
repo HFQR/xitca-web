@@ -8,9 +8,8 @@ use std::sync::Arc;
 use fallible_iterator::FallibleIterator;
 use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
-use postgres_types::Type;
 
-use super::{client::Client, error::Error, response::Response, row::RowSimple, statement::Column};
+use crate::{client::Client, column::Column, error::Error, response::Response, row::RowSimple, Type};
 
 impl Client {
     pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {

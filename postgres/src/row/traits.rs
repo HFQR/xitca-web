@@ -1,4 +1,4 @@
-use crate::statement::Column;
+use crate::column::Column;
 
 mod sealed {
     pub trait Sealed {}
