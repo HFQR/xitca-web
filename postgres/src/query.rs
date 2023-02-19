@@ -109,7 +109,7 @@ impl<'a> Stream for RowStream<'a> {
                 | backend::Message::CommandComplete(_)
                 | backend::Message::PortalSuspended => {}
                 backend::Message::ReadyForQuery(_) => return Poll::Ready(None),
-                _ => return Poll::Ready(Some(Err(Error::ToDo))),
+                _ => return Poll::Ready(Some(Err(Error::UnexpectedMessage))),
             }
         }
     }
