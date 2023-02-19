@@ -1,20 +1,23 @@
-use std::{
+use core::{
     future::{poll_fn, Future},
     pin::Pin,
-    sync::atomic::{AtomicUsize, Ordering},
 };
+
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fallible_iterator::FallibleIterator;
 use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
-use postgres_types::{Field, Kind, Oid, Type};
+use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 use xitca_io::bytes::BytesMut;
 
-use super::{
+use crate::{
     client::Client,
+    column::Column,
     error::Error,
-    statement::{Column, Statement, StatementGuarded},
+    statement::{Statement, StatementGuarded},
+    Type,
 };
 
 #[cfg(feature = "single-thread")]
