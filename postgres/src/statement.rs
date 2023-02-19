@@ -1,11 +1,8 @@
 //! Statement module is mostly copy/paste from `tokio_postgres::statement`
 
-use core::fmt;
-
 use postgres_protocol::message::frontend;
-use postgres_types::Type;
 
-use super::Client;
+use super::{client::Client, column::Column, Type};
 
 /// Guarded statement that would cancel itself when dropped.
 pub struct StatementGuarded<'a> {
@@ -70,11 +67,13 @@ impl Statement {
     }
 
     /// Returns the expected types of the statement's parameters.
+    #[inline]
     pub fn params(&self) -> &[Type] {
         &self.params
     }
 
     /// Returns information about the columns returned when the statement is queried.
+    #[inline]
     pub fn columns(&self) -> &[Column] {
         &self.columns
     }
@@ -85,40 +84,5 @@ impl Statement {
             statement: Some(self),
             client,
         }
-    }
-}
-
-/// Information about a column of a query.
-#[derive(Clone)]
-pub struct Column {
-    name: Box<str>,
-    type_: Type,
-}
-
-impl Column {
-    pub(crate) fn new(name: &str, type_: Type) -> Column {
-        Column {
-            name: Box::from(name),
-            type_,
-        }
-    }
-
-    /// Returns the name of the column.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Returns the type of the column.
-    pub fn type_(&self) -> &Type {
-        &self.type_
-    }
-}
-
-impl fmt::Debug for Column {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("Column")
-            .field("name", &self.name)
-            .field("type", &self.type_)
-            .finish()
     }
 }

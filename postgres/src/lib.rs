@@ -4,28 +4,29 @@
 //! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/).
 
 mod client;
+mod column;
 mod config;
 mod connect;
 mod io;
 mod prepare;
 mod query;
-mod query_simple;
 mod request;
 mod response;
 mod row;
-mod statement;
 mod util;
 
 pub mod error;
-
-pub use self::client::Client;
-pub use self::config::Config;
-pub use self::row::Row;
-pub use self::statement::Statement;
+pub mod statement;
 
 pub use postgres_types::{ToSql, Type};
 
-use crate::error::Error;
+pub use self::{
+    client::Client,
+    config::Config,
+    row::{Row, RowSimple},
+};
+
+use self::error::Error;
 
 #[derive(Debug)]
 pub struct Postgres<C, const BATCH_LIMIT: usize> {

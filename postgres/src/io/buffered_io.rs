@@ -123,10 +123,11 @@ where
         self.shutdown().await
     }
 
+    #[allow(clippy::manual_async_fn)]
     #[cold]
     #[inline(never)]
     fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
-        async move {
+        async {
             loop {
                 let want_write = !self.write_buf.is_empty();
                 let want_read = !self.ctx.is_empty();

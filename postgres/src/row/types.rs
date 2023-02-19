@@ -6,7 +6,7 @@ use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend::DataRowBody;
 use postgres_types::FromSql;
 
-use crate::{error::Error, statement::Column, Type};
+use crate::{column::Column, error::Error, Type};
 
 use super::traits::RowIndex;
 
@@ -86,7 +86,7 @@ impl<'a> GenericRow<&'a [Column]> {
             None => return Err(Error::ToDo),
         };
 
-        let ty = self.columns()[idx].type_();
+        let ty = self.columns()[idx].r#type();
         if !T::accepts(ty) {
             return Err(Error::ToDo);
             // return Err(Error::from_sql(Box::new(WrongType::new::<T>(ty.clone())), idx));
