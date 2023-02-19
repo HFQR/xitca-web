@@ -5,6 +5,7 @@ use tokio::sync::mpsc::error::SendError;
 #[derive(Debug)]
 pub enum Error {
     Authentication(AuthenticationError),
+    UnexpectedMessage,
     Io(io::Error),
     ToDo,
 }
@@ -13,6 +14,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Authentication(ref e) => fmt::Display::fmt(e, f),
+            Self::UnexpectedMessage => f.write_str("unexpected message from server"),
             Self::Io(ref e) => fmt::Display::fmt(e, f),
             Self::ToDo => f.write_str("error informant is yet implemented"),
         }
