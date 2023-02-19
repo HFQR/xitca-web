@@ -147,6 +147,8 @@ where
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                     Err(e) => return Err(e.into()),
                 }
+                let fut = self.io.ready(Interest::WRITABLE);
+                fut.await?;
             }
 
             poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))
