@@ -85,14 +85,11 @@ where
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let cli = Client::new(tx);
-        let io = io::buffered_io::BufferedIo::new(io, rx);
-
-        let (handle, notify) = io.spawn_run();
+        let handle = io::buffered::BufferedIo::new(io, rx).spawn();
 
         let ret = cli.authenticate(cfg).await;
-        // stop spawn_run regardless of authentication outcome.
-        notify.notify_waiters();
-        let io = handle.await.unwrap();
+        // retrieve io regardless of authentication outcome.
+        let io = handle.into_inner().await;
         ret?;
 
         Ok((cli, io.run()))

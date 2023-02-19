@@ -120,9 +120,7 @@ impl Client {
             }
         }
     }
-}
 
-impl Client {
     #[cold]
     #[inline(never)]
     fn send_pass(&self, pass: impl AsRef<[u8]>) -> Result<(), Error> {

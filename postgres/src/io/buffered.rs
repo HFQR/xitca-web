@@ -83,7 +83,7 @@ where
         self._run().await
     }
 
-    pub(crate) fn spawn_run(mut self) -> (JoinHandle<Self>, Arc<Notify>)
+    pub(crate) fn spawn(mut self) -> Handle<Self>
     where
         Io: Send + 'static,
         for<'r> <Io as AsyncIo>::ReadyFuture<'r>: Send,
@@ -94,7 +94,7 @@ where
             let _ = self._run().select(notify2.notified()).await;
             self
         });
-        (handle, notify)
+        Handle { handle, notify }
     }
 
     async fn _run(&mut self) -> Result<(), Error> {
@@ -156,6 +156,18 @@ where
                 .await
                 .map_err(Into::into)
         }
+    }
+}
+
+pub(crate) struct Handle<Io> {
+    handle: JoinHandle<Io>,
+    notify: Arc<Notify>,
+}
+
+impl<Io> Handle<Io> {
+    pub(crate) async fn into_inner(self) -> Io {
+        self.notify.notify_waiters();
+        self.handle.await.unwrap()
     }
 }
 

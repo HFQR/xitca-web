@@ -1,2 +1,2 @@
-pub(crate) mod buffered_io;
+pub(crate) mod buffered;
 mod context;
