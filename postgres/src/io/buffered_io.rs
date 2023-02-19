@@ -1,4 +1,9 @@
-use std::{future::pending, io, sync::Arc};
+use core::{
+    future::{pending, poll_fn, Future},
+    pin::Pin,
+};
+
+use std::{io, sync::Arc};
 
 use tokio::{
     sync::{mpsc::UnboundedReceiver, Notify},
@@ -6,7 +11,7 @@ use tokio::{
 };
 use xitca_io::{
     bytes::{Buf, BytesMut},
-    io::{AsyncIo, Interest},
+    io::{AsyncIo, Interest, Ready},
 };
 use xitca_unsafe_collection::{
     bytes::read_buf,
@@ -42,31 +47,32 @@ where
         }
     }
 
-    // try read async io until connection error/closed/blocked.
-    fn try_read(&mut self) -> Result<(), Error> {
-        loop {
-            match read_buf(&mut self.io, &mut self.read_buf) {
-                Ok(0) => return Err(unexpected_eof_err()),
-                Ok(_) => continue,
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e.into()),
-            }
-        }
-    }
-
-    // try write to async io with vectored write enabled.
-    fn try_write(&mut self) -> Result<(), Error> {
-        loop {
-            match self.io.write(&self.write_buf) {
-                Ok(0) => return Err(write_zero_err()),
-                Ok(n) => {
-                    self.write_buf.advance(n);
-                    if self.write_buf.is_empty() {
-                        break;
-                    }
+    fn handle_io(&mut self, ready: Ready) -> Result<(), Error> {
+        if ready.is_readable() {
+            loop {
+                match read_buf(&mut self.io, &mut self.read_buf) {
+                    Ok(0) => return Err(unexpected_eof_err()),
+                    Ok(_) => continue,
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) => return Err(e.into()),
                 }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e.into()),
+            }
+            self.ctx.try_decode(&mut self.read_buf)?;
+        }
+
+        if ready.is_writable() {
+            loop {
+                match self.io.write(&self.write_buf) {
+                    Ok(0) => return Err(write_zero_err()),
+                    Ok(n) => {
+                        self.write_buf.advance(n);
+                        if self.write_buf.is_empty() {
+                            break;
+                        }
+                    }
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) => return Err(e.into()),
+                }
             }
         }
 
@@ -109,18 +115,44 @@ where
                 SelectOutput::A(None) => break,
                 SelectOutput::B(ready) => {
                     let ready = ready?;
-                    if ready.is_readable() {
-                        self.try_read()?;
-                        self.ctx.try_decode(&mut self.read_buf)?;
-                    }
-                    if ready.is_writable() {
-                        self.try_write()?;
-                    }
+                    self.handle_io(ready)?;
                 }
             }
         }
 
-        Ok(())
+        self.shutdown().await
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
+        async move {
+            loop {
+                let want_write = !self.write_buf.is_empty();
+                let want_read = !self.ctx.is_empty();
+                let interest = match (want_read, want_write) {
+                    (false, false) => break,
+                    (true, true) => Interest::READABLE | Interest::WRITABLE,
+                    (true, false) => Interest::READABLE,
+                    (false, true) => Interest::WRITABLE,
+                };
+                let fut = self.io.ready(interest);
+                let ready = fut.await?;
+                self.handle_io(ready)?;
+            }
+
+            loop {
+                match self.io.flush() {
+                    Ok(_) => break,
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+
+            poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))
+                .await
+                .map_err(Into::into)
+        }
     }
 }
 

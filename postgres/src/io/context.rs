@@ -24,6 +24,10 @@ impl Context {
         self.exclusive_res.is_some()
     }
 
+    pub(super) fn is_empty(&self) -> bool {
+        self.concurrent_res.is_empty() && self.exclusive_res.is_none()
+    }
+
     pub(super) fn push_concurrent_req(&mut self, tx: ResponseSender) {
         debug_assert!(
             self.exclusive_res.is_none(),
