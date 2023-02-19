@@ -104,7 +104,9 @@ impl<'a> Stream for RowStream<'a> {
         let this = self.get_mut();
         loop {
             match ready!(this.res.poll_recv(cx)?) {
-                backend::Message::DataRow(body) => return Poll::Ready(Some(Ok(Row::try_new(this.stmt, body)?))),
+                backend::Message::DataRow(body) => {
+                    return Poll::Ready(Some(Ok(Row::try_new(this.stmt.columns(), body)?)))
+                }
                 backend::Message::EmptyQueryResponse
                 | backend::Message::CommandComplete(_)
                 | backend::Message::PortalSuspended => {}

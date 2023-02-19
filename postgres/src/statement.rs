@@ -1,6 +1,6 @@
 //! Statement module is mostly copy/paste from `tokio_postgres::statement`
 
-use std::fmt;
+use core::fmt;
 
 use postgres_protocol::message::frontend;
 use postgres_types::Type;
