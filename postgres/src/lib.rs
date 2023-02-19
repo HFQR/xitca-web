@@ -9,6 +9,7 @@ mod connect;
 mod io;
 mod prepare;
 mod query;
+mod query_simple;
 mod request;
 mod response;
 mod row;
