@@ -24,11 +24,6 @@ impl Context {
         self.exclusive_res.is_some()
     }
 
-    pub(super) fn clear(&mut self) {
-        self.concurrent_res.clear();
-        self.exclusive_res = None;
-    }
-
     pub(super) fn push_concurrent_req(&mut self, tx: ResponseSender) {
         debug_assert!(
             self.exclusive_res.is_none(),
@@ -39,20 +34,17 @@ impl Context {
 
     pub(super) fn try_decode(&mut self, buf: &mut BytesMut) -> Result<(), Error> {
         while let Some(res) = ResponseMessage::try_from_buf(buf)? {
-            match res {
-                ResponseMessage::Normal { buf, complete } => {
-                    // TODO: unbounded?
-                    let _ = self
-                        .concurrent_res
-                        .front_mut()
-                        .expect("Out of bound must not happen")
-                        .try_send(buf);
+            if let ResponseMessage::Normal { buf, complete } = res {
+                // TODO: unbounded?
+                let _ = self
+                    .concurrent_res
+                    .front_mut()
+                    .expect("Out of bound must not happen")
+                    .try_send(buf);
 
-                    if complete {
-                        let _ = self.concurrent_res.pop_front();
-                    }
+                if complete {
+                    let _ = self.concurrent_res.pop_front();
                 }
-                ResponseMessage::Async(_) => {}
             }
         }
 

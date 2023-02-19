@@ -42,12 +42,6 @@ where
         }
     }
 
-    pub(crate) fn clear(&mut self) {
-        self.write_buf.clear();
-        self.read_buf.clear();
-        self.ctx.clear();
-    }
-
     // try read async io until connection error/closed/blocked.
     fn try_read(&mut self) -> Result<(), Error> {
         loop {

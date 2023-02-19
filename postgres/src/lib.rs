@@ -91,11 +91,8 @@ where
         let ret = cli.authenticate(cfg).await;
         // stop spawn_run regardless of authentication outcome.
         notify.notify_waiters();
-        let mut io = handle.await.unwrap();
+        let io = handle.await.unwrap();
         ret?;
-
-        // clear context before continue in case auth artifacts remain in buffer.
-        io.clear();
 
         Ok((cli, io.run()))
     }
