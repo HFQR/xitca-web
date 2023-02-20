@@ -27,7 +27,7 @@ use super::context::Context;
 
 pub struct BufferedIo<Io> {
     io: Io,
-    write_buf: BytesMut,
+    buf_write: BufWrite,
     read_buf: BytesMut,
     rx: UnboundedReceiver<Request>,
     ctx: Context,
@@ -40,7 +40,7 @@ where
     pub(crate) fn new(io: Io, rx: UnboundedReceiver<Request>) -> Self {
         Self {
             io,
-            write_buf: BytesMut::new(),
+            buf_write: BufWrite::default(),
             read_buf: BytesMut::new(),
             rx,
             ctx: Context::new(),
@@ -61,19 +61,7 @@ where
         }
 
         if ready.is_writable() {
-            loop {
-                match self.io.write(&self.write_buf) {
-                    Ok(0) => return Err(write_zero_err()),
-                    Ok(n) => {
-                        self.write_buf.advance(n);
-                        if self.write_buf.is_empty() {
-                            break;
-                        }
-                    }
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e.into()),
-                }
-            }
+            self.buf_write.write(&mut self.io)?;
         }
 
         Ok(())
@@ -99,14 +87,14 @@ where
 
     async fn _run(&mut self) -> Result<(), Error> {
         loop {
-            let want_write = !self.write_buf.is_empty();
+            let want_write = self.buf_write.want_write();
             match try_rx(&mut self.rx, &mut self.ctx)
                 .select(try_io(&mut self.io, want_write))
                 .await
             {
                 // batch message and keep polling.
                 SelectOutput::A(Some(req)) => {
-                    self.write_buf.extend_from_slice(req.msg.as_ref());
+                    self.buf_write.extend_from_slice(req.msg.as_ref());
                     if let Some(tx) = req.tx {
                         self.ctx.push_concurrent_req(tx);
                     }
@@ -129,7 +117,7 @@ where
     fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
         async {
             loop {
-                let want_write = !self.write_buf.is_empty();
+                let want_write = self.buf_write.want_write();
                 let want_read = !self.ctx.is_empty();
                 let interest = match (want_read, want_write) {
                     (false, false) => break,
@@ -140,16 +128,6 @@ where
                 let fut = self.io.ready(interest);
                 let ready = fut.await?;
                 self.handle_io(ready)?;
-            }
-
-            loop {
-                match self.io.flush() {
-                    Ok(_) => break,
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(e) => return Err(e.into()),
-                }
-                let fut = self.io.ready(Interest::WRITABLE);
-                fut.await?;
             }
 
             poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))
@@ -190,4 +168,55 @@ where
     };
 
     io.ready(interest)
+}
+
+#[derive(Default)]
+struct BufWrite {
+    buf: BytesMut,
+    want_flush: bool,
+}
+
+impl BufWrite {
+    fn extend_from_slice(&mut self, extend: &[u8]) {
+        self.buf.extend_from_slice(extend);
+        // never flush when buf is not empty.
+        self.want_flush = false;
+    }
+
+    fn want_write(&mut self) -> bool {
+        !self.buf.is_empty() || self.want_flush
+    }
+
+    fn write<Io>(&mut self, io: &mut Io) -> Result<(), Error>
+    where
+        Io: io::Write,
+    {
+        loop {
+            if self.want_flush {
+                match io.flush() {
+                    Ok(_) => self.want_flush = false,
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                    Err(e) => return Err(e.into()),
+                }
+                break;
+            }
+
+            match io.write(&self.buf) {
+                Ok(0) => return Err(write_zero_err()),
+                Ok(n) => {
+                    self.buf.advance(n);
+                    if self.buf.is_empty() {
+                        // only want flush when buf becomes empty. input Io may have internal
+                        // buffering rely on flush to send all data to remote.
+                        // (tls buffered io for example)
+                        self.want_flush = true;
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        Ok(())
+    }
 }
