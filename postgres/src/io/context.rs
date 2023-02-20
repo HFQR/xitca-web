@@ -39,12 +39,11 @@ impl Context {
     pub(super) fn try_decode(&mut self, buf: &mut BytesMut) -> Result<(), Error> {
         while let Some(res) = ResponseMessage::try_from_buf(buf)? {
             if let ResponseMessage::Normal { buf, complete } = res {
-                // TODO: unbounded?
                 let _ = self
                     .concurrent_res
                     .front_mut()
                     .expect("Out of bound must not happen")
-                    .try_send(buf);
+                    .send(buf);
 
                 if complete {
                     let _ = self.concurrent_res.pop_front();
