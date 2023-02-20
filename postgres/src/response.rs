@@ -4,8 +4,8 @@ use std::{
 };
 
 use postgres_protocol::message::backend;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
-use xitca_unsafe_collection::channel::spsc::{Receiver, Sender};
 
 use super::error::{unexpected_eof_err, Error};
 
@@ -14,12 +14,12 @@ pub struct Response {
     buf: BytesMut,
 }
 
-pub type ResponseSender = Sender<BytesMut>;
+pub type ResponseSender = UnboundedSender<BytesMut>;
 
-pub type ResponseReceiver = Receiver<BytesMut>;
+pub type ResponseReceiver = UnboundedReceiver<BytesMut>;
 
 impl Response {
-    pub(crate) fn new(rx: Receiver<BytesMut>) -> Self {
+    pub(crate) fn new(rx: UnboundedReceiver<BytesMut>) -> Self {
         Self {
             rx,
             buf: BytesMut::new(),
