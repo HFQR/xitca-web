@@ -18,7 +18,30 @@ impl Client {
         self.query_raw(stmt, slice_iter(params)).await
     }
 
+    #[inline]
     pub async fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: BorrowToSql,
+    {
+        self.bind(stmt, params).await.map(|res| RowStream {
+            col: stmt.columns(),
+            res,
+        })
+    }
+
+    pub async fn execute<I>(&self, stmt: &Statement, params: I) -> Result<u64, Error>
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: BorrowToSql,
+    {
+        let res = self.bind(stmt, params).await?;
+        res_to_row_affected(res).await
+    }
+
+    async fn bind<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
@@ -26,16 +49,10 @@ impl Client {
     {
         let buf = encode(self, stmt, params.into_iter())?;
         let mut res = self.send(buf)?;
-
         match res.recv().await? {
-            backend::Message::BindComplete => {}
-            _ => return Err(Error::ToDo),
+            backend::Message::BindComplete => Ok(res),
+            _ => Err(Error::UnexpectedMessage),
         }
-
-        Ok(RowStream {
-            col: stmt.columns(),
-            res,
-        })
     }
 }
 
@@ -88,6 +105,28 @@ where
         Err(frontend::BindError::Conversion(_)) => Err(Error::ToDo),
         Err(frontend::BindError::Serialization(_)) => Err(Error::ToDo),
     }
+}
+
+pub(super) async fn res_to_row_affected(mut res: Response) -> Result<u64, Error> {
+    let mut rows = 0;
+    loop {
+        match res.recv().await? {
+            backend::Message::RowDescription(_) | backend::Message::DataRow(_) => {}
+            backend::Message::CommandComplete(body) => {
+                rows = body_to_affected_rows(&body)?;
+            }
+            backend::Message::EmptyQueryResponse => rows = 0,
+            backend::Message::ReadyForQuery(_) => return Ok(rows),
+            _ => return Err(Error::UnexpectedMessage),
+        }
+    }
+}
+
+// Extract the number of rows affected.
+fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Result<u64, Error> {
+    body.tag()
+        .map_err(|_| Error::ToDo)
+        .map(|r| r.rsplit(' ').next().unwrap().parse().unwrap_or(0))
 }
 
 /// A stream of table rows.

@@ -12,10 +12,18 @@ use postgres_protocol::message::{backend, frontend};
 use crate::{client::Client, column::Column, error::Error, response::Response, row::RowSimple, Type};
 
 impl Client {
-    pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
+    pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
+        self.simple(stmt).map(|res| RowSimpleStream { res, columns: None })
+    }
+
+    pub async fn execute_simple(&self, stmt: &str) -> Result<u64, Error> {
+        let res = self.simple(stmt)?;
+        super::base::res_to_row_affected(res).await
+    }
+
+    fn simple(&self, stmt: &str) -> Result<Response, Error> {
         let buf = self.with_buf_fallible(|buf| frontend::query(stmt, buf).map(|_| buf.split()))?;
-        let res = self.send(buf)?;
-        Ok(RowSimpleStream { res, columns: None })
+        self.send(buf)
     }
 }
 
