@@ -3,4 +3,4 @@
 mod traits;
 mod types;
 
-pub use types::{Row, RowSimple};
+pub use types::{Row, RowGat, RowSimple, RowSimpleGat};

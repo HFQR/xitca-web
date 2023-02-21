@@ -1,4 +1,6 @@
 use core::{
+    future::Future,
+    ops::Range,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -9,7 +11,14 @@ use postgres_types::{BorrowToSql, IsNull};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
-    client::Client, column::Column, error::Error, response::Response, row::Row, slice_iter, statement::Statement, ToSql,
+    client::Client,
+    column::Column,
+    error::Error,
+    iter::{slice_iter, AsyncIterator},
+    response::Response,
+    row::{Row, RowGat},
+    statement::Statement,
+    ToSql,
 };
 
 impl Client {
@@ -42,6 +51,30 @@ impl Client {
         self.bind(stmt, params).await.map(|res| RowStream {
             col: stmt.columns(),
             res,
+        })
+    }
+
+    /// GAT(generic associated type) enabled query row stream.
+    #[inline]
+    pub async fn query_gat<'a>(
+        &self,
+        stmt: &'a Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<RowStreamGat<'a>, Error> {
+        self.query_raw_gat(stmt, slice_iter(params)).await
+    }
+
+    /// GAT(generic associated type) enabled query row stream.
+    pub async fn query_raw_gat<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStreamGat<'a>, Error>
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: BorrowToSql,
+    {
+        self.bind(stmt, params).await.map(|res| RowStreamGat {
+            col: stmt.columns(),
+            res,
+            ranges: Vec::new(),
         })
     }
 
@@ -176,13 +209,45 @@ impl<'a> Stream for RowStream<'a> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         loop {
-            match ready!(this.res.poll_recv(cx)?) {
-                backend::Message::DataRow(body) => return Poll::Ready(Some(Ok(Row::try_new(this.col, body)?))),
+            match ready!(this.res.poll_recv(cx))? {
+                backend::Message::DataRow(body) => return Poll::Ready(Some(Row::try_new(this.col, body))),
                 backend::Message::EmptyQueryResponse
                 | backend::Message::CommandComplete(_)
                 | backend::Message::PortalSuspended => {}
                 backend::Message::ReadyForQuery(_) => return Poll::Ready(None),
                 _ => return Poll::Ready(Some(Err(Error::UnexpectedMessage))),
+            }
+        }
+    }
+}
+
+/// A stream of table rows.
+pub struct RowStreamGat<'a> {
+    col: &'a [Column],
+    res: Response,
+    ranges: Vec<Option<Range<usize>>>,
+}
+
+impl<'a> AsyncIterator for RowStreamGat<'a> {
+    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send where 'a: 'f;
+    type Item<'i> = Result<RowGat<'i>, Error> where 'a: 'i;
+
+    fn next(&mut self) -> Self::Future<'_> {
+        async {
+            loop {
+                match self.res.recv().await {
+                    Ok(msg) => match msg {
+                        backend::Message::DataRow(body) => {
+                            return Some(RowGat::try_new(self.col, body, &mut self.ranges))
+                        }
+                        backend::Message::EmptyQueryResponse
+                        | backend::Message::CommandComplete(_)
+                        | backend::Message::PortalSuspended => {}
+                        backend::Message::ReadyForQuery(_) => return None,
+                        _ => return Some(Err(Error::UnexpectedMessage)),
+                    },
+                    Err(e) => return Some(Err(e)),
+                }
             }
         }
     }
