@@ -8,6 +8,7 @@ mod column;
 mod config;
 mod connect;
 mod io;
+mod iter;
 mod prepare;
 mod query;
 mod request;
@@ -23,6 +24,7 @@ pub use postgres_types::{ToSql, Type};
 pub use self::{
     client::Client,
     config::Config,
+    iter::AsyncIterator,
     row::{Row, RowSimple},
 };
 
@@ -94,10 +96,6 @@ where
 
         Ok((cli, io.run()))
     }
-}
-
-fn slice_iter<'a>(s: &'a [&(dyn ToSql + Sync)]) -> impl ExactSizeIterator<Item = &'a dyn ToSql> {
-    s.iter().map(|s| *s as _)
 }
 
 #[cfg(test)]
