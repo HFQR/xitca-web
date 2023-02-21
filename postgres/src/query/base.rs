@@ -37,19 +37,8 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let mut res = self.bind(stmt, params).await?;
-        let mut rows = 0;
-        loop {
-            match res.recv().await? {
-                backend::Message::DataRow(_) => {}
-                backend::Message::CommandComplete(body) => {
-                    rows = extract_row_affected(&body)?;
-                }
-                backend::Message::EmptyQueryResponse => rows = 0,
-                backend::Message::ReadyForQuery(_) => return Ok(rows),
-                _ => return Err(Error::UnexpectedMessage),
-            }
-        }
+        let res = self.bind(stmt, params).await?;
+        res_to_row_affected(res).await
     }
 
     async fn bind<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
@@ -118,8 +107,23 @@ where
     }
 }
 
-/// Extract the number of rows affected from [`CommandCompleteBody`].
-pub(super) fn extract_row_affected(body: &backend::CommandCompleteBody) -> Result<u64, Error> {
+pub(super) async fn res_to_row_affected(mut res: Response) -> Result<u64, Error> {
+    let mut rows = 0;
+    loop {
+        match res.recv().await? {
+            backend::Message::RowDescription(_) | backend::Message::DataRow(_) => {}
+            backend::Message::CommandComplete(body) => {
+                rows = body_to_affected_rows(&body)?;
+            }
+            backend::Message::EmptyQueryResponse => rows = 0,
+            backend::Message::ReadyForQuery(_) => return Ok(rows),
+            _ => return Err(Error::UnexpectedMessage),
+        }
+    }
+}
+
+// Extract the number of rows affected.
+fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Result<u64, Error> {
     body.tag()
         .map_err(|_| Error::ToDo)
         .map(|r| r.rsplit(' ').next().unwrap().parse().unwrap_or(0))

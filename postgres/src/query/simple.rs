@@ -17,19 +17,8 @@ impl Client {
     }
 
     pub async fn execute_simple(&self, stmt: &str) -> Result<u64, Error> {
-        let mut res = self.simple(stmt)?;
-        let mut rows = 0;
-        loop {
-            match res.recv().await? {
-                backend::Message::RowDescription(_) | backend::Message::DataRow(_) => {}
-                backend::Message::CommandComplete(body) => {
-                    rows = super::base::extract_row_affected(&body)?;
-                }
-                backend::Message::EmptyQueryResponse => rows = 0,
-                backend::Message::ReadyForQuery(_) => return Ok(rows),
-                _ => return Err(Error::UnexpectedMessage),
-            }
-        }
+        let res = self.simple(stmt)?;
+        super::base::res_to_row_affected(res).await
     }
 
     fn simple(&self, stmt: &str) -> Result<Response, Error> {
