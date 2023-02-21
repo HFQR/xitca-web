@@ -13,11 +13,25 @@ use crate::{
 };
 
 impl Client {
+    /// Executes a statement, returning a vector of the resulting rows.
+    ///
+    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the
+    /// parameter of the list provided, 1-indexed.
+    ///
+    /// If the same statement will be repeatedly executed (perhaps with different query parameters),
+    /// consider preparing the statement up front with the [Client::prepare] method.
+    ///
+    /// # Panics
+    ///
+    /// Panics if given params slice length does not match the length of [Statement::params].
     #[inline]
     pub async fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         self.query_raw(stmt, slice_iter(params)).await
     }
 
+    /// # Panics
+    ///
+    /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
     #[inline]
     pub async fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
@@ -31,7 +45,28 @@ impl Client {
         })
     }
 
-    pub async fn execute<I>(&self, stmt: &Statement, params: I) -> Result<u64, Error>
+    /// Executes a statement, returning the number of rows modified.
+    ///
+    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
+    /// provided, 1-indexed.
+    ///
+    /// If the same statement will be repeatedly executed (perhaps with different query parameters),
+    /// consider preparing the statement up front with the [Client::prepare] method.
+    ///
+    /// If the statement does not modify any rows (e.g. `SELECT`), 0 is returned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
+    #[inline]
+    pub async fn execute(&self, stmt: &Statement, params: &[&(dyn ToSql + Sync)]) -> Result<u64, Error> {
+        self.execute_raw(stmt, slice_iter(params)).await
+    }
+
+    /// # Panics
+    ///
+    /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
+    pub async fn execute_raw<I>(&self, stmt: &Statement, params: I) -> Result<u64, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
