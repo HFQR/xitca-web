@@ -1,19 +1,17 @@
-use core::{
-    pin::Pin,
-    task::{Context, Poll},
-};
+use core::future::Future;
 
 use super::ToSql;
 
 /// async streaming iterator with borrowed Item from Self.
 pub trait AsyncIterator {
+    type Future<'f>: Future<Output = Option<Self::Item<'f>>>
+    where
+        Self: 'f;
     type Item<'i>
     where
         Self: 'i;
 
-    fn poll_next<'s>(self: Pin<&'s mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item<'s>>>
-    where
-        Self: 's;
+    fn next(&mut self) -> Self::Future<'_>;
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {

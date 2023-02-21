@@ -1,4 +1,5 @@
 use core::{
+    future::Future,
     ops::Range,
     pin::Pin,
     task::{ready, Context, Poll},
@@ -90,34 +91,39 @@ pub struct RowSimpleStreamGat {
 }
 
 impl AsyncIterator for RowSimpleStreamGat {
+    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send where Self: 'f;
     type Item<'i> = Result<RowSimpleGat<'i>, Error> where Self: 'i;
 
-    fn poll_next<'s>(self: Pin<&'s mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item<'s>>>
-    where
-        Self: 's,
-    {
-        let this = self.get_mut();
-        loop {
-            match ready!(this.res.poll_recv(cx)?) {
-                backend::Message::RowDescription(body) => {
-                    let columns = body
-                        .fields()
-                        .map(|f| Ok(Column::new(f.name(), Type::ANY)))
-                        .collect::<Vec<_>>()?;
-                    this.columns = Some(columns);
+    fn next(&mut self) -> Self::Future<'_> {
+        async {
+            loop {
+                match self.res.recv().await {
+                    Ok(msg) => match msg {
+                        backend::Message::RowDescription(body) => {
+                            match body
+                                .fields()
+                                .map(|f| Ok(Column::new(f.name(), Type::ANY)))
+                                .collect::<Vec<_>>()
+                            {
+                                Ok(col) => self.columns = Some(col),
+                                Err(e) => return Some(Err(e.into())),
+                            }
+                        }
+                        backend::Message::DataRow(body) => {
+                            let res = self
+                                .columns
+                                .as_ref()
+                                .ok_or(Error::UnexpectedMessage)
+                                .and_then(|col| RowSimpleGat::try_new(col, body, &mut self.ranges));
+                            return Some(res);
+                        }
+                        backend::Message::CommandComplete(_)
+                        | backend::Message::EmptyQueryResponse
+                        | backend::Message::ReadyForQuery(_) => return None,
+                        _ => return Some(Err(Error::UnexpectedMessage)),
+                    },
+                    Err(e) => return Some(Err(e)),
                 }
-                backend::Message::DataRow(body) => {
-                    let res = this
-                        .columns
-                        .as_ref()
-                        .ok_or(Error::UnexpectedMessage)
-                        .and_then(|col| RowSimpleGat::try_new(col, body, &mut this.ranges));
-                    return Poll::Ready(Some(res));
-                }
-                backend::Message::CommandComplete(_)
-                | backend::Message::EmptyQueryResponse
-                | backend::Message::ReadyForQuery(_) => return Poll::Ready(None),
-                _ => return Poll::Ready(Some(Err(Error::UnexpectedMessage))),
             }
         }
     }

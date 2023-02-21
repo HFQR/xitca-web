@@ -1,12 +1,8 @@
-use core::{
-    future::{poll_fn, Future},
-    pin::Pin,
-};
+use core::{future::Future, pin::Pin};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fallible_iterator::FallibleIterator;
-use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
@@ -16,6 +12,7 @@ use crate::{
     client::Client,
     column::Column,
     error::Error,
+    iter::AsyncIterator,
     statement::{Statement, StatementGuarded},
     Type,
 };
@@ -90,19 +87,16 @@ impl Client {
 
             let stmt = self.typeinfo_statement().await?;
 
-            let mut rows = self.query_raw(&stmt, &[&oid]).await?;
+            let mut rows = self.query_raw_gat(&stmt, &[&oid]).await?;
+            let row = rows.next().await.ok_or(Error::ToDo)??;
 
-            let row = poll_fn(|cx| Stream::poll_next(Pin::new(&mut rows), cx))
-                .await
-                .ok_or(Error::ToDo)??;
-
-            let name: String = row.try_get(0)?;
-            let type_: i8 = row.try_get(1)?;
-            let elem_oid: Oid = row.try_get(2)?;
-            let rngsubtype: Option<Oid> = row.try_get(3)?;
-            let basetype: Oid = row.try_get(4)?;
-            let schema: String = row.try_get(5)?;
-            let relid: Oid = row.try_get(6)?;
+            let name = row.try_get::<String>(0)?;
+            let type_ = row.try_get::<i8>(1)?;
+            let elem_oid = row.try_get::<Oid>(2)?;
+            let rngsubtype = row.try_get::<Option<Oid>>(3)?;
+            let basetype = row.try_get::<Oid>(4)?;
+            let schema = row.try_get::<String>(5)?;
+            let relid = row.try_get::<Oid>(6)?;
 
             let kind = if type_ == b'e' as i8 {
                 let variants = self.get_enum_variants(oid).await?;
@@ -158,11 +152,11 @@ impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
-        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
+        let mut rows = self.query_raw_gat(&stmt, &[&oid]).await?;
 
         let mut res = vec![];
 
-        while let Some(row) = poll_fn(|cx| Stream::poll_next(Pin::new(&mut rows), cx)).await {
+        while let Some(row) = rows.next().await {
             let variant = row?.try_get(0)?;
             res.push(variant);
         }
@@ -194,16 +188,12 @@ impl Client {
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
-        let mut stream = self.query_raw(&stmt, &[&oid]).await?;
-
-        let mut rows = Vec::new();
-
-        while let Some(row) = poll_fn(|cx| Stream::poll_next(Pin::new(&mut stream), cx)).await {
-            rows.push(row?);
-        }
+        let mut rows = self.query_raw_gat(&stmt, &[&oid]).await?;
 
         let mut fields = Vec::new();
-        for row in rows {
+
+        while let Some(row) = rows.next().await {
+            let row = row?;
             let name = row.try_get(0)?;
             let oid = row.try_get(1)?;
             let type_ = self.get_type(oid).await?;

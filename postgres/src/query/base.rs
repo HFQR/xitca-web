@@ -1,8 +1,9 @@
 use core::{
+    future::Future,
+    ops::Range,
     pin::Pin,
     task::{ready, Context, Poll},
 };
-use std::ops::Range;
 
 use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
@@ -218,23 +219,25 @@ pub struct RowStreamGat<'a> {
 }
 
 impl<'a> AsyncIterator for RowStreamGat<'a> {
+    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send where 'a: 'f;
     type Item<'i> = Result<RowGat<'i>, Error> where 'a: 'i;
 
-    fn poll_next<'s>(self: Pin<&'s mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item<'s>>>
-    where
-        'a: 's,
-    {
-        let this = self.get_mut();
-        loop {
-            match ready!(this.res.poll_recv(cx))? {
-                backend::Message::DataRow(body) => {
-                    return Poll::Ready(Some(RowGat::try_new(this.col, body, &mut this.ranges)))
+    fn next(&mut self) -> Self::Future<'_> {
+        async {
+            loop {
+                match self.res.recv().await {
+                    Ok(msg) => match msg {
+                        backend::Message::DataRow(body) => {
+                            return Some(RowGat::try_new(self.col, body, &mut self.ranges))
+                        }
+                        backend::Message::EmptyQueryResponse
+                        | backend::Message::CommandComplete(_)
+                        | backend::Message::PortalSuspended => {}
+                        backend::Message::ReadyForQuery(_) => return None,
+                        _ => return Some(Err(Error::UnexpectedMessage)),
+                    },
+                    Err(e) => return Some(Err(e)),
                 }
-                backend::Message::EmptyQueryResponse
-                | backend::Message::CommandComplete(_)
-                | backend::Message::PortalSuspended => {}
-                backend::Message::ReadyForQuery(_) => return Poll::Ready(None),
-                _ => return Poll::Ready(Some(Err(Error::UnexpectedMessage))),
             }
         }
     }
