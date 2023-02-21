@@ -51,7 +51,7 @@ impl Client {
         let mut res = self.send(buf)?;
         match res.recv().await? {
             backend::Message::BindComplete => Ok(res),
-            _ => Err(Error::ToDo),
+            _ => Err(Error::UnexpectedMessage),
         }
     }
 }
