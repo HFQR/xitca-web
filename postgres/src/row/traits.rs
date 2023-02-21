@@ -1,83 +1,55 @@
-use crate::column::Column;
+use crate::{column::Column, Type};
 
 mod sealed {
     pub trait Sealed {}
-
-    pub trait AsName {
-        fn as_name(&self) -> &str;
-    }
 }
 
-use self::sealed::{AsName, Sealed};
+use self::sealed::Sealed;
 
-impl AsName for Column {
-    fn as_name(&self) -> &str {
-        self.name()
-    }
-}
-
-impl AsName for String {
-    fn as_name(&self) -> &str {
-        self
-    }
-}
-
-/// A trait implemented by types that can index into columns of a row.
-///
-/// This cannot be implemented outside of this crate.
-pub trait RowIndex: Sealed {
+/// a trait implemented by types that can find index and it's associated [Type] into columns of a
+/// row. cannot be implemented beyond crate boundary.
+pub trait RowIndexAndType: Sealed {
     #[doc(hidden)]
-    fn __idx<T>(&self, columns: &[T]) -> Option<usize>
-    where
-        T: AsName;
+    fn __from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)>;
 }
 
 impl Sealed for usize {}
 
-impl RowIndex for usize {
+impl RowIndexAndType for usize {
     #[inline]
-    fn __idx<T>(&self, columns: &[T]) -> Option<usize>
-    where
-        T: AsName,
-    {
-        if *self >= columns.len() {
-            None
-        } else {
-            Some(*self)
-        }
+    fn __from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
+        let idx = *self;
+        col.get(idx).map(|col| (idx, col.r#type()))
     }
 }
 
 impl Sealed for str {}
 
-impl RowIndex for str {
+impl RowIndexAndType for str {
     #[inline]
-    fn __idx<T>(&self, columns: &[T]) -> Option<usize>
-    where
-        T: AsName,
-    {
-        if let Some(idx) = columns.iter().position(|d| d.as_name() == self) {
-            return Some(idx);
-        };
-
-        // FIXME ASCII-only case insensitivity isn't really the right thing to
-        // do. Postgres itself uses a dubious wrapper around tolower and JDBC
-        // uses the US locale.
-        columns.iter().position(|d| d.as_name().eq_ignore_ascii_case(self))
+    fn __from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
+        col.iter()
+            .enumerate()
+            .find_map(|(idx, col)| col.name().eq(self).then(|| (idx, col.r#type())))
+            .or_else(|| {
+                // FIXME ASCII-only case insensitivity isn't really the right thing to
+                // do. Postgres itself uses a dubious wrapper around tolower and JDBC
+                // uses the US locale.
+                col.iter()
+                    .enumerate()
+                    .find_map(|(idx, col)| col.name().eq_ignore_ascii_case(self).then(|| (idx, col.r#type())))
+            })
     }
 }
 
 impl<'a, T> Sealed for &'a T where T: ?Sized + Sealed {}
 
-impl<'a, T> RowIndex for &'a T
+impl<'a, T> RowIndexAndType for &'a T
 where
-    T: ?Sized + RowIndex,
+    T: RowIndexAndType + ?Sized,
 {
     #[inline]
-    fn __idx<U>(&self, columns: &[U]) -> Option<usize>
-    where
-        U: AsName,
-    {
-        T::__idx(*self, columns)
+    fn __from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
+        T::__from_columns(*self, col)
     }
 }
