@@ -55,6 +55,16 @@ impl Client {
     }
 
     /// GAT(generic associated type) enabled query row stream.
+    #[inline]
+    pub async fn query_gat<'a>(
+        &self,
+        stmt: &'a Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<RowStreamGat<'a>, Error> {
+        self.query_raw_gat(stmt, slice_iter(params)).await
+    }
+
+    /// GAT(generic associated type) enabled query row stream.
     pub async fn query_raw_gat<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStreamGat<'a>, Error>
     where
         I: IntoIterator,
