@@ -175,7 +175,7 @@ pub struct RowStream<'a> {
 }
 
 impl<'a> AsyncIterator for RowStream<'a> {
-    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send where 'a: 'f;
+    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where 'a: 'f;
     type Item<'i> = Result<Row<'i>, Error> where 'a: 'i;
 
     fn next(&mut self) -> Self::Future<'_> {
