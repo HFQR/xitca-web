@@ -61,7 +61,11 @@ impl Stream for RowSimpleStream {
                 backend::Message::RowDescription(body) => {
                     let columns = body
                         .fields()
-                        .map(|f| Ok(Column::new(f.name(), Type::ANY)))
+                        // text type is used to match RowSimple::try_get's implementation
+                        // where column's pg type is always assumed as Option<&str>.
+                        // (no runtime pg type check so this does not really matter. it's
+                        // better to keep the type consistent though)
+                        .map(|f| Ok(Column::new(f.name(), Type::TEXT)))
                         .collect::<Vec<_>>()?
                         .into();
                     this.columns = Some(columns);
@@ -102,7 +106,11 @@ impl AsyncIterator for RowSimpleStreamGat {
                         backend::Message::RowDescription(body) => {
                             match body
                                 .fields()
-                                .map(|f| Ok(Column::new(f.name(), Type::ANY)))
+                                // text type is used to match RowSimpleGat::try_get's implementation
+                                // where column's pg type is always assumed as Option<&str>.
+                                // (no runtime pg type check so this does not really matter. it's
+                                // better to keep the type consistent though)
+                                .map(|f| Ok(Column::new(f.name(), Type::TEXT)))
                                 .collect::<Vec<_>>()
                             {
                                 Ok(col) => self.columns = Some(col),
