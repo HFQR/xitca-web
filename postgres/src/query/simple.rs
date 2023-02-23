@@ -1,33 +1,16 @@
-use core::{
-    future::Future,
-    ops::Range,
-    pin::Pin,
-    task::{ready, Context, Poll},
-};
-
-use std::sync::Arc;
+use core::{future::Future, ops::Range};
 
 use fallible_iterator::FallibleIterator;
-use futures_core::stream::Stream;
 use postgres_protocol::message::{backend, frontend};
 
 use crate::{
-    client::Client,
-    column::Column,
-    error::Error,
-    iter::AsyncIterator,
-    response::Response,
-    row::{RowSimple, RowSimpleGat},
-    Type,
+    client::Client, column::Column, error::Error, iter::AsyncIterator, response::Response, row::RowSimple, Type,
 };
 
 impl Client {
+    #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self.simple(stmt).map(|res| RowSimpleStream { res, columns: None })
-    }
-
-    pub fn query_simple_gat(&self, stmt: &str) -> Result<RowSimpleStreamGat, Error> {
-        self.simple(stmt).map(|res| RowSimpleStreamGat {
+        self.simple(stmt).map(|res| RowSimpleStream {
             res,
             columns: None,
             ranges: Vec::new(),
@@ -48,55 +31,13 @@ impl Client {
 /// A stream of simple query results.
 pub struct RowSimpleStream {
     res: Response,
-    columns: Option<Arc<[Column]>>,
-}
-
-impl Stream for RowSimpleStream {
-    type Item = Result<RowSimple, Error>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        loop {
-            match ready!(this.res.poll_recv(cx)?) {
-                backend::Message::RowDescription(body) => {
-                    let columns = body
-                        .fields()
-                        // text type is used to match RowSimple::try_get's implementation
-                        // where column's pg type is always assumed as Option<&str>.
-                        // (no runtime pg type check so this does not really matter. it's
-                        // better to keep the type consistent though)
-                        .map(|f| Ok(Column::new(f.name(), Type::TEXT)))
-                        .collect::<Vec<_>>()?
-                        .into();
-                    this.columns = Some(columns);
-                }
-                backend::Message::DataRow(body) => {
-                    let res = this
-                        .columns
-                        .as_ref()
-                        .ok_or(Error::UnexpectedMessage)
-                        .and_then(|col| RowSimple::try_new(col.clone(), body));
-                    return Poll::Ready(Some(res));
-                }
-                backend::Message::CommandComplete(_)
-                | backend::Message::EmptyQueryResponse
-                | backend::Message::ReadyForQuery(_) => return Poll::Ready(None),
-                _ => return Poll::Ready(Some(Err(Error::UnexpectedMessage))),
-            }
-        }
-    }
-}
-
-/// A stream of simple query results.
-pub struct RowSimpleStreamGat {
-    res: Response,
     columns: Option<Vec<Column>>,
     ranges: Vec<Option<Range<usize>>>,
 }
 
-impl AsyncIterator for RowSimpleStreamGat {
+impl AsyncIterator for RowSimpleStream {
     type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send where Self: 'f;
-    type Item<'i> = Result<RowSimpleGat<'i>, Error> where Self: 'i;
+    type Item<'i> = Result<RowSimple<'i>, Error> where Self: 'i;
 
     fn next(&mut self) -> Self::Future<'_> {
         async {
@@ -122,7 +63,7 @@ impl AsyncIterator for RowSimpleStreamGat {
                                 .columns
                                 .as_ref()
                                 .ok_or(Error::UnexpectedMessage)
-                                .and_then(|col| RowSimpleGat::try_new(col, body, &mut self.ranges));
+                                .and_then(|col| RowSimple::try_new(col, body, &mut self.ranges));
                             return Some(res);
                         }
                         backend::Message::CommandComplete(_)
