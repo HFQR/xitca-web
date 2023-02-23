@@ -137,11 +137,11 @@ where
         params.len()
     );
 
-    client.with_buf_fallible(|buf| {
+    client.try_encode_with(|buf| {
         encode_bind(stmt, params, "", buf)?;
         frontend::execute("", 0, buf).map_err(|_| Error::ToDo)?;
         frontend::sync(buf);
-        Ok(buf.split())
+        Ok(())
     })
 }
 

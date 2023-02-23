@@ -40,7 +40,7 @@ impl Client {
     }
 
     fn simple(&self, stmt: &str) -> Result<Response, Error> {
-        let buf = self.with_buf_fallible(|buf| frontend::query(stmt, buf).map(|_| buf.split()))?;
+        let buf = self.try_encode_with(|buf| frontend::query(stmt, buf))?;
         self.send(buf)
     }
 }
