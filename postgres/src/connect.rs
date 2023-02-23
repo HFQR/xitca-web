@@ -73,7 +73,7 @@ impl Client {
             params.push(("application_name", &**application_name));
         }
 
-        let msg = self.with_buf_fallible(|buf| frontend::startup_message(params, buf).map(|_| buf.split()))?;
+        let msg = self.try_encode_with(|buf| frontend::startup_message(params, buf))?;
         let mut res = self.send(msg)?;
 
         loop {
@@ -115,17 +115,14 @@ impl Client {
 
                     let mut scram = sasl::ScramSha256::new(pass, channel_binding);
 
-                    let msg = self.with_buf_fallible(|buf| {
-                        frontend::sasl_initial_response(mechanism, scram.message(), buf).map(|_| buf.split())
-                    })?;
+                    let msg =
+                        self.try_encode_with(|buf| frontend::sasl_initial_response(mechanism, scram.message(), buf))?;
                     self.send2(msg)?;
 
                     match res.recv().await? {
                         backend::Message::AuthenticationSaslContinue(body) => {
                             scram.update(body.data())?;
-                            let msg = self.with_buf_fallible(|buf| {
-                                frontend::sasl_response(scram.message(), buf).map(|_| buf.split())
-                            })?;
+                            let msg = self.try_encode_with(|buf| frontend::sasl_response(scram.message(), buf))?;
                             self.send2(msg)?;
                         }
                         _ => return Err(Error::ToDo),
@@ -145,7 +142,7 @@ impl Client {
     #[cold]
     #[inline(never)]
     fn send_pass(&self, pass: impl AsRef<[u8]>) -> Result<(), Error> {
-        let msg = self.with_buf_fallible(|buf| frontend::password_message(pass.as_ref(), buf).map(|_| buf.split()))?;
+        let msg = self.try_encode_with(|buf| frontend::password_message(pass.as_ref(), buf))?;
         self.send2(msg)
     }
 }

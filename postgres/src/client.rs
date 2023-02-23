@@ -99,16 +99,18 @@ impl Client {
         self.cached_typeinfo.lock().types.clear();
     }
 
-    pub(crate) fn with_buf_fallible<F, T, E>(&self, f: F) -> Result<T, E>
+    pub(crate) fn try_encode_with<F, E>(&self, f: F) -> Result<BytesMut, E>
     where
-        F: FnOnce(&mut BytesMut) -> Result<T, E>,
+        F: FnOnce(&mut BytesMut) -> Result<(), E>,
     {
         let mut buf = self.buf.lock();
-        let res = f(&mut buf);
-        if res.is_err() {
-            buf.clear();
+        match f(&mut buf) {
+            Ok(_) => Ok(buf.split()),
+            Err(e) => {
+                buf.clear();
+                Err(e)
+            }
         }
-        res
     }
 }
 
