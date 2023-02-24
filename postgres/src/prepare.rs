@@ -77,17 +77,13 @@ impl Client {
     #[inline(never)]
     fn get_type(&self, oid: Oid) -> BoxedFuture<'_> {
         Box::pin(async move {
-            if let Some(type_) = Type::from_oid(oid) {
-                return Ok(type_);
-            }
-
-            if let Some(type_) = self.type_(oid) {
-                return Ok(type_);
+            if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
+                return Ok(ty);
             }
 
             let stmt = self.typeinfo_statement().await?;
 
-            let mut rows = self.query_raw_gat(&stmt, &[&oid]).await?;
+            let mut rows = self.query_raw(&stmt, &[&oid]).await?;
             let row = rows.next().await.ok_or(Error::ToDo)??;
 
             let name = row.try_get::<String>(0)?;
@@ -152,9 +148,9 @@ impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
-        let mut rows = self.query_raw_gat(&stmt, &[&oid]).await?;
+        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
 
-        let mut res = vec![];
+        let mut res = Vec::new();
 
         while let Some(row) = rows.next().await {
             let variant = row?.try_get(0)?;
@@ -188,7 +184,7 @@ impl Client {
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
-        let mut rows = self.query_raw_gat(&stmt, &[&oid]).await?;
+        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
 
         let mut fields = Vec::new();
 

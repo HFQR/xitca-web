@@ -74,7 +74,7 @@ where
     pub(crate) fn spawn(mut self) -> Handle<Self>
     where
         Io: Send + 'static,
-        for<'r> <Io as AsyncIo>::ReadyFuture<'r>: Send,
+        for<'r> Io::ReadyFuture<'r>: Send,
     {
         let notify = Arc::new(Notify::new());
         let notify2 = notify.clone();
@@ -111,11 +111,10 @@ where
         self.shutdown().await
     }
 
-    #[allow(clippy::manual_async_fn)]
     #[cold]
     #[inline(never)]
     fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
-        async {
+        Box::pin(async {
             loop {
                 let want_write = self.buf_write.want_write();
                 let want_read = !self.ctx.is_empty();
@@ -133,7 +132,7 @@ where
             poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))
                 .await
                 .map_err(Into::into)
-        }
+        })
     }
 }
 
