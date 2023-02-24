@@ -1,4 +1,4 @@
-use std::{
+use core::{
     future::poll_fn,
     task::{ready, Context, Poll},
 };

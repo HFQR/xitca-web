@@ -3,6 +3,8 @@
 
 //! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/).
 
+extern crate alloc;
+
 mod client;
 mod column;
 mod config;

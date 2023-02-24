@@ -1,6 +1,8 @@
-use core::{future::Future, pin::Pin};
-
-use std::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    future::Future,
+    pin::Pin,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
