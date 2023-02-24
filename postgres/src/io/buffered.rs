@@ -1,9 +1,11 @@
 use core::{
-    future::{pending, poll_fn, Future},
+    future::{poll_fn, Future},
     pin::Pin,
 };
 
-use std::{io, sync::Arc};
+use alloc::sync::Arc;
+
+use std::io;
 
 use tokio::{
     sync::{mpsc::UnboundedReceiver, Notify},
@@ -88,10 +90,7 @@ where
     async fn _run(&mut self) -> Result<(), Error> {
         loop {
             let want_write = self.buf_write.want_write();
-            match try_rx(&mut self.rx, &mut self.ctx)
-                .select(try_io(&mut self.io, want_write))
-                .await
-            {
+            match self.rx.recv().select(try_io(&mut self.io, want_write)).await {
                 // batch message and keep polling.
                 SelectOutput::A(Some(req)) => {
                     self.buf_write.extend_from_slice(req.msg.as_ref());
@@ -145,14 +144,6 @@ impl<Io> Handle<Io> {
     pub(crate) async fn into_inner(self) -> Io {
         self.notify.notify_waiters();
         self.handle.await.unwrap()
-    }
-}
-
-async fn try_rx(rx: &mut UnboundedReceiver<Request>, ctx: &mut Context) -> Option<Request> {
-    if ctx.throttled() {
-        pending().await
-    } else {
-        rx.recv().await
     }
 }
 

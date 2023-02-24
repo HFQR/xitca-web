@@ -1,6 +1,10 @@
 //! Connection configuration. copy/paste from `tokio-postgres`
 
-use std::{borrow::Cow, error, fmt, iter, mem, str};
+use core::{fmt, iter, mem, str};
+
+use alloc::borrow::Cow;
+
+use std::error;
 
 use super::error::Error;
 
