@@ -32,21 +32,6 @@ impl<const PAGE_SIZE: usize> PagedBytesMut<PAGE_SIZE> {
     pub fn split(&mut self) -> BytesMut {
         self.0.split()
     }
-
-    #[inline]
-    pub fn reserve(&mut self, additional: usize) {
-        self.0.reserve(additional)
-    }
-
-    #[inline]
-    pub fn extend_from_slice(&mut self, extend: &[u8]) {
-        self.0.extend_from_slice(extend)
-    }
-
-    #[inline]
-    pub fn freeze(self) -> Bytes {
-        self.0.freeze()
-    }
 }
 
 impl<T, const PAGE_SIZE: usize> From<T> for PagedBytesMut<PAGE_SIZE>
