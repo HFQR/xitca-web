@@ -2,7 +2,10 @@ use std::{fmt, io, mem};
 
 use tracing::{trace, warn};
 
-use crate::bytes::{Buf, Bytes, BytesMut};
+use crate::{
+    bytes::{Buf, Bytes},
+    util::buffered_io::PagedBytesMut,
+};
 
 use super::{
     buf_write::H1BufWrite,
@@ -96,7 +99,12 @@ macro_rules! byte (
 );
 
 impl ChunkedState {
-    pub fn step(&mut self, body: &mut BytesMut, size: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
+    pub fn step(
+        &mut self,
+        body: &mut PagedBytesMut,
+        size: &mut u64,
+        buf: &mut Option<Bytes>,
+    ) -> io::Result<Option<Self>> {
         match *self {
             Self::Size => Self::read_size(body, size),
             Self::SizeLws => Self::read_size_lws(body),
@@ -113,7 +121,7 @@ impl ChunkedState {
         }
     }
 
-    fn read_size(rdr: &mut BytesMut, size: &mut u64) -> io::Result<Option<Self>> {
+    fn read_size(rdr: &mut PagedBytesMut, size: &mut u64) -> io::Result<Option<Self>> {
         macro_rules! or_overflow {
             ($e:expr) => (
                 match $e {
@@ -154,7 +162,7 @@ impl ChunkedState {
         Ok(Some(ChunkedState::Size))
     }
 
-    fn read_size_lws(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_size_lws(rdr: &mut PagedBytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             // LWS can follow the chunk size, but no more digits can come
             b'\t' | b' ' => Ok(Some(Self::SizeLws)),
@@ -167,7 +175,7 @@ impl ChunkedState {
         }
     }
 
-    fn read_extension(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_extension(rdr: &mut PagedBytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             b'\r' => Ok(Some(Self::SizeLf)),
             b'\n' => Err(io::Error::new(
@@ -178,7 +186,7 @@ impl ChunkedState {
         }
     }
 
-    fn read_size_lf(rdr: &mut BytesMut, size: &mut u64) -> io::Result<Option<Self>> {
+    fn read_size_lf(rdr: &mut PagedBytesMut, size: &mut u64) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             b'\n' if *size > 0 => Ok(Some(Self::Body)),
             b'\n' if *size == 0 => Ok(Some(Self::EndCr)),
@@ -186,7 +194,7 @@ impl ChunkedState {
         }
     }
 
-    fn read_body(rdr: &mut BytesMut, rem: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
+    fn read_body(rdr: &mut PagedBytesMut, rem: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
         if rdr.is_empty() {
             Ok(None)
         } else {
@@ -199,21 +207,21 @@ impl ChunkedState {
         }
     }
 
-    fn read_body_cr(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_body_cr(rdr: &mut PagedBytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             b'\r' => Ok(Some(Self::BodyLf)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk body CR")),
         }
     }
 
-    fn read_body_lf(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_body_lf(rdr: &mut PagedBytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             b'\n' => Ok(Some(Self::Size)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk body LF")),
         }
     }
 
-    fn read_trailer(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_trailer(rdr: &mut PagedBytesMut) -> io::Result<Option<Self>> {
         trace!(target: "h1_decode", "read_trailer");
         match byte!(rdr) {
             b'\r' => Ok(Some(Self::TrailerLf)),
@@ -221,21 +229,21 @@ impl ChunkedState {
         }
     }
 
-    fn read_trailer_lf(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_trailer_lf(rdr: &mut PagedBytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             b'\n' => Ok(Some(Self::EndCr)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid trailer end LF")),
         }
     }
 
-    fn read_end_cr(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_end_cr(rdr: &mut PagedBytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             b'\r' => Ok(Some(Self::EndLf)),
             _ => Ok(Some(Self::Trailer)),
         }
     }
 
-    fn read_end_lf(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_end_lf(rdr: &mut PagedBytesMut) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             b'\n' => Ok(Some(Self::End)),
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end LF")),
@@ -311,7 +319,7 @@ impl TransferCoding {
     }
 
     /// decode body. See [ChunkResult] for detailed outcome.
-    pub fn decode(&mut self, src: &mut BytesMut) -> ChunkResult {
+    pub fn decode(&mut self, src: &mut PagedBytesMut) -> ChunkResult {
         match *self {
             // when decoder reaching eof state it would return ChunkResult::Eof and followed by
             // ChunkResult::AlreadyEof if decode is called again.
@@ -382,7 +390,7 @@ impl From<io::Error> for ChunkResult {
     }
 }
 
-fn bounded_split(rem: &mut u64, buf: &mut BytesMut) -> Bytes {
+fn bounded_split(rem: &mut u64, buf: &mut PagedBytesMut) -> Bytes {
     let len = buf.len() as u64;
     if *rem >= len {
         *rem -= len;
@@ -395,7 +403,7 @@ fn bounded_split(rem: &mut u64, buf: &mut BytesMut) -> Bytes {
 
 #[cfg(test)]
 mod test {
-    use crate::util::buffered_io::FlatBuf;
+    use crate::util::buffered_io::WriteBuf;
 
     use super::*;
 
@@ -405,7 +413,7 @@ mod test {
 
         fn read(s: &str) -> u64 {
             let mut state = ChunkedState::Size;
-            let rdr = &mut BytesMut::from(s);
+            let rdr = &mut PagedBytesMut::from(s);
             let mut size = 0;
             loop {
                 let result = state.step(rdr, &mut size, &mut None);
@@ -419,7 +427,7 @@ mod test {
 
         fn read_err(s: &str, expected_err: io::ErrorKind) {
             let mut state = ChunkedState::Size;
-            let rdr = &mut BytesMut::from(s);
+            let rdr = &mut PagedBytesMut::from(s);
             let mut size = 0;
             loop {
                 let result = state.step(rdr, &mut size, &mut None);
@@ -480,7 +488,7 @@ mod test {
 
     #[test]
     fn test_read_chunked_single_read() {
-        let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\n");
+        let mock_buf = &mut PagedBytesMut::from("10\r\n1234567890abcdef\r\n0\r\n");
 
         match TransferCoding::decode_chunked().decode(mock_buf) {
             ChunkResult::Ok(buf) => {
@@ -494,7 +502,7 @@ mod test {
 
     #[test]
     fn test_read_chunked_trailer_with_missing_lf() {
-        let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\nbad\r\r\n");
+        let mock_buf = &mut PagedBytesMut::from("10\r\n1234567890abcdef\r\n0\r\nbad\r\r\n");
 
         let mut decoder = TransferCoding::decode_chunked();
 
@@ -511,7 +519,7 @@ mod test {
 
     #[test]
     fn test_read_chunked_after_eof() {
-        let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\n\r\n");
+        let mock_buf = &mut PagedBytesMut::from("10\r\n1234567890abcdef\r\n0\r\n\r\n");
         let mut decoder = TransferCoding::decode_chunked();
 
         // normal read
@@ -540,7 +548,7 @@ mod test {
     #[test]
     fn encode_chunked() {
         let mut encoder = TransferCoding::encode_chunked();
-        let dst = &mut FlatBuf::<1024>::default();
+        let dst = &mut WriteBuf::<1024>::default();
 
         let msg1 = Bytes::from("foo bar");
         encoder.encode(msg1, dst);
@@ -562,7 +570,7 @@ mod test {
         let max_len = 8;
         let mut encoder = TransferCoding::length(max_len as u64);
 
-        let dst = &mut FlatBuf::<1024>::default();
+        let dst = &mut WriteBuf::<1024>::default();
 
         let msg1 = Bytes::from("foo bar");
         encoder.encode(msg1, dst);

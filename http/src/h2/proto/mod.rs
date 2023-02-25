@@ -19,7 +19,7 @@ use xitca_io::{
 
 use crate::{
     http::{HeaderMap, StatusCode},
-    util::buffered_io::{self, BufWrite, ListBuf},
+    util::buffered_io::{self, BufWrite, ListWriteBuf},
 };
 
 use self::settings::Settings;
@@ -35,7 +35,7 @@ pub async fn run<Io>(mut io: Io) -> io::Result<()>
 where
     Io: AsyncIo,
 {
-    let write_buf = ListBuf::<Bytes, 32>::default();
+    let write_buf = ListWriteBuf::<Bytes, 32>::default();
     let mut io = BufferedIo::new(&mut io, write_buf);
 
     prefix_check(&mut io).await?;

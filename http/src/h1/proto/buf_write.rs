@@ -3,7 +3,7 @@ use std::{io::Write, ops::DerefMut};
 use xitca_io::bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut};
 use xitca_unsafe_collection::bytes::EitherBuf;
 
-use crate::util::buffered_io::{BufWrite, FlatBuf, ListBuf};
+use crate::util::buffered_io::{BufWrite, ListWriteBuf, WriteBuf};
 
 /// trait for add http/1 data to buffer that implement [BufWrite] trait.
 pub trait H1BufWrite: BufWrite {
@@ -22,7 +22,7 @@ pub trait H1BufWrite: BufWrite {
     fn write_chunked(&mut self, bytes: Bytes);
 }
 
-impl<const BUF_LIMIT: usize> H1BufWrite for FlatBuf<BUF_LIMIT> {
+impl<const BUF_LIMIT: usize> H1BufWrite for WriteBuf<BUF_LIMIT> {
     #[inline(always)]
     fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
@@ -79,7 +79,7 @@ type Eof = Chain<Chain<Bytes, Bytes>, &'static [u8]>;
 
 type EncodedBuf<B, B2> = EitherBuf<B, EitherBuf<B2, &'static [u8]>>;
 
-impl<const BUF_LIMIT: usize> H1BufWrite for ListBuf<EncodedBuf<Bytes, Eof>, BUF_LIMIT> {
+impl<const BUF_LIMIT: usize> H1BufWrite for ListWriteBuf<EncodedBuf<Bytes, Eof>, BUF_LIMIT> {
     fn write_head<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
