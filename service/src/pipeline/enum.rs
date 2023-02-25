@@ -113,9 +113,9 @@ where
 {
     type Ready = Pipeline<F::Ready, S::Ready>;
 
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready> + 'f where Self: 'f;
+    type Future<'f> = impl Future<Output = Self::Ready> + 'f where Self: 'f;
 
-    fn ready(&self) -> Self::ReadyFuture<'_> {
+    fn ready(&self) -> Self::Future<'_> {
         async move {
             match self {
                 Self::First(ref f) => Pipeline::First(f.ready().await),

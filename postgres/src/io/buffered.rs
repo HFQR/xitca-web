@@ -76,7 +76,7 @@ where
     pub(crate) fn spawn(mut self) -> Handle<Self>
     where
         Io: Send + 'static,
-        for<'r> Io::ReadyFuture<'r>: Send,
+        for<'r> Io::Future<'r>: Send,
     {
         let notify = Arc::new(Notify::new());
         let notify2 = notify.clone();
@@ -147,7 +147,7 @@ impl<Io> Handle<Io> {
     }
 }
 
-fn try_io<Io>(io: &mut Io, want_write: bool) -> Io::ReadyFuture<'_>
+fn try_io<Io>(io: &mut Io, want_write: bool) -> Io::Future<'_>
 where
     Io: AsyncIo,
 {

@@ -146,9 +146,9 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #where_clause
             {
                 type Ready = #ready_res_ty;
-                type ReadyFuture<'f> = impl ::core::future::Future<Output = Self::Ready> + 'f where Self: 'f;
+                type Future<'f> = impl ::core::future::Future<Output = Self::Ready> + 'f where Self: 'f;
                 #[inline]
-                fn ready(&self) -> Self::ReadyFuture<'_> {
+                fn ready(&self) -> Self::Future<'_> {
                     async move {
                         #(#ready_stmts)*
                     }

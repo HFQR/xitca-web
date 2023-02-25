@@ -19,10 +19,10 @@ use std::{io, net::SocketAddr};
 macro_rules! default_aio_impl {
     ($ty: ty) => {
         impl crate::io::AsyncIo for $ty {
-            type ReadyFuture<'f> = impl ::core::future::Future<Output = ::std::io::Result<crate::io::Ready>> + Send + 'f where Self: 'f;
+            type Future<'f> = impl ::core::future::Future<Output = ::std::io::Result<crate::io::Ready>> + Send + 'f where Self: 'f;
 
             #[inline]
-            fn ready(&self, interest: crate::io::Interest) -> Self::ReadyFuture<'_> {
+            fn ready(&self, interest: crate::io::Interest) -> Self::Future<'_> {
                 self.0.ready(interest)
             }
 
