@@ -221,10 +221,10 @@ where
 
 impl<R, N, const M: usize> ReadyService for RouteService<R, N, M> {
     type Ready = ();
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where Self: 'f;
+    type Future<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
+    fn ready(&self) -> Self::Future<'_> {
         async {}
     }
 }

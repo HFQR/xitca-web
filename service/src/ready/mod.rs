@@ -41,9 +41,9 @@ use core::{future::Future, ops::Deref, pin::Pin};
 ///
 /// impl ReadyService for Foo {
 ///     type Ready = Result<Permit, ()>;
-///     type ReadyFuture<'f> = impl Future<Output = Self::Ready> + 'f;
+///     type Future<'f> = impl Future<Output = Self::Ready> + 'f;
 ///
-///     fn ready(&self) -> Self::ReadyFuture<'_> {
+///     fn ready(&self) -> Self::Future<'_> {
 ///         async move {
 ///             if self.0.0.get() {
 ///                 // set permit to false and return with Ok<Permit>
@@ -73,12 +73,11 @@ use core::{future::Future, ops::Deref, pin::Pin};
 /// ```
 pub trait ReadyService {
     type Ready;
-
-    type ReadyFuture<'f>: Future<Output = Self::Ready>
+    type Future<'f>: Future<Output = Self::Ready>
     where
         Self: 'f;
 
-    fn ready(&self) -> Self::ReadyFuture<'_>;
+    fn ready(&self) -> Self::Future<'_>;
 }
 
 #[cfg(feature = "alloc")]
@@ -94,10 +93,10 @@ mod alloc_impl {
                 S: ReadyService + ?Sized,
             {
                 type Ready = S::Ready;
-                type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
+                type Future<'f> = S::Future<'f> where S: 'f;
 
                 #[inline]
-                fn ready(&self) -> Self::ReadyFuture<'_> {
+                fn ready(&self) -> Self::Future<'_> {
                     (**self).ready()
                 }
             }
@@ -115,12 +114,12 @@ where
     S::Target: ReadyService,
 {
     type Ready = <S::Target as ReadyService>::Ready;
-    type ReadyFuture<'f> = <S::Target as ReadyService>::ReadyFuture<'f>
+    type Future<'f> = <S::Target as ReadyService>::Future<'f>
     where
         S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
+    fn ready(&self) -> Self::Future<'_> {
         self.as_ref().get_ref().ready()
     }
 }

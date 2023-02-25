@@ -100,10 +100,10 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
 }
 
 impl<S: AsyncIo> AsyncIo for TlsStream<S> {
-    type ReadyFuture<'f> = impl Future<Output = io::Result<Ready>> + 'f where Self: 'f;
+    type Future<'f> = impl Future<Output = io::Result<Ready>> + 'f where Self: 'f;
 
     #[inline]
-    fn ready(&self, interest: Interest) -> Self::ReadyFuture<'_> {
+    fn ready(&self, interest: Interest) -> Self::Future<'_> {
         self.io.get_ref().ready(interest)
     }
 

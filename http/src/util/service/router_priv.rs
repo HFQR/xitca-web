@@ -128,10 +128,10 @@ where
 
 impl<S> ReadyService for RouterService<S> {
     type Ready = ();
-    type ReadyFuture<'f> = impl Future<Output = Self::Ready> where S: 'f;
+    type Future<'f> = impl Future<Output = Self::Ready> where S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
+    fn ready(&self) -> Self::Future<'_> {
         async {}
     }
 }

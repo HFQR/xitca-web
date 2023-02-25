@@ -106,10 +106,10 @@ where
 {
     type Ready = S::Ready;
 
-    type ReadyFuture<'f> = S::ReadyFuture<'f> where S: 'f;
+    type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::ReadyFuture<'_> {
+    fn ready(&self) -> Self::Future<'_> {
         self.service.ready()
     }
 }
