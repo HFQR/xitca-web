@@ -35,6 +35,7 @@ http-ws = { path = "./http-ws" }
 
 h3 = { git = "https://github.com/hyperium/h3.git" }
 h3-quinn = { git = "https://github.com/hyperium/h3.git" }
+postgres-protocol = { git = "https://github.com/fakeshadow/rust-postgres.git", branch = "protocol/export_bytes" }
 
 [profile.release]
 lto = true

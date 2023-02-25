@@ -2,9 +2,9 @@ use core::{fmt, marker::PhantomData, ops::Range};
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend::DataRowBody;
-use postgres_types::FromSql;
+use xitca_io::bytes::Bytes;
 
-use crate::{column::Column, error::Error, Type};
+use crate::{column::Column, error::Error, from_sql::FromSqlExt, Type};
 
 use super::traits::RowIndexAndType;
 
@@ -70,8 +70,8 @@ impl<'a, C> GenericRow<'a, C> {
     }
 
     // Get the raw bytes for the column at the given index.
-    fn col_buffer(&self, idx: usize) -> Option<&[u8]> {
-        self.ranges[idx].to_owned().map(|range| &self.body.buffer()[range])
+    fn col_buffer(&self, idx: usize) -> Option<(&Range<usize>, &Bytes)> {
+        self.ranges[idx].as_ref().map(|r| (r, self.body.storage_bytes()))
     }
 }
 
@@ -86,7 +86,7 @@ impl Row<'_> {
     #[inline]
     pub fn get<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> T
     where
-        T: FromSql<'s>,
+        T: FromSqlExt<'s>,
     {
         self.try_get(&idx)
             .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
@@ -95,7 +95,7 @@ impl Row<'_> {
     /// Like `Row::get`, but returns a `Result` rather than panicking.
     pub fn try_get<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> Result<T, Error>
     where
-        T: FromSql<'s>,
+        T: FromSqlExt<'s>,
     {
         let (idx, ty) = idx.__from_columns(self.columns()).ok_or(Error::ToDo)?;
 
@@ -104,7 +104,7 @@ impl Row<'_> {
             // return Err(Error::from_sql(Box::new(WrongType::new::<T>(ty.clone())), idx));
         }
 
-        FromSql::from_sql_nullable(ty, self.col_buffer(idx)).map_err(|_| Error::ToDo)
+        FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(|_| Error::ToDo)
     }
 }
 
@@ -124,6 +124,6 @@ impl RowSimple<'_> {
     /// Like `SimpleQueryRow::get`, but returns a `Result` rather than panicking.
     pub fn try_get(&self, idx: impl RowIndexAndType + fmt::Display) -> Result<Option<&str>, Error> {
         let (idx, _) = idx.__from_columns(self.columns()).ok_or(Error::ToDo)?;
-        FromSql::from_sql_nullable(&Type::TEXT, self.col_buffer(idx)).map_err(|_| Error::ToDo)
+        FromSqlExt::from_sql_nullable_ext(&Type::TEXT, self.col_buffer(idx)).map_err(|_| Error::ToDo)
     }
 }

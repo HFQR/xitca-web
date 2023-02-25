@@ -9,6 +9,7 @@ mod client;
 mod column;
 mod config;
 mod connect;
+mod from_sql;
 mod io;
 mod iter;
 mod prepare;
@@ -21,11 +22,12 @@ mod util;
 pub mod error;
 pub mod statement;
 
-pub use postgres_types::{ToSql, Type};
+pub use postgres_types::{FromSql, ToSql, Type};
 
 pub use self::{
     client::Client,
     config::Config,
+    from_sql::FromSqlExt,
     iter::AsyncIterator,
     row::{Row, RowSimple},
 };
