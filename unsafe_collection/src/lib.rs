@@ -12,8 +12,3 @@ pub mod uninit;
 
 #[cfg(feature = "bytes")]
 pub mod bytes;
-#[cfg(feature = "channel")]
-pub mod channel;
-
-#[cfg(feature = "channel")]
-mod list;

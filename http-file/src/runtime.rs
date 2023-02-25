@@ -26,6 +26,12 @@ pub trait Meta {
 
     /// the length hint of file.
     fn len(&self) -> u64;
+
+    #[cold]
+    #[inline(never)]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// trait for async chunk read from file.

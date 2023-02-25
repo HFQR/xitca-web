@@ -29,7 +29,7 @@ use crate::{
         Request, RequestExt, StatusCode,
     },
     util::{
-        buffered_io::{BufferedIo, FlatBuf, ListBuf},
+        buffered_io::{BufferedIo, ListWriteBuf, ReadBuf, WriteBuf},
         hint::unlikely,
         timer::{KeepAlive, Timeout},
     },
@@ -72,12 +72,12 @@ where
     let is_vectored = config.vectored_write && io.is_vectored_write();
 
     if is_vectored {
-        let write_buf = ListBuf::<_, WRITE_BUF_LIMIT>::default();
+        let write_buf = ListWriteBuf::<_, WRITE_BUF_LIMIT>::default();
         Dispatcher::new(io, addr, timer, config, service, date, write_buf)
             .run()
             .await
     } else {
-        let write_buf = FlatBuf::<WRITE_BUF_LIMIT>::default();
+        let write_buf = WriteBuf::<WRITE_BUF_LIMIT>::default();
         Dispatcher::new(io, addr, timer, config, service, date, write_buf)
             .run()
             .await
@@ -313,7 +313,7 @@ impl BodyReader {
     // a none ready state means the body consumer either is in backpressure or don't expect body.
     async fn ready<D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
         &mut self,
-        read_buf: &mut FlatBuf<READ_BUF_LIMIT>,
+        read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
     ) {
         loop {
