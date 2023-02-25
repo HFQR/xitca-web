@@ -261,7 +261,7 @@ impl<'a, B> Request<'a, B> {
                     conn.destroy_on_drop();
                 }
 
-                let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
+                let body = crate::h1::body::ResponseBody::new(conn, buf.into(), decoder);
                 let res = res.map(|_| crate::body::ResponseBody::H1(body));
                 let timeout = client.timeout_config.response_timeout;
 

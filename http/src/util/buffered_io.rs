@@ -107,6 +107,7 @@ pub trait BufWrite: BufInterest {
     fn write<Io: Write>(&mut self, io: &mut Io) -> io::Result<()>;
 }
 
+#[derive(Debug)]
 pub struct ReadBuf<const BUF_LIMIT: usize>(PagedBytesMut);
 
 pub type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
@@ -115,6 +116,12 @@ impl<const BUF_LIMIT: usize> ReadBuf<BUF_LIMIT> {
     #[inline]
     pub fn new() -> Self {
         Self(PagedBytesMut::new())
+    }
+}
+
+impl<const BUF_LIMIT: usize> Default for ReadBuf<BUF_LIMIT> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -10,6 +10,7 @@ use bytes_crate::{
 
 /// const generic guarded BytesMut with page size in byte unit at compile time.
 /// when internal memory reserve happen it always aim for the page size.
+#[derive(Debug)]
 pub struct PagedBytesMut<const PAGE_SIZE: usize>(BytesMut);
 
 impl<const PAGE_SIZE: usize> PagedBytesMut<PAGE_SIZE> {
@@ -40,6 +41,11 @@ impl<const PAGE_SIZE: usize> PagedBytesMut<PAGE_SIZE> {
     #[inline]
     pub fn extend_from_slice(&mut self, extend: &[u8]) {
         self.0.extend_from_slice(extend)
+    }
+
+    #[inline]
+    pub fn freeze(self) -> Bytes {
+        self.0.freeze()
     }
 }
 
