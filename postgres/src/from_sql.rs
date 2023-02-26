@@ -1,6 +1,5 @@
 use core::ops::Range;
 
-use postgres_protocol::types;
 use xitca_io::bytes::Bytes;
 use xitca_unsafe_collection::bytes::BytesStr;
 
@@ -88,24 +87,24 @@ default_impl!(f64);
 
 impl<'a> FromSqlExt<'a> for BytesStr {
     fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Self, FromSqlError> {
+        // copy/paste from postgres-protocol dependency.
+        fn adjust_range(name: &str, range: &Range<usize>, buf: &Bytes) -> Result<(usize, usize), FromSqlError> {
+            if buf[range.start] == 1u8 {
+                Ok((range.start + 1, range.end))
+            } else {
+                Err(format!("only {name} version 1 supported").into())
+            }
+        }
+
         match buf {
-            Some((r, buf)) => {
-                let buf = buf.slice(r.start..r.end);
-                match ty.name() {
-                    // these three variants are bit unfortunate as there is no safe way to bypass
-                    // the second utf8 check of BytesStr::try_from
-                    "ltree" => {
-                        types::ltree_from_sql(&buf)?;
-                    }
-                    "lquery" => {
-                        types::lquery_from_sql(&buf)?;
-                    }
-                    "ltxtquery" => {
-                        types::ltxtquery_from_sql(&buf)?;
-                    }
-                    _ => {}
+            Some((range, buf)) => {
+                let (start, end) = match ty.name() {
+                    "ltree" => adjust_range("ltree", range, buf)?,
+                    "lquery" => adjust_range("lquery", range, buf)?,
+                    "ltxtquery" => adjust_range("ltxtquery", range, buf)?,
+                    _ => (range.start, range.end),
                 };
-                BytesStr::try_from(buf).map_err(Into::into)
+                BytesStr::try_from(buf.slice(start..end)).map_err(Into::into)
             }
             None => <&str as FromSql>::from_sql_null(ty)
                 .map(|_| unreachable!("<&str as FromSql>::from_sql_null should always yield Result::Err branch")),
