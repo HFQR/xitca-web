@@ -10,7 +10,7 @@ pub type FromSqlError = Box<dyn std::error::Error + Sync + Send>;
 
 /// extension trait for [FromSql].
 /// instead of working with explicit reference as `&[u8]` for parsing raw sql bytes this extension
-/// offers cheap copy/slicing of [Bytes] type for reference counted based zero copy parsing.
+/// offers cheap copy/slicing of [Bytes] type for reference counting based zero copy parsing.
 ///
 /// # Examples
 /// ```rust
