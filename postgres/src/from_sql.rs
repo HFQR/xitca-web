@@ -22,8 +22,13 @@ pub type FromSqlError = Box<dyn std::error::Error + Sync + Send>;
 /// }
 /// ```
 pub trait FromSqlExt<'a>: Sized {
+    /// [Type] represents the Postgres type hint which Self must be matching.
+    /// [Bytes] represents the reference of raw bytes of row data Self belongs to.
+    /// [Range] represents the start and end indexing into the raw data for correctly parsing Self.
+    /// Option::None variant of range and bytes hints current value can be a null type.
     fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Self, FromSqlError>;
 
+    /// Determines if a value of this type can be created from the specified Postgres [Type].
     fn accepts(ty: &Type) -> bool;
 }
 
@@ -86,16 +91,16 @@ impl<'a> FromSqlExt<'a> for BytesStr {
         match buf {
             Some((r, buf)) => {
                 let buf = buf.slice(r.start..r.end);
-                match *ty {
+                match ty.name() {
                     // these three variants are bit unfortunate as there is no safe way to bypass
                     // the second utf8 check of BytesStr::try_from
-                    ref ty if ty.name() == "ltree" => {
+                    "ltree" => {
                         types::ltree_from_sql(&buf)?;
                     }
-                    ref ty if ty.name() == "lquery" => {
+                    "lquery" => {
                         types::lquery_from_sql(&buf)?;
                     }
-                    ref ty if ty.name() == "ltxtquery" => {
+                    "ltxtquery" => {
                         types::ltxtquery_from_sql(&buf)?;
                     }
                     _ => {}
