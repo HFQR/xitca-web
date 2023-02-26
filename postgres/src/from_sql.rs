@@ -8,6 +8,19 @@ use super::{FromSql, Type};
 
 pub type FromSqlError = Box<dyn std::error::Error + Sync + Send>;
 
+/// extension trait for [FromSql].
+/// instead of working with explicit reference as `&[u8]` for parsing raw sql bytes this extension
+/// offers cheap copy/slicing of [Bytes] type for reference counted based zero copy parsing.
+///
+/// # Examples
+/// ```rust
+/// # use xitca_postgres::Row;
+/// use xitca_unsafe_collection::bytes::BytesStr; // a reference counted &str type.
+/// fn parse_row(row: Row<'_>) {
+///     let s = row.get::<BytesStr>(0); // parse index0 column with zero copy.
+///     println!("{}", s.as_str());
+/// }
+/// ```
 pub trait FromSqlExt<'a>: Sized {
     fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Self, FromSqlError>;
 
