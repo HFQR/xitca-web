@@ -97,14 +97,16 @@ impl Row<'_> {
     where
         T: FromSqlExt<'s>,
     {
-        let (idx, ty) = idx.__from_columns(self.columns()).ok_or(Error::ToDo)?;
+        let (idx, ty) = idx
+            ._from_columns(self.columns())
+            .ok_or(Error::InvalidColumnIndex(format!("{idx}")))?;
 
         if !T::accepts(ty) {
             return Err(Error::ToDo);
             // return Err(Error::from_sql(Box::new(WrongType::new::<T>(ty.clone())), idx));
         }
 
-        FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(|_| Error::ToDo)
+        FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
     }
 }
 
@@ -123,7 +125,9 @@ impl RowSimple<'_> {
 
     /// Like `SimpleQueryRow::get`, but returns a `Result` rather than panicking.
     pub fn try_get(&self, idx: impl RowIndexAndType + fmt::Display) -> Result<Option<&str>, Error> {
-        let (idx, _) = idx.__from_columns(self.columns()).ok_or(Error::ToDo)?;
-        FromSqlExt::from_sql_nullable_ext(&Type::TEXT, self.col_buffer(idx)).map_err(|_| Error::ToDo)
+        let (idx, _) = idx
+            ._from_columns(self.columns())
+            .ok_or(Error::InvalidColumnIndex(format!("{idx}")))?;
+        FromSqlExt::from_sql_nullable_ext(&Type::TEXT, self.col_buffer(idx)).map_err(Into::into)
     }
 }
