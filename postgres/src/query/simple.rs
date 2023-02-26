@@ -47,7 +47,7 @@ impl AsyncIterator for RowSimpleStream {
                         backend::Message::RowDescription(body) => {
                             match body
                                 .fields()
-                                // text type is used to match RowSimpleGat::try_get's implementation
+                                // text type is used to match RowSimple::try_get's implementation
                                 // where column's pg type is always assumed as Option<&str>.
                                 // (no runtime pg type check so this does not really matter. it's
                                 // better to keep the type consistent though)

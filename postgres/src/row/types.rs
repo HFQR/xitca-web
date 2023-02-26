@@ -14,7 +14,7 @@ pub type Row<'r> = GenericRow<'r, marker::Typed>;
 /// A row of data returned from the database by a simple query.
 pub type RowSimple<'r> = GenericRow<'r, marker::NoTyped>;
 
-/// Marker types for specialized impl on [GenericRowGat].
+/// Marker types for specialized impl on [GenericRow].
 mod marker {
     pub struct Typed;
     pub struct NoTyped;
