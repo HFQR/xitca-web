@@ -14,77 +14,59 @@ pub trait FromSqlExt<'a>: Sized {
     fn accepts(ty: &Type) -> bool;
 }
 
+macro_rules! default_impl {
+    ($ty: ty) => {
+        impl<'a> FromSqlExt<'a> for $ty {
+            default_impl!();
+        }
+    };
+    () => {
+        #[inline]
+        fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Self, FromSqlError> {
+            <Self as FromSql>::from_sql_nullable(ty, buf.map(|(r, buf)| &buf[r.start..r.end]))
+        }
+
+        #[inline]
+        fn accepts(ty: &Type) -> bool {
+            <Self as FromSql>::accepts(ty)
+        }
+    };
+}
+
 impl<'a, T> FromSqlExt<'a> for Option<T>
 where
     T: FromSql<'a>,
 {
-    #[inline]
-    fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Self, FromSqlError> {
-        <Self as FromSql>::from_sql_nullable(ty, buf.map(|(r, buf)| &buf[r.start..r.end]))
-    }
-
-    #[inline]
-    fn accepts(ty: &Type) -> bool {
-        <Self as FromSql>::accepts(ty)
-    }
+    default_impl!();
 }
 
-impl<'a, T: FromSql<'a>> FromSqlExt<'a> for Vec<T> {
-    #[inline]
-    fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Vec<T>, FromSqlError> {
-        <Self as FromSql>::from_sql_nullable(ty, buf.map(|(r, buf)| &buf[r.start..r.end]))
-    }
-
-    #[inline]
-    fn accepts(ty: &Type) -> bool {
-        <Self as FromSql>::accepts(ty)
-    }
+impl<'a, T> FromSqlExt<'a> for Vec<T>
+where
+    T: FromSql<'a>,
+{
+    default_impl!();
 }
 
 impl<'a, T> FromSqlExt<'a> for Box<[T]>
 where
     T: FromSql<'a>,
 {
-    #[inline]
-    fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Self, FromSqlError> {
-        <Self as FromSql>::from_sql_nullable(ty, buf.map(|(r, buf)| &buf[r.start..r.end]))
-    }
-
-    #[inline]
-    fn accepts(ty: &Type) -> bool {
-        <Self as FromSql>::accepts(ty)
-    }
-}
-
-macro_rules! forward_impl {
-    ($ty: ty) => {
-        impl<'a> FromSqlExt<'a> for $ty {
-            #[inline]
-            fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Self, FromSqlError> {
-                <Self as FromSql>::from_sql_nullable(ty, buf.map(|(r, buf)| &buf[r.start..r.end]))
-            }
-
-            #[inline]
-            fn accepts(ty: &Type) -> bool {
-                <Self as FromSql>::accepts(ty)
-            }
-        }
-    };
+    default_impl!();
 }
 
 // forward_impl!(Vec<u8>);
-forward_impl!(&'a [u8]);
-forward_impl!(&'a str);
-forward_impl!(String);
-forward_impl!(Box<str>);
-forward_impl!(bool);
-forward_impl!(i8);
-forward_impl!(i16);
-forward_impl!(i32);
-forward_impl!(u32);
-forward_impl!(i64);
-forward_impl!(f32);
-forward_impl!(f64);
+default_impl!(&'a [u8]);
+default_impl!(&'a str);
+default_impl!(String);
+default_impl!(Box<str>);
+default_impl!(bool);
+default_impl!(i8);
+default_impl!(i16);
+default_impl!(i32);
+default_impl!(u32);
+default_impl!(i64);
+default_impl!(f32);
+default_impl!(f64);
 
 impl<'a> FromSqlExt<'a> for BytesStr {
     fn from_sql_nullable_ext(ty: &Type, buf: Option<(&Range<usize>, &'a Bytes)>) -> Result<Self, FromSqlError> {
