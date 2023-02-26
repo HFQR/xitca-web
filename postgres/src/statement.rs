@@ -1,5 +1,7 @@
 //! Statement module is mostly copy/paste from `tokio_postgres::statement`
 
+use alloc::{boxed::Box, vec::Vec};
+
 use postgres_protocol::message::frontend;
 
 use super::{client::Client, column::Column, Type};
