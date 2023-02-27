@@ -18,19 +18,28 @@ impl<const PAGE_SIZE: usize> PagedBytesMut<PAGE_SIZE> {
         Self(BytesMut::new())
     }
 
+    /// same as [BytesMut::split_to]
     #[inline]
     pub fn split_to(&mut self, at: usize) -> BytesMut {
         self.0.split_to(at)
     }
 
+    /// same as [BytesMut::split_off]
     #[inline]
     pub fn split_off(&mut self, at: usize) -> BytesMut {
         self.0.split_off(at)
     }
 
+    /// same as [BytesMut::split]
     #[inline]
     pub fn split(&mut self) -> BytesMut {
         self.0.split()
+    }
+
+    /// take ownership of inner bytes mut.
+    #[inline]
+    pub fn into_inner(self) -> BytesMut {
+        self.0
     }
 }
 
