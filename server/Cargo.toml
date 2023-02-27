@@ -20,12 +20,12 @@ tracing = { version = "0.1.29", default-features = false }
 tokio-uring = { version = "0.4", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-socket2 = { version = "0.4.4" }
-tokio = { version = "1.24", features = ["rt-multi-thread", "signal", "sync", "time"] }
+socket2 = { version = "0.5.1" }
+tokio = { version = "1.25", features = ["rt-multi-thread", "signal", "sync", "time"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tokio = { version = "1.24", features = ["rt", "sync", "time"] }
+tokio = { version = "1.25", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
 bytes = "1.4"
-tokio = { version = "1.24", features = ["io-util", "macros"] }
+tokio = { version = "1.25", features = ["io-util", "macros"] }

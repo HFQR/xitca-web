@@ -3,9 +3,6 @@ use std::{collections::HashMap, future::Future, net, pin::Pin, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use std::io;
 
-#[cfg(not(target_family = "wasm"))]
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-
 use xitca_io::net::Stream;
 
 use crate::{
@@ -194,17 +191,12 @@ impl Builder {
         F: BuildServiceFn<St>,
         St: From<Stream> + Send + 'static,
     {
-        let socket = if addr.is_ipv4() {
-            Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?
-        } else {
-            Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?
-        };
-        socket.set_nonblocking(true)?;
-        socket.set_reuse_address(true)?;
-        socket.bind(&SockAddr::from(addr))?;
-        socket.listen(self.backlog as _)?;
+        let listener = net::TcpListener::bind(addr)?;
+        listener.set_nonblocking(true)?;
 
-        let listener = socket.into();
+        let socket = socket2::SockRef::from(&listener);
+        socket.set_reuse_address(true)?;
+        socket.listen(self.backlog as _)?;
 
         Ok(self.listen(name, listener, factory))
     }
