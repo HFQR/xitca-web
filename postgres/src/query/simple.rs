@@ -1,4 +1,4 @@
-use core::{future::Future, ops::Range};
+use core::future::Future;
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
@@ -7,12 +7,14 @@ use crate::{
     client::Client, column::Column, error::Error, iter::AsyncIterator, response::Response, row::RowSimple, Type,
 };
 
+use super::base::GenericRowStream;
+
 impl Client {
     #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         self.simple(stmt).map(|res| RowSimpleStream {
             res,
-            columns: None,
+            col: Vec::new(),
             ranges: Vec::new(),
         })
     }
@@ -29,11 +31,7 @@ impl Client {
 }
 
 /// A stream of simple query results.
-pub struct RowSimpleStream {
-    res: Response,
-    columns: Option<Vec<Column>>,
-    ranges: Vec<Option<Range<usize>>>,
-}
+pub type RowSimpleStream = GenericRowStream<Vec<Column>>;
 
 impl AsyncIterator for RowSimpleStream {
     type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
@@ -54,17 +52,12 @@ impl AsyncIterator for RowSimpleStream {
                                 .map(|f| Ok(Column::new(f.name(), Type::TEXT)))
                                 .collect::<Vec<_>>()
                             {
-                                Ok(col) => self.columns = Some(col),
+                                Ok(col) => self.col = col,
                                 Err(e) => return Some(Err(e.into())),
                             }
                         }
                         backend::Message::DataRow(body) => {
-                            let res = self
-                                .columns
-                                .as_ref()
-                                .ok_or(Error::UnexpectedMessage)
-                                .and_then(|col| RowSimple::try_new(col, body, &mut self.ranges));
-                            return Some(res);
+                            return Some(RowSimple::try_new(&self.col, body, &mut self.ranges));
                         }
                         backend::Message::CommandComplete(_)
                         | backend::Message::EmptyQueryResponse

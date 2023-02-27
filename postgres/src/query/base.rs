@@ -168,10 +168,12 @@ fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Result<u64, Err
 }
 
 /// A stream of table rows.
-pub struct RowStream<'a> {
-    col: &'a [Column],
-    res: Response,
-    ranges: Vec<Option<Range<usize>>>,
+pub type RowStream<'a> = GenericRowStream<&'a [Column]>;
+
+pub struct GenericRowStream<C> {
+    pub(super) res: Response,
+    pub(super) col: C,
+    pub(super) ranges: Vec<Option<Range<usize>>>,
 }
 
 impl<'a> AsyncIterator for RowStream<'a> {
