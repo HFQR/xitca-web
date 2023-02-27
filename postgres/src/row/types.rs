@@ -71,7 +71,7 @@ impl<'a, C> GenericRow<'a, C> {
 
     // Get the raw bytes for the column at the given index.
     fn col_buffer(&self, idx: usize) -> Option<(&Range<usize>, &Bytes)> {
-        self.ranges[idx].as_ref().map(|r| (r, self.body.storage_bytes()))
+        self.ranges[idx].as_ref().map(|r| (r, self.body.buffer_bytes()))
     }
 }
 
