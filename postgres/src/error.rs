@@ -1,12 +1,20 @@
-use std::{convert::Infallible, error, fmt, io};
+use core::{convert::Infallible, fmt};
+
+use alloc::string::String;
+
+use std::{error, io};
 
 use tokio::sync::mpsc::error::SendError;
+
+use super::from_sql::FromSqlError;
 
 #[derive(Debug)]
 pub enum Error {
     Authentication(AuthenticationError),
     UnexpectedMessage,
     Io(io::Error),
+    FromSql(FromSqlError),
+    InvalidColumnIndex(String),
     ToDo,
 }
 
@@ -16,6 +24,8 @@ impl fmt::Display for Error {
             Self::Authentication(ref e) => fmt::Display::fmt(e, f),
             Self::UnexpectedMessage => f.write_str("unexpected message from server"),
             Self::Io(ref e) => fmt::Display::fmt(e, f),
+            Self::FromSql(ref e) => fmt::Display::fmt(e, f),
+            Self::InvalidColumnIndex(ref name) => write!(f, "invalid column {name}"),
             Self::ToDo => f.write_str("error informant is yet implemented"),
         }
     }
@@ -32,6 +42,12 @@ impl From<Infallible> for Error {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Self::Io(e)
+    }
+}
+
+impl From<FromSqlError> for Error {
+    fn from(e: FromSqlError) -> Self {
+        Self::FromSql(e)
     }
 }
 

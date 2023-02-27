@@ -10,14 +10,14 @@ use self::sealed::Sealed;
 /// row. cannot be implemented beyond crate boundary.
 pub trait RowIndexAndType: Sealed {
     #[doc(hidden)]
-    fn __from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)>;
+    fn _from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)>;
 }
 
 impl Sealed for usize {}
 
 impl RowIndexAndType for usize {
     #[inline]
-    fn __from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
+    fn _from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
         let idx = *self;
         col.get(idx).map(|col| (idx, col.r#type()))
     }
@@ -27,7 +27,7 @@ impl Sealed for str {}
 
 impl RowIndexAndType for str {
     #[inline]
-    fn __from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
+    fn _from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
         col.iter()
             .enumerate()
             .find_map(|(idx, col)| col.name().eq(self).then(|| (idx, col.r#type())))
@@ -49,7 +49,7 @@ where
     T: RowIndexAndType + ?Sized,
 {
     #[inline]
-    fn __from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
-        T::__from_columns(*self, col)
+    fn _from_columns<'c>(&self, col: &'c [Column]) -> Option<(usize, &'c Type)> {
+        T::_from_columns(*self, col)
     }
 }

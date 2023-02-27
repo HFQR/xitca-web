@@ -2,9 +2,9 @@ use core::{fmt, marker::PhantomData, ops::Range};
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend::DataRowBody;
-use postgres_types::FromSql;
+use xitca_io::bytes::Bytes;
 
-use crate::{column::Column, error::Error, Type};
+use crate::{column::Column, error::Error, from_sql::FromSqlExt, Type};
 
 use super::traits::RowIndexAndType;
 
@@ -14,7 +14,7 @@ pub type Row<'r> = GenericRow<'r, marker::Typed>;
 /// A row of data returned from the database by a simple query.
 pub type RowSimple<'r> = GenericRow<'r, marker::NoTyped>;
 
-/// Marker types for specialized impl on [GenericRowGat].
+/// Marker types for specialized impl on [GenericRow].
 mod marker {
     pub struct Typed;
     pub struct NoTyped;
@@ -70,8 +70,8 @@ impl<'a, C> GenericRow<'a, C> {
     }
 
     // Get the raw bytes for the column at the given index.
-    fn col_buffer(&self, idx: usize) -> Option<&[u8]> {
-        self.ranges[idx].to_owned().map(|range| &self.body.buffer()[range])
+    fn col_buffer(&self, idx: usize) -> Option<(&Range<usize>, &Bytes)> {
+        self.ranges[idx].as_ref().map(|r| (r, self.body.buffer_bytes()))
     }
 }
 
@@ -86,7 +86,7 @@ impl Row<'_> {
     #[inline]
     pub fn get<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> T
     where
-        T: FromSql<'s>,
+        T: FromSqlExt<'s>,
     {
         self.try_get(&idx)
             .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
@@ -95,16 +95,18 @@ impl Row<'_> {
     /// Like `Row::get`, but returns a `Result` rather than panicking.
     pub fn try_get<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> Result<T, Error>
     where
-        T: FromSql<'s>,
+        T: FromSqlExt<'s>,
     {
-        let (idx, ty) = idx.__from_columns(self.columns()).ok_or(Error::ToDo)?;
+        let (idx, ty) = idx
+            ._from_columns(self.columns())
+            .ok_or(Error::InvalidColumnIndex(format!("{idx}")))?;
 
         if !T::accepts(ty) {
             return Err(Error::ToDo);
             // return Err(Error::from_sql(Box::new(WrongType::new::<T>(ty.clone())), idx));
         }
 
-        FromSql::from_sql_nullable(ty, self.col_buffer(idx)).map_err(|_| Error::ToDo)
+        FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
     }
 }
 
@@ -123,7 +125,9 @@ impl RowSimple<'_> {
 
     /// Like `SimpleQueryRow::get`, but returns a `Result` rather than panicking.
     pub fn try_get(&self, idx: impl RowIndexAndType + fmt::Display) -> Result<Option<&str>, Error> {
-        let (idx, _) = idx.__from_columns(self.columns()).ok_or(Error::ToDo)?;
-        FromSql::from_sql_nullable(&Type::TEXT, self.col_buffer(idx)).map_err(|_| Error::ToDo)
+        let (idx, _) = idx
+            ._from_columns(self.columns())
+            .ok_or(Error::InvalidColumnIndex(format!("{idx}")))?;
+        FromSqlExt::from_sql_nullable_ext(&Type::TEXT, self.col_buffer(idx)).map_err(Into::into)
     }
 }
