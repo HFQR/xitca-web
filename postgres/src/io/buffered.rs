@@ -54,12 +54,11 @@ where
             loop {
                 match read_buf(&mut self.io, &mut self.read_buf) {
                     Ok(0) => return Err(unexpected_eof_err()),
-                    Ok(_) => continue,
+                    Ok(_) => self.ctx.try_decode(&mut self.read_buf)?,
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                     Err(e) => return Err(e.into()),
                 }
             }
-            self.ctx.try_decode(&mut self.read_buf)?;
         }
 
         if ready.is_writable() {
