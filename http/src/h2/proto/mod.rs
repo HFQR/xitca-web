@@ -22,7 +22,7 @@ use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
-    http::{HeaderMap, Request, RequestExt, Response, StatusCode, Version},
+    http::{Request, RequestExt, Response, Version},
     util::{
         buffered_io::{self, BufWrite, ListWriteBuf},
         futures::Queue,
@@ -36,6 +36,68 @@ const HEADER_LEN: usize = 9;
 const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 type BufferedIo<'i, Io, W> = buffered_io::BufferedIo<'i, Io, W, { 1024 * 1024 }>;
+
+struct Context {
+    decoder: hpack::Decoder,
+    encoder: hpack::Encoder,
+    header_len: Option<usize>,
+}
+
+impl Context {
+    fn new() -> Self {
+        Self {
+            decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
+            encoder: hpack::Encoder::new(65535, 4096),
+            header_len: None,
+        }
+    }
+
+    fn try_decode<F>(&mut self, buf: &mut PagedBytesMut, mut on_msg: F)
+    where
+        F: FnMut(Request<RequestExt<()>>),
+    {
+        loop {
+            match self.header_len.take() {
+                Some(len) => {
+                    if buf.len() < len {
+                        self.header_len = Some(len);
+                        return;
+                    }
+                    let mut frame = buf.split_to(len);
+                    let head = head::Head::parse(&frame);
+
+                    match dbg!(head.kind()) {
+                        head::Kind::Settings => {
+                            // let _setting = Settings::load(head, &frame);
+                        }
+                        head::Kind::Headers => {
+                            // TODO: Make Head::parse auto advance the frame?
+                            frame.advance(6);
+
+                            let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
+
+                            headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
+                            let (_pseudo, headers) = headers.into_parts();
+
+                            let mut req = Request::new(RequestExt::default());
+                            *req.version_mut() = Version::HTTP_2;
+                            *req.headers_mut() = headers;
+
+                            on_msg(req);
+                        }
+                        _ => {}
+                    }
+                }
+                None => {
+                    if buf.len() < 3 {
+                        return;
+                    }
+                    self.header_len = Some((buf.get_uint(3) + 6) as _);
+                }
+            }
+        }
+    }
+}
 
 /// Experimental h2 http layer.
 pub async fn run<Io, S>(mut io: Io, service: S) -> io::Result<()>
@@ -56,62 +118,29 @@ where
 
     io.drain_write().await?;
 
-    let mut decoder = hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
-    let mut encoder = hpack::Encoder::new(65535, 4096);
-
+    let mut ctx = Context::new();
     let mut queue = Queue::new();
 
     loop {
         match io.ready().select(queue.next()).await {
             SelectOutput::A(ready) => {
                 let ready = ready?;
-
                 if ready.is_writable() {
                     io.try_write()?;
                 }
-
                 if ready.is_readable() {
                     io.try_read()?;
-
-                    while io.read_buf.len() >= 3 {
-                        let len = (io.read_buf.get_uint(3) + 6) as usize;
-                        if io.read_buf.len() < len {
-                            break;
-                        }
-
-                        let mut frame = io.read_buf.split_to(len);
-                        let head = head::Head::parse(&frame);
-                        match dbg!(head.kind()) {
-                            head::Kind::Settings => {
-                                // let _setting = Settings::load(head, &frame);
-                            }
-                            head::Kind::Headers => {
-                                // TODO: Make Head::parse auto advance the frame?
-                                frame.advance(6);
-
-                                let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
-
-                                headers.load_hpack(&mut frame, 4096, &mut decoder).unwrap();
-                                let (_pseudo, headers) = headers.into_parts();
-
-                                let mut req = Request::new(RequestExt::default());
-                                *req.version_mut() = Version::HTTP_2;
-                                *req.headers_mut() = headers;
-
-                                queue.push(service.call(req));
-                            }
-                            _ => {}
-                        }
-                    }
+                    ctx.try_decode(&mut *io.read_buf, |req| {
+                        queue.push(service.call(req));
+                    });
                 }
             }
             SelectOutput::B(res) => {
-                let mut res = res.unwrap();
-                *res.version_mut() = Version::HTTP_2;
-                let pseudo = headers::Pseudo::response(StatusCode::OK);
-                let headers = headers::Headers::new(1.into(), pseudo, HeaderMap::new());
+                let (parts, _) = res.unwrap().into_parts();
+                let pseudo = headers::Pseudo::response(parts.status);
+                let headers = headers::Headers::new(1.into(), pseudo, parts.headers);
                 let mut buf = (&mut io.write_buf.buf).limit(4096);
-                headers.encode(&mut encoder, &mut buf);
+                headers.encode(&mut ctx.encoder, &mut buf);
                 let buf = io.write_buf.buf.split().freeze();
                 io.write_buf.buffer(buf);
                 break;
@@ -191,7 +220,7 @@ macro_rules! unpack_octets_4 {
     };
 }
 
-use crate::util::buffered_io::BufInterest;
+use crate::util::buffered_io::{BufInterest, PagedBytesMut};
 use unpack_octets_4;
 
 #[cfg(test)]
