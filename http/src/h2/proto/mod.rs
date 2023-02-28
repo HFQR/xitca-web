@@ -24,7 +24,7 @@ use xitca_unsafe_collection::futures::{Select, SelectOutput};
 use crate::{
     http::{Request, RequestExt, Response, Version},
     util::{
-        buffered_io::{self, BufWrite, ListWriteBuf},
+        buffered_io::{self, BufInterest, BufWrite, ListWriteBuf, PagedBytesMut},
         futures::Queue,
     },
 };
@@ -220,7 +220,6 @@ macro_rules! unpack_octets_4 {
     };
 }
 
-use crate::util::buffered_io::{BufInterest, PagedBytesMut};
 use unpack_octets_4;
 
 #[cfg(test)]
