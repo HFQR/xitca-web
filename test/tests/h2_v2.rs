@@ -41,7 +41,7 @@ async fn h2_v2_get() {
     assert!(res.status().is_success());
 }
 
-async fn handler(req: Request<RequestExt<()>>) -> Result<Response<()>, Infallible> {
+async fn handler(req: Request<RequestExt<h2::RequestBodyV2>>) -> Result<Response<()>, Infallible> {
     dbg!(req.headers());
     Ok(Response::new(()))
 }

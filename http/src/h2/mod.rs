@@ -7,7 +7,7 @@ pub mod body;
 
 pub(crate) use self::proto::Dispatcher;
 
-pub use self::body::RequestBody;
+pub use self::body::{RequestBody, RequestBodyV2};
 pub use self::error::Error;
 pub use self::service::H2Service;
 
