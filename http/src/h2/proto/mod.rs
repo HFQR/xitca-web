@@ -10,7 +10,7 @@ mod stream_id;
 
 pub(crate) use dispatcher::Dispatcher;
 
-use core::{convert::Infallible, future::pending};
+use core::{convert::Infallible, future::pending, mem};
 
 use std::io;
 
@@ -40,7 +40,14 @@ type BufferedIo<'i, Io, W> = buffered_io::BufferedIo<'i, Io, W, { 1024 * 1024 }>
 struct Context {
     decoder: hpack::Decoder,
     encoder: hpack::Encoder,
-    header_len: Option<usize>,
+    // next_frame_len == 0 is used as maker for waiting for new frame.
+    next_frame_len: usize,
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Context {
@@ -48,7 +55,7 @@ impl Context {
         Self {
             decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
             encoder: hpack::Encoder::new(65535, 4096),
-            header_len: None,
+            next_frame_len: 0,
         }
     }
 
@@ -57,43 +64,42 @@ impl Context {
         F: FnMut(Request<RequestExt<()>>),
     {
         loop {
-            match self.header_len.take() {
-                Some(len) => {
-                    if buf.len() < len {
-                        self.header_len = Some(len);
-                        return;
-                    }
-                    let mut frame = buf.split_to(len);
-                    let head = head::Head::parse(&frame);
-
-                    match dbg!(head.kind()) {
-                        head::Kind::Settings => {
-                            // let _setting = Settings::load(head, &frame);
-                        }
-                        head::Kind::Headers => {
-                            // TODO: Make Head::parse auto advance the frame?
-                            frame.advance(6);
-
-                            let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
-
-                            headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
-                            let (_pseudo, headers) = headers.into_parts();
-
-                            let mut req = Request::new(RequestExt::default());
-                            *req.version_mut() = Version::HTTP_2;
-                            *req.headers_mut() = headers;
-
-                            on_msg(req);
-                        }
-                        _ => {}
-                    }
+            if self.next_frame_len == 0 {
+                if buf.len() < 3 {
+                    return;
                 }
-                None => {
-                    if buf.len() < 3 {
-                        return;
-                    }
-                    self.header_len = Some((buf.get_uint(3) + 6) as _);
+                self.next_frame_len = (buf.get_uint(3) + 6) as _;
+            }
+
+            if buf.len() < self.next_frame_len {
+                return;
+            }
+
+            let len = mem::replace(&mut self.next_frame_len, 0);
+            let mut frame = buf.split_to(len);
+            let head = head::Head::parse(&frame);
+
+            match dbg!(head.kind()) {
+                head::Kind::Settings => {
+                    // let _setting = Settings::load(head, &frame);
                 }
+                head::Kind::Headers => {
+                    // TODO: Make Head::parse auto advance the frame?
+                    frame.advance(6);
+
+                    let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
+
+                    headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
+                    let (_pseudo, headers) = headers.into_parts();
+
+                    let mut req = Request::new(RequestExt::default());
+                    *req.version_mut() = Version::HTTP_2;
+                    *req.headers_mut() = headers;
+
+                    on_msg(req);
+                }
+                head::Kind::Data => {}
+                _ => {}
             }
         }
     }
@@ -130,7 +136,7 @@ where
                 }
                 if ready.is_readable() {
                     io.try_read()?;
-                    ctx.try_decode(&mut *io.read_buf, |req| {
+                    ctx.try_decode(&mut io.read_buf, |req| {
                         queue.push(service.call(req));
                     });
                 }
