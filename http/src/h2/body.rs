@@ -1,10 +1,11 @@
-use std::{
+use core::{
     pin::Pin,
     task::{Context, Poll},
 };
 
-use futures_core::Stream;
+use futures_core::stream::Stream;
 use h2::RecvStream;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::{bytes::Bytes, error::BodyError};
 
@@ -44,5 +45,23 @@ impl From<RecvStream> for RequestBody {
 impl From<RecvStream> for crate::body::RequestBody {
     fn from(stream: RecvStream) -> Self {
         Self::H2(RequestBody(stream))
+    }
+}
+
+/// Request body type for Http/2 specifically.
+pub struct RequestBodyV2(UnboundedReceiver<Result<Bytes, BodyError>>);
+
+impl RequestBodyV2 {
+    pub(super) fn new_pair() -> (Self, UnboundedSender<Result<Bytes, BodyError>>) {
+        let (tx, rx) = unbounded_channel();
+        (Self(rx), tx)
+    }
+}
+
+impl Stream for RequestBodyV2 {
+    type Item = Result<Bytes, BodyError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_mut().0.poll_recv(cx)
     }
 }

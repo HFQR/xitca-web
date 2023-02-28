@@ -29,6 +29,8 @@ use crate::{
     },
 };
 
+use super::body::RequestBodyV2;
+
 use self::settings::Settings;
 
 const HEADER_LEN: usize = 9;
@@ -61,7 +63,7 @@ impl Context {
 
     fn try_decode<F>(&mut self, buf: &mut PagedBytesMut, mut on_msg: F)
     where
-        F: FnMut(Request<RequestExt<()>>),
+        F: FnMut(Request<RequestExt<RequestBodyV2>>),
     {
         loop {
             if self.next_frame_len == 0 {
@@ -92,7 +94,8 @@ impl Context {
                     headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
                     let (_pseudo, headers) = headers.into_parts();
 
-                    let mut req = Request::new(RequestExt::default());
+                    let (body, _) = RequestBodyV2::new_pair();
+                    let mut req = Request::new(RequestExt::default()).map(|ext| ext.map_body(|_: ()| body));
                     *req.version_mut() = Version::HTTP_2;
                     *req.headers_mut() = headers;
 
@@ -109,7 +112,7 @@ impl Context {
 pub async fn run<Io, S>(mut io: Io, service: S) -> io::Result<()>
 where
     Io: AsyncIo,
-    S: Service<Request<RequestExt<()>>, Response = Response<()>, Error = Infallible>,
+    S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<()>, Error = Infallible>,
 {
     let write_buf = ListWriteBuf::<Bytes, 32>::default();
     let mut io = BufferedIo::new(&mut io, write_buf);
