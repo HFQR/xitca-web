@@ -10,15 +10,16 @@ mod stream_id;
 
 pub(crate) use dispatcher::Dispatcher;
 
-use std::io;
+use std::{convert::Infallible, io};
 
 use xitca_io::{
     bytes::{Buf, BufMut, Bytes, BytesMut},
     io::AsyncIo,
 };
+use xitca_service::Service;
 
 use crate::{
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Request, RequestExt, Response, StatusCode, Version},
     util::buffered_io::{self, BufWrite, ListWriteBuf},
 };
 
@@ -31,9 +32,10 @@ const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 type BufferedIo<'i, Io, W> = buffered_io::BufferedIo<'i, Io, W, { 1024 * 1024 }>;
 
 /// Experimental h2 http layer.
-pub async fn run<Io>(mut io: Io) -> io::Result<()>
+pub async fn run<Io, S>(mut io: Io, service: S) -> io::Result<()>
 where
     Io: AsyncIo,
+    S: Service<Request<RequestExt<()>>, Response = Response<()>, Error = Infallible>,
 {
     let write_buf = ListWriteBuf::<Bytes, 32>::default();
     let mut io = BufferedIo::new(&mut io, write_buf);
@@ -51,44 +53,46 @@ where
     let mut decoder = hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
     let mut encoder = hpack::Encoder::new(65535, 4096);
 
-    // settings ack is parsed and ignored for now.
-    {
-        let frame = recv_frame(&mut io).await?;
-
-        let head = head::Head::parse(&frame);
-
-        let _ = Settings::load(head, &frame).unwrap();
-    }
-
-    // naively assume a header frame is gonna come in.
-    {
+    loop {
         let mut frame = recv_frame(&mut io).await?;
         let head = head::Head::parse(&frame);
+        match head.kind() {
+            head::Kind::Settings => {
+                let _setting = Settings::load(head, &frame).unwrap();
+            }
+            head::Kind::Headers => {
+                // TODO: Make Head::parse auto advance the frame?
+                frame.advance(6);
 
-        // TODO: Make Head::parse auto advance the frame?
-        frame.advance(6);
+                let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
 
-        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
+                headers.load_hpack(&mut frame, 4096, &mut decoder).unwrap();
+                let (_pseudo, headers) = headers.into_parts();
 
-        headers.load_hpack(&mut frame, 4096, &mut decoder).unwrap();
-        let (pseudo, headers) = headers.into_parts();
-        dbg!(pseudo);
-        dbg!(headers);
+                let mut req = Request::new(RequestExt::default());
+                *req.version_mut() = Version::HTTP_2;
+                *req.headers_mut() = headers;
+
+                let (_parts, _body) = service.call(req).await.unwrap().into_parts();
+
+                let pseudo = headers::Pseudo::response(StatusCode::OK);
+
+                let headers = headers::Headers::new(1.into(), pseudo, HeaderMap::new());
+                let mut buf = (&mut io.write_buf.buf).limit(4096);
+                headers.encode(&mut encoder, &mut buf);
+
+                let buf = io.write_buf.buf.split().freeze();
+                io.write_buf.buffer(buf);
+
+                break;
+            }
+            kind => {
+                dbg!(kind);
+            }
+        }
     }
 
-    // naively send a header frame.
-    {
-        let pseudo = headers::Pseudo::response(StatusCode::OK);
-
-        let headers = headers::Headers::new(1.into(), pseudo, HeaderMap::new());
-        let mut buf = (&mut io.write_buf.buf).limit(4096);
-        headers.encode(&mut encoder, &mut buf);
-    }
-
-    let buf = io.write_buf.buf.split().freeze();
-    io.write_buf.buffer(buf);
     io.drain_write().await?;
-
     io.shutdown().await
 }
 

@@ -10,6 +10,7 @@ xitca-codegen = "0.1"
 xitca-io = "0.1"
 xitca-server = { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
+xitca-unsafe-collection = "0.1"
 
 http-ws = { version = "0.1", features = ["stream"] }
 
