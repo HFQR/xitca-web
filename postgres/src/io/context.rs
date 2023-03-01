@@ -1,11 +1,11 @@
 use alloc::collections::VecDeque;
 
-use xitca_io::bytes::BytesMut;
-
 use crate::{
     error::Error,
     response::{ResponseMessage, ResponseSender},
 };
+
+use super::buffered::PagedBytesMut;
 
 pub(super) struct Context {
     concurrent_res: VecDeque<ResponseSender>,
@@ -26,7 +26,7 @@ impl Context {
         self.concurrent_res.push_back(tx);
     }
 
-    pub(super) fn try_decode(&mut self, buf: &mut BytesMut) -> Result<(), Error> {
+    pub(super) fn try_decode(&mut self, buf: &mut PagedBytesMut) -> Result<(), Error> {
         while let Some(res) = ResponseMessage::try_from_buf(buf)? {
             if let ResponseMessage::Normal { buf, complete } = res {
                 let _ = self
