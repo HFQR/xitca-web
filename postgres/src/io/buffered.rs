@@ -30,10 +30,12 @@ use super::context::Context;
 pub struct BufferedIo<Io> {
     io: Io,
     buf_write: BufWrite,
-    read_buf: BytesMut,
+    read_buf: PagedBytesMut,
     rx: UnboundedReceiver<Request>,
     ctx: Context,
 }
+
+pub(crate) type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
 impl<Io> BufferedIo<Io>
 where
@@ -43,7 +45,7 @@ where
         Self {
             io,
             buf_write: BufWrite::default(),
-            read_buf: BytesMut::new(),
+            read_buf: PagedBytesMut::new(),
             rx,
             ctx: Context::new(),
         }

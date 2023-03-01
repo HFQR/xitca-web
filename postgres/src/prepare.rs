@@ -43,18 +43,18 @@ impl Client {
 
         match res.recv().await? {
             backend::Message::ParseComplete => {}
-            _ => return Err(Error::ToDo),
+            _ => return Err(Error::UnexpectedMessage),
         }
 
         let parameter_description = match res.recv().await? {
             backend::Message::ParameterDescription(body) => body,
-            _ => return Err(Error::ToDo),
+            _ => return Err(Error::UnexpectedMessage),
         };
 
         let row_description = match res.recv().await? {
             backend::Message::RowDescription(body) => Some(body),
             backend::Message::NoData => None,
-            _ => return Err(Error::ToDo),
+            _ => return Err(Error::UnexpectedMessage),
         };
 
         let mut parameters = Vec::new();
@@ -88,7 +88,7 @@ impl Client {
             let stmt = self.typeinfo_statement().await?;
 
             let mut rows = self.query_raw(&stmt, &[&oid]).await?;
-            let row = rows.next().await.ok_or(Error::ToDo)??;
+            let row = rows.next().await.ok_or(Error::UnexpectedMessage)??;
 
             let name = row.try_get::<String>(0)?;
             let type_ = row.try_get::<i8>(1)?;
