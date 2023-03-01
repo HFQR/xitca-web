@@ -40,13 +40,13 @@ impl Response {
             }
         }
 
-        match backend::Message::parse(&mut self.buf)? {
+        let res = match backend::Message::parse(&mut self.buf)? {
             // TODO: error response.
-            Some(backend::Message::ErrorResponse(_body)) => Poll::Ready(Err(Error::ToDo)),
-            Some(msg) => Poll::Ready(Ok(msg)),
-            // TODO: partial response.
-            None => Poll::Ready(Err(Error::ToDo)),
-        }
+            Some(backend::Message::ErrorResponse(_body)) => Err(Error::ToDo),
+            Some(msg) => Ok(msg),
+            None => unreachable!("must not parse message from empty buffer."),
+        };
+        Poll::Ready(res)
     }
 }
 
@@ -60,9 +60,12 @@ impl ResponseMessage {
         let mut idx = 0;
         let mut complete = false;
 
-        while let Some(header) = backend::Header::parse(&buf[idx..])? {
+        loop {
+            let slice = &buf[idx..];
+            let Some(header) = backend::Header::parse(slice)? else { break };
             let len = header.len() as usize + 1;
-            if buf[idx..].len() < len {
+
+            if slice.len() < len {
                 break;
             }
 
@@ -74,18 +77,17 @@ impl ResponseMessage {
                         // this is needed because postgres-protocol is an external crate.
                         let message = backend::Message::parse(buf.get_mut())?.unwrap();
                         return Ok(Some(ResponseMessage::Async(message)));
-                    } else {
+                    }
+
+                    break;
+                }
+                tag => {
+                    idx += len;
+                    if matches!(tag, backend::READY_FOR_QUERY_TAG) {
+                        complete = true;
                         break;
                     }
                 }
-                _ => {}
-            }
-
-            idx += len;
-
-            if header.tag() == backend::READY_FOR_QUERY_TAG {
-                complete = true;
-                break;
             }
         }
 
