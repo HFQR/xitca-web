@@ -48,7 +48,7 @@ where
                 Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
                 Ok(_) => {
                     if !self.read_buf.want_buf() {
-                        trace!(target: "dispatchter", "Read buffer limit reached(Current length: {} bytes). Entering backpressure(No log event for recovery).", self.read_buf.len());
+                        trace!("READ_BUF_LIMIT: {READ_BUF_LIMIT} reached(unit in byte). Entering backpressure(no log event for recovery).");
                         return Ok(());
                     }
                 }
