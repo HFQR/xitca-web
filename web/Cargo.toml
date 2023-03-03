@@ -81,7 +81,7 @@ http-multipart = { version = "0.1", optional = true }
 
 # websocket
 http-ws = { version = "0.1", optional = true }
-tokio = { version = "1.24", features = ["rt", "sync", "time"], optional = true }
+tokio = { version = "1.26", features = ["rt", "sync", "time"], optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }
