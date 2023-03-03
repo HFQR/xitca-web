@@ -1,9 +1,9 @@
-use std::{io::Write, ops::DerefMut};
+use std::io::Write;
 
 use xitca_io::bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut};
 use xitca_unsafe_collection::bytes::EitherBuf;
 
-use crate::util::buffered_io::{BufWrite, ListWriteBuf, WriteBuf};
+use crate::util::buffered::{BufWrite, ListWriteBuf, WriteBuf};
 
 /// trait for add http/1 data to buffer that implement [BufWrite] trait.
 pub trait H1BufWrite: BufWrite {
@@ -28,22 +28,22 @@ impl<const BUF_LIMIT: usize> H1BufWrite for WriteBuf<BUF_LIMIT> {
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
-        self.deref_mut().write_head(func)
+        self.buf.write_head(func)
     }
 
     #[inline(always)]
     fn write_static(&mut self, bytes: &'static [u8]) {
-        self.deref_mut().write_static(bytes)
+        self.buf.write_static(bytes)
     }
 
     #[inline(always)]
     fn write_bytes(&mut self, bytes: Bytes) {
-        self.deref_mut().write_bytes(bytes)
+        self.buf.write_bytes(bytes)
     }
 
     #[inline(always)]
     fn write_chunked(&mut self, bytes: Bytes) {
-        self.deref_mut().write_chunked(bytes)
+        self.buf.write_chunked(bytes)
     }
 }
 

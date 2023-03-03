@@ -7,7 +7,7 @@ use crate::{
         header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
         Extension, Method, Request, RequestExt, Uri, Version,
     },
-    util::buffered_io::PagedBytesMut,
+    util::buffered::PagedBytesMut,
 };
 
 use super::{

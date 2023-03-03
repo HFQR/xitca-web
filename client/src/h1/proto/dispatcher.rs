@@ -3,8 +3,7 @@ use core::{future::poll_fn, pin::pin};
 use std::io;
 
 use futures_core::Stream;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use xitca_http::h1::proto::{codec::TransferCoding, context::ConnectionType};
 
 use crate::{

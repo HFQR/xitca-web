@@ -4,7 +4,7 @@ pub mod middleware;
 pub mod service;
 
 #[cfg(any(feature = "http1", feature = "http2"))]
-pub mod buffered_io;
+pub mod buffered;
 pub(crate) mod futures;
 #[cfg(feature = "http1")]
 pub(crate) mod hint;

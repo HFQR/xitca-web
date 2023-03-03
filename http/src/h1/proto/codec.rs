@@ -4,7 +4,7 @@ use tracing::{trace, warn};
 
 use crate::{
     bytes::{Buf, Bytes},
-    util::buffered_io::PagedBytesMut,
+    util::buffered::PagedBytesMut,
 };
 
 use super::{
@@ -403,7 +403,7 @@ fn bounded_split(rem: &mut u64, buf: &mut PagedBytesMut) -> Bytes {
 
 #[cfg(test)]
 mod test {
-    use crate::util::buffered_io::WriteBuf;
+    use crate::util::buffered::WriteBuf;
 
     use super::*;
 
