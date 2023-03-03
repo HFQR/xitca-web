@@ -65,12 +65,18 @@ impl H1BufWrite for BytesMut {
 
     #[inline]
     fn write_buf_static(&mut self, bytes: &'static [u8]) {
-        let _ = self.write_buf(|this| Ok::<_, Infallible>(this.put_slice(bytes)));
+        let _ = self.write_buf(|this| {
+            this.put_slice(bytes);
+            Ok::<_, Infallible>(())
+        });
     }
 
     #[inline]
     fn write_buf_bytes(&mut self, bytes: Bytes) {
-        let _ = self.write_buf(|this| Ok::<_, Infallible>(this.put_slice(bytes.as_ref())));
+        let _ = self.write_buf(|this| {
+            this.put_slice(bytes.as_ref());
+            Ok::<_, Infallible>(())
+        });
     }
 
     fn write_buf_bytes_chunked(&mut self, bytes: Bytes) {
@@ -112,12 +118,18 @@ impl<const BUF_LIMIT: usize> H1BufWrite for ListWriteBuf<EncodedBuf<Bytes, Eof>,
 
     #[inline]
     fn write_buf_static(&mut self, bytes: &'static [u8]) {
-        let _ = self.write_buf(|this| Ok::<_, Infallible>(this.buffer(EitherBuf::Right(EitherBuf::Right(bytes)))));
+        let _ = self.write_buf(|this| {
+            this.buffer(EitherBuf::Right(EitherBuf::Right(bytes)));
+            Ok::<_, Infallible>(())
+        });
     }
 
     #[inline]
     fn write_buf_bytes(&mut self, bytes: Bytes) {
-        let _ = self.write_buf(|this| Ok::<_, Infallible>(this.buffer(EitherBuf::Left(bytes))));
+        let _ = self.write_buf(|this| {
+            this.buffer(EitherBuf::Left(bytes));
+            Ok::<_, Infallible>(())
+        });
     }
 
     #[inline]
