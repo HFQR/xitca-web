@@ -288,16 +288,16 @@ impl TransferCoding {
         }
 
         match *self {
-            Self::Upgrade => buf.write_bytes(bytes),
-            Self::EncodeChunked => buf.write_chunked(bytes),
+            Self::Upgrade => buf.write_buf_bytes(bytes),
+            Self::EncodeChunked => buf.write_buf_bytes_chunked(bytes),
             Self::Length(ref mut rem) => {
                 let len = bytes.len() as u64;
                 if *rem >= len {
-                    buf.write_bytes(bytes);
+                    buf.write_buf_bytes(bytes);
                     *rem -= len;
                 } else {
                     let rem = mem::replace(rem, 0u64);
-                    buf.write_bytes(bytes.split_to(rem as usize));
+                    buf.write_buf_bytes(bytes.split_to(rem as usize));
                 }
             }
             Self::Eof => warn!(target: "h1_encode", "TransferCoding::Eof should not encode response body"),
@@ -312,7 +312,7 @@ impl TransferCoding {
     {
         match *self {
             Self::Eof | Self::Upgrade | Self::Length(0) => {}
-            Self::EncodeChunked => buf.write_static(b"0\r\n\r\n"),
+            Self::EncodeChunked => buf.write_buf_static(b"0\r\n\r\n"),
             Self::Length(n) => unreachable!("UnexpectedEof for Length Body with {} remaining", n),
             _ => unreachable!(),
         }

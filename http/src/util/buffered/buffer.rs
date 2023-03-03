@@ -22,10 +22,11 @@ pub trait BufInterest {
 
 /// trait generic over different types of write buffer strategy.
 pub trait BufWrite: BufInterest {
-    /// write into buffer write with closure.
-    fn write_buf<F, O>(&mut self, func: F) -> O
+    /// write into buffer write with closure that output a Result type.
+    /// the result type is used to hint buffer to stop wanting to flush IO on write_io.
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
-        F: FnOnce(&mut Self) -> O;
+        F: FnOnce(&mut Self) -> Result<T, E>;
 
     /// write into IO from buffer.
     fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()>;
@@ -44,28 +45,15 @@ impl BufInterest for BytesMut {
 }
 
 impl BufWrite for BytesMut {
-    fn write_buf<F, O>(&mut self, func: F) -> O
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
-        F: FnOnce(&mut Self) -> O,
+        F: FnOnce(&mut Self) -> Result<T, E>,
     {
         func(self)
     }
 
-    fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
-        loop {
-            match io::Write::write(io, self) {
-                Ok(0) => return write_zero(self.want_write_io()),
-                Ok(n) => {
-                    self.advance(n);
-                    if self.is_empty() {
-                        break;
-                    }
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(())
+    fn write_io<Io: io::Write>(&mut self, _: &mut Io) -> io::Result<()> {
+        unimplemented!("<BytesMut as BufWrite>::write_io is not used in server side code.")
     }
 }
 
@@ -158,13 +146,14 @@ impl<const BUF_LIMIT: usize> BufInterest for WriteBuf<BUF_LIMIT> {
 }
 
 impl<const BUF_LIMIT: usize> BufWrite for WriteBuf<BUF_LIMIT> {
-    fn write_buf<F, O>(&mut self, func: F) -> O
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
-        F: FnOnce(&mut Self) -> O,
+        F: FnOnce(&mut Self) -> Result<T, E>,
     {
-        let o = func(self);
-        self.want_flush = true;
-        o
+        func(self).map(|t| {
+            self.want_flush = false;
+            t
+        })
     }
 
     fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
@@ -250,13 +239,14 @@ impl<B, const BUF_LIMIT: usize> BufWrite for ListWriteBuf<B, BUF_LIMIT>
 where
     B: Buf + ChunkVectoredUninit,
 {
-    fn write_buf<F, O>(&mut self, func: F) -> O
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
-        F: FnOnce(&mut Self) -> O,
+        F: FnOnce(&mut Self) -> Result<T, E>,
     {
-        let o = func(self);
-        self.want_flush = true;
-        o
+        func(self).map(|t| {
+            self.want_flush = false;
+            t
+        })
     }
 
     fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {

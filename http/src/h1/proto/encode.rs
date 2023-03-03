@@ -27,7 +27,7 @@ where
     where
         W: H1BufWrite,
     {
-        buf.write_static(b"HTTP/1.1 100 Continue\r\n\r\n");
+        buf.write_buf_static(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
 
     pub fn encode_head<B, W>(&mut self, parts: Parts, body: &B, buf: &mut W) -> Result<TransferCoding, ProtoError>
@@ -35,7 +35,7 @@ where
         B: Stream,
         W: H1BufWrite,
     {
-        buf.write_head(|buf| self.encode_head_inner(parts, body, buf))
+        buf.write_buf_fallible(|buf| self.encode_head_inner(parts, body, buf))
     }
 
     fn encode_head_inner<B>(&mut self, parts: Parts, body: &B, buf: &mut BytesMut) -> Result<TransferCoding, ProtoError>
