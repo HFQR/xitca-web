@@ -53,24 +53,26 @@ impl H1BufWrite for BytesMut {
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
-        func(self)
+        self.write_buf(func)
     }
 
     #[inline]
     fn write_static(&mut self, bytes: &'static [u8]) {
-        self.put_slice(bytes);
+        self.write_buf(|this| this.put_slice(bytes))
     }
 
     #[inline]
     fn write_bytes(&mut self, bytes: Bytes) {
-        self.put_slice(bytes.as_ref());
+        self.write_buf(|this| this.put_slice(bytes.as_ref()))
     }
 
     fn write_chunked(&mut self, bytes: Bytes) {
-        write!(BufMutWriter(self), "{:X}\r\n", bytes.len()).unwrap();
-        self.reserve(bytes.len() + 2);
-        self.put_slice(bytes.as_ref());
-        self.put_slice(b"\r\n");
+        self.write_buf(|this| {
+            write!(BufMutWriter(this), "{:X}\r\n", bytes.len()).unwrap();
+            this.reserve(bytes.len() + 2);
+            this.put_slice(bytes.as_ref());
+            this.put_slice(b"\r\n");
+        })
     }
 }
 
@@ -84,28 +86,32 @@ impl<const BUF_LIMIT: usize> H1BufWrite for ListWriteBuf<EncodedBuf<Bytes, Eof>,
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
-        let buf = &mut self.buf;
-        let res = func(buf)?;
-        let bytes = buf.split().freeze();
-        self.buffer(EitherBuf::Left(bytes));
-        Ok(res)
+        self.write_buf(|this| {
+            let buf = &mut this.buf;
+            let res = func(buf)?;
+            let bytes = buf.split().freeze();
+            this.buffer(EitherBuf::Left(bytes));
+            Ok(res)
+        })
     }
 
     #[inline]
     fn write_static(&mut self, bytes: &'static [u8]) {
-        self.buffer(EitherBuf::Right(EitherBuf::Right(bytes)));
+        self.write_buf(|this| this.buffer(EitherBuf::Right(EitherBuf::Right(bytes))))
     }
 
     #[inline]
     fn write_bytes(&mut self, bytes: Bytes) {
-        self.buffer(EitherBuf::Left(bytes));
+        self.write_buf(|this| this.buffer(EitherBuf::Left(bytes)))
     }
 
     #[inline]
     fn write_chunked(&mut self, bytes: Bytes) {
-        let eof = Bytes::from(format!("{:X}\r\n", bytes.len()))
-            .chain(bytes)
-            .chain(b"\r\n" as &'static [u8]);
-        self.buffer(EitherBuf::Right(EitherBuf::Left(eof)));
+        self.write_buf(|this| {
+            let eof = Bytes::from(format!("{:X}\r\n", bytes.len()))
+                .chain(bytes)
+                .chain(b"\r\n" as &'static [u8]);
+            this.buffer(EitherBuf::Right(EitherBuf::Left(eof)));
+        })
     }
 }

@@ -183,7 +183,7 @@ where
     }
 
     async fn ready(&mut self) -> io::Result<Ready> {
-        let interest = match (self.read_buf.want_buf(), self.write_buf.want_write()) {
+        let interest = match (self.read_buf.want_write_buf(), self.write_buf.want_write_io()) {
             (true, true) => Interest::READABLE | Interest::WRITABLE,
             (true, false) => Interest::READABLE,
             (false, true) => Interest::WRITABLE,
