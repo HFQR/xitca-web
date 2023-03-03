@@ -24,7 +24,7 @@ use xitca_unsafe_collection::futures::{Select, SelectOutput};
 use crate::{
     http::{Request, RequestExt, Response, Version},
     util::{
-        buffered_io::{self, BufInterest, BufWrite, ListWriteBuf, PagedBytesMut},
+        buffered::{self, BufInterest, BufWrite, ListWriteBuf, PagedBytesMut},
         futures::Queue,
     },
 };
@@ -37,7 +37,7 @@ const HEADER_LEN: usize = 9;
 
 const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-type BufferedIo<'i, Io, W> = buffered_io::BufferedIo<'i, Io, W, { 1024 * 1024 }>;
+type BufferedIo<'i, Io, W> = buffered::BufferedIo<'i, Io, W, { 1024 * 1024 }>;
 
 struct Context {
     decoder: hpack::Decoder,

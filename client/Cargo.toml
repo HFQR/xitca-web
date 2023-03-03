@@ -25,7 +25,7 @@ xitca-unsafe-collection = "0.1"
 futures-core = { version = "0.3.17", default-features = false, features =["alloc"] }
 futures-util = { version = "0.3.17", default-features = false, features =["alloc"] }
 pin-project-lite = "0.2.9"
-tokio = { version = "1.24", features = ["io-util", "rt", "sync", "time"] }
+tokio = { version = "1.26", features = ["io-util", "rt", "sync", "time"] }
 tracing = { version = "0.1.36", default-features = false }
 
 # http/1 support
@@ -63,4 +63,4 @@ http-ws = { version = "0.1", default-features = false, optional = true }
 
 [dev-dependencies]
 async-trait = "0.1.51"
-tokio = { version = "1.24", features = ["macros"] }
+tokio = { version = "1.26", features = ["macros"] }

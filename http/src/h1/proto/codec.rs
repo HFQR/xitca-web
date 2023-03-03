@@ -4,7 +4,7 @@ use tracing::{trace, warn};
 
 use crate::{
     bytes::{Buf, Bytes},
-    util::buffered_io::PagedBytesMut,
+    util::buffered::PagedBytesMut,
 };
 
 use super::{
@@ -403,7 +403,7 @@ fn bounded_split(rem: &mut u64, buf: &mut PagedBytesMut) -> Bytes {
 
 #[cfg(test)]
 mod test {
-    use crate::util::buffered_io::WriteBuf;
+    use crate::util::buffered::WriteBuf;
 
     use super::*;
 
@@ -553,16 +553,16 @@ mod test {
         let msg1 = Bytes::from("foo bar");
         encoder.encode(msg1, dst);
 
-        assert_eq!(&***dst, b"7\r\nfoo bar\r\n");
+        assert_eq!(dst.buf.as_ref(), b"7\r\nfoo bar\r\n");
 
         let msg2 = Bytes::from("baz quux herp");
         encoder.encode(msg2, dst);
 
-        assert_eq!(&***dst, b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n");
+        assert_eq!(dst.buf.as_ref(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n");
 
         encoder.encode_eof(dst);
 
-        assert_eq!(&***dst, b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n0\r\n\r\n");
+        assert_eq!(dst.buf.as_ref(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n0\r\n\r\n");
     }
 
     #[test]
@@ -575,18 +575,18 @@ mod test {
         let msg1 = Bytes::from("foo bar");
         encoder.encode(msg1, dst);
 
-        assert_eq!(&***dst, b"foo bar");
+        assert_eq!(dst.buf.as_ref(), b"foo bar");
 
         for _ in 0..8 {
             let msg2 = Bytes::from("baz");
             encoder.encode(msg2, dst);
 
-            assert_eq!(dst.len(), max_len);
-            assert_eq!(&***dst, b"foo barb");
+            assert_eq!(dst.buf.len(), max_len);
+            assert_eq!(dst.buf.as_ref(), b"foo barb");
         }
 
         encoder.encode_eof(dst);
-        assert_eq!(dst.len(), max_len);
-        assert_eq!(&***dst, b"foo barb");
+        assert_eq!(dst.buf.len(), max_len);
+        assert_eq!(dst.buf.as_ref(), b"foo barb");
     }
 }

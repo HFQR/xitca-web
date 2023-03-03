@@ -29,7 +29,7 @@ use crate::{
         Request, RequestExt, StatusCode,
     },
     util::{
-        buffered_io::{BufferedIo, ListWriteBuf, ReadBuf, WriteBuf},
+        buffered::{BufferedIo, ListWriteBuf, ReadBuf, WriteBuf},
         hint::unlikely,
         timer::{KeepAlive, Timeout},
     },

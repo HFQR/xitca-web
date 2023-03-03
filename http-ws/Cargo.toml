@@ -18,8 +18,8 @@ tracing = { version = "0.1.26", default-features = false }
 
 # stream feature
 pin-project-lite = { version = "0.2.9", optional = true }
-tokio = { version = "1.24", optional = true }
+tokio = { version = "1.26", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.24", features = ["rt"] }
+tokio = { version = "1.26", features = ["rt"] }
 futures-util = { version = "0.3.25", default-features = false }

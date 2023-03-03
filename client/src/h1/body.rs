@@ -12,7 +12,7 @@ use xitca_http::{
     bytes::Bytes,
     error::BodyError,
     h1::proto::codec::{ChunkResult, TransferCoding},
-    util::buffered_io::PagedBytesMut,
+    util::buffered::PagedBytesMut,
 };
 
 pub struct ResponseBody<C> {
