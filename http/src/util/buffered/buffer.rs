@@ -240,6 +240,8 @@ impl<B: Buf, const BUF_LIMIT: usize> ListWriteBuf<B, BUF_LIMIT> {
     /// when push more items to list than the capacity. ListWriteBuf is strictly bounded.
     pub fn buffer<BB: Buf + Into<B>>(&mut self, buf: BB) {
         self.list.push(buf.into());
+        // cross reference with <Self as BufWrite>::buf_write method.
+        self.want_flush = false;
     }
 }
 
@@ -278,16 +280,12 @@ where
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
-        let len = self.buf.len();
-        func(&mut self.buf)
-            .map(|t| {
-                self.want_flush = false;
-                t
-            })
-            .map_err(|e| {
-                self.buf.truncate(len);
-                e
-            })
+        // in ListWriteBuf the BytesMut is only used as temporary storage of buffer.
+        // only when ListWriteBuf::buffer is called we set self.want_flush to false.
+        func(&mut self.buf).map_err(|e| {
+            self.buf.clear();
+            e
+        })
     }
 
     fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
