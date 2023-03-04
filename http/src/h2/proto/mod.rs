@@ -121,8 +121,11 @@ where
 
     let settings = Settings::default();
 
-    settings.encode(&mut io.write_buf.buf);
-    let buf = io.write_buf.buf.split().freeze();
+    let _ = io.write_buf.write_buf(|buf| {
+        settings.encode(buf);
+        Ok::<_, Infallible>(())
+    });
+    let buf = io.write_buf.split_buf().freeze();
     io.write_buf.buffer(buf);
 
     io.drain_write().await?;
@@ -148,9 +151,13 @@ where
                 let (parts, _) = res.unwrap().into_parts();
                 let pseudo = headers::Pseudo::response(parts.status);
                 let headers = headers::Headers::new(1.into(), pseudo, parts.headers);
-                let mut buf = (&mut io.write_buf.buf).limit(4096);
-                headers.encode(&mut ctx.encoder, &mut buf);
-                let buf = io.write_buf.buf.split().freeze();
+
+                let _ = io.write_buf.write_buf(|buf| {
+                    let mut buf = buf.limit(4096);
+                    headers.encode(&mut ctx.encoder, &mut buf);
+                    Ok::<_, Infallible>(())
+                });
+                let buf = io.write_buf.split_buf().freeze();
                 io.write_buf.buffer(buf);
                 break;
             }

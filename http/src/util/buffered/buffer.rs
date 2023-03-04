@@ -136,6 +136,21 @@ impl<const BUF_LIMIT: usize> Default for WriteBuf<BUF_LIMIT> {
     }
 }
 
+#[cfg(test)]
+impl<const BUF_LIMIT: usize> Deref for WriteBuf<BUF_LIMIT> {
+    type Target = BytesMut;
+    fn deref(&self) -> &Self::Target {
+        &self.buf
+    }
+}
+
+#[cfg(test)]
+impl<const BUF_LIMIT: usize> DerefMut for WriteBuf<BUF_LIMIT> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buf
+    }
+}
+
 impl<const BUF_LIMIT: usize> BufInterest for WriteBuf<BUF_LIMIT> {
     #[inline]
     fn want_write_buf(&self) -> bool {
