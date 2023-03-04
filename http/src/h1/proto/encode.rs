@@ -35,7 +35,7 @@ where
         B: Stream,
         W: H1BufWrite,
     {
-        buf.write_buf_fallible(|buf| self.encode_head_inner(parts, body, buf))
+        buf.write_buf_head(|buf| self.encode_head_inner(parts, body, buf))
     }
 
     fn encode_head_inner<B>(&mut self, parts: Parts, body: &B, buf: &mut BytesMut) -> Result<TransferCoding, ProtoError>
