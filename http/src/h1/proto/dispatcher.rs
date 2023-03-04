@@ -249,7 +249,7 @@ where
     }
 
     fn try_poll_body<'b>(&self, mut body: Pin<&'b mut ResB>) -> impl Future<Output = Option<Result<Bytes, BE>>> + 'b {
-        let want_buf = self.io.write_buf.want_buf();
+        let want_buf = self.io.write_buf.want_write_buf();
         async move {
             if want_buf {
                 poll_fn(|cx| body.as_mut().poll_next(cx)).await
@@ -282,7 +282,7 @@ where
     St: AsyncIo,
     W: H1BufWrite,
 {
-    if !io.write_buf.want_write() {
+    if !io.write_buf.want_write_io() {
         body_reader.ready(&mut io.read_buf, ctx).await;
         io.io.ready(Interest::READABLE).await
     } else {

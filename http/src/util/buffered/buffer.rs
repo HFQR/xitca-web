@@ -14,52 +14,58 @@ use xitca_unsafe_collection::{
 /// trait generic over different types of buffer strategy.
 pub trait BufInterest {
     /// flag if buffer want more data to be filled in.
-    fn want_buf(&self) -> bool;
+    fn want_write_buf(&self) -> bool;
 
     /// flag if buffer want to write data to io.
-    fn want_write(&self) -> bool;
+    fn want_write_io(&self) -> bool;
 }
 
 /// trait generic over different types of write buffer strategy.
 pub trait BufWrite: BufInterest {
-    /// write buffer to given io.
-    fn write<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()>;
+    /// write into [BytesMut] with closure that output a Result type.
+    /// the result type is used to hint buffer to stop wanting to flush IO on [BufWrite::write_io]
+    /// or revert BytesMut to previous state before method was called.
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>;
+
+    /// write into IO from buffer.
+    fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()>;
 }
 
 impl BufInterest for BytesMut {
     #[inline]
-    fn want_buf(&self) -> bool {
+    fn want_write_buf(&self) -> bool {
         true
     }
 
     #[inline]
-    fn want_write(&self) -> bool {
+    fn want_write_io(&self) -> bool {
         self.remaining() != 0
     }
 }
 
 impl BufWrite for BytesMut {
-    fn write<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
-        loop {
-            match io::Write::write(io, self) {
-                Ok(0) => return write_zero(self.want_write()),
-                Ok(n) => {
-                    self.advance(n);
-                    if self.is_empty() {
-                        break;
-                    }
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(())
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self) -> Result<T, E>,
+    {
+        let len = self.len();
+        func(self).map_err(|e| {
+            self.truncate(len);
+            e
+        })
+    }
+
+    fn write_io<Io: io::Write>(&mut self, _: &mut Io) -> io::Result<()> {
+        unreachable!("<BytesMut as BufWrite>::write_io is not used in server side code.")
     }
 }
 
 /// a hard code BytesMut that reserving additional 4kb heap memory everytime reallocating needed.
 pub type PagedBytesMut = bytes::PagedBytesMut<4096>;
 
+/// a writable buffer with const generic guarded max size limit.
 #[derive(Debug)]
 pub struct ReadBuf<const BUF_LIMIT: usize>(PagedBytesMut);
 
@@ -94,19 +100,17 @@ impl<const BUF_LIMIT: usize> DerefMut for ReadBuf<BUF_LIMIT> {
 
 impl<const BUF_LIMIT: usize> BufInterest for ReadBuf<BUF_LIMIT> {
     #[inline]
-    fn want_buf(&self) -> bool {
-        self.remaining() < BUF_LIMIT
+    fn want_write_buf(&self) -> bool {
+        self.0.remaining() < BUF_LIMIT
     }
 
-    #[cold]
-    #[inline(never)]
-    fn want_write(&self) -> bool {
-        unreachable!("ReadBuf is only meant for reading.")
+    fn want_write_io(&self) -> bool {
+        unreachable!("ReadBuf is only meant for reading from IO.")
     }
 }
 
 pub struct WriteBuf<const BUF_LIMIT: usize> {
-    pub(crate) buf: BytesMut,
+    buf: BytesMut,
     want_flush: bool,
 }
 
@@ -132,20 +136,51 @@ impl<const BUF_LIMIT: usize> Default for WriteBuf<BUF_LIMIT> {
     }
 }
 
+#[cfg(test)]
+impl<const BUF_LIMIT: usize> Deref for WriteBuf<BUF_LIMIT> {
+    type Target = BytesMut;
+    fn deref(&self) -> &Self::Target {
+        &self.buf
+    }
+}
+
+#[cfg(test)]
+impl<const BUF_LIMIT: usize> DerefMut for WriteBuf<BUF_LIMIT> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buf
+    }
+}
+
 impl<const BUF_LIMIT: usize> BufInterest for WriteBuf<BUF_LIMIT> {
     #[inline]
-    fn want_buf(&self) -> bool {
+    fn want_write_buf(&self) -> bool {
         self.buf.remaining() < BUF_LIMIT
     }
 
     #[inline]
-    fn want_write(&self) -> bool {
+    fn want_write_io(&self) -> bool {
         self.buf.remaining() != 0 || self.want_flush
     }
 }
 
 impl<const BUF_LIMIT: usize> BufWrite for WriteBuf<BUF_LIMIT> {
-    fn write<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>,
+    {
+        let len = self.buf.len();
+        func(&mut self.buf)
+            .map(|t| {
+                self.want_flush = false;
+                t
+            })
+            .map_err(|e| {
+                self.buf.truncate(len);
+                e
+            })
+    }
+
+    fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
         loop {
             if self.want_flush {
                 match io::Write::flush(io) {
@@ -156,7 +191,7 @@ impl<const BUF_LIMIT: usize> BufWrite for WriteBuf<BUF_LIMIT> {
                 break;
             }
             match io::Write::write(io, &self.buf) {
-                Ok(0) => return write_zero(self.want_write()),
+                Ok(0) => return write_zero(self.want_write_io()),
                 Ok(n) => {
                     self.buf.advance(n);
                     if self.buf.is_empty() {
@@ -175,7 +210,7 @@ impl<const BUF_LIMIT: usize> BufWrite for WriteBuf<BUF_LIMIT> {
 pub struct ListWriteBuf<B, const BUF_LIMIT: usize> {
     // Re-usable buffer that holds response head.
     // After head writing finished it's split and pushed to list.
-    pub buf: BytesMut,
+    buf: BytesMut,
     // Deque of user buffers if strategy is Queue
     list: BufList<B, BUF_LIST_CNT>,
     want_flush: bool,
@@ -192,9 +227,19 @@ impl<B: Buf, const BUF_LIMIT: usize> Default for ListWriteBuf<B, BUF_LIMIT> {
 }
 
 impl<B: Buf, const BUF_LIMIT: usize> ListWriteBuf<B, BUF_LIMIT> {
+    /// split buf field from Self.
+    /// this is often coupled with [ButWrite::write_buf] method to obtain what has been written to
+    /// the buf.
+    pub fn split_buf(&mut self) -> BytesMut {
+        self.buf.split()
+    }
+
+    /// add new buf to list.
+    ///
+    /// # Panics
+    /// when push more items to list than the capacity. ListWriteBuf is strictly bounded.
     pub fn buffer<BB: Buf + Into<B>>(&mut self, buf: BB) {
         self.list.push(buf.into());
-        self.want_flush = false;
     }
 }
 
@@ -215,12 +260,12 @@ where
     B: Buf + ChunkVectoredUninit,
 {
     #[inline]
-    fn want_buf(&self) -> bool {
+    fn want_write_buf(&self) -> bool {
         self.list.remaining() < BUF_LIMIT && !self.list.is_full()
     }
 
     #[inline]
-    fn want_write(&self) -> bool {
+    fn want_write_io(&self) -> bool {
         self.list.remaining() != 0 || self.want_flush
     }
 }
@@ -229,9 +274,24 @@ impl<B, const BUF_LIMIT: usize> BufWrite for ListWriteBuf<B, BUF_LIMIT>
 where
     B: Buf + ChunkVectoredUninit,
 {
-    fn write<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
-        let queue = &mut self.list;
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>,
+    {
+        let len = self.buf.len();
+        func(&mut self.buf)
+            .map(|t| {
+                self.want_flush = false;
+                t
+            })
+            .map_err(|e| {
+                self.buf.truncate(len);
+                e
+            })
+    }
 
+    fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
+        let queue = &mut self.list;
         loop {
             if self.want_flush {
                 match io::Write::flush(io) {
@@ -245,7 +305,7 @@ where
             let mut buf = uninit_array::<_, BUF_LIST_CNT>();
             let slice = queue.chunks_vectored_uninit_into_init(&mut buf);
             match io.write_vectored(slice) {
-                Ok(0) => return write_zero(self.want_write()),
+                Ok(0) => return write_zero(self.want_write_io()),
                 Ok(n) => {
                     queue.advance(n);
                     if queue.is_empty() {

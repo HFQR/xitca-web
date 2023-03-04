@@ -41,7 +41,7 @@ where
             match read_buf(self.io, &mut *self.read_buf) {
                 Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
                 Ok(_) => {
-                    if !self.read_buf.want_buf() {
+                    if !self.read_buf.want_write_buf() {
                         trace!("READ_BUF_LIMIT: {READ_BUF_LIMIT} reached(unit in byte). Entering backpressure(no log event for recovery).");
                         return Ok(());
                     }
@@ -54,7 +54,7 @@ where
 
     /// write until write buffer is emptied or io blocked.
     pub fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.write(self.io)
+        self.write_buf.write_io(self.io)
     }
 
     /// check for io read readiness in async and do [Self::try_write].
@@ -65,7 +65,7 @@ where
 
     /// drain write buffer and flush the io.
     pub async fn drain_write(&mut self) -> io::Result<()> {
-        while self.write_buf.want_write() {
+        while self.write_buf.want_write_io() {
             self.io.ready(Interest::WRITABLE).await?;
             self.try_write()?;
         }
