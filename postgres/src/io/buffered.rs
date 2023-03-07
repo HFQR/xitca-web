@@ -39,7 +39,7 @@ pub(crate) type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<40
 
 impl<Io> BufferedIo<Io>
 where
-    Io: AsyncIo,
+    Io: AsyncIo + Send + 'static,
 {
     pub(crate) fn new(io: Io, rx: UnboundedReceiver<Request>) -> Self {
         Self {
@@ -70,13 +70,15 @@ where
         Ok(())
     }
 
-    pub async fn run(mut self) -> Result<(), Error> {
+    pub async fn run(mut self) -> Result<(), Error>
+    where
+        for<'r> Io::Future<'r>: Send,
+    {
         self._run().await
     }
 
     pub(crate) fn spawn(mut self) -> Handle<Self>
     where
-        Io: Send + 'static,
         for<'r> Io::Future<'r>: Send,
     {
         let notify = Arc::new(Notify::new());
@@ -88,7 +90,10 @@ where
         Handle { handle, notify }
     }
 
-    async fn _run(&mut self) -> Result<(), Error> {
+    async fn _run(&mut self) -> Result<(), Error>
+    where
+        for<'r> Io::Future<'r>: Send,
+    {
         loop {
             let want_write = self.buf_write.want_write();
             match self.rx.recv().select(try_io(&mut self.io, want_write)).await {
@@ -113,7 +118,10 @@ where
 
     #[cold]
     #[inline(never)]
-    fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
+    fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + Send + '_
+    where
+        for<'r> Io::Future<'r>: Send,
+    {
         Box::pin(async {
             loop {
                 let want_write = self.buf_write.want_write();
