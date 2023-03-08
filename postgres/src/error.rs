@@ -53,7 +53,7 @@ impl From<FromSqlError> for Error {
 
 impl<T> From<SendError<T>> for Error {
     fn from(_: SendError<T>) -> Self {
-        write_zero_err()
+        Error::from(write_zero_err())
     }
 }
 
@@ -82,18 +82,18 @@ impl From<AuthenticationError> for Error {
 
 #[cold]
 #[inline(never)]
-pub(crate) fn unexpected_eof_err() -> Error {
-    Error::from(io::Error::new(
+pub(crate) fn unexpected_eof_err() -> io::Error {
+    io::Error::new(
         io::ErrorKind::UnexpectedEof,
         "zero byte read. remote close connection unexpectedly",
-    ))
+    )
 }
 
 #[cold]
 #[inline(never)]
-pub(crate) fn write_zero_err() -> Error {
-    Error::from(io::Error::new(
+pub(crate) fn write_zero_err() -> io::Error {
+    io::Error::new(
         io::ErrorKind::WriteZero,
         "zero byte written. remote close connection unexpectedly",
-    ))
+    )
 }

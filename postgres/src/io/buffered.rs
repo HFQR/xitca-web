@@ -11,9 +11,10 @@ use tokio::{
     sync::{mpsc::UnboundedReceiver, Notify},
     task::JoinHandle,
 };
+use tracing::error;
 use xitca_io::{
     bytes::{Buf, BytesMut},
-    io::{AsyncIo, Interest, Ready},
+    io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::{
     bytes::read_buf,
@@ -51,23 +52,23 @@ where
         }
     }
 
-    fn handle_io(&mut self, ready: Ready) -> Result<(), Error> {
-        if ready.is_readable() {
-            loop {
-                match read_buf(&mut self.io, &mut self.read_buf) {
-                    Ok(0) => return Err(unexpected_eof_err()),
-                    Ok(_) => self.ctx.try_decode(&mut self.read_buf)?,
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e.into()),
-                }
+    fn try_read(&mut self) -> Result<(), Error> {
+        loop {
+            match read_buf(&mut self.io, &mut self.read_buf) {
+                Ok(0) => return Err(Error::from(unexpected_eof_err())),
+                Ok(_) => self.ctx.try_decode(&mut self.read_buf)?,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(e.into()),
             }
         }
+    }
 
-        if ready.is_writable() {
-            self.buf_write.write(&mut self.io)?;
-        }
-
-        Ok(())
+    fn try_write(&mut self) -> io::Result<()> {
+        self.buf_write.write(&mut self.io).map_err(|e| {
+            self.buf_write.reset();
+            error!("server closed connection unexpectedly: {e}");
+            e
+        })
     }
 
     pub async fn run(mut self) -> Result<(), Error>
@@ -108,7 +109,12 @@ where
                 SelectOutput::A(None) => break,
                 SelectOutput::B(ready) => {
                     let ready = ready?;
-                    self.handle_io(ready)?;
+                    if ready.is_readable() {
+                        self.try_read()?;
+                    }
+                    if ready.is_writable() && self.try_write().is_err() {
+                        break;
+                    }
                 }
             }
         }
@@ -134,7 +140,12 @@ where
                 };
                 let fut = self.io.ready(interest);
                 let ready = fut.await?;
-                self.handle_io(ready)?;
+                if ready.is_readable() {
+                    self.try_read()?;
+                }
+                if ready.is_writable() {
+                    let _ = self.try_write();
+                }
             }
 
             poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))
@@ -186,7 +197,12 @@ impl BufWrite {
         !self.buf.is_empty() || self.want_flush
     }
 
-    fn write<Io>(&mut self, io: &mut Io) -> Result<(), Error>
+    fn reset(&mut self) {
+        self.buf.clear();
+        self.want_flush = false;
+    }
+
+    fn write<Io>(&mut self, io: &mut Io) -> io::Result<()>
     where
         Io: io::Write,
     {
@@ -195,7 +211,7 @@ impl BufWrite {
                 match io.flush() {
                     Ok(_) => self.want_flush = false,
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(e) => return Err(e.into()),
+                    Err(e) => return Err(e),
                 }
                 break;
             }
@@ -212,7 +228,7 @@ impl BufWrite {
                     }
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             }
         }
 
