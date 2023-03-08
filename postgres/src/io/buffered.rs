@@ -22,7 +22,7 @@ use xitca_unsafe_collection::{
 };
 
 use crate::{
-    error::{unexpected_eof_err, Error},
+    error::{unexpected_eof_err, write_zero_err, Error},
     request::Request,
 };
 
@@ -217,7 +217,7 @@ impl BufWrite {
             }
 
             match io.write(&self.buf) {
-                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                Ok(0) => return Err(write_zero_err()),
                 Ok(n) => {
                     self.buf.advance(n);
                     if self.buf.is_empty() {
