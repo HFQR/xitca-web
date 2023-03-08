@@ -36,7 +36,7 @@ impl Response {
         if self.buf.is_empty() {
             match ready!(self.rx.poll_recv(cx)) {
                 Some(buf) => self.buf = buf,
-                None => return Poll::Ready(Err(unexpected_eof_err())),
+                None => return Poll::Ready(Err(Error::from(unexpected_eof_err()))),
             }
         }
 
