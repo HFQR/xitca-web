@@ -135,32 +135,31 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
             CONTENT_LENGTH => {
                 let len = value
                     .to_str()
-                    .map_err(|_| ProtoError::Parse(Parse::HeaderName))?
+                    .map_err(|_| ProtoError::Parse(Parse::HeaderValue))?
                     .parse::<u64>()
-                    .map_err(|_| ProtoError::Parse(Parse::HeaderName))?;
+                    .map_err(|_| ProtoError::Parse(Parse::HeaderValue))?;
 
                 if len != 0 {
                     decoder.try_set(TransferCoding::length(len))?;
                 }
             }
             CONNECTION => {
-                let v = value.as_bytes();
-                // Connection header would update context state.
-                if v.eq_ignore_ascii_case(b"keep-alive") {
-                    self.set_ctype(ConnectionType::KeepAlive);
-                    // Drop the header value. keep-alive is the default behavior.
-                    return Ok(());
-                } else if v.eq_ignore_ascii_case(b"upgrade") {
-                    // set decoder to upgrade variant.
-                    decoder.try_set(TransferCoding::upgrade())?;
-                } else {
-                    // Treat all other value as close connection.
-                    // Please report for issue if this behavior is not correct.
-                    self.set_ctype(ConnectionType::Close);
+                for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
+                    let val = val.trim();
+                    if val.eq_ignore_ascii_case("keep-alive") {
+                        self.set_ctype(ConnectionType::KeepAlive)
+                    } else if val.eq_ignore_ascii_case("close") {
+                        self.set_ctype(ConnectionType::Close);
+                    }
                 }
             }
             EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
-            UPGRADE if version != Version::HTTP_11 => return Err(ProtoError::Parse(Parse::HeaderName)),
+            UPGRADE => {
+                if version != Version::HTTP_11 {
+                    return Err(ProtoError::Parse(Parse::HeaderName));
+                }
+                decoder.try_set(TransferCoding::upgrade())?;
+            }
             _ => {}
         }
 
@@ -173,6 +172,44 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn connection_multiple_value() {
+        let mut ctx = Context::<_, 4>::new(&());
+
+        let head = b"\
+                GET / HTTP/1.1\r\n\
+                Connection: keep-alive, upgrade\r\n\
+                \r\n\
+                ";
+        let mut buf = PagedBytesMut::from(&head[..]);
+
+        let _ = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        assert!(!ctx.is_connection_closed());
+
+        // this is a wrong connection header but instead of rejecting it the last close value is
+        // used for the final value. there is no particular reason behind this behaviour and this
+        // session of the test serves only as a consistency check to prevent regression.
+        let head = b"\
+                GET / HTTP/1.1\r\n\
+                Connection: keep-alive, close, upgrade\r\n\
+                \r\n\
+                ";
+        let mut buf = PagedBytesMut::from(&head[..]);
+
+        let _ = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        assert!(ctx.is_connection_closed());
+
+        let head = b"\
+                GET / HTTP/1.1\r\n\
+                Connection: close, keep-alive, upgrade\r\n\
+                \r\n\
+                ";
+        let mut buf = PagedBytesMut::from(&head[..]);
+
+        let _ = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        assert!(!ctx.is_connection_closed());
+    }
 
     #[test]
     fn transfer_encoding() {
