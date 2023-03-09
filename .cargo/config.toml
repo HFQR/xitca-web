@@ -18,3 +18,6 @@ ci-check-examples-exclude-io-uring = "hack check --workspace --exclude xitca-web
 ci-check-examples = "hack check --workspace --exclude xitca-web-wasi --feature-powerset"
 
 ci-miri-test = "miri test --package xitca-unsafe-collection --all-features --no-fail-fast -- --nocapture"
+
+[registries.crates-io]
+protocol = "sparse"
