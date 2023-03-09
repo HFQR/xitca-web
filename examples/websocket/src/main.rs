@@ -6,7 +6,7 @@ use tracing::{error, info};
 use xitca_web::{
     handler::{
         handler_service,
-        websocket::{Message, WebSocket}
+        websocket::{Message, WebSocket},
     },
     route::get,
     App, HttpServer,
