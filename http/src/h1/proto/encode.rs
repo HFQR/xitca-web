@@ -154,16 +154,7 @@ where
                     // skip write header on close condition.
                     // the header is checked again and written properly afterwards.
                     ConnectionType::Close => continue,
-                    _ => {
-                        for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
-                            let val = val.trim();
-                            if val.eq_ignore_ascii_case("keep-alive") {
-                                self.set_ctype(ConnectionType::KeepAlive)
-                            } else if val.eq_ignore_ascii_case("close") {
-                                self.set_ctype(ConnectionType::Close);
-                            }
-                        }
-                    }
+                    _ => self.try_set_ctype_from_header(&value)?,
                 },
                 UPGRADE => encoding = TransferCoding::upgrade(),
                 DATE => skip_date = true,

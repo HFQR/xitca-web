@@ -120,7 +120,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
                 let chunked = value
                     .to_str()
-                    .map_err(|_| ProtoError::Parse(Parse::HeaderName))?
+                    .map_err(|_| Parse::HeaderName)?
                     .rsplit(',')
                     .next()
                     .map(|v| v.trim().eq_ignore_ascii_case("chunked"))
@@ -135,24 +135,15 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
             CONTENT_LENGTH => {
                 let len = value
                     .to_str()
-                    .map_err(|_| ProtoError::Parse(Parse::HeaderValue))?
+                    .map_err(|_| Parse::HeaderValue)?
                     .parse::<u64>()
-                    .map_err(|_| ProtoError::Parse(Parse::HeaderValue))?;
+                    .map_err(|_| Parse::HeaderValue)?;
 
                 if len != 0 {
                     decoder.try_set(TransferCoding::length(len))?;
                 }
             }
-            CONNECTION => {
-                for val in value.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
-                    let val = val.trim();
-                    if val.eq_ignore_ascii_case("keep-alive") {
-                        self.set_ctype(ConnectionType::KeepAlive)
-                    } else if val.eq_ignore_ascii_case("close") {
-                        self.set_ctype(ConnectionType::Close);
-                    }
-                }
-            }
+            CONNECTION => self.try_set_ctype_from_header(&value)?,
             EXPECT if value.as_bytes() == b"100-continue" => self.set_expect_header(),
             UPGRADE => {
                 if version != Version::HTTP_11 {
@@ -165,6 +156,18 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
         headers.append(name, value);
 
+        Ok(())
+    }
+
+    pub(super) fn try_set_ctype_from_header(&mut self, val: &HeaderValue) -> Result<(), ProtoError> {
+        for val in val.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
+            let val = val.trim();
+            if val.eq_ignore_ascii_case("keep-alive") {
+                self.set_ctype(ConnectionType::KeepAlive)
+            } else if val.eq_ignore_ascii_case("close") {
+                self.set_ctype(ConnectionType::Close);
+            }
+        }
         Ok(())
     }
 }
