@@ -1,4 +1,6 @@
-use std::{fmt, io};
+use core::fmt;
+
+use std::io;
 
 use crate::{error::HttpServiceError, util::timer::KeepAliveExpired};
 

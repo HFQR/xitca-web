@@ -1,4 +1,4 @@
-use std::mem::MaybeUninit;
+use core::mem::MaybeUninit;
 
 use xitca_unsafe_collection::uninit::PartialInit;
 

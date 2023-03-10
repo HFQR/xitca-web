@@ -2,10 +2,12 @@ use core::convert::Infallible;
 
 use std::io::Write;
 
-use xitca_io::bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut};
 use xitca_unsafe_collection::bytes::EitherBuf;
 
-use crate::util::buffered::{BufWrite, ListWriteBuf, WriteBuf};
+use crate::{
+    bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut},
+    util::buffered::{BufWrite, ListWriteBuf, WriteBuf},
+};
 
 /// trait for add http/1 data to buffer that implement [BufWrite] trait.
 pub trait H1BufWrite: BufWrite {

@@ -1,15 +1,14 @@
-use std::{
+use core::{
     cell::{RefCell, RefMut},
-    collections::VecDeque,
     future::{poll_fn, Future},
-    io,
     ops::DerefMut,
     pin::Pin,
-    rc::Rc,
     task::{Context, Poll, Waker},
 };
 
-use futures_core::Stream;
+use std::{collections::VecDeque, io, rc::Rc};
+
+use futures_core::stream::Stream;
 
 use crate::bytes::Bytes;
 

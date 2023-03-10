@@ -1,4 +1,6 @@
-use std::{fmt, io, mem};
+use core::{fmt, mem};
+
+use std::io;
 
 use tracing::{trace, warn};
 
