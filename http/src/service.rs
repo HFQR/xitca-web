@@ -129,7 +129,7 @@ where
 
                     match version {
                         #[cfg(feature = "http1")]
-                        super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::proto::run(
+                        super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::dispatcher::run(
                             &mut _tls_stream,
                             _addr,
                             timer.as_mut(),
@@ -175,7 +175,7 @@ where
                         // update timer to first request timeout.
                         self.update_first_request_deadline(timer.as_mut());
 
-                        super::h1::proto::run(
+                        super::h1::dispatcher::run(
                             &mut _io,
                             crate::unspecified_socket_addr(),
                             timer.as_mut(),
