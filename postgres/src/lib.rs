@@ -96,9 +96,8 @@ where
         let ret = cli.authenticate(cfg).await;
         // retrieve io regardless of authentication outcome.
         let io = handle.into_inner().await;
-        ret?;
 
-        Ok((cli, io.run()))
+        ret.map(|_| (cli, io.run()))
     }
 }
 

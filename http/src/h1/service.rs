@@ -2,7 +2,7 @@ use core::{future::Future, pin::pin};
 
 use std::net::SocketAddr;
 
-use futures_core::Stream;
+use futures_core::stream::Stream;
 use xitca_io::io::AsyncIo;
 use xitca_service::Service;
 
