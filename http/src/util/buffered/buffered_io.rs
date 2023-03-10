@@ -42,7 +42,7 @@ where
                 Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
                 Ok(_) => {
                     if !self.read_buf.want_write_buf() {
-                        trace!("READ_BUF_LIMIT: {READ_BUF_LIMIT} reached(unit in byte). Entering backpressure(no log event for recovery).");
+                        trace!("READ_BUF_LIMIT: {READ_BUF_LIMIT} bytes reached. Entering backpressure(no log event for recovery).");
                         return Ok(());
                     }
                 }
@@ -57,7 +57,7 @@ where
         self.write_buf.write_io(self.io)
     }
 
-    /// check for io read readiness in async and do [Self::try_write].
+    /// check for io read readiness in async and do [Self::try_read].
     pub async fn read(&mut self) -> io::Result<()> {
         self.io.ready(Interest::READABLE).await?;
         self.try_read()
@@ -69,15 +69,7 @@ where
             self.io.ready(Interest::WRITABLE).await?;
             self.try_write()?;
         }
-
-        loop {
-            match io::Write::flush(&mut self.io) {
-                Ok(()) => return Ok(()),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                Err(e) => return Err(e),
-            }
-            self.io.ready(Interest::WRITABLE).await?;
-        }
+        Ok(())
     }
 
     /// shutdown Io gracefully.
