@@ -1,9 +1,11 @@
+pub mod proto;
+
+pub(crate) mod dispatcher;
+
 mod body;
 mod builder;
 mod error;
 mod service;
-
-pub mod proto;
 
 pub use self::body::RequestBody;
 pub use self::error::Error;

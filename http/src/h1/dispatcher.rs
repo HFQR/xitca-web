@@ -35,7 +35,7 @@ use crate::{
     },
 };
 
-use super::{
+use super::proto::{
     buf_write::H1BufWrite,
     codec::{ChunkResult, TransferCoding},
     context::{ConnectionType, Context},
@@ -178,7 +178,7 @@ where
 
     // update timer deadline according to keep alive duration.
     fn update_timer(&mut self) {
-        let now = self.ctx.date.now() + self.ka_dur;
+        let now = self.ctx.date().now() + self.ka_dur;
         self.timer.as_mut().update(now);
     }
 

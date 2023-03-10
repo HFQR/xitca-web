@@ -14,7 +14,7 @@ use crate::{
     util::timer::Timeout,
 };
 
-use super::{body::RequestBody, proto};
+use super::{body::RequestBody, dispatcher};
 
 pub type H1Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
     HttpService<St, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
@@ -52,7 +52,7 @@ where
             // update timer to first request timeout.
             self.update_first_request_deadline(timer.as_mut());
 
-            proto::run(&mut io, addr, timer, self.config, &self.service, self.date.get())
+            dispatcher::run(&mut io, addr, timer, self.config, &self.service, self.date.get())
                 .await
                 .map_err(Into::into)
         }

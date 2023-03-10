@@ -13,7 +13,7 @@ pub struct Context<'a, D, const HEADER_LIMIT: usize> {
     header: Option<HeaderMap>,
     // http extensions reused by next request.
     exts: Extensions,
-    pub(super) date: &'a D,
+    date: &'a D,
 }
 
 // A set of state for current request that are used after request's ownership is passed
@@ -70,6 +70,12 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
             exts: Extensions::new(),
             date,
         }
+    }
+
+    /// Get Date type from Context.
+    #[inline]
+    pub fn date(&self) -> &D {
+        self.date
     }
 
     /// Take ownership of HeaderMap stored in Context.

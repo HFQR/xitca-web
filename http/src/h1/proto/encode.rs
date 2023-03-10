@@ -23,7 +23,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
 where
     D: DateTime,
 {
-    pub(super) fn encode_continue<W>(&mut self, buf: &mut W)
+    pub fn encode_continue<W>(&mut self, buf: &mut W)
     where
         W: H1BufWrite,
     {
@@ -218,7 +218,7 @@ where
         if !skip_date {
             buf.reserve(D::DATE_VALUE_LENGTH + 12);
             buf.extend_from_slice(b"\r\ndate: ");
-            self.date.with_date(|slice| buf.extend_from_slice(slice));
+            self.date().with_date(|slice| buf.extend_from_slice(slice));
         }
 
         buf.extend_from_slice(b"\r\n\r\n");
