@@ -118,7 +118,7 @@ mod helpers {
         where
             Req: 's,
         {
-            async { ServiceObject::call(&*self.0, req).await }
+            ServiceObject::call(&*self.0, req)
         }
     }
 

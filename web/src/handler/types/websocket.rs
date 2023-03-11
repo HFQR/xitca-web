@@ -4,12 +4,10 @@ use core::{
     time::Duration,
 };
 
-use http_ws::{Item, Message as WsMessage};
-
 use futures_core::stream::Stream;
 use http_ws::{
-    stream::{DecodeError, DecodeStream, EncodeSender},
-    HandshakeError, WsOutput,
+    stream::{RequestStream, ResponseSender, WsError},
+    HandshakeError, Item, Message as WsMessage, WsOutput,
 };
 use tokio::time::{sleep, Instant};
 use xitca_unsafe_collection::{
@@ -37,9 +35,9 @@ pub enum Message {
 
 type BoxFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 
-type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut EncodeSender, Message) -> BoxFuture<'a>>;
+type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut ResponseSender, Message) -> BoxFuture<'a>>;
 
-type OnErrCB<E> = Box<dyn FnMut(DecodeError<E>) -> BoxFuture<'static>>;
+type OnErrCB<E> = Box<dyn FnMut(WsError<E>) -> BoxFuture<'static>>;
 
 type OnCloseCB = Box<dyn FnOnce() -> BoxFuture<'static>>;
 
@@ -89,14 +87,14 @@ where
 
     /// Get a reference of Websocket message sender.
     /// Can be used to send message to client.
-    pub fn msg_sender(&self) -> &EncodeSender {
+    pub fn msg_sender(&self) -> &ResponseSender {
         &self.ws.2
     }
 
     /// Async function that would be called when new message arrived from client.
     pub fn on_msg<F>(&mut self, func: F) -> &mut Self
     where
-        F: for<'a> FnMut(&'a mut EncodeSender, Message) -> BoxFuture<'a> + 'static,
+        F: for<'a> FnMut(&'a mut ResponseSender, Message) -> BoxFuture<'a> + 'static,
     {
         self.on_msg = Box::new(func);
         self
@@ -105,7 +103,7 @@ where
     /// Async function that would be called when error occurred.
     pub fn on_err<F>(&mut self, func: F) -> &mut Self
     where
-        F: FnMut(DecodeError<B::Error>) -> BoxFuture<'static> + 'static,
+        F: FnMut(WsError<B::Error>) -> BoxFuture<'static> + 'static,
     {
         self.on_err = Box::new(func);
         self
@@ -185,8 +183,8 @@ where
 async fn spawn_task<B>(
     ping_interval: Duration,
     max_unanswered_ping: u8,
-    decode: DecodeStream<B, B::Error>,
-    mut tx: EncodeSender,
+    decode: RequestStream<B, B::Error>,
+    mut tx: ResponseSender,
     mut on_msg: OnMsgCB,
     mut on_err: OnErrCB<B::Error>,
     on_close: OnCloseCB,
@@ -217,7 +215,7 @@ where
                         continue;
                     }
                     WsMessage::Close(reason) => {
-                        tx.send(WsMessage::Close(reason)).await?;
+                        let _ = tx.send(WsMessage::Close(reason)).await;
                         break;
                     }
                     WsMessage::Text(txt) => Message::Text(BytesStr::try_from(txt).unwrap()),

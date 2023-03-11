@@ -1,3 +1,5 @@
+#![allow(clippy::redundant_async_block)]
+
 use core::{
     convert::Infallible,
     future::{ready, Future, Ready},
