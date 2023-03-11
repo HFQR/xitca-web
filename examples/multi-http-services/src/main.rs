@@ -1,4 +1,10 @@
 //! A Http server returns Hello World String as Response from multiple services.
+//!
+//! About http/3 discovery:
+//! as of writing this comment browsers that support http/3(latest firefox releases for example)
+//! can redirect user visiting http/2 service of this example to http/3.
+//! visit https://127.0.0.1:8081/ after start the example and try to refresh the page until you see
+//! "Hello World from Http/3!".
 
 use std::{convert::Infallible, fs, io, sync::Arc};
 
@@ -50,7 +56,7 @@ fn main() -> io::Result<()> {
         //
         // Bind to same service with different bind_xxx API is allowed for reusing one service
         // on multiple socket addresses and protocols.
-        .bind_h3("http/3", "127.0.0.1:8080", config, h3_factory)?
+        .bind_h3("http/3", "127.0.0.1:8081", config, h3_factory)?
         .build()
         .wait()
 }
@@ -67,6 +73,8 @@ async fn handler_h2(
 ) -> Result<Response<ResponseBody>, Box<dyn std::error::Error>> {
     let res = Response::builder()
         .status(200)
+        // possible redirect browser to http/3 service.
+        .header("Alt-Svc", "h3=\":8081\"; ma=86400")
         .header(CONTENT_TYPE, TEXT_UTF8)
         .body("Hello World from Http/2!".into())?;
     Ok(res)
@@ -126,7 +134,7 @@ fn h3_config() -> io::Result<ServerConfig> {
         .with_single_cert(cert, key)
         .unwrap();
 
-    acceptor.alpn_protocols = vec![b"h3-29".to_vec(), b"h3-28".to_vec(), b"h3-27".to_vec()];
+    acceptor.alpn_protocols = vec![b"h3".to_vec()];
 
     Ok(ServerConfig::with_crypto(Arc::new(acceptor)))
 }
