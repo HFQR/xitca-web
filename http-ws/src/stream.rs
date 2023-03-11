@@ -1,11 +1,15 @@
 use core::{
+    convert::Infallible,
     fmt,
     future::Future,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll},
 };
 
-use std::error;
+use std::{
+    error,
+    sync::{Arc, Mutex},
+};
 
 use bytes::{Bytes, BytesMut};
 use futures_core::stream::Stream;
@@ -21,16 +25,16 @@ pin_project! {
     /// Decode `S` type into Stream of websocket [Message].
     /// `S` type must impl `Stream` trait and output `Result<T, E>` as `Stream::Item`
     /// where `T` type impl `AsRef<[u8]>` trait. (`&[u8]` is needed for parsing messages)
-    pub struct DecodeStream<S, E> {
+    pub struct RequestStream<S, E> {
         #[pin]
         stream: Option<S>,
         buf: BytesMut,
         codec: Codec,
-        err: Option<DecodeError<E>>
+        err: Option<WsError<E>>
     }
 }
 
-impl<S, T, E> DecodeStream<S, E>
+impl<S, T, E> RequestStream<S, E>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -48,21 +52,23 @@ where
         }
     }
 
-    /// Make an [EncodeStream] from current DecodeStream.
+    /// Make a [ResponseStream] from current DecodeStream.
     ///
     /// This API is to share the same codec for both decode and encode stream.
-    pub fn encode_stream(&self) -> (EncodeSender, EncodeStream) {
+    pub fn response_stream(&self) -> (ResponseStream, ResponseSender) {
         let codec = self.codec.duplicate();
-        EncodeStream::new(codec)
+        let cap = codec.capacity();
+        let (tx, rx) = channel(cap);
+        (ResponseStream(rx), ResponseSender::new(tx, codec))
     }
 }
 
-pub enum DecodeError<E> {
+pub enum WsError<E> {
     Protocol(ProtocolError),
     Stream(E),
 }
 
-impl<E> fmt::Debug for DecodeError<E> {
+impl<E> fmt::Debug for WsError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Protocol(ref e) => fmt::Debug::fmt(e, f),
@@ -71,7 +77,7 @@ impl<E> fmt::Debug for DecodeError<E> {
     }
 }
 
-impl<E> fmt::Display for DecodeError<E> {
+impl<E> fmt::Display for WsError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Protocol(ref e) => fmt::Debug::fmt(e, f),
@@ -80,20 +86,20 @@ impl<E> fmt::Display for DecodeError<E> {
     }
 }
 
-impl<E> std::error::Error for DecodeError<E> {}
+impl<E> error::Error for WsError<E> {}
 
-impl<E> From<ProtocolError> for DecodeError<E> {
+impl<E> From<ProtocolError> for WsError<E> {
     fn from(e: ProtocolError) -> Self {
         Self::Protocol(e)
     }
 }
 
-impl<S, T, E> Stream for DecodeStream<S, E>
+impl<S, T, E> Stream for RequestStream<S, E>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
 {
-    type Item = Result<Message, DecodeError<E>>;
+    type Item = Result<Message, WsError<E>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -107,7 +113,7 @@ where
                     }
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    *this.err = Some(DecodeError::Stream(e));
+                    *this.err = Some(WsError::Stream(e));
                     this.stream.set(None);
                 }
                 Poll::Ready(None) => this.stream.set(None),
@@ -128,87 +134,68 @@ where
     }
 }
 
-/// Encode a stream of [Message] into [Bytes].
-pub struct EncodeStream {
-    codec: Codec,
-    buf: BytesMut,
-    rx: Receiver<Message>,
-}
+pub struct ResponseStream(Receiver<Bytes>);
 
-impl EncodeStream {
-    /// Construct new stream with given codec.
+impl Stream for ResponseStream {
+    type Item = Result<Bytes, Infallible>;
+
     #[inline]
-    pub fn new(codec: Codec) -> (EncodeSender, Self) {
-        let cap = codec.capacity();
-        let (tx, rx) = channel(cap);
-
-        let stream = EncodeStream {
-            codec,
-            buf: BytesMut::new(),
-            rx,
-        };
-
-        (EncodeSender::new(tx), stream)
-    }
-}
-
-impl Stream for EncodeStream {
-    type Item = Result<Bytes, ProtocolError>;
-
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        match ready!(this.rx.poll_recv(cx)) {
-            Some(msg) => {
-                this.codec.encode(msg, &mut this.buf)?;
-                Poll::Ready(Some(Ok(this.buf.split().freeze())))
-            }
-            None => Poll::Ready(None),
-        }
+        self.get_mut().0.poll_recv(cx).map(|res| res.map(Ok))
     }
 }
 
-/// channel sender that can add [Message] to [EncodeStream]. new message would be encoded and sent
-/// to client asynchronously.
+/// Encode [Message] into [Bytes] and send it to [ResponseStream].
 #[derive(Debug, Clone)]
-pub struct EncodeSender(Sender<Message>);
+pub struct ResponseSender(Arc<_ResponseSender>);
 
 #[derive(Debug)]
-pub struct SendError(Message);
-
-impl SendError {
-    pub fn into_inner(self) -> Message {
-        self.0
-    }
+struct _ResponseSender {
+    encoder: Mutex<Encoder>,
+    tx: Sender<Bytes>,
 }
 
-impl fmt::Display for SendError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.write_str("EncodeStream already finished")
-    }
+#[derive(Debug)]
+struct Encoder {
+    codec: Codec,
+    buf: BytesMut,
 }
 
-impl error::Error for SendError {}
-
-impl EncodeSender {
-    fn new(tx: Sender<Message>) -> Self {
-        Self(tx)
+impl ResponseSender {
+    fn new(tx: Sender<Bytes>, codec: Codec) -> Self {
+        Self(Arc::new(_ResponseSender {
+            encoder: Mutex::new(Encoder {
+                codec,
+                buf: BytesMut::with_capacity(codec.max_size()),
+            }),
+            tx,
+        }))
     }
 
-    /// add [Message] to [EncodeStream].
-    #[inline]
-    pub async fn send(&self, msg: Message) -> Result<(), SendError> {
-        self.0.send(msg).await.map_err(|e| SendError(e.0))
+    fn encode(&self, msg: Message) -> Result<Bytes, ProtocolError> {
+        let mut encoder = self.0.encoder.lock().unwrap();
+        let Encoder {
+            ref mut codec,
+            ref mut buf,
+        } = *encoder;
+        codec.encode(msg, buf).map(|_| buf.split().freeze())
     }
 
-    /// add [Message::Text] variant to [EncodeStream].
+    /// encode [Message] and add to [ResponseStream].
+    pub async fn send(&self, msg: Message) -> Result<(), ProtocolError> {
+        let buf = self.encode(msg)?;
+        self.0.tx.send(buf).await.map_err(|_| ProtocolError::Closed)
+    }
+
+    /// encode [Message::Text] variant and add to [ResponseStream].
     #[inline]
-    pub fn text(&self, txt: impl Into<String>) -> impl Future<Output = Result<(), SendError>> + '_ {
+    pub fn text(&self, txt: impl Into<String>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
         self.send(Message::Text(Bytes::from(txt.into())))
     }
 
-    /// add [Message::Binary] variant to [EncodeStream].
+    /// encode [Message::Binary] variant and add to [ResponseStream].
     #[inline]
-    pub fn binary(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), SendError>> + '_ {
+    pub fn binary(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
         self.send(Message::Binary(bin.into()))
     }
 }

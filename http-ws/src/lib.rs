@@ -9,10 +9,10 @@
 //! ```rust
 //! # use std::{pin::Pin, task::{Context, Poll}};
 //! # use http::{Request, Response, header, Method};
-//! # use http_ws::{handshake, DecodeStream, Message};
+//! # use http_ws::{handshake, RequestStream, Message};
 //! # use futures_util::stream::{Stream, StreamExt};
 //! #
-//! # fn ws() -> Response<http_ws::EncodeStream> {
+//! # fn ws() -> Response<http_ws::ResponseStream> {
 //! #
 //! # struct DummyRequestBody;
 //! #
@@ -40,13 +40,13 @@
 //!
 //! // extract request body and construct decode stream.
 //! let body = request.into_body();
-//! let mut decode = DecodeStream::new(body);
+//! let mut decode = RequestStream::new(body);
 //!
-//! // generate an encode stream and a sender that for adding message to it.
-//! let (encode_tx, encode) = decode.encode_stream();
+//! // generate an response stream and a sender that for adding message to it.
+//! let (res, tx) = decode.response_stream();
 //!
-//! // attach encode stream to builder to construct a full response.
-//! let response = response_builder.body(encode).unwrap();
+//! // attach response stream to builder to construct a full response.
+//! let response = response_builder.body(res).unwrap();
 //!
 //! // spawn an async task that decode request streaming body and send message to encode stream
 //! // that would encode and sending response.
@@ -54,11 +54,11 @@
 //!     while let Some(Ok(msg)) = decode.next().await {
 //!         match msg {
 //!             // echo back text and ping messages and ignore others.
-//!             Message::Text(txt) => encode_tx
+//!             Message::Text(txt) => tx
 //!                 .send(Message::Text(txt))
 //!                 .await
 //!                 .unwrap(),
-//!             Message::Ping(ping) => encode_tx
+//!             Message::Ping(ping) => tx
 //!                 .send(Message::Pong(ping))
 //!                 .await
 //!                 .unwrap(),
@@ -253,10 +253,10 @@ fn ws_version_check(headers: &HeaderMap) -> Result<(), HandshakeError> {
 pub mod stream;
 
 #[cfg(feature = "stream")]
-pub use self::stream::{DecodeError, DecodeStream, EncodeSender, EncodeStream};
+pub use self::stream::{RequestStream, ResponseSender, ResponseStream, WsError};
 
 #[cfg(feature = "stream")]
-pub type WsOutput<B, E> = (DecodeStream<B, E>, Response<EncodeStream>, EncodeSender);
+pub type WsOutput<B, E> = (RequestStream<B, E>, Response<ResponseStream>, ResponseSender);
 
 #[cfg(feature = "stream")]
 /// A shortcut for generating a set of response types with given [Request] and `<Body>` type.
@@ -300,11 +300,11 @@ where
         _ => handshake(req.method(), req.headers())?,
     };
 
-    let decode = DecodeStream::new(body);
-    let (tx, encode) = decode.encode_stream();
+    let decode = RequestStream::new(body);
+    let (res, tx) = decode.response_stream();
 
     let res = builder
-        .body(encode)
+        .body(res)
         .expect("handshake function failed to generate correct Response Builder");
 
     Ok((decode, res, tx))
