@@ -154,7 +154,7 @@ jobs:
         cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
         cargo-cache      
 
-  check_other_and_test:
+  check_other:
     strategy:
       matrix:
         target:
@@ -162,9 +162,71 @@ jobs:
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
           - nightly-2023-01-13
-    name: test and other check @ ${{ matrix.target.name }} - ${{ matrix.version }}
-    runs-on: ${{ matrix.target.os }}  
-    
+    name: other check @ ${{ matrix.target.name }} - ${{ matrix.version }}
+    runs-on: ${{ matrix.target.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install ${{ matrix.version }}
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+          profile: minimal
+          override: true
+
+      - name: Free up disk space
+        if: matrix.target.os == 'ubuntu-latest'
+        run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-hack
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-hack
+
+      - name: check-non-linux
+        if: matrix.target.os != 'ubuntu-latest'
+        run: |
+          cargo ci-check-other-exclude-io-uring
+
+      - name: check-linux
+        if: matrix.target.os == 'ubuntu-latest'
+        run: |
+          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-other"     
+
+      - name: Clear the cargo caches
+        run: |
+          cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
+          cargo-cache
+
+  test_linux:
+    strategy:
+      matrix:
+        target:
+          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
+        version:
+          - nightly-2023-01-13
+    name: test @ ${{ matrix.target.name }} - ${{ matrix.version }}
+    runs-on: ${{ matrix.target.os }}
+
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
     - uses: actions/checkout@v3
 
@@ -187,21 +249,6 @@ jobs:
       with:
         command: install
         args: cargo-hack
-
-    - name: check-non-linux
-      if: matrix.target.os != 'ubuntu-latest'
-      run: |
-        cargo ci-check-other-exclude-io-uring
-
-    - name: check-linux
-      if: matrix.target.os == 'ubuntu-latest'
-      run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-other"     
-
-#    - name: tests-non-linux
-#      if: matrix.target.os != 'ubuntu-latest'
-#      run: |
-#        cargo ci-test-exclude-io-uring
 
     - name: tests-linux
       if: matrix.target.os == 'ubuntu-latest'
