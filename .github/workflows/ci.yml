@@ -162,7 +162,7 @@ jobs:
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
           - nightly-2023-01-13
-    name: test and other check @ ${{ matrix.target.name }} - ${{ matrix.version }}
+    name: other check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
     steps:
