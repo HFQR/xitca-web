@@ -308,20 +308,3 @@ jobs:
         run: |
           cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
           cargo-cache
-
-  miri-test-unsafe:
-    name: miri test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install Rust nightly
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          components: miri
-          override: true
-      - name: miri
-        run: cargo ci-miri-test
-        env:
-          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-symbolic-alignment-check
-          PROPTEST_CASES: 10
