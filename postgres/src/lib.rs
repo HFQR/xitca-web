@@ -105,9 +105,14 @@ where
 mod test {
     use super::*;
 
-    #[test]
-    fn postgres() {
-        let _ = Postgres::new("abc");
+    #[tokio::test]
+    async fn postgres() {
         let _ = Postgres::new(Config::default());
+        let (cli, task) = Postgres::new("postgres://postgres:postgres@localhost/postgres")
+            .connect()
+            .await
+            .unwrap();
+        tokio::spawn(task);
+        let _ = cli.query_simple("").unwrap().next().await;
     }
 }

@@ -20,4 +20,4 @@ tokio = { version = "1.26", features = ["net", "sync"] }
 tracing = { version = "0.1", default-features = false }
 
 [dev-dependencies]
-tokio = { version = "1.26", features = ["rt"] }
+tokio = { version = "1.26", features = ["macros", "rt"] }
