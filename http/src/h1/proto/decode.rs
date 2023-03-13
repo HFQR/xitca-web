@@ -120,9 +120,8 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
                 let chunked = value
                     .to_str()
-                    .map_err(|_| Parse::HeaderName)?
-                    .rsplit(',')
-                    .next()
+                    .ok()
+                    .and_then(|s| s.rsplit(',').next())
                     .map(|v| v.trim().eq_ignore_ascii_case("chunked"))
                     .unwrap_or(false);
 
