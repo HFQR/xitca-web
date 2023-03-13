@@ -144,7 +144,12 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 }
             }
             CONNECTION => self.try_set_ctype_from_header(&value)?,
-            EXPECT => self.set_expect_header(),
+            EXPECT => {
+                if value.as_bytes() != b"100-continue" {
+                    return Err(ProtoError::Parse(Parse::HeaderValue));
+                }
+                self.set_expect_header()
+            }
             UPGRADE => {
                 if version != Version::HTTP_11 {
                     return Err(ProtoError::Parse(Parse::HeaderName));
