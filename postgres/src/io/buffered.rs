@@ -97,8 +97,13 @@ where
         for<'r> Io::Future<'r>: Send,
     {
         loop {
-            let want_write = self.write_buf.want_write_io();
-            match self.rx.recv().select(try_io(&mut self.io, want_write)).await {
+            let interest = if self.write_buf.want_write_io() {
+                Interest::READABLE | Interest::WRITABLE
+            } else {
+                Interest::READABLE
+            };
+            let ready = self.io.ready(interest);
+            match self.rx.recv().select(ready).await {
                 // batch message and keep polling.
                 SelectOutput::A(Some(req)) => {
                     let _ = self.write_buf.write_buf(|buf| {
@@ -169,17 +174,4 @@ impl<Io> Handle<Io> {
         self.notify.notify_waiters();
         self.handle.await.unwrap()
     }
-}
-
-fn try_io<Io>(io: &mut Io, want_write: bool) -> Io::Future<'_>
-where
-    Io: AsyncIo,
-{
-    let interest = if want_write {
-        Interest::READABLE | Interest::WRITABLE
-    } else {
-        Interest::READABLE
-    };
-
-    io.ready(interest)
 }
