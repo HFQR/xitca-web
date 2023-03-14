@@ -1,4 +1,5 @@
 use core::{
+    convert::Infallible,
     future::{poll_fn, Future},
     pin::Pin,
 };
@@ -13,7 +14,7 @@ use tokio::{
 };
 use tracing::error;
 use xitca_io::{
-    bytes::{Buf, BytesMut},
+    bytes::{BufInterest, BufWrite, WriteBuf},
     io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::{
@@ -22,7 +23,7 @@ use xitca_unsafe_collection::{
 };
 
 use crate::{
-    error::{unexpected_eof_err, write_zero_err, Error},
+    error::{unexpected_eof_err, Error},
     request::Request,
 };
 
@@ -30,7 +31,7 @@ use super::context::Context;
 
 pub struct BufferedIo<Io> {
     io: Io,
-    buf_write: BufWrite,
+    write_buf: WriteBuf,
     read_buf: PagedBytesMut,
     rx: UnboundedReceiver<Request>,
     ctx: Context,
@@ -45,7 +46,7 @@ where
     pub(crate) fn new(io: Io, rx: UnboundedReceiver<Request>) -> Self {
         Self {
             io,
-            buf_write: BufWrite::default(),
+            write_buf: WriteBuf::new(),
             read_buf: PagedBytesMut::new(),
             rx,
             ctx: Context::new(),
@@ -64,8 +65,8 @@ where
     }
 
     fn try_write(&mut self) -> io::Result<()> {
-        self.buf_write.write(&mut self.io).map_err(|e| {
-            self.buf_write.reset();
+        self.write_buf.write_io(&mut self.io).map_err(|e| {
+            self.write_buf.clear();
             error!("server closed connection unexpectedly: {e}");
             e
         })
@@ -96,11 +97,14 @@ where
         for<'r> Io::Future<'r>: Send,
     {
         loop {
-            let want_write = self.buf_write.want_write();
+            let want_write = self.write_buf.want_write_io();
             match self.rx.recv().select(try_io(&mut self.io, want_write)).await {
                 // batch message and keep polling.
                 SelectOutput::A(Some(req)) => {
-                    self.buf_write.extend_from_slice(req.msg.as_ref());
+                    let _ = self.write_buf.write_buf(|buf| {
+                        buf.extend_from_slice(req.msg.as_ref());
+                        Ok::<_, Infallible>(())
+                    });
                     if let Some(tx) = req.tx {
                         self.ctx.push_concurrent_req(tx);
                     }
@@ -130,7 +134,7 @@ where
     {
         Box::pin(async {
             loop {
-                let want_write = self.buf_write.want_write();
+                let want_write = self.write_buf.want_write_io();
                 let want_read = !self.ctx.is_empty();
                 let interest = match (want_read, want_write) {
                     (false, false) => break,
@@ -178,60 +182,4 @@ where
     };
 
     io.ready(interest)
-}
-
-#[derive(Default)]
-struct BufWrite {
-    buf: BytesMut,
-    want_flush: bool,
-}
-
-impl BufWrite {
-    fn extend_from_slice(&mut self, extend: &[u8]) {
-        self.buf.extend_from_slice(extend);
-        // never flush when buf is not empty.
-        self.want_flush = false;
-    }
-
-    fn want_write(&mut self) -> bool {
-        !self.buf.is_empty() || self.want_flush
-    }
-
-    fn reset(&mut self) {
-        self.buf.clear();
-        self.want_flush = false;
-    }
-
-    fn write<Io>(&mut self, io: &mut Io) -> io::Result<()>
-    where
-        Io: io::Write,
-    {
-        loop {
-            if self.want_flush {
-                match io.flush() {
-                    Ok(_) => self.want_flush = false,
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(e) => return Err(e),
-                }
-                break;
-            }
-
-            match io.write(&self.buf) {
-                Ok(0) => return Err(write_zero_err()),
-                Ok(n) => {
-                    self.buf.advance(n);
-                    if self.buf.is_empty() {
-                        // only want flush when buf becomes empty. input Io may have internal
-                        // buffering rely on flush to send all data to remote.
-                        // (tls buffered io for example)
-                        self.want_flush = true;
-                    }
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
-            }
-        }
-
-        Ok(())
-    }
 }
