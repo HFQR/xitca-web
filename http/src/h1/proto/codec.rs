@@ -555,16 +555,16 @@ mod test {
         let msg1 = Bytes::from("foo bar");
         encoder.encode(msg1, dst);
 
-        assert_eq!(dst.as_ref(), b"7\r\nfoo bar\r\n");
+        assert_eq!(dst.buf(), b"7\r\nfoo bar\r\n");
 
         let msg2 = Bytes::from("baz quux herp");
         encoder.encode(msg2, dst);
 
-        assert_eq!(dst.as_ref(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n");
+        assert_eq!(dst.buf(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n");
 
         encoder.encode_eof(dst);
 
-        assert_eq!(dst.as_ref(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n0\r\n\r\n");
+        assert_eq!(dst.buf(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n0\r\n\r\n");
     }
 
     #[test]
@@ -577,18 +577,18 @@ mod test {
         let msg1 = Bytes::from("foo bar");
         encoder.encode(msg1, dst);
 
-        assert_eq!(dst.as_ref(), b"foo bar");
+        assert_eq!(dst.buf(), b"foo bar");
 
         for _ in 0..8 {
             let msg2 = Bytes::from("baz");
             encoder.encode(msg2, dst);
 
-            assert_eq!(dst.len(), max_len);
-            assert_eq!(dst.as_ref(), b"foo barb");
+            assert_eq!(dst.buf().len(), max_len);
+            assert_eq!(dst.buf(), b"foo barb");
         }
 
         encoder.encode_eof(dst);
-        assert_eq!(dst.len(), max_len);
-        assert_eq!(dst.as_ref(), b"foo barb");
+        assert_eq!(dst.buf().len(), max_len);
+        assert_eq!(dst.buf(), b"foo barb");
     }
 }
