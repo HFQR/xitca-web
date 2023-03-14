@@ -102,6 +102,14 @@ impl WriteBuf {
         self.buf.is_empty()
     }
 
+    /// clear remaining bytes in buffer and set flush flag to false.
+    /// this would make following [BufInterest::want_write_io] call return false.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.buf.clear();
+        self.want_flush = false;
+    }
+
     #[inline]
     pub fn buf(&self) -> &[u8] {
         &self.buf
