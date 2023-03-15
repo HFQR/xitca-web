@@ -39,3 +39,9 @@ impl From<http::uri::InvalidUri> for ProtoError {
         Self::Uri
     }
 }
+
+impl From<http::status::InvalidStatusCode> for ProtoError {
+    fn from(_: http::status::InvalidStatusCode) -> Self {
+        Self::Status
+    }
+}

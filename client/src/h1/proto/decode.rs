@@ -2,11 +2,7 @@ use httparse::{ParserConfig, Status};
 
 use xitca_http::{
     bytes::BytesMut,
-    h1::proto::{
-        codec::TransferCoding,
-        error::{Parse, ProtoError},
-        header::HeaderIndex,
-    },
+    h1::proto::{codec::TransferCoding, error::ProtoError, header::HeaderIndex},
     http::{Response, StatusCode, Version},
 };
 use xitca_unsafe_collection::uninit;
@@ -33,7 +29,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
                     Version::HTTP_10
                 };
 
-                let status = StatusCode::from_u16(parsed.code.unwrap()).map_err(|_| Parse::StatusCode)?;
+                let status = StatusCode::from_u16(parsed.code.unwrap())?;
 
                 // record the index of headers from the buffer.
                 let mut header_idx = uninit::uninit_array::<_, HEADER_LIMIT>();
