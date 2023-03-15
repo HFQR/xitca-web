@@ -9,10 +9,7 @@ use crate::{
     util::buffered::PagedBytesMut,
 };
 
-use super::{
-    buf_write::H1BufWrite,
-    error::{Parse, ProtoError},
-};
+use super::{buf_write::H1BufWrite, error::ProtoError};
 
 /// Coder for different Transfer-Decoding/Transfer-Encoding.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -263,7 +260,7 @@ impl TransferCoding {
             //
             // mutation between decoded chunked/content-length/plain chunked is forbidden.
             (TransferCoding::Upgrade, _) | (TransferCoding::DecodeChunked(..), _) | (TransferCoding::Length(..), _) => {
-                Err(ProtoError::Parse(Parse::HeaderName))
+                Err(ProtoError::HeaderName)
             }
             _ => {
                 *self = other;

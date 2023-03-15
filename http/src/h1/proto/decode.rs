@@ -13,7 +13,7 @@ use crate::{
 use super::{
     codec::TransferCoding,
     context::{ConnectionType, Context},
-    error::{Parse, ProtoError},
+    error::ProtoError,
     header::HeaderIndex,
 };
 
@@ -93,7 +93,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
             Status::Partial => {
                 if buf.remaining() >= READ_BUF_LIMIT {
-                    Err(ProtoError::Parse(Parse::HeaderTooLarge))
+                    Err(ProtoError::HeaderTooLarge)
                 } else {
                     Ok(None)
                 }
@@ -115,7 +115,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
         match name {
             TRANSFER_ENCODING => {
                 if version != Version::HTTP_11 {
-                    return Err(ProtoError::Parse(Parse::HeaderName));
+                    return Err(ProtoError::HeaderName);
                 }
 
                 let chunked = value
@@ -128,16 +128,15 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 if chunked {
                     decoder.try_set(TransferCoding::decode_chunked())?;
                 } else {
-                    return Err(ProtoError::Parse(Parse::HeaderName));
+                    return Err(ProtoError::HeaderName);
                 }
             }
             CONTENT_LENGTH => {
                 let len = value
                     .to_str()
-                    .map_err(|_| Parse::HeaderValue)?
-                    .parse::<u64>()
-                    .map_err(|_| Parse::HeaderValue)?;
-
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .ok_or(ProtoError::HeaderValue)?;
                 if len != 0 {
                     decoder.try_set(TransferCoding::length(len))?;
                 }
@@ -145,13 +144,13 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
             CONNECTION => self.try_set_ctype_from_header(&value)?,
             EXPECT => {
                 if value.as_bytes() != b"100-continue" {
-                    return Err(ProtoError::Parse(Parse::HeaderValue));
+                    return Err(ProtoError::HeaderValue);
                 }
                 self.set_expect_header()
             }
             UPGRADE => {
                 if version != Version::HTTP_11 {
-                    return Err(ProtoError::Parse(Parse::HeaderName));
+                    return Err(ProtoError::HeaderName);
                 }
                 decoder.try_set(TransferCoding::upgrade())?;
             }
@@ -164,7 +163,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
     }
 
     pub(super) fn try_set_ctype_from_header(&mut self, val: &HeaderValue) -> Result<(), ProtoError> {
-        for val in val.to_str().map_err(|_| Parse::HeaderValue)?.split(',') {
+        for val in val.to_str().map_err(|_| ProtoError::HeaderValue)?.split(',') {
             let val = val.trim();
             if val.eq_ignore_ascii_case("keep-alive") {
                 self.set_ctype(ConnectionType::KeepAlive)
