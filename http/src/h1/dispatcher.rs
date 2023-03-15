@@ -39,7 +39,7 @@ use super::proto::{
     buf_write::H1BufWrite,
     codec::{ChunkResult, TransferCoding},
     context::{ConnectionType, Context},
-    error::{Parse, ProtoError},
+    error::ProtoError,
 };
 
 /// function to generic over different writer buffer types dispatcher.
@@ -140,8 +140,8 @@ where
                         return Ok(());
                     }
                 },
-                Err(Error::Proto(ProtoError::Parse(Parse::HeaderTooLarge))) => self.request_error(header_too_large),
-                Err(Error::Proto(ProtoError::Parse(_))) => self.request_error(bad_request),
+                Err(Error::Proto(ProtoError::HeaderTooLarge)) => self.request_error(header_too_large),
+                Err(Error::Proto(_)) => self.request_error(bad_request),
                 Err(e) => return Err(e),
             }
 

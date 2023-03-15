@@ -16,7 +16,7 @@ use super::{
     buf_write::H1BufWrite,
     codec::TransferCoding,
     context::{ConnectionType, Context},
-    error::{Parse, ProtoError},
+    error::ProtoError,
 };
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
@@ -53,7 +53,7 @@ where
             (s, _) if self.is_connect_method() && s.is_success() => true,
             (s, _) if s.is_informational() => {
                 warn!(target: "h1_encode", "response with 1xx status code not supported");
-                return Err(ProtoError::Parse(Parse::StatusCode));
+                return Err(ProtoError::Status);
             }
             _ => false,
         };
@@ -141,7 +141,7 @@ where
                         .to_str()
                         .ok()
                         .and_then(|v| v.parse().ok())
-                        .ok_or(Parse::HeaderValue)?;
+                        .ok_or(ProtoError::HeaderValue)?;
                     encoding = TransferCoding::length(value);
                     skip_len = true;
                 }
