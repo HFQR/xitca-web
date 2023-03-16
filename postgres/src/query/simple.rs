@@ -4,7 +4,7 @@ use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
 
 use crate::{
-    client::Client, column::Column, error::Error, iter::AsyncIterator, response::Response, row::RowSimple, Type,
+    client::Client, column::Column, error::Error, iter::AsyncIterator, row::RowSimple, transport::Response, Type,
 };
 
 use super::base::GenericRowStream;

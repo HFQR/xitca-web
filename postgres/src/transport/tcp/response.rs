@@ -4,24 +4,19 @@ use core::{
 };
 
 use postgres_protocol::message::backend;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
-use crate::io::buffered::PagedBytesMut;
+use crate::error::{unexpected_eof_err, Error};
 
-use super::error::{unexpected_eof_err, Error};
+use super::{io::PagedBytesMut, ResponseReceiver};
 
 pub struct Response {
     rx: ResponseReceiver,
     buf: BytesMut,
 }
 
-pub type ResponseSender = UnboundedSender<BytesMut>;
-
-pub type ResponseReceiver = UnboundedReceiver<BytesMut>;
-
 impl Response {
-    pub(crate) fn new(rx: UnboundedReceiver<BytesMut>) -> Self {
+    pub(crate) fn new(rx: ResponseReceiver) -> Self {
         Self {
             rx,
             buf: BytesMut::new(),
