@@ -9,9 +9,9 @@ use crate::{
     column::Column,
     error::Error,
     iter::{slice_iter, AsyncIterator},
-    response::Response,
     row::Row,
     statement::Statement,
+    transport::Response,
     ToSql,
 };
 

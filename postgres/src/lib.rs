@@ -10,13 +10,11 @@ mod column;
 mod config;
 mod connect;
 mod from_sql;
-mod io;
 mod iter;
 mod prepare;
 mod query;
-mod request;
-mod response;
 mod row;
+mod transport;
 mod util;
 
 pub mod error;
@@ -91,7 +89,7 @@ where
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let cli = Client::new(tx);
-        let handle = io::buffered::BufferedIo::new(io, rx).spawn();
+        let handle = transport::BufferedIo::new(io, rx).spawn();
 
         let ret = cli.authenticate(cfg).await;
         // retrieve io regardless of authentication outcome.

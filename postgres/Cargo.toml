@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 # feature for single thread client that have lower overhead(no lock) at the cost of no thread safety.
 single-thread = []
+quic = []
 
 [dependencies]
 xitca-io = { version = "0.1", features = ["runtime"] }

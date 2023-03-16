@@ -4,12 +4,15 @@ use postgres_types::{Oid, Type};
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
-use tokio::sync::mpsc::UnboundedSender;
-
-use super::{error::Error, request::Request, response::Response, statement::Statement, util::lock::Lock};
+use super::{
+    error::Error,
+    statement::Statement,
+    transport::{new_pair, ClientTx, Request, Response},
+    util::lock::Lock,
+};
 
 pub struct Client {
-    pub(crate) tx: UnboundedSender<Request>,
+    pub(crate) tx: ClientTx,
     pub(crate) buf: Lock<BytesMut>,
     cached_typeinfo: Lock<CachedTypeInfo>,
 }
@@ -33,7 +36,7 @@ struct CachedTypeInfo {
 }
 
 impl Client {
-    pub(crate) fn new(tx: UnboundedSender<Request>) -> Self {
+    pub(crate) fn new(tx: ClientTx) -> Self {
         Self {
             tx,
             buf: Lock::new(BytesMut::new()),
@@ -51,14 +54,14 @@ impl Client {
     }
 
     pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        let (req, res) = Request::new_pair(msg);
+        let (req, res) = new_pair(msg);
         self.tx.send(req)?;
         Ok(res)
     }
 
     // send a message to database without concerning a response.
     pub(crate) fn send2(&self, msg: BytesMut) -> Result<(), Error> {
-        let req = Request::new(msg);
+        let req = Request::new(None, msg);
         self.tx.send(req)?;
         Ok(())
     }
