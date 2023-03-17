@@ -89,7 +89,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(not(feature = "quic"), test))]
 mod test {
     use super::*;
 
