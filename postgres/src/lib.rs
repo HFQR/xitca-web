@@ -5,10 +5,10 @@
 
 extern crate alloc;
 
+mod authentication;
 mod client;
 mod column;
 mod config;
-mod connect;
 mod from_sql;
 mod iter;
 mod prepare;
@@ -85,17 +85,7 @@ where
     /// ```
     pub async fn connect(self) -> Result<(Client, impl std::future::Future<Output = Result<(), Error>> + Send), Error> {
         let cfg = Config::try_from(self.cfg)?;
-        let io = connect::connect(&cfg).await?;
-
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let cli = Client::new(tx);
-        let handle = transport::BufferedIo::new(io, rx).spawn();
-
-        let ret = cli.authenticate(cfg).await;
-        // retrieve io regardless of authentication outcome.
-        let io = handle.into_inner().await;
-
-        ret.map(|_| (cli, io.run()))
+        transport::connect2(cfg).await
     }
 }
 

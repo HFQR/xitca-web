@@ -3,57 +3,8 @@ use postgres_protocol::{
     authentication::{self, sasl},
     message::{backend, frontend},
 };
-use xitca_io::net::TcpStream;
 
-use super::{
-    client::Client,
-    config::{Config, Host},
-    error::AuthenticationError,
-    error::Error,
-};
-
-#[cold]
-#[inline(never)]
-pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
-    let hosts = cfg.get_hosts();
-    let ports = cfg.get_ports();
-
-    let mut err = None;
-
-    for host in hosts {
-        match host {
-            Host::Tcp(host) => match connect_tcp(host, ports).await {
-                Ok(stream) => return Ok(stream),
-                Err(e) => err = Some(e),
-            },
-        }
-    }
-
-    Err(err.unwrap())
-}
-
-async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
-    let mut err = None;
-
-    for port in ports {
-        match tokio::net::lookup_host((host, *port)).await {
-            Ok(addrs) => {
-                for addr in addrs {
-                    match TcpStream::connect(addr).await {
-                        Ok(stream) => {
-                            let _ = stream.set_nodelay(true);
-                            return Ok(stream);
-                        }
-                        Err(e) => err = Some(e),
-                    }
-                }
-            }
-            Err(e) => err = Some(e),
-        }
-    }
-
-    Err(err.unwrap().into())
-}
+use super::{client::Client, config::Config, error::AuthenticationError, error::Error};
 
 impl Client {
     #[cold]
