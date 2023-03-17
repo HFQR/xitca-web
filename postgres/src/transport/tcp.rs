@@ -6,6 +6,8 @@ mod response;
 
 pub use self::{io::BufferedIo, request::Request, response::Response};
 
+use core::future::Future;
+
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::{bytes::BytesMut, net::TcpStream};
 
@@ -19,20 +21,33 @@ type ResponseSender = UnboundedSender<BytesMut>;
 
 type ResponseReceiver = UnboundedReceiver<BytesMut>;
 
-pub(crate) fn new_pair(msg: BytesMut) -> (Request, Response) {
-    let (tx, rx) = unbounded_channel();
-    (Request::new(Some(tx), msg), Response::new(rx))
+#[derive(Debug)]
+pub(crate) struct ClientTx(UnboundedSender<Request>);
+
+impl ClientTx {
+    pub(crate) fn is_closed(&self) -> bool {
+        self.0.is_closed()
+    }
+
+    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
+        let (tx, rx) = unbounded_channel();
+        self.0.send(Request::new(Some(tx), msg))?;
+        Ok(Response::new(rx))
+    }
+
+    // send a message to database without concerning a response.
+    pub(crate) fn send2(&self, msg: BytesMut) -> Result<(), Error> {
+        let req = Request::new(None, msg);
+        self.0.send(req)?;
+        Ok(())
+    }
 }
 
-pub type ClientTx = UnboundedSender<Request>;
-
-pub(crate) async fn connect2(
-    cfg: Config,
-) -> Result<(Client, impl std::future::Future<Output = Result<(), Error>> + Send), Error> {
+pub(crate) async fn connect2(cfg: Config) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send), Error> {
     let io = connect(&cfg).await?;
 
     let (tx, rx) = unbounded_channel();
-    let cli = Client::new(tx);
+    let cli = Client::new(ClientTx(tx));
     let handle = BufferedIo::new(io, rx).spawn();
 
     let ret = cli.authenticate(cfg).await;
