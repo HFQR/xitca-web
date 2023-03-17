@@ -43,8 +43,8 @@ impl ClientTx {
     }
 }
 
-pub(crate) async fn connect2(cfg: Config) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send), Error> {
-    let io = connect(&cfg).await?;
+pub(crate) async fn connect(cfg: Config) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send), Error> {
+    let io = _connect(&cfg).await?;
 
     let (tx, rx) = unbounded_channel();
     let cli = Client::new(ClientTx(tx));
@@ -59,7 +59,7 @@ pub(crate) async fn connect2(cfg: Config) -> Result<(Client, impl Future<Output 
 
 #[cold]
 #[inline(never)]
-pub(crate) async fn connect(cfg: &Config) -> Result<TcpStream, Error> {
+pub(crate) async fn _connect(cfg: &Config) -> Result<TcpStream, Error> {
     let hosts = cfg.get_hosts();
     let ports = cfg.get_ports();
 

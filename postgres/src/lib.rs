@@ -85,7 +85,7 @@ where
     /// ```
     pub async fn connect(self) -> Result<(Client, impl std::future::Future<Output = Result<(), Error>> + Send), Error> {
         let cfg = Config::try_from(self.cfg)?;
-        transport::connect2(cfg).await
+        transport::connect(cfg).await
     }
 }
 
