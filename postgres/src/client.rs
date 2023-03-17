@@ -7,7 +7,7 @@ use xitca_unsafe_collection::no_hash::NoHashBuilder;
 use super::{
     error::Error,
     statement::Statement,
-    transport::{new_pair, ClientTx, Request, Response},
+    transport::{ClientTx, Response},
     util::lock::Lock,
 };
 
@@ -54,16 +54,12 @@ impl Client {
     }
 
     pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        let (req, res) = new_pair(msg);
-        self.tx.send(req)?;
-        Ok(res)
+        self.tx.send(msg)
     }
 
     // send a message to database without concerning a response.
     pub(crate) fn send2(&self, msg: BytesMut) -> Result<(), Error> {
-        let req = Request::new(None, msg);
-        self.tx.send(req)?;
-        Ok(())
+        self.tx.send2(msg)
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
