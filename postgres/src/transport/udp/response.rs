@@ -28,10 +28,10 @@ impl Response {
 
             let chunk = self
                 .rx
-                .read_chunk(usize::MAX, true)
+                .read_chunk(4096, true)
                 .await
                 .unwrap()
-                .ok_or_else(|| unexpected_eof_err())?;
+                .ok_or_else(unexpected_eof_err)?;
 
             self.buf.extend_from_slice(&chunk.bytes);
         }
