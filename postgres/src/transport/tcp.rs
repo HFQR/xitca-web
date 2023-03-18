@@ -29,17 +29,19 @@ impl ClientTx {
         self.0.is_closed()
     }
 
-    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
+    pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
         let (tx, rx) = unbounded_channel();
         self.0.send(Request::new(Some(tx), msg))?;
         Ok(Response::new(rx))
     }
 
-    // send a message to database without concerning a response.
-    pub(crate) fn send2(&self, msg: BytesMut) -> Result<(), Error> {
-        let req = Request::new(None, msg);
-        self.0.send(req)?;
+    pub(crate) async fn send2(&self, msg: BytesMut) -> Result<(), Error> {
+        self.0.send(Request::new(None, msg))?;
         Ok(())
+    }
+
+    pub(crate) fn do_send(&self, msg: BytesMut) {
+        let _ = self.0.send(Request::new(None, msg));
     }
 }
 
