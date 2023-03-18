@@ -160,7 +160,7 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &'a str) -> Option<&'a ImplItemFn> {
+fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &str) -> Option<&'a ImplItemFn> {
     items.iter().find_map(|item| match item {
         ImplItem::Fn(func) if func.sig.ident.to_string().as_str() == ident_str => {
             assert!(func.sig.asyncness.is_some(), "{ident_str} method must be async fn");
