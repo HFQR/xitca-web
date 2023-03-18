@@ -4,7 +4,7 @@ mod io;
 mod request;
 mod response;
 
-pub use self::{io::BufferedIo, request::Request, response::Response};
+pub use self::{io::BufferedIo, response::Response};
 
 use core::future::Future;
 
@@ -16,6 +16,8 @@ use crate::{
     config::{Config, Host},
     error::Error,
 };
+
+use self::request::Request;
 
 type ResponseSender = UnboundedSender<BytesMut>;
 

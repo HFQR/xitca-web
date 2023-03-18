@@ -27,7 +27,7 @@ impl Response {
         poll_fn(|cx| self.poll_recv(cx)).await
     }
 
-    pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
+    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
         if self.buf.is_empty() {
             match ready!(self.rx.poll_recv(cx)) {
                 Some(buf) => self.buf = buf,

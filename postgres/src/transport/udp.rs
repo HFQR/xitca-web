@@ -1,15 +1,14 @@
 //! udp socket with quic protocol as client transport layer.
 
 mod codec;
-mod request;
 mod response;
 
-pub use self::{request::Request, response::Response};
+pub use self::response::Response;
 
 use core::future::Future;
 
-use quinn::Connection;
-use xitca_io::bytes::{Bytes, BytesMut};
+use quinn::{Connection, SendStream};
+use xitca_io::bytes::{Buf, Bytes, BytesMut};
 
 use crate::{client::Client, config::Config, error::Error};
 
@@ -27,21 +26,41 @@ impl ClientTx {
     }
 
     pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        let (mut tx, rx) = self.inner.open_bi().await.unwrap();
-        let mut bufs = [Bytes::copy_from_slice(&msg.len().to_be_bytes()), msg.freeze()];
-        let b = tx.write_chunks(&mut bufs).await.unwrap();
-        // Ok(Response::new(rx))}
-        todo!()
+        let mut buf = self.codec.encode(msg);
+        let (tx, rx) = self.inner.open_bi().await.unwrap();
+        _send(tx, &mut buf).await?;
+        Ok(Response::new(rx))
     }
 
     pub(crate) async fn send2(&self, msg: BytesMut) -> Result<(), Error> {
-        let mut tx = self.inner.open_uni().await.unwrap();
-        let mut bufs = [Bytes::copy_from_slice(&msg.len().to_be_bytes()), msg.freeze()];
-        let b = tx.write_chunks(&mut bufs).await.unwrap();
-        Ok(())
+        let mut buf = self.codec.encode(msg);
+        let tx = self.inner.open_uni().await.unwrap();
+        _send(tx, &mut buf).await
     }
 
     pub(crate) fn do_send(&self, msg: BytesMut) {}
+}
+
+async fn _send(mut tx: SendStream, mut bufs: &mut [Bytes]) -> Result<(), Error> {
+    loop {
+        let written = tx.write_chunks(bufs).await.unwrap();
+
+        // this logic depend on quinn's write_chunks behavior:
+        // Written.chunks should always represent the count of Bytes that are fully written.
+        let (done, rest) = bufs.split_at_mut(written.chunks);
+
+        if rest.is_empty() {
+            break;
+        }
+
+        // adjust the length of slice and split the first Bytes that is (possibly) not fully
+        // written.
+        let chunks_len = done.iter().map(|buf| buf.len()).sum::<usize>();
+        bufs = rest;
+        bufs[0].advance(written.bytes - chunks_len);
+    }
+    tx.finish().await.unwrap();
+    Ok(())
 }
 
 pub(crate) async fn connect(cfg: Config) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send), Error> {
