@@ -1,13 +1,13 @@
-use xitca_io::bytes::{Bytes, BytesMut};
+use postgres_protocol::message::backend;
+use xitca_io::bytes::BytesMut;
 
-#[derive(Debug)]
-pub(super) struct Codec;
+use crate::error::Error;
 
-impl Codec {
-    pub(super) fn encode(&self, msg: BytesMut) -> [Bytes; 2] {
-        let msg = msg.freeze();
-        let len = (msg.len() as u64).to_be_bytes();
-        let prefix = Bytes::copy_from_slice(&len);
-        [prefix, msg]
+pub(super) fn decode(msg: &mut BytesMut) -> Result<Option<backend::Message>, Error> {
+    match backend::Message::parse(msg)? {
+        // TODO: error response.
+        Some(backend::Message::ErrorResponse(_body)) => Err(Error::ToDo),
+        Some(msg) => Ok(Some(msg)),
+        None => Ok(None),
     }
 }
