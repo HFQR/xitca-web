@@ -84,18 +84,18 @@ pub(crate) async fn _connect(cfg: &Config) -> Result<TcpStream, Error> {
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
     let mut err = None;
 
-    for port in ports {
-        match tokio::net::lookup_host((host, *port)).await {
-            Ok(addrs) => {
-                for addr in addrs {
-                    match TcpStream::connect(addr).await {
-                        Ok(stream) => {
-                            let _ = stream.set_nodelay(true);
-                            return Ok(stream);
-                        }
-                        Err(e) => err = Some(e),
-                    }
-                }
+    let addrs = tokio::net::lookup_host(host).await?.flat_map(|mut addr| {
+        ports.iter().map(move |port| {
+            addr.set_port(*port);
+            addr
+        })
+    });
+
+    for addr in addrs {
+        match TcpStream::connect(addr).await {
+            Ok(stream) => {
+                let _ = stream.set_nodelay(true);
+                return Ok(stream);
             }
             Err(e) => err = Some(e),
         }

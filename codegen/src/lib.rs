@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{__private::Span, quote};
 use syn::{
-    Data, FnArg, GenericArgument, Ident, ImplItem, ImplItemMethod, Pat, PatIdent, PathArguments, ReturnType, Stmt, Type,
+    Data, FnArg, GenericArgument, Ident, ImplItem, ImplItemFn, Pat, PatIdent, PathArguments, ReturnType, Stmt, Type,
 };
 
 #[proc_macro_derive(State, attributes(borrow))]
@@ -21,7 +21,7 @@ pub fn state_impl(item: TokenStream) -> TokenStream {
         .enumerate()
         .filter(|(_, field)| {
             field.attrs.iter().any(|attr| {
-                attr.path
+                attr.path()
                     .segments
                     .first()
                     .filter(|seg| seg.ident.to_string().as_str() == "borrow")
@@ -160,11 +160,11 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &'a str) -> Option<&'a ImplItemMethod> {
+fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &str) -> Option<&'a ImplItemFn> {
     items.iter().find_map(|item| match item {
-        ImplItem::Method(method) if method.sig.ident.to_string().as_str() == ident_str => {
-            assert!(method.sig.asyncness.is_some(), "{ident_str} method must be async fn");
-            Some(method)
+        ImplItem::Fn(func) if func.sig.ident.to_string().as_str() == ident_str => {
+            assert!(func.sig.asyncness.is_some(), "{ident_str} method must be async fn");
+            Some(func)
         }
         _ => None,
     })
