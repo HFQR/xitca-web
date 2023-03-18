@@ -38,7 +38,7 @@ impl<'a> StatementGuarded<'a> {
                     .try_encode_with(|b| frontend::close(b'S', &statement.name, b).map(|_| frontend::sync(b)));
 
                 if let Ok(msg) = res {
-                    let _f = self.client.send(msg);
+                    self.client.do_send(msg);
                 }
             }
         }

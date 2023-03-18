@@ -11,8 +11,8 @@ use super::base::GenericRowStream;
 
 impl Client {
     #[inline]
-    pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self.simple(stmt).map(|res| RowSimpleStream {
+    pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
+        self.simple(stmt).await.map(|res| RowSimpleStream {
             res,
             col: Vec::new(),
             ranges: Vec::new(),
@@ -20,13 +20,13 @@ impl Client {
     }
 
     pub async fn execute_simple(&self, stmt: &str) -> Result<u64, Error> {
-        let res = self.simple(stmt)?;
+        let res = self.simple(stmt).await?;
         super::base::res_to_row_affected(res).await
     }
 
-    fn simple(&self, stmt: &str) -> Result<Response, Error> {
+    async fn simple(&self, stmt: &str) -> Result<Response, Error> {
         let buf = self.try_encode_with(|buf| frontend::query(stmt, buf))?;
-        self.send(buf)
+        self.send(buf).await
     }
 }
 

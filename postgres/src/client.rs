@@ -53,13 +53,18 @@ impl Client {
         self.tx.is_closed()
     }
 
-    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        self.tx.send(msg)
+    pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
+        self.tx.send(msg).await
     }
 
-    // send a message to database without concerning a response.
-    pub(crate) fn send2(&self, msg: BytesMut) -> Result<(), Error> {
-        self.tx.send2(msg)
+    // send a message to database without concerning response.
+    pub(crate) async fn send2(&self, msg: BytesMut) -> Result<(), Error> {
+        self.tx.send2(msg).await
+    }
+
+    // send a message in non blocking manner without concerning response.
+    pub(crate) fn do_send(&self, msg: BytesMut) {
+        self.tx.do_send(msg)
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {

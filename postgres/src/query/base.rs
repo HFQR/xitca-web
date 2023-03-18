@@ -86,7 +86,7 @@ impl Client {
         I::Item: BorrowToSql,
     {
         let buf = encode(self, stmt, params.into_iter())?;
-        let mut res = self.send(buf)?;
+        let mut res = self.send(buf).await?;
         match res.recv().await? {
             backend::Message::BindComplete => Ok(res),
             _ => Err(Error::UnexpectedMessage),
