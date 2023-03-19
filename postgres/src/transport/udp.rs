@@ -12,14 +12,14 @@ use xitca_io::bytes::BytesMut;
 
 use crate::{client::Client, config::Config, error::Error};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ClientTx {
     inner: Connection,
 }
 
 impl ClientTx {
     pub(crate) fn is_closed(&self) -> bool {
-        todo!()
+        self.inner.close_reason().is_some()
     }
 
     pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
@@ -36,7 +36,12 @@ impl ClientTx {
         Ok(())
     }
 
-    pub(crate) fn do_send(&self, msg: BytesMut) {}
+    pub(crate) fn do_send(&self, msg: BytesMut) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            let _ = this.send(msg).await;
+        });
+    }
 }
 
 pub(crate) async fn connect(cfg: Config) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send), Error> {
