@@ -4,7 +4,10 @@ use core::{fmt, iter, mem, str};
 
 use alloc::borrow::Cow;
 
-use std::error;
+use std::{
+    error,
+    path::{Path, PathBuf},
+};
 
 use super::error::Error;
 
@@ -23,9 +26,9 @@ pub enum TargetSessionAttrs {
 pub enum Host {
     /// A TCP hostname.
     Tcp(String),
-    #[cfg(unix)]
+    Udp(String),
     /// A Unix hostname.
-    Unix(std::path::PathBuf),
+    Unix(PathBuf),
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -48,15 +51,15 @@ impl Default for Config {
 
 impl Config {
     /// Creates a new configuration.
-    pub fn new() -> Config {
+    pub const fn new() -> Config {
         Config {
             user: None,
             password: None,
             dbname: None,
             options: None,
             application_name: None,
-            host: vec![],
-            port: vec![],
+            host: Vec::new(),
+            port: Vec::new(),
             target_session_attrs: TargetSessionAttrs::Any,
         }
     }
@@ -129,7 +132,6 @@ impl Config {
     }
 
     pub fn host(&mut self, host: &str) -> &mut Config {
-        #[cfg(unix)]
         if host.starts_with('/') {
             return self.host_path(host);
         }
@@ -141,10 +143,9 @@ impl Config {
     /// Adds a Unix socket host to the configuration.
     ///
     /// Unlike `host`, this method allows non-UTF8 paths.
-    #[cfg(unix)]
     pub fn host_path<T>(&mut self, host: T) -> &mut Config
     where
-        T: AsRef<std::path::Path>,
+        T: AsRef<Path>,
     {
         self.host.push(Host::Unix(host.as_ref().to_path_buf()));
         self

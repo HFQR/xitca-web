@@ -8,6 +8,8 @@ pub use self::{io::BufferedIo, response::Response};
 
 use core::future::Future;
 
+use std::path::PathBuf;
+
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::{bytes::BytesMut, net::TcpStream};
 
@@ -75,11 +77,11 @@ pub(crate) async fn _connect(cfg: &Config) -> Result<TcpStream, Error> {
                 Ok(stream) => return Ok(stream),
                 Err(e) => err = Some(e),
             },
-            #[cfg(unix)]
-            Host::Unix(host) => match connect_unix(host).await {
+            Host::Unix(host) => match connect_path(host).await {
                 Ok(stream) => return Ok(stream),
                 Err(e) => err = Some(e),
             },
+            _ => todo!(),
         }
     }
 
@@ -109,7 +111,6 @@ async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
     Err(err.unwrap().into())
 }
 
-#[cfg(unix)]
-async fn connect_unix(host: &std::path::PathBuf) -> Result<TcpStream, Error> {
+async fn connect_path(_: &PathBuf) -> Result<TcpStream, Error> {
     todo!()
 }
