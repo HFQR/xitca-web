@@ -84,7 +84,7 @@ pub(crate) async fn _connect(cfg: &Config) -> Result<TcpStream, Error> {
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
     let mut err = None;
 
-    let addrs = tokio::net::lookup_host(host).await?.flat_map(|mut addr| {
+    let addrs = tokio::net::lookup_host((host, 0)).await?.flat_map(|mut addr| {
         ports.iter().map(move |port| {
             addr.set_port(*port);
             addr

@@ -101,6 +101,6 @@ mod test {
             .await
             .unwrap();
         tokio::spawn(task);
-        let _ = cli.query_simple("").unwrap().next().await;
+        let _ = cli.query_simple("").await.unwrap().next().await;
     }
 }
