@@ -15,8 +15,8 @@ pub use tokio::net::UnixListener;
 pub struct UnixStream(pub(crate) tokio::net::UnixStream);
 
 impl UnixStream {
-    pub async fn connect<P: AsRef<Path>>(addr: A) -> io::Result<Self> {
-        tokio::net::UnixStream::connect(addr).await.map(Self)
+    pub async fn connect<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        tokio::net::UnixStream::connect(path).await.map(Self)
     }
 
     pub fn from_std(stream: net::UnixStream) -> io::Result<Self> {
