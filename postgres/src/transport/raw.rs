@@ -75,6 +75,11 @@ pub(crate) async fn _connect(cfg: &Config) -> Result<TcpStream, Error> {
                 Ok(stream) => return Ok(stream),
                 Err(e) => err = Some(e),
             },
+            #[cfg(unix)]
+            Host::Unix(host) => match connect_unix(host).await {
+                Ok(stream) => return Ok(stream),
+                Err(e) => err = Some(e),
+            },
         }
     }
 
@@ -102,4 +107,9 @@ async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
     }
 
     Err(err.unwrap().into())
+}
+
+#[cfg(unix)]
+async fn connect_unix(host: &std::path::PathBuf) -> Result<TcpStream, Error> {
+    todo!()
 }
