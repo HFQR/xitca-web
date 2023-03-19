@@ -18,8 +18,7 @@ impl TcpStream {
     }
 
     pub fn from_std(stream: std::net::TcpStream) -> io::Result<Self> {
-        let stream = tokio::net::TcpStream::from_std(stream)?;
-        Ok(Self(stream))
+        tokio::net::TcpStream::from_std(stream).map(Self)
     }
 
     pub fn into_std(self) -> io::Result<std::net::TcpStream> {

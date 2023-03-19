@@ -1,7 +1,11 @@
 use std::{
     io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    os::unix::io::{AsRawFd, RawFd},
+    os::unix::{
+        io::{AsRawFd, RawFd},
+        net,
+    },
+    path::Path,
 };
 
 use super::Stream;
@@ -11,12 +15,15 @@ pub use tokio::net::UnixListener;
 pub struct UnixStream(pub(crate) tokio::net::UnixStream);
 
 impl UnixStream {
-    pub fn from_std(stream: std::os::unix::net::UnixStream) -> io::Result<Self> {
-        let stream = tokio::net::UnixStream::from_std(stream)?;
-        Ok(Self(stream))
+    pub async fn connect<P: AsRef<Path>>(addr: A) -> io::Result<Self> {
+        tokio::net::UnixStream::connect(addr).await.map(Self)
     }
 
-    pub fn into_std(self) -> io::Result<std::os::unix::net::UnixStream> {
+    pub fn from_std(stream: net::UnixStream) -> io::Result<Self> {
+        tokio::net::UnixStream::from_std(stream).map(Self)
+    }
+
+    pub fn into_std(self) -> io::Result<net::UnixStream> {
         self.0.into_std()
     }
 }
