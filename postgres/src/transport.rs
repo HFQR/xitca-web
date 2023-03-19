@@ -1,9 +1,9 @@
 #[cfg(not(feature = "quic"))]
-mod tcp;
+mod raw;
 #[cfg(not(feature = "quic"))]
-pub use tcp::*;
+pub use raw::*;
 
 #[cfg(feature = "quic")]
-mod udp;
+mod quic;
 #[cfg(feature = "quic")]
-pub use udp::*;
+pub use quic::*;
