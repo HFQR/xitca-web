@@ -171,6 +171,13 @@ where
 
             let encoder = &mut self.encode_head(parts, &res_body)?;
             self.response_handler(res_body, encoder, &mut body_reader).await?;
+
+            if !body_reader.decoder.is_eof() {
+                // request body is partial consumed.close connection in case there are bytes remain
+                // in socket and/or read buffer.
+                self.ctx.set_ctype(ConnectionType::Close);
+                break;
+            }
         }
 
         Ok(())
@@ -234,11 +241,6 @@ where
                     }
                 }
                 SelectOutput::A(None) => {
-                    if !body_reader.decoder.is_eof() {
-                        // request body is partial consumed. close connection in case there are
-                        // bytes remain in socket.
-                        self.ctx.set_ctype(ConnectionType::Close);
-                    }
                     encoder.encode_eof(&mut self.io.write_buf);
                     return Ok(());
                 }
