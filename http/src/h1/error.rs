@@ -7,13 +7,17 @@ use crate::{error::HttpServiceError, util::timer::KeepAliveExpired};
 use super::proto::error::ProtoError;
 
 pub enum Error<S, B> {
-    /// KeepAlive error should be treated as success and transform to Ok(())
+    /// socket keep-alive timer expired.
     KeepAliveExpire,
-    /// Closed error should be treated as success and transform to Ok(())
     Closed,
+    /// service error. terminate connection right away.
     Service(S),
+    /// service response body error. terminate connection right away.
     Body(B),
+    /// socket and/or runtime error. terminate connection right away.
     Io(io::Error),
+    /// http/1 protocol error. transform into http response and send to client.
+    /// after which the connection can be gracefully shutdown or kept open.
     Proto(ProtoError),
 }
 
@@ -24,8 +28,8 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::KeepAliveExpire => write!(f, "Keep-Alive time expired"),
-            Self::Closed => write!(f, "Closed"),
+            Self::KeepAliveExpire => f.write_str("Keep-Alive time expired"),
+            Self::Closed => f.write_str("Closed"),
             Self::Service(ref e) => fmt::Debug::fmt(e, f),
             Self::Body(ref e) => fmt::Debug::fmt(e, f),
             Self::Io(ref e) => fmt::Debug::fmt(e, f),
@@ -45,7 +49,9 @@ impl<S, B> From<io::Error> for Error<S, B> {
         use io::ErrorKind;
         match e.kind() {
             ErrorKind::ConnectionReset | ErrorKind::UnexpectedEof | ErrorKind::WriteZero => Self::Closed,
-            ErrorKind::WouldBlock => unreachable!("WouldBlock error should never be treated as error."),
+            ErrorKind::WouldBlock | ErrorKind::Interrupted => {
+                unreachable!("non-blocking I/O must not emit WouldBlock/Interrupted error")
+            }
             _ => Self::Io(e),
         }
     }
