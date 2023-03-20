@@ -21,6 +21,17 @@ pub enum TargetSessionAttrs {
     ReadWrite,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SslMode {
+    /// Do not use TLS.
+    Disable,
+    /// Attempt to connect with TLS but allow sessions without.
+    Prefer,
+    /// Require the use of TLS.
+    Require,
+}
+
 /// A host specification.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Host {
@@ -38,6 +49,7 @@ pub struct Config {
     pub(crate) dbname: Option<String>,
     pub(crate) options: Option<String>,
     pub(crate) application_name: Option<String>,
+    pub(crate) ssl_mode: SslMode,
     pub(crate) host: Vec<Host>,
     pub(crate) port: Vec<u16>,
     pub(crate) target_session_attrs: TargetSessionAttrs,
@@ -58,6 +70,7 @@ impl Config {
             dbname: None,
             options: None,
             application_name: None,
+            ssl_mode: SslMode::Prefer,
             host: Vec::new(),
             port: Vec::new(),
             target_session_attrs: TargetSessionAttrs::Any,
@@ -131,6 +144,19 @@ impl Config {
         self.application_name.as_deref()
     }
 
+    /// Sets the SSL configuration.
+    ///
+    /// Defaults to `prefer`.
+    pub fn ssl_mode(&mut self, ssl_mode: SslMode) -> &mut Config {
+        self.ssl_mode = ssl_mode;
+        self
+    }
+
+    /// Gets the SSL configuration.
+    pub fn get_ssl_mode(&self) -> SslMode {
+        self.ssl_mode
+    }
+
     pub fn host(&mut self, host: &str) -> &mut Config {
         if host.starts_with('/') {
             return self.host_path(host);
@@ -201,6 +227,15 @@ impl Config {
             }
             "application_name" => {
                 self.application_name(value);
+            }
+            "sslmode" => {
+                let mode = match value {
+                    "disable" => SslMode::Disable,
+                    "prefer" => SslMode::Prefer,
+                    "require" => SslMode::Require,
+                    _ => return Err(Error::ToDo),
+                };
+                self.ssl_mode(mode);
             }
             "host" => {
                 for host in value.split(',') {
