@@ -108,6 +108,7 @@ mod test {
         let _ = cli.query_simple("").await.unwrap().next().await;
     }
 
+    #[cfg(not(feature = "single-thread"))]
     #[test]
     fn assert_send_test() {
         assert_send(Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
