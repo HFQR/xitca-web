@@ -89,10 +89,18 @@ where
     }
 }
 
-#[cfg(all(not(feature = "quic"), test))]
+#[cfg(test)]
+fn assert_send<F>(_: F)
+where
+    F: Send,
+{
+}
+
+#[cfg(test)]
 mod test {
     use super::*;
 
+    #[cfg(not(feature = "quic"))]
     #[tokio::test]
     async fn postgres() {
         let _ = Postgres::new(Config::default());
@@ -102,5 +110,10 @@ mod test {
             .unwrap();
         tokio::spawn(task);
         let _ = cli.query_simple("").await.unwrap().next().await;
+    }
+
+    #[test]
+    fn assert_send_test() {
+        assert_send(Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
     }
 }
