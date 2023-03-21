@@ -60,8 +60,8 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
     let (tx, rx) = unbounded_channel();
     let cli = Client::new(ClientTx(tx));
 
-    match host {
-        Host::Tcp(host) => {
+    match *host {
+        Host::Tcp(ref host) => {
             let io = connect_tcp(host, cfg.get_ports()).await?;
             let handle = BufferedIo::new(io, rx).spawn();
 
@@ -72,7 +72,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
             ret.map(|_| (cli, Box::pin(io.run()) as _))
         }
         #[cfg(unix)]
-        Host::Unix(host) => {
+        Host::Unix(ref host) => {
             let io = xitca_io::net::UnixStream::connect(host).await?;
 
             let handle = BufferedIo::new(io, rx).spawn();
@@ -87,17 +87,9 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
 }
 
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
-    let mut err = None;
+    let addrs = super::resolve(host, ports).await?;
 
-    let addrs = tokio::net::lookup_host((host, 0))
-        .await?
-        .flat_map(|mut addr| {
-            ports.iter().map(move |port| {
-                addr.set_port(*port);
-                addr
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut err = None;
 
     for addr in addrs {
         match TcpStream::connect(addr).await {
