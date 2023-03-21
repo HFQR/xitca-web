@@ -7,10 +7,18 @@ pub use self::response::Response;
 
 use core::future::Future;
 
-use quinn::Connection;
+use alloc::sync::Arc;
+
+use quinn::{ClientConfig, Connection, Endpoint};
+use rustls::{OwnedTrustAnchor, RootCertStore};
+use webpki_roots::TLS_SERVER_ROOTS;
 use xitca_io::bytes::BytesMut;
 
-use crate::{client::Client, config::Config, error::Error};
+use crate::{
+    client::Client,
+    config::{Config, Host},
+    error::Error,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientTx {
@@ -44,6 +52,64 @@ impl ClientTx {
     }
 }
 
-pub(crate) async fn connect(cfg: Config) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send), Error> {
-    Ok((todo!(), async { Ok(()) }))
+type Task = impl Future<Output = Result<(), Error>> + Send;
+type Ret = Result<(Client, Task), Error>;
+
+pub(crate) async fn connect(cfg: Config) -> Ret {
+    super::try_connect_multi(&cfg, _connect).await
+}
+
+#[cold]
+#[inline(never)]
+pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
+    match *host {
+        Host::Udp(ref host) => {
+            let tx = connect_quic(host, cfg.get_ports()).await?;
+            let cli = Client::new(tx);
+            cli.authenticate(cfg).await?;
+            Ok((cli, async { Ok(()) }))
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[cold]
+#[inline(never)]
+async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
+    let addrs = super::resolve(host, ports).await?;
+
+    let mut root_certs = RootCertStore::empty();
+
+    let certs = TLS_SERVER_ROOTS.0.iter().map(|cert| {
+        OwnedTrustAnchor::from_subject_spki_name_constraints(cert.subject, cert.spki, cert.name_constraints)
+    });
+
+    root_certs.add_server_trust_anchors(certs);
+
+    let mut crypto = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_certs)
+        .with_no_client_auth();
+
+    crypto.alpn_protocols = vec![b"quic".to_vec()];
+
+    let config = ClientConfig::new(Arc::new(crypto));
+
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
+
+    endpoint.set_default_client_config(config);
+
+    let mut err = None;
+
+    for addr in addrs {
+        match endpoint.connect(addr, host) {
+            Ok(conn) => match conn.await {
+                Ok(inner) => return Ok(ClientTx { inner }),
+                Err(_) => err = Some(Error::ToDo),
+            },
+            Err(_) => err = Some(Error::ToDo),
+        }
+    }
+
+    Err(err.unwrap())
 }

@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 # feature for single thread client that have lower overhead(no lock) at the cost of no thread safety.
 single-thread = []
-quic = ["quinn"]
+quic = ["quinn", "rustls", "webpki-roots"]
 
 [dependencies]
 xitca-io = { version = "0.1", features = ["runtime"] }
@@ -21,6 +21,8 @@ tokio = { version = "1.26", features = ["net", "sync"] }
 tracing = { version = "0.1", default-features = false }
 
 quinn = { version = "0.9.3", optional = true }
+rustls = { version = "0.20.8", optional = true }
+webpki-roots = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.26", features = ["macros", "rt"] }

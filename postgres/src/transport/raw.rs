@@ -6,9 +6,7 @@ mod response;
 
 pub use self::{io::BufferedIo, response::Response};
 
-use core::future::Future;
-
-use std::path::PathBuf;
+use core::{future::Future, pin::Pin};
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::{bytes::BytesMut, net::TcpStream};
@@ -49,57 +47,49 @@ impl ClientTx {
     }
 }
 
-pub(crate) async fn connect(cfg: Config) -> Result<(Client, impl Future<Output = Result<(), Error>> + Send), Error> {
-    let io = _connect(&cfg).await?;
+type Task = Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
+type Ret = Result<(Client, Task), Error>;
 
-    let (tx, rx) = unbounded_channel();
-    let cli = Client::new(ClientTx(tx));
-    let handle = BufferedIo::new(io, rx).spawn();
-
-    let ret = cli.authenticate(cfg).await;
-    // retrieve io regardless of authentication outcome.
-    let io = handle.into_inner().await;
-
-    ret.map(|_| (cli, io.run()))
+pub(crate) async fn connect(cfg: Config) -> Ret {
+    super::try_connect_multi(&cfg, _connect).await
 }
 
 #[cold]
 #[inline(never)]
-pub(crate) async fn _connect(cfg: &Config) -> Result<TcpStream, Error> {
-    let hosts = cfg.get_hosts();
-    let ports = cfg.get_ports();
+pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
+    let (tx, rx) = unbounded_channel();
+    let cli = Client::new(ClientTx(tx));
 
-    let mut err = None;
+    match *host {
+        Host::Tcp(ref host) => {
+            let io = connect_tcp(host, cfg.get_ports()).await?;
+            let handle = BufferedIo::new(io, rx).spawn();
 
-    for host in hosts {
-        match host {
-            Host::Tcp(host) => match connect_tcp(host, ports).await {
-                Ok(stream) => return Ok(stream),
-                Err(e) => err = Some(e),
-            },
-            Host::Unix(host) => match connect_path(host).await {
-                Ok(stream) => return Ok(stream),
-                Err(e) => err = Some(e),
-            },
-            _ => todo!(),
+            let ret = cli.authenticate(cfg).await;
+            // retrieve io regardless of authentication outcome.
+            let io = handle.into_inner().await;
+
+            ret.map(|_| (cli, Box::pin(io.run()) as _))
         }
-    }
+        #[cfg(unix)]
+        Host::Unix(ref host) => {
+            let io = xitca_io::net::UnixStream::connect(host).await?;
 
-    Err(err.unwrap())
+            let handle = BufferedIo::new(io, rx).spawn();
+
+            let ret = cli.authenticate(cfg).await;
+            let io = handle.into_inner().await;
+
+            ret.map(|_| (cli, Box::pin(io.run()) as _))
+        }
+        _ => unreachable!(),
+    }
 }
 
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
-    let mut err = None;
+    let addrs = super::resolve(host, ports).await?;
 
-    let addrs = tokio::net::lookup_host((host, 0))
-        .await?
-        .flat_map(|mut addr| {
-            ports.iter().map(move |port| {
-                addr.set_port(*port);
-                addr
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut err = None;
 
     for addr in addrs {
         match TcpStream::connect(addr).await {
@@ -112,8 +102,4 @@ async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
     }
 
     Err(err.unwrap().into())
-}
-
-async fn connect_path(_: &PathBuf) -> Result<TcpStream, Error> {
-    todo!()
 }
