@@ -90,11 +90,7 @@ where
 }
 
 #[cfg(test)]
-fn assert_send<F>(_: F)
-where
-    F: Send,
-{
-}
+fn assert_send<F: Send>(_: F) {}
 
 #[cfg(test)]
 mod test {
