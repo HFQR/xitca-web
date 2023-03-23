@@ -58,7 +58,7 @@ pub(crate) async fn connect(cfg: Config) -> Ret {
 #[inline(never)]
 pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
     let (tx, rx) = unbounded_channel();
-    let cli = Client::new(ClientTx(tx));
+    let mut cli = Client::new(ClientTx(tx));
 
     match *host {
         Host::Tcp(ref host) => {

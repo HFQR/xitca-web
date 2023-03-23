@@ -9,7 +9,7 @@ use super::{client::Client, config::Config, error::AuthenticationError, error::E
 impl Client {
     #[cold]
     #[inline(never)]
-    pub(crate) async fn authenticate(&self, cfg: &Config) -> Result<(), Error> {
+    pub(crate) async fn authenticate(&mut self, cfg: &Config) -> Result<(), Error> {
         let mut params = vec![("client_encoding", "UTF8")];
         if let Some(user) = &cfg.user {
             params.push(("user", &**user));

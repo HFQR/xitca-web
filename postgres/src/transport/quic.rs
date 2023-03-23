@@ -65,7 +65,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
     match *host {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;
-            let cli = Client::new(tx);
+            let mut cli = Client::new(tx);
             cli.authenticate(cfg).await?;
             Ok((cli, async { Ok(()) }))
         }
