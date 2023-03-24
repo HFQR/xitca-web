@@ -106,7 +106,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
                 }
                 #[cfg(not(feature = "tls"))]
                 {
-                    unreachable!()
+                    Err(Error::ToDo)
                 }
             } else {
                 let handle = io::new(io, rx).spawn();
@@ -147,12 +147,12 @@ where
         SslMode::Require => {
             #[cfg(feature = "tls")]
             {
-                _should_connect_tls(io).await
+                if _should_connect_tls(io).await? {
+                    return Ok(true);
+                }
             }
-            #[cfg(not(feature = "tls"))]
-            {
-                Err(Error::ToDo)
-            }
+
+            Err(Error::ToDo)
         }
     }
 }
