@@ -269,6 +269,24 @@ impl Config {
 
         Ok(())
     }
+
+    pub fn should_connect_tls(&self) -> Result<bool, Error> {
+        #[cfg(not(feature = "tls"))]
+        {
+            match self.get_ssl_mode() {
+                SslMode::Disable | SslMode::Prefer => Ok(false),
+                SslMode::Require => Err(Error::ToDo),
+            }
+        }
+
+        #[cfg(feature = "tls")]
+        {
+            match self.get_ssl_mode() {
+                SslMode::Disable => Ok(false),
+                _ => Ok(true),
+            }
+        }
+    }
 }
 
 impl TryFrom<String> for Config {

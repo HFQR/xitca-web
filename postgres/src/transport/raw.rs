@@ -4,7 +4,7 @@ mod io;
 mod request;
 mod response;
 
-pub use self::{io::BufferedIo, response::Response};
+pub use self::response::Response;
 
 use core::{future::Future, pin::Pin};
 
@@ -60,27 +60,41 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
     let (tx, rx) = unbounded_channel();
     let mut cli = Client::new(ClientTx(tx));
 
+    // this block have repeated code due to HRTB limitation.
+    // namely for <'_> AsyncIo::Future<'_>: Send bound can not be expressed correctly.
     match *host {
         Host::Tcp(ref host) => {
             let io = connect_tcp(host, cfg.get_ports()).await?;
-            let handle = BufferedIo::new(io, rx).spawn();
-
-            let ret = cli.authenticate(cfg).await;
-            // retrieve io regardless of authentication outcome.
-            let io = handle.into_inner().await;
-
-            ret.map(|_| (cli, Box::pin(io.run()) as _))
+            if cfg.should_connect_tls()? {
+                let handle = io::new(io, rx).spawn();
+                let ret = cli.authenticate(cfg).await;
+                // retrieve io regardless of authentication outcome.
+                let io = handle.into_inner().await;
+                ret.map(|_| (cli, Box::pin(io.run()) as _))
+            } else {
+                let handle = io::new(io, rx).spawn();
+                let ret = cli.authenticate(cfg).await;
+                // retrieve io regardless of authentication outcome.
+                let io = handle.into_inner().await;
+                ret.map(|_| (cli, Box::pin(io.run()) as _))
+            }
         }
         #[cfg(unix)]
         Host::Unix(ref host) => {
             let io = xitca_io::net::UnixStream::connect(host).await?;
-
-            let handle = BufferedIo::new(io, rx).spawn();
-
-            let ret = cli.authenticate(cfg).await;
-            let io = handle.into_inner().await;
-
-            ret.map(|_| (cli, Box::pin(io.run()) as _))
+            if cfg.should_connect_tls()? {
+                let handle = io::new(io, rx).spawn();
+                let ret = cli.authenticate(cfg).await;
+                // retrieve io regardless of authentication outcome.
+                let io = handle.into_inner().await;
+                ret.map(|_| (cli, Box::pin(io.run()) as _))
+            } else {
+                let handle = io::new(io, rx).spawn();
+                let ret = cli.authenticate(cfg).await;
+                // retrieve io regardless of authentication outcome.
+                let io = handle.into_inner().await;
+                ret.map(|_| (cli, Box::pin(io.run()) as _))
+            }
         }
         _ => unreachable!(),
     }
