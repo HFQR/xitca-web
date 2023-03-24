@@ -36,20 +36,24 @@ pub struct BufferedIo<Io> {
 
 pub(crate) type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
-impl<Io> BufferedIo<Io>
+pub(crate) fn new<Io>(io: Io, rx: UnboundedReceiver<Request>) -> BufferedIo<Io>
 where
     Io: AsyncIo + Send + 'static,
 {
-    pub(crate) fn new(io: Io, rx: UnboundedReceiver<Request>) -> Self {
-        Self {
-            io,
-            write_buf: WriteBuf::new(),
-            read_buf: PagedBytesMut::new(),
-            rx,
-            ctx: Context::new(),
-        }
+    BufferedIo {
+        io,
+        write_buf: WriteBuf::new(),
+        read_buf: PagedBytesMut::new(),
+        rx,
+        ctx: Context::new(),
     }
+}
 
+impl<Io> BufferedIo<Io>
+where
+    Io: AsyncIo + Send + 'static,
+    for<'f> Io::Future<'f>: Send,
+{
     fn try_read(&mut self) -> Result<(), Error> {
         loop {
             match read_buf(&mut self.io, &mut self.read_buf) {
@@ -69,17 +73,11 @@ where
         })
     }
 
-    pub async fn run(mut self) -> Result<(), Error>
-    where
-        for<'r> Io::Future<'r>: Send,
-    {
+    pub async fn run(mut self) -> Result<(), Error> {
         self._run().await
     }
 
-    pub(crate) fn spawn(mut self) -> Handle<Self>
-    where
-        for<'r> Io::Future<'r>: Send,
-    {
+    pub(crate) fn spawn(mut self) -> Handle<Self> {
         let notify = Arc::new(Notify::new());
         let notify2 = notify.clone();
         let handle = tokio::task::spawn(async move {
@@ -89,10 +87,7 @@ where
         Handle { handle, notify }
     }
 
-    async fn _run(&mut self) -> Result<(), Error>
-    where
-        for<'r> Io::Future<'r>: Send,
-    {
+    async fn _run(&mut self) -> Result<(), Error> {
         loop {
             let interest = if self.write_buf.want_write_io() {
                 Interest::READABLE | Interest::WRITABLE
@@ -130,10 +125,7 @@ where
 
     #[cold]
     #[inline(never)]
-    fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + Send + '_
-    where
-        for<'r> Io::Future<'r>: Send,
-    {
+    fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + Send + '_ {
         Box::pin(async {
             loop {
                 let want_write = self.write_buf.want_write_io();
