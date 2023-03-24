@@ -98,7 +98,8 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
             if should_connect_tls(&mut io, cfg).await? {
                 #[cfg(feature = "tls")]
                 {
-                    let io = self::tls::TlsStream::connect(io, host).await?;
+                    let host = host.to_string_lossy();
+                    let io = self::tls::TlsStream::connect(io, host.as_ref()).await?;
                     let handle = io::new(io, rx).spawn();
                     let ret = cli.authenticate(cfg).await;
                     let io = handle.into_inner().await;
