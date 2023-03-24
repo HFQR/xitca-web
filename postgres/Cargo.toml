@@ -7,7 +7,7 @@ edition = "2021"
 # feature for single thread client that have lower overhead(no lock) at the cost of no thread safety.
 single-thread = []
 # feature for connecting to tls enabled server.
-tls = ["rustls"]
+tls = ["rustls/dangerous_configuration"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
 quic = ["quinn", "rustls", "webpki-roots"]
