@@ -21,7 +21,7 @@ use xitca_io::{
 use crate::{
     client::Client,
     config::{Config, Host, SslMode},
-    error::{unexpected_eof_err, Error},
+    error::{unexpected_eof_err, write_zero_err, Error},
 };
 
 use self::request::Request;
@@ -144,7 +144,7 @@ where
 {
     match cfg.get_ssl_mode() {
         SslMode::Disable => Ok(false),
-        SslMode::Prefer => _should_connect_tls(io).await,
+        SslMode::Prefer => _should_connect_tls(io).await.map_err(Into::into),
         SslMode::Require => {
             #[cfg(feature = "tls")]
             {
@@ -158,7 +158,7 @@ where
     }
 }
 
-async fn _should_connect_tls<Io>(io: &mut Io) -> Result<bool, Error>
+async fn _should_connect_tls<Io>(io: &mut Io) -> std::io::Result<bool>
 where
     Io: AsyncIo,
 {
@@ -168,9 +168,10 @@ where
     while !buf.is_empty() {
         io.ready(Interest::WRITABLE).await?;
         match io.write(&buf) {
+            Ok(0) => return Err(write_zero_err()),
             Ok(n) => buf.advance(n),
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e),
         }
     }
 
@@ -178,10 +179,10 @@ where
     loop {
         io.ready(Interest::READABLE).await?;
         match io.read(&mut buf) {
-            Ok(0) => return Err(unexpected_eof_err().into()),
+            Ok(0) => return Err(unexpected_eof_err()),
             Ok(_) => return if buf[0] == b'S' { Ok(true) } else { Ok(false) },
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e),
         }
     }
 }
