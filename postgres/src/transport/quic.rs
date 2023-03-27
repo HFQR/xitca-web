@@ -8,20 +8,11 @@ use core::future::Future;
 
 use alloc::sync::Arc;
 
-use std::{collections::VecDeque, net::SocketAddr};
-
-use quinn::{ClientConfig, Connection, Endpoint, SendStream, ServerConfig};
-use rustls::{Certificate, OwnedTrustAnchor, PrivateKey, RootCertStore};
-use tokio::sync::mpsc::channel;
+use quinn::{ClientConfig, Connection, Endpoint};
+use rustls::{OwnedTrustAnchor, RootCertStore};
 use webpki_roots::TLS_SERVER_ROOTS;
-use xitca_io::{
-    bytes::{Buf, Bytes, BytesMut},
-    io::{AsyncIo, Interest},
-    net::TcpStream,
-};
-use xitca_unsafe_collection::bytes::{read_buf, PagedBytesMut};
+use xitca_io::bytes::BytesMut;
 
-use crate::transport::codec::ResponseMessage;
 use crate::{
     client::Client,
     config::{Config, Host},
@@ -118,97 +109,4 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     }
 
     Err(err.unwrap())
-}
-
-pub async fn proxy() {
-    let listen = "0.0.0.0:5440".parse().unwrap();
-    let mut upstream = TcpStream::connect("127.0.0.1:5432").await.unwrap();
-
-    let cert = std::fs::read("../cert/cert.pem").unwrap();
-    let key = std::fs::read("../cert/key.pem").unwrap();
-
-    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
-    let key = PrivateKey(key);
-
-    let cert = rustls_pemfile::certs(&mut &*cert)
-        .unwrap()
-        .into_iter()
-        .map(Certificate)
-        .collect();
-
-    let mut config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth()
-        .with_single_cert(cert, key)
-        .unwrap();
-
-    config.alpn_protocols = vec![b"quic".to_vec()];
-
-    let config = ServerConfig::with_crypto(Arc::new(config));
-
-    let listen = Endpoint::server(config, listen).unwrap();
-
-    let (mut tx, mut rx) = channel::<(SendStream, VecDeque<Bytes>)>(128);
-
-    tokio::spawn(async move {
-        'out: while let Some((mut tx, mut bytes)) = rx.recv().await {
-            while let Some(mut bytes) = bytes.pop_front() {
-                use std::io::{Read, Write};
-
-                'inner: loop {
-                    match upstream.write(&bytes) {
-                        Ok(0) => continue 'out,
-                        Ok(n) => {
-                            if n < bytes.len() {
-                                bytes.advance(n);
-                            } else {
-                                break 'inner;
-                            }
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                        Err(_) => continue 'out,
-                    }
-                    upstream.ready(Interest::WRITABLE).await.unwrap();
-                }
-
-                let mut buf = PagedBytesMut::<4096>::new();
-
-                'inner: loop {
-                    upstream.ready(Interest::READABLE).await.unwrap();
-                    match read_buf(&mut upstream, &mut buf) {
-                        Ok(0) => continue 'out,
-                        Ok(_) => {
-                            if let Some(msg) = ResponseMessage::try_from_buf(&mut buf).unwrap() {
-                                match msg {
-                                    ResponseMessage::Normal { buf, complete } => {
-                                        tx.write_all(&buf).await.unwrap();
-                                        if complete {
-                                            tx.finish().await.unwrap();
-                                            return;
-                                        }
-                                    }
-                                    ResponseMessage::Async(_) => {}
-                                }
-                            }
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                        Err(_) => continue 'out,
-                    }
-                }
-            }
-        }
-    });
-
-    while let Some(conn) = listen.accept().await {
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            let c = conn.await.unwrap();
-            let (stream_tx, mut rx) = c.accept_bi().await.unwrap();
-            let mut bytes = VecDeque::new();
-            while let Some(c) = rx.read_chunk(usize::MAX, true).await.unwrap() {
-                bytes.push_back(c.bytes);
-            }
-            tx.send((stream_tx, bytes)).await.unwrap();
-        });
-    }
 }

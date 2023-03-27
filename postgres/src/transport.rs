@@ -1,4 +1,4 @@
-mod codec;
+pub(crate) mod codec;
 
 #[cfg(not(feature = "quic"))]
 mod raw;

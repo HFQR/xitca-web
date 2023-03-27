@@ -20,6 +20,9 @@ mod util;
 pub mod error;
 pub mod statement;
 
+#[cfg(feature = "quic")]
+pub mod proxy;
+
 pub use postgres_types::{FromSql, ToSql, Type};
 
 pub use self::{
