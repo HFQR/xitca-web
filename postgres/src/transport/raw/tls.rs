@@ -16,6 +16,24 @@ use xitca_io::io::{AsyncIo, Interest, Ready};
 
 use crate::error::Error;
 
+pub(super) async fn connect<Io>(io: Io, host: &str) -> Result<TlsStream<Io>, Error>
+where
+    Io: AsyncIo,
+{
+    let name = host.try_into().map_err(|_| Error::ToDo)?;
+
+    let cfg = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_custom_certificate_verifier(SkipServerVerification::new())
+        .with_no_client_auth();
+
+    let session = ClientConnection::new(Arc::new(cfg), name).map_err(|_| Error::ToDo)?;
+
+    Ok(TlsStream {
+        io: StreamOwned::new(session, io),
+    })
+}
+
 struct SkipServerVerification;
 
 impl SkipServerVerification {
@@ -23,6 +41,7 @@ impl SkipServerVerification {
         Arc::new(Self)
     }
 }
+
 impl ServerCertVerifier for SkipServerVerification {
     fn verify_server_cert(
         &self,
@@ -42,26 +61,6 @@ where
     Io: AsyncIo,
 {
     io: StreamOwned<ClientConnection, Io>,
-}
-
-impl<Io> TlsStream<Io>
-where
-    Io: AsyncIo,
-{
-    pub(super) async fn connect(io: Io, host: &str) -> Result<Self, Error> {
-        let name = host.try_into().map_err(|_| Error::ToDo)?;
-
-        let cfg = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(SkipServerVerification::new())
-            .with_no_client_auth();
-
-        let session = ClientConnection::new(Arc::new(cfg), name).map_err(|_| Error::ToDo)?;
-
-        Ok(Self {
-            io: StreamOwned::new(session, io),
-        })
-    }
 }
 
 impl<Io> AsyncIo for TlsStream<Io>

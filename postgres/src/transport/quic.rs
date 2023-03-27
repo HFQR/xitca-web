@@ -1,6 +1,5 @@
 //! udp socket with quic protocol as client transport layer.
 
-mod codec;
 mod response;
 
 pub use self::response::Response;
@@ -78,24 +77,22 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
 async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     let addrs = super::resolve(host, ports).await?;
 
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
+
     let mut root_certs = RootCertStore::empty();
 
-    let certs = TLS_SERVER_ROOTS.0.iter().map(|cert| {
+    root_certs.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|cert| {
         OwnedTrustAnchor::from_subject_spki_name_constraints(cert.subject, cert.spki, cert.name_constraints)
-    });
+    }));
 
-    root_certs.add_server_trust_anchors(certs);
-
-    let mut crypto = rustls::ClientConfig::builder()
+    let mut config = rustls::ClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(root_certs)
         .with_no_client_auth();
 
-    crypto.alpn_protocols = vec![b"quic".to_vec()];
+    config.alpn_protocols = vec![b"quic".to_vec()];
 
-    let config = ClientConfig::new(Arc::new(crypto));
-
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
+    let config = ClientConfig::new(Arc::new(config));
 
     endpoint.set_default_client_config(config);
 

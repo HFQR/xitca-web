@@ -22,9 +22,12 @@ use xitca_unsafe_collection::{
     futures::{Select as _, SelectOutput},
 };
 
-use crate::error::{unexpected_eof_err, Error};
+use crate::{
+    error::{unexpected_eof_err, Error},
+    transport::codec::ResponseMessage,
+};
 
-use super::{request::Request, response::ResponseMessage, ResponseSender};
+use super::{request::Request, ResponseSender};
 
 pub struct BufferedIo<Io> {
     io: Io,
