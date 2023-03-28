@@ -2,7 +2,7 @@ use std::{
     io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     os::unix::{
-        io::{AsRawFd, RawFd},
+        io::{AsFd, BorrowedFd},
         net,
     },
     path::Path,
@@ -57,9 +57,9 @@ impl From<Stream> for (UnixStream, tokio::net::unix::SocketAddr) {
     }
 }
 
-impl AsRawFd for UnixStream {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
+impl AsFd for UnixStream {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
     }
 }
 

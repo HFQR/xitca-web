@@ -71,6 +71,8 @@
 //! # }
 //! ```
 
+extern crate alloc;
+
 use http::{
     header::{
         HeaderMap, HeaderName, HeaderValue, ALLOW, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY,

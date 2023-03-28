@@ -19,9 +19,9 @@ xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
 fallible-iterator = "0.2"
 percent-encoding = "2"
-postgres-protocol = "0.6"
+postgres-protocol = "0.6.5"
 postgres-types = "0.2"
-tokio = { version = "1.26", features = ["net", "sync"] }
+tokio = { version = "1.27", features = ["net", "sync"] }
 tracing = { version = "0.1", default-features = false }
 
 quinn = { version = "0.9.3", optional = true }
@@ -30,4 +30,4 @@ rustls-pemfile = { version = "1.0.2", optional = true }
 webpki-roots = { version = "0.22", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.26", features = ["macros", "rt"] }
+tokio = { version = "1.27", features = ["macros", "rt"] }

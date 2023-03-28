@@ -6,10 +6,11 @@ use core::{
     task::{Context, Poll},
 };
 
-use std::{
-    error,
-    sync::{Arc, Mutex},
-};
+use alloc::sync::{Arc, Weak};
+
+use std::sync::Mutex;
+
+use std::error;
 
 use bytes::{Bytes, BytesMut};
 use futures_core::stream::Stream;
@@ -146,8 +147,63 @@ impl Stream for ResponseStream {
 }
 
 /// Encode [Message] into [Bytes] and send it to [ResponseStream].
-#[derive(Debug, Clone)]
-pub struct ResponseSender(Arc<_ResponseSender>);
+#[derive(Debug)]
+pub struct ResponseSender {
+    inner: Arc<_ResponseSender>,
+}
+
+impl ResponseSender {
+    fn new(tx: Sender<Bytes>, codec: Codec) -> Self {
+        Self {
+            inner: Arc::new(_ResponseSender {
+                encoder: Mutex::new(Encoder {
+                    codec,
+                    buf: BytesMut::with_capacity(codec.max_size()),
+                }),
+                tx,
+            }),
+        }
+    }
+
+    /// downgrade Self to a weak sender.
+    pub fn downgrade(&self) -> ResponseWeakSender {
+        ResponseWeakSender {
+            inner: Arc::downgrade(&self.inner),
+        }
+    }
+
+    /// encode [Message] and add to [ResponseStream].
+    #[inline]
+    pub fn send(&self, msg: Message) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.inner.send(msg)
+    }
+
+    /// encode [Message::Text] variant and add to [ResponseStream].
+    #[inline]
+    pub fn text(&self, txt: impl Into<String>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.send(Message::Text(Bytes::from(txt.into())))
+    }
+
+    /// encode [Message::Binary] variant and add to [ResponseStream].
+    #[inline]
+    pub fn binary(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.send(Message::Binary(bin.into()))
+    }
+}
+
+/// [Weak] version of [ResponseSender].
+#[derive(Debug)]
+pub struct ResponseWeakSender {
+    inner: Weak<_ResponseSender>,
+}
+
+impl ResponseWeakSender {
+    /// upgrade self to strong response sender.
+    /// return None when [ResponseSender] is already dropped.
+    pub fn upgrade(&self) -> Option<ResponseSender> {
+        self.inner.upgrade().map(|inner| ResponseSender { inner })
+    }
+}
 
 #[derive(Debug)]
 struct _ResponseSender {
@@ -161,19 +217,9 @@ struct Encoder {
     buf: BytesMut,
 }
 
-impl ResponseSender {
-    fn new(tx: Sender<Bytes>, codec: Codec) -> Self {
-        Self(Arc::new(_ResponseSender {
-            encoder: Mutex::new(Encoder {
-                codec,
-                buf: BytesMut::with_capacity(codec.max_size()),
-            }),
-            tx,
-        }))
-    }
-
+impl _ResponseSender {
     fn encode(&self, msg: Message) -> Result<Bytes, ProtocolError> {
-        let mut encoder = self.0.encoder.lock().unwrap();
+        let mut encoder = self.encoder.lock().unwrap();
         let Encoder {
             ref mut codec,
             ref mut buf,
@@ -181,21 +227,8 @@ impl ResponseSender {
         codec.encode(msg, buf).map(|_| buf.split().freeze())
     }
 
-    /// encode [Message] and add to [ResponseStream].
-    pub async fn send(&self, msg: Message) -> Result<(), ProtocolError> {
+    async fn send(&self, msg: Message) -> Result<(), ProtocolError> {
         let buf = self.encode(msg)?;
-        self.0.tx.send(buf).await.map_err(|_| ProtocolError::Closed)
-    }
-
-    /// encode [Message::Text] variant and add to [ResponseStream].
-    #[inline]
-    pub fn text(&self, txt: impl Into<String>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
-        self.send(Message::Text(Bytes::from(txt.into())))
-    }
-
-    /// encode [Message::Binary] variant and add to [ResponseStream].
-    #[inline]
-    pub fn binary(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
-        self.send(Message::Binary(bin.into()))
+        self.tx.send(buf).await.map_err(|_| ProtocolError::Closed)
     }
 }

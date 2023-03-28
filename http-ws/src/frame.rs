@@ -3,9 +3,11 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tracing::debug;
 
-use super::error::ProtocolError;
-use super::mask::apply_mask;
-use super::proto::{CloseCode, CloseReason, OpCode};
+use super::{
+    error::ProtocolError,
+    mask::apply_mask,
+    proto::{CloseCode, CloseReason, OpCode},
+};
 
 /// A struct representing a WebSocket frame.
 #[derive(Debug)]

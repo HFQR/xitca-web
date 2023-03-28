@@ -51,31 +51,30 @@ impl From<Stream> for (TcpStream, SocketAddr) {
 }
 
 super::default_async_read_write_impl!(TcpStream);
-
 super::default_aio_impl!(TcpStream);
 
 #[cfg(unix)]
 mod unix_impl {
-    use std::os::unix::io::{AsRawFd, RawFd};
+    use std::os::unix::io::{AsFd, BorrowedFd};
 
     use super::TcpStream;
 
-    impl AsRawFd for TcpStream {
-        fn as_raw_fd(&self) -> RawFd {
-            self.0.as_raw_fd()
+    impl AsFd for TcpStream {
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            self.0.as_fd()
         }
     }
 }
 
 #[cfg(windows)]
 mod windows_impl {
-    use std::os::windows::io::{AsRawSocket, RawSocket};
+    use std::os::windows::io::{AsSocket, BorrowedSocket};
 
     use super::TcpStream;
 
-    impl AsRawSocket for TcpStream {
-        fn as_raw_socket(&self) -> RawSocket {
-            self.0.as_raw_socket()
+    impl AsSocket for TcpStream {
+        fn as_socket(&self) -> BorrowedSocket<'_> {
+            self.0.as_socket()
         }
     }
 }
