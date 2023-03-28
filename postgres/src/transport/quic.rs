@@ -76,7 +76,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
 #[inline(never)]
 async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     let addrs = super::resolve(host, ports).await?;
-    let mut endpoint = Endpoint::client("127.0.0.1:15345".parse().unwrap())?;
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
 
     let cfg = dangerous_config(vec![QUIC_ALPN.to_vec()]);
     endpoint.set_default_client_config(ClientConfig::new(cfg));
