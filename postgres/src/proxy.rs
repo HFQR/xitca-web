@@ -7,9 +7,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use quinn::{Endpoint, SendStream};
+use quinn::{Connecting, Endpoint, SendStream};
 use rustls::{Certificate, PrivateKey};
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tracing::error;
 use xitca_io::{
     bytes::{Buf, Bytes},
@@ -25,6 +25,8 @@ use crate::{
     error::{unexpected_eof_err, write_zero_err},
     transport::{codec::ResponseMessage, QUIC_ALPN},
 };
+
+pub type Error = Box<dyn error::Error + Send + Sync>;
 
 /// proxy for translating multiplexed quic traffic to plain tcp traffic for postgres protocol.
 pub struct Proxy {
@@ -54,14 +56,13 @@ impl Proxy {
         self
     }
 
-    pub async fn run(self) -> Result<(), Box<dyn error::Error + Send + Sync>> {
+    pub async fn run(self) -> Result<(), Error> {
         let cert = fs::read(self.cert)?;
         let key = fs::read(self.key)?;
         let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
         let key = PrivateKey(key);
 
-        let cert = rustls_pemfile::certs(&mut &*cert)
-            .unwrap()
+        let cert = rustls_pemfile::certs(&mut &*cert)?
             .into_iter()
             .map(Certificate)
             .collect();
@@ -81,45 +82,59 @@ impl Proxy {
 
         let (tx, rx) = channel(128);
 
-        tokio::spawn(async move {
-            if let Err(e) = upstream_task(upstream, rx).await {
-                error!("Proxy upstream error: {e}");
-            }
-        });
+        upstream_task(upstream, rx);
 
-        while let Some(conn) = listen.accept().await {
-            let tx = tx.clone();
-            let tx2 = tx.clone();
-            tokio::spawn(async move {
-                let c = conn.await.unwrap();
-                let c2 = c.clone();
-                tokio::spawn(async move {
-                    while let Ok((stream_tx, mut rx)) = c.accept_bi().await {
-                        let mut bytes = Vec::new();
-                        while let Some(c) = rx.read_chunk(usize::MAX, true).await.unwrap() {
-                            bytes.push(c.bytes);
-                        }
-                        tx.send((Some(stream_tx), bytes)).await.unwrap();
-                    }
-                });
-
-                tokio::spawn(async move {
-                    while let Ok(mut rx) = c2.accept_uni().await {
-                        let mut bytes = Vec::new();
-                        while let Some(c) = rx.read_chunk(usize::MAX, true).await.unwrap() {
-                            bytes.push(c.bytes);
-                        }
-                        tx2.send((None, bytes)).await.unwrap();
-                    }
-                });
-            });
-        }
+        listen_task(listen, tx).await;
 
         Ok(())
     }
 }
 
-async fn upstream_task(mut upstream: TcpStream, mut rx: Receiver<(Option<SendStream>, Vec<Bytes>)>) -> io::Result<()> {
+type Msg = (Option<SendStream>, Vec<Bytes>);
+
+async fn listen_task(listener: Endpoint, tx: Sender<Msg>) {
+    while let Some(conn) = listener.accept().await {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = _listen_task(conn, tx).await {
+                error!("Proxy listen error: {e}");
+            }
+        });
+    }
+}
+
+async fn _listen_task(conn: Connecting, tx: Sender<Msg>) -> Result<(), Error> {
+    let c = conn.await?;
+    loop {
+        match c.accept_bi().select(c.accept_uni()).await {
+            SelectOutput::A(Ok((stream_tx, mut rx))) => {
+                let mut bytes = Vec::new();
+                while let Some(c) = rx.read_chunk(usize::MAX, true).await? {
+                    bytes.push(c.bytes);
+                }
+                tx.send((Some(stream_tx), bytes)).await?;
+            }
+            SelectOutput::B(Ok(mut rx)) => {
+                let mut bytes = Vec::new();
+                while let Some(c) = rx.read_chunk(usize::MAX, true).await? {
+                    bytes.push(c.bytes);
+                }
+                tx.send((None, bytes)).await?;
+            }
+            SelectOutput::A(Err(e)) | SelectOutput::B(Err(e)) => return Err(e.into()),
+        }
+    }
+}
+
+fn upstream_task(upstream: TcpStream, rx: Receiver<Msg>) {
+    tokio::spawn(async move {
+        if let Err(e) = _upstream_task(upstream, rx).await {
+            error!("Proxy upstream error: {e}");
+        }
+    });
+}
+
+async fn _upstream_task(mut upstream: TcpStream, mut rx: Receiver<Msg>) -> io::Result<()> {
     let mut buf_read = PagedBytesMut::<4096>::new();
 
     let mut req_queue = VecDeque::new();
