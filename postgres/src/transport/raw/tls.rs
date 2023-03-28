@@ -4,56 +4,23 @@ use core::{
     task::{Context, Poll},
 };
 
-use alloc::sync::Arc;
+use std::io;
 
-use std::{io, time::SystemTime};
-
-use rustls::{
-    client::{ClientConnection, ServerCertVerified, ServerCertVerifier},
-    Certificate, ServerName, StreamOwned,
-};
+use rustls::{client::ClientConnection, StreamOwned};
 use xitca_io::io::{AsyncIo, Interest, Ready};
 
-use crate::error::Error;
+use crate::{error::Error, transport::tls::dangerous_config};
 
 pub(super) async fn connect<Io>(io: Io, host: &str) -> Result<TlsStream<Io>, Error>
 where
     Io: AsyncIo,
 {
     let name = host.try_into().map_err(|_| Error::ToDo)?;
-
-    let cfg = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_custom_certificate_verifier(SkipServerVerification::new())
-        .with_no_client_auth();
-
-    let session = ClientConnection::new(Arc::new(cfg), name).map_err(|_| Error::ToDo)?;
-
+    let config = dangerous_config(Vec::new());
+    let session = ClientConnection::new(config, name).map_err(|_| Error::ToDo)?;
     Ok(TlsStream {
         io: StreamOwned::new(session, io),
     })
-}
-
-struct SkipServerVerification;
-
-impl SkipServerVerification {
-    fn new() -> Arc<Self> {
-        Arc::new(Self)
-    }
-}
-
-impl ServerCertVerifier for SkipServerVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &Certificate,
-        _intermediates: &[Certificate],
-        _server_name: &ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
-        _ocsp_response: &[u8],
-        _now: SystemTime,
-    ) -> Result<ServerCertVerified, rustls::Error> {
-        Ok(ServerCertVerified::assertion())
-    }
 }
 
 pub(super) struct TlsStream<Io>

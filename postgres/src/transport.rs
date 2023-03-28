@@ -1,5 +1,8 @@
 pub(crate) mod codec;
 
+#[cfg(feature = "tls")]
+mod tls;
+
 #[cfg(not(feature = "quic"))]
 mod raw;
 #[cfg(not(feature = "quic"))]

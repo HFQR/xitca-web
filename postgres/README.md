@@ -5,7 +5,7 @@
     - async/await native.
     - less heap allocation on query. 
     - zero copy row data parsing.
-    - quic transport layer for remote lossy database connection. (implemented for client side only)
+    - quic transport layer for remote lossy database connection.
 - Cons
     - feature absence. no transaction, no query canceling, etc.(being worked on)
     - require nightly rust. (the project's goal is to compile on stable eventually)
