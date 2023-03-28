@@ -1,9 +1,11 @@
 use bytes::{Bytes, BytesMut};
 use tracing::error;
 
-use super::error::ProtocolError;
-use super::frame::Parser;
-use super::proto::{CloseReason, OpCode};
+use super::{
+    error::ProtocolError,
+    frame::Parser,
+    proto::{CloseReason, OpCode},
+};
 
 /// A WebSocket message.
 #[derive(Debug, Eq, PartialEq)]

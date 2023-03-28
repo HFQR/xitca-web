@@ -33,8 +33,6 @@ http-file = { path = "http-file" }
 http-multipart = { path = "./http-multipart" }
 http-ws = { path = "./http-ws" }
 
-postgres-protocol = { git = "https://github.com/sfackler/rust-postgres.git" }
-
 [profile.release]
 lto = true
 opt-level = 3

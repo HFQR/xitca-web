@@ -10,4 +10,4 @@ bytes = ["bytes_crate"]
 bytes_crate = { package = "bytes", version = "1.4", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.26", features = ["rt", "sync"] }
+tokio = { version = "1.27", features = ["rt", "sync"] }

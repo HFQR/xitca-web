@@ -1,4 +1,6 @@
-use std::{convert::Infallible, future::Future, io, net::SocketAddr, time::Duration};
+use core::{convert::Infallible, future::Future, time::Duration};
+
+use std::{io, net::SocketAddr};
 
 use socket2::{SockRef, TcpKeepalive};
 
