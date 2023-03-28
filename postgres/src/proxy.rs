@@ -16,13 +16,17 @@ use xitca_io::{
     io::{AsyncIo, Interest},
     net::TcpStream,
 };
-use xitca_unsafe_collection::bytes::{read_buf, PagedBytesMut};
+use xitca_unsafe_collection::{
+    bytes::{read_buf, PagedBytesMut},
+    futures::{Select, SelectOutput},
+};
 
 use crate::{
     error::{unexpected_eof_err, write_zero_err},
-    transport::codec::ResponseMessage,
+    transport::{codec::ResponseMessage, QUIC_ALPN},
 };
 
+/// proxy for translating multiplexed quic traffic to plain tcp traffic for postgres protocol.
 pub struct Proxy {
     cert: PathBuf,
     key: PathBuf,
@@ -67,7 +71,7 @@ impl Proxy {
             .with_no_client_auth()
             .with_single_cert(cert, key)?;
 
-        config.alpn_protocols = vec![b"quic".to_vec()];
+        config.alpn_protocols = vec![QUIC_ALPN.to_vec()];
 
         let config = quinn::ServerConfig::with_crypto(Arc::new(config));
 
@@ -85,14 +89,29 @@ impl Proxy {
 
         while let Some(conn) = listen.accept().await {
             let tx = tx.clone();
+            let tx2 = tx.clone();
             tokio::spawn(async move {
                 let c = conn.await.unwrap();
-                let (stream_tx, mut rx) = c.accept_bi().await.unwrap();
-                let mut bytes = VecDeque::new();
-                while let Some(c) = rx.read_chunk(usize::MAX, true).await.unwrap() {
-                    bytes.push_back(c.bytes);
-                }
-                tx.send((stream_tx, bytes)).await.unwrap();
+                let c2 = c.clone();
+                tokio::spawn(async move {
+                    while let Ok((stream_tx, mut rx)) = c.accept_bi().await {
+                        let mut bytes = Vec::new();
+                        while let Some(c) = rx.read_chunk(usize::MAX, true).await.unwrap() {
+                            bytes.push(c.bytes);
+                        }
+                        tx.send((Some(stream_tx), bytes)).await.unwrap();
+                    }
+                });
+
+                tokio::spawn(async move {
+                    while let Ok(mut rx) = c2.accept_uni().await {
+                        let mut bytes = Vec::new();
+                        while let Some(c) = rx.read_chunk(usize::MAX, true).await.unwrap() {
+                            bytes.push(c.bytes);
+                        }
+                        tx2.send((None, bytes)).await.unwrap();
+                    }
+                });
             });
         }
 
@@ -100,50 +119,75 @@ impl Proxy {
     }
 }
 
-async fn upstream_task(mut upstream: TcpStream, mut rx: Receiver<(SendStream, VecDeque<Bytes>)>) -> io::Result<()> {
-    let mut buf = PagedBytesMut::<4096>::new();
+async fn upstream_task(mut upstream: TcpStream, mut rx: Receiver<(Option<SendStream>, Vec<Bytes>)>) -> io::Result<()> {
+    let mut buf_read = PagedBytesMut::<4096>::new();
 
-    while let Some((mut tx, mut bytes)) = rx.recv().await {
-        while let Some(mut bytes) = bytes.pop_front() {
-            'write: loop {
-                match upstream.write(&bytes) {
-                    Ok(0) => return Err(write_zero_err()),
-                    Ok(n) => {
-                        bytes.advance(n);
-                        if bytes.is_empty() {
-                            continue 'write;
+    let mut req_queue = VecDeque::new();
+    let mut res_queue = VecDeque::new();
+
+    loop {
+        let interest = if !req_queue.is_empty() {
+            Interest::READABLE | Interest::WRITABLE
+        } else {
+            Interest::READABLE
+        };
+
+        match rx.recv().select(upstream.ready(interest)).await {
+            SelectOutput::A(Some((tx, bytes))) => {
+                req_queue.extend(bytes);
+                if let Some(tx) = tx {
+                    res_queue.push_back(tx);
+                }
+            }
+            SelectOutput::A(None) => break,
+            SelectOutput::B(ready) => {
+                let ready = ready?;
+                if ready.is_writable() {
+                    'write: while let Some(bytes) = req_queue.front_mut() {
+                        loop {
+                            match upstream.write(bytes) {
+                                Ok(0) => return Err(write_zero_err()),
+                                Ok(n) => {
+                                    bytes.advance(n);
+                                    if bytes.is_empty() {
+                                        req_queue.pop_front();
+                                        continue 'write;
+                                    }
+                                }
+                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break 'write,
+                                Err(e) => return Err(e),
+                            }
                         }
                     }
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(e) => return Err(e),
                 }
-                upstream.ready(Interest::WRITABLE).await?;
-            }
-        }
 
-        'read: loop {
-            upstream.ready(Interest::READABLE).await?;
-            match read_buf(&mut upstream, &mut buf) {
-                Ok(0) => return Err(unexpected_eof_err()),
-                Ok(_) => {
-                    while let Some(msg) = ResponseMessage::try_from_buf(&mut buf).unwrap() {
-                        match msg {
-                            ResponseMessage::Normal { buf, complete } => {
-                                tx.write_chunk(buf.freeze()).await.unwrap();
-                                if complete {
-                                    tx.finish().await.unwrap();
-                                    break 'read;
+                if ready.is_readable() {
+                    loop {
+                        match read_buf(&mut upstream, &mut buf_read) {
+                            Ok(0) => return Err(unexpected_eof_err()),
+                            Ok(_) => {
+                                while let Some(msg) = ResponseMessage::try_from_buf(&mut buf_read).unwrap() {
+                                    match msg {
+                                        ResponseMessage::Normal { buf, complete } => {
+                                            let tx = res_queue.front_mut().unwrap();
+
+                                            tx.write_chunk(buf.freeze()).await.unwrap();
+                                            if complete {
+                                                tx.finish().await.unwrap();
+                                                res_queue.pop_front();
+                                            }
+                                        }
+                                        ResponseMessage::Async(_) => {}
+                                    }
                                 }
                             }
-                            ResponseMessage::Async(_) => {}
+                            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                            Err(e) => return Err(e),
                         }
                     }
                 }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                Err(e) => return Err(e),
             }
         }
     }
-
     Ok(())
 }

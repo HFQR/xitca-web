@@ -6,11 +6,7 @@ pub use self::response::Response;
 
 use core::future::Future;
 
-use alloc::sync::Arc;
-
 use quinn::{ClientConfig, Connection, Endpoint};
-use rustls::{OwnedTrustAnchor, RootCertStore};
-use webpki_roots::TLS_SERVER_ROOTS;
 use xitca_io::bytes::BytesMut;
 
 use crate::{
@@ -18,6 +14,10 @@ use crate::{
     config::{Config, Host},
     error::Error,
 };
+
+use super::tls::dangerous_config;
+
+pub(crate) const QUIC_ALPN: &[u8] = b"quic";
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientTx {
@@ -76,25 +76,10 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
 #[inline(never)]
 async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     let addrs = super::resolve(host, ports).await?;
+    let mut endpoint = Endpoint::client("127.0.0.1:15345".parse().unwrap())?;
 
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
-
-    let mut root_certs = RootCertStore::empty();
-
-    root_certs.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|cert| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(cert.subject, cert.spki, cert.name_constraints)
-    }));
-
-    let mut config = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(root_certs)
-        .with_no_client_auth();
-
-    config.alpn_protocols = vec![b"quic".to_vec()];
-
-    let config = ClientConfig::new(Arc::new(config));
-
-    endpoint.set_default_client_config(config);
+    let cfg = dangerous_config(vec![QUIC_ALPN.to_vec()]);
+    endpoint.set_default_client_config(ClientConfig::new(cfg));
 
     let mut err = None;
 

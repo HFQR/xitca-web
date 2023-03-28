@@ -162,7 +162,20 @@ impl Config {
             return self.host_path(host);
         }
 
-        self.host.push(Host::Tcp(host.to_string()));
+        let host = {
+            let host = host.to_string();
+            #[cfg(feature = "quic")]
+            {
+                Host::Udp(host)
+            }
+
+            #[cfg(not(feature = "quic"))]
+            {
+                Host::Tcp(host)
+            }
+        };
+
+        self.host.push(host);
         self
     }
 

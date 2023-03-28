@@ -10,7 +10,7 @@ single-thread = []
 tls = ["rustls/dangerous_configuration"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
-quic = ["quinn", "rustls", "rustls-pemfile", "webpki-roots"]
+quic = ["tls", "quinn", "rustls-pemfile"]
 
 [dependencies]
 xitca-io = { version = "0.1", features = ["runtime"] }
@@ -27,7 +27,6 @@ tracing = { version = "0.1", default-features = false }
 quinn = { version = "0.9.3", optional = true }
 rustls = { version = "0.20.8", optional = true }
 rustls-pemfile = { version = "1.0.2", optional = true }
-webpki-roots = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.27", features = ["macros", "rt"] }
