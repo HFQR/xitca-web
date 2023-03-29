@@ -176,7 +176,7 @@ where
         io.ready(Interest::READABLE).await?;
         match io.read(&mut buf) {
             Ok(0) => return Err(unexpected_eof_err()),
-            Ok(_) => return if buf[0] == b'S' { Ok(true) } else { Ok(false) },
+            Ok(_) => return Ok(buf[0] == b'S'),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             Err(e) => return Err(e),
         }
