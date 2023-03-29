@@ -23,7 +23,7 @@ pub struct ClientBuilder {
 impl Default for ClientBuilder {
     fn default() -> Self {
         ClientBuilder {
-            connector_builder: TlsConnectorBuilder::Default,
+            connector_builder: TlsConnectorBuilder::default(),
             resolver: Resolver::default(),
             pool_capacity: 128,
             timeout_config: TimeoutConfig::default(),
@@ -34,14 +34,9 @@ impl Default for ClientBuilder {
 }
 
 impl ClientBuilder {
-    pub fn new() -> Self {
-        ClientBuilder {
-            #[cfg(all(feature = "openssl", not(feature = "rustls")))]
-            connector_builder: TlsConnectorBuilder::Openssl,
-            #[cfg(all(feature = "rustls", not(feature = "openssl")))]
-            connector_builder: TlsConnectorBuilder::Rustls,
-            ..Default::default()
-        }
+    pub fn no_tls(mut self) -> Self {
+        self.connector_builder = TlsConnectorBuilder::NoOp;
+        self
     }
 
     #[cfg(feature = "openssl")]
@@ -251,7 +246,7 @@ impl ClientBuilder {
         };
 
         match self.connector_builder {
-            TlsConnectorBuilder::Default => {}
+            TlsConnectorBuilder::NoOp => {}
             TlsConnectorBuilder::Custom(connector) => client.connector = connector,
             #[cfg(feature = "openssl")]
             TlsConnectorBuilder::Openssl => match self.max_http_version {
@@ -286,10 +281,31 @@ impl ClientBuilder {
 }
 
 enum TlsConnectorBuilder {
-    Default,
+    NoOp,
     Custom(Connector),
     #[cfg(feature = "openssl")]
     Openssl,
     #[cfg(feature = "rustls")]
     Rustls,
+}
+
+impl Default for TlsConnectorBuilder {
+    fn default() -> Self {
+        #[cfg(all(feature = "openssl", not(feature = "rustls")))]
+        {
+            TlsConnectorBuilder::Openssl
+        }
+        #[cfg(all(feature = "rustls", not(feature = "openssl")))]
+        {
+            TlsConnectorBuilder::Rustls
+        }
+        #[cfg(all(feature = "rustls", feature = "openssl"))]
+        {
+            TlsConnectorBuilder::Rustls
+        }
+        #[cfg(all(not(feature = "rustls"), not(feature = "openssl")))]
+        {
+            TlsConnectorBuilder::NoOp
+        }
+    }
 }

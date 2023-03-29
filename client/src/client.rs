@@ -51,7 +51,7 @@ impl Client {
     ///
     /// See [ClientBuilder] for detail.
     pub fn builder() -> ClientBuilder {
-        ClientBuilder::new()
+        ClientBuilder::default()
     }
 
     /// Start a new HTTP request with given [http::Request].
