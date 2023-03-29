@@ -1,7 +1,5 @@
 //! tcp socket client.
 
-mod io;
-mod request;
 mod response;
 #[cfg(feature = "tls")]
 mod tls;
@@ -11,7 +9,7 @@ pub use self::response::Response;
 use core::{future::Future, pin::Pin};
 
 use postgres_protocol::message::frontend;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use xitca_io::{
     bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest},
@@ -24,11 +22,7 @@ use crate::{
     error::{unexpected_eof_err, write_zero_err, Error},
 };
 
-use self::request::Request;
-
-type ResponseSender = UnboundedSender<BytesMut>;
-
-type ResponseReceiver = UnboundedReceiver<BytesMut>;
+use super::codec::Request;
 
 #[derive(Debug)]
 pub(crate) struct ClientTx(UnboundedSender<Request>);
@@ -76,7 +70,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
                 #[cfg(feature = "tls")]
                 {
                     let io = tls::connect(io, host).await?;
-                    let handle = io::new(io, rx).spawn();
+                    let handle = super::io::new(io, rx).spawn();
                     let ret = cli.authenticate(cfg).await;
                     let io = handle.into_inner().await;
                     ret.map(|_| (cli, Box::pin(io.run()) as _))
@@ -86,7 +80,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
                     Err(Error::ToDo)
                 }
             } else {
-                let handle = io::new(io, rx).spawn();
+                let handle = super::io::new(io, rx).spawn();
                 let ret = cli.authenticate(cfg).await;
                 let io = handle.into_inner().await;
                 ret.map(|_| (cli, Box::pin(io.run()) as _))
@@ -100,7 +94,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
                 {
                     let host = host.to_string_lossy();
                     let io = tls::connect(io, host.as_ref()).await?;
-                    let handle = io::new(io, rx).spawn();
+                    let handle = super::io::new(io, rx).spawn();
                     let ret = cli.authenticate(cfg).await;
                     let io = handle.into_inner().await;
                     ret.map(|_| (cli, Box::pin(io.run()) as _))
@@ -110,7 +104,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
                     Err(Error::ToDo)
                 }
             } else {
-                let handle = io::new(io, rx).spawn();
+                let handle = super::io::new(io, rx).spawn();
                 let ret = cli.authenticate(cfg).await;
                 let io = handle.into_inner().await;
                 ret.map(|_| (cli, Box::pin(io.run()) as _))
