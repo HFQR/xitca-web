@@ -4,14 +4,11 @@ use core::{
     pin::Pin,
 };
 
-use alloc::{collections::VecDeque, sync::Arc};
+use alloc::collections::VecDeque;
 
 use std::io;
 
-use tokio::{
-    sync::{mpsc::UnboundedReceiver, Notify},
-    task::JoinHandle,
-};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tracing::error;
 use xitca_io::{
     bytes::{BufInterest, BufWrite, WriteBuf},
@@ -22,12 +19,9 @@ use xitca_unsafe_collection::{
     futures::{Select as _, SelectOutput},
 };
 
-use crate::{
-    error::{unexpected_eof_err, Error},
-    transport::codec::ResponseMessage,
-};
+use crate::error::{unexpected_eof_err, Error};
 
-use super::{request::Request, ResponseSender};
+use super::codec::{Request, ResponseMessage, ResponseSender};
 
 pub struct BufferedIo<Io> {
     io: Io,
@@ -76,18 +70,8 @@ where
         })
     }
 
-    pub async fn run(mut self) -> Result<(), Error> {
+    pub(crate) async fn run(mut self) -> Result<(), Error> {
         self._run().await
-    }
-
-    pub(crate) fn spawn(mut self) -> Handle<Self> {
-        let notify = Arc::new(Notify::new());
-        let notify2 = notify.clone();
-        let handle = tokio::task::spawn(async move {
-            let _ = self._run().select(notify2.notified()).await;
-            self
-        });
-        Handle { handle, notify }
     }
 
     async fn _run(&mut self) -> Result<(), Error> {
@@ -156,18 +140,6 @@ where
     }
 }
 
-pub(crate) struct Handle<Io> {
-    handle: JoinHandle<Io>,
-    notify: Arc<Notify>,
-}
-
-impl<Io> Handle<Io> {
-    pub(crate) async fn into_inner(self) -> Io {
-        self.notify.notify_waiters();
-        self.handle.await.unwrap()
-    }
-}
-
 pub(super) struct Context {
     concurrent_res: VecDeque<ResponseSender>,
 }
@@ -203,5 +175,44 @@ impl Context {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(not(feature = "quic"))]
+mod raw_impl {
+    use alloc::sync::Arc;
+
+    use tokio::{sync::Notify, task::JoinHandle};
+    use xitca_io::io::AsyncIo;
+    use xitca_unsafe_collection::futures::Select;
+
+    use super::BufferedIo;
+
+    impl<Io> BufferedIo<Io>
+    where
+        Io: AsyncIo + Send + 'static,
+        for<'f> Io::Future<'f>: Send,
+    {
+        pub(crate) fn spawn(mut self) -> Handle<Self> {
+            let notify = Arc::new(Notify::new());
+            let notify2 = notify.clone();
+            let handle = tokio::spawn(async move {
+                let _ = self._run().select(notify2.notified()).await;
+                self
+            });
+            Handle { handle, notify }
+        }
+    }
+
+    pub(crate) struct Handle<Io> {
+        handle: JoinHandle<Io>,
+        notify: Arc<Notify>,
+    }
+
+    impl<Io> Handle<Io> {
+        pub(crate) async fn into_inner(self) -> Io {
+            self.notify.notify_waiters();
+            self.handle.await.unwrap()
+        }
     }
 }

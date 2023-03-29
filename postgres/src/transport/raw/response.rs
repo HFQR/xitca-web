@@ -6,9 +6,10 @@ use core::{
 use postgres_protocol::message::backend;
 use xitca_io::bytes::BytesMut;
 
-use crate::error::{unexpected_eof_err, Error};
-
-use super::ResponseReceiver;
+use crate::{
+    error::{unexpected_eof_err, Error},
+    transport::codec::ResponseReceiver,
+};
 
 pub struct Response {
     rx: ResponseReceiver,

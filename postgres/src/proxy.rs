@@ -1,30 +1,19 @@
-use alloc::{collections::VecDeque, sync::Arc};
+use alloc::sync::Arc;
 
 use std::{
     error, fs,
-    io::{self, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
 };
 
-use quinn::{Connecting, Endpoint, SendStream};
+use quinn::{Connecting, Endpoint, RecvStream, SendStream};
 use rustls::{Certificate, PrivateKey};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tracing::error;
-use xitca_io::{
-    bytes::{Buf, Bytes},
-    io::{AsyncIo, Interest},
-    net::TcpStream,
-};
-use xitca_unsafe_collection::{
-    bytes::{read_buf, PagedBytesMut},
-    futures::{Select, SelectOutput},
-};
+use xitca_io::{bytes::BytesMut, net::TcpStream};
+use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use crate::{
-    error::{unexpected_eof_err, write_zero_err},
-    transport::{codec::ResponseMessage, QUIC_ALPN},
-};
+use crate::transport::{codec::Request, QUIC_ALPN};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -80,7 +69,7 @@ impl Proxy {
 
         let upstream = TcpStream::connect(self.upstream_addr).await?;
 
-        let (tx, rx) = channel(128);
+        let (tx, rx) = unbounded_channel();
 
         upstream_task(upstream, rx);
 
@@ -90,9 +79,7 @@ impl Proxy {
     }
 }
 
-type Msg = (Option<SendStream>, Vec<Bytes>);
-
-async fn listen_task(listener: Endpoint, tx: Sender<Msg>) {
+async fn listen_task(listener: Endpoint, tx: UnboundedSender<Request>) {
     while let Some(conn) = listener.accept().await {
         let tx = tx.clone();
         tokio::spawn(async move {
@@ -103,106 +90,60 @@ async fn listen_task(listener: Endpoint, tx: Sender<Msg>) {
     }
 }
 
-async fn _listen_task(conn: Connecting, tx: Sender<Msg>) -> Result<(), Error> {
+async fn _listen_task(conn: Connecting, tx: UnboundedSender<Request>) -> Result<(), Error> {
     let c = conn.await?;
     loop {
         match c.accept_bi().select(c.accept_uni()).await {
-            SelectOutput::A(Ok((stream_tx, mut rx))) => {
-                let mut bytes = Vec::new();
-                while let Some(c) = rx.read_chunk(usize::MAX, true).await? {
-                    bytes.push(c.bytes);
-                }
-                tx.send((Some(stream_tx), bytes)).await?;
-            }
-            SelectOutput::B(Ok(mut rx)) => {
-                let mut bytes = Vec::new();
-                while let Some(c) = rx.read_chunk(usize::MAX, true).await? {
-                    bytes.push(c.bytes);
-                }
-                tx.send((None, bytes)).await?;
-            }
+            SelectOutput::A(Ok((stream_tx, rx))) => handler(Some(stream_tx), &tx, rx),
+            SelectOutput::B(Ok(rx)) => handler(None, &tx, rx),
             SelectOutput::A(Err(e)) | SelectOutput::B(Err(e)) => return Err(e.into()),
         }
     }
 }
 
-fn upstream_task(upstream: TcpStream, rx: Receiver<Msg>) {
+fn handler(stream_tx: Option<SendStream>, tx: &UnboundedSender<Request>, rx: RecvStream) {
+    let tx = tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = _upstream_task(upstream, rx).await {
-            error!("Proxy upstream error: {e}");
+        if let Err(e) = _handler(stream_tx, tx, rx).await {
+            error!("connection error: {e}");
         }
     });
 }
 
-async fn _upstream_task(mut upstream: TcpStream, mut rx: Receiver<Msg>) -> io::Result<()> {
-    let mut buf_read = PagedBytesMut::<4096>::new();
-
-    let mut req_queue = VecDeque::new();
-    let mut res_queue = VecDeque::new();
-
-    loop {
-        let interest = if !req_queue.is_empty() {
-            Interest::READABLE | Interest::WRITABLE
-        } else {
-            Interest::READABLE
-        };
-
-        match rx.recv().select(upstream.ready(interest)).await {
-            SelectOutput::A(Some((tx, bytes))) => {
-                req_queue.extend(bytes);
-                if let Some(tx) = tx {
-                    res_queue.push_back(tx);
-                }
-            }
-            SelectOutput::A(None) => break,
-            SelectOutput::B(ready) => {
-                let ready = ready?;
-                if ready.is_writable() {
-                    'write: while let Some(bytes) = req_queue.front_mut() {
-                        loop {
-                            match upstream.write(bytes) {
-                                Ok(0) => return Err(write_zero_err()),
-                                Ok(n) => {
-                                    bytes.advance(n);
-                                    if bytes.is_empty() {
-                                        req_queue.pop_front();
-                                        continue 'write;
-                                    }
-                                }
-                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break 'write,
-                                Err(e) => return Err(e),
-                            }
-                        }
-                    }
-                }
-
-                if ready.is_readable() {
-                    loop {
-                        match read_buf(&mut upstream, &mut buf_read) {
-                            Ok(0) => return Err(unexpected_eof_err()),
-                            Ok(_) => {
-                                while let Some(msg) = ResponseMessage::try_from_buf(&mut buf_read).unwrap() {
-                                    match msg {
-                                        ResponseMessage::Normal { buf, complete } => {
-                                            let tx = res_queue.front_mut().unwrap();
-
-                                            tx.write_chunk(buf.freeze()).await.unwrap();
-                                            if complete {
-                                                tx.finish().await.unwrap();
-                                                res_queue.pop_front();
-                                            }
-                                        }
-                                        ResponseMessage::Async(_) => {}
-                                    }
-                                }
-                            }
-                            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                            Err(e) => return Err(e),
-                        }
-                    }
-                }
-            }
-        }
+async fn _handler(
+    stream_tx: Option<SendStream>,
+    tx: UnboundedSender<Request>,
+    mut rx: RecvStream,
+) -> Result<(), Error> {
+    let mut bytes = BytesMut::new();
+    while let Some(c) = rx.read_chunk(usize::MAX, true).await? {
+        bytes.extend_from_slice(&c.bytes);
     }
+
+    let (res, msg) = match stream_tx {
+        Some(stream_tx) => {
+            let (recv_tx, recv_rx) = unbounded_channel();
+            (Some((recv_rx, stream_tx)), Request::new(Some(recv_tx), bytes))
+        }
+        None => (None, Request::new(None, bytes)),
+    };
+
+    tx.send(msg)?;
+
+    if let Some((mut rx, mut stream_tx)) = res {
+        while let Some(bytes) = rx.recv().await {
+            stream_tx.write_chunk(bytes.freeze()).await?;
+        }
+        stream_tx.finish().await?;
+    }
+
     Ok(())
+}
+
+fn upstream_task(upstream: TcpStream, rx: UnboundedReceiver<Request>) {
+    tokio::spawn(async move {
+        if let Err(e) = crate::transport::io::new(upstream, rx).run().await {
+            error!("Proxy upstream error: {e}");
+        }
+    });
 }

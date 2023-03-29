@@ -1,8 +1,28 @@
 use postgres_protocol::message::backend;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::bytes::PagedBytesMut;
 
 use crate::error::Error;
+
+pub(super) type ResponseSender = UnboundedSender<BytesMut>;
+
+// TODO: remove this lint.
+#[allow(dead_code)]
+pub(super) type ResponseReceiver = UnboundedReceiver<BytesMut>;
+
+#[derive(Debug)]
+pub struct Request {
+    pub(crate) tx: Option<ResponseSender>,
+    pub(crate) msg: BytesMut,
+}
+
+impl Request {
+    // a Request that does not care for a response from database.
+    pub(crate) fn new(tx: Option<ResponseSender>, msg: BytesMut) -> Self {
+        Self { tx, msg }
+    }
+}
 
 pub enum ResponseMessage {
     Normal { buf: BytesMut, complete: bool },

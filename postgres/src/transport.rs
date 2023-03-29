@@ -1,4 +1,5 @@
 pub(crate) mod codec;
+pub(crate) mod io;
 
 #[cfg(feature = "tls")]
 mod tls;
@@ -6,12 +7,12 @@ mod tls;
 #[cfg(not(feature = "quic"))]
 mod raw;
 #[cfg(not(feature = "quic"))]
-pub use raw::*;
+pub(crate) use raw::*;
 
 #[cfg(feature = "quic")]
 mod quic;
 #[cfg(feature = "quic")]
-pub use quic::*;
+pub(crate) use quic::*;
 
 use std::net::SocketAddr;
 
