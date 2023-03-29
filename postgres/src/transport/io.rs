@@ -179,7 +179,6 @@ impl Context {
 }
 
 #[cfg(not(feature = "quic"))]
-#[cfg(not(feature = "quic"))]
 mod raw_impl {
     use alloc::sync::Arc;
 
