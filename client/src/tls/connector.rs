@@ -172,7 +172,7 @@ impl Connector {
 /// }
 ///
 /// # fn resolve() {
-/// let client = ClientBuilder::new().tls_connector(MyConnector).finish();
+/// let client = ClientBuilder::default().tls_connector(MyConnector).finish();
 /// # }
 /// ```
 pub trait TlsConnect: Send + Sync {

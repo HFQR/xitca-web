@@ -72,7 +72,7 @@ impl Resolver {
 /// }
 ///
 /// # fn resolve() {
-/// let client = ClientBuilder::new().resolver(MyResolver).finish();
+/// let client = ClientBuilder::default().resolver(MyResolver).finish();
 /// # }
 /// ```
 pub trait Resolve: Send + Sync {
