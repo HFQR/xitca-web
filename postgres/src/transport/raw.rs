@@ -166,7 +166,7 @@ where
         match io.write(&buf) {
             Ok(0) => return Err(write_zero_err()),
             Ok(n) => buf.advance(n),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {},
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             Err(e) => return Err(e),
         }
     }
@@ -177,7 +177,7 @@ where
         match io.read(&mut buf) {
             Ok(0) => return Err(unexpected_eof_err()),
             Ok(_) => return Ok(buf[0] == b'S'),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {},
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             Err(e) => return Err(e),
         }
     }
