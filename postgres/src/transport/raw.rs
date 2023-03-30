@@ -8,6 +8,8 @@ pub use self::response::Response;
 
 use core::{future::Future, pin::Pin};
 
+use std::io;
+
 use postgres_protocol::message::frontend;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use xitca_io::{
@@ -164,7 +166,7 @@ where
         match io.write(&buf) {
             Ok(0) => return Err(write_zero_err()),
             Ok(n) => buf.advance(n),
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {},
             Err(e) => return Err(e),
         }
     }
@@ -174,8 +176,8 @@ where
         io.ready(Interest::READABLE).await?;
         match io.read(&mut buf) {
             Ok(0) => return Err(unexpected_eof_err()),
-            Ok(_) => return if buf[0] == b'S' { Ok(true) } else { Ok(false) },
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Ok(_) => return Ok(buf[0] == b'S'),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {},
             Err(e) => return Err(e),
         }
     }
