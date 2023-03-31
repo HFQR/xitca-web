@@ -159,9 +159,7 @@ impl BufWrite for WriteBuf {
                 Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(n) => {
                     self.buf.advance(n);
-                    if self.buf.is_empty() {
-                        self.want_flush = true;
-                    }
+                    self.want_flush = self.buf.is_empty();
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e),

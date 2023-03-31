@@ -52,14 +52,21 @@ where
     for<'f> Io::Future<'f>: Send,
 {
     fn try_read(&mut self) -> Result<(), Error> {
+        let len = self.read_buf.len();
         loop {
             match read_buf(&mut self.io, &mut self.read_buf) {
-                Ok(0) => return Err(Error::from(unexpected_eof_err())),
-                Ok(_) => self.ctx.try_decode(&mut self.read_buf)?,
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => return Err(e.into()),
+                Ok(0) => {
+                    if self.read_buf.len() == len {
+                        return Err(Error::from(unexpected_eof_err()));
+                    }
+                    break;
+                }
+                Ok(_) => {}
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => return Err(Error::from(e)),
             }
         }
+        self.ctx.try_decode(&mut self.read_buf)
     }
 
     fn try_write(&mut self) -> io::Result<()> {
