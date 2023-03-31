@@ -30,18 +30,15 @@ impl Response {
 
     fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
         if self.buf.is_empty() {
-            match ready!(self.rx.poll_recv(cx)) {
-                Some(buf) => self.buf = buf,
-                None => return Poll::Ready(Err(Error::from(unexpected_eof_err()))),
-            }
+            self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(unexpected_eof_err)?;
         }
 
-        let res = match backend::Message::parse(&mut self.buf)? {
+        let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.") {
             // TODO: error response.
-            Some(backend::Message::ErrorResponse(_body)) => Err(Error::ToDo),
-            Some(msg) => Ok(msg),
-            None => unreachable!("must not parse message from empty buffer."),
+            backend::Message::ErrorResponse(_body) => Err(Error::ToDo),
+            msg => Ok(msg),
         };
+
         Poll::Ready(res)
     }
 }
