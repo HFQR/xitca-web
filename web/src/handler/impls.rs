@@ -76,8 +76,8 @@ where
     }
 }
 
-impl<'r, C, B> Responder<WebRequest<'r, C, B>> for WebResponse {
-    type Output = WebResponse;
+impl<'r, C, B, ResB> Responder<WebRequest<'r, C, B>> for WebResponse<ResB> {
+    type Output = WebResponse<ResB>;
     type Future = impl Future<Output = Self::Output>;
 
     #[inline]
