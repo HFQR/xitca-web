@@ -56,8 +56,6 @@ impl Client {
                     }
 
                     let (channel_binding, mechanism) = match (is_scram_plus, is_scram) {
-                        // TODO: return "unsupported SASL mechanism" error.
-                        (false, false) => return Err(Error::ToDo),
                         (true, is_scram) => {
                             let buf = cfg.get_tls_server_end_point();
                             if !buf.is_empty() {
@@ -68,10 +66,14 @@ impl Client {
                             } else if is_scram {
                                 (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256)
                             } else {
-                                (sasl::ChannelBinding::unsupported(), sasl::SCRAM_SHA_256)
+                                // server ask for channel binding but no tls_server_end_point can be
+                                // found.
+                                return Err(Error::ToDo);
                             }
                         }
                         (false, true) => (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256),
+                        // TODO: return "unsupported SASL mechanism" error.
+                        (false, false) => return Err(Error::ToDo),
                     };
 
                     let mut scram = sasl::ScramSha256::new(pass, channel_binding);
