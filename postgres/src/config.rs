@@ -53,6 +53,7 @@ pub struct Config {
     pub(crate) host: Vec<Host>,
     pub(crate) port: Vec<u16>,
     pub(crate) target_session_attrs: TargetSessionAttrs,
+    tls_server_end_point: Vec<u8>,
 }
 
 impl Default for Config {
@@ -74,6 +75,7 @@ impl Config {
             host: Vec::new(),
             port: Vec::new(),
             target_session_attrs: TargetSessionAttrs::Any,
+            tls_server_end_point: Vec::new(),
         }
     }
 
@@ -222,6 +224,15 @@ impl Config {
     /// Gets the requirements of the session.
     pub fn get_target_session_attrs(&self) -> TargetSessionAttrs {
         self.target_session_attrs
+    }
+
+    pub fn tls_server_end_point(&mut self, tls_server_end_point: Vec<u8>) -> &mut Self {
+        self.tls_server_end_point = tls_server_end_point;
+        self
+    }
+
+    pub fn get_tls_server_end_point(&self) -> Vec<u8> {
+        self.tls_server_end_point.to_vec()
     }
 
     fn param(&mut self, key: &str, value: &str) -> Result<(), Error> {

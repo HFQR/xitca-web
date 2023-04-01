@@ -46,7 +46,6 @@ impl Client {
                     let mut is_scram = false;
                     let mut is_scram_plus = false;
                     let mut mechanisms = body.mechanisms();
-                    let channel_binding = None;
 
                     while let Some(mechanism) = mechanisms.next()? {
                         match mechanism {
@@ -56,12 +55,23 @@ impl Client {
                         }
                     }
 
-                    let (channel_binding, mechanism) = match (channel_binding, is_scram_plus, is_scram) {
+                    let (channel_binding, mechanism) = match (is_scram_plus, is_scram) {
                         // TODO: return "unsupported SASL mechanism" error.
-                        (_, false, false) => return Err(Error::ToDo),
-                        (Some(binding), true, _) => (binding, sasl::SCRAM_SHA_256_PLUS),
-                        (Some(_), false, true) => (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256),
-                        (None, _, _) => (sasl::ChannelBinding::unsupported(), sasl::SCRAM_SHA_256),
+                        (false, false) => return Err(Error::ToDo),
+                        (true, is_scram) => {
+                            let buf = cfg.get_tls_server_end_point();
+                            if !buf.is_empty() {
+                                (
+                                    sasl::ChannelBinding::tls_server_end_point(buf),
+                                    sasl::SCRAM_SHA_256_PLUS,
+                                )
+                            } else if is_scram {
+                                (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256)
+                            } else {
+                                (sasl::ChannelBinding::unsupported(), sasl::SCRAM_SHA_256)
+                            }
+                        }
+                        (false, true) => (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256),
                     };
 
                     let mut scram = sasl::ScramSha256::new(pass, channel_binding);

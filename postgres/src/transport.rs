@@ -25,13 +25,13 @@ use super::{
 
 #[cold]
 #[inline(never)]
-async fn try_connect_multi<F, O>(cfg: &Config, func: F) -> Result<O, Error>
+async fn try_connect_multi<F, O>(cfg: &mut Config, func: F) -> Result<O, Error>
 where
-    F: for<'f> AsyncClosure<(&'f Host, &'f Config), Output = Result<O, Error>>,
+    F: for<'f> AsyncClosure<(Host, &'f mut Config), Output = Result<O, Error>>,
 {
     let mut err = None;
 
-    for host in cfg.get_hosts() {
+    for host in cfg.get_hosts().to_vec() {
         match func.call((host, cfg)).await {
             Ok(t) => return Ok(t),
             Err(e) => err = Some(e),
