@@ -9,6 +9,8 @@ runtime = ["tokio"]
 http3 = ["async-channel", "futures-core", "quinn", "runtime"]
 
 [dependencies]
+xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
+
 bytes = "1.4"
 
 tokio = { version = "1.27", features = ["net"], optional = true }

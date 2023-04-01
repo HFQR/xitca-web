@@ -54,7 +54,7 @@ where
 
     /// write until write buffer is emptied or io blocked.
     pub fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.write_io(self.io)
+        self.write_buf.do_io(self.io)
     }
 
     /// check for io read readiness in async and do [Self::try_read].

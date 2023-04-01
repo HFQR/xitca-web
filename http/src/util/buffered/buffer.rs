@@ -14,7 +14,7 @@ use xitca_unsafe_collection::{
 pub use xitca_io::bytes::{BufInterest, BufWrite};
 
 /// a hard code BytesMut that reserving additional 4kb heap memory everytime reallocating needed.
-pub type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
+pub type PagedBytesMut = xitca_io::bytes::PagedBytesMut<4096>;
 
 /// a writable buffer with const generic guarded max size limit.
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl<const BUF_LIMIT: usize> BufInterest for ReadBuf<BUF_LIMIT> {
     }
 
     fn want_write_io(&self) -> bool {
-        unreachable!("ReadBuf is only meant for reading from IO.")
+        unimplemented!()
     }
 }
 
@@ -97,8 +97,8 @@ impl<const BUF_LIMIT: usize> BufWrite for WriteBuf<BUF_LIMIT> {
     }
 
     #[inline]
-    fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
-        self.0.write_io(io)
+    fn do_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
+        self.0.do_io(io)
     }
 }
 
@@ -184,7 +184,7 @@ where
         })
     }
 
-    fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
+    fn do_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
         let queue = &mut self.list;
         loop {
             if self.want_flush {
