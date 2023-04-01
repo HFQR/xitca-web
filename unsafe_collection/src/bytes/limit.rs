@@ -36,16 +36,22 @@ impl<const PAGE_SIZE: usize> PagedBytesMut<PAGE_SIZE> {
         self.0.split()
     }
 
+    /// take ownership of inner bytes mut.
+    #[inline]
+    pub fn into_inner(self) -> BytesMut {
+        self.0
+    }
+
     #[doc(hidden)]
     #[inline]
     pub fn get_mut(&mut self) -> &mut BytesMut {
         &mut self.0
     }
 
-    /// take ownership of inner bytes mut.
+    #[doc(hidden)]
     #[inline]
-    pub fn into_inner(self) -> BytesMut {
-        self.0
+    pub fn get_ref(&self) -> &BytesMut {
+        &self.0
     }
 }
 

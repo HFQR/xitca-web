@@ -1,6 +1,7 @@
 //! re-export of [bytes] crate types.
 
 pub use bytes::*;
+pub use xitca_unsafe_collection::bytes::{BytesStr, PagedBytesMut};
 
 use core::fmt;
 
@@ -36,17 +37,23 @@ pub trait BufInterest {
     fn want_write_io(&self) -> bool;
 }
 
+/// trait generic over different types of read buffer strategy.
+pub trait BufRead: BufInterest {
+    /// read from IO and write into buffer.
+    fn do_io<Io: io::Read>(&mut self, io: &mut Io) -> io::Result<()>;
+}
+
 /// trait generic over different types of write buffer strategy.
 pub trait BufWrite: BufInterest {
     /// write into [BytesMut] with closure that output a Result type.
-    /// the result type is used to hint buffer to stop wanting to flush IO on [BufWrite::write_io]
+    /// the result type is used to hint buffer to stop wanting to flush IO on [BufWrite::do_io]
     /// or revert BytesMut to previous state before method was called.
     fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>;
 
     /// write into IO from buffer.
-    fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()>;
+    fn do_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()>;
 }
 
 impl BufInterest for BytesMut {
@@ -61,7 +68,15 @@ impl BufInterest for BytesMut {
     }
 }
 
+impl BufRead for BytesMut {
+    #[inline]
+    fn do_io<Io: io::Read>(&mut self, io: &mut Io) -> io::Result<()> {
+        buf_read(self, io)
+    }
+}
+
 impl BufWrite for BytesMut {
+    #[inline]
     fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self) -> Result<T, E>,
@@ -73,8 +88,10 @@ impl BufWrite for BytesMut {
         })
     }
 
-    fn write_io<Io: io::Write>(&mut self, _: &mut Io) -> io::Result<()> {
-        unimplemented!("<BytesMut as BufWrite>::write_io is not implemented.")
+    #[cold]
+    #[inline(never)]
+    fn do_io<Io: io::Write>(&mut self, _: &mut Io) -> io::Result<()> {
+        unimplemented!()
     }
 }
 
@@ -135,6 +152,7 @@ impl BufInterest for WriteBuf {
 }
 
 impl BufWrite for WriteBuf {
+    #[inline]
     fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
@@ -145,7 +163,7 @@ impl BufWrite for WriteBuf {
         })
     }
 
-    fn write_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
+    fn do_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
         loop {
             if self.want_flush {
                 match io::Write::flush(io) {
@@ -167,4 +185,45 @@ impl BufWrite for WriteBuf {
         }
         Ok(())
     }
+}
+
+impl<const P: usize> BufInterest for PagedBytesMut<P> {
+    #[inline]
+    fn want_write_buf(&self) -> bool {
+        self.get_ref().want_write_buf()
+    }
+
+    #[inline]
+    fn want_write_io(&self) -> bool {
+        self.get_ref().want_write_io()
+    }
+}
+
+impl<const P: usize> BufRead for PagedBytesMut<P> {
+    #[inline]
+    fn do_io<Io: io::Read>(&mut self, io: &mut Io) -> io::Result<()> {
+        buf_read(self, io)
+    }
+}
+
+fn buf_read<B, Io>(buf: &mut B, io: &mut Io) -> io::Result<()>
+where
+    Io: io::Read,
+    B: Buf + BufMut,
+{
+    let len = buf.remaining();
+    loop {
+        match xitca_unsafe_collection::bytes::read_buf(io, buf) {
+            Ok(0) => {
+                if buf.remaining() == len {
+                    return Err(io::ErrorKind::UnexpectedEof.into());
+                };
+                break;
+            }
+            Ok(_) => {}
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }

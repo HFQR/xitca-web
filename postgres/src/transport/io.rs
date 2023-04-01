@@ -11,15 +11,12 @@ use std::io;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tracing::error;
 use xitca_io::{
-    bytes::{BufInterest, BufWrite, WriteBuf},
+    bytes::{BufInterest, BufRead, BufWrite, WriteBuf},
     io::{AsyncIo, Interest},
 };
-use xitca_unsafe_collection::{
-    bytes::read_buf,
-    futures::{Select as _, SelectOutput},
-};
+use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
-use crate::error::{unexpected_eof_err, Error};
+use crate::error::Error;
 
 use super::codec::{Request, ResponseMessage, ResponseSender};
 
@@ -52,25 +49,12 @@ where
     for<'f> Io::Future<'f>: Send,
 {
     fn try_read(&mut self) -> Result<(), Error> {
-        let len = self.read_buf.len();
-        loop {
-            match read_buf(&mut self.io, &mut self.read_buf) {
-                Ok(0) => {
-                    if self.read_buf.len() == len {
-                        return Err(Error::from(unexpected_eof_err()));
-                    }
-                    break;
-                }
-                Ok(_) => {}
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(Error::from(e)),
-            }
-        }
+        self.read_buf.do_io(&mut self.io)?;
         self.ctx.try_decode(&mut self.read_buf)
     }
 
     fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.write_io(&mut self.io).map_err(|e| {
+        self.write_buf.do_io(&mut self.io).map_err(|e| {
             self.write_buf.clear();
             error!("server closed connection unexpectedly: {e}");
             e
