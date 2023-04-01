@@ -265,6 +265,7 @@ where
     pub fn bind_rustls<A: std::net::ToSocketAddrs, ResB, BE>(
         mut self,
         addr: A,
+        #[cfg_attr(not(all(feature = "http1", feature = "http2")), allow(unused_mut))]
         mut config: rustls_crate::ServerConfig,
     ) -> std::io::Result<Self>
     where
@@ -279,12 +280,10 @@ where
         let service_config = self.config;
 
         #[cfg(feature = "http2")]
-        let protos = ["h2".as_bytes().into(), "http/1.1".as_bytes().into()];
+        config.alpn_protocols.push("h2".into());
 
-        #[cfg(not(feature = "http2"))]
-        let protos = ["http/1.1".as_bytes().into()];
-
-        config.alpn_protocols = protos.into();
+        #[cfg(feature = "http1")]
+        config.alpn_protocols.push("http/1.1".into());
 
         let config = std::sync::Arc::new(config);
 
