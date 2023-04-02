@@ -54,14 +54,14 @@ impl ClientTx {
 type Task = impl Future<Output = Result<(), Error>> + Send;
 type Ret = Result<(Client, Task), Error>;
 
-pub(crate) async fn connect(cfg: Config) -> Ret {
-    super::try_connect_multi(&cfg, _connect).await
+pub(crate) async fn connect(mut cfg: Config) -> Ret {
+    super::try_connect_multi(&mut cfg, _connect).await
 }
 
 #[cold]
 #[inline(never)]
-pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
-    match *host {
+pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
+    match host {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;
             let mut cli = Client::new(tx);

@@ -53,25 +53,25 @@ impl ClientTx {
 type Task = Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
 type Ret = Result<(Client, Task), Error>;
 
-pub(crate) async fn connect(cfg: Config) -> Ret {
-    super::try_connect_multi(&cfg, _connect).await
+pub(crate) async fn connect(mut cfg: Config) -> Ret {
+    super::try_connect_multi(&mut cfg, _connect).await
 }
 
 #[cold]
 #[inline(never)]
-pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
+pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
     let (tx, rx) = unbounded_channel();
     let mut cli = Client::new(ClientTx(tx));
 
     // this block have repeated code due to HRTB limitation.
     // namely for <'_> AsyncIo::Future<'_>: Send bound can not be expressed correctly.
-    match *host {
+    match host {
         Host::Tcp(ref host) => {
             let mut io = connect_tcp(host, cfg.get_ports()).await?;
             if should_connect_tls(&mut io, cfg).await? {
                 #[cfg(feature = "tls")]
                 {
-                    let io = tls::connect(io, host).await?;
+                    let io = tls::connect(io, host, cfg).await?;
                     let handle = super::io::new(io, rx).spawn();
                     let ret = cli.authenticate(cfg).await;
                     let io = handle.into_inner().await;
@@ -95,7 +95,7 @@ pub(crate) async fn _connect(host: &Host, cfg: &Config) -> Ret {
                 #[cfg(feature = "tls")]
                 {
                     let host = host.to_string_lossy();
-                    let io = tls::connect(io, host.as_ref()).await?;
+                    let io = tls::connect(io, host.as_ref(), cfg).await?;
                     let handle = super::io::new(io, rx).spawn();
                     let ret = cli.authenticate(cfg).await;
                     let io = handle.into_inner().await;
