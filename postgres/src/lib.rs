@@ -93,16 +93,12 @@ where
 }
 
 #[cfg(test)]
-fn assert_send<F: Send>(_: F) {}
-
-#[cfg(test)]
 mod test {
-    use super::*;
-
     #[cfg(not(feature = "quic"))]
     #[tokio::test]
     async fn postgres() {
-        let _ = Postgres::new(Config::default());
+        use crate::{AsyncIterator, Postgres};
+
         let (cli, task) = Postgres::new("postgres://postgres:postgres@localhost/postgres")
             .connect()
             .await
@@ -114,6 +110,8 @@ mod test {
     #[cfg(not(feature = "single-thread"))]
     #[test]
     fn assert_send_test() {
-        assert_send(Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
+        fn assert_send<F: Send>(_: F) {}
+
+        assert_send(crate::Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
     }
 }
