@@ -40,11 +40,10 @@ impl<'a, C> GenericRow<'a, C> {
         body: DataRowBody,
         ranges: &'a mut Vec<Option<Range<usize>>>,
     ) -> Result<Self, Error> {
-        ranges.clear();
-        let mut iter = body.ranges();
+        let mut iter = body.ranges().enumerate();
         ranges.reserve(iter.size_hint().0);
-        while let Some(range) = iter.next()? {
-            ranges.push(range);
+        while let Some((idx, range)) = iter.next()? {
+            ranges[idx] = range;
         }
         Ok(Self {
             columns,
