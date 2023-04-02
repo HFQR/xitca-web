@@ -1,0 +1,12 @@
+[package]
+name = "xitca-tls"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+rustls = ["dep:rustls"]
+
+[dependencies]
+xitca-io = { version = "0.1", features = ["runtime"] }
+
+rustls = { version = "0.21", optional = true }

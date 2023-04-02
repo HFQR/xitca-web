@@ -7,10 +7,10 @@ edition = "2021"
 # feature for single thread client that have lower overhead(no lock) at the cost of no thread safety.
 single-thread = []
 # feature for connecting to tls enabled server.
-tls = ["ring", "rustls/dangerous_configuration"]
+tls = ["xitca-tls/rustls", "ring", "rustls/dangerous_configuration"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
-quic = ["tls", "quinn", "rustls-pemfile"]
+quic = ["tls", "quinn", "quinn-proto", "rustls-pemfile"]
 
 [dependencies]
 xitca-io = { version = "0.1", features = ["runtime"] }
@@ -24,10 +24,17 @@ postgres-types = "0.2"
 tokio = { version = "1.27", features = ["net", "sync"] }
 tracing = { version = "0.1", default-features = false }
 
-quinn = { version = "0.9.3", optional = true }
+# tls
+xitca-tls = { version = "0.1", optional = true }
 ring = { version = "0.16", optional = true }
-rustls = { version = "0.20.8", optional = true }
+
+# quic
+quinn = { version = "0.10", git = "https://github.com/quinn-rs/quinn.git", optional = true }
+quinn-proto = { git = "https://github.com/quinn-rs/quinn.git", optional = true }
 rustls-pemfile = { version = "1.0.2", optional = true }
+
+# tls and quic shared
+rustls = { version = "0.21", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.27", features = ["macros", "rt"] }
