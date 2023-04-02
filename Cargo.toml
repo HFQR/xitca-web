@@ -9,12 +9,13 @@ members = [
     "server",
     "service",
     "test",
+    "tls",
+    "unsafe_collection",
     "web",
     "http-encoding",
     "http-file",
     "http-multipart",
     "http-ws",
-    "unsafe_collection"
 ]
 
 [patch.crates-io]
@@ -26,8 +27,9 @@ xitca-postgres = { path = "./postgres" }
 xitca-router = { path = "./router" }
 xitca-server = { path = "./server" }
 xitca-service = { path = "./service" }
-xitca-web = { path = "./web" }
+xitca-tls = { path = "./tls" }
 xitca-unsafe-collection = { path = "./unsafe_collection" }
+xitca-web = { path = "./web" }
 http-encoding = { path = "./http-encoding" }
 http-file = { path = "http-file" }
 http-multipart = { path = "./http-multipart" }
