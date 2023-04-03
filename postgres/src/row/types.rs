@@ -81,7 +81,7 @@ impl<'a, C> GenericRow<'a, C> {
     ) -> Result<(usize, &Type), Error> {
         let (idx, ty) = idx
             ._from_columns(self.columns())
-            .ok_or(Error::InvalidColumnIndex(format!("{idx}")))?;
+            .ok_or_else(|| Error::InvalidColumnIndex(format!("{idx}")))?;
 
         if !ty_check(ty) {
             return Err(Error::ToDo);
