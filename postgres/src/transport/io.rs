@@ -84,8 +84,6 @@ where
                         self.ctx.push_concurrent_req(tx);
                     }
                 }
-                // client is gone.
-                SelectOutput::A(None) => break,
                 SelectOutput::B(ready) => {
                     let ready = ready?;
                     if ready.is_readable() {
@@ -95,6 +93,7 @@ where
                         break;
                     }
                 }
+                SelectOutput::A(None) => break,
             }
         }
 
@@ -136,21 +135,21 @@ pub(super) struct Context {
 }
 
 impl Context {
-    pub(super) fn new() -> Self {
+    fn new() -> Self {
         Self {
             concurrent_res: VecDeque::new(),
         }
     }
 
-    pub(super) fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.concurrent_res.is_empty()
     }
 
-    pub(super) fn push_concurrent_req(&mut self, tx: ResponseSender) {
+    fn push_concurrent_req(&mut self, tx: ResponseSender) {
         self.concurrent_res.push_back(tx);
     }
 
-    pub(super) fn try_decode(&mut self, buf: &mut PagedBytesMut) -> Result<(), Error> {
+    fn try_decode(&mut self, buf: &mut PagedBytesMut) -> Result<(), Error> {
         while let Some(res) = ResponseMessage::try_from_buf(buf)? {
             if let ResponseMessage::Normal { buf, complete } = res {
                 let _ = self

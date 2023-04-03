@@ -1,5 +1,5 @@
 use core::{
-    future::poll_fn,
+    future::{poll_fn, Future},
     task::{ready, Context, Poll},
 };
 
@@ -24,8 +24,8 @@ impl Response {
         }
     }
 
-    pub(crate) async fn recv(&mut self) -> Result<backend::Message, Error> {
-        poll_fn(|cx| self.poll_recv(cx)).await
+    pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + '_ {
+        poll_fn(|cx| self.poll_recv(cx))
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
