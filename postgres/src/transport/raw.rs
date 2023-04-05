@@ -73,7 +73,7 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 {
                     let io = tls::connect(io, host, cfg).await?;
                     let handle = super::io::new(io, rx).spawn();
-                    let ret = cli.authenticate(cfg).await;
+                    let ret = cli.on_connect(cfg).await;
                     let io = handle.into_inner().await;
                     ret.map(|_| (cli, Box::pin(io.run()) as _))
                 }
@@ -83,7 +83,7 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 }
             } else {
                 let handle = super::io::new(io, rx).spawn();
-                let ret = cli.authenticate(cfg).await;
+                let ret = cli.on_connect(cfg).await;
                 let io = handle.into_inner().await;
                 ret.map(|_| (cli, Box::pin(io.run()) as _))
             }
@@ -97,7 +97,7 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                     let host = host.to_string_lossy();
                     let io = tls::connect(io, host.as_ref(), cfg).await?;
                     let handle = super::io::new(io, rx).spawn();
-                    let ret = cli.authenticate(cfg).await;
+                    let ret = cli.on_connect(cfg).await;
                     let io = handle.into_inner().await;
                     ret.map(|_| (cli, Box::pin(io.run()) as _))
                 }
@@ -107,7 +107,7 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 }
             } else {
                 let handle = super::io::new(io, rx).spawn();
-                let ret = cli.authenticate(cfg).await;
+                let ret = cli.on_connect(cfg).await;
                 let io = handle.into_inner().await;
                 ret.map(|_| (cli, Box::pin(io.run()) as _))
             }
