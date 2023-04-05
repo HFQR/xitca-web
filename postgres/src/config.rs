@@ -9,17 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::error::Error;
-
-/// Properties required of a session.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum TargetSessionAttrs {
-    /// No special properties are required.
-    Any,
-    /// The session must allow writes.
-    ReadWrite,
-}
+use super::{error::Error, session::TargetSessionAttrs};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -52,7 +42,7 @@ pub struct Config {
     pub(crate) ssl_mode: SslMode,
     pub(crate) host: Vec<Host>,
     pub(crate) port: Vec<u16>,
-    pub(crate) target_session_attrs: TargetSessionAttrs,
+    target_session_attrs: TargetSessionAttrs,
     tls_server_end_point: Vec<u8>,
 }
 

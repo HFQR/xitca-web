@@ -14,6 +14,7 @@ mod iter;
 mod prepare;
 mod query;
 mod row;
+mod session;
 mod transport;
 mod util;
 

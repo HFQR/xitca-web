@@ -19,6 +19,7 @@ use std::net::SocketAddr;
 use xitca_service::AsyncClosure;
 
 use super::{
+    client::Client,
     config::{Config, Host},
     error::Error,
 };
@@ -52,4 +53,11 @@ async fn resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
         })
         .collect::<Vec<_>>();
     Ok(addrs)
+}
+
+impl Client {
+    async fn on_connect(&mut self, cfg: &mut Config) -> Result<(), Error> {
+        self.authenticate(cfg).await?;
+        self.session_attrs(cfg).await
+    }
 }
