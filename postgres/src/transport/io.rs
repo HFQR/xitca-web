@@ -1,6 +1,6 @@
 use core::{
     convert::Infallible,
-    future::{pending, poll_fn, Future},
+    future::{poll_fn, Future},
     pin::Pin,
 };
 
@@ -60,7 +60,7 @@ where
     fn try_write(&mut self) -> io::Result<()> {
         self.write_buf.do_io(&mut self.io).map_err(|e| {
             self.write_buf.clear();
-            error!("server closed connection unexpectedly: {e}");
+            error!("server closed read half unexpectedly: {e}");
             e
         })
     }
@@ -69,7 +69,7 @@ where
         while let Some(res) = ResponseMessage::try_from_buf(&mut self.read_buf)? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    let _ = self.res.front_mut().expect("Out of bound must not happen").send(buf);
+                    let _ = self.res.front_mut().expect("out of bound must not happen").send(buf);
 
                     if complete {
                         let _ = self.res.pop_front();
@@ -83,11 +83,11 @@ where
     }
 
     async fn _run(&mut self) -> Result<(), Error> {
-        while self._next().await?.is_some() {}
+        while self.try_next().await?.is_some() {}
         Ok(())
     }
 
-    async fn _next(&mut self) -> Result<Option<backend::Message>, Error> {
+    async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(msg) = self.try_decode()? {
                 return Ok(Some(msg));
@@ -114,7 +114,7 @@ where
                         return Ok(None);
                     }
                     let ready = self.io.ready(interest);
-                    pending().select(ready).await
+                    SelectOutput::B(ready.await)
                 }
             };
 
@@ -156,7 +156,7 @@ where
 
     #[inline]
     fn next(&mut self) -> Self::Future<'_> {
-        async { self._next().await.transpose() }
+        async { self.try_next().await.transpose() }
     }
 }
 
