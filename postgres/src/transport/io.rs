@@ -8,6 +8,7 @@ use alloc::collections::VecDeque;
 
 use std::io;
 
+use postgres_protocol::message::backend;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tracing::error;
 use xitca_io::{
@@ -16,7 +17,7 @@ use xitca_io::{
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
-use crate::error::Error;
+use crate::{error::Error, iter::AsyncIterator};
 
 use super::codec::{Request, ResponseMessage, ResponseSender};
 
@@ -24,8 +25,8 @@ pub struct BufferedIo<Io> {
     io: Io,
     write_buf: WriteBuf,
     read_buf: PagedBytesMut,
-    rx: UnboundedReceiver<Request>,
-    ctx: Context,
+    rx: Option<UnboundedReceiver<Request>>,
+    res: VecDeque<ResponseSender>,
 }
 
 pub(crate) type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
@@ -38,8 +39,8 @@ where
         io,
         write_buf: WriteBuf::new(),
         read_buf: PagedBytesMut::new(),
-        rx,
-        ctx: Context::new(),
+        rx: Some(rx),
+        res: VecDeque::new(),
     }
 }
 
@@ -48,32 +49,76 @@ where
     Io: AsyncIo + Send + 'static,
     for<'f> Io::Future<'f>: Send,
 {
+    pub(crate) async fn run(mut self) -> Result<(), Error> {
+        self._run().await
+    }
+
     fn try_read(&mut self) -> Result<(), Error> {
-        self.read_buf.do_io(&mut self.io)?;
-        self.ctx.try_decode(&mut self.read_buf)
+        self.read_buf.do_io(&mut self.io).map_err(Into::into)
     }
 
     fn try_write(&mut self) -> io::Result<()> {
         self.write_buf.do_io(&mut self.io).map_err(|e| {
             self.write_buf.clear();
-            error!("server closed connection unexpectedly: {e}");
+            error!("server closed read half unexpectedly: {e}");
             e
         })
     }
 
-    pub(crate) async fn run(mut self) -> Result<(), Error> {
-        self._run().await
+    fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
+        while let Some(res) = ResponseMessage::try_from_buf(&mut self.read_buf)? {
+            match res {
+                ResponseMessage::Normal { buf, complete } => {
+                    let _ = self.res.front_mut().expect("out of bound must not happen").send(buf);
+
+                    if complete {
+                        let _ = self.res.pop_front();
+                    }
+                }
+                ResponseMessage::Async(msg) => return Ok(Some(msg)),
+            }
+        }
+
+        Ok(None)
     }
 
     async fn _run(&mut self) -> Result<(), Error> {
+        while self.try_next().await?.is_some() {}
+        Ok(())
+    }
+
+    async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
+            if let Some(msg) = self.try_decode()? {
+                return Ok(Some(msg));
+            }
+
             let interest = if self.write_buf.want_write_io() {
                 Interest::READABLE | Interest::WRITABLE
             } else {
                 Interest::READABLE
             };
-            let ready = self.io.ready(interest);
-            match self.rx.recv().select(ready).await {
+
+            let select = match self.rx {
+                Some(ref mut rx) => {
+                    let ready = self.io.ready(interest);
+                    rx.recv().select(ready).await
+                }
+                None => {
+                    if !interest.is_writable() && self.res.is_empty() {
+                        // no interest to write to io and all response have been finished so
+                        // shutdown io and exit.
+                        // if there is a better way to exhaust potential remaining backend message
+                        // please file an issue.
+                        poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
+                        return Ok(None);
+                    }
+                    let ready = self.io.ready(interest);
+                    SelectOutput::B(ready.await)
+                }
+            };
+
+            match select {
                 // batch message and keep polling.
                 SelectOutput::A(Some(req)) => {
                     let _ = self.write_buf.write_buf(|buf| {
@@ -81,7 +126,7 @@ where
                         Ok::<_, Infallible>(())
                     });
                     if let Some(tx) = req.tx {
-                        self.ctx.push_concurrent_req(tx);
+                        self.res.push_back(tx);
                     }
                 }
                 SelectOutput::B(ready) => {
@@ -90,81 +135,28 @@ where
                         self.try_read()?;
                     }
                     if ready.is_writable() && self.try_write().is_err() {
-                        break;
+                        // write failed as server stopped reading.
+                        // drop channel so all pending request can be notified.
+                        self.rx = None;
                     }
                 }
-                SelectOutput::A(None) => break,
+                SelectOutput::A(None) => self.rx = None,
             }
         }
-
-        self.shutdown().await
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn shutdown(&mut self) -> impl Future<Output = Result<(), Error>> + Send + '_ {
-        Box::pin(async {
-            loop {
-                let want_write = self.write_buf.want_write_io();
-                let want_read = !self.ctx.is_empty();
-                let interest = match (want_read, want_write) {
-                    (false, false) => break,
-                    (true, true) => Interest::READABLE | Interest::WRITABLE,
-                    (true, false) => Interest::READABLE,
-                    (false, true) => Interest::WRITABLE,
-                };
-                let fut = self.io.ready(interest);
-                let ready = fut.await?;
-                if ready.is_readable() {
-                    self.try_read()?;
-                }
-                if ready.is_writable() {
-                    let _ = self.try_write();
-                }
-            }
-
-            poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))
-                .await
-                .map_err(Into::into)
-        })
     }
 }
 
-pub(super) struct Context {
-    concurrent_res: VecDeque<ResponseSender>,
-}
+impl<Io> AsyncIterator for BufferedIo<Io>
+where
+    Io: AsyncIo + Send + 'static,
+    for<'f> Io::Future<'f>: Send,
+{
+    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
+    type Item<'i> = Result<backend::Message, Error> where Self: 'i;
 
-impl Context {
-    fn new() -> Self {
-        Self {
-            concurrent_res: VecDeque::new(),
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.concurrent_res.is_empty()
-    }
-
-    fn push_concurrent_req(&mut self, tx: ResponseSender) {
-        self.concurrent_res.push_back(tx);
-    }
-
-    fn try_decode(&mut self, buf: &mut PagedBytesMut) -> Result<(), Error> {
-        while let Some(res) = ResponseMessage::try_from_buf(buf)? {
-            if let ResponseMessage::Normal { buf, complete } = res {
-                let _ = self
-                    .concurrent_res
-                    .front_mut()
-                    .expect("Out of bound must not happen")
-                    .send(buf);
-
-                if complete {
-                    let _ = self.concurrent_res.pop_front();
-                }
-            }
-        }
-
-        Ok(())
+    #[inline]
+    fn next(&mut self) -> Self::Future<'_> {
+        async { self.try_next().await.transpose() }
     }
 }
 
