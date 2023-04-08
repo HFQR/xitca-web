@@ -51,6 +51,7 @@ impl ClientTx {
 }
 
 type Task = Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
+
 type Ret = Result<(Client, Task), Error>;
 
 pub(crate) async fn connect(mut cfg: Config) -> Ret {
