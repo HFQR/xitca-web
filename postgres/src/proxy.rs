@@ -1,12 +1,8 @@
 use alloc::sync::Arc;
 
-use std::{
-    error, fs,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashSet, error, fs, net::SocketAddr, path::Path};
 
-use quinn::{Connecting, Connection, Endpoint, RecvStream, SendStream};
+use quinn::{Connecting, Connection, Endpoint, RecvStream, SendStream, ServerConfig};
 use rustls::{Certificate, PrivateKey};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tracing::error;
@@ -22,56 +18,70 @@ pub type Error = Box<dyn error::Error + Send + Sync>;
 
 /// proxy for translating multiplexed quic traffic to plain tcp traffic for postgres protocol.
 pub struct Proxy {
-    cert: PathBuf,
-    key: PathBuf,
+    cfg: Result<ServerConfig, Error>,
     upstream_addr: SocketAddr,
     listen_addr: SocketAddr,
+    white_list: Option<HashSet<SocketAddr>>,
 }
 
 impl Proxy {
-    pub fn with_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Self {
+    fn new(cfg: Result<ServerConfig, Error>) -> Self {
         Self {
-            cert: cert.as_ref().into(),
-            key: key.as_ref().into(),
+            cfg,
             upstream_addr: SocketAddr::from(([127, 0, 0, 1], 5432)),
             listen_addr: SocketAddr::from(([0, 0, 0, 0], 5433)),
+            white_list: None,
         }
     }
 
+    /// construct a proxy with given single key/cert pair.
+    /// key/cert must be pem format.
+    pub fn with_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Self {
+        Self::new(cfg_from_cert(cert, key))
+    }
+
+    /// construct a proxy with given [quinn::ServerConfig]
+    pub fn with_config(cfg: ServerConfig) -> Self {
+        Self::new(Ok(cfg))
+    }
+
+    /// set upstream postgres server the proxy would connect to.
     pub fn upstream_addr(mut self, addr: SocketAddr) -> Self {
         self.upstream_addr = addr;
         self
     }
 
+    /// set the address proxy used for listening incoming request.
     pub fn listen_addr(mut self, addr: SocketAddr) -> Self {
         self.listen_addr = addr;
         self
     }
 
+    /// set address that belong to proxy's whitelist. once set address do not belong in the list
+    /// would be reject from proxy.
+    pub fn white_list(mut self, addrs: impl IntoIterator<Item = SocketAddr>) -> Self {
+        for addr in addrs.into_iter() {
+            if self.white_list.is_none() {
+                self.white_list = Some(HashSet::new());
+            }
+            self.white_list.as_mut().unwrap().insert(addr);
+        }
+        self
+    }
+
+    /// start the proxy.
     pub async fn run(self) -> Result<(), Error> {
-        let cert = fs::read(self.cert)?;
-        let key = fs::read(self.key)?;
-        let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
-        let key = PrivateKey(key);
+        let cfg = self.cfg?;
 
-        let cert = rustls_pemfile::certs(&mut &*cert)?
-            .into_iter()
-            .map(Certificate)
-            .collect();
-
-        let mut config = rustls::ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_single_cert(cert, key)?;
-
-        config.alpn_protocols = vec![QUIC_ALPN.to_vec()];
-
-        let config = quinn::ServerConfig::with_crypto(Arc::new(config));
-
-        let listener = Endpoint::server(config, self.listen_addr)?;
+        let listener = Endpoint::server(cfg, self.listen_addr)?;
 
         let addr = self.upstream_addr;
         while let Some(conn) = listener.accept().await {
+            if let Some(list) = self.white_list.as_ref() {
+                if !list.contains(&conn.remote_address()) {
+                    continue;
+                }
+            }
             tokio::spawn(async move {
                 if let Err(e) = listen_task(conn, addr).await {
                     error!("Proxy listen error: {e}");
@@ -81,6 +91,27 @@ impl Proxy {
 
         Ok(())
     }
+}
+
+fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<ServerConfig, Error> {
+    let cert = fs::read(cert)?;
+    let key = fs::read(key)?;
+    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
+    let key = PrivateKey(key);
+
+    let cert = rustls_pemfile::certs(&mut &*cert)?
+        .into_iter()
+        .map(Certificate)
+        .collect();
+
+    let mut config = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(cert, key)?;
+
+    config.alpn_protocols = vec![QUIC_ALPN.to_vec()];
+
+    Ok(ServerConfig::with_crypto(Arc::new(config)))
 }
 
 async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
@@ -146,4 +177,19 @@ async fn upstream_task(upstream: TcpStream, rx: UnboundedReceiver<Request>, _: C
     let mut io = transport::io::new(upstream, rx);
     while let Some(_) = io.next().await.transpose()? {}
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn construct() {
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let _ = Proxy::with_cert("", "")
+            .upstream_addr(addr)
+            .listen_addr(addr)
+            .white_list(vec![addr])
+            .white_list([addr]);
+    }
 }
