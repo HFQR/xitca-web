@@ -21,15 +21,7 @@ use crate::{error::Error, iter::AsyncIterator};
 
 use super::codec::{Request, ResponseMessage, ResponseSender};
 
-pub struct BufferedIo<Io> {
-    io: Io,
-    write_buf: WriteBuf,
-    read_buf: PagedBytesMut,
-    rx: Option<UnboundedReceiver<Request>>,
-    res: VecDeque<ResponseSender>,
-}
-
-pub(crate) type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
+type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
 pub(crate) fn new<Io>(io: Io, rx: UnboundedReceiver<Request>) -> BufferedIo<Io>
 where
@@ -42,6 +34,14 @@ where
         rx: Some(rx),
         res: VecDeque::new(),
     }
+}
+
+pub struct BufferedIo<Io> {
+    io: Io,
+    write_buf: WriteBuf,
+    read_buf: PagedBytesMut,
+    rx: Option<UnboundedReceiver<Request>>,
+    res: VecDeque<ResponseSender>,
 }
 
 impl<Io> BufferedIo<Io>
