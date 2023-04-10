@@ -4,18 +4,19 @@ mod response;
 
 pub use self::response::Response;
 
-use core::future::Future;
+use core::{future::Future, pin::Pin};
 
-use quinn::{ClientConfig, Connection, Endpoint};
+use postgres_protocol::message::backend;
+use quinn::{ClientConfig, Connection, Endpoint, RecvStream, SendStream};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
     client::Client,
     config::{Config, Host},
-    error::Error,
+    error::{unexpected_eof_err, Error},
 };
 
-use super::tls::dangerous_config;
+use super::{tls::dangerous_config, MessageIo};
 
 pub(crate) const QUIC_ALPN: &[u8] = b"quic";
 
@@ -34,13 +35,6 @@ impl ClientTx {
         tx.write_all(&msg).await.unwrap();
         tx.finish().await.unwrap();
         Ok(Response::new(rx))
-    }
-
-    pub(crate) async fn send2(&self, msg: BytesMut) -> Result<(), Error> {
-        let mut tx = self.inner.open_uni().await.unwrap();
-        tx.write_all(&msg).await.unwrap();
-        tx.finish().await.unwrap();
-        Ok(())
     }
 
     pub(crate) fn do_send(&self, msg: BytesMut) {
@@ -65,7 +59,19 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;
             let mut cli = Client::new(tx);
-            cli.on_connect(cfg).await?;
+
+            let (tx, rx) = cli.tx.inner.open_bi().await.unwrap();
+
+            let mut io = Io {
+                tx,
+                rx,
+                buf: BytesMut::new(),
+            };
+            cli.authenticate(&mut io, cfg).await?;
+            cli.session(&mut io, cfg).await?;
+
+            io.tx.finish().await.unwrap();
+
             Ok((cli, async { Ok(()) }))
         }
         _ => unreachable!(),
@@ -94,4 +100,39 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     }
 
     Err(err.unwrap())
+}
+
+// a dummy io type for unified SendRecv trait impl for raw tcp/unix connections.
+pub(super) struct Io {
+    tx: SendStream,
+    rx: RecvStream,
+    buf: BytesMut,
+}
+
+impl MessageIo for Io {
+    fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
+        Box::pin(async move {
+            self.tx.write_all(&msg).await.unwrap();
+            Ok(())
+        })
+    }
+
+    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>> {
+        Box::pin(async move {
+            loop {
+                if let Some(msg) = backend::Message::parse(&mut self.buf)? {
+                    return Ok(msg);
+                }
+
+                let chunk = self
+                    .rx
+                    .read_chunk(4096, true)
+                    .await
+                    .unwrap()
+                    .ok_or_else(unexpected_eof_err)?;
+
+                self.buf.extend_from_slice(&chunk.bytes);
+            }
+        })
+    }
 }

@@ -12,21 +12,21 @@ use postgres_protocol::message::backend;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tracing::error;
 use xitca_io::{
-    bytes::{BufInterest, BufRead, BufWrite, WriteBuf},
+    bytes::{BufInterest, BufRead, BufWrite, BytesMut, WriteBuf},
     io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
 use crate::{error::Error, iter::AsyncIterator};
 
-use super::codec::{Request, ResponseMessage, ResponseSender};
+use super::{
+    codec::{Request, ResponseMessage, ResponseSender},
+    MessageIo,
+};
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
-pub(crate) fn new<Io>(io: Io, rx: UnboundedReceiver<Request>) -> BufferedIo<Io>
-where
-    Io: AsyncIo + Send + 'static,
-{
+pub(crate) fn new<Io>(io: Io, rx: UnboundedReceiver<Request>) -> BufferedIo<Io> {
     BufferedIo {
         io,
         write_buf: WriteBuf::new(),
@@ -46,11 +46,44 @@ pub struct BufferedIo<Io> {
 
 impl<Io> BufferedIo<Io>
 where
-    Io: AsyncIo + Send + 'static,
-    for<'f> Io::Future<'f>: Send,
+    Io: AsyncIo,
 {
     pub(crate) async fn run(mut self) -> Result<(), Error> {
-        self._run().await
+        while self.try_next().await?.is_some() {}
+        Ok(())
+    }
+
+    pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
+        self.write_buf_extend(&msg);
+        loop {
+            self.try_write()?;
+            if self.write_buf.is_empty() {
+                return Ok(());
+            }
+            let ready = self.io.ready(Interest::WRITABLE);
+            ready.await?;
+        }
+    }
+
+    pub(crate) async fn recv_with<F, O>(&mut self, mut func: F) -> Result<O, Error>
+    where
+        F: FnMut(&mut BytesMut) -> Option<Result<O, Error>>,
+    {
+        loop {
+            if let Some(o) = func(self.read_buf.get_mut()) {
+                return o;
+            }
+            let ready = self.io.ready(Interest::READABLE);
+            ready.await?;
+            self.try_read()?;
+        }
+    }
+
+    fn write_buf_extend(&mut self, buf: &[u8]) {
+        let _ = self.write_buf.write_buf(|w| {
+            w.extend_from_slice(buf);
+            Ok::<_, Infallible>(())
+        });
     }
 
     fn try_read(&mut self) -> Result<(), Error> {
@@ -80,11 +113,6 @@ where
         }
 
         Ok(None)
-    }
-
-    async fn _run(&mut self) -> Result<(), Error> {
-        while self.try_next().await?.is_some() {}
-        Ok(())
     }
 
     async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
@@ -121,13 +149,8 @@ where
             match select {
                 // batch message and keep polling.
                 SelectOutput::A(Some(req)) => {
-                    let _ = self.write_buf.write_buf(|buf| {
-                        buf.extend_from_slice(req.msg.as_ref());
-                        Ok::<_, Infallible>(())
-                    });
-                    if let Some(tx) = req.tx {
-                        self.res.push_back(tx);
-                    }
+                    self.write_buf_extend(req.msg.as_ref());
+                    self.res.push_back(req.tx);
                 }
                 SelectOutput::B(ready) => {
                     let ready = ready?;
@@ -146,9 +169,23 @@ where
     }
 }
 
+impl<Io> MessageIo for BufferedIo<Io>
+where
+    Io: AsyncIo + Send,
+    for<'f> Io::Future<'f>: Send,
+{
+    fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
+        Box::pin(self.send(msg))
+    }
+
+    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>> {
+        Box::pin(self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose()))
+    }
+}
+
 impl<Io> AsyncIterator for BufferedIo<Io>
 where
-    Io: AsyncIo + Send + 'static,
+    Io: AsyncIo + Send,
     for<'f> Io::Future<'f>: Send,
 {
     type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
@@ -157,44 +194,5 @@ where
     #[inline]
     fn next(&mut self) -> Self::Future<'_> {
         async { self.try_next().await.transpose() }
-    }
-}
-
-#[cfg(not(feature = "quic"))]
-mod raw_impl {
-    use alloc::sync::Arc;
-
-    use tokio::{sync::Notify, task::JoinHandle};
-    use xitca_io::io::AsyncIo;
-    use xitca_unsafe_collection::futures::Select;
-
-    use super::BufferedIo;
-
-    impl<Io> BufferedIo<Io>
-    where
-        Io: AsyncIo + Send + 'static,
-        for<'f> Io::Future<'f>: Send,
-    {
-        pub(crate) fn spawn(mut self) -> Handle<Self> {
-            let notify = Arc::new(Notify::new());
-            let notify2 = notify.clone();
-            let handle = tokio::spawn(async move {
-                let _ = self._run().select(notify2.notified()).await;
-                self
-            });
-            Handle { handle, notify }
-        }
-    }
-
-    pub(crate) struct Handle<Io> {
-        handle: JoinHandle<Io>,
-        notify: Arc<Notify>,
-    }
-
-    impl<Io> Handle<Io> {
-        pub(crate) async fn into_inner(self) -> Io {
-            self.notify.notify_waiters();
-            self.handle.await.unwrap()
-        }
     }
 }
