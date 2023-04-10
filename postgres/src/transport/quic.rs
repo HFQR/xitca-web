@@ -103,7 +103,7 @@ pub(super) struct Io {
 
 impl Io {
     async fn try_new(cli: &Client) -> Result<Self, Error> {
-        let (tx, rx) = cli.tx.inner.open_bi().await?;
+        let (tx, rx) = cli.tx.inner.open_bi().await.unwrap();
         Ok(Self {
             tx,
             rx,

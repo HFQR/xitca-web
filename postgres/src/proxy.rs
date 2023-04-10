@@ -58,10 +58,7 @@ impl Proxy {
     /// would be reject from proxy.
     pub fn white_list(mut self, addrs: impl IntoIterator<Item = SocketAddr>) -> Self {
         for addr in addrs.into_iter() {
-            if self.white_list.is_none() {
-                self.white_list = Some(HashSet::new());
-            }
-            self.white_list.as_mut().unwrap().insert(addr);
+            self.white_list.get_or_insert_with(HashSet::new).insert(addr);
         }
         self
     }
