@@ -4,12 +4,16 @@ use std::{collections::HashSet, error, fs, net::SocketAddr, path::Path};
 
 use quinn::{Connecting, Endpoint, RecvStream, SendStream, ServerConfig};
 use rustls::{Certificate, PrivateKey};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::mpsc::unbounded_channel;
 use tracing::error;
 use xitca_io::{bytes::BytesMut, net::TcpStream};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use super::transport::{self, codec::Request, QUIC_ALPN};
+use super::transport::{
+    codec::Request,
+    driver::{self, DriverTx},
+    QUIC_ALPN,
+};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -110,21 +114,19 @@ fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<Server
 
 async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     let conn = conn.await?;
-
     let upstream = TcpStream::connect(addr).await?;
-    let (tx, rx) = unbounded_channel();
-    let mut io = transport::io::new(upstream, rx);
+    let (mut drv, tx) = driver::new(upstream);
 
     // accept one bi stream from client and tunnel it with buffered io for startup.
     let (mut start_tx, mut start_rx) = conn.accept_bi().await?;
     loop {
         match start_rx
             .read_chunk(4096, true)
-            .select(io.recv_with(|buf| (!buf.is_empty()).then(|| Ok(buf.split()))))
+            .select(drv.recv_with(|buf| (!buf.is_empty()).then(|| Ok(buf.split()))))
             .await
         {
             SelectOutput::A(res) => match res? {
-                Some(chunk) => io.send(BytesMut::from(chunk.bytes.as_ref())).await?,
+                Some(chunk) => drv.send(BytesMut::from(chunk.bytes.as_ref())).await?,
                 None => break,
             },
             SelectOutput::B(res) => {
@@ -135,27 +137,23 @@ async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     }
 
     tokio::spawn(async move {
-        if let Err(e) = io.run().await {
+        if let Err(e) = drv.run().await {
             error!("Proxy upstream error: {e}");
         }
     });
 
     loop {
         let (stream_tx, rx) = conn.accept_bi().await?;
-        handler(stream_tx, &tx, rx);
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handler(stream_tx, tx, rx).await {
+                error!("connection error: {e}");
+            }
+        });
     }
 }
 
-fn handler(stream_tx: SendStream, tx: &UnboundedSender<Request>, rx: RecvStream) {
-    let tx = tx.clone();
-    tokio::spawn(async move {
-        if let Err(e) = _handler(stream_tx, tx, rx).await {
-            error!("connection error: {e}");
-        }
-    });
-}
-
-async fn _handler(mut stream_tx: SendStream, tx: UnboundedSender<Request>, mut rx: RecvStream) -> Result<(), Error> {
+async fn handler(mut stream_tx: SendStream, tx: DriverTx, mut rx: RecvStream) -> Result<(), Error> {
     let mut bytes = BytesMut::new();
     while let Some(c) = rx.read_chunk(usize::MAX, true).await? {
         bytes.extend_from_slice(&c.bytes);

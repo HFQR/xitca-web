@@ -16,7 +16,7 @@ use crate::{
     error::{unexpected_eof_err, Error},
 };
 
-use super::{tls::dangerous_config, MessageIo};
+use super::{tls::dangerous_config, Drive};
 
 pub(crate) const QUIC_ALPN: &[u8] = b"quic";
 
@@ -116,7 +116,7 @@ impl Io {
     }
 }
 
-impl MessageIo for Io {
+impl Drive for Io {
     fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
         Box::pin(async move {
             self.tx.write_all(&msg).await.unwrap();

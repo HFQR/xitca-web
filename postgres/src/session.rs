@@ -10,7 +10,7 @@ use super::{
     client::Client,
     config::Config,
     error::{AuthenticationError, Error},
-    transport::MessageIo,
+    transport::Drive,
 };
 
 /// Properties required of a session.
@@ -26,14 +26,14 @@ pub enum TargetSessionAttrs {
 impl Client {
     #[cold]
     #[inline(never)]
-    pub(super) async fn prepare_session<Io>(&mut self, io: &mut Io, cfg: &mut Config) -> Result<(), Error>
+    pub(super) async fn prepare_session<D>(&mut self, drv: &mut D, cfg: &mut Config) -> Result<(), Error>
     where
-        Io: MessageIo,
+        D: Drive,
     {
-        self.auth(io, cfg).await?;
+        self.auth(drv, cfg).await?;
 
         loop {
-            match io.recv().await? {
+            match drv.recv().await? {
                 backend::Message::ReadyForQuery(_) => break,
                 backend::Message::BackendKeyData(_) => {
                     // TODO: handle process id and secret key.
@@ -49,10 +49,10 @@ impl Client {
 
         if matches!(cfg.get_target_session_attrs(), TargetSessionAttrs::ReadWrite) {
             let buf = self.try_encode_with(|buf| frontend::query("SHOW transaction_read_only", buf))?;
-            io.send(buf).await?;
+            drv.send(buf).await?;
             // TODO: use RowSimple for parsing?
             loop {
-                match io.recv().await? {
+                match drv.recv().await? {
                     backend::Message::DataRow(body) => {
                         let range = body.ranges().next()?.flatten().ok_or(Error::ToDo)?;
                         let slice = &body.buffer()[range.start..range.end];
@@ -71,9 +71,9 @@ impl Client {
 
     #[cold]
     #[inline(never)]
-    async fn auth<Io>(&mut self, io: &mut Io, cfg: &Config) -> Result<(), Error>
+    async fn auth<D>(&mut self, drv: &mut D, cfg: &Config) -> Result<(), Error>
     where
-        Io: MessageIo,
+        D: Drive,
     {
         let mut params = vec![("client_encoding", "UTF8")];
         if let Some(user) = &cfg.user {
@@ -90,20 +90,20 @@ impl Client {
         }
 
         let msg = self.try_encode_with(|buf| frontend::startup_message(params, buf))?;
-        io.send(msg).await?;
+        drv.send(msg).await?;
 
         loop {
-            match io.recv().await? {
+            match drv.recv().await? {
                 backend::Message::AuthenticationOk => return Ok(()),
                 backend::Message::AuthenticationCleartextPassword => {
                     let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
-                    self.send_pass(io, pass).await?;
+                    self.send_pass(drv, pass).await?;
                 }
                 backend::Message::AuthenticationMd5Password(body) => {
                     let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
                     let user = cfg.get_user().ok_or(AuthenticationError::MissingUserName)?.as_bytes();
                     let pass = authentication::md5_hash(user, pass, body.salt());
-                    self.send_pass(io, pass).await?;
+                    self.send_pass(drv, pass).await?;
                 }
                 backend::Message::AuthenticationSasl(body) => {
                     let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
@@ -145,18 +145,18 @@ impl Client {
 
                     let msg =
                         self.try_encode_with(|buf| frontend::sasl_initial_response(mechanism, scram.message(), buf))?;
-                    io.send(msg).await?;
+                    drv.send(msg).await?;
 
-                    match io.recv().await? {
+                    match drv.recv().await? {
                         backend::Message::AuthenticationSaslContinue(body) => {
                             scram.update(body.data())?;
                             let msg = self.try_encode_with(|buf| frontend::sasl_response(scram.message(), buf))?;
-                            io.send(msg).await?;
+                            drv.send(msg).await?;
                         }
                         _ => return Err(Error::ToDo),
                     }
 
-                    match io.recv().await? {
+                    match drv.recv().await? {
                         backend::Message::AuthenticationSaslFinal(body) => scram.finish(body.data())?,
                         _ => return Err(Error::ToDo),
                     }
@@ -167,11 +167,11 @@ impl Client {
         }
     }
 
-    async fn send_pass<Io>(&self, io: &mut Io, pass: impl AsRef<[u8]>) -> Result<(), Error>
+    async fn send_pass<D>(&self, drv: &mut D, pass: impl AsRef<[u8]>) -> Result<(), Error>
     where
-        Io: MessageIo,
+        D: Drive,
     {
         let msg = self.try_encode_with(|buf| frontend::password_message(pass.as_ref(), buf))?;
-        io.send(msg).await
+        drv.send(msg).await
     }
 }

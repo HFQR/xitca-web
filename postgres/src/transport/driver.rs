@@ -9,7 +9,7 @@ use alloc::collections::VecDeque;
 use std::io;
 
 use postgres_protocol::message::backend;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tracing::error;
 use xitca_io::{
     bytes::{BufInterest, BufRead, BufWrite, BytesMut, WriteBuf},
@@ -21,30 +21,39 @@ use crate::{error::Error, iter::AsyncIterator};
 
 use super::{
     codec::{Request, ResponseMessage, ResponseSender},
-    MessageIo,
+    Drive,
 };
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
-pub(crate) fn new<Io>(io: Io, rx: UnboundedReceiver<Request>) -> BufferedIo<Io> {
-    BufferedIo {
-        io,
-        write_buf: WriteBuf::new(),
-        read_buf: PagedBytesMut::new(),
-        rx: Some(rx),
-        res: VecDeque::new(),
-    }
+pub(crate) type DriverTx = UnboundedSender<Request>;
+pub(crate) type DriverRx = UnboundedReceiver<Request>;
+
+pub(crate) fn new<Io>(io: Io) -> (Driver<Io>, DriverTx) {
+    let (tx, rx) = unbounded_channel();
+    (
+        Driver {
+            io,
+            write_buf: WriteBuf::new(),
+            read_buf: PagedBytesMut::new(),
+            rx: Some(rx),
+            res: VecDeque::new(),
+        },
+        tx,
+    )
 }
 
-pub struct BufferedIo<Io> {
+/// async driver of [Client] type.
+/// it handles actual Io and serves as the first step of message decoding.
+pub struct Driver<Io> {
     io: Io,
     write_buf: WriteBuf,
     read_buf: PagedBytesMut,
-    rx: Option<UnboundedReceiver<Request>>,
+    rx: Option<DriverRx>,
     res: VecDeque<ResponseSender>,
 }
 
-impl<Io> BufferedIo<Io>
+impl<Io> Driver<Io>
 where
     Io: AsyncIo,
 {
@@ -169,7 +178,7 @@ where
     }
 }
 
-impl<Io> MessageIo for BufferedIo<Io>
+impl<Io> Drive for Driver<Io>
 where
     Io: AsyncIo + Send,
     for<'f> Io::Future<'f>: Send,
@@ -183,7 +192,7 @@ where
     }
 }
 
-impl<Io> AsyncIterator for BufferedIo<Io>
+impl<Io> AsyncIterator for Driver<Io>
 where
     Io: AsyncIo + Send,
     for<'f> Io::Future<'f>: Send,

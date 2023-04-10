@@ -11,7 +11,7 @@ use core::{future::Future, pin::Pin};
 use std::io;
 
 use postgres_protocol::message::frontend;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::mpsc::unbounded_channel;
 use xitca_io::{
     bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest},
@@ -24,10 +24,10 @@ use crate::{
     error::{unexpected_eof_err, write_zero_err, Error},
 };
 
-use super::codec::Request;
+use super::{codec::Request, driver::DriverTx};
 
 #[derive(Debug)]
-pub(crate) struct ClientTx(UnboundedSender<Request>);
+pub(crate) struct ClientTx(DriverTx);
 
 impl ClientTx {
     pub(crate) fn is_closed(&self) -> bool {
@@ -56,10 +56,7 @@ pub(crate) async fn connect(mut cfg: Config) -> Ret {
 
 #[cold]
 #[inline(never)]
-pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
-    let (tx, rx) = unbounded_channel();
-    let mut cli = Client::new(ClientTx(tx));
-
+async fn _connect(host: Host, cfg: &mut Config) -> Ret {
     // this block have repeated code due to HRTB limitation.
     // namely for <'_> AsyncIo::Future<'_>: Send bound can not be expressed correctly.
     match host {
@@ -69,18 +66,20 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 #[cfg(feature = "tls")]
                 {
                     let io = tls::connect(io, host, cfg).await?;
-                    let mut io = super::io::new(io, rx);
-                    cli.prepare_session(&mut io, cfg).await?;
-                    Ok((cli, Box::pin(io.run()) as _))
+                    let (mut drv, tx) = super::driver::new(io);
+                    let mut cli = Client::new(ClientTx(tx));
+                    cli.prepare_session(&mut drv, cfg).await?;
+                    Ok((cli, Box::pin(drv.run()) as _))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(Error::ToDo)
                 }
             } else {
-                let mut io = super::io::new(io, rx);
-                cli.prepare_session(&mut io, cfg).await?;
-                Ok((cli, Box::pin(io.run()) as _))
+                let (mut drv, tx) = super::driver::new(io);
+                let mut cli = Client::new(ClientTx(tx));
+                cli.prepare_session(&mut drv, cfg).await?;
+                Ok((cli, Box::pin(drv.run()) as _))
             }
         }
         #[cfg(unix)]
@@ -91,18 +90,20 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 {
                     let host = host.to_string_lossy();
                     let io = tls::connect(io, host.as_ref(), cfg).await?;
-                    let mut io = super::io::new(io, rx);
-                    cli.prepare_session(&mut io, cfg).await?;
-                    Ok((cli, Box::pin(io.run()) as _))
+                    let (mut drv, tx) = super::driver::new(io);
+                    let mut cli = Client::new(ClientTx(tx));
+                    cli.prepare_session(&mut drv, cfg).await?;
+                    Ok((cli, Box::pin(drv.run()) as _))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(Error::ToDo)
                 }
             } else {
-                let mut io = super::io::new(io, rx);
-                cli.prepare_session(&mut io, cfg).await?;
-                Ok((cli, Box::pin(io.run()) as _))
+                let (mut drv, tx) = super::driver::new(io);
+                let mut cli = Client::new(ClientTx(tx));
+                cli.prepare_session(&mut drv, cfg).await?;
+                Ok((cli, Box::pin(drv.run()) as _))
             }
         }
         _ => unreachable!(),
