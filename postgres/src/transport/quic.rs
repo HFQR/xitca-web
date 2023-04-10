@@ -60,17 +60,9 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
             let tx = connect_quic(host, cfg.get_ports()).await?;
             let mut cli = Client::new(tx);
 
-            let (tx, rx) = cli.tx.inner.open_bi().await.unwrap();
-
-            let mut io = Io {
-                tx,
-                rx,
-                buf: BytesMut::new(),
-            };
-            cli.authenticate(&mut io, cfg).await?;
-            cli.session(&mut io, cfg).await?;
-
-            io.tx.finish().await.unwrap();
+            let mut io = Io::try_new(&cli).await?;
+            cli.prepare_session(&mut io, cfg).await?;
+            io.finish().await;
 
             Ok((cli, async { Ok(()) }))
         }
@@ -102,11 +94,26 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     Err(err.unwrap())
 }
 
-// a dummy io type for unified SendRecv trait impl for raw tcp/unix connections.
+// an arbitrary io type for unified MessageIo trait impl for raw tcp/unix connections.
 pub(super) struct Io {
     tx: SendStream,
     rx: RecvStream,
     buf: BytesMut,
+}
+
+impl Io {
+    async fn try_new(cli: &Client) -> Result<Self, Error> {
+        let (tx, rx) = cli.tx.inner.open_bi().await?;
+        Ok(Self {
+            tx,
+            rx,
+            buf: BytesMut::new(),
+        })
+    }
+
+    async fn finish(mut self) {
+        let _ = self.tx.finish().await;
+    }
 }
 
 impl MessageIo for Io {

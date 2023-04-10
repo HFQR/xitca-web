@@ -70,8 +70,7 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 {
                     let io = tls::connect(io, host, cfg).await?;
                     let mut io = super::io::new(io, rx);
-                    cli.authenticate(&mut io, cfg).await?;
-                    cli.session(&mut io, cfg).await?;
+                    cli.prepare_session(&mut io, cfg).await?;
                     Ok((cli, Box::pin(io.run()) as _))
                 }
                 #[cfg(not(feature = "tls"))]
@@ -80,8 +79,7 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 }
             } else {
                 let mut io = super::io::new(io, rx);
-                cli.authenticate(&mut io, cfg).await?;
-                cli.session(&mut io, cfg).await?;
+                cli.prepare_session(&mut io, cfg).await?;
                 Ok((cli, Box::pin(io.run()) as _))
             }
         }
@@ -94,8 +92,7 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                     let host = host.to_string_lossy();
                     let io = tls::connect(io, host.as_ref(), cfg).await?;
                     let mut io = super::io::new(io, rx);
-                    cli.authenticate(&mut io, cfg).await?;
-                    cli.session(&mut io, cfg).await?;
+                    cli.prepare_session(&mut io, cfg).await?;
                     Ok((cli, Box::pin(io.run()) as _))
                 }
                 #[cfg(not(feature = "tls"))]
@@ -104,8 +101,7 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 }
             } else {
                 let mut io = super::io::new(io, rx);
-                cli.authenticate(&mut io, cfg).await?;
-                cli.session(&mut io, cfg).await?;
+                cli.prepare_session(&mut io, cfg).await?;
                 Ok((cli, Box::pin(io.run()) as _))
             }
         }
