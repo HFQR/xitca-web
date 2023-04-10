@@ -55,12 +55,14 @@ where
 
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
         self.write_buf_extend(&msg);
-        while !self.write_buf.is_empty() {
+        loop {
             self.try_write()?;
+            if self.write_buf.is_empty() {
+                return Ok(());
+            }
             let ready = self.io.ready(Interest::WRITABLE);
             ready.await?;
         }
-        Ok(())
     }
 
     pub(crate) async fn recv_with<F, O>(&mut self, mut func: F) -> Result<O, Error>
