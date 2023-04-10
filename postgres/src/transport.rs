@@ -6,6 +6,7 @@ mod tls;
 
 #[cfg(not(feature = "quic"))]
 mod raw;
+
 #[cfg(not(feature = "quic"))]
 pub(crate) use raw::*;
 
@@ -14,12 +15,15 @@ mod quic;
 #[cfg(feature = "quic")]
 pub(crate) use quic::*;
 
+use core::{future::Future, pin::Pin};
+
 use std::net::SocketAddr;
 
+use postgres_protocol::message::backend;
+use xitca_io::bytes::BytesMut;
 use xitca_service::AsyncClosure;
 
 use super::{
-    client::Client,
     config::{Config, Host},
     error::Error,
 };
@@ -55,9 +59,8 @@ async fn resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
     Ok(addrs)
 }
 
-impl Client {
-    async fn on_connect(&mut self, cfg: &mut Config) -> Result<(), Error> {
-        self.authenticate(cfg).await?;
-        self.session_attrs(cfg).await
-    }
+pub(crate) trait MessageIo: Send {
+    fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>>;
+
+    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>>;
 }

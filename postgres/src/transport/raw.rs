@@ -36,17 +36,13 @@ impl ClientTx {
 
     pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
         let (tx, rx) = unbounded_channel();
-        self.0.send(Request::new(Some(tx), msg))?;
+        self.0.send(Request::new(tx, msg))?;
         Ok(Response::new(rx))
     }
 
-    pub(crate) async fn send2(&self, msg: BytesMut) -> Result<(), Error> {
-        self.0.send(Request::new(None, msg))?;
-        Ok(())
-    }
-
     pub(crate) fn do_send(&self, msg: BytesMut) {
-        let _ = self.0.send(Request::new(None, msg));
+        let (tx, _) = unbounded_channel();
+        let _ = self.0.send(Request::new(tx, msg));
     }
 }
 
@@ -73,20 +69,20 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 #[cfg(feature = "tls")]
                 {
                     let io = tls::connect(io, host, cfg).await?;
-                    let handle = super::io::new(io, rx).spawn();
-                    let ret = cli.on_connect(cfg).await;
-                    let io = handle.into_inner().await;
-                    ret.map(|_| (cli, Box::pin(io.run()) as _))
+                    let mut io = super::io::new(io, rx);
+                    cli.authenticate(&mut io, cfg).await?;
+                    cli.session(&mut io, cfg).await?;
+                    Ok((cli, Box::pin(io.run()) as _))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(Error::ToDo)
                 }
             } else {
-                let handle = super::io::new(io, rx).spawn();
-                let ret = cli.on_connect(cfg).await;
-                let io = handle.into_inner().await;
-                ret.map(|_| (cli, Box::pin(io.run()) as _))
+                let mut io = super::io::new(io, rx);
+                cli.authenticate(&mut io, cfg).await?;
+                cli.session(&mut io, cfg).await?;
+                Ok((cli, Box::pin(io.run()) as _))
             }
         }
         #[cfg(unix)]
@@ -95,22 +91,21 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
             if should_connect_tls(&mut io, cfg).await? {
                 #[cfg(feature = "tls")]
                 {
-                    let host = host.to_string_lossy();
-                    let io = tls::connect(io, host.as_ref(), cfg).await?;
-                    let handle = super::io::new(io, rx).spawn();
-                    let ret = cli.on_connect(cfg).await;
-                    let io = handle.into_inner().await;
-                    ret.map(|_| (cli, Box::pin(io.run()) as _))
+                    let io = tls::connect(io, host, cfg).await?;
+                    let mut io = super::io::new(io, rx);
+                    cli.authenticate(&mut io, cfg).await?;
+                    cli.session(&mut io, cfg).await?;
+                    Ok((cli, Box::pin(io.run()) as _))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(Error::ToDo)
                 }
             } else {
-                let handle = super::io::new(io, rx).spawn();
-                let ret = cli.on_connect(cfg).await;
-                let io = handle.into_inner().await;
-                ret.map(|_| (cli, Box::pin(io.run()) as _))
+                let mut io = super::io::new(io, rx);
+                cli.authenticate(&mut io, cfg).await?;
+                cli.session(&mut io, cfg).await?;
+                Ok((cli, Box::pin(io.run()) as _))
             }
         }
         _ => unreachable!(),
