@@ -5,7 +5,6 @@
 
 extern crate alloc;
 
-mod auth;
 mod client;
 mod column;
 mod config;
