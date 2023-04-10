@@ -1,5 +1,5 @@
 pub(crate) mod codec;
-pub(crate) mod io;
+pub(crate) mod driver;
 
 #[cfg(feature = "tls")]
 mod tls;
@@ -35,8 +35,8 @@ where
     F: for<'f> AsyncClosure<(Host, &'f mut Config), Output = Result<O, Error>>,
 {
     let mut err = None;
-
-    for host in cfg.get_hosts().to_vec() {
+    let hosts = cfg.get_hosts().to_vec();
+    for host in hosts {
         match func.call((host, cfg)).await {
             Ok(t) => return Ok(t),
             Err(e) => err = Some(e),
@@ -59,7 +59,7 @@ async fn resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
     Ok(addrs)
 }
 
-pub(crate) trait MessageIo: Send {
+pub(crate) trait Drive: Send {
     fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>>;
 
     fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>>;
