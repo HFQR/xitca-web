@@ -91,7 +91,8 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
             if should_connect_tls(&mut io, cfg).await? {
                 #[cfg(feature = "tls")]
                 {
-                    let io = tls::connect(io, host, cfg).await?;
+                    let host = host.to_string_lossy();
+                    let io = tls::connect(io, host.as_ref(), cfg).await?;
                     let mut io = super::io::new(io, rx);
                     cli.authenticate(&mut io, cfg).await?;
                     cli.session(&mut io, cfg).await?;
