@@ -77,8 +77,8 @@ impl UdpStream {
     /// ```rust
     /// # use xitca_io::net::UdpStream;
     /// async fn handle(stream: UdpStream) {
-    ///     use quinn::NewConnection;
-    ///     let new_conn: NewConnection = stream.connecting().await.unwrap();
+    ///     use quinn::Connection;
+    ///     let new_conn: Connection = stream.connecting().await.unwrap();
     /// }
     /// ```
     pub fn connecting(self) -> Connecting {
