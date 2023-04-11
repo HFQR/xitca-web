@@ -1,6 +1,5 @@
-use std::{future::poll_fn, io, net::SocketAddr, pin::Pin};
+use std::{io, net::SocketAddr};
 
-use async_channel::Receiver;
 use quinn::{Connecting, Endpoint, ServerConfig};
 
 use super::Stream;
@@ -13,8 +12,6 @@ pub type H3ServerConfig = ServerConfig;
 #[derive(Debug)]
 pub struct UdpListener {
     endpoint: Endpoint,
-    /// `async-channel` is used to receive Connecting from [`Incoming`].
-    incoming: Receiver<Connecting>,
 }
 
 impl UdpListener {
@@ -26,10 +23,12 @@ impl UdpListener {
 impl UdpListener {
     /// Accept [`UdpStream`].
     pub async fn accept(&self) -> io::Result<UdpStream> {
-        match self.incoming.recv().await {
-            Ok(connecting) => Ok(UdpStream { connecting }),
-            Err(_) => Err(io::Error::new(io::ErrorKind::BrokenPipe, "quinn endpoint is closed")),
-        }
+        let connecting = self
+            .endpoint
+            .accept()
+            .await
+            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "quinn endpoint is closed"))?;
+        Ok(UdpStream { connecting })
     }
 }
 
@@ -58,28 +57,8 @@ impl UdpListenerBuilder {
     }
 
     pub fn build(self) -> io::Result<UdpListener> {
-        let config = self.config;
-        let addr = self.addr;
-        let backlog = self.backlog;
-
-        let (endpoint, mut incoming) = Endpoint::server(config, addr)?;
-
-        // Use async channel to dispatch Connecting<Session> to worker threads.
-        // Incoming can only be held by single task and sharing it between
-        // threads would cause hanging.
-        let (tx, rx) = async_channel::bounded(backlog as usize);
-
-        // Detach the Incoming> as a spawn task.
-        // When Endpoint dropped incoming will be wakeup and get None to end task.
-        tokio::spawn(async move {
-            use futures_core::stream::Stream;
-            let mut incoming = Pin::new(&mut incoming);
-            while let Some(conn) = poll_fn(|cx| incoming.as_mut().poll_next(cx)).await {
-                tx.send(conn).await.unwrap()
-            }
-        });
-
-        Ok(UdpListener { endpoint, incoming: rx })
+        let Self { config, addr, .. } = self;
+        Endpoint::server(config, addr).map(|endpoint| UdpListener { endpoint })
     }
 }
 
@@ -98,8 +77,8 @@ impl UdpStream {
     /// ```rust
     /// # use xitca_io::net::UdpStream;
     /// async fn handle(stream: UdpStream) {
-    ///     use quinn::NewConnection;
-    ///     let new_conn: NewConnection = stream.connecting().await.unwrap();
+    ///     use quinn::Connection;
+    ///     let new_conn: Connection = stream.connecting().await.unwrap();
     /// }
     /// ```
     pub fn connecting(self) -> Connecting {

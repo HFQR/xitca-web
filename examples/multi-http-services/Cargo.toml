@@ -9,9 +9,9 @@ xitca-http = { version = "0.1", features = ["http2", "http3", "openssl", "rustls
 xitca-server = { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
 
-h3-quinn = "0.0.1"
 openssl = "0.10.44"
-rustls = "0.20.7"
+quinn = "0.9"
+rustls = "0.20"
 rustls-pemfile = "1.0.1"
 tracing = { version = "0.1.37", default-features = false }
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }

@@ -8,8 +8,8 @@
 
 use std::{convert::Infallible, fs, io, sync::Arc};
 
-use h3_quinn::quinn::ServerConfig;
 use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
+use quinn::ServerConfig;
 use rustls::{Certificate, PrivateKey};
 use xitca_http::{
     h1, h2, h3,

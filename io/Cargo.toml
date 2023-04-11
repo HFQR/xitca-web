@@ -6,16 +6,13 @@ edition = "2021"
 [features]
 default = []
 runtime = ["tokio"]
-http3 = ["async-channel", "futures-core", "quinn", "runtime"]
+http3 = ["quinn", "runtime"]
 
 [dependencies]
 xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
 bytes = "1.4"
-
 tokio = { version = "1.27", features = ["net"], optional = true }
 
 # http/3 support
-async-channel = { version = "1.6.1", optional = true }
-futures-core = { version = "0.3", default-features = false, optional = true }
-quinn = { version = "0.8", optional = true }
+quinn = { version = "0.9", optional = true }
