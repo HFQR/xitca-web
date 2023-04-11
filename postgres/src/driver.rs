@@ -156,23 +156,21 @@ impl IntoFuture for Driver {
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            #[cfg(not(feature = "quic"))]
-            match self.inner {
-                _Driver::Tcp(drv) => drv.run().await,
-                #[cfg(feature = "tls")]
-                _Driver::Tls(drv) => drv.run().await,
-                #[cfg(unix)]
-                _Driver::Unix(drv) => drv.run().await,
-                #[cfg(all(unix, feature = "tls"))]
-                _Driver::UnixTls(drv) => drv.run().await,
-            }
+        #[cfg(not(feature = "quic"))]
+        match self.inner {
+            _Driver::Tcp(drv) => Box::pin(drv.run()),
+            #[cfg(feature = "tls")]
+            _Driver::Tls(drv) => Box::pin(drv.run()),
+            #[cfg(unix)]
+            _Driver::Unix(drv) => Box::pin(drv.run()),
+            #[cfg(all(unix, feature = "tls"))]
+            _Driver::UnixTls(drv) => Box::pin(drv.run()),
+        }
 
-            #[cfg(feature = "quic")]
-            match self.inner {
-                _Driver::Quic => Ok(()),
-            }
-        })
+        #[cfg(feature = "quic")]
+        match self.inner {
+            _Driver::Quic => Box::pin(async { Ok(()) }),
+        }
     }
 }
 
