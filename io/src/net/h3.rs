@@ -57,10 +57,7 @@ impl UdpListenerBuilder {
     }
 
     pub fn build(self) -> io::Result<UdpListener> {
-        let config = self.config;
-        let addr = self.addr;
-        let _ = self.backlog;
-
+        let Self { config, addr, .. } = self;
         Endpoint::server(config, addr).map(|endpoint| UdpListener { endpoint })
     }
 }
