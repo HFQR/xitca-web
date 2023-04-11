@@ -5,9 +5,9 @@ use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{
+    driver::{ClientTx, Response},
     error::Error,
     statement::Statement,
-    transport::{ClientTx, Response},
     util::lock::Lock,
 };
 

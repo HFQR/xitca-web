@@ -6,8 +6,6 @@ mod tls;
 
 pub use self::response::Response;
 
-use core::{future::Future, pin::Pin};
-
 use std::io;
 
 use postgres_protocol::message::frontend;
@@ -24,10 +22,10 @@ use crate::{
     error::{unexpected_eof_err, write_zero_err, Error},
 };
 
-use super::{codec::Request, driver::DriverTx};
+use super::{codec::Request, generic::GenericDriverTx, Driver};
 
 #[derive(Debug)]
-pub(crate) struct ClientTx(DriverTx);
+pub(crate) struct ClientTx(GenericDriverTx);
 
 impl ClientTx {
     pub(crate) fn is_closed(&self) -> bool {
@@ -46,9 +44,7 @@ impl ClientTx {
     }
 }
 
-type Task = Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
-
-type Ret = Result<(Client, Task), Error>;
+type Ret = Result<(Client, Driver), Error>;
 
 pub(crate) async fn connect(mut cfg: Config) -> Ret {
     super::try_connect_multi(&mut cfg, _connect).await
@@ -66,20 +62,20 @@ async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 #[cfg(feature = "tls")]
                 {
                     let io = tls::connect(io, host, cfg).await?;
-                    let (mut drv, tx) = super::driver::new(io);
+                    let (mut drv, tx) = super::generic::new(io);
                     let mut cli = Client::new(ClientTx(tx));
                     cli.prepare_session(&mut drv, cfg).await?;
-                    Ok((cli, Box::pin(drv.run()) as _))
+                    Ok((cli, Driver::tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(Error::ToDo)
                 }
             } else {
-                let (mut drv, tx) = super::driver::new(io);
+                let (mut drv, tx) = super::generic::new(io);
                 let mut cli = Client::new(ClientTx(tx));
                 cli.prepare_session(&mut drv, cfg).await?;
-                Ok((cli, Box::pin(drv.run()) as _))
+                Ok((cli, Driver::tcp(drv)))
             }
         }
         #[cfg(unix)]
@@ -90,20 +86,20 @@ async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 {
                     let host = host.to_string_lossy();
                     let io = tls::connect(io, host.as_ref(), cfg).await?;
-                    let (mut drv, tx) = super::driver::new(io);
+                    let (mut drv, tx) = super::generic::new(io);
                     let mut cli = Client::new(ClientTx(tx));
                     cli.prepare_session(&mut drv, cfg).await?;
-                    Ok((cli, Box::pin(drv.run()) as _))
+                    Ok((cli, Driver::unix_tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(Error::ToDo)
                 }
             } else {
-                let (mut drv, tx) = super::driver::new(io);
+                let (mut drv, tx) = super::generic::new(io);
                 let mut cli = Client::new(ClientTx(tx));
                 cli.prepare_session(&mut drv, cfg).await?;
-                Ok((cli, Box::pin(drv.run()) as _))
+                Ok((cli, Driver::unix(drv)))
             }
         }
         _ => unreachable!(),

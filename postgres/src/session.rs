@@ -9,8 +9,8 @@ use postgres_protocol::{
 use super::{
     client::Client,
     config::Config,
+    driver::Drive,
     error::{AuthenticationError, Error},
-    transport::Drive,
 };
 
 /// Properties required of a session.

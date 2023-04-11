@@ -26,13 +26,13 @@ use super::{
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
-pub(crate) type DriverTx = UnboundedSender<Request>;
-pub(crate) type DriverRx = UnboundedReceiver<Request>;
+pub(crate) type GenericDriverTx = UnboundedSender<Request>;
+pub(crate) type GenericDriverRx = UnboundedReceiver<Request>;
 
-pub(crate) fn new<Io>(io: Io) -> (Driver<Io>, DriverTx) {
+pub(crate) fn new<Io>(io: Io) -> (GenericDriver<Io>, GenericDriverTx) {
     let (tx, rx) = unbounded_channel();
     (
-        Driver {
+        GenericDriver {
             io,
             write_buf: WriteBuf::new(),
             read_buf: PagedBytesMut::new(),
@@ -43,20 +43,71 @@ pub(crate) fn new<Io>(io: Io) -> (Driver<Io>, DriverTx) {
     )
 }
 
-/// async driver of [Client] type.
-/// it handles actual Io and serves as the first step of message decoding.
-pub struct Driver<Io> {
+pub(crate) struct GenericDriver<Io> {
     io: Io,
     write_buf: WriteBuf,
     read_buf: PagedBytesMut,
-    rx: Option<DriverRx>,
+    rx: Option<GenericDriverRx>,
     res: VecDeque<ResponseSender>,
 }
 
-impl<Io> Driver<Io>
+impl<Io> GenericDriver<Io>
 where
     Io: AsyncIo,
 {
+    pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
+        loop {
+            if let Some(msg) = self.try_decode()? {
+                return Ok(Some(msg));
+            }
+
+            let interest = if self.write_buf.want_write_io() {
+                Interest::READABLE | Interest::WRITABLE
+            } else {
+                Interest::READABLE
+            };
+
+            let select = match self.rx {
+                Some(ref mut rx) => {
+                    let ready = self.io.ready(interest);
+                    rx.recv().select(ready).await
+                }
+                None => {
+                    if !interest.is_writable() && self.res.is_empty() {
+                        // no interest to write to io and all response have been finished so
+                        // shutdown io and exit.
+                        // if there is a better way to exhaust potential remaining backend message
+                        // please file an issue.
+                        poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
+                        return Ok(None);
+                    }
+                    let ready = self.io.ready(interest);
+                    SelectOutput::B(ready.await)
+                }
+            };
+
+            match select {
+                // batch message and keep polling.
+                SelectOutput::A(Some(req)) => {
+                    self.write_buf_extend(req.msg.as_ref());
+                    self.res.push_back(req.tx);
+                }
+                SelectOutput::B(ready) => {
+                    let ready = ready?;
+                    if ready.is_readable() {
+                        self.try_read()?;
+                    }
+                    if ready.is_writable() && self.try_write().is_err() {
+                        // write failed as server stopped reading.
+                        // drop channel so all pending request can be notified.
+                        self.rx = None;
+                    }
+                }
+                SelectOutput::A(None) => self.rx = None,
+            }
+        }
+    }
+
     pub(crate) async fn run(mut self) -> Result<(), Error> {
         while self.try_next().await?.is_some() {}
         Ok(())
@@ -123,76 +174,9 @@ where
 
         Ok(None)
     }
-
-    async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
-        loop {
-            if let Some(msg) = self.try_decode()? {
-                return Ok(Some(msg));
-            }
-
-            let interest = if self.write_buf.want_write_io() {
-                Interest::READABLE | Interest::WRITABLE
-            } else {
-                Interest::READABLE
-            };
-
-            let select = match self.rx {
-                Some(ref mut rx) => {
-                    let ready = self.io.ready(interest);
-                    rx.recv().select(ready).await
-                }
-                None => {
-                    if !interest.is_writable() && self.res.is_empty() {
-                        // no interest to write to io and all response have been finished so
-                        // shutdown io and exit.
-                        // if there is a better way to exhaust potential remaining backend message
-                        // please file an issue.
-                        poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
-                        return Ok(None);
-                    }
-                    let ready = self.io.ready(interest);
-                    SelectOutput::B(ready.await)
-                }
-            };
-
-            match select {
-                // batch message and keep polling.
-                SelectOutput::A(Some(req)) => {
-                    self.write_buf_extend(req.msg.as_ref());
-                    self.res.push_back(req.tx);
-                }
-                SelectOutput::B(ready) => {
-                    let ready = ready?;
-                    if ready.is_readable() {
-                        self.try_read()?;
-                    }
-                    if ready.is_writable() && self.try_write().is_err() {
-                        // write failed as server stopped reading.
-                        // drop channel so all pending request can be notified.
-                        self.rx = None;
-                    }
-                }
-                SelectOutput::A(None) => self.rx = None,
-            }
-        }
-    }
 }
 
-impl<Io> Drive for Driver<Io>
-where
-    Io: AsyncIo + Send,
-    for<'f> Io::Future<'f>: Send,
-{
-    fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
-        Box::pin(self.send(msg))
-    }
-
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>> {
-        Box::pin(self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose()))
-    }
-}
-
-impl<Io> AsyncIterator for Driver<Io>
+impl<Io> AsyncIterator for GenericDriver<Io>
 where
     Io: AsyncIo + Send,
     for<'f> Io::Future<'f>: Send,
@@ -203,5 +187,19 @@ where
     #[inline]
     fn next(&mut self) -> Self::Future<'_> {
         async { self.try_next().await.transpose() }
+    }
+}
+
+impl<Io> Drive for GenericDriver<Io>
+where
+    Io: AsyncIo + Send,
+    for<'f> Io::Future<'f>: Send,
+{
+    fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
+        Box::pin(self.send(msg))
+    }
+
+    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>> {
+        Box::pin(self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose()))
     }
 }
