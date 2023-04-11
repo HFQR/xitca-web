@@ -6,15 +6,13 @@ edition = "2021"
 [features]
 default = []
 runtime = ["tokio"]
-http3 = ["futures-core", "quinn", "runtime"]
+http3 = ["quinn", "runtime"]
 
 [dependencies]
 xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
 bytes = "1.4"
-
 tokio = { version = "1.27", features = ["net"], optional = true }
 
 # http/3 support
-futures-core = { version = "0.3", default-features = false, optional = true }
 quinn = { version = "0.9", optional = true }
