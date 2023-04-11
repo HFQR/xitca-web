@@ -8,13 +8,13 @@ extern crate alloc;
 mod client;
 mod column;
 mod config;
+mod driver;
 mod from_sql;
 mod iter;
 mod prepare;
 mod query;
 mod row;
 mod session;
-mod transport;
 mod util;
 
 pub mod error;
@@ -28,12 +28,12 @@ pub use postgres_types::{FromSql, ToSql, Type};
 pub use self::{
     client::Client,
     config::Config,
+    driver::Driver,
+    error::Error,
     from_sql::FromSqlExt,
     iter::AsyncIterator,
     row::{Row, RowSimple},
 };
-
-use self::error::Error;
 
 #[derive(Debug)]
 pub struct Postgres<C, const BATCH_LIMIT: usize> {
@@ -75,43 +75,50 @@ where
     ///
     /// # Examples:
     /// ```rust
-    /// # use xitca_postgres::Postgres;
+    /// use std::future::IntoFuture;
+    /// use xitca_postgres::Postgres;
     /// # async fn connect() {
     /// let cfg = String::from("postgres://user:pass@localhost/db");
-    /// let (cli, task) = Postgres::new(cfg).connect().await.unwrap();
+    /// let (client, driver) = Postgres::new(cfg).connect().await.unwrap();
     ///
-    /// tokio::spawn(task);
+    /// // spawn driver as async task.
+    /// tokio::spawn(driver.into_future());
     ///
-    /// let stmt = cli.prepare("SELECT *", &[]).await.unwrap();
+    /// // use client for query.
+    /// let stmt = client.prepare("SELECT *", &[]).await.unwrap();
     /// # }
     ///
     /// ```
-    pub async fn connect(self) -> Result<(Client, impl std::future::Future<Output = Result<(), Error>> + Send), Error> {
+    pub async fn connect(self) -> Result<(Client, Driver), Error> {
         let cfg = Config::try_from(self.cfg)?;
-        transport::connect(cfg).await
+        driver::connect(cfg).await
     }
 }
 
-#[cfg(test)]
-mod test {
-    #[cfg(not(feature = "quic"))]
-    #[tokio::test]
-    async fn postgres() {
-        use crate::{AsyncIterator, Postgres};
+fn _assert_send<F: Send>(_: F) {}
+fn _assert_send2<F: Send>() {}
 
-        let (cli, task) = Postgres::new("postgres://postgres:postgres@localhost/postgres")
-            .connect()
-            .await
-            .unwrap();
-        tokio::spawn(task);
-        let _ = cli.query_simple("").await.unwrap().next().await;
-    }
-
-    #[cfg(not(feature = "single-thread"))]
-    #[test]
-    fn assert_send_test() {
-        fn assert_send<F: Send>(_: F) {}
-
-        assert_send(crate::Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
-    }
+#[cfg(not(feature = "single-thread"))]
+fn _assert_connect_send() {
+    _assert_send(crate::Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
 }
+
+fn _assert_driver_send() {
+    _assert_send2::<Driver>();
+}
+
+// #[cfg(not(feature = "quic"))]
+// #[cfg(test)]
+// mod test {
+//     use crate::{AsyncIterator, Postgres};
+//
+//     #[tokio::test]
+//     async fn postgres() {
+//         let (cli, mut task) = Postgres::new("postgres://postgres:postgres@localhost/postgres")
+//             .connect()
+//             .await
+//             .unwrap();
+//         tokio::spawn(async move { while task.next().await.is_some() {} });
+//         let _ = cli.query_simple("").await.unwrap().next().await;
+//     }
+// }

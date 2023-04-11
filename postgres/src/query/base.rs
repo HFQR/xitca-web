@@ -7,11 +7,11 @@ use xitca_io::bytes::BytesMut;
 use crate::{
     client::Client,
     column::Column,
+    driver::Response,
     error::Error,
     iter::{slice_iter, AsyncIterator},
     row::Row,
     statement::Statement,
-    transport::Response,
     ToSql,
 };
 

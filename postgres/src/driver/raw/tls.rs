@@ -3,7 +3,7 @@ use rustls::ClientConnection;
 use xitca_io::io::AsyncIo;
 use xitca_tls::rustls::TlsStream;
 
-use crate::{config::Config, error::Error, transport::tls::dangerous_config};
+use crate::{config::Config, driver::tls::dangerous_config, error::Error};
 
 pub(super) async fn connect<Io>(io: Io, host: &str, cfg: &mut Config) -> Result<TlsStream<ClientConnection, Io>, Error>
 where

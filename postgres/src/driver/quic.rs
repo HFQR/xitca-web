@@ -16,7 +16,7 @@ use crate::{
     error::{unexpected_eof_err, Error},
 };
 
-use super::{tls::dangerous_config, Drive};
+use super::{tls::dangerous_config, Drive, Driver};
 
 pub(crate) const QUIC_ALPN: &[u8] = b"quic";
 
@@ -45,8 +45,7 @@ impl ClientTx {
     }
 }
 
-type Task = impl Future<Output = Result<(), Error>> + Send;
-type Ret = Result<(Client, Task), Error>;
+type Ret = Result<(Client, Driver), Error>;
 
 pub(crate) async fn connect(mut cfg: Config) -> Ret {
     super::try_connect_multi(&mut cfg, _connect).await
@@ -60,11 +59,11 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
             let tx = connect_quic(host, cfg.get_ports()).await?;
             let mut cli = Client::new(tx);
 
-            let mut io = Io::try_new(&cli).await?;
+            let mut io = QuicDriver::try_new(&cli).await?;
             cli.prepare_session(&mut io, cfg).await?;
             io.finish().await;
 
-            Ok((cli, async { Ok(()) }))
+            Ok((cli, Driver::quic()))
         }
         _ => unreachable!(),
     }
@@ -94,14 +93,14 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     Err(err.unwrap())
 }
 
-// an arbitrary io type for unified MessageIo trait impl for raw tcp/unix connections.
-pub(super) struct Io {
+// an arbitrary driver type for unified Drive trait with transport::driver::Driver type.
+struct QuicDriver {
     tx: SendStream,
     rx: RecvStream,
     buf: BytesMut,
 }
 
-impl Io {
+impl QuicDriver {
     async fn try_new(cli: &Client) -> Result<Self, Error> {
         let (tx, rx) = cli.tx.inner.open_bi().await.unwrap();
         Ok(Self {
@@ -116,7 +115,7 @@ impl Io {
     }
 }
 
-impl Drive for Io {
+impl Drive for QuicDriver {
     fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
         Box::pin(async move {
             self.tx.write_all(&msg).await.unwrap();

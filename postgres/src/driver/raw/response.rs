@@ -7,8 +7,8 @@ use postgres_protocol::message::backend;
 use xitca_io::bytes::BytesMut;
 
 use crate::{
+    driver::codec::ResponseReceiver,
     error::{unexpected_eof_err, Error},
-    transport::codec::ResponseReceiver,
 };
 
 pub struct Response {

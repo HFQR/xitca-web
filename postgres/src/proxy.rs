@@ -9,9 +9,9 @@ use tracing::error;
 use xitca_io::{bytes::BytesMut, net::TcpStream};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use super::transport::{
+use super::driver::{
     codec::Request,
-    driver::{self, DriverTx},
+    generic::{self, GenericDriverTx},
     QUIC_ALPN,
 };
 
@@ -115,7 +115,7 @@ fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<Server
 async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     let conn = conn.await?;
     let upstream = TcpStream::connect(addr).await?;
-    let (mut drv, tx) = driver::new(upstream);
+    let (mut drv, tx) = generic::new(upstream);
 
     // accept one bi stream from client and tunnel it with buffered io for startup.
     let (mut start_tx, mut start_rx) = conn.accept_bi().await?;
@@ -153,7 +153,7 @@ async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     }
 }
 
-async fn handler(mut stream_tx: SendStream, tx: DriverTx, mut rx: RecvStream) -> Result<(), Error> {
+async fn handler(mut stream_tx: SendStream, tx: GenericDriverTx, mut rx: RecvStream) -> Result<(), Error> {
     let mut bytes = BytesMut::new();
     while let Some(c) = rx.read_chunk(usize::MAX, true).await? {
         bytes.extend_from_slice(&c.bytes);
