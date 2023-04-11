@@ -89,7 +89,7 @@ async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                     let (mut drv, tx) = super::generic::new(io);
                     let mut cli = Client::new(ClientTx(tx));
                     cli.prepare_session(&mut drv, cfg).await?;
-                    Ok((cli, Driver::unix(drv)))
+                    Ok((cli, Driver::unix_tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -99,7 +99,7 @@ async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 let (mut drv, tx) = super::generic::new(io);
                 let mut cli = Client::new(ClientTx(tx));
                 cli.prepare_session(&mut drv, cfg).await?;
-                Ok((cli, Driver::unix_tls(drv)))
+                Ok((cli, Driver::unix(drv)))
             }
         }
         _ => unreachable!(),
