@@ -44,20 +44,25 @@ use xitca_tls::rustls::{ClientConnection, TlsStream};
 use xitca_io::net::UnixStream;
 
 /// async driver of [Client](crate::Client).
-/// it handles IO and omit server sent message with [AsyncIterator] trait impl.
+/// it handles IO and emit server sent message that do not belong to any query with [AsyncIterator]
+/// trait impl.
 ///
 /// # Examples:
 /// ```rust
 /// use std::future::IntoFuture;
 /// use xitca_postgres::{Driver, AsyncIterator};
+///
+/// // drive the client and listen to server notify at the same time.
 /// fn drive_with_server_notify(mut drv: Driver) {
 ///     tokio::spawn(async move {
 ///         while let Some(Ok(msg)) = drv.next().await {
-///             // handle server notify message
+///             // *Note:
+///             // handle message must be non-blocking to prevent starvation of driver.
 ///         }
 ///     });
 /// }
 ///
+/// // drive client without handling notify.
 /// fn drive_only(drv: Driver) {
 ///     tokio::spawn(drv.into_future());
 /// }
