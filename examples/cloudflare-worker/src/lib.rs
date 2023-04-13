@@ -2,7 +2,7 @@
 //!
 //! *. static files are packed into compiled binary and served directly from worker memory.
 
-#![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 mod file;
 mod utils;

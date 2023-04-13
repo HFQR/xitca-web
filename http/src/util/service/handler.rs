@@ -69,7 +69,7 @@ where
 ///
 /// # Examples
 /// ```
-/// #![feature(type_alias_impl_trait)]
+/// #![feature(impl_trait_in_assoc_type)]
 /// # use std::future::Future;
 /// # use xitca_http::util::service::handler::FromRequest;
 /// struct MyExtractor<'a>(&'a str);
