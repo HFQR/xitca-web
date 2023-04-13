@@ -33,7 +33,7 @@ httparse = { version = "1.8.0", optional = true }
 tokio-util = { version = "0.7", features = ["io"], optional = true }
 
 # http/2 support
-h2 = { version = "0.3.7", optional = true }
+h2 = { version = "0.3.17", optional = true }
 
 # http/3 support
 h3 = { version = "0.0.2", optional = true }
