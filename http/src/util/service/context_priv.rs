@@ -198,7 +198,7 @@ pub mod object {
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
     pub type ContextServiceAlias<Req, C, Res, Err> =
-        impl for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>;
+        Wrapper<Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>>;
 
     impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
     where

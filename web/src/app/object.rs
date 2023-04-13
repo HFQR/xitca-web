@@ -9,7 +9,8 @@ use crate::request::WebRequest;
 
 pub struct WebObjectConstructor<C, B>(PhantomData<(C, B)>);
 
-pub type WebServiceAlias<C, B, Res, Err> = impl for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>;
+pub type WebServiceAlias<C, B, Res, Err> =
+    Wrapper<Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>>;
 
 impl<C, B, I, Svc, BErr, Res, Err> ObjectConstructor<I> for WebObjectConstructor<C, B>
 where
@@ -28,7 +29,7 @@ where
             I: Service<Response = Svc, Error = BErr> + 'static,
             Svc: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err> + 'static,
         {
-            type Response = Wrapper<Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>>;
+            type Response = WebServiceAlias<C, B, Res, Err>;
             type Error = BErr;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 

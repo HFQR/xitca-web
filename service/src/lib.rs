@@ -1,6 +1,6 @@
 #![no_std]
 #![forbid(unsafe_code)]
-#![feature(type_alias_impl_trait, impl_trait_in_assoc_type)]
+#![feature(impl_trait_in_assoc_type)]
 
 mod async_closure;
 mod service;

@@ -5,7 +5,7 @@
 //! for handling different protocols in one place.
 
 #![forbid(unsafe_code)]
-#![feature(type_alias_impl_trait, impl_trait_in_assoc_type)]
+#![feature(impl_trait_in_assoc_type)]
 
 #[cfg(feature = "runtime")]
 mod builder;
