@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![feature(type_alias_impl_trait)]
+#![feature(type_alias_impl_trait, impl_trait_in_assoc_type)]
 
 mod app;
 #[cfg(feature = "__server")]

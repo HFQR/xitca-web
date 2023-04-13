@@ -1,7 +1,7 @@
 # An alternative http library and web framework inspired by hyper
 
 ## Requirement
-- rustc 1.68.0-nightly (61a415be5 2023-01-12)
+- rustc 1.70.0-nightly (4087deacc 2023-04-12)
 
 ## Motivation
 - Prefer less synchronization when possible and thread per core design is used.
