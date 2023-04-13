@@ -26,10 +26,7 @@ pub trait ObjectConstructor<I> {
 pub struct DefaultObjectConstructor<Req, Arg>(PhantomData<(Req, Arg)>);
 
 /// [ServiceObject] type created by the [DefaultObjectConstructor]
-pub type DefaultObject<Arg, Req, Res, Err, BErr> = Object<Arg, ServiceAlias<Req, Res, Err>, BErr>;
-
-/// [Service] imp trait alias created by the [DefaultObjectConstructor]
-pub type ServiceAlias<Req, Res, Err> = impl Service<Req, Response = Res, Error = Err>;
+pub type DefaultObject<Arg, Req, Res, Err, BErr> = Object<Arg, Object<Req, Res, Err>, BErr>;
 
 impl<T, Req, Arg, BErr, Res, Err> ObjectConstructor<T> for DefaultObjectConstructor<Req, Arg>
 where
