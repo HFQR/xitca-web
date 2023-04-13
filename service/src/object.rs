@@ -1,6 +1,6 @@
 use core::{future::Future, marker::PhantomData};
 
-pub use helpers::{Object, ServiceObject, Wrapper};
+pub use helpers::{BoxedServiceObject, ServiceObject, StaticObject};
 
 use super::service::Service;
 
@@ -25,16 +25,13 @@ pub trait ObjectConstructor<I> {
 /// for some specific lifetime `'r`.
 pub struct DefaultObjectConstructor<Req, Arg>(PhantomData<(Req, Arg)>);
 
-/// [ServiceObject] type created by the [DefaultObjectConstructor]
-pub type DefaultObject<Arg, Req, Res, Err, BErr> = Object<Arg, Object<Req, Res, Err>, BErr>;
-
 impl<T, Req, Arg, BErr, Res, Err> ObjectConstructor<T> for DefaultObjectConstructor<Req, Arg>
 where
     Req: 'static,
     T: Service<Arg, Error = BErr> + 'static,
     T::Response: Service<Req, Response = Res, Error = Err> + 'static,
 {
-    type Object = DefaultObject<Arg, Req, Res, Err, BErr>;
+    type Object = StaticObject<Arg, StaticObject<Req, Res, Err>, BErr>;
 
     fn into_object(inner: T) -> Self::Object {
         struct DefaultObjBuilder<T, Req>(T, PhantomData<Req>);
@@ -44,7 +41,7 @@ where
             T: Service<Arg, Error = BErr> + 'static,
             T::Response: Service<Req, Response = Res, Error = Err> + 'static,
         {
-            type Response = Object<Req, Res, Err>;
+            type Response = StaticObject<Req, Res, Err>;
             type Error = BErr;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
@@ -54,20 +51,18 @@ where
             {
                 async {
                     let service = self.0.call(req).await?;
-                    Ok(Object::from_service(service))
+                    Ok(StaticObject::from_service(service))
                 }
             }
         }
 
-        Object::from_service(DefaultObjBuilder(inner, PhantomData))
+        StaticObject::from_service(DefaultObjBuilder(inner, PhantomData))
     }
 }
 
 mod helpers {
     //! Useful types and traits for implementing a custom
     //! [ObjectConstructor](super::ObjectConstructor).
-
-    use core::future::Future;
 
     use alloc::boxed::Box;
 
@@ -99,16 +94,23 @@ mod helpers {
         }
     }
 
-    /// Converts between object-safe non-object-safe Service. See impls.
-    pub struct Wrapper<I>(pub I);
+    /// new type for `Box<dyn ServiceObject>`. used for implementing [Service] trait.
+    ///
+    /// For any given type impl `Service<Req>` where Req is 'static lifetime it's recommended
+    /// to use [StaticObject] instead.
+    ///
+    /// [BoxedServiceObject] on the other hand is more useful for Req type where it has non static
+    /// lifetime params like `Foo<'_>` for example. In order to express it's lifetime with HRTB
+    /// currently it's necessary to use pattern as `dyn for<'i> ServiceObject<Foo<'i>>`.
+    pub struct BoxedServiceObject<I: ?Sized>(pub Box<I>);
 
-    impl<Inner, Req> Service<Req> for Wrapper<Box<Inner>>
+    impl<I, Req> Service<Req> for BoxedServiceObject<I>
     where
-        Inner: ServiceObject<Req> + ?Sized,
+        I: ServiceObject<Req> + ?Sized,
     {
-        type Response = Inner::Response;
-        type Error = Inner::Error;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
+        type Response = I::Response;
+        type Error = I::Error;
+        type Future<'f> = BoxFuture<'f, Self::Response, Self::Error> where Self: 'f, Req: 'f;
 
         #[inline]
         fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
@@ -119,15 +121,16 @@ mod helpers {
         }
     }
 
-    /// An often used type alias for [super::ObjectConstructor::Object] type.
-    pub type Object<Arg, S, E> = Wrapper<Box<dyn ServiceObject<Arg, Response = S, Error = E>>>;
+    /// An often used type alias for boxed service object. used when Arg type is not bound to any
+    /// lifetime.
+    pub type StaticObject<Req, Res, Err> = BoxedServiceObject<dyn ServiceObject<Req, Response = Res, Error = Err>>;
 
-    impl<Arg, Res, Err> Object<Arg, Res, Err> {
+    impl<Req, Res, Err> StaticObject<Req, Res, Err> {
         pub fn from_service<I>(service: I) -> Self
         where
-            I: Service<Arg, Response = Res, Error = Err> + 'static,
+            I: Service<Req, Response = Res, Error = Err> + 'static,
         {
-            Wrapper(Box::new(service))
+            BoxedServiceObject(Box::new(service))
         }
     }
 }
