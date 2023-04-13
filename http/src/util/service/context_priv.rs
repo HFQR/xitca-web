@@ -191,14 +191,14 @@ pub mod object {
     use std::{boxed::Box, marker::PhantomData};
 
     use xitca_service::{
-        object::{Object, ObjectConstructor, ServiceObject, Wrapper},
+        object::{BoxedServiceObject, ObjectConstructor, ServiceObject, StaticObject},
         Service,
     };
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
     pub type ContextServiceAlias<Req, C, Res, Err> =
-        Wrapper<Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>>;
+        BoxedServiceObject<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
     impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
     where
@@ -207,7 +207,7 @@ pub mod object {
         I: Service<Response = Svc, Error = BErr> + 'static,
         Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
-        type Object = Object<(), ContextServiceAlias<Req, C, Res, Err>, BErr>;
+        type Object = StaticObject<(), ContextServiceAlias<Req, C, Res, Err>, BErr>;
 
         fn into_object(inner: I) -> Self::Object {
             struct ContextObjBuilder<I, Req, C>(I, PhantomData<(Req, C)>);
@@ -217,8 +217,7 @@ pub mod object {
                 I: Service<Response = Svc, Error = BErr>,
                 Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
             {
-                type Response =
-                    Wrapper<Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>>;
+                type Response = ContextServiceAlias<Req, C, Res, Err>;
                 type Error = BErr;
                 type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
@@ -228,12 +227,12 @@ pub mod object {
                 {
                     async move {
                         let service = self.0.call(arg).await?;
-                        Ok(Wrapper(Box::new(service) as _))
+                        Ok(BoxedServiceObject(Box::new(service) as _))
                     }
                 }
             }
 
-            Object::from_service(ContextObjBuilder(inner, PhantomData))
+            StaticObject::from_service(ContextObjBuilder(inner, PhantomData))
         }
     }
 }
