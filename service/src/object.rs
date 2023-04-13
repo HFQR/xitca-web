@@ -101,7 +101,7 @@ mod helpers {
     ///
     /// [BoxedServiceObject] on the other hand is more useful for Req type where it has non static
     /// lifetime params like `Foo<'_>` for example. In order to express it's lifetime with HRTB
-    /// currently it's (currently) necessary to use pattern as `dyn for<'i> ServiceObject<Foo<'i>>`.
+    /// currently it's necessary to use pattern as `dyn for<'i> ServiceObject<Foo<'i>>`.
     pub struct BoxedServiceObject<I: ?Sized>(pub Box<I>);
 
     impl<I, Req> Service<Req> for BoxedServiceObject<I>
