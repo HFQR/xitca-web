@@ -37,19 +37,26 @@ where
 
     /// read until io blocked or read buffer is full and advance the length of it(read buffer).
     pub fn try_read(&mut self) -> io::Result<()> {
+        let len = self.read_buf.len();
         loop {
             match read_buf(self.io, &mut *self.read_buf) {
-                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+                Ok(0) => {
+                    if self.read_buf.len() == len {
+                        return Err(io::ErrorKind::UnexpectedEof.into());
+                    }
+                    break;
+                }
                 Ok(_) => {
                     if !self.read_buf.want_write_buf() {
                         trace!("READ_BUF_LIMIT: {READ_BUF_LIMIT} bytes reached. Entering backpressure(no log event for recovery).");
-                        return Ok(());
+                        break;
                     }
                 }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e),
             }
         }
+        Ok(())
     }
 
     /// write until write buffer is emptied or io blocked.
