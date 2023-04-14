@@ -8,12 +8,13 @@ use core::{future::Future, pin::Pin};
 
 use postgres_protocol::message::backend;
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream, SendStream};
-use xitca_io::bytes::BytesMut;
+use xitca_io::bytes::{Bytes, BytesMut};
 
 use crate::{
     client::Client,
     config::{Config, Host},
     error::{unexpected_eof_err, Error},
+    iter::AsyncIterator,
 };
 
 use super::{tls::dangerous_config, Drive, Driver};
@@ -57,13 +58,11 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
     match host {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;
+            let mut drv = QuicDriver::try_new(&tx.inner).await?;
             let mut cli = Client::new(tx);
-
-            let mut io = QuicDriver::try_new(&cli).await?;
-            cli.prepare_session(&mut io, cfg).await?;
-            io.finish().await;
-
-            Ok((cli, Driver::quic()))
+            cli.prepare_session(&mut drv, cfg).await?;
+            drv.close_tx().await;
+            Ok((cli, Driver::quic(drv)))
         }
         _ => unreachable!(),
     }
@@ -94,15 +93,16 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
 }
 
 // an arbitrary driver type for unified Drive trait with transport::driver::Driver type.
-struct QuicDriver {
+// *. QuicDriver does not act as actual driver and real IO is handled by `quinn` crate.
+pub(crate) struct QuicDriver {
     tx: SendStream,
     rx: RecvStream,
     buf: BytesMut,
 }
 
 impl QuicDriver {
-    async fn try_new(cli: &Client) -> Result<Self, Error> {
-        let (tx, rx) = cli.tx.inner.open_bi().await.unwrap();
+    pub(crate) async fn try_new(conn: &Connection) -> Result<Self, Error> {
+        let (tx, rx) = conn.open_bi().await.unwrap();
         Ok(Self {
             tx,
             rx,
@@ -110,8 +110,46 @@ impl QuicDriver {
         })
     }
 
-    async fn finish(mut self) {
+    pub(crate) async fn run(mut self) -> Result<(), Error> {
+        while let Some(res) = self.next().await {
+            res?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn recv_raw(&mut self) -> Option<Result<Bytes, Error>> {
+        self.rx
+            .read_chunk(4096, true)
+            .await
+            .map(|c| c.map(|c| c.bytes))
+            .map_err(|_| Error::ToDo)
+            .transpose()
+    }
+
+    async fn close_tx(&mut self) {
         let _ = self.tx.finish().await;
+    }
+}
+
+impl AsyncIterator for QuicDriver {
+    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
+    type Item<'i> = Result<backend::Message, Error> where Self: 'i;
+
+    fn next(&mut self) -> Self::Future<'_> {
+        async {
+            loop {
+                if let Some(res) = backend::Message::parse(&mut self.buf).transpose() {
+                    return Some(res.map_err(Error::from));
+                }
+
+                let res = self.rx.read_chunk(4096, true).await.transpose()?;
+
+                match res {
+                    Ok(chunk) => self.buf.extend_from_slice(&chunk.bytes),
+                    Err(_) => return Some(Err(Error::ToDo)),
+                }
+            }
+        }
     }
 }
 
