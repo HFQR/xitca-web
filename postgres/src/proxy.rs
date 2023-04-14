@@ -9,10 +9,13 @@ use tracing::error;
 use xitca_io::{bytes::BytesMut, net::TcpStream};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use super::driver::{
-    codec::Request,
-    generic::{self, GenericDriverTx},
-    QUIC_ALPN,
+use super::{
+    driver::{
+        codec::Request,
+        generic::{GenericDriver, GenericDriverTx},
+        Drive, QuicDriver, QUIC_ALPN,
+    },
+    iter::AsyncIterator,
 };
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
@@ -115,30 +118,37 @@ fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<Server
 async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     let conn = conn.await?;
     let upstream = TcpStream::connect(addr).await?;
-    let (mut drv, tx) = generic::new(upstream);
 
-    // accept one bi stream from client and tunnel it with buffered io for startup.
-    let (mut start_tx, mut start_rx) = conn.accept_bi().await?;
+    let (mut drv, tx) = GenericDriver::new(upstream);
+
+    let mut quic_drv = QuicDriver::try_new(&conn).await?;
+
     loop {
-        match start_rx
-            .read_chunk(4096, true)
+        match quic_drv
+            .recv_raw()
             .select(drv.recv_with(|buf| (!buf.is_empty()).then(|| Ok(buf.split()))))
             .await
         {
-            SelectOutput::A(res) => match res? {
-                Some(chunk) => drv.send(BytesMut::from(chunk.bytes.as_ref())).await?,
-                None => break,
-            },
+            SelectOutput::A(Some(res)) => {
+                let bytes = res?;
+                drv.send(BytesMut::from(bytes.as_ref())).await?;
+            }
+            SelectOutput::A(None) => break,
             SelectOutput::B(res) => {
                 let msg = res?;
-                start_tx.write_all(&msg).await?;
+                quic_drv.send(msg).await?;
             }
         }
     }
 
     tokio::spawn(async move {
-        if let Err(e) = drv.run().await {
-            error!("Proxy upstream error: {e}");
+        while let Some(res) = drv.next().await {
+            match res {
+                Ok(_) => {
+                    // TODO: encode the message? or make driver able to emit un parsed raw bytes?
+                }
+                Err(e) => return error!("Proxy upstream error: {e}"),
+            }
         }
     });
 

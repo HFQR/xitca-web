@@ -8,8 +8,10 @@ use tokio::sync::mpsc::error::SendError;
 
 use super::from_sql::FromSqlError;
 
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum Error {
+    Feature(FeatureError),
     Authentication(AuthenticationError),
     UnexpectedMessage,
     Io(io::Error),
@@ -21,6 +23,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::Feature(ref e) => fmt::Display::fmt(e, f),
             Self::Authentication(ref e) => fmt::Display::fmt(e, f),
             Self::UnexpectedMessage => f.write_str("unexpected message from server"),
             Self::Io(ref e) => fmt::Display::fmt(e, f),
@@ -67,16 +70,41 @@ pub enum AuthenticationError {
 impl fmt::Display for AuthenticationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::MissingUserName => f.write_str("username is missing for authentication"),
-            Self::MissingPassWord => f.write_str("password is missing for authentication"),
-            Self::WrongPassWord => f.write_str("password is wrong for authentication"),
+            Self::MissingUserName => f.write_str("username is missing")?,
+            Self::MissingPassWord => f.write_str("password is missing")?,
+            Self::WrongPassWord => f.write_str("password is wrong")?,
         }
+
+        f.write_str(" for authentication")
     }
 }
 
 impl From<AuthenticationError> for Error {
     fn from(e: AuthenticationError) -> Self {
         Self::Authentication(e)
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum FeatureError {
+    Tls,
+    Quic,
+}
+
+impl fmt::Display for FeatureError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Tls => f.write_str("tls")?,
+            Self::Quic => f.write_str("quic")?,
+        }
+        f.write_str(" feature is not enabled")
+    }
+}
+
+impl From<FeatureError> for Error {
+    fn from(e: FeatureError) -> Self {
+        Self::Feature(e)
     }
 }
 

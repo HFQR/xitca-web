@@ -103,8 +103,10 @@ impl Driver {
 
 #[cfg(feature = "quic")]
 impl Driver {
-    pub(super) fn quic() -> Self {
-        Self { inner: _Driver::Quic }
+    pub(super) fn quic(drv: QuicDriver) -> Self {
+        Self {
+            inner: _Driver::Quic(drv),
+        }
     }
 }
 
@@ -122,7 +124,7 @@ enum _Driver {
 
 #[cfg(feature = "quic")]
 enum _Driver {
-    Quic,
+    Quic(QuicDriver),
 }
 
 impl AsyncIterator for Driver {
@@ -145,7 +147,7 @@ impl AsyncIterator for Driver {
 
             #[cfg(feature = "quic")]
             match self.inner {
-                _Driver::Quic => None,
+                _Driver::Quic(ref mut drv) => drv.next().await,
             }
         }
     }
@@ -169,7 +171,7 @@ impl IntoFuture for Driver {
 
         #[cfg(feature = "quic")]
         match self.inner {
-            _Driver::Quic => Box::pin(async { Ok(()) }),
+            _Driver::Quic(drv) => Box::pin(drv.run()),
         }
     }
 }

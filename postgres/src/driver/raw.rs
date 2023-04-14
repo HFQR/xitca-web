@@ -19,10 +19,14 @@ use xitca_io::{
 use crate::{
     client::Client,
     config::{Config, Host, SslMode},
-    error::{unexpected_eof_err, write_zero_err, Error},
+    error::{unexpected_eof_err, write_zero_err, Error, FeatureError},
 };
 
-use super::{codec::Request, generic::GenericDriverTx, Driver};
+use super::{
+    codec::Request,
+    generic::{GenericDriver, GenericDriverTx},
+    Driver,
+};
 
 #[derive(Debug)]
 pub(crate) struct ClientTx(GenericDriverTx);
@@ -62,17 +66,17 @@ async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 #[cfg(feature = "tls")]
                 {
                     let io = tls::connect(io, host, cfg).await?;
-                    let (mut drv, tx) = super::generic::new(io);
+                    let (mut drv, tx) = GenericDriver::new(io);
                     let mut cli = Client::new(ClientTx(tx));
                     cli.prepare_session(&mut drv, cfg).await?;
                     Ok((cli, Driver::tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
-                    Err(Error::ToDo)
+                    Err(FeatureError::Tls.into())
                 }
             } else {
-                let (mut drv, tx) = super::generic::new(io);
+                let (mut drv, tx) = GenericDriver::new(io);
                 let mut cli = Client::new(ClientTx(tx));
                 cli.prepare_session(&mut drv, cfg).await?;
                 Ok((cli, Driver::tcp(drv)))
@@ -86,17 +90,17 @@ async fn _connect(host: Host, cfg: &mut Config) -> Ret {
                 {
                     let host = host.to_string_lossy();
                     let io = tls::connect(io, host.as_ref(), cfg).await?;
-                    let (mut drv, tx) = super::generic::new(io);
+                    let (mut drv, tx) = GenericDriver::new(io);
                     let mut cli = Client::new(ClientTx(tx));
                     cli.prepare_session(&mut drv, cfg).await?;
                     Ok((cli, Driver::unix_tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
-                    Err(Error::ToDo)
+                    Err(FeatureError::Tls.into())
                 }
             } else {
-                let (mut drv, tx) = super::generic::new(io);
+                let (mut drv, tx) = GenericDriver::new(io);
                 let mut cli = Client::new(ClientTx(tx));
                 cli.prepare_session(&mut drv, cfg).await?;
                 Ok((cli, Driver::unix(drv)))
@@ -139,7 +143,7 @@ where
                 }
             }
 
-            Err(Error::ToDo)
+            Err(FeatureError::Tls.into())
         }
     }
 }

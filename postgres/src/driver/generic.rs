@@ -29,20 +29,6 @@ type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 pub(crate) type GenericDriverTx = UnboundedSender<Request>;
 pub(crate) type GenericDriverRx = UnboundedReceiver<Request>;
 
-pub(crate) fn new<Io>(io: Io) -> (GenericDriver<Io>, GenericDriverTx) {
-    let (tx, rx) = unbounded_channel();
-    (
-        GenericDriver {
-            io,
-            write_buf: WriteBuf::new(),
-            read_buf: PagedBytesMut::new(),
-            rx: Some(rx),
-            res: VecDeque::new(),
-        },
-        tx,
-    )
-}
-
 pub(crate) struct GenericDriver<Io> {
     io: Io,
     write_buf: WriteBuf,
@@ -55,6 +41,20 @@ impl<Io> GenericDriver<Io>
 where
     Io: AsyncIo,
 {
+    pub(crate) fn new(io: Io) -> (Self, GenericDriverTx) {
+        let (tx, rx) = unbounded_channel();
+        (
+            Self {
+                io,
+                write_buf: WriteBuf::new(),
+                read_buf: PagedBytesMut::new(),
+                rx: Some(rx),
+                res: VecDeque::new(),
+            },
+            tx,
+        )
+    }
+
     pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(msg) = self.try_decode()? {
@@ -108,6 +108,8 @@ where
         }
     }
 
+    // TODO: remove this feature gate.
+    #[cfg(not(feature = "quic"))]
     pub(crate) async fn run(mut self) -> Result<(), Error> {
         while self.try_next().await?.is_some() {}
         Ok(())
