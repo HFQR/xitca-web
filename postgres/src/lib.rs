@@ -107,18 +107,54 @@ fn _assert_driver_send() {
     _assert_send2::<Driver>();
 }
 
-// #[cfg(not(feature = "quic"))]
-// #[cfg(test)]
-// mod test {
-//     use crate::{AsyncIterator, Postgres};
-//
-//     #[tokio::test]
-//     async fn postgres() {
-//         let (cli, mut task) = Postgres::new("postgres://postgres:postgres@localhost/postgres")
-//             .connect()
-//             .await
-//             .unwrap();
-//         tokio::spawn(async move { while task.next().await.is_some() {} });
-//         let _ = cli.query_simple("").await.unwrap().next().await;
-//     }
-// }
+#[cfg(all(feature = "tls", feature = "quic"))]
+#[cfg(test)]
+mod test {
+    use std::{future::IntoFuture, sync::Arc};
+
+    use quinn::ServerConfig;
+    use rustls::{Certificate, PrivateKey};
+
+    use crate::{proxy::Proxy, AsyncIterator, Postgres};
+
+    #[tokio::test]
+    async fn proxy() {
+        let name = vec!["127.0.0.1".to_string(), "localhost".to_string()];
+        let cert = rcgen::generate_simple_self_signed(name).unwrap();
+
+        let key = PrivateKey(cert.serialize_private_key_der());
+        let cert = vec![Certificate(cert.serialize_der().unwrap())];
+
+        let mut config = rustls::ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(cert, key)
+            .unwrap();
+
+        config.alpn_protocols = vec![b"quic".to_vec()];
+        let config = ServerConfig::with_crypto(Arc::new(config));
+
+        let upstream = tokio::net::lookup_host("localhost:5432").await.unwrap().next().unwrap();
+
+        tokio::spawn(
+            Proxy::with_config(config)
+                .upstream_addr(upstream)
+                .listen_addr("127.0.0.1:5435".parse().unwrap())
+                .run(),
+        );
+
+        let (cli, task) =
+            Postgres::new("postgres://postgres:postgres@127.0.0.1:5435/postgres?target_session_attrs=read-write")
+                .connect()
+                .await
+                .unwrap();
+
+        let handle = tokio::spawn(task.into_future());
+
+        let _ = cli.query_simple("").await.unwrap().next().await;
+
+        drop(cli);
+
+        handle.await.unwrap().unwrap();
+    }
+}
