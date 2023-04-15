@@ -80,15 +80,9 @@ impl ClientTx {
     }
 }
 
-type Ret = Result<(Client, Driver), Error>;
-
-pub(crate) async fn connect(mut cfg: Config) -> Ret {
-    super::try_connect_multi(&mut cfg, _connect).await
-}
-
 #[cold]
 #[inline(never)]
-pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
+pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Driver), Error> {
     match host {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;

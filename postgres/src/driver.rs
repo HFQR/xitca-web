@@ -24,13 +24,8 @@ use std::net::SocketAddr;
 
 use postgres_protocol::message::backend;
 use xitca_io::bytes::BytesMut;
-use xitca_service::AsyncClosure;
 
-use super::{
-    config::{Config, Host},
-    error::Error,
-    iter::AsyncIterator,
-};
+use super::{client::Client, config::Config, error::Error, iter::AsyncIterator};
 
 #[cfg(not(feature = "quic"))]
 use {self::generic::GenericDriver, xitca_io::net::TcpStream};
@@ -42,6 +37,19 @@ use xitca_tls::rustls::{ClientConnection, TlsStream};
 #[cfg(not(feature = "quic"))]
 #[cfg(unix)]
 use xitca_io::net::UnixStream;
+
+pub(super) async fn connect(mut cfg: Config) -> Result<(Client, Driver), Error> {
+    let mut err = None;
+    let hosts = cfg.get_hosts().to_vec();
+    for host in hosts {
+        match _connect(host, &mut cfg).await {
+            Ok(t) => return Ok(t),
+            Err(e) => err = Some(e),
+        }
+    }
+
+    Err(err.unwrap())
+}
 
 /// async driver of [Client](crate::Client).
 /// it handles IO and emit server sent message that do not belong to any query with [AsyncIterator]
@@ -174,24 +182,6 @@ impl IntoFuture for Driver {
             _Driver::Quic(drv) => Box::pin(drv.run()),
         }
     }
-}
-
-#[cold]
-#[inline(never)]
-async fn try_connect_multi<F, O>(cfg: &mut Config, func: F) -> Result<O, Error>
-where
-    F: for<'f> AsyncClosure<(Host, &'f mut Config), Output = Result<O, Error>>,
-{
-    let mut err = None;
-    let hosts = cfg.get_hosts().to_vec();
-    for host in hosts {
-        match func.call((host, cfg)).await {
-            Ok(t) => return Ok(t),
-            Err(e) => err = Some(e),
-        }
-    }
-
-    Err(err.unwrap())
 }
 
 async fn resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
