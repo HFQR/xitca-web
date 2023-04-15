@@ -37,4 +37,5 @@ rustls-pemfile = { version = "1.0.2", optional = true }
 rustls = { version = "0.21", optional = true }
 
 [dev-dependencies]
+rcgen = "0.10"
 tokio = { version = "1.27", features = ["macros", "rt"] }

@@ -121,7 +121,8 @@ async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
 
     let (mut drv, tx) = GenericDriver::new(upstream);
 
-    let mut quic_drv = QuicDriver::try_new(&conn).await?;
+    let streams = conn.accept_bi().await?;
+    let mut quic_drv = QuicDriver::new(streams);
 
     loop {
         match quic_drv

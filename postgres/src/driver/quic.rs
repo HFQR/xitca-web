@@ -6,8 +6,14 @@ pub use self::response::Response;
 
 use core::{future::Future, pin::Pin};
 
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+
 use postgres_protocol::message::backend;
-use quinn::{ClientConfig, Connection, Endpoint, RecvStream, SendStream};
+use quinn::{ClientConfig, Connection, Endpoint, ReadError, RecvStream, SendStream};
+use quinn_proto::ConnectionError;
 use xitca_io::bytes::{Bytes, BytesMut};
 
 use crate::{
@@ -21,12 +27,40 @@ use super::{tls::dangerous_config, Drive, Driver};
 
 pub(crate) const QUIC_ALPN: &[u8] = b"quic";
 
-#[derive(Clone, Debug)]
 pub(crate) struct ClientTx {
+    counter: Arc<AtomicUsize>,
     inner: Connection,
 }
 
+impl Clone for ClientTx {
+    fn clone(&self) -> Self {
+        self.counter.fetch_add(1, Ordering::SeqCst);
+        Self {
+            counter: self.counter.clone(),
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl Drop for ClientTx {
+    fn drop(&mut self) {
+        // QuicDriver always hold one stream for receiving server
+        // notify. ClientTx must call Connection::close manually
+        // so server can observe the event.
+        if self.counter.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.inner.close(0u8.into(), &[]);
+        }
+    }
+}
+
 impl ClientTx {
+    fn new(inner: Connection) -> Self {
+        Self {
+            counter: Arc::new(AtomicUsize::new(1)),
+            inner,
+        }
+    }
+
     pub(crate) fn is_closed(&self) -> bool {
         self.inner.close_reason().is_some()
     }
@@ -58,7 +92,8 @@ pub(crate) async fn _connect(host: Host, cfg: &mut Config) -> Ret {
     match host {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;
-            let mut drv = QuicDriver::try_new(&tx.inner).await?;
+            let streams = tx.inner.open_bi().await.unwrap();
+            let mut drv = QuicDriver::new(streams);
             let mut cli = Client::new(tx);
             cli.prepare_session(&mut drv, cfg).await?;
             drv.close_tx().await;
@@ -82,7 +117,7 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     for addr in addrs {
         match endpoint.connect(addr, host) {
             Ok(conn) => match conn.await {
-                Ok(inner) => return Ok(ClientTx { inner }),
+                Ok(inner) => return Ok(ClientTx::new(inner)),
                 Err(_) => err = Some(Error::ToDo),
             },
             Err(_) => err = Some(Error::ToDo),
@@ -95,19 +130,18 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
 // an arbitrary driver type for unified Drive trait with transport::driver::Driver type.
 // *. QuicDriver does not act as actual driver and real IO is handled by `quinn` crate.
 pub(crate) struct QuicDriver {
-    tx: SendStream,
-    rx: RecvStream,
+    pub(crate) tx: SendStream,
+    pub(crate) rx: RecvStream,
     buf: BytesMut,
 }
 
 impl QuicDriver {
-    pub(crate) async fn try_new(conn: &Connection) -> Result<Self, Error> {
-        let (tx, rx) = conn.open_bi().await.unwrap();
-        Ok(Self {
+    pub(crate) fn new((tx, rx): (SendStream, RecvStream)) -> Self {
+        Self {
             tx,
             rx,
             buf: BytesMut::new(),
-        })
+        }
     }
 
     pub(crate) async fn run(mut self) -> Result<(), Error> {
@@ -142,10 +176,10 @@ impl AsyncIterator for QuicDriver {
                     return Some(res.map_err(Error::from));
                 }
 
-                let res = self.rx.read_chunk(4096, true).await.transpose()?;
-
-                match res {
+                match self.rx.read_chunk(4096, true).await.transpose()? {
                     Ok(chunk) => self.buf.extend_from_slice(&chunk.bytes),
+                    Err(ReadError::ConnectionLost(ConnectionError::ApplicationClosed(_)))
+                    | Err(ReadError::ConnectionLost(ConnectionError::LocallyClosed)) => return None,
                     Err(_) => return Some(Err(Error::ToDo)),
                 }
             }
