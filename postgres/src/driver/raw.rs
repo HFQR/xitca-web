@@ -19,7 +19,7 @@ use xitca_io::{
 use crate::{
     client::Client,
     config::{Config, Host, SslMode},
-    error::{unexpected_eof_err, write_zero_err, Error, FeatureError},
+    error::{unexpected_eof_err, write_zero_err, Error},
 };
 
 use super::{
@@ -67,7 +67,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                 }
                 #[cfg(not(feature = "tls"))]
                 {
-                    Err(FeatureError::Tls.into())
+                    Err(crate::error::FeatureError::Tls.into())
                 }
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
@@ -91,7 +91,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                 }
                 #[cfg(not(feature = "tls"))]
                 {
-                    Err(FeatureError::Tls.into())
+                    Err(crate::error::FeatureError::Tls.into())
                 }
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
@@ -128,17 +128,10 @@ where
 {
     match cfg.get_ssl_mode() {
         SslMode::Disable => Ok(false),
-        SslMode::Prefer => _should_connect_tls(io).await.map_err(Into::into),
-        SslMode::Require => {
-            #[cfg(feature = "tls")]
-            {
-                if _should_connect_tls(io).await? {
-                    return Ok(true);
-                }
-            }
-
-            Err(FeatureError::Tls.into())
-        }
+        mode => match (_should_connect_tls(io).await?, mode) {
+            (false, SslMode::Require) => Err(Error::ToDo),
+            (bool, _) => Ok(bool),
+        },
     }
 }
 

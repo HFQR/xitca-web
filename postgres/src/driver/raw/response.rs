@@ -1,6 +1,6 @@
 use core::{
     future::{poll_fn, Future},
-    task::{ready, Context, Poll},
+    task::{ready, Poll},
 };
 
 use postgres_protocol::message::backend;
@@ -25,20 +25,19 @@ impl Response {
     }
 
     pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + '_ {
-        poll_fn(|cx| self.poll_recv(cx))
-    }
+        poll_fn(|cx| {
+            if self.buf.is_empty() {
+                self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(unexpected_eof_err)?;
+            }
 
-    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
-        if self.buf.is_empty() {
-            self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(unexpected_eof_err)?;
-        }
+            let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.")
+            {
+                // TODO: error response.
+                backend::Message::ErrorResponse(_body) => Err(Error::ToDo),
+                msg => Ok(msg),
+            };
 
-        let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.") {
-            // TODO: error response.
-            backend::Message::ErrorResponse(_body) => Err(Error::ToDo),
-            msg => Ok(msg),
-        };
-
-        Poll::Ready(res)
+            Poll::Ready(res)
+        })
     }
 }
