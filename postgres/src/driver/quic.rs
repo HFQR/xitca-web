@@ -154,6 +154,22 @@ impl QuicDriver {
             .transpose()
     }
 
+    async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
+        loop {
+            if let Some(msg) = backend::Message::parse(&mut self.buf)? {
+                return Ok(Some(msg));
+            }
+
+            match self.rx.read_chunk(4096, true).await {
+                Ok(Some(chunk)) => self.buf.extend_from_slice(&chunk.bytes),
+                Ok(None)
+                | Err(ReadError::ConnectionLost(ConnectionError::ApplicationClosed(_)))
+                | Err(ReadError::ConnectionLost(ConnectionError::LocallyClosed)) => return Ok(None),
+                Err(_) => return Err(Error::ToDo),
+            }
+        }
+    }
+
     async fn close_tx(&mut self) {
         let _ = self.tx.finish().await;
     }
@@ -164,20 +180,7 @@ impl AsyncIterator for QuicDriver {
     type Item<'i> = Result<backend::Message, Error> where Self: 'i;
 
     fn next(&mut self) -> Self::Future<'_> {
-        async {
-            loop {
-                if let Some(res) = backend::Message::parse(&mut self.buf).transpose() {
-                    return Some(res.map_err(Error::from));
-                }
-
-                match self.rx.read_chunk(4096, true).await.transpose()? {
-                    Ok(chunk) => self.buf.extend_from_slice(&chunk.bytes),
-                    Err(ReadError::ConnectionLost(ConnectionError::ApplicationClosed(_)))
-                    | Err(ReadError::ConnectionLost(ConnectionError::LocallyClosed)) => return None,
-                    Err(_) => return Some(Err(Error::ToDo)),
-                }
-            }
-        }
+        async move { self.try_next().await.transpose() }
     }
 }
 
@@ -190,21 +193,6 @@ impl Drive for QuicDriver {
     }
 
     fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>> {
-        Box::pin(async move {
-            loop {
-                if let Some(msg) = backend::Message::parse(&mut self.buf)? {
-                    return Ok(msg);
-                }
-
-                let chunk = self
-                    .rx
-                    .read_chunk(4096, true)
-                    .await
-                    .unwrap()
-                    .ok_or_else(unexpected_eof_err)?;
-
-                self.buf.extend_from_slice(&chunk.bytes);
-            }
-        })
+        Box::pin(async move { self.try_next().await?.ok_or_else(|| Error::from(unexpected_eof_err())) })
     }
 }
