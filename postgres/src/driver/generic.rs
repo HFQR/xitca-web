@@ -99,7 +99,7 @@ where
                     }
                     if ready.is_writable() && self.try_write().is_err() {
                         // write failed as server stopped reading.
-                        // drop channel so all pending request can be notified.
+                        // drop channel so all pending request in it can be notified.
                         self.rx = None;
                     }
                 }
@@ -154,6 +154,9 @@ where
 
     fn try_write(&mut self) -> io::Result<()> {
         self.write_buf.do_io(&mut self.io).map_err(|e| {
+            // when write error occur the driver would go into half close state(read only).
+            // clearing write_buf would drop all pending requests in it and hint the driver no
+            // future Interest::READABLE should be passed to AsyncIo::ready method.
             self.write_buf.clear();
             error!("server closed read half unexpectedly: {e}");
             e
@@ -165,7 +168,6 @@ where
             match res {
                 ResponseMessage::Normal { buf, complete } => {
                     let _ = self.res.front_mut().expect("out of bound must not happen").send(buf);
-
                     if complete {
                         let _ = self.res.pop_front();
                     }
@@ -173,7 +175,6 @@ where
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),
             }
         }
-
         Ok(None)
     }
 }
