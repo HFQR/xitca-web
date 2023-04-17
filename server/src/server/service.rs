@@ -1,55 +1,37 @@
-use std::{future::Future, marker::PhantomData, pin::Pin, rc::Rc, sync::Arc};
+use std::{future::Future, marker::PhantomData, rc::Rc, sync::Arc};
 
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{object::BoxedServiceObject, ready::ReadyService, Service};
 
 use crate::worker::{self, ServiceAny};
 
-type LocalBoxFuture<'a, O> = Pin<Box<dyn Future<Output = O> + 'a>>;
-
-pub(crate) struct Factory<F, Req> {
+struct Builder<F, Req> {
     inner: F,
     _t: PhantomData<fn(Req)>,
 }
 
-impl<F, Req> Factory<F, Req>
+type Res = (Vec<JoinHandle<()>>, ServiceAny);
+type Arg<'a> = (&'a str, &'a [(String, Arc<Listener>)]);
+
+pub(crate) type BuildServiceObj = BoxedServiceObject<
+    dyn for<'r> xitca_service::object::ServiceObject<Arg<'r>, Response = Res, Error = ()> + Send + Sync,
+>;
+
+impl<'r, F, Req> Service<Arg<'r>> for Builder<F, Req>
 where
     F: BuildServiceFn<Req>,
     Req: From<Stream> + 'static,
 {
-    pub(crate) fn new_boxed(inner: F) -> Box<dyn _BuildService> {
-        Box::new(Self { inner, _t: PhantomData })
-    }
-}
+    type Response = Res;
+    type Error = ();
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-type BuildServiceSyncOpt = Result<(Vec<JoinHandle<()>>, ServiceAny), ()>;
-
-// a specialized BuildService trait that can return a future that reference the input arguments.
-pub(crate) trait _BuildService: Send + Sync {
-    fn _build<'s, 'f>(
-        &'s self,
-        name: &'f str,
-        listeners: &'f [(String, Arc<Listener>)],
-    ) -> LocalBoxFuture<'f, BuildServiceSyncOpt>
+    fn call<'s>(&'s self, (name, listeners): Arg<'r>) -> Self::Future<'s>
     where
-        's: 'f;
-}
-
-impl<F, Req> _BuildService for Factory<F, Req>
-where
-    F: BuildServiceFn<Req>,
-    Req: From<Stream> + 'static,
-{
-    fn _build<'s, 'f>(
-        &'s self,
-        name: &'f str,
-        listeners: &'f [(String, Arc<Listener>)],
-    ) -> LocalBoxFuture<'f, BuildServiceSyncOpt>
-    where
-        's: 'f,
+        'r: 's,
     {
-        Box::pin(async move {
+        async move {
             let service = self.inner.call().call(()).await.map_err(|_| ())?;
             let service = Rc::new(service);
 
@@ -60,7 +42,7 @@ where
                 .collect::<Vec<_>>();
 
             Ok((handles, service as _))
-        })
+        }
     }
 }
 
@@ -70,6 +52,8 @@ pub trait BuildServiceFn<Req>: Send + Sync + 'static {
     type Service: ReadyService + Service<Req>;
 
     fn call(&self) -> Self::BuildService;
+
+    fn into_object(self) -> BuildServiceObj;
 }
 
 impl<F, T, Req> BuildServiceFn<Req> for F
@@ -77,11 +61,19 @@ where
     F: Fn() -> T + Send + Sync + 'static,
     T: Service,
     T::Response: ReadyService + Service<Req>,
+    Req: From<Stream> + 'static,
 {
     type BuildService = T;
     type Service = T::Response;
 
     fn call(&self) -> T {
         self()
+    }
+
+    fn into_object(self) -> BuildServiceObj {
+        BoxedServiceObject(Box::new(Builder {
+            inner: self,
+            _t: PhantomData,
+        }))
     }
 }
