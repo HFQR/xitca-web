@@ -1,8 +1,14 @@
-use std::{future::Future, marker::PhantomData, rc::Rc, sync::Arc};
+use core::{future::Future, marker::PhantomData, pin::Pin};
+
+use std::{rc::Rc, sync::Arc};
 
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
-use xitca_service::{object::BoxedServiceObject, ready::ReadyService, Service};
+use xitca_service::{
+    object::{BoxedServiceObject, ServiceObject},
+    ready::ReadyService,
+    Service,
+};
 
 use crate::worker::{self, ServiceAny};
 
@@ -14,25 +20,27 @@ struct Builder<F, Req> {
 type Res = (Vec<JoinHandle<()>>, ServiceAny);
 type Arg<'a> = (&'a str, &'a [(String, Arc<Listener>)]);
 
-pub(crate) type BuildServiceObj = BoxedServiceObject<
-    dyn for<'r> xitca_service::object::ServiceObject<Arg<'r>, Response = Res, Error = ()> + Send + Sync,
->;
+pub(crate) type BuildServiceObj =
+    BoxedServiceObject<dyn for<'r> ServiceObject<Arg<'r>, Response = Res, Error = ()> + Send + Sync>;
 
-impl<'r, F, Req> Service<Arg<'r>> for Builder<F, Req>
+impl<'r, F, Req> ServiceObject<Arg<'r>> for Builder<F, Req>
 where
     F: BuildServiceFn<Req>,
     Req: From<Stream> + 'static,
 {
     type Response = Res;
     type Error = ();
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-    fn call<'s>(&'s self, (name, listeners): Arg<'r>) -> Self::Future<'s>
+    fn call<'s>(
+        &'s self,
+        (name, listeners): Arg<'r>,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + 's>>
     where
         'r: 's,
     {
-        async move {
-            let service = self.inner.call().call(()).await.map_err(|_| ())?;
+        Box::pin(async move {
+            let build = self.inner.call();
+            let service = Service::call(&build, ()).await.map_err(|_| ())?;
             let service = Rc::new(service);
 
             let handles = listeners
@@ -42,7 +50,7 @@ where
                 .collect::<Vec<_>>();
 
             Ok((handles, service as _))
-        }
+        })
     }
 }
 
