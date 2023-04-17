@@ -7,7 +7,7 @@ use xitca_io::net::Stream;
 
 use crate::{
     net::AsListener,
-    server::{BuildServiceFn, Factory, Server, ServerFuture, _BuildService},
+    server::{BuildServiceFn, BuildServiceObj, Server, ServerFuture},
 };
 
 pub struct Builder {
@@ -15,7 +15,7 @@ pub struct Builder {
     pub(crate) worker_threads: usize,
     pub(crate) worker_max_blocking_threads: usize,
     pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener>>>,
-    pub(crate) factories: HashMap<String, Box<dyn _BuildService>>,
+    pub(crate) factories: HashMap<String, BuildServiceObj>,
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
     pub(crate) on_worker_start: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
@@ -160,9 +160,7 @@ impl Builder {
             .or_insert_with(Vec::new)
             .push(Box::new(listener));
 
-        let factory = Factory::new_boxed(factory);
-
-        self.factories.insert(name.as_ref().to_string(), factory);
+        self.factories.insert(name.as_ref().to_string(), factory.into_object());
 
         self
     }

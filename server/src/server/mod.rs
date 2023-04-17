@@ -7,7 +7,7 @@ pub use self::{
     handle::ServerHandle,
 };
 
-pub(crate) use self::service::{BuildServiceFn, Factory, _BuildService};
+pub(crate) use self::service::{BuildServiceFn, BuildServiceObj};
 
 use std::{
     io, mem,
@@ -22,6 +22,7 @@ use tokio::{
     runtime::Runtime,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
+use xitca_service::object::ServiceObject;
 
 use crate::{builder::Builder, worker};
 
@@ -152,7 +153,7 @@ impl Server {
                                     let mut services = Vec::new();
 
                                     for (name, factory) in factories.iter() {
-                                        let (h, s) = factory._build(name, &listeners).await?;
+                                        let (h, s) = factory.call((name, &listeners)).await?;
                                         handles.extend(h);
                                         services.push(s);
                                     }
