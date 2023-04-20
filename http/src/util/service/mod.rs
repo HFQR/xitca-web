@@ -9,7 +9,7 @@ pub mod context {
 }
 
 pub mod router {
-    pub use super::router_priv::{GenericRouter, MatchError, Params, Router, RouterError};
+    pub use super::router_priv::{GenericRouter, MatchError, Params, PathGen, Router, RouterError};
 }
 
 pub use router_priv::{GenericRouter, Router, RouterError};

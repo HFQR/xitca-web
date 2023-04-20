@@ -10,7 +10,7 @@ use core::{
 use futures_core::stream::Stream;
 use xitca_http::util::service::{
     context::{Context, ContextBuilder},
-    router::GenericRouter,
+    router::{GenericRouter, PathGen},
 };
 
 use crate::{
@@ -83,6 +83,7 @@ impl App {
 impl<CF, C, B, SF> App<CF, Router<C, B, SF>> {
     pub fn at<F>(mut self, path: &'static str, factory: F) -> App<CF, Router<C, B, SF>>
     where
+        F: PathGen,
         WebObjectConstructor<C, B>: ObjectConstructor<F, Object = SF>,
     {
         self.router = self.router.insert(path, factory);

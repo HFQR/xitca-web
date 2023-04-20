@@ -2,16 +2,18 @@ pub use xitca_router::{params::Params, MatchError};
 
 use core::{future::Future, marker::PhantomData};
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use xitca_service::{
     object::{DefaultObjectConstructor, ObjectConstructor, StaticObject},
     pipeline::PipelineE,
     ready::ReadyService,
-    Service,
+    EnclosedFactory, EnclosedFnFactory, FnService, Service,
 };
 
 use crate::http::{BorrowReq, BorrowReqMut, Uri};
+
+use super::route::Route;
 
 /// A [GenericRouter] specialized with [DefaultObjectConstructor]
 pub type Router<Req, Arg, BErr, Res, Err> =
@@ -19,10 +21,10 @@ pub type Router<Req, Arg, BErr, Res, Err> =
 
 /// Simple router for matching on [Request](crate::http::Request)'s path and call according service.
 ///
-/// An [ObjectConstructor] must be specified as a type prameter
+/// An [ObjectConstructor] must be specified as a type parameter
 /// in order to determine how the router type-erases node services.
 pub struct GenericRouter<ObjCons, SF> {
-    routes: HashMap<&'static str, SF>,
+    routes: HashMap<Cow<'static, str>, SF>,
     _req_body: PhantomData<ObjCons>,
 }
 
@@ -62,12 +64,68 @@ impl<ObjCons, SF> GenericRouter<ObjCons, SF> {
     /// # Panic:
     ///
     /// When multiple services inserted with the same path.
-    pub fn insert<F>(mut self, path: &'static str, factory: F) -> Self
+    pub fn insert<F>(mut self, path: &'static str, mut factory: F) -> Self
     where
+        F: PathGen,
         ObjCons: ObjectConstructor<F, Object = SF>,
     {
+        let path = factory.gen(path);
         assert!(self.routes.insert(path, ObjCons::into_object(factory)).is_none());
         self
+    }
+}
+
+/// trait for producing actual router path with given prefix str.
+/// default to pass through (the router path is the same as prefix)
+pub trait PathGen {
+    fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        Cow::Borrowed(prefix)
+    }
+}
+
+// nest router needs special handling for path generation.
+impl<ObjCons, SF> PathGen for GenericRouter<ObjCons, SF> {
+    fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        let mut path = String::from(prefix);
+        if path.ends_with('/') {
+            path.pop();
+        }
+
+        self.routes = self
+            .routes
+            .drain()
+            .map(|(k, v)| {
+                let mut path = path.clone();
+                path.push_str(k.as_ref());
+                (Cow::Owned(path), v)
+            })
+            .collect();
+
+        path.push_str("/:r");
+
+        Cow::Owned(path)
+    }
+}
+
+impl<R, N, const M: usize> PathGen for Route<R, N, M> {}
+
+impl<F> PathGen for FnService<F> {}
+
+impl<F, S> PathGen for EnclosedFactory<F, S>
+where
+    F: PathGen,
+{
+    fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.first.gen(prefix)
+    }
+}
+
+impl<F, S> PathGen for EnclosedFnFactory<F, S>
+where
+    F: PathGen,
+{
+    fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.first.gen(prefix)
     }
 }
 
@@ -89,7 +147,7 @@ where
 
             for (path, service) in self.routes.iter() {
                 let service = service.call(arg.clone()).await?;
-                routes.insert(*path, service).unwrap();
+                routes.insert(path.to_string(), service).unwrap();
             }
 
             Ok(RouterService { routes })
@@ -140,12 +198,19 @@ impl<S> ReadyService for RouterService<S> {
 mod test {
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, Service, ServiceExt};
+    use xitca_service::{fn_service, middleware::UncheckedReady, Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::http::{Request, RequestExt, Response};
 
     use super::*;
+
+    async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
+    where
+        S: Service<Req>,
+    {
+        service.call(req).await
+    }
 
     #[test]
     fn router_accept_request() {
@@ -164,13 +229,6 @@ mod test {
 
     #[test]
     fn router_enclosed_fn() {
-        async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
-        where
-            S: Service<Req>,
-        {
-            service.call(req).await
-        }
-
         Router::new()
             .insert(
                 "/",
@@ -210,6 +268,53 @@ mod test {
             .now_or_panic()
             .unwrap()
             .call(req)
+            .now_or_panic()
+            .unwrap();
+    }
+
+    #[test]
+    fn router_nest() {
+        let router = Router::new()
+            .insert(
+                "/nest",
+                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
+            )
+            .enclosed_fn(enclosed)
+            .enclosed(UncheckedReady);
+
+        Router::new()
+            .insert("/scope", router)
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(
+                Request::builder()
+                    .uri("http://foo.bar/scope/nest")
+                    .body(Default::default())
+                    .unwrap(),
+            )
+            .now_or_panic()
+            .unwrap();
+
+        let router = Router::new()
+            .insert(
+                "/nest",
+                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
+            )
+            .enclosed_fn(enclosed)
+            .enclosed(UncheckedReady);
+
+        Router::new()
+            .insert("/scope/", router)
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(
+                Request::builder()
+                    .uri("http://foo.bar/scope/nest")
+                    .body(Default::default())
+                    .unwrap(),
+            )
             .now_or_panic()
             .unwrap();
     }

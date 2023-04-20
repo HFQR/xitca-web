@@ -9,7 +9,10 @@ use std::{
 use futures_core::stream::Stream;
 use http_body::{Body, SizeHint};
 use pin_project_lite::pin_project;
-use xitca_http::body::{none_body_hint, BodySize};
+use xitca_http::{
+    body::{none_body_hint, BodySize},
+    util::service::router::PathGen,
+};
 use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
 use crate::{
@@ -52,6 +55,8 @@ where
         }
     }
 }
+
+impl<S> PathGen for TowerHttpCompat<S> {}
 
 pub struct TowerCompatService<S> {
     service: RefCell<S>,

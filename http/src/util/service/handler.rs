@@ -2,21 +2,23 @@
 
 use std::{
     convert::Infallible,
-    future::{ready, Future},
+    future::{ready, Future, Ready},
     marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
 
 use pin_project_lite::pin_project;
-use xitca_service::{fn_build, pipeline::PipelineE, AsyncClosure, Service};
+use xitca_service::{fn_build, pipeline::PipelineE, AsyncClosure, FnService, Service};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
 ///
 /// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
 /// output type.
-pub fn handler_service<F, T, O>(func: F) -> impl Service<Response = HandlerService<F, T, O>, Error = Infallible>
+pub fn handler_service<Arg, F, T, O>(
+    func: F,
+) -> FnService<impl Fn(Arg) -> Ready<Result<HandlerService<F, T, O>, Infallible>>>
 where
     F: Clone,
 {
