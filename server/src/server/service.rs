@@ -1,46 +1,43 @@
-use core::{future::Future, marker::PhantomData, pin::Pin};
-
-use std::{rc::Rc, sync::Arc};
+use std::{future::Future, marker::PhantomData, pin::Pin, rc::Rc, sync::Arc};
 
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
-use xitca_service::{
-    object::{BoxedServiceObject, ServiceObject},
-    ready::ReadyService,
-    Service,
-};
+use xitca_service::{ready::ReadyService, Service};
 
 use crate::worker::{self, ServiceAny};
 
-struct Builder<F, Req> {
+type LocalBoxFuture<'a, O> = Pin<Box<dyn Future<Output = O> + 'a>>;
+
+type BuildServiceSyncOpt = Result<(Vec<JoinHandle<()>>, ServiceAny), ()>;
+
+pub type BuildServiceObj = Box<dyn BuildService + Send + Sync>;
+
+// a specialized BuildService trait that can return a future that reference the input arguments.
+pub trait BuildService {
+    fn call<'s, 'f>(&'s self, arg: (&'f str, &'f [(String, Arc<Listener>)])) -> LocalBoxFuture<'f, BuildServiceSyncOpt>
+    where
+        's: 'f;
+}
+
+struct Container<F, Req> {
     inner: F,
     _t: PhantomData<fn(Req)>,
 }
 
-type Res = (Vec<JoinHandle<()>>, ServiceAny);
-type Arg<'a> = (&'a str, &'a [(String, Arc<Listener>)]);
-
-pub(crate) type BuildServiceObj =
-    BoxedServiceObject<dyn for<'r> ServiceObject<Arg<'r>, Response = Res, Error = ()> + Send + Sync>;
-
-impl<'r, F, Req> ServiceObject<Arg<'r>> for Builder<F, Req>
+impl<F, Req> BuildService for Container<F, Req>
 where
     F: BuildServiceFn<Req>,
     Req: From<Stream> + 'static,
 {
-    type Response = Res;
-    type Error = ();
-
-    fn call<'s>(
+    fn call<'s, 'f>(
         &'s self,
-        (name, listeners): Arg<'r>,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + 's>>
+        (name, listeners): (&'f str, &'f [(String, Arc<Listener>)]),
+    ) -> LocalBoxFuture<'f, BuildServiceSyncOpt>
     where
-        'r: 's,
+        's: 'f,
     {
         Box::pin(async move {
-            let build = self.inner.call();
-            let service = Service::call(&build, ()).await.map_err(|_| ())?;
+            let service = self.inner.call().call(()).await.map_err(|_| ())?;
             let service = Rc::new(service);
 
             let handles = listeners
@@ -79,9 +76,9 @@ where
     }
 
     fn into_object(self) -> BuildServiceObj {
-        BoxedServiceObject(Box::new(Builder {
+        Box::new(Container {
             inner: self,
             _t: PhantomData,
-        }))
+        })
     }
 }
