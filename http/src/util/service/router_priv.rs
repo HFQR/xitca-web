@@ -86,21 +86,23 @@ pub trait PathGen {
 // nest router needs special handling for path generation.
 impl<ObjCons, SF> PathGen for GenericRouter<ObjCons, SF> {
     fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        let mut routes = HashMap::new();
-        for (k, v) in self.routes.drain() {
-            let mut path = String::from(prefix);
-            if path.ends_with('/') {
-                path.pop();
-            }
-            path.push_str(k.as_ref());
-            routes.insert(Cow::Owned(path), v);
-        }
-        self.routes = routes;
         let mut path = String::from(prefix);
-        if !path.ends_with("/") {
-            path.push_str("/");
+        if path.ends_with('/') {
+            path.pop();
         }
-        path.push_str(":path");
+
+        self.routes = self
+            .routes
+            .drain()
+            .map(|(k, v)| {
+                let mut path = path.clone();
+                path.push_str(k.as_ref());
+                (Cow::Owned(path), v)
+            })
+            .collect();
+
+        path.push_str("/:r");
+
         Cow::Owned(path)
     }
 }
@@ -282,6 +284,28 @@ mod test {
 
         Router::new()
             .insert("/scope", router)
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(
+                Request::builder()
+                    .uri("http://foo.bar/scope/nest")
+                    .body(Default::default())
+                    .unwrap(),
+            )
+            .now_or_panic()
+            .unwrap();
+
+        let router = Router::new()
+            .insert(
+                "/nest",
+                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
+            )
+            .enclosed_fn(enclosed)
+            .enclosed(UncheckedReady);
+
+        Router::new()
+            .insert("/scope/", router)
             .call(())
             .now_or_panic()
             .unwrap()
