@@ -22,7 +22,6 @@ use tokio::{
     runtime::Runtime,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
-use xitca_service::object::ServiceObject;
 
 use crate::{builder::Builder, worker};
 
