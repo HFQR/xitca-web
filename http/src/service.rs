@@ -1,9 +1,4 @@
-use core::{
-    fmt,
-    future::Future,
-    marker::PhantomData,
-    pin::{pin, Pin},
-};
+use core::{fmt, future::Future, marker::PhantomData, pin::pin};
 
 use futures_core::Stream;
 use xitca_io::{
@@ -59,7 +54,8 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
         }
     }
 
-    pub(crate) fn update_first_request_deadline(&self, timer: Pin<&mut KeepAlive>) {
+    #[cfg(feature = "http2")]
+    pub(crate) fn update_first_request_deadline(&self, timer: core::pin::Pin<&mut KeepAlive>) {
         let request_dur = self.config.first_request_timeout;
         let deadline = self.date.get().now() + request_dur;
         timer.update(deadline);
@@ -124,9 +120,6 @@ where
                         _tls_stream.as_version()
                     };
 
-                    // update timer to first request timeout.
-                    self.update_first_request_deadline(timer.as_mut());
-
                     match version {
                         #[cfg(feature = "http1")]
                         super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::dispatcher::run(
@@ -141,6 +134,9 @@ where
                         .map_err(From::from),
                         #[cfg(feature = "http2")]
                         super::http::Version::HTTP_2 => {
+                            // update timer to first request timeout.
+                            self.update_first_request_deadline(timer.as_mut());
+
                             let mut conn = ::h2::server::Builder::new()
                                 .enable_connect_protocol()
                                 .handshake(_tls_stream)

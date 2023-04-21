@@ -2,13 +2,15 @@ use core::fmt;
 
 use std::io;
 
-use crate::{error::HttpServiceError, util::timer::KeepAliveExpired};
+use crate::error::HttpServiceError;
 
 use super::proto::error::ProtoError;
 
 pub enum Error<S, B> {
     /// socket keep-alive timer expired.
     KeepAliveExpire,
+    /// socket fail to receive a complete request head in given time window.
+    RequestTimeout,
     Closed,
     /// service error. terminate connection right away.
     Service(S),
@@ -29,7 +31,8 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::KeepAliveExpire => f.write_str("Keep-Alive time expired"),
-            Self::Closed => f.write_str("Closed"),
+            Self::RequestTimeout => f.write_str("request head time out"),
+            Self::Closed => f.write_str("closed"),
             Self::Service(ref e) => fmt::Debug::fmt(e, f),
             Self::Body(ref e) => fmt::Debug::fmt(e, f),
             Self::Io(ref e) => fmt::Debug::fmt(e, f),
@@ -54,12 +57,6 @@ impl<S, B> From<io::Error> for Error<S, B> {
             }
             _ => Self::Io(e),
         }
-    }
-}
-
-impl<S, B> From<KeepAliveExpired> for Error<S, B> {
-    fn from(_: KeepAliveExpired) -> Self {
-        Self::KeepAliveExpire
     }
 }
 

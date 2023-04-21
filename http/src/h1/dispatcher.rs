@@ -11,6 +11,7 @@ use std::{io, net::SocketAddr};
 
 use futures_core::stream::Stream;
 use tracing::trace;
+use xitca_io::bytes::Buf;
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
@@ -30,7 +31,6 @@ use crate::{
     },
     util::{
         buffered::{BufferedIo, ListWriteBuf, ReadBuf, WriteBuf},
-        hint::unlikely,
         timer::{KeepAlive, Timeout},
     },
 };
@@ -89,6 +89,7 @@ struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_B
     io: BufferedIo<'a, St, W, READ_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
+    req_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
     service: &'a S,
     _phantom: PhantomData<ReqB>,
@@ -117,6 +118,7 @@ where
             io: BufferedIo::new(io, write_buf),
             timer,
             ka_dur: config.keep_alive_timeout,
+            req_dur: config.first_request_timeout,
             ctx: Context::with_addr(addr, date),
             service,
             _phantom: PhantomData,
@@ -125,21 +127,13 @@ where
 
     async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
-            match self.ctx.ctype() {
-                ConnectionType::KeepAlive => self.update_timer(),
-                ConnectionType::Init => unlikely(),
-                ConnectionType::Close => return self.io.shutdown().await.map_err(Into::into),
-            }
-
             match self._run().await {
                 Ok(_) => {}
-                Err(Error::KeepAliveExpire) => match self.ctx.ctype() {
-                    ConnectionType::Init => self.request_error(timeout),
-                    _ => {
-                        trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
-                        return Ok(());
-                    }
-                },
+                Err(Error::KeepAliveExpire) => {
+                    trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
+                    return Ok(());
+                }
+                Err(Error::RequestTimeout) => self.request_error(timeout),
                 Err(Error::Proto(ProtoError::HeaderTooLarge)) => self.request_error(header_too_large),
                 Err(Error::Proto(_)) => self.request_error(bad_request),
                 Err(e) => return Err(e),
@@ -147,46 +141,101 @@ where
 
             // TODO: add timeout for drain write?
             self.io.drain_write().await?;
+
+            if self.ctx.is_connection_closed() {
+                return self.io.shutdown().await.map_err(Into::into);
+            }
         }
     }
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        self.io.read().timeout(self.timer.as_mut()).await??;
+        self.update_timer(self.ka_dur);
+        self.io
+            .read()
+            .timeout(self.timer.as_mut())
+            .await
+            .map_err(|_| Error::KeepAliveExpire)??;
 
-        while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
-            let (mut body_reader, body) = BodyReader::from_coding(decoder);
-            let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
+        let (req, decoder) = match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
+            Some(req) => req,
+            None => self.accept_slow().await?,
+        };
 
-            let (parts, res_body) = match self
-                .service
-                .call(req)
-                .select(self.request_body_handler(&mut body_reader))
-                .await
-            {
-                SelectOutput::A(Ok(res)) => res.into_parts(),
-                SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
-                SelectOutput::B(Err(e)) => return Err(e),
-                SelectOutput::B(Ok(i)) => match i {},
-            };
+        let (mut body_reader, body) = BodyReader::from_coding(decoder);
+        let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
-            let encoder = &mut self.encode_head(parts, &res_body)?;
-            self.response_handler(res_body, encoder, &mut body_reader).await?;
+        let (parts, res_body) = match self
+            .service
+            .call(req)
+            .select(self.request_body_handler(&mut body_reader))
+            .await
+        {
+            SelectOutput::A(Ok(res)) => res.into_parts(),
+            SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
+            SelectOutput::B(Err(e)) => return Err(e),
+            SelectOutput::B(Ok(i)) => match i {},
+        };
 
-            if !body_reader.decoder.is_eof() {
-                // request body is partial consumed.close connection in case there are bytes remain
-                // in socket and/or read buffer.
-                self.ctx.set_ctype(ConnectionType::Close);
-                break;
+        let encoder = &mut self.encode_head(parts, &res_body)?;
+        self.response_handler(res_body, encoder, &mut body_reader).await?;
+
+        if !body_reader.decoder.is_eof() {
+            // request body is partial consumed.close connection in case there are bytes remain
+            // in socket and/or read buffer.
+            self.ctx.set_ctype(ConnectionType::Close);
+            return Ok(());
+        }
+
+        if self.io.read_buf.remaining() != 0 {
+            while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
+                let (mut body_reader, body) = BodyReader::from_coding(decoder);
+                let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
+
+                let (parts, res_body) = match self
+                    .service
+                    .call(req)
+                    .select(self.request_body_handler(&mut body_reader))
+                    .await
+                {
+                    SelectOutput::A(Ok(res)) => res.into_parts(),
+                    SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
+                    SelectOutput::B(Err(e)) => return Err(e),
+                    SelectOutput::B(Ok(i)) => match i {},
+                };
+
+                let encoder = &mut self.encode_head(parts, &res_body)?;
+                self.response_handler(res_body, encoder, &mut body_reader).await?;
+
+                if !body_reader.decoder.is_eof() {
+                    // request body is partial consumed.close connection in case there are bytes remain
+                    // in socket and/or read buffer.
+                    self.ctx.set_ctype(ConnectionType::Close);
+                    break;
+                }
             }
         }
 
         Ok(())
     }
 
-    // update timer deadline according to keep alive duration.
-    fn update_timer(&mut self) {
-        let now = self.ctx.date().now() + self.ka_dur;
-        self.timer.as_mut().update(now);
+    // accept slow and/or big request that can be quickly transferred from peer.
+    async fn accept_slow(&mut self) -> Result<(Request<RequestExt<()>>, TransferCoding), Error<S::Error, BE>> {
+        self.update_timer(self.req_dur);
+        loop {
+            self.io
+                .read()
+                .timeout(self.timer.as_mut())
+                .await
+                .map_err(|_| Error::RequestTimeout)??;
+            if let Some(req) = self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
+                return Ok(req);
+            }
+        }
+    }
+
+    // update timer deadline according to duration.
+    fn update_timer(&mut self, dur: Duration) {
+        self.timer.as_mut().update(self.ctx.date().now() + dur);
     }
 
     fn encode_head<B>(&mut self, parts: Parts, body: &B) -> Result<TransferCoding, Error<S::Error, BE>>

@@ -166,7 +166,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
         for val in val.to_str().map_err(|_| ProtoError::HeaderValue)?.split(',') {
             let val = val.trim();
             if val.eq_ignore_ascii_case("keep-alive") {
-                self.set_ctype(ConnectionType::KeepAlive)
+                self.set_ctype(ConnectionType::Open)
             } else if val.eq_ignore_ascii_case("close") {
                 self.set_ctype(ConnectionType::Close);
             }

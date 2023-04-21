@@ -44,12 +44,8 @@ impl ContextState {
 /// Represents various types of connection
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ConnectionType {
-    /// A connection that has no request yet.
-    Init,
-    /// Close connection after response with flush and shutdown IO.
+    Open,
     Close,
-    /// Keep connection alive after response
-    KeepAlive,
 }
 
 impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
@@ -65,7 +61,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         Self {
             addr,
             state: ContextState::new(),
-            ctype: ConnectionType::Init,
+            ctype: ConnectionType::Open,
             header: None,
             exts: Extensions::new(),
             date,
@@ -109,7 +105,6 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     /// Reset Context's state to partial default state.
     #[inline]
     pub fn reset(&mut self) {
-        self.ctype = ConnectionType::KeepAlive;
         self.state = ContextState::new();
     }
 
@@ -155,7 +150,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state.contains(ContextState::HEAD)
     }
 
-    /// Return true if connection type is [ConnectionType::Close] or [ConnectionType::CloseForce].
+    /// Return true if connection type is [ConnectionType::Close].
     #[inline]
     pub fn is_connection_closed(&self) -> bool {
         matches!(self.ctype, ConnectionType::Close)
