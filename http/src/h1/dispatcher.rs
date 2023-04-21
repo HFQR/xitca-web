@@ -156,28 +156,12 @@ where
             .await
             .map_err(|_| Error::KeepAliveExpire)??;
 
-        let (req, decoder) = match self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
+        let (req, mut body_reader) = match self.try_decode()? {
             Some(req) => req,
-            None => self.accept_slow().await?,
+            None => self.read_slow().await?,
         };
 
-        let (mut body_reader, body) = BodyReader::from_coding(decoder);
-        let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
-
-        let (parts, res_body) = match self
-            .service
-            .call(req)
-            .select(self.request_body_handler(&mut body_reader))
-            .await
-        {
-            SelectOutput::A(Ok(res)) => res.into_parts(),
-            SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
-            SelectOutput::B(Err(e)) => return Err(e),
-            SelectOutput::B(Ok(i)) => match i {},
-        };
-
-        let encoder = &mut self.encode_head(parts, &res_body)?;
-        self.response_handler(res_body, encoder, &mut body_reader).await?;
+        self.handler(req, &mut body_reader).await?;
 
         if !body_reader.decoder.is_eof() {
             // request body is partial consumed.close connection in case there are bytes remain
@@ -186,26 +170,10 @@ where
             return Ok(());
         }
 
+        // pipeline request?
         if self.io.read_buf.remaining() != 0 {
-            while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
-                let (mut body_reader, body) = BodyReader::from_coding(decoder);
-                let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
-
-                let (parts, res_body) = match self
-                    .service
-                    .call(req)
-                    .select(self.request_body_handler(&mut body_reader))
-                    .await
-                {
-                    SelectOutput::A(Ok(res)) => res.into_parts(),
-                    SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
-                    SelectOutput::B(Err(e)) => return Err(e),
-                    SelectOutput::B(Ok(i)) => match i {},
-                };
-
-                let encoder = &mut self.encode_head(parts, &res_body)?;
-                self.response_handler(res_body, encoder, &mut body_reader).await?;
-
+            while let Some((req, mut body_reader)) = self.try_decode()? {
+                self.handler(req, &mut body_reader).await?;
                 if !body_reader.decoder.is_eof() {
                     // request body is partial consumed.close connection in case there are bytes remain
                     // in socket and/or read buffer.
@@ -219,7 +187,7 @@ where
     }
 
     // accept slow and/or big request that can be quickly transferred from peer.
-    async fn accept_slow(&mut self) -> Result<(Request<RequestExt<()>>, TransferCoding), Error<S::Error, BE>> {
+    async fn read_slow(&mut self) -> Result<(Request<RequestExt<ReqB>>, BodyReader), Error<S::Error, BE>> {
         self.update_timer(self.req_dur);
         loop {
             self.io
@@ -227,7 +195,7 @@ where
                 .timeout(self.timer.as_mut())
                 .await
                 .map_err(|_| Error::RequestTimeout)??;
-            if let Some(req) = self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
+            if let Some(req) = self.try_decode()? {
                 return Ok(req);
             }
         }
@@ -236,6 +204,38 @@ where
     // update timer deadline according to duration.
     fn update_timer(&mut self, dur: Duration) {
         self.timer.as_mut().update(self.ctx.date().now() + dur);
+    }
+
+    fn try_decode(&mut self) -> Result<Option<(Request<RequestExt<ReqB>>, BodyReader)>, ProtoError> {
+        self.ctx
+            .decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())
+            .map(|req| {
+                req.map(|(req, decoder)| {
+                    let (body_reader, body) = BodyReader::from_coding(decoder);
+                    let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
+                    (req, body_reader)
+                })
+            })
+    }
+
+    async fn handler(
+        &mut self,
+        req: Request<RequestExt<ReqB>>,
+        body_reader: &mut BodyReader,
+    ) -> Result<(), Error<S::Error, BE>> {
+        let (parts, res_body) = match self
+            .service
+            .call(req)
+            .select(self.request_body_handler(body_reader))
+            .await
+        {
+            SelectOutput::A(Ok(res)) => res.into_parts(),
+            SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
+            SelectOutput::B(Err(e)) => return Err(e),
+            SelectOutput::B(Ok(i)) => match i {},
+        };
+        let encoder = &mut self.encode_head(parts, &res_body)?;
+        self.response_handler(res_body, encoder, body_reader).await
     }
 
     fn encode_head<B>(&mut self, parts: Parts, body: &B) -> Result<TransferCoding, Error<S::Error, BE>>
@@ -275,7 +275,7 @@ where
         loop {
             match self
                 .try_poll_body(body.as_mut())
-                .select(io_ready(&mut self.io, body_reader, &mut self.ctx))
+                .select(self.io_ready(body_reader))
                 .await
             {
                 SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
@@ -310,6 +310,24 @@ where
         }
     }
 
+    // Check readable and writable state of BufferedIo and ready state of request body reader.
+    // return error when runtime is shutdown.(See AsyncIo::ready for reason).
+    async fn io_ready(&mut self, body_reader: &mut BodyReader) -> io::Result<Ready> {
+        if !self.io.write_buf.want_write_io() {
+            body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
+            self.io.io.ready(Interest::READABLE).await
+        } else {
+            match body_reader
+                .ready(&mut self.io.read_buf, &mut self.ctx)
+                .select(self.io.io.ready(Interest::WRITABLE))
+                .await
+            {
+                SelectOutput::A(_) => self.io.io.ready(Interest::READABLE | Interest::WRITABLE).await,
+                SelectOutput::B(res) => res,
+            }
+        }
+    }
+
     #[cold]
     #[inline(never)]
     fn request_error<F>(&mut self, func: F)
@@ -319,32 +337,6 @@ where
         self.ctx.set_ctype(ConnectionType::Close);
         let (parts, body) = func().into_parts();
         assert!(self.encode_head(parts, &body).is_ok(), "request_error must be correct");
-    }
-}
-
-// Check readable and writable state of BufferedIo and ready state of request body reader.
-// return error when runtime is shutdown.(See AsyncIo::ready for reason).
-async fn io_ready<St, W, D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
-    io: &mut BufferedIo<'_, St, W, READ_BUF_LIMIT>,
-    body_reader: &mut BodyReader,
-    ctx: &mut Context<'_, D, HEADER_LIMIT>,
-) -> io::Result<Ready>
-where
-    St: AsyncIo,
-    W: H1BufWrite,
-{
-    if !io.write_buf.want_write_io() {
-        body_reader.ready(&mut io.read_buf, ctx).await;
-        io.io.ready(Interest::READABLE).await
-    } else {
-        match body_reader
-            .ready(&mut io.read_buf, ctx)
-            .select(io.io.ready(Interest::WRITABLE))
-            .await
-        {
-            SelectOutput::A(_) => io.io.ready(Interest::READABLE | Interest::WRITABLE).await,
-            SelectOutput::B(res) => res,
-        }
     }
 }
 
