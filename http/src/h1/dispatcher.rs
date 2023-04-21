@@ -36,7 +36,7 @@ use crate::{
 use super::proto::{
     buf_write::H1BufWrite,
     codec::{ChunkResult, TransferCoding},
-    context::{ConnectionType, Context},
+    context::Context,
     error::ProtoError,
 };
 
@@ -88,11 +88,25 @@ where
 struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
     io: BufferedIo<'a, St, W, READ_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
+    timer_state: TimerState,
     ka_dur: Duration,
     req_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
     service: &'a S,
     _phantom: PhantomData<ReqB>,
+}
+
+// timer state is transformed in following order:
+//
+// Idle (expecting keep-alive duration)           <--
+//  |                                               |
+//  --> Wait (expecting request head duration)      |
+//       |                                          |
+//       --> Throttle (expecting manually set to Idle again)
+enum TimerState {
+    Idle,
+    Wait,
+    Throttle,
 }
 
 impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
@@ -117,6 +131,7 @@ where
         Self {
             io: BufferedIo::new(io, write_buf),
             timer,
+            timer_state: TimerState::Idle,
             ka_dur: config.keep_alive_timeout,
             req_dur: config.request_head_timeout,
             ctx: Context::with_addr(addr, date),
@@ -151,88 +166,61 @@ where
     }
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        self.update_timer(self.ka_dur);
+        self.update_timer();
         self.io
             .read()
             .timeout(self.timer.as_mut())
             .await
             .map_err(|_| Error::KeepAliveExpire)??;
 
-        let (req, mut body_reader) = match self.try_decode()? {
-            Some(req) => req,
-            None => self.read_slow().await?,
-        };
+        while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)? {
+            self.reset_timer_state();
 
-        self.handler(req, &mut body_reader).await?;
+            let (mut body_reader, body) = BodyReader::from_coding(decoder);
+            let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
-        if !body_reader.decoder.is_eof() {
-            // request body is partial consumed.close connection in case there are bytes remain
-            // in socket and/or read buffer.
-            self.ctx.set_ctype(ConnectionType::Close);
-        } else {
-            // pipeline request?
-            while let Some((req, mut body_reader)) = self.try_decode()? {
-                self.handler(req, &mut body_reader).await?;
-                if !body_reader.decoder.is_eof() {
-                    self.ctx.set_ctype(ConnectionType::Close);
-                    break;
-                }
+            let (parts, res_body) = match self
+                .service
+                .call(req)
+                .select(self.request_body_handler(&mut body_reader))
+                .await
+            {
+                SelectOutput::A(Ok(res)) => res.into_parts(),
+                SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
+                SelectOutput::B(Err(e)) => return Err(e),
+                SelectOutput::B(Ok(i)) => match i {},
+            };
+
+            let encoder = &mut self.encode_head(parts, &res_body)?;
+            self.response_handler(res_body, encoder, &mut body_reader).await?;
+
+            if !body_reader.decoder.is_eof() {
+                self.ctx.set_close();
+                break;
             }
         }
 
         Ok(())
     }
 
-    // accept slow and/or big request that can not be quickly transferred from peer.
-    async fn read_slow(&mut self) -> Result<(ExtRequest<ReqB>, BodyReader), Error<S::Error, BE>> {
-        self.update_timer(self.req_dur);
-        loop {
-            self.io
-                .read()
-                .timeout(self.timer.as_mut())
-                .await
-                .map_err(|_| Error::RequestTimeout)??;
-            if let Some(req) = self.try_decode()? {
-                return Ok(req);
-            }
-        }
-    }
-
     // update timer deadline according to duration.
-    fn update_timer(&mut self, dur: Duration) {
+    fn update_timer(&mut self) {
+        let dur = match self.timer_state {
+            TimerState::Idle => {
+                self.timer_state = TimerState::Wait;
+                self.ka_dur
+            }
+            TimerState::Wait => {
+                self.timer_state = TimerState::Throttle;
+                self.req_dur
+            }
+            TimerState::Throttle => return,
+        };
         self.timer.as_mut().update(self.ctx.date().now() + dur);
     }
 
-    fn try_decode(&mut self) -> Result<Option<(ExtRequest<ReqB>, BodyReader)>, ProtoError> {
-        self.ctx
-            .decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)
-            .map(|req| {
-                req.map(|(req, decoder)| {
-                    let (body_reader, body) = BodyReader::from_coding(decoder);
-                    let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
-                    (req, body_reader)
-                })
-            })
-    }
-
-    async fn handler(
-        &mut self,
-        req: ExtRequest<ReqB>,
-        body_reader: &mut BodyReader,
-    ) -> Result<(), Error<S::Error, BE>> {
-        let (parts, res_body) = match self
-            .service
-            .call(req)
-            .select(self.request_body_handler(body_reader))
-            .await
-        {
-            SelectOutput::A(Ok(res)) => res.into_parts(),
-            SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
-            SelectOutput::B(Err(e)) => return Err(e),
-            SelectOutput::B(Ok(i)) => match i {},
-        };
-        let encoder = &mut self.encode_head(parts, &res_body)?;
-        self.response_handler(res_body, encoder, body_reader).await
+    fn reset_timer_state(&mut self) {
+        self.timer_state = TimerState::Idle;
     }
 
     fn encode_head(&mut self, parts: Parts, body: &impl Stream) -> Result<TransferCoding, ProtoError> {
@@ -323,7 +311,7 @@ where
     #[cold]
     #[inline(never)]
     fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
-        self.ctx.set_ctype(ConnectionType::Close);
+        self.ctx.set_close();
         let (parts, body) = func().into_parts();
         self.encode_head(parts, &body).expect("request_error must be correct");
     }
@@ -377,7 +365,7 @@ impl BodyReader {
     #[inline(never)]
     fn set_close<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
         self.decoder.set_eof();
-        ctx.set_ctype(ConnectionType::Close);
+        ctx.set_close();
     }
 
     // wait for service start to consume RequestBody.
