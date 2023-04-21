@@ -105,13 +105,13 @@ where
         self
     }
 
-    /// Change first request timeout for Http/1 connection.
+    /// Change request timeout for Http/1 connection.
     ///
-    /// Connection can not finish it's first request for this duration would be closed.
+    /// Connection can not finish it's request for this duration would be closed.
     ///
-    /// This timeout is also used on Http/2 connection handshake phrase.
-    pub fn first_request_timeout(mut self, dur: Duration) -> Self {
-        self.config = self.config.first_request_timeout(dur);
+    /// This timeout is also used in Http/2 connection handshake phrase.
+    pub fn request_head_timeout(mut self, dur: Duration) -> Self {
+        self.config = self.config.request_head_timeout(dur);
         self
     }
 

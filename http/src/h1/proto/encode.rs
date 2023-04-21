@@ -12,12 +12,7 @@ use crate::{
     },
 };
 
-use super::{
-    buf_write::H1BufWrite,
-    codec::TransferCoding,
-    context::{ConnectionType, Context},
-    error::ProtoError,
-};
+use super::{buf_write::H1BufWrite, codec::TransferCoding, context::Context, error::ProtoError};
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
 where
@@ -150,12 +145,14 @@ where
                     encoding = TransferCoding::encode_chunked();
                     skip_len = true;
                 }
-                CONNECTION => match self.ctype() {
-                    // skip write header on close condition.
-                    // the header is checked again and written properly afterwards.
-                    ConnectionType::Close => continue,
-                    _ => self.try_set_ctype_from_header(&value)?,
-                },
+                CONNECTION => {
+                    if self.is_connection_closed() {
+                        // skip write header on close condition.
+                        // the header is checked again and written properly afterwards.
+                        continue;
+                    }
+                    self.try_set_ctype_from_header(&value)?;
+                }
                 UPGRADE => encoding = TransferCoding::upgrade(),
                 DATE => skip_date = true,
                 _ => {}
@@ -178,7 +175,7 @@ where
             }
         }
 
-        if matches!(self.ctype(), ConnectionType::Close) {
+        if self.is_connection_closed() {
             buf.extend_from_slice(b"\r\nconnection: close");
         }
 

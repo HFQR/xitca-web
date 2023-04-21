@@ -49,9 +49,6 @@ where
                 .await
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            // update timer to first request timeout.
-            self.update_first_request_deadline(timer.as_mut());
-
             dispatcher::run(&mut io, addr, timer, self.config, &self.service, self.date.get())
                 .await
                 .map_err(Into::into)

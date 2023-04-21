@@ -2,7 +2,6 @@ use core::{
     convert::Infallible,
     future::{pending, poll_fn, Future},
     marker::PhantomData,
-    ops::DerefMut,
     pin::{pin, Pin},
     time::Duration,
 };
@@ -26,11 +25,10 @@ use crate::{
     },
     http::{
         response::{Parts, Response},
-        Request, RequestExt, StatusCode,
+        StatusCode,
     },
     util::{
         buffered::{BufferedIo, ListWriteBuf, ReadBuf, WriteBuf},
-        hint::unlikely,
         timer::{KeepAlive, Timeout},
     },
 };
@@ -38,9 +36,11 @@ use crate::{
 use super::proto::{
     buf_write::H1BufWrite,
     codec::{ChunkResult, TransferCoding},
-    context::{ConnectionType, Context},
+    context::Context,
     error::ProtoError,
 };
+
+type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
 
 /// function to generic over different writer buffer types dispatcher.
 pub(crate) async fn run<
@@ -63,7 +63,7 @@ pub(crate) async fn run<
     date: &'a D,
 ) -> Result<(), Error<S::Error, BE>>
 where
-    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
+    S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
@@ -88,16 +88,31 @@ where
 struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
     io: BufferedIo<'a, St, W, READ_BUF_LIMIT>,
     timer: Pin<&'a mut KeepAlive>,
+    timer_state: TimerState,
     ka_dur: Duration,
+    req_dur: Duration,
     ctx: Context<'a, D, HEADER_LIMIT>,
     service: &'a S,
     _phantom: PhantomData<ReqB>,
 }
 
+// timer state is transformed in following order:
+//
+// Idle (expecting keep-alive duration)           <--
+//  |                                               |
+//  --> Wait (expecting request head duration)      |
+//       |                                          |
+//       --> Throttle (expecting manually set to Idle again)
+enum TimerState {
+    Idle,
+    Wait,
+    Throttle,
+}
+
 impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
     Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT>
 where
-    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
+    S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
@@ -116,7 +131,9 @@ where
         Self {
             io: BufferedIo::new(io, write_buf),
             timer,
+            timer_state: TimerState::Idle,
             ka_dur: config.keep_alive_timeout,
+            req_dur: config.request_head_timeout,
             ctx: Context::with_addr(addr, date),
             service,
             _phantom: PhantomData,
@@ -125,35 +142,40 @@ where
 
     async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
-            match self.ctx.ctype() {
-                ConnectionType::KeepAlive => self.update_timer(),
-                ConnectionType::Init => unlikely(),
-                ConnectionType::Close => return self.io.shutdown().await.map_err(Into::into),
-            }
-
             match self._run().await {
                 Ok(_) => {}
-                Err(Error::KeepAliveExpire) => match self.ctx.ctype() {
-                    ConnectionType::Init => self.request_error(timeout),
-                    _ => {
-                        trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
-                        return Ok(());
-                    }
-                },
-                Err(Error::Proto(ProtoError::HeaderTooLarge)) => self.request_error(header_too_large),
-                Err(Error::Proto(_)) => self.request_error(bad_request),
+                Err(Error::KeepAliveExpire) => {
+                    trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
+                    return Ok(());
+                }
+                Err(Error::RequestTimeout) => self.request_error(|| status_only(StatusCode::REQUEST_TIMEOUT)),
+                Err(Error::Proto(ProtoError::HeaderTooLarge)) => {
+                    self.request_error(|| status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE))
+                }
+                Err(Error::Proto(_)) => self.request_error(|| status_only(StatusCode::BAD_REQUEST)),
                 Err(e) => return Err(e),
             }
 
             // TODO: add timeout for drain write?
             self.io.drain_write().await?;
+
+            if self.ctx.is_connection_closed() {
+                return self.io.shutdown().await.map_err(Into::into);
+            }
         }
     }
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        self.io.read().timeout(self.timer.as_mut()).await??;
+        self.update_timer();
+        self.io
+            .read()
+            .timeout(self.timer.as_mut())
+            .await
+            .map_err(|_| Error::KeepAliveExpire)??;
 
-        while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())? {
+        while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)? {
+            self.reset_timer_state();
+
             let (mut body_reader, body) = BodyReader::from_coding(decoder);
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
@@ -173,9 +195,7 @@ where
             self.response_handler(res_body, encoder, &mut body_reader).await?;
 
             if !body_reader.decoder.is_eof() {
-                // request body is partial consumed.close connection in case there are bytes remain
-                // in socket and/or read buffer.
-                self.ctx.set_ctype(ConnectionType::Close);
+                self.ctx.set_close();
                 break;
             }
         }
@@ -183,19 +203,28 @@ where
         Ok(())
     }
 
-    // update timer deadline according to keep alive duration.
+    // update timer deadline according to duration.
     fn update_timer(&mut self) {
-        let now = self.ctx.date().now() + self.ka_dur;
-        self.timer.as_mut().update(now);
+        let dur = match self.timer_state {
+            TimerState::Idle => {
+                self.timer_state = TimerState::Wait;
+                self.ka_dur
+            }
+            TimerState::Wait => {
+                self.timer_state = TimerState::Throttle;
+                self.req_dur
+            }
+            TimerState::Throttle => return,
+        };
+        self.timer.as_mut().update(self.ctx.date().now() + dur);
     }
 
-    fn encode_head<B>(&mut self, parts: Parts, body: &B) -> Result<TransferCoding, Error<S::Error, BE>>
-    where
-        B: Stream,
-    {
-        self.ctx
-            .encode_head(parts, body, &mut self.io.write_buf)
-            .map_err(Into::into)
+    fn reset_timer_state(&mut self) {
+        self.timer_state = TimerState::Idle;
+    }
+
+    fn encode_head(&mut self, parts: Parts, body: &impl Stream) -> Result<TransferCoding, ProtoError> {
+        self.ctx.encode_head(parts, body, &mut self.io.write_buf)
     }
 
     // an associated future of self.service that runs until service is resolved or error produced.
@@ -226,7 +255,7 @@ where
         loop {
             match self
                 .try_poll_body(body.as_mut())
-                .select(io_ready(&mut self.io, body_reader, &mut self.ctx))
+                .select(self.io_ready(body_reader))
                 .await
             {
                 SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
@@ -261,41 +290,30 @@ where
         }
     }
 
+    // Check readable and writable state of BufferedIo and ready state of request body reader.
+    // return error when runtime is shutdown.(See AsyncIo::ready for reason).
+    async fn io_ready(&mut self, body_reader: &mut BodyReader) -> io::Result<Ready> {
+        if !self.io.write_buf.want_write_io() {
+            body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
+            self.io.io.ready(Interest::READABLE).await
+        } else {
+            match body_reader
+                .ready(&mut self.io.read_buf, &mut self.ctx)
+                .select(self.io.io.ready(Interest::WRITABLE))
+                .await
+            {
+                SelectOutput::A(_) => self.io.io.ready(Interest::READABLE | Interest::WRITABLE).await,
+                SelectOutput::B(res) => res,
+            }
+        }
+    }
+
     #[cold]
     #[inline(never)]
-    fn request_error<F>(&mut self, func: F)
-    where
-        F: FnOnce() -> Response<NoneBody<Bytes>>,
-    {
-        self.ctx.set_ctype(ConnectionType::Close);
+    fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
+        self.ctx.set_close();
         let (parts, body) = func().into_parts();
-        assert!(self.encode_head(parts, &body).is_ok(), "request_error must be correct");
-    }
-}
-
-// Check readable and writable state of BufferedIo and ready state of request body reader.
-// return error when runtime is shutdown.(See AsyncIo::ready for reason).
-async fn io_ready<St, W, D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
-    io: &mut BufferedIo<'_, St, W, READ_BUF_LIMIT>,
-    body_reader: &mut BodyReader,
-    ctx: &mut Context<'_, D, HEADER_LIMIT>,
-) -> io::Result<Ready>
-where
-    St: AsyncIo,
-    W: H1BufWrite,
-{
-    if !io.write_buf.want_write_io() {
-        body_reader.ready(&mut io.read_buf, ctx).await;
-        io.io.ready(Interest::READABLE).await
-    } else {
-        match body_reader
-            .ready(&mut io.read_buf, ctx)
-            .select(io.io.ready(Interest::WRITABLE))
-            .await
-        {
-            SelectOutput::A(_) => io.io.ready(Interest::READABLE | Interest::WRITABLE).await,
-            SelectOutput::B(res) => res,
-        }
+        self.encode_head(parts, &body).expect("request_error must be correct");
     }
 }
 
@@ -347,7 +365,7 @@ impl BodyReader {
     #[inline(never)]
     fn set_close<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
         self.decoder.set_eof();
-        ctx.set_ctype(ConnectionType::Close);
+        ctx.set_close();
     }
 
     // wait for service start to consume RequestBody.
@@ -358,18 +376,6 @@ impl BodyReader {
             e
         })
     }
-}
-
-fn header_too_large() -> Response<NoneBody<Bytes>> {
-    status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
-}
-
-fn timeout() -> Response<NoneBody<Bytes>> {
-    status_only(StatusCode::REQUEST_TIMEOUT)
-}
-
-fn bad_request() -> Response<NoneBody<Bytes>> {
-    status_only(StatusCode::BAD_REQUEST)
 }
 
 #[cold]

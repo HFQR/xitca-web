@@ -8,7 +8,6 @@ use crate::http::{header::HeaderMap, Extensions};
 pub struct Context<'a, D, const HEADER_LIMIT: usize> {
     addr: SocketAddr,
     state: ContextState,
-    ctype: ConnectionType,
     // header map reused by next request.
     header: Option<HeaderMap>,
     // http extensions reused by next request.
@@ -27,6 +26,8 @@ impl ContextState {
     const CONNECT: u8 = 0b_0010;
     // Enable when current request is HEAD method.
     const HEAD: u8 = 0b_0100;
+    // Enable when current connection is supposed to be closed after current response is sent.
+    const CLOSE: u8 = 0b_1000;
 
     const fn new() -> Self {
         Self(0)
@@ -36,20 +37,13 @@ impl ContextState {
         self.0 |= other;
     }
 
+    fn remove(&mut self, other: u8) {
+        self.0 &= !other;
+    }
+
     const fn contains(&self, other: u8) -> bool {
         (self.0 & other) == other
     }
-}
-
-/// Represents various types of connection
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ConnectionType {
-    /// A connection that has no request yet.
-    Init,
-    /// Close connection after response with flush and shutdown IO.
-    Close,
-    /// Keep connection alive after response
-    KeepAlive,
 }
 
 impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
@@ -65,7 +59,6 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         Self {
             addr,
             state: ContextState::new(),
-            ctype: ConnectionType::Init,
             header: None,
             exts: Extensions::new(),
             date,
@@ -109,7 +102,6 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     /// Reset Context's state to partial default state.
     #[inline]
     pub fn reset(&mut self) {
-        self.ctype = ConnectionType::KeepAlive;
         self.state = ContextState::new();
     }
 
@@ -131,40 +123,40 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state.insert(ContextState::HEAD)
     }
 
-    /// Set connection type.
+    /// Set Context's state to Close.
     #[inline]
-    pub fn set_ctype(&mut self, ctype: ConnectionType) {
-        self.ctype = ctype;
+    pub fn set_close(&mut self) {
+        self.state.insert(ContextState::CLOSE)
+    }
+
+    /// Remove Context's Close state.
+    #[inline]
+    pub fn remove_close(&mut self) {
+        self.state.remove(ContextState::CLOSE)
     }
 
     /// Get expect header state.
     #[inline]
-    pub fn is_expect_header(&self) -> bool {
+    pub const fn is_expect_header(&self) -> bool {
         self.state.contains(ContextState::EXPECT)
     }
 
     /// Get CONNECT method state.
     #[inline]
-    pub fn is_connect_method(&self) -> bool {
+    pub const fn is_connect_method(&self) -> bool {
         self.state.contains(ContextState::CONNECT)
     }
 
     /// Get HEAD method state.
     #[inline]
-    pub fn is_head_method(&self) -> bool {
+    pub const fn is_head_method(&self) -> bool {
         self.state.contains(ContextState::HEAD)
     }
 
-    /// Return true if connection type is [ConnectionType::Close] or [ConnectionType::CloseForce].
+    /// Return true if connection type is [ConnectionType::Close].
     #[inline]
-    pub fn is_connection_closed(&self) -> bool {
-        matches!(self.ctype, ConnectionType::Close)
-    }
-
-    /// Get connection type.
-    #[inline]
-    pub fn ctype(&self) -> ConnectionType {
-        self.ctype
+    pub const fn is_connection_closed(&self) -> bool {
+        self.state.contains(ContextState::CLOSE)
     }
 
     /// Get remote socket address context associated with.

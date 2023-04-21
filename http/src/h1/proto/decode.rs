@@ -10,12 +10,7 @@ use crate::{
     util::buffered::PagedBytesMut,
 };
 
-use super::{
-    codec::TransferCoding,
-    context::{ConnectionType, Context},
-    error::ProtoError,
-    header::HeaderIndex,
-};
+use super::{codec::TransferCoding, context::Context, error::ProtoError, header::HeaderIndex};
 
 type Decoded = (Request<RequestExt<()>>, TransferCoding);
 
@@ -42,7 +37,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     // Default ctype is KeepAlive so set_ctype is skipped here.
                     Version::HTTP_11
                 } else {
-                    self.set_ctype(ConnectionType::Close);
+                    self.set_close();
                     Version::HTTP_10
                 };
 
@@ -166,9 +161,9 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
         for val in val.to_str().map_err(|_| ProtoError::HeaderValue)?.split(',') {
             let val = val.trim();
             if val.eq_ignore_ascii_case("keep-alive") {
-                self.set_ctype(ConnectionType::KeepAlive)
+                self.remove_close()
             } else if val.eq_ignore_ascii_case("close") {
-                self.set_ctype(ConnectionType::Close);
+                self.set_close()
             }
         }
         Ok(())
