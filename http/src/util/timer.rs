@@ -29,7 +29,7 @@ pin_project! {
 }
 
 impl<F: Future> Future for TimeoutFuture<'_, F> {
-    type Output = Result<F::Output, KeepAliveExpired>;
+    type Output = Result<F::Output, ()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -62,7 +62,7 @@ impl KeepAlive {
         }
     }
 
-    #[cfg(not(feature = "http3"))]
+    #[cfg(any(feature = "http1", feature = "http2"))]
     #[inline]
     pub fn update(self: Pin<&mut Self>, deadline: Instant) {
         *self.project().deadline = deadline;
@@ -79,17 +79,15 @@ impl KeepAlive {
     }
 }
 
-pub struct KeepAliveExpired;
-
 impl Future for KeepAlive {
-    type Output = KeepAliveExpired;
+    type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.as_mut().project();
         ready!(this.timer.poll(cx));
 
         if self.is_expired() {
-            Poll::Ready(KeepAliveExpired)
+            Poll::Ready(())
         } else {
             self.as_mut().reset();
             self.poll(cx)
