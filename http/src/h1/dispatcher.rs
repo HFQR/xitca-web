@@ -171,7 +171,7 @@ where
             .read()
             .timeout(self.timer.as_mut())
             .await
-            .map_err(|_| Error::KeepAliveExpire)??;
+            .map_err(|_| self.map_timer_state_to_err())??;
 
         while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)? {
             self.reset_timer_state();
@@ -179,7 +179,7 @@ where
             let (mut body_reader, body) = BodyReader::from_coding(decoder);
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
-            let (parts, res_body) = match self
+            let (parts, body) = match self
                 .service
                 .call(req)
                 .select(self.request_body_handler(&mut body_reader))
@@ -191,8 +191,34 @@ where
                 SelectOutput::B(Ok(i)) => match i {},
             };
 
-            let encoder = &mut self.encode_head(parts, &res_body)?;
-            self.response_handler(res_body, encoder, &mut body_reader).await?;
+            let encoder = &mut self.encode_head(parts, &body)?;
+            let mut body = pin!(body);
+
+            loop {
+                match self
+                    .try_poll_body(body.as_mut())
+                    .select(self.io_ready(&mut body_reader))
+                    .await
+                {
+                    SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
+                    SelectOutput::B(Ok(ready)) => {
+                        if ready.is_readable() {
+                            if let Err(e) = self.io.try_read() {
+                                body_reader.feed_error(e, &mut self.ctx);
+                            }
+                        }
+                        if ready.is_writable() {
+                            self.io.try_write()?;
+                        }
+                    }
+                    SelectOutput::A(None) => {
+                        encoder.encode_eof(&mut self.io.write_buf);
+                        break;
+                    }
+                    SelectOutput::B(Err(e)) => return Err(e.into()),
+                    SelectOutput::A(Some(Err(e))) => return Err(Error::Body(e)),
+                }
+            }
 
             if !body_reader.decoder.is_eof() {
                 self.ctx.set_close();
@@ -223,6 +249,16 @@ where
         self.timer_state = TimerState::Idle;
     }
 
+    #[cold]
+    #[inline(never)]
+    fn map_timer_state_to_err(&self) -> Error<S::Error, BE> {
+        match self.timer_state {
+            TimerState::Wait => Error::KeepAliveExpire,
+            TimerState::Throttle => Error::RequestTimeout,
+            TimerState::Idle => unreachable!(),
+        }
+    }
+
     fn encode_head(&mut self, parts: Parts, body: &impl Stream) -> Result<TransferCoding, ProtoError> {
         self.ctx.encode_head(parts, body, &mut self.io.write_buf)
     }
@@ -242,40 +278,6 @@ where
         loop {
             body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
             self.io.read().await?;
-        }
-    }
-
-    async fn response_handler(
-        &mut self,
-        body: ResB,
-        encoder: &mut TransferCoding,
-        body_reader: &mut BodyReader,
-    ) -> Result<(), Error<S::Error, BE>> {
-        let mut body = pin!(body);
-        loop {
-            match self
-                .try_poll_body(body.as_mut())
-                .select(self.io_ready(body_reader))
-                .await
-            {
-                SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
-                SelectOutput::B(Ok(ready)) => {
-                    if ready.is_readable() {
-                        if let Err(e) = self.io.try_read() {
-                            body_reader.feed_error(e, &mut self.ctx);
-                        }
-                    }
-                    if ready.is_writable() {
-                        self.io.try_write()?;
-                    }
-                }
-                SelectOutput::A(None) => {
-                    encoder.encode_eof(&mut self.io.write_buf);
-                    return Ok(());
-                }
-                SelectOutput::B(Err(e)) => return Err(e.into()),
-                SelectOutput::A(Some(Err(e))) => return Err(Error::Body(e)),
-            }
         }
     }
 
