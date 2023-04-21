@@ -4,7 +4,7 @@ use std::io;
 
 use futures_core::Stream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use xitca_http::h1::proto::{codec::TransferCoding, context::ConnectionType};
+use xitca_http::h1::proto::codec::TransferCoding;
 
 use crate::{
     body::BodyError,
@@ -70,7 +70,7 @@ where
     // continue to read response no matter the outcome.
     if send_inner(stream, encoder, body, &mut buf).await.is_err() {
         // an error indicate connection should be closed.
-        ctx.set_ctype(ConnectionType::Close);
+        ctx.set_close();
         // clear the buffer as there could be unfinished request data inside.
         buf.clear();
     }
