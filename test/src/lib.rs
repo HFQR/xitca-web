@@ -82,7 +82,7 @@ where
     test_server::<_, _, (TcpStream, SocketAddr)>(move || {
         let f = factory();
         let config = HttpServiceConfig::new()
-            .first_request_timeout(Duration::from_millis(500))
+            .request_head_timeout(Duration::from_millis(500))
             .tls_accept_timeout(Duration::from_millis(500))
             .keep_alive_timeout(Duration::from_millis(500));
         HttpServiceBuilder::h2(f).config(config)

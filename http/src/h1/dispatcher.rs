@@ -118,7 +118,7 @@ where
             io: BufferedIo::new(io, write_buf),
             timer,
             ka_dur: config.keep_alive_timeout,
-            req_dur: config.first_request_timeout,
+            req_dur: config.request_head_timeout,
             ctx: Context::with_addr(addr, date),
             service,
             _phantom: PhantomData,

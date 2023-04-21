@@ -56,7 +56,7 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 
     #[cfg(feature = "http2")]
     pub(crate) fn update_first_request_deadline(&self, timer: core::pin::Pin<&mut KeepAlive>) {
-        let request_dur = self.config.first_request_timeout;
+        let request_dur = self.config.request_head_timeout;
         let deadline = self.date.get().now() + request_dur;
         timer.update(deadline);
     }
@@ -168,9 +168,6 @@ where
 
                     #[cfg(feature = "http1")]
                     {
-                        // update timer to first request timeout.
-                        self.update_first_request_deadline(timer.as_mut());
-
                         super::h1::dispatcher::run(
                             &mut _io,
                             crate::unspecified_socket_addr(),

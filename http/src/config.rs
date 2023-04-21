@@ -25,7 +25,7 @@ pub struct HttpServiceConfig<
 > {
     pub(crate) vectored_write: bool,
     pub(crate) keep_alive_timeout: Duration,
-    pub(crate) first_request_timeout: Duration,
+    pub(crate) request_head_timeout: Duration,
     pub(crate) tls_accept_timeout: Duration,
     pub(crate) peek_protocol: bool,
 }
@@ -41,7 +41,7 @@ impl HttpServiceConfig {
         Self {
             vectored_write: true,
             keep_alive_timeout: Duration::from_secs(5),
-            first_request_timeout: Duration::from_secs(5),
+            request_head_timeout: Duration::from_secs(5),
             tls_accept_timeout: Duration::from_secs(3),
             peek_protocol: false,
         }
@@ -59,24 +59,28 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
         self
     }
 
-    /// Define duration of how long a connection is kept alive.
+    /// Define duration of how long an idle connection is kept alive.
+    ///
+    /// connection have not done any IO after duration would be closed. IO operation
+    /// can possibly result in reset of the duration.
     pub fn keep_alive_timeout(mut self, dur: Duration) -> Self {
         self.keep_alive_timeout = dur;
         self
     }
 
-    /// Define duration of how long a connection must finish it's first request.
+    /// Define duration of how long a connection must finish it's request head transferring.
+    /// starting from first byte(s) of current request(s) received from peer.
     ///
-    /// Connection too slow to make a request after this duration would be closed.
-    pub fn first_request_timeout(mut self, dur: Duration) -> Self {
-        self.first_request_timeout = dur;
+    /// connection can not make a single request after duration would be closed.
+    pub fn request_head_timeout(mut self, dur: Duration) -> Self {
+        self.request_head_timeout = dur;
         self
     }
 
     /// Define duration of how long a connection must finish it's tls handshake.
     /// (If tls is enabled)
     ///
-    /// Connection too slow to do handshake after this duration would be closed.
+    /// Connection can not finish handshake after duration would be closed.
     pub fn tls_accept_timeout(mut self, dur: Duration) -> Self {
         self.tls_accept_timeout = dur;
         self
@@ -134,7 +138,7 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
         HttpServiceConfig {
             vectored_write: self.vectored_write,
             keep_alive_timeout: self.keep_alive_timeout,
-            first_request_timeout: self.first_request_timeout,
+            request_head_timeout: self.request_head_timeout,
             tls_accept_timeout: self.tls_accept_timeout,
             peek_protocol: self.peek_protocol,
         }
