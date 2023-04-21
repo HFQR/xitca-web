@@ -11,7 +11,6 @@ use std::{io, net::SocketAddr};
 
 use futures_core::stream::Stream;
 use tracing::trace;
-use xitca_io::bytes::Buf;
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
@@ -133,9 +132,11 @@ where
                     trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
                     return Ok(());
                 }
-                Err(Error::RequestTimeout) => self.request_error(timeout),
-                Err(Error::Proto(ProtoError::HeaderTooLarge)) => self.request_error(header_too_large),
-                Err(Error::Proto(_)) => self.request_error(bad_request),
+                Err(Error::RequestTimeout) => self.request_error(|| status_only(StatusCode::REQUEST_TIMEOUT)),
+                Err(Error::Proto(ProtoError::HeaderTooLarge)) => {
+                    self.request_error(|| status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE))
+                }
+                Err(Error::Proto(_)) => self.request_error(|| status_only(StatusCode::BAD_REQUEST)),
                 Err(e) => return Err(e),
             }
 
@@ -167,16 +168,11 @@ where
             // request body is partial consumed.close connection in case there are bytes remain
             // in socket and/or read buffer.
             self.ctx.set_ctype(ConnectionType::Close);
-            return Ok(());
-        }
-
-        // pipeline request?
-        if self.io.read_buf.remaining() != 0 {
+        } else {
+            // pipeline request?
             while let Some((req, mut body_reader)) = self.try_decode()? {
                 self.handler(req, &mut body_reader).await?;
                 if !body_reader.decoder.is_eof() {
-                    // request body is partial consumed.close connection in case there are bytes remain
-                    // in socket and/or read buffer.
                     self.ctx.set_ctype(ConnectionType::Close);
                     break;
                 }
@@ -186,7 +182,7 @@ where
         Ok(())
     }
 
-    // accept slow and/or big request that can be quickly transferred from peer.
+    // accept slow and/or big request that can not be quickly transferred from peer.
     async fn read_slow(&mut self) -> Result<(Request<RequestExt<ReqB>>, BodyReader), Error<S::Error, BE>> {
         self.update_timer(self.req_dur);
         loop {
@@ -238,13 +234,8 @@ where
         self.response_handler(res_body, encoder, body_reader).await
     }
 
-    fn encode_head<B>(&mut self, parts: Parts, body: &B) -> Result<TransferCoding, Error<S::Error, BE>>
-    where
-        B: Stream,
-    {
-        self.ctx
-            .encode_head(parts, body, &mut self.io.write_buf)
-            .map_err(Into::into)
+    fn encode_head(&mut self, parts: Parts, body: &impl Stream) -> Result<TransferCoding, ProtoError> {
+        self.ctx.encode_head(parts, body, &mut self.io.write_buf)
     }
 
     // an associated future of self.service that runs until service is resolved or error produced.
@@ -336,7 +327,7 @@ where
     {
         self.ctx.set_ctype(ConnectionType::Close);
         let (parts, body) = func().into_parts();
-        assert!(self.encode_head(parts, &body).is_ok(), "request_error must be correct");
+        self.encode_head(parts, &body).expect("request_error must be correct");
     }
 }
 
@@ -399,18 +390,6 @@ impl BodyReader {
             e
         })
     }
-}
-
-fn header_too_large() -> Response<NoneBody<Bytes>> {
-    status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
-}
-
-fn timeout() -> Response<NoneBody<Bytes>> {
-    status_only(StatusCode::REQUEST_TIMEOUT)
-}
-
-fn bad_request() -> Response<NoneBody<Bytes>> {
-    status_only(StatusCode::BAD_REQUEST)
 }
 
 #[cold]
