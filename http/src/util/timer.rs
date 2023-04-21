@@ -62,6 +62,7 @@ impl KeepAlive {
         }
     }
 
+    #[cfg(not(feature = "http3"))]
     #[inline]
     pub fn update(self: Pin<&mut Self>, deadline: Instant) {
         *self.project().deadline = deadline;

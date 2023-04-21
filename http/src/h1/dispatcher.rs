@@ -2,7 +2,6 @@ use core::{
     convert::Infallible,
     future::{pending, poll_fn, Future},
     marker::PhantomData,
-    ops::DerefMut,
     pin::{pin, Pin},
     time::Duration,
 };
@@ -26,7 +25,7 @@ use crate::{
     },
     http::{
         response::{Parts, Response},
-        Request, RequestExt, StatusCode,
+        StatusCode,
     },
     util::{
         buffered::{BufferedIo, ListWriteBuf, ReadBuf, WriteBuf},
@@ -40,6 +39,8 @@ use super::proto::{
     context::{ConnectionType, Context},
     error::ProtoError,
 };
+
+type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
 
 /// function to generic over different writer buffer types dispatcher.
 pub(crate) async fn run<
@@ -62,7 +63,7 @@ pub(crate) async fn run<
     date: &'a D,
 ) -> Result<(), Error<S::Error, BE>>
 where
-    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
+    S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
@@ -97,7 +98,7 @@ struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_B
 impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
     Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT>
 where
-    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
+    S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     St: AsyncIo,
@@ -183,7 +184,7 @@ where
     }
 
     // accept slow and/or big request that can not be quickly transferred from peer.
-    async fn read_slow(&mut self) -> Result<(Request<RequestExt<ReqB>>, BodyReader), Error<S::Error, BE>> {
+    async fn read_slow(&mut self) -> Result<(ExtRequest<ReqB>, BodyReader), Error<S::Error, BE>> {
         self.update_timer(self.req_dur);
         loop {
             self.io
@@ -202,9 +203,9 @@ where
         self.timer.as_mut().update(self.ctx.date().now() + dur);
     }
 
-    fn try_decode(&mut self) -> Result<Option<(Request<RequestExt<ReqB>>, BodyReader)>, ProtoError> {
+    fn try_decode(&mut self) -> Result<Option<(ExtRequest<ReqB>, BodyReader)>, ProtoError> {
         self.ctx
-            .decode_head::<READ_BUF_LIMIT>(self.io.read_buf.deref_mut())
+            .decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)
             .map(|req| {
                 req.map(|(req, decoder)| {
                     let (body_reader, body) = BodyReader::from_coding(decoder);
@@ -216,7 +217,7 @@ where
 
     async fn handler(
         &mut self,
-        req: Request<RequestExt<ReqB>>,
+        req: ExtRequest<ReqB>,
         body_reader: &mut BodyReader,
     ) -> Result<(), Error<S::Error, BE>> {
         let (parts, res_body) = match self
@@ -321,10 +322,7 @@ where
 
     #[cold]
     #[inline(never)]
-    fn request_error<F>(&mut self, func: F)
-    where
-        F: FnOnce() -> Response<NoneBody<Bytes>>,
-    {
+    fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
         self.ctx.set_ctype(ConnectionType::Close);
         let (parts, body) = func().into_parts();
         self.encode_head(parts, &body).expect("request_error must be correct");
