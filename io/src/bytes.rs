@@ -1,7 +1,7 @@
 //! re-export of [bytes] crate types.
 
 pub use bytes::*;
-pub use xitca_unsafe_collection::bytes::{BytesStr, PagedBytesMut};
+pub use xitca_unsafe_collection::bytes::{BytesStr, EitherBuf, PagedBytesMut};
 
 use core::fmt;
 
@@ -231,4 +231,54 @@ where
         }
     }
     Ok(())
+}
+
+impl<L, R> BufInterest for EitherBuf<L, R>
+where
+    L: BufInterest,
+    R: BufInterest,
+{
+    #[inline]
+    fn want_write_buf(&self) -> bool {
+        match *self {
+            Self::Left(ref l) => l.want_write_buf(),
+            Self::Right(ref r) => r.want_write_buf(),
+        }
+    }
+
+    #[inline]
+    fn want_write_io(&self) -> bool {
+        match *self {
+            Self::Left(ref l) => l.want_write_io(),
+            Self::Right(ref r) => r.want_write_io(),
+        }
+    }
+}
+
+impl<L, R> BufWrite for EitherBuf<L, R>
+where
+    L: BufWrite,
+    R: BufWrite,
+{
+    #[inline]
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>,
+    {
+        match *self {
+            Self::Left(ref mut l) => l.write_buf(func),
+            Self::Right(ref mut r) => r.write_buf(func),
+        }
+    }
+
+    #[inline]
+    fn do_io<Io>(&mut self, io: &mut Io) -> io::Result<()>
+    where
+        Io: io::Write,
+    {
+        match *self {
+            Self::Left(ref mut l) => l.do_io(io),
+            Self::Right(ref mut r) => r.do_io(io),
+        }
+    }
 }

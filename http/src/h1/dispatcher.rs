@@ -16,7 +16,7 @@ use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
 use crate::{
     body::NoneBody,
-    bytes::Bytes,
+    bytes::{Bytes, EitherBuf},
     config::HttpServiceConfig,
     date::DateTime,
     h1::{
@@ -69,19 +69,15 @@ where
     St: AsyncIo,
     D: DateTime,
 {
-    let is_vectored = config.vectored_write && io.is_vectored_write();
-
-    if is_vectored {
-        let write_buf = ListWriteBuf::<_, WRITE_BUF_LIMIT>::default();
-        Dispatcher::new(io, addr, timer, config, service, date, write_buf)
-            .run()
-            .await
+    let write_buf = if config.vectored_write && io.is_vectored_write() {
+        EitherBuf::Left(ListWriteBuf::<_, WRITE_BUF_LIMIT>::default())
     } else {
-        let write_buf = WriteBuf::<WRITE_BUF_LIMIT>::default();
-        Dispatcher::new(io, addr, timer, config, service, date, write_buf)
-            .run()
-            .await
-    }
+        EitherBuf::Right(WriteBuf::<WRITE_BUF_LIMIT>::default())
+    };
+
+    Dispatcher::new(io, addr, timer, config, service, date, write_buf)
+        .run()
+        .await
 }
 
 /// Http/1 dispatcher

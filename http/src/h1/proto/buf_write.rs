@@ -2,10 +2,8 @@ use core::convert::Infallible;
 
 use std::io::Write;
 
-use xitca_unsafe_collection::bytes::EitherBuf;
-
 use crate::{
-    bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut},
+    bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut, EitherBuf},
     util::buffered::{BufWrite, ListWriteBuf, WriteBuf},
 };
 
@@ -90,5 +88,46 @@ impl<const BUF_LIMIT: usize> H1BufWrite for ListWriteBuf<EncodedBuf<Bytes, Eof>,
             .chain(bytes)
             .chain(b"\r\n" as &'static [u8]);
         self.buffer(EitherBuf::Right(EitherBuf::Left(chunk)));
+    }
+}
+
+impl<L, R> H1BufWrite for EitherBuf<L, R>
+where
+    L: H1BufWrite,
+    R: H1BufWrite,
+{
+    #[inline]
+    fn write_buf_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>,
+    {
+        match *self {
+            Self::Left(ref mut l) => l.write_buf_head(func),
+            Self::Right(ref mut r) => r.write_buf_head(func),
+        }
+    }
+
+    #[inline]
+    fn write_buf_static(&mut self, bytes: &'static [u8]) {
+        match *self {
+            Self::Left(ref mut l) => l.write_buf_static(bytes),
+            Self::Right(ref mut r) => r.write_buf_static(bytes),
+        }
+    }
+
+    #[inline]
+    fn write_buf_bytes(&mut self, bytes: Bytes) {
+        match *self {
+            Self::Left(ref mut l) => l.write_buf_bytes(bytes),
+            Self::Right(ref mut r) => r.write_buf_bytes(bytes),
+        }
+    }
+
+    #[inline]
+    fn write_buf_bytes_chunked(&mut self, bytes: Bytes) {
+        match *self {
+            Self::Left(ref mut l) => l.write_buf_bytes_chunked(bytes),
+            Self::Right(ref mut r) => r.write_buf_bytes_chunked(bytes),
+        }
     }
 }
