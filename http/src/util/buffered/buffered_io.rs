@@ -53,7 +53,12 @@ where
                     }
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    if self.read_buf.len() == len {
+                        return Err(e);
+                    }
+                    break;
+                }
             }
         }
         Ok(())

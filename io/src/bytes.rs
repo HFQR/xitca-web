@@ -222,7 +222,12 @@ where
             }
             Ok(_) => {}
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-            Err(e) => return Err(e),
+            Err(e) => {
+                if buf.remaining() == len {
+                    return Err(e);
+                }
+                break;
+            }
         }
     }
     Ok(())
