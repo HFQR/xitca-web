@@ -233,11 +233,12 @@ where
     Ok(())
 }
 
-impl<A, B> BufInterest for EitherBuf<A, B>
+impl<L, R> BufInterest for EitherBuf<L, R>
 where
-    A: BufInterest,
-    B: BufInterest,
+    L: BufInterest,
+    R: BufInterest,
 {
+    #[inline]
     fn want_write_buf(&self) -> bool {
         match *self {
             Self::Left(ref l) => l.want_write_buf(),
@@ -245,6 +246,7 @@ where
         }
     }
 
+    #[inline]
     fn want_write_io(&self) -> bool {
         match *self {
             Self::Left(ref l) => l.want_write_io(),
@@ -253,11 +255,12 @@ where
     }
 }
 
-impl<A, B> BufWrite for EitherBuf<A, B>
+impl<L, R> BufWrite for EitherBuf<L, R>
 where
-    A: BufWrite,
-    B: BufWrite,
+    L: BufWrite,
+    R: BufWrite,
 {
+    #[inline]
     fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
@@ -268,6 +271,7 @@ where
         }
     }
 
+    #[inline]
     fn do_io<Io>(&mut self, io: &mut Io) -> io::Result<()>
     where
         Io: io::Write,
