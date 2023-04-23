@@ -1,6 +1,6 @@
 use core::{convert::Infallible, future::Future, time::Duration};
 
-use std::{io, net::SocketAddr, os::fd::AsFd};
+use std::{io, net::SocketAddr};
 
 use socket2::{SockRef, TcpKeepalive};
 
@@ -143,6 +143,7 @@ where
     where
         ServerStream: 's,
     {
+        #[cfg_attr(windows, allow(irrefutable_let_patterns))]
         if let ServerStream::Tcp(ref tcp, _) = stream {
             self.try_apply_config(tcp)
         };
@@ -162,8 +163,8 @@ pub struct SocketConfigService<S> {
 }
 
 impl<S> SocketConfigService<S> {
-    fn apply_config(&self, stream: &impl AsFd) -> io::Result<()> {
-        let stream_ref = SockRef::from(stream);
+    fn apply_config<'s>(&self, stream: impl Into<SockRef<'s>>) -> io::Result<()> {
+        let stream_ref = stream.into();
 
         stream_ref.set_nodelay(self.config.nodelay)?;
 
@@ -174,9 +175,9 @@ impl<S> SocketConfigService<S> {
         Ok(())
     }
 
-    fn try_apply_config(&self, stream: &impl AsFd) {
+    fn try_apply_config<'s>(&self, stream: impl Into<SockRef<'s>>) {
         if let Err(e) = self.apply_config(stream) {
-            warn!(target: "SocketConfig", "Failed to apply configuration to TcpStream. {:?}", e);
+            warn!(target: "SocketConfig", "Failed to apply configuration to SocketConfig. {:?}", e);
         };
     }
 }
