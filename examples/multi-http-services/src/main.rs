@@ -14,7 +14,7 @@ use rustls::{Certificate, PrivateKey};
 use xitca_http::{
     h1, h2, h3,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, RequestExt, Response, Version},
-    util::middleware::{Logger, TcpConfig},
+    util::middleware::{Logger, SocketConfig},
     HttpServiceBuilder, ResponseBody,
 };
 use xitca_service::{fn_service, ServiceExt};
@@ -32,7 +32,7 @@ fn main() -> io::Result<()> {
 
     let h1_factory = || {
         HttpServiceBuilder::h1(fn_service(handler_h1))
-            .enclosed(TcpConfig::new())
+            .enclosed(SocketConfig::new())
             .enclosed(Logger::default())
     };
 

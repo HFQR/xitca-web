@@ -1,6 +1,6 @@
 use core::{convert::Infallible, future::Future, time::Duration};
 
-use std::{io, net::SocketAddr};
+use std::{io, net::SocketAddr, os::fd::AsFd};
 
 use socket2::{SockRef, TcpKeepalive};
 
@@ -8,20 +8,23 @@ use tracing::warn;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
 use xitca_service::{ready::ReadyService, Service};
 
-/// A middleware for socket options config of [TcpStream].
+#[cfg(unix)]
+use xitca_io::net::UnixStream;
+
+/// A middleware for socket options config of `TcpStream` and `UnixStream`.
 #[derive(Clone, Debug)]
-pub struct TcpConfig {
+pub struct SocketConfig {
     ka: Option<TcpKeepalive>,
     nodelay: bool,
 }
 
-impl Default for TcpConfig {
+impl Default for SocketConfig {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl TcpConfig {
+impl SocketConfig {
     pub const fn new() -> Self {
         Self {
             ka: None,
@@ -63,8 +66,8 @@ impl TcpConfig {
     }
 }
 
-impl<S> Service<S> for TcpConfig {
-    type Response = TcpConfigService<S>;
+impl<S> Service<S> for SocketConfig {
+    type Response = SocketConfigService<S>;
     type Error = Infallible;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
@@ -73,11 +76,11 @@ impl<S> Service<S> for TcpConfig {
         S: 's,
     {
         let config = self.clone();
-        async { Ok(TcpConfigService { config, service }) }
+        async { Ok(SocketConfigService { config, service }) }
     }
 }
 
-impl<S> ReadyService for TcpConfigService<S>
+impl<S> ReadyService for SocketConfigService<S>
 where
     S: ReadyService,
 {
@@ -90,7 +93,7 @@ where
     }
 }
 
-impl<S> Service<(TcpStream, SocketAddr)> for TcpConfigService<S>
+impl<S> Service<(TcpStream, SocketAddr)> for SocketConfigService<S>
 where
     S: Service<(TcpStream, SocketAddr)>,
 {
@@ -108,7 +111,26 @@ where
     }
 }
 
-impl<S> Service<ServerStream> for TcpConfigService<S>
+#[cfg(unix)]
+impl<S> Service<(UnixStream, SocketAddr)> for SocketConfigService<S>
+where
+    S: Service<(UnixStream, SocketAddr)>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future<'f> = S::Future<'f> where S: 'f;
+
+    #[inline]
+    fn call<'s>(&'s self, (stream, addr): (UnixStream, SocketAddr)) -> Self::Future<'s>
+    where
+        UnixStream: 's,
+    {
+        self.try_apply_config(&stream);
+        self.service.call((stream, addr))
+    }
+}
+
+impl<S> Service<ServerStream> for SocketConfigService<S>
 where
     S: Service<ServerStream>,
 {
@@ -121,24 +143,28 @@ where
     where
         ServerStream: 's,
     {
-        // Windows OS specific lint.
-        #[allow(irrefutable_let_patterns)]
         if let ServerStream::Tcp(ref tcp, _) = stream {
-            self.try_apply_config(tcp);
-        }
+            self.try_apply_config(tcp)
+        };
+
+        #[cfg(unix)]
+        if let ServerStream::Unix(ref unix, _) = stream {
+            self.try_apply_config(unix)
+        };
 
         self.service.call(stream)
     }
 }
 
-pub struct TcpConfigService<S> {
-    config: TcpConfig,
+pub struct SocketConfigService<S> {
+    config: SocketConfig,
     service: S,
 }
 
-impl<S> TcpConfigService<S> {
-    fn apply_config(&self, stream: &TcpStream) -> io::Result<()> {
+impl<S> SocketConfigService<S> {
+    fn apply_config(&self, stream: &impl AsFd) -> io::Result<()> {
         let stream_ref = SockRef::from(stream);
+
         stream_ref.set_nodelay(self.config.nodelay)?;
 
         if let Some(ka) = self.config.ka.as_ref() {
@@ -148,9 +174,9 @@ impl<S> TcpConfigService<S> {
         Ok(())
     }
 
-    fn try_apply_config(&self, stream: &TcpStream) {
+    fn try_apply_config(&self, stream: &impl AsFd) {
         if let Err(e) = self.apply_config(stream) {
-            warn!(target: "TcpConfig", "Failed to apply configuration to TcpStream. {:?}", e);
+            warn!(target: "SocketConfig", "Failed to apply configuration to TcpStream. {:?}", e);
         };
     }
 }
