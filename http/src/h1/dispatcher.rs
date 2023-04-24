@@ -127,8 +127,8 @@ impl<'a> Timer<'a> {
         self.timer.as_mut()
     }
 
-    // update timer with a given base duration. the final deadline should be calculated base on it.
-    pub(super) fn update_timer_with(&mut self, func: impl FnOnce(Duration) -> tokio::time::Instant) {
+    // update timer with a given base instant value. the final deadline is calculated base on it.
+    pub(super) fn update(&mut self, now: tokio::time::Instant) {
         let dur = match self.state {
             TimerState::Idle => {
                 self.state = TimerState::Wait;
@@ -140,8 +140,7 @@ impl<'a> Timer<'a> {
             }
             TimerState::Throttle => return,
         };
-        let dead_line = func(dur);
-        self.timer.as_mut().update(dead_line)
+        self.timer.as_mut().update(now + dur)
     }
 
     #[cold]
@@ -209,7 +208,7 @@ where
     }
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        self.timer.update_timer_with(|dur| self.ctx.date().now() + dur);
+        self.timer.update(self.ctx.date().now());
         self.io
             .read()
             .timeout(self.timer.get())
