@@ -1,6 +1,6 @@
 use core::{
     convert::Infallible,
-    future::poll_fn,
+    future::{pending, poll_fn},
     marker::PhantomData,
     pin::{pin, Pin},
 };
@@ -105,7 +105,7 @@ impl ReadBuf2 {
     }
 
     async fn read_io(&mut self, io: &TcpStream) -> io::Result<()> {
-        let (res, mut buf) = io.read(self.buf.take().unwrap()).await;
+        let (res, buf) = io.read(self.buf.take().unwrap()).await;
         match res {
             Ok(n) => {
                 self.len = n;
@@ -115,9 +115,10 @@ impl ReadBuf2 {
                     return Err(io::ErrorKind::UnexpectedEof.into());
                 }
 
-                if n == buf.capacity() {
-                    buf.reserve_exact(n);
-                }
+                // TODO: extend in flight buffer size?
+                // if n == buf.capacity() {
+                //     buf.reserve_exact(n);
+                // }
 
                 self.buf.replace(buf);
                 Ok(())
@@ -316,20 +317,31 @@ async fn write_body<SE, BE>(
     let mut body = pin!(body);
 
     loop {
-        if write_buf.get_mut().remaining() > 65535 {
-            write_buf.write_io(io).await?;
-        }
-
-        match poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            Some(chunk) => {
-                let bytes = chunk.map_err(Error::Body)?;
-                encoder.encode(bytes, write_buf.get_mut());
-            }
-            None => {
-                encoder.encode_eof(write_buf.get_mut());
-                break;
+        let len = write_buf.get_mut().remaining();
+        let poll = async {
+            if len < 65535 {
+                poll_fn(|cx| body.as_mut().poll_next(cx)).await
+            } else {
+                pending().await
             }
         };
+
+        let poll2 = async {
+            if !write_buf.get_mut().is_empty() {
+                write_buf.write_io(io).await
+            } else {
+                pending().await
+            }
+        };
+
+        match poll.select(poll2).await {
+            SelectOutput::A(Some(res)) => {
+                let bytes = res.map_err(Error::Body)?;
+                encoder.encode(bytes, write_buf.get_mut());
+            }
+            SelectOutput::A(None) => break,
+            SelectOutput::B(res) => res?,
+        }
     }
     Ok(())
 }
