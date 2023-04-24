@@ -83,10 +83,7 @@ where
 /// Http/1 dispatcher
 struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
     io: BufferedIo<'a, St, W, READ_BUF_LIMIT>,
-    timer: Pin<&'a mut KeepAlive>,
-    timer_state: TimerState,
-    ka_dur: Duration,
-    req_dur: Duration,
+    timer: Timer<'a>,
     ctx: Context<'a, D, HEADER_LIMIT>,
     service: &'a S,
     _phantom: PhantomData<ReqB>,
@@ -103,6 +100,59 @@ enum TimerState {
     Idle,
     Wait,
     Throttle,
+}
+
+pub(super) struct Timer<'a> {
+    timer: Pin<&'a mut KeepAlive>,
+    state: TimerState,
+    ka_dur: Duration,
+    req_dur: Duration,
+}
+
+impl<'a> Timer<'a> {
+    pub(super) fn new(timer: Pin<&'a mut KeepAlive>, ka_dur: Duration, req_dur: Duration) -> Self {
+        Self {
+            timer,
+            state: TimerState::Idle,
+            ka_dur,
+            req_dur,
+        }
+    }
+
+    pub(super) fn reset_state(&mut self) {
+        self.state = TimerState::Idle;
+    }
+
+    pub(super) fn get(&mut self) -> Pin<&mut KeepAlive> {
+        self.timer.as_mut()
+    }
+
+    // update timer with a given base duration. the final deadline should be calculated base on it.
+    pub(super) fn update_timer_with(&mut self, func: impl FnOnce(Duration) -> tokio::time::Instant) {
+        let dur = match self.state {
+            TimerState::Idle => {
+                self.state = TimerState::Wait;
+                self.ka_dur
+            }
+            TimerState::Wait => {
+                self.state = TimerState::Throttle;
+                self.req_dur
+            }
+            TimerState::Throttle => return,
+        };
+        let dead_line = func(dur);
+        self.timer.as_mut().update(dead_line)
+    }
+
+    #[cold]
+    #[inline(never)]
+    pub(super) fn map_to_err<SE, BE>(&self) -> Error<SE, BE> {
+        match self.state {
+            TimerState::Wait => Error::KeepAliveExpire,
+            TimerState::Throttle => Error::RequestTimeout,
+            TimerState::Idle => unreachable!(),
+        }
+    }
 }
 
 impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
@@ -126,10 +176,7 @@ where
     ) -> Self {
         Self {
             io: BufferedIo::new(io, write_buf),
-            timer,
-            timer_state: TimerState::Idle,
-            ka_dur: config.keep_alive_timeout,
-            req_dur: config.request_head_timeout,
+            timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
             ctx: Context::with_addr(addr, date),
             service,
             _phantom: PhantomData,
@@ -162,15 +209,15 @@ where
     }
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        self.update_timer();
+        self.timer.update_timer_with(|dur| self.ctx.date().now() + dur);
         self.io
             .read()
-            .timeout(self.timer.as_mut())
+            .timeout(self.timer.get())
             .await
-            .map_err(|_| self.map_timer_state_to_err())??;
+            .map_err(|_| self.timer.map_to_err())??;
 
         while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)? {
-            self.reset_timer_state();
+            self.timer.reset_state();
 
             let (mut body_reader, body) = BodyReader::from_coding(decoder);
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
@@ -223,36 +270,6 @@ where
         }
 
         Ok(())
-    }
-
-    // update timer deadline according to duration.
-    fn update_timer(&mut self) {
-        let dur = match self.timer_state {
-            TimerState::Idle => {
-                self.timer_state = TimerState::Wait;
-                self.ka_dur
-            }
-            TimerState::Wait => {
-                self.timer_state = TimerState::Throttle;
-                self.req_dur
-            }
-            TimerState::Throttle => return,
-        };
-        self.timer.as_mut().update(self.ctx.date().now() + dur);
-    }
-
-    fn reset_timer_state(&mut self) {
-        self.timer_state = TimerState::Idle;
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn map_timer_state_to_err(&self) -> Error<S::Error, BE> {
-        match self.timer_state {
-            TimerState::Wait => Error::KeepAliveExpire,
-            TimerState::Throttle => Error::RequestTimeout,
-            TimerState::Idle => unreachable!(),
-        }
     }
 
     fn encode_head(&mut self, parts: Parts, body: &impl Stream) -> Result<TransferCoding, ProtoError> {
@@ -315,13 +332,13 @@ where
     }
 }
 
-struct BodyReader {
-    decoder: TransferCoding,
+pub(super) struct BodyReader {
+    pub(super) decoder: TransferCoding,
     tx: RequestBodySender,
 }
 
 impl BodyReader {
-    fn from_coding(decoder: TransferCoding) -> (Self, RequestBody) {
+    pub(super) fn from_coding(decoder: TransferCoding) -> (Self, RequestBody) {
         let (tx, body) = RequestBody::channel(decoder.is_eof());
         let body_reader = BodyReader { decoder, tx };
         (body_reader, body)
@@ -329,7 +346,7 @@ impl BodyReader {
 
     // dispatcher MUST call this method before do any io reading.
     // a none ready state means the body consumer either is in backpressure or don't expect body.
-    async fn ready<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut ReadBuf<READ_BUF_LIMIT>) {
+    pub(super) async fn ready<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut ReadBuf<READ_BUF_LIMIT>) {
         loop {
             match self.decoder.decode(&mut *read_buf) {
                 ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
@@ -348,13 +365,13 @@ impl BodyReader {
     // feed error to body sender and prepare for close connection.
     #[cold]
     #[inline(never)]
-    fn feed_error(&mut self, e: io::Error) {
+    pub(super) fn feed_error(&mut self, e: io::Error) {
         self.tx.feed_error(e);
         self.decoder.set_corrupted();
     }
 
     // wait for service start to consume RequestBody.
-    async fn wait_for_poll(&mut self) -> io::Result<()> {
+    pub(super) async fn wait_for_poll(&mut self) -> io::Result<()> {
         self.tx.wait_for_poll().await.map_err(|e| {
             // IMPORTANT: service future drop RequestBody so marker decoder to corrupted.
             self.decoder.set_corrupted();
@@ -365,6 +382,6 @@ impl BodyReader {
 
 #[cold]
 #[inline(never)]
-fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
+pub(super) fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
     Response::builder().status(status).body(NoneBody::default()).unwrap()
 }
