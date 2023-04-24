@@ -312,7 +312,7 @@ async fn write_body<SE, BE>(
             }
         }
         drop(tx);
-        pending::<Result<Infallible, Error<SE, BE>>>().await
+        pending::<Infallible>().await
     };
 
     let poll2 = async {
@@ -332,8 +332,7 @@ async fn write_body<SE, BE>(
     };
 
     match poll.select(poll2).await {
-        SelectOutput::A(Ok(i)) => match i {},
-        SelectOutput::A(Err(e)) | SelectOutput::B(Err(e)) => Err(e),
-        SelectOutput::B(Ok(_)) => Ok(()),
+        SelectOutput::A(i) => match i {},
+        SelectOutput::B(res) => res,
     }
 }
