@@ -1,6 +1,6 @@
 use core::{
     convert::Infallible,
-    future::{pending, poll_fn},
+    future::poll_fn,
     marker::PhantomData,
     pin::{pin, Pin},
 };
@@ -22,10 +22,7 @@ use crate::{
     bytes::Bytes,
     config::HttpServiceConfig,
     date::DateTime,
-    h1::{
-        body::{RequestBody, RequestBodySender},
-        error::Error,
-    },
+    h1::{body::RequestBody, error::Error},
     http::{
         response::{Parts, Response},
         StatusCode,
@@ -37,12 +34,8 @@ use crate::{
 };
 
 use super::{
-    dispatcher::Timer,
-    proto::{
-        codec::{ChunkResult, TransferCoding},
-        context::Context,
-        error::ProtoError,
-    },
+    dispatcher::{status_only, BodyReader, Timer},
+    proto::{codec::TransferCoding, context::Context, error::ProtoError},
 };
 
 type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
@@ -339,71 +332,4 @@ async fn write_body<SE, BE>(
         };
     }
     Ok(())
-}
-
-struct BodyReader {
-    decoder: TransferCoding,
-    tx: RequestBodySender,
-}
-
-impl BodyReader {
-    fn from_coding(decoder: TransferCoding) -> (Self, RequestBody) {
-        let (tx, body) = RequestBody::channel(decoder.is_eof());
-        let body_reader = BodyReader { decoder, tx };
-        (body_reader, body)
-    }
-
-    // dispatcher MUST call this method before do any io reading.
-    // a none ready state means the body consumer either is in backpressure or don't expect body.
-    async fn ready<D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
-        &mut self,
-        read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
-        ctx: &mut Context<'_, D, HEADER_LIMIT>,
-    ) {
-        loop {
-            match self.decoder.decode(&mut *read_buf) {
-                ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
-                ChunkResult::InsufficientData => match self.tx.ready().await {
-                    Ok(_) => return,
-                    // service future drop RequestBody half way so notify Context to close
-                    // connection afterwards.
-                    Err(_) => self.set_close(ctx),
-                },
-                ChunkResult::Eof => self.tx.feed_eof(),
-                ChunkResult::AlreadyEof => pending().await,
-                ChunkResult::Err(e) => self.feed_error(e, ctx),
-            }
-        }
-    }
-
-    // feed error to body sender and prepare for close connection.
-    #[cold]
-    #[inline(never)]
-    fn feed_error<D, const HEADER_LIMIT: usize>(&mut self, e: io::Error, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
-        self.tx.feed_error(e);
-        self.set_close(ctx);
-    }
-
-    // prepare for close connection by end decoder and set context to closed connection regardless their current states.
-    #[cold]
-    #[inline(never)]
-    fn set_close<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
-        self.decoder.set_eof();
-        ctx.set_close();
-    }
-
-    // wait for service start to consume RequestBody.
-    async fn wait_for_poll(&mut self) -> io::Result<()> {
-        self.tx.wait_for_poll().await.map_err(|e| {
-            // IMPORTANT: service future drop RequestBody so set decoder to eof.
-            self.decoder.set_eof();
-            e
-        })
-    }
-}
-
-#[cold]
-#[inline(never)]
-fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
-    Response::builder().status(status).body(NoneBody::default()).unwrap()
 }

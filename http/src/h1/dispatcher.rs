@@ -332,13 +332,13 @@ where
     }
 }
 
-struct BodyReader {
-    decoder: TransferCoding,
+pub(super) struct BodyReader {
+    pub(super) decoder: TransferCoding,
     tx: RequestBodySender,
 }
 
 impl BodyReader {
-    fn from_coding(decoder: TransferCoding) -> (Self, RequestBody) {
+    pub(super) fn from_coding(decoder: TransferCoding) -> (Self, RequestBody) {
         let (tx, body) = RequestBody::channel(decoder.is_eof());
         let body_reader = BodyReader { decoder, tx };
         (body_reader, body)
@@ -346,7 +346,7 @@ impl BodyReader {
 
     // dispatcher MUST call this method before do any io reading.
     // a none ready state means the body consumer either is in backpressure or don't expect body.
-    async fn ready<D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
+    pub(super) async fn ready<D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
         &mut self,
         read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
         ctx: &mut Context<'_, D, HEADER_LIMIT>,
@@ -370,7 +370,11 @@ impl BodyReader {
     // feed error to body sender and prepare for close connection.
     #[cold]
     #[inline(never)]
-    fn feed_error<D, const HEADER_LIMIT: usize>(&mut self, e: io::Error, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
+    pub(super) fn feed_error<D, const HEADER_LIMIT: usize>(
+        &mut self,
+        e: io::Error,
+        ctx: &mut Context<'_, D, HEADER_LIMIT>,
+    ) {
         self.tx.feed_error(e);
         self.set_close(ctx);
     }
@@ -378,13 +382,13 @@ impl BodyReader {
     // prepare for close connection by end decoder and set context to closed connection regardless their current states.
     #[cold]
     #[inline(never)]
-    fn set_close<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
+    pub(super) fn set_close<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
         self.decoder.set_eof();
         ctx.set_close();
     }
 
     // wait for service start to consume RequestBody.
-    async fn wait_for_poll(&mut self) -> io::Result<()> {
+    pub(super) async fn wait_for_poll(&mut self) -> io::Result<()> {
         self.tx.wait_for_poll().await.map_err(|e| {
             // IMPORTANT: service future drop RequestBody so set decoder to eof.
             self.decoder.set_eof();
@@ -395,6 +399,6 @@ impl BodyReader {
 
 #[cold]
 #[inline(never)]
-fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
+pub(super) fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
     Response::builder().status(status).body(NoneBody::default()).unwrap()
 }
