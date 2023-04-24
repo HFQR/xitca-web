@@ -14,8 +14,10 @@ use super::{buf_write::H1BufWrite, error::ProtoError};
 /// Coder for different Transfer-Decoding/Transfer-Encoding.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TransferCoding {
-    /// Default coder indicates the Request/Response does not have a body.
+    /// Default coder indicates the Request/Response have successfully code it's associated body.
     Eof,
+    /// Corrupted coder that can not be used anymore.
+    Corrupted,
     /// Coder used when a Content-Length header is passed with a positive integer.
     Length(u64),
     /// Decoder used when Transfer-Encoding is `chunked`.
@@ -274,6 +276,11 @@ impl TransferCoding {
         *self = Self::Eof;
     }
 
+    #[inline]
+    pub fn set_corrupted(&mut self) {
+        *self = Self::Corrupted;
+    }
+
     /// Encode message. Return `EOF` state of encoder
     pub fn encode<W>(&mut self, mut bytes: Bytes, buf: &mut W)
     where
@@ -326,9 +333,10 @@ impl TransferCoding {
             // when eof happens. (Expensive one time operations can be happening at Eof)
             Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
                 *self = Self::Eof;
-                ChunkResult::Eof
+                ChunkResult::OnEof
             }
             Self::Eof => ChunkResult::AlreadyEof,
+            Self::Corrupted => ChunkResult::Corrupted,
             ref _this if src.is_empty() => ChunkResult::InsufficientData,
             Self::Length(ref mut rem) => ChunkResult::Ok(bounded_split(rem, src)),
             Self::Upgrade => ChunkResult::Ok(src.split().freeze()),
@@ -365,20 +373,23 @@ pub enum ChunkResult {
     /// insufficient data. More input bytes required.
     InsufficientData,
     /// coder reached EOF state and no more chunk can be produced.
-    Eof,
+    OnEof,
     /// coder already reached EOF state and no more chunk can be produced.
     /// used to hint calling stop filling input buffer with more data and/or calling method again.
     AlreadyEof,
+    /// see [TransferCoding::Corrupted].
+    Corrupted,
 }
 
 impl fmt::Display for ChunkResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Ok(_) => f.write_str("chunked data."),
-            Self::InsufficientData => f.write_str("no sufficient data. More input bytes required."),
-            Self::Eof => f.write_str("coder reached EOF state. no more chunk can be produced."),
-            Self::AlreadyEof => f.write_str("coder already reached EOF state. no more chunk can be produced."),
             Self::Err(ref e) => fmt::Display::fmt(e, f),
+            Self::InsufficientData => f.write_str("no sufficient data. More input bytes required."),
+            Self::OnEof => f.write_str("coder reached EOF state. no more chunk can be produced."),
+            Self::AlreadyEof => f.write_str("coder already reached EOF state. no more chunk can be produced."),
+            Self::Corrupted => f.write_str("coder corrupted. can not be used anymore."),
         }
     }
 }
@@ -533,7 +544,7 @@ mod test {
 
         // eof read
         match decoder.decode(mock_buf) {
-            ChunkResult::Eof => {}
+            ChunkResult::OnEof => {}
             state => panic!("{}", state),
         }
 

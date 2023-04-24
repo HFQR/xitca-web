@@ -247,7 +247,7 @@ where
                     SelectOutput::B(Ok(ready)) => {
                         if ready.is_readable() {
                             if let Err(e) = self.io.try_read() {
-                                body_reader.feed_error(e, &mut self.ctx);
+                                body_reader.feed_error(e);
                             }
                         }
                         if ready.is_writable() {
@@ -289,7 +289,7 @@ where
         }
 
         loop {
-            body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
+            body_reader.ready(&mut self.io.read_buf).await;
             self.io.read().await?;
         }
     }
@@ -309,11 +309,11 @@ where
     // return error when runtime is shutdown.(See AsyncIo::ready for reason).
     async fn io_ready(&mut self, body_reader: &mut BodyReader) -> io::Result<Ready> {
         if !self.io.write_buf.want_write_io() {
-            body_reader.ready(&mut self.io.read_buf, &mut self.ctx).await;
+            body_reader.ready(&mut self.io.read_buf).await;
             self.io.io.ready(Interest::READABLE).await
         } else {
             match body_reader
-                .ready(&mut self.io.read_buf, &mut self.ctx)
+                .ready(&mut self.io.read_buf)
                 .select(self.io.io.ready(Interest::WRITABLE))
                 .await
             {
@@ -346,23 +346,18 @@ impl BodyReader {
 
     // dispatcher MUST call this method before do any io reading.
     // a none ready state means the body consumer either is in backpressure or don't expect body.
-    pub(super) async fn ready<D, const READ_BUF_LIMIT: usize, const HEADER_LIMIT: usize>(
-        &mut self,
-        read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
-        ctx: &mut Context<'_, D, HEADER_LIMIT>,
-    ) {
+    async fn ready<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut ReadBuf<READ_BUF_LIMIT>) {
         loop {
             match self.decoder.decode(&mut *read_buf) {
                 ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
                 ChunkResult::InsufficientData => match self.tx.ready().await {
                     Ok(_) => return,
-                    // service future drop RequestBody half way so notify Context to close
-                    // connection afterwards.
-                    Err(_) => self.set_close(ctx),
+                    // service future drop RequestBody so marker decoder to corrupted.
+                    Err(_) => self.decoder.set_corrupted(),
                 },
-                ChunkResult::Eof => self.tx.feed_eof(),
-                ChunkResult::AlreadyEof => pending().await,
-                ChunkResult::Err(e) => self.feed_error(e, ctx),
+                ChunkResult::OnEof => self.tx.feed_eof(),
+                ChunkResult::AlreadyEof | ChunkResult::Corrupted => pending().await,
+                ChunkResult::Err(e) => self.feed_error(e),
             }
         }
     }
@@ -370,28 +365,16 @@ impl BodyReader {
     // feed error to body sender and prepare for close connection.
     #[cold]
     #[inline(never)]
-    pub(super) fn feed_error<D, const HEADER_LIMIT: usize>(
-        &mut self,
-        e: io::Error,
-        ctx: &mut Context<'_, D, HEADER_LIMIT>,
-    ) {
+    fn feed_error(&mut self, e: io::Error) {
         self.tx.feed_error(e);
-        self.set_close(ctx);
-    }
-
-    // prepare for close connection by end decoder and set context to closed connection regardless their current states.
-    #[cold]
-    #[inline(never)]
-    pub(super) fn set_close<D, const HEADER_LIMIT: usize>(&mut self, ctx: &mut Context<'_, D, HEADER_LIMIT>) {
-        self.decoder.set_eof();
-        ctx.set_close();
+        self.decoder.set_corrupted();
     }
 
     // wait for service start to consume RequestBody.
     pub(super) async fn wait_for_poll(&mut self) -> io::Result<()> {
         self.tx.wait_for_poll().await.map_err(|e| {
-            // IMPORTANT: service future drop RequestBody so set decoder to eof.
-            self.decoder.set_eof();
+            // IMPORTANT: service future drop RequestBody so marker decoder to corrupted.
+            self.decoder.set_corrupted();
             e
         })
     }
