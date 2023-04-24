@@ -193,7 +193,9 @@ where
                 Err(e) => return Err(e),
             }
 
-            self.write_buf.write_io(self.io).await?;
+            if !self.write_buf.get_mut().is_empty() {
+                self.write_buf.write_io(self.io).await?;
+            }
 
             if self.ctx.is_connection_closed() {
                 return self.io.shutdown(Shutdown::Both).map_err(Into::into);
@@ -300,39 +302,52 @@ async fn write_body<SE, BE>(
 ) -> Result<(), Error<SE, BE>> {
     let mut body = pin!(body);
 
-    // TODO: use a better for concurrent polling body and write than channel.
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut task = pin!(None);
+    let mut err = None;
 
-    let poll = async {
-        while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let is_err = res.is_err();
-            let _ = tx.send(res);
-            if is_err {
+    loop {
+        match poll_fn(|cx| body.as_mut().poll_next(cx))
+            .select(async {
+                // make sure only one in-flight write operation.
+                loop {
+                    match task.as_mut().as_pin_mut() {
+                        Some(task) => return task.await,
+                        None => {
+                            if write_buf.get_mut().is_empty() {
+                                // pending when buffer is empty. wait for body to make progress
+                                // with more bytes. (or exit with error)
+                                pending::<()>().await;
+                            }
+                            let buf = write_buf.get_mut().split();
+                            task.as_mut().set(Some(io.write_all(buf)));
+                        }
+                    }
+                }
+            })
+            .await
+        {
+            SelectOutput::A(None) => {
+                encoder.encode_eof(write_buf.get_mut());
                 break;
             }
-        }
-        drop(tx);
-        pending::<Infallible>().await
-    };
-
-    let poll2 = async {
-        loop {
-            write_buf.write_io(io).await?;
-            match rx.recv().await {
-                Some(res) => {
-                    let bytes = res.map_err(Error::Body)?;
-                    encoder.encode(bytes, write_buf.get_mut());
-                }
-                None => {
-                    encoder.encode_eof(write_buf.get_mut());
-                    return Ok::<_, Error<SE, BE>>(());
-                }
+            SelectOutput::A(Some(Ok(bytes))) => {
+                encoder.encode(bytes, write_buf.get_mut());
+            }
+            SelectOutput::A(Some(Err(e))) => {
+                err = Some(Error::Body(e));
+                break;
+            }
+            SelectOutput::B((res, _)) => {
+                task.as_mut().set(None);
+                res?
             }
         }
-    };
-
-    match poll.select(poll2).await {
-        SelectOutput::A(i) => match i {},
-        SelectOutput::B(res) => res,
     }
+
+    if let Some(task) = task.as_pin_mut() {
+        let (res, _) = task.await;
+        res?;
+    }
+
+    err.take().map(Err).unwrap_or_else(|| Ok(()))
 }
