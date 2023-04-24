@@ -13,7 +13,7 @@ use std::{
 use futures_core::stream::Stream;
 use tokio_uring::net::TcpStream;
 use tracing::trace;
-use xitca_io::bytes::{Buf, BytesMut};
+use xitca_io::bytes::BytesMut;
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
@@ -23,10 +23,7 @@ use crate::{
     config::HttpServiceConfig,
     date::DateTime,
     h1::{body::RequestBody, error::Error},
-    http::{
-        response::{Parts, Response},
-        StatusCode,
-    },
+    http::{response::Response, StatusCode},
     util::{
         buffered::ReadBuf,
         timer::{KeepAlive, Timeout},
@@ -220,33 +217,36 @@ where
             let (mut body_reader, body) = BodyReader::from_coding(decoder);
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
-            let (parts, body) = match self
-                .service
-                .call(req)
-                .select(self.request_body_handler(&mut body_reader))
-                .await
             {
-                SelectOutput::A(Ok(res)) => res.into_parts(),
-                SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
-                SelectOutput::B(Err(e)) => return Err(e),
-                SelectOutput::B(Ok(i)) => match i {},
-            };
-
-            let encoder = self.encode_head(parts, &body)?;
-            match write_body::<S::Error, BE>(self.io, body, encoder, &mut self.write_buf)
-                .select(read_body(
+                let is_expect = self.ctx.is_expect_header();
+                let read_task = read_body(
+                    is_expect,
                     &mut body_reader,
                     &mut self.read_buf,
                     &mut self.in_flight_read_buf,
                     self.io,
-                    &mut self.ctx,
-                ))
-                .await
-            {
-                SelectOutput::A(Ok(_)) => {}
-                SelectOutput::A(Err(e)) => return Err(e),
-                SelectOutput::B(Err(e)) => return Err(e.into()),
-                SelectOutput::B(Ok(i)) => match i {},
+                );
+
+                let mut read_task = pin!(read_task);
+
+                let (parts, body) = match self.service.call(req).select(read_task.as_mut()).await {
+                    SelectOutput::A(Ok(res)) => res.into_parts(),
+                    SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
+                    SelectOutput::B(Err(e)) => return Err(e.into()),
+                    SelectOutput::B(Ok(i)) => match i {},
+                };
+
+                let encoder = self.ctx.encode_head(parts, &body, self.write_buf.get_mut())?;
+
+                match write_body::<S::Error, BE>(self.io, body, encoder, &mut self.write_buf)
+                    .select(read_task)
+                    .await
+                {
+                    SelectOutput::A(Ok(_)) => {}
+                    SelectOutput::A(Err(e)) => return Err(e),
+                    SelectOutput::B(Err(e)) => return Err(e.into()),
+                    SelectOutput::B(Ok(i)) => match i {},
+                }
             }
 
             if !body_reader.decoder.is_eof() {
@@ -258,51 +258,35 @@ where
         Ok(())
     }
 
-    fn encode_head(&mut self, parts: Parts, body: &impl Stream) -> Result<TransferCoding, ProtoError> {
-        self.ctx.encode_head(parts, body, self.write_buf.get_mut())
-    }
-
-    // an associated future of self.service that runs until service is resolved or error produced.
-    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<Infallible, Error<S::Error, BE>> {
-        if self.ctx.is_expect_header() {
-            // wait for service future to start polling RequestBody.
-            if body_reader.wait_for_poll().await.is_ok() {
-                // encode continue as service future want a body.
-                self.ctx.encode_continue(self.write_buf.get_mut());
-                // use drain write to make sure continue is sent to client.
-                self.write_buf.write_io(self.io).await?;
-            }
-        }
-
-        read_body(
-            body_reader,
-            &mut self.read_buf,
-            &mut self.in_flight_read_buf,
-            self.io,
-            &mut self.ctx,
-        )
-        .await
-        .map_err(Into::into)
-    }
-
     #[cold]
     #[inline(never)]
     fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
         self.ctx.set_close();
         let (parts, body) = func().into_parts();
-        self.encode_head(parts, &body).expect("request_error must be correct");
+        self.ctx
+            .encode_head(parts, &body, self.write_buf.get_mut())
+            .expect("request_error must be correct");
     }
 }
 
-async fn read_body<D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
+async fn read_body<const READ_BUF_LIMIT: usize>(
+    is_expect: bool,
     body_reader: &mut BodyReader,
     read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
     read_buf2: &mut ReadBuf2,
     io: &TcpStream,
-    ctx: &mut Context<'_, D, HEADER_LIMIT>,
 ) -> io::Result<Infallible> {
+    if is_expect {
+        // wait for service future to start polling RequestBody.
+        if body_reader.wait_for_poll().await.is_ok() {
+            let buf = b"HTTP/1.1 100 Continue\r\n\r\n".to_vec();
+            let (res, _) = io.write_all(buf).await;
+            res?;
+        }
+    }
+
     loop {
-        body_reader.ready(read_buf, ctx).await;
+        body_reader.ready(read_buf).await;
         read_buf2.read_io(io).await?;
         read_buf.get_mut().extend_from_slice(read_buf2.get());
     }
@@ -316,32 +300,40 @@ async fn write_body<SE, BE>(
 ) -> Result<(), Error<SE, BE>> {
     let mut body = pin!(body);
 
-    loop {
-        let len = write_buf.get_mut().remaining();
-        let poll = async {
-            if len < 65535 {
-                poll_fn(|cx| body.as_mut().poll_next(cx)).await
-            } else {
-                pending().await
-            }
-        };
+    // TODO: use a better for concurrent polling body and write than channel.
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let poll2 = async {
-            if !write_buf.get_mut().is_empty() {
-                write_buf.write_io(io).await
-            } else {
-                pending().await
+    let poll = async {
+        while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+            let is_err = res.is_err();
+            let _ = tx.send(res);
+            if is_err {
+                break;
             }
-        };
-
-        match poll.select(poll2).await {
-            SelectOutput::A(Some(res)) => {
-                let bytes = res.map_err(Error::Body)?;
-                encoder.encode(bytes, write_buf.get_mut());
-            }
-            SelectOutput::A(None) => break,
-            SelectOutput::B(res) => res?,
         }
+        drop(tx);
+        pending::<Result<Infallible, Error<SE, BE>>>().await
+    };
+
+    let poll2 = async {
+        loop {
+            write_buf.write_io(io).await?;
+            match rx.recv().await {
+                Some(res) => {
+                    let bytes = res.map_err(Error::Body)?;
+                    encoder.encode(bytes, write_buf.get_mut());
+                }
+                None => {
+                    encoder.encode_eof(write_buf.get_mut());
+                    return Ok::<_, Error<SE, BE>>(());
+                }
+            }
+        }
+    };
+
+    match poll.select(poll2).await {
+        SelectOutput::A(Ok(i)) => match i {},
+        SelectOutput::A(Err(e)) | SelectOutput::B(Err(e)) => Err(e),
+        SelectOutput::B(Ok(_)) => Ok(()),
     }
-    Ok(())
 }

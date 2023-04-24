@@ -346,7 +346,7 @@ impl BodyReader {
 
     // dispatcher MUST call this method before do any io reading.
     // a none ready state means the body consumer either is in backpressure or don't expect body.
-    async fn ready<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut ReadBuf<READ_BUF_LIMIT>) {
+    pub(super) async fn ready<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut ReadBuf<READ_BUF_LIMIT>) {
         loop {
             match self.decoder.decode(&mut *read_buf) {
                 ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
@@ -365,7 +365,7 @@ impl BodyReader {
     // feed error to body sender and prepare for close connection.
     #[cold]
     #[inline(never)]
-    fn feed_error(&mut self, e: io::Error) {
+    pub(super) fn feed_error(&mut self, e: io::Error) {
         self.tx.feed_error(e);
         self.decoder.set_corrupted();
     }
