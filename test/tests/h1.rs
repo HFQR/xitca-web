@@ -188,14 +188,19 @@ async fn h1_keepalive() -> Result<(), Error> {
     for _ in 0..3 {
         stream.write_all(SIMPLE_GET_REQ)?;
 
-        let n = stream.read(&mut buf)?;
-        tokio::time::sleep(Duration::from_millis(1)).await;
-        assert!(&buf[..n].ends_with(b"GET Response"));
+        // this is a loop as http1 with io-uring can split the request head and body to two
+        // packets through localhost.
+        loop {
+            let n = stream.read(&mut buf)?;
+            if buf[..n].ends_with(b"GET Response") {
+                break;
+            }
+        }
     }
 
     // default h1 keep alive is 5 seconds.
     // If test_server has a different setting this must be changed accordingly.
-    tokio::time::sleep(Duration::from_secs(6)).await;
+    tokio::time::sleep(Duration::from_secs(7)).await;
 
     // Due to platform difference this block may success or not.
     // Either way it can not get a response from server as it has already close
