@@ -204,7 +204,8 @@ where
     }
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        self.timer.update_timer_with(|dur| self.ctx.date().now() + dur);
+        self.timer.update(self.ctx.date().now());
+
         self.in_flight_read_buf
             .read_io(self.io)
             .timeout(self.timer.get())
