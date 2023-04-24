@@ -22,6 +22,7 @@ native-tls = ["dep:native-tls", "runtime"]
 runtime = ["xitca-io/runtime", "tokio"]
 
 # unstable features that are subject to be changed at anytime.
+io-uring = ["tokio-uring"]
 util-service = ["xitca-router"]
 
 [dependencies]
@@ -65,6 +66,9 @@ tokio = { version = "1.27", features = ["rt", "time"], optional = true }
 
 # util service support
 xitca-router = { version = "0.1", optional = true }
+
+# io-uring support
+tokio-uring = { version = "0.4.0", features = ["bytes"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.5.1", features = ["all"] }
