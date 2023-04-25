@@ -276,7 +276,7 @@ fn read_body<'a, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
     body_reader: &'a mut BodyReader,
     read_buf: &'a mut ReadBuf<READ_BUF_LIMIT>,
     read_buf2: &'a mut ReadBuf2,
-    io: &TcpStream,
+    io: &'a TcpStream,
 ) -> impl Future<Output = io::Result<Infallible>> + 'a {
     let is_expect = ctx.is_expect_header();
     async move {
