@@ -72,7 +72,7 @@ impl Server {
 
             for (name, factory) in factories.iter() {
                 let (h, s) = factory
-                    ._build(name, &listeners)
+                    .call((name, &listeners))
                     .await
                     .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
                 handles.extend(h);
