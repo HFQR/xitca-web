@@ -271,13 +271,13 @@ where
     }
 }
 
-fn read_body<D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
+fn read_body<'a, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
     ctx: &Context<'_, D, HEADER_LIMIT>,
-    body_reader: &mut BodyReader,
-    read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
-    read_buf2: &mut ReadBuf2,
+    body_reader: &'a mut BodyReader,
+    read_buf: &'a mut ReadBuf<READ_BUF_LIMIT>,
+    read_buf2: &'a mut ReadBuf2,
     io: &TcpStream,
-) -> impl Future<Output = io::Result<Infallible>> + '_ {
+) -> impl Future<Output = io::Result<Infallible>> + 'a {
     let is_expect = ctx.is_expect_header();
     async move {
         if is_expect {
@@ -289,7 +289,6 @@ fn read_body<D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
                 res?;
             }
         }
-
         loop {
             body_reader.ready(read_buf).await;
             read_buf2.read_io(io).await?;
