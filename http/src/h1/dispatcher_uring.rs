@@ -37,36 +37,8 @@ use super::{
 
 type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
 
-/// function to generic over different writer buffer types dispatcher.
-pub(crate) async fn run<
-    'a,
-    S,
-    ReqB,
-    ResB,
-    BE,
-    D,
-    const HEADER_LIMIT: usize,
-    const READ_BUF_LIMIT: usize,
-    const WRITE_BUF_LIMIT: usize,
->(
-    io: &'a mut TcpStream,
-    addr: SocketAddr,
-    timer: Pin<&'a mut KeepAlive>,
-    config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    service: &'a S,
-    date: &'a D,
-) -> Result<(), Error<S::Error, BE>>
-where
-    S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
-    ReqB: From<RequestBody>,
-    ResB: Stream<Item = Result<Bytes, BE>>,
-    D: DateTime,
-{
-    Dispatcher::new(io, addr, timer, config, service, date).run().await
-}
-
 /// Http/1 dispatcher
-struct Dispatcher<'a, S, ReqB, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
+pub(super) struct Dispatcher<'a, S, ReqB, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
     io: &'a TcpStream,
     timer: Timer<'a>,
     ctx: Context<'a, D, HEADER_LIMIT>,
@@ -157,7 +129,7 @@ where
     ResB: Stream<Item = Result<Bytes, BE>>,
     D: DateTime,
 {
-    fn new<const WRITE_BUF_LIMIT: usize>(
+    pub(super) fn new<const WRITE_BUF_LIMIT: usize>(
         io: &'a mut TcpStream,
         addr: SocketAddr,
         timer: Pin<&'a mut KeepAlive>,
@@ -177,7 +149,7 @@ where
         }
     }
 
-    async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
+    pub(super) async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
             match self._run().await {
                 Ok(_) => {}
