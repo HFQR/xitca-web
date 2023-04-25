@@ -18,7 +18,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
 where
     D: DateTime,
 {
-    pub fn encode_continue<W>(&mut self, buf: &mut W)
+    pub fn encode_continue<W>(buf: &mut W)
     where
         W: H1BufWrite,
     {
