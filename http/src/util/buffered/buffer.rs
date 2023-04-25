@@ -5,13 +5,14 @@ use core::{
 
 use std::io;
 
+use tracing::trace;
 use xitca_io::bytes::{Buf, BytesMut};
 use xitca_unsafe_collection::{
-    bytes::{BufList, ChunkVectoredUninit},
+    bytes::{read_buf, BufList, ChunkVectoredUninit},
     uninit::uninit_array,
 };
 
-pub use xitca_io::bytes::{BufInterest, BufWrite};
+pub use xitca_io::bytes::{BufInterest, BufRead, BufWrite};
 
 /// a hard code BytesMut that reserving additional 4kb heap memory everytime reallocating needed.
 pub type PagedBytesMut = xitca_io::bytes::PagedBytesMut<4096>;
@@ -57,6 +58,39 @@ impl<const BUF_LIMIT: usize> BufInterest for ReadBuf<BUF_LIMIT> {
 
     fn want_write_io(&self) -> bool {
         unimplemented!()
+    }
+}
+
+impl<const BUF_LIMIT: usize> BufRead for ReadBuf<BUF_LIMIT> {
+    fn do_io<Io>(&mut self, io: &mut Io) -> io::Result<()>
+    where
+        Io: io::Read,
+    {
+        let len = self.0.len();
+        loop {
+            match read_buf(io, &mut self.0) {
+                Ok(0) => {
+                    if self.0.len() == len {
+                        return Err(io::ErrorKind::UnexpectedEof.into());
+                    }
+                    break;
+                }
+                Ok(_) => {
+                    if !self.want_write_buf() {
+                        trace!("READ_BUF_LIMIT: {BUF_LIMIT} bytes reached. Entering backpressure(no log event for recovery).");
+                        break;
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => {
+                    if self.0.len() == len {
+                        return Err(e);
+                    }
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 }
 

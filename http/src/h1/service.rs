@@ -52,7 +52,16 @@ where
                 let io = io.into_std().unwrap();
                 let mut io = tokio_uring::net::TcpStream::from_std(io);
 
-                super::dispatcher_uring::run(&mut io, addr, timer, self.config, &self.service, self.date.get()).await?;
+                super::dispatcher_uring::Dispatcher::new(
+                    &mut io,
+                    addr,
+                    timer,
+                    self.config,
+                    &self.service,
+                    self.date.get(),
+                )
+                .run()
+                .await?;
             }
 
             #[cfg(not(feature = "io-uring"))]

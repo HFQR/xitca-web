@@ -5,11 +5,9 @@ use core::{
 
 use std::io;
 
-use tracing::trace;
 use xitca_io::io::{AsyncIo, Interest};
-use xitca_unsafe_collection::bytes::read_buf;
 
-use super::buffer::{BufInterest, BufWrite, ReadBuf};
+use super::buffer::{BufRead, BufWrite, ReadBuf};
 
 /// Io type with internal buffering.
 pub struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize> {
@@ -36,37 +34,15 @@ where
     }
 
     /// read until io blocked or read buffer is full and advance the length of it(read buffer).
+    #[inline]
     pub fn try_read(&mut self) -> io::Result<()> {
-        let len = self.read_buf.len();
-        loop {
-            match read_buf(self.io, &mut *self.read_buf) {
-                Ok(0) => {
-                    if self.read_buf.len() == len {
-                        return Err(io::ErrorKind::UnexpectedEof.into());
-                    }
-                    break;
-                }
-                Ok(_) => {
-                    if !self.read_buf.want_write_buf() {
-                        trace!("READ_BUF_LIMIT: {READ_BUF_LIMIT} bytes reached. Entering backpressure(no log event for recovery).");
-                        break;
-                    }
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => {
-                    if self.read_buf.len() == len {
-                        return Err(e);
-                    }
-                    break;
-                }
-            }
-        }
-        Ok(())
+        BufRead::do_io(&mut self.read_buf, self.io)
     }
 
     /// write until write buffer is emptied or io blocked.
+    #[inline]
     pub fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.do_io(self.io)
+        BufWrite::do_io(&mut self.write_buf, self.io)
     }
 
     /// check for io read readiness in async and do [Self::try_read].
