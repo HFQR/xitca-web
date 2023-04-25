@@ -281,7 +281,7 @@ where
             // wait for service future to start polling RequestBody.
             if body_reader.wait_for_poll().await.is_ok() {
                 // encode continue as service future want a body.
-                self.ctx.encode_continue(&mut self.io.write_buf);
+                Context::<D, HEADER_LIMIT>::encode_continue(&mut self.io.write_buf);
                 // use drain write to make sure continue is sent to client.
                 self.io.drain_write().await?;
             }

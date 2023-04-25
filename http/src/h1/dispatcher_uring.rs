@@ -1,6 +1,6 @@
 use core::{
     convert::Infallible,
-    future::{pending, poll_fn},
+    future::{pending, poll_fn, Future},
     marker::PhantomData,
     pin::{pin, Pin},
 };
@@ -221,9 +221,8 @@ where
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
             {
-                let is_expect = self.ctx.is_expect_header();
                 let read_task = read_body(
-                    is_expect,
+                    &self.ctx,
                     &mut body_reader,
                     &mut self.read_buf,
                     &mut self.in_flight_read_buf,
@@ -272,26 +271,29 @@ where
     }
 }
 
-async fn read_body<const READ_BUF_LIMIT: usize>(
-    is_expect: bool,
-    body_reader: &mut BodyReader,
-    read_buf: &mut ReadBuf<READ_BUF_LIMIT>,
-    read_buf2: &mut ReadBuf2,
-    io: &TcpStream,
-) -> io::Result<Infallible> {
-    if is_expect {
-        // wait for service future to start polling RequestBody.
-        if body_reader.wait_for_poll().await.is_ok() {
-            let buf = b"HTTP/1.1 100 Continue\r\n\r\n".to_vec();
-            let (res, _) = io.write_all(buf).await;
-            res?;
+fn read_body<'a, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
+    ctx: &Context<'_, D, HEADER_LIMIT>,
+    body_reader: &'a mut BodyReader,
+    read_buf: &'a mut ReadBuf<READ_BUF_LIMIT>,
+    read_buf2: &'a mut ReadBuf2,
+    io: &'a TcpStream,
+) -> impl Future<Output = io::Result<Infallible>> + 'a {
+    let is_expect = ctx.is_expect_header();
+    async move {
+        if is_expect {
+            // wait for service future to start polling RequestBody.
+            if body_reader.wait_for_poll().await.is_ok() {
+                let mut buf = BytesMut::new();
+                Context::<D, HEADER_LIMIT>::encode_continue(&mut buf);
+                let (res, _) = io.write_all(buf).await;
+                res?;
+            }
         }
-    }
-
-    loop {
-        body_reader.ready(read_buf).await;
-        read_buf2.read_io(io).await?;
-        read_buf.get_mut().extend_from_slice(read_buf2.get());
+        loop {
+            body_reader.ready(read_buf).await;
+            read_buf2.read_io(io).await?;
+            read_buf.get_mut().extend_from_slice(read_buf2.get());
+        }
     }
 }
 

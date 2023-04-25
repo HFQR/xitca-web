@@ -47,8 +47,6 @@ pub trait H1BufWrite: BufWrite {
     }
 }
 
-// TODO: this impl is solely for xitca-client usage and should be decoupled from xtica-http.
-// xitca-http server side does not directly use BytesMut type as io buffer.
 impl H1BufWrite for BytesMut {}
 
 impl<const BUF_LIMIT: usize> H1BufWrite for WriteBuf<BUF_LIMIT> {}
