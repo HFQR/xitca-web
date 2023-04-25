@@ -38,19 +38,40 @@ use super::{
 type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
 
 /// Http/1 dispatcher
-pub(super) struct Dispatcher<'a, S, ReqB, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
+pub(super) struct Dispatcher<'a, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize> {
     io: &'a TcpStream,
     timer: Timer<'a>,
-    ctx: Context<'a, D, HEADER_LIMIT>,
+    ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
-    read_buf: ReadBuf<READ_BUF_LIMIT>,
+    read_buf: ReadBuf<R_LIMIT>,
     in_flight_read_buf: ReadBuf2,
-    write_buf: WriteBuf,
+    write_buf: WriteBuf<W_LIMIT>,
     _phantom: PhantomData<ReqB>,
 }
 
-struct WriteBuf {
+struct WriteBuf<const LIMIT: usize> {
     buf: Option<BytesMut>,
+}
+
+impl<const LIMIT: usize> WriteBuf<LIMIT> {
+    fn new() -> Self {
+        Self {
+            buf: Some(BytesMut::new()),
+        }
+    }
+
+    fn get_mut(&mut self) -> &mut BytesMut {
+        self.buf
+            .as_mut()
+            .expect("WriteBuf::write_io is dropped before polling to complete")
+    }
+
+    async fn write_io(&mut self, io: &TcpStream) -> io::Result<()> {
+        let (res, mut buf) = io.write_all(self.buf.take().unwrap()).await;
+        buf.clear();
+        self.buf.replace(buf);
+        res
+    }
 }
 
 struct ReadBuf2 {
@@ -100,51 +121,30 @@ impl ReadBuf2 {
     }
 }
 
-impl WriteBuf {
-    fn new() -> Self {
-        Self {
-            buf: Some(BytesMut::new()),
-        }
-    }
-
-    fn get_mut(&mut self) -> &mut BytesMut {
-        self.buf
-            .as_mut()
-            .expect("WriteBuf::write_io is dropped before polling to complete")
-    }
-
-    async fn write_io(&mut self, io: &TcpStream) -> io::Result<()> {
-        let (res, mut buf) = io.write_all(self.buf.take().unwrap()).await;
-        buf.clear();
-        self.buf.replace(buf);
-        res
-    }
-}
-
-impl<'a, S, ReqB, ResB, BE, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
-    Dispatcher<'a, S, ReqB, D, HEADER_LIMIT, READ_BUF_LIMIT>
+impl<'a, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>
+    Dispatcher<'a, S, ReqB, D, H_LIMIT, R_LIMIT, W_LIMIT>
 where
     S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     D: DateTime,
 {
-    pub(super) fn new<const WRITE_BUF_LIMIT: usize>(
+    pub(super) fn new(
         io: &'a mut TcpStream,
         addr: SocketAddr,
         timer: Pin<&'a mut KeepAlive>,
-        config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+        config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
         date: &'a D,
     ) -> Self {
         Self {
             io,
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
-            ctx: Context::with_addr(addr, date),
+            ctx: Context::<_, H_LIMIT>::with_addr(addr, date),
             service,
-            read_buf: ReadBuf::new(),
+            read_buf: ReadBuf::<R_LIMIT>::new(),
             in_flight_read_buf: ReadBuf2::new(),
-            write_buf: WriteBuf::new(),
+            write_buf: WriteBuf::<W_LIMIT>::new(),
             _phantom: PhantomData,
         }
     }
@@ -186,7 +186,7 @@ where
 
         self.read_buf.get_mut().extend_from_slice(self.in_flight_read_buf.get());
 
-        while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(&mut self.read_buf)? {
+        while let Some((req, decoder)) = self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf)? {
             self.timer.reset_state();
 
             let (mut body_reader, body) = BodyReader::from_coding(decoder);
@@ -212,7 +212,7 @@ where
 
                 let encoder = self.ctx.encode_head(parts, &body, self.write_buf.get_mut())?;
 
-                match write_body::<S::Error, BE>(self.io, body, encoder, &mut self.write_buf)
+                match write_body::<S::Error, BE, W_LIMIT>(self.io, body, encoder, &mut self.write_buf)
                     .select(read_task)
                     .await
                 {
@@ -243,10 +243,10 @@ where
     }
 }
 
-fn read_body<'a, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
-    ctx: &Context<'_, D, HEADER_LIMIT>,
+fn read_body<'a, D, const H_LIMIT: usize, const R_LIMIT: usize>(
+    ctx: &Context<'_, D, H_LIMIT>,
     body_reader: &'a mut BodyReader,
-    read_buf: &'a mut ReadBuf<READ_BUF_LIMIT>,
+    read_buf: &'a mut ReadBuf<R_LIMIT>,
     read_buf2: &'a mut ReadBuf2,
     io: &'a TcpStream,
 ) -> impl Future<Output = io::Result<Infallible>> + 'a {
@@ -256,7 +256,7 @@ fn read_body<'a, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
             // wait for service future to start polling RequestBody.
             if body_reader.wait_for_poll().await.is_ok() {
                 let mut buf = BytesMut::new();
-                Context::<D, HEADER_LIMIT>::encode_continue(&mut buf);
+                Context::<D, H_LIMIT>::encode_continue(&mut buf);
                 let (res, _) = io.write_all(buf).await;
                 res?;
             }
@@ -269,11 +269,11 @@ fn read_body<'a, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>(
     }
 }
 
-async fn write_body<SE, BE>(
+async fn write_body<SE, BE, const W_LIMIT: usize>(
     io: &TcpStream,
     mut body: impl Stream<Item = Result<Bytes, BE>>,
     mut encoder: TransferCoding,
-    write_buf: &mut WriteBuf,
+    write_buf: &mut WriteBuf<W_LIMIT>,
 ) -> Result<(), Error<SE, BE>> {
     let mut body = pin!(body);
 
@@ -281,32 +281,36 @@ async fn write_body<SE, BE>(
     let mut err = None;
 
     loop {
-        match poll_fn(|cx| body.as_mut().poll_next(cx))
-            .select(async {
-                // make sure only one in-flight write operation.
-                loop {
-                    match task.as_mut().as_pin_mut() {
-                        Some(task) => return task.await,
-                        None => {
-                            if write_buf.get_mut().is_empty() {
-                                // pending when buffer is empty. wait for body to make progress
-                                // with more bytes. (or exit with error)
-                                pending::<()>().await;
-                            }
-                            let buf = write_buf.get_mut().split();
-                            task.as_mut().set(Some(io.write_all(buf)));
-                        }
-                    }
+        let want_body = write_buf.get_mut().len() < W_LIMIT;
+
+        let poll_body = async {
+            if want_body {
+                poll_fn(|cx| body.as_mut().poll_next(cx)).await
+            } else {
+                pending().await
+            }
+        };
+
+        let poll_write = async {
+            if task.is_none() {
+                if write_buf.get_mut().is_empty() {
+                    // pending when buffer is empty. wait for body to make progress
+                    // with more bytes. (or exit with error)
+                    return pending().await;
                 }
-            })
-            .await
-        {
+                let buf = write_buf.get_mut().split();
+                task.as_mut().set(Some(io.write_all(buf)));
+            }
+            task.as_mut().as_pin_mut().unwrap().await
+        };
+
+        match poll_body.select(poll_write).await {
+            SelectOutput::A(Some(Ok(bytes))) => {
+                encoder.encode(bytes, write_buf.get_mut());
+            }
             SelectOutput::A(None) => {
                 encoder.encode_eof(write_buf.get_mut());
                 break;
-            }
-            SelectOutput::A(Some(Ok(bytes))) => {
-                encoder.encode(bytes, write_buf.get_mut());
             }
             SelectOutput::A(Some(Err(e))) => {
                 err = Some(Error::Body(e));
