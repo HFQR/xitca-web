@@ -19,22 +19,32 @@ pub type PagedBytesMut = xitca_io::bytes::PagedBytesMut<4096>;
 
 /// a writable buffer with const generic guarded max size limit.
 #[derive(Debug)]
-pub struct ReadBuf<const BUF_LIMIT: usize>(PagedBytesMut);
+pub struct ReadBuf<const LIMIT: usize>(PagedBytesMut);
 
-impl<const BUF_LIMIT: usize> ReadBuf<BUF_LIMIT> {
-    #[inline]
+impl<const LIMIT: usize> ReadBuf<LIMIT> {
+    #[inline(always)]
     pub fn new() -> Self {
         Self(PagedBytesMut::new())
     }
+
+    #[inline(always)]
+    pub fn into_inner(self) -> PagedBytesMut {
+        self.0
+    }
+
+    #[inline(always)]
+    pub fn cast_limit<const LIMIT2: usize>(self) -> ReadBuf<LIMIT2> {
+        ReadBuf(self.0)
+    }
 }
 
-impl<const BUF_LIMIT: usize> Default for ReadBuf<BUF_LIMIT> {
+impl<const LIMIT: usize> Default for ReadBuf<LIMIT> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const BUF_LIMIT: usize> Deref for ReadBuf<BUF_LIMIT> {
+impl<const LIMIT: usize> Deref for ReadBuf<LIMIT> {
     type Target = PagedBytesMut;
 
     #[inline]
@@ -43,17 +53,17 @@ impl<const BUF_LIMIT: usize> Deref for ReadBuf<BUF_LIMIT> {
     }
 }
 
-impl<const BUF_LIMIT: usize> DerefMut for ReadBuf<BUF_LIMIT> {
+impl<const LIMIT: usize> DerefMut for ReadBuf<LIMIT> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<const BUF_LIMIT: usize> BufInterest for ReadBuf<BUF_LIMIT> {
+impl<const LIMIT: usize> BufInterest for ReadBuf<LIMIT> {
     #[inline]
     fn want_write_buf(&self) -> bool {
-        self.0.remaining() < BUF_LIMIT
+        self.0.remaining() < LIMIT
     }
 
     fn want_write_io(&self) -> bool {
@@ -61,7 +71,7 @@ impl<const BUF_LIMIT: usize> BufInterest for ReadBuf<BUF_LIMIT> {
     }
 }
 
-impl<const BUF_LIMIT: usize> BufRead for ReadBuf<BUF_LIMIT> {
+impl<const LIMIT: usize> BufRead for ReadBuf<LIMIT> {
     fn do_io<Io>(&mut self, io: &mut Io) -> io::Result<()>
     where
         Io: io::Read,
@@ -77,7 +87,9 @@ impl<const BUF_LIMIT: usize> BufRead for ReadBuf<BUF_LIMIT> {
                 }
                 Ok(_) => {
                     if !self.want_write_buf() {
-                        trace!("READ_BUF_LIMIT: {BUF_LIMIT} bytes reached. Entering backpressure(no log event for recovery).");
+                        trace!(
+                            "READ_BUF_LIMIT: {LIMIT} bytes reached. Entering backpressure(no log event for recovery)."
+                        );
                         break;
                     }
                 }
@@ -95,9 +107,9 @@ impl<const BUF_LIMIT: usize> BufRead for ReadBuf<BUF_LIMIT> {
 }
 
 #[derive(Default)]
-pub struct WriteBuf<const BUF_LIMIT: usize>(xitca_io::bytes::WriteBuf);
+pub struct WriteBuf<const LIMIT: usize>(xitca_io::bytes::WriteBuf);
 
-impl<const BUF_LIMIT: usize> WriteBuf<BUF_LIMIT> {
+impl<const LIMIT: usize> WriteBuf<LIMIT> {
     #[inline]
     pub fn new() -> Self {
         Self(xitca_io::bytes::WriteBuf::new())
@@ -109,10 +121,10 @@ impl<const BUF_LIMIT: usize> WriteBuf<BUF_LIMIT> {
     }
 }
 
-impl<const BUF_LIMIT: usize> BufInterest for WriteBuf<BUF_LIMIT> {
+impl<const LIMIT: usize> BufInterest for WriteBuf<LIMIT> {
     #[inline]
     fn want_write_buf(&self) -> bool {
-        self.0.len() < BUF_LIMIT
+        self.0.len() < LIMIT
     }
 
     #[inline]
@@ -121,7 +133,7 @@ impl<const BUF_LIMIT: usize> BufInterest for WriteBuf<BUF_LIMIT> {
     }
 }
 
-impl<const BUF_LIMIT: usize> BufWrite for WriteBuf<BUF_LIMIT> {
+impl<const LIMIT: usize> BufWrite for WriteBuf<LIMIT> {
     #[inline]
     fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
@@ -137,7 +149,7 @@ impl<const BUF_LIMIT: usize> BufWrite for WriteBuf<BUF_LIMIT> {
 }
 
 // an internal buffer to collect writes before flushes
-pub struct ListWriteBuf<B, const BUF_LIMIT: usize> {
+pub struct ListWriteBuf<B, const LIMIT: usize> {
     // Re-usable buffer that holds response head.
     // After head writing finished it's split and pushed to list.
     buf: BytesMut,
@@ -146,7 +158,7 @@ pub struct ListWriteBuf<B, const BUF_LIMIT: usize> {
     want_flush: bool,
 }
 
-impl<B: Buf, const BUF_LIMIT: usize> Default for ListWriteBuf<B, BUF_LIMIT> {
+impl<B: Buf, const LIMIT: usize> Default for ListWriteBuf<B, LIMIT> {
     fn default() -> Self {
         Self {
             buf: BytesMut::new(),
@@ -156,7 +168,7 @@ impl<B: Buf, const BUF_LIMIT: usize> Default for ListWriteBuf<B, BUF_LIMIT> {
     }
 }
 
-impl<B: Buf, const BUF_LIMIT: usize> ListWriteBuf<B, BUF_LIMIT> {
+impl<B: Buf, const LIMIT: usize> ListWriteBuf<B, LIMIT> {
     /// split buf field from Self.
     /// this is often coupled with [ButWrite::write_buf] method to obtain what has been written to
     /// the buf.
@@ -175,7 +187,7 @@ impl<B: Buf, const BUF_LIMIT: usize> ListWriteBuf<B, BUF_LIMIT> {
     }
 }
 
-impl<B: Buf, const BUF_LIMIT: usize> fmt::Debug for ListWriteBuf<B, BUF_LIMIT> {
+impl<B: Buf, const LIMIT: usize> fmt::Debug for ListWriteBuf<B, LIMIT> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ListBuf")
             .field("remaining", &self.list.remaining())
@@ -187,13 +199,13 @@ impl<B: Buf, const BUF_LIMIT: usize> fmt::Debug for ListWriteBuf<B, BUF_LIMIT> {
 // 32 is chosen for max of 16 pipelined http requests with a single body item.
 const BUF_LIST_CNT: usize = 32;
 
-impl<B, const BUF_LIMIT: usize> BufInterest for ListWriteBuf<B, BUF_LIMIT>
+impl<B, const LIMIT: usize> BufInterest for ListWriteBuf<B, LIMIT>
 where
     B: Buf + ChunkVectoredUninit,
 {
     #[inline]
     fn want_write_buf(&self) -> bool {
-        self.list.remaining() < BUF_LIMIT && !self.list.is_full()
+        self.list.remaining() < LIMIT && !self.list.is_full()
     }
 
     #[inline]
@@ -202,7 +214,7 @@ where
     }
 }
 
-impl<B, const BUF_LIMIT: usize> BufWrite for ListWriteBuf<B, BUF_LIMIT>
+impl<B, const LIMIT: usize> BufWrite for ListWriteBuf<B, LIMIT>
 where
     B: Buf + ChunkVectoredUninit,
 {

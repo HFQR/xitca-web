@@ -18,6 +18,8 @@ pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;
 #[derive(Clone, Debug)]
 enum RequestBodyInner {
     Some(Rc<RefCell<Inner>>),
+    #[cfg(feature = "io-uring")]
+    Completion(super::dispatcher_uring::Body),
     None,
 }
 
@@ -48,6 +50,11 @@ impl RequestBody {
         let inner = RequestBodyInner::new(eof);
         (RequestBodySender(inner.clone()), RequestBody(inner))
     }
+
+    #[cfg(feature = "io-uring")]
+    pub(super) fn io_uring(body: super::dispatcher_uring::Body) -> Self {
+        RequestBody(RequestBodyInner::Completion(body))
+    }
 }
 
 impl Stream for RequestBody {
@@ -57,6 +64,8 @@ impl Stream for RequestBody {
         match self.get_mut().0 {
             RequestBodyInner::Some(ref mut inner) => inner.borrow_mut().poll_next_unpin(cx),
             RequestBodyInner::None => Poll::Ready(None),
+            #[cfg(feature = "io-uring")]
+            RequestBodyInner::Completion(ref mut body) => Pin::new(body).poll_next(cx),
         }
     }
 }
@@ -105,7 +114,7 @@ impl RequestBodySender {
                 debug_assert_eq!(Rc::weak_count(inner), 0);
                 (Rc::strong_count(inner) != 1).then_some(inner.borrow_mut())
             }
-            RequestBodyInner::None => {
+            _ => {
                 func();
                 None
             }
