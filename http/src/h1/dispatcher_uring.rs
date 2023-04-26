@@ -236,7 +236,9 @@ where
 
             let mut encoder = self.ctx.encode_head(parts, &body, self.write_buf.get_mut())?;
 
-            // this block is necessary. ReqB has to be dropped asap.
+            // this block is necessary. ResB has to be dropped asap as it may hold ownership of
+            // Body type which if not dropped before Waiter::wait is called would prevent Notifier
+            // from waking up Waiter.
             {
                 let mut body = pin!(body);
                 let mut task = pin!(None);
