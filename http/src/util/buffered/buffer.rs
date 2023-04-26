@@ -38,6 +38,12 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
     }
 }
 
+impl<const LIMIT: usize> From<BytesMut> for ReadBuf<LIMIT> {
+    fn from(bytes: BytesMut) -> Self {
+        Self(PagedBytesMut::from(bytes))
+    }
+}
+
 impl<const LIMIT: usize> Default for ReadBuf<LIMIT> {
     fn default() -> Self {
         Self::new()

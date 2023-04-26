@@ -15,7 +15,7 @@ use std::{
 };
 
 use futures_core::stream::Stream;
-use tokio_uring::net::TcpStream;
+use tokio_uring::{buf::IoBuf, net::TcpStream};
 use tracing::trace;
 use xitca_io::bytes::BytesMut;
 use xitca_service::Service;
@@ -23,7 +23,7 @@ use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
 use crate::{
     body::NoneBody,
-    bytes::{BufMut, Bytes},
+    bytes::Bytes,
     config::HttpServiceConfig,
     date::DateTime,
     h1::{body::RequestBody, error::Error},
@@ -95,7 +95,6 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
 #[derive(Debug, Default)]
 struct ReadBuf<const LIMIT: usize> {
     buf: buffered::ReadBuf<LIMIT>,
-    in_flight: Option<Vec<u8>>,
 }
 
 // erase const generic type to ease public type param.
@@ -105,14 +104,12 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
     fn new() -> Self {
         Self {
             buf: buffered::ReadBuf::new(),
-            in_flight: Some(vec![0; 4096]),
         }
     }
 
     fn cast_limit<const LIMIT2: usize>(self) -> ReadBuf<LIMIT2> {
         ReadBuf {
             buf: self.buf.cast_limit(),
-            in_flight: self.in_flight,
         }
     }
 
@@ -121,32 +118,24 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
     }
 
     async fn read_io(&mut self, io: &TcpStream) -> io::Result<()> {
-        let buf = self
-            .in_flight
-            .take()
-            .expect("ReadBuf::read_io is dropped before polling to complete.");
-        let (res, buf) = io.read(buf).await;
-        match res {
-            Ok(n) => {
-                if n == 0 {
-                    self.in_flight.replace(buf);
-                    return Err(io::ErrorKind::UnexpectedEof.into());
-                }
+        let mut buf = mem::take(&mut self.buf).into_inner().into_inner();
 
-                // TODO: extend in flight buffer size?
-                // if n == buf.capacity() {
-                //     buf.reserve_exact(n);
-                // }
-
-                self.buf.put_slice(&buf[..n]);
-                self.in_flight.replace(buf);
-                Ok(())
-            }
-            Err(e) => {
-                self.in_flight.replace(buf);
-                Err(e)
-            }
+        let len = buf.len();
+        let remaining = buf.capacity() - len;
+        if remaining < 4096 {
+            buf.reserve(4096 - remaining);
         }
+
+        let (res, buf) = io.read(buf.slice(len..)).await;
+        let n = res?;
+
+        if n == 0 {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+
+        self.buf = buffered::ReadBuf::from(buf.into_inner());
+
+        Ok(())
     }
 }
 
