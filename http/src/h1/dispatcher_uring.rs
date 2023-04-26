@@ -1,10 +1,11 @@
 use core::{
+    cell::RefCell,
     fmt,
     future::{pending, poll_fn, Future},
     marker::PhantomData,
     mem,
     pin::{pin, Pin},
-    task::{ready, Poll},
+    task::{ready, Poll, Waker},
 };
 
 use std::{
@@ -52,6 +53,7 @@ pub(super) struct Dispatcher<'a, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT
     service: &'a S,
     read_buf: ReadBuf<R_LIMIT>,
     write_buf: WriteBuf<W_LIMIT>,
+    waiter: Waiter<ReadBufErased>,
     _phantom: PhantomData<ReqB>,
 }
 
@@ -73,10 +75,20 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
     }
 
     async fn write_io(&mut self, io: &TcpStream) -> io::Result<()> {
-        let (res, mut buf) = io.write_all(self.buf.take().unwrap()).await;
-        buf.clear();
+        let mut buf = self
+            .buf
+            .take()
+            .expect("WriteBuf::write_io is dropped before polling to complete");
+
+        if !buf.is_empty() {
+            let (res, b) = io.write_all(buf).await;
+            buf = b;
+            buf.clear();
+            res?;
+        }
+
         self.buf.replace(buf);
-        res
+        Ok(())
     }
 }
 
@@ -161,6 +173,7 @@ where
             service,
             read_buf: ReadBuf::<R_LIMIT>::new(),
             write_buf: WriteBuf::<W_LIMIT>::new(),
+            waiter: Waiter::new(),
             _phantom: PhantomData,
         }
     }
@@ -181,9 +194,7 @@ where
                 Err(e) => return Err(e),
             }
 
-            if !self.write_buf.get_mut().is_empty() {
-                self.write_buf.write_io(&self.io).await?;
-            }
+            self.write_buf.write_io(&self.io).await?;
 
             if self.ctx.is_connection_closed() {
                 return self.io.shutdown(Shutdown::Both).map_err(Into::into);
@@ -203,20 +214,20 @@ where
         while let Some((req, decoder)) = self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf.buf)? {
             self.timer.reset_state();
 
-            let (rx, body) = if decoder.is_eof() {
+            let (waiter, body) = if decoder.is_eof() {
                 (None, RequestBody::default())
             } else {
-                let (tx, rx) = tokio::sync::oneshot::channel();
+                let notify = self.waiter.notifier();
 
                 let body = Body::new(
                     self.io.clone(),
                     R_LIMIT,
                     decoder,
                     mem::take(&mut self.read_buf).cast_limit(),
-                    tx,
+                    notify,
                 );
 
-                (Some(rx), RequestBody::io_uring(body))
+                (Some(&mut self.waiter), RequestBody::io_uring(body))
             };
 
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
@@ -284,12 +295,12 @@ where
                 }
             }
 
-            if let Some(rx) = rx {
-                match rx.await {
-                    Ok(read_buf) => {
+            if let Some(waiter) = waiter {
+                match waiter.wait().await {
+                    Some(read_buf) => {
                         let _ = mem::replace(&mut self.read_buf, read_buf.cast_limit());
                     }
-                    Err(_) => {
+                    None => {
                         self.ctx.set_close();
                         break;
                     }
@@ -328,7 +339,7 @@ pub(super) struct _Body {
 struct Decoder {
     decoder: TransferCoding,
     read_buf: ReadBufErased,
-    tx: Option<tokio::sync::oneshot::Sender<ReadBufErased>>,
+    notify: Notifier<ReadBufErased>,
 }
 
 impl Body {
@@ -337,7 +348,7 @@ impl Body {
         limit: usize,
         decoder: TransferCoding,
         read_buf: ReadBufErased,
-        tx: tokio::sync::oneshot::Sender<ReadBufErased>,
+        notify: Notifier<ReadBufErased>,
     ) -> Self {
         Self::_Body(_Body {
             io,
@@ -345,7 +356,7 @@ impl Body {
             decoder: Decoder {
                 decoder,
                 read_buf,
-                tx: Some(tx),
+                notify,
             },
         })
     }
@@ -355,7 +366,7 @@ impl Drop for Decoder {
     fn drop(&mut self) {
         if self.decoder.is_eof() {
             let buf = mem::take(&mut self.read_buf);
-            let _ = self.tx.take().unwrap().send(buf);
+            self.notify.notify(buf);
         }
     }
 }
@@ -411,4 +422,72 @@ impl Stream for Body {
             }
         }
     }
+}
+
+struct Waiter<T> {
+    inner: Rc<RefCell<Inner<T>>>,
+}
+
+impl<T> Waiter<T> {
+    fn new() -> Self {
+        Self {
+            inner: Rc::new(RefCell::new(Inner { waker: None, val: None })),
+        }
+    }
+
+    fn notifier(&mut self) -> Notifier<T> {
+        let mut inner = self.inner.borrow_mut();
+        inner.val = None;
+        inner.waker = None;
+        Notifier {
+            inner: self.inner.clone(),
+            notified: false,
+        }
+    }
+
+    async fn wait(&mut self) -> Option<T> {
+        poll_fn(|cx| {
+            let strong_count = Rc::strong_count(&self.inner);
+            let mut inner = self.inner.borrow_mut();
+            if let Some(val) = inner.val.take() {
+                return Poll::Ready(Some(val));
+            } else if strong_count == 1 {
+                return Poll::Ready(None);
+            }
+            inner.waker = Some(cx.waker().clone());
+            Poll::Pending
+        })
+        .await
+    }
+}
+
+struct Notifier<T> {
+    inner: Rc<RefCell<Inner<T>>>,
+    notified: bool,
+}
+
+impl<T> Drop for Notifier<T> {
+    fn drop(&mut self) {
+        if !self.notified {
+            if let Some(waker) = self.inner.borrow_mut().waker.take() {
+                waker.wake();
+            }
+        }
+    }
+}
+
+impl<T> Notifier<T> {
+    fn notify(&mut self, val: T) {
+        self.notified = true;
+        let mut inner = self.inner.borrow_mut();
+        inner.val = Some(val);
+        if let Some(waker) = inner.waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+struct Inner<V> {
+    waker: Option<Waker>,
+    val: Option<V>,
 }
