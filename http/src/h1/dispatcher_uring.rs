@@ -225,60 +225,63 @@ where
 
             let mut encoder = self.ctx.encode_head(parts, &body, self.write_buf.get_mut())?;
 
-            let mut body = pin!(body);
-            let mut task = pin!(None);
-            let mut err = None;
+            // this block is necessary. ReqB has to be dropped asap.
+            {
+                let mut body = pin!(body);
+                let mut task = pin!(None);
+                let mut err = None;
 
-            loop {
-                let want_body = self.write_buf.get_mut().len() < W_LIMIT;
+                loop {
+                    let want_body = self.write_buf.get_mut().len() < W_LIMIT;
 
-                let poll_body = async {
-                    if want_body {
-                        poll_fn(|cx| body.as_mut().poll_next(cx)).await
-                    } else {
-                        pending().await
-                    }
-                };
-
-                let poll_write = async {
-                    if task.is_none() {
-                        if self.write_buf.get_mut().is_empty() {
-                            // pending when buffer is empty. wait for body to make progress
-                            // with more bytes. (or exit with error)
-                            return pending().await;
+                    let poll_body = async {
+                        if want_body {
+                            poll_fn(|cx| body.as_mut().poll_next(cx)).await
+                        } else {
+                            pending().await
                         }
-                        let buf = self.write_buf.get_mut().split();
-                        task.as_mut().set(Some(self.io.write_all(buf)));
-                    }
-                    task.as_mut().as_pin_mut().unwrap().await
-                };
+                    };
 
-                match poll_body.select(poll_write).await {
-                    SelectOutput::A(Some(Ok(bytes))) => {
-                        encoder.encode(bytes, self.write_buf.get_mut());
-                    }
-                    SelectOutput::A(None) => {
-                        encoder.encode_eof(self.write_buf.get_mut());
-                        break;
-                    }
-                    SelectOutput::A(Some(Err(e))) => {
-                        err = Some(Error::Body(e));
-                        break;
-                    }
-                    SelectOutput::B((res, _)) => {
-                        task.as_mut().set(None);
-                        res?
+                    let poll_write = async {
+                        if task.is_none() {
+                            if self.write_buf.get_mut().is_empty() {
+                                // pending when buffer is empty. wait for body to make progress
+                                // with more bytes. (or exit with error)
+                                return pending().await;
+                            }
+                            let buf = self.write_buf.get_mut().split();
+                            task.as_mut().set(Some(self.io.write_all(buf)));
+                        }
+                        task.as_mut().as_pin_mut().unwrap().await
+                    };
+
+                    match poll_body.select(poll_write).await {
+                        SelectOutput::A(Some(Ok(bytes))) => {
+                            encoder.encode(bytes, self.write_buf.get_mut());
+                        }
+                        SelectOutput::A(None) => {
+                            encoder.encode_eof(self.write_buf.get_mut());
+                            break;
+                        }
+                        SelectOutput::A(Some(Err(e))) => {
+                            err = Some(Error::Body(e));
+                            break;
+                        }
+                        SelectOutput::B((res, _)) => {
+                            task.as_mut().set(None);
+                            res?
+                        }
                     }
                 }
-            }
 
-            if let Some(task) = task.as_pin_mut() {
-                let (res, _) = task.await;
-                res?;
-            }
+                if let Some(task) = task.as_pin_mut() {
+                    let (res, _) = task.await;
+                    res?;
+                }
 
-            if let Some(e) = err {
-                return Err(e);
+                if let Some(e) = err {
+                    return Err(e);
+                }
             }
 
             if let Some(rx) = rx {
