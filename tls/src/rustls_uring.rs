@@ -15,6 +15,23 @@ pub struct TlsStream<S, Io> {
     io: Io,
 }
 
+impl<S, D, Io> TlsStream<S, Io>
+where
+    S: DerefMut<Target = ConnectionCommon<D>>,
+    D: SideData,
+    Io: AsyncBufRead,
+{
+    pub async fn handshake(io: Io, session: S) -> io::Result<Self> {
+        Ok(Self {
+            session: Session(RefCell::new(SessionInner {
+                session,
+                write_buf: Some(Vec::with_capacity(4096)),
+            })),
+            io,
+        })
+    }
+}
+
 struct Session<S>(RefCell<SessionInner<S>>);
 
 impl<S> Deref for Session<S> {

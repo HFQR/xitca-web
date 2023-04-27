@@ -17,6 +17,8 @@ openssl = ["dep:openssl", "runtime"]
 # rustls as server side tls.
 rustls = ["xitca-tls/rustls", "dep:rustls", "runtime"]
 # rustls as server side tls.
+rustls-uring = ["rustls", "xitca-tls/rustls-uring", "xitca-io/runtime-uring"]
+# rustls as server side tls.
 native-tls = ["dep:native-tls", "runtime"]
 # async runtime feature.
 runtime = ["xitca-io/runtime", "tokio"]

@@ -135,7 +135,7 @@ impl Builder {
     where
         N: AsRef<str>,
         F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
+        St: From<Stream> + 'static,
     {
         self._listen(name, Some(listener), factory)
     }
@@ -153,7 +153,7 @@ impl Builder {
         N: AsRef<str>,
         L: AsListener + 'static,
         F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
+        St: From<Stream> + 'static,
     {
         self.listeners
             .entry(name.as_ref().to_string())
@@ -173,7 +173,7 @@ impl Builder {
         N: AsRef<str>,
         A: net::ToSocketAddrs,
         F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
+        St: From<Stream> + 'static,
     {
         let addr = addr
             .to_socket_addrs()?
@@ -187,7 +187,7 @@ impl Builder {
     where
         N: AsRef<str>,
         F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
+        St: From<Stream> + 'static,
     {
         let listener = net::TcpListener::bind(addr)?;
         listener.set_nonblocking(true)?;
@@ -207,7 +207,7 @@ impl Builder {
         N: AsRef<str>,
         P: AsRef<std::path::Path>,
         F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
+        St: From<Stream> + 'static,
     {
         // The path must not exist when we try to bind.
         // Try to remove it to avoid bind error.
@@ -227,7 +227,7 @@ impl Builder {
     where
         N: AsRef<str>,
         F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
+        St: From<Stream> + 'static,
     {
         self._listen(name, Some(listener), factory)
     }
@@ -277,7 +277,7 @@ impl Builder {
         N: AsRef<str>,
         A: net::ToSocketAddrs,
         F: BuildServiceFn<St>,
-        St: From<Stream> + Send + 'static,
+        St: From<Stream> + 'static,
     {
         let addr = addr
             .to_socket_addrs()?
