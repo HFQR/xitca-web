@@ -8,15 +8,42 @@ use std::io;
 
 pub use rustls::*;
 
-use rustls::{ConnectionCommon, SideData, StreamOwned};
+use rustls::{ConnectionCommon, SideData};
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 
 /// A stream managed by `rustls` crate for tls read/write.
-pub struct TlsStream<C, Io>
+pub struct TlsStream<C, Io> {
+    conn: C,
+    io: Io,
+}
+
+impl<C, S, Io> TlsStream<C, Io>
 where
-    Io: AsyncIo,
+    C: DerefMut<Target = ConnectionCommon<S>>,
+    S: SideData,
+    Io: io::Read + io::Write,
 {
-    io: StreamOwned<C, Io>,
+    fn process_new_packets(&mut self) -> io::Result<()> {
+        match self.conn.process_new_packets() {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // In case we have an alert to send describing this error,
+                // try a last-gasp write -- but don't predate the primary
+                // error.
+                let _ = self.write_tls();
+
+                Err(io::Error::new(io::ErrorKind::InvalidData, e))
+            }
+        }
+    }
+
+    fn write_tls(&mut self) -> io::Result<usize> {
+        self.conn.write_tls(&mut self.io)
+    }
+
+    fn read_tls(&mut self) -> io::Result<usize> {
+        self.conn.read_tls(&mut self.io)
+    }
 }
 
 impl<C, S, Io> TlsStream<C, Io>
@@ -26,7 +53,7 @@ where
     Io: AsyncIo,
 {
     pub fn session(&self) -> &C {
-        &self.io.conn
+        &self.conn
     }
 
     /// finish handshake with given io and connection type.
@@ -57,9 +84,7 @@ where
             io.ready(interest).await?;
         }
 
-        Ok(TlsStream {
-            io: StreamOwned::new(conn, io),
-        })
+        Ok(TlsStream { io, conn })
     }
 }
 
@@ -73,36 +98,44 @@ where
 
     #[inline]
     fn ready(&self, interest: Interest) -> Self::Future<'_> {
-        self.io.get_ref().ready(interest)
+        self.io.ready(interest)
     }
 
     #[inline]
     fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
-        self.io.get_ref().poll_ready(interest, cx)
+        self.io.poll_ready(interest, cx)
     }
 
     fn is_vectored_write(&self) -> bool {
-        self.io.get_ref().is_vectored_write()
+        self.io.is_vectored_write()
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncIo::poll_shutdown(Pin::new(self.get_mut().io.get_mut()), cx)
+        AsyncIo::poll_shutdown(Pin::new(&mut self.get_mut().io), cx)
     }
 }
 
-impl<C, S, Io> io::Read for TlsStream<C, Io>
+impl<C, Io, S> io::Read for TlsStream<C, Io>
 where
     C: DerefMut<Target = ConnectionCommon<S>>,
     S: SideData,
     Io: AsyncIo,
 {
-    #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        io::Read::read(&mut self.io, buf)
+        while self.conn.wants_read() {
+            let n = self.read_tls()?;
+
+            self.process_new_packets()?;
+
+            if n == 0 {
+                break;
+            }
+        }
+        self.conn.reader().read(buf)
     }
 }
 
-impl<C, S, Io> io::Write for TlsStream<C, Io>
+impl<C, Io, S> io::Write for TlsStream<C, Io>
 where
     C: DerefMut<Target = ConnectionCommon<S>>,
     S: SideData,
@@ -110,18 +143,36 @@ where
 {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        io::Write::write(&mut self.io, buf)
+        write_with(self, |writer| writer.write(buf))
     }
 
     #[inline]
     fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        io::Write::write_vectored(&mut self.io, bufs)
+        write_with(self, |writer| writer.write_vectored(bufs))
     }
 
-    #[inline]
     fn flush(&mut self) -> io::Result<()> {
-        io::Write::flush(&mut self.io)
+        while self.conn.wants_write() {
+            self.write_tls()?;
+        }
+        Ok(())
     }
+}
+
+fn write_with<C, Io, S, F>(stream: &mut TlsStream<C, Io>, func: F) -> io::Result<usize>
+where
+    Io: AsyncIo,
+    C: DerefMut<Target = ConnectionCommon<S>>,
+    S: SideData,
+    F: for<'r> FnOnce(&mut Writer<'r>) -> io::Result<usize>,
+{
+    // try to drain previous write.
+    while stream.conn.wants_write() {
+        stream.write_tls()?;
+    }
+
+    // write to tls buffer.
+    func(&mut stream.conn.writer())
 }
 
 impl<C, S, Io> AsyncRead for TlsStream<C, Io>
@@ -132,7 +183,7 @@ where
 {
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        ready!(this.io.get_ref().poll_ready(Interest::READABLE, cx))?;
+        ready!(this.io.poll_ready(Interest::READABLE, cx))?;
         match io::Read::read(this, buf.initialize_unfilled()) {
             Ok(n) => {
                 buf.advance(n);
@@ -152,7 +203,7 @@ where
 {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+        ready!(this.io.poll_ready(Interest::WRITABLE, cx))?;
         match io::Write::write(this, buf) {
             Ok(n) => Poll::Ready(Ok(n)),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
@@ -162,7 +213,7 @@ where
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+        ready!(this.io.poll_ready(Interest::WRITABLE, cx))?;
         match io::Write::flush(this) {
             Ok(_) => Poll::Ready(Ok(())),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
@@ -180,7 +231,7 @@ where
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
+        ready!(this.io.poll_ready(Interest::WRITABLE, cx))?;
         match io::Write::write_vectored(this, bufs) {
             Ok(n) => Poll::Ready(Ok(n)),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
@@ -189,6 +240,6 @@ where
     }
 
     fn is_write_vectored(&self) -> bool {
-        self.io.get_ref().is_vectored_write()
+        self.io.is_vectored_write()
     }
 }
