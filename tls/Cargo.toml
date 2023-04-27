@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 rustls = ["dep:rustls"]
+rustls-uring = ["rustls", "xitca-io/runtime-uring"]
 
 [dependencies]
 xitca-io = { version = "0.1", features = ["runtime"] }

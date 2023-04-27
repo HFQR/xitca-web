@@ -10,7 +10,7 @@ pub trait AsyncBufRead {
     type Future<'f, B>: Future<Output = (io::Result<usize>, B)> + 'f
     where
         Self: 'f,
-        B: 'f;
+        B: IoBufMut + 'f;
 
     fn read<B>(&self, buf: B) -> Self::Future<'_, B>
     where
@@ -21,7 +21,7 @@ pub trait AsyncBufWrite {
     type Future<'f, B>: Future<Output = (io::Result<usize>, B)> + 'f
     where
         Self: 'f,
-        B: 'f;
+        B: IoBuf + 'f;
 
     fn write<B>(&self, buf: B) -> Self::Future<'_, B>
     where
