@@ -1,6 +1,10 @@
-use core::{cell::RefCell, future::Future, ops::DerefMut, slice};
+use core::{
+    cell::RefCell,
+    future::Future,
+    ops::{Deref, DerefMut},
+    slice,
+};
 
-use std::io::Write;
 use std::{io, net::Shutdown};
 
 use rustls::{ConnectionCommon, SideData};
@@ -13,9 +17,24 @@ pub struct TlsStream<S, Io> {
 
 struct Session<S>(RefCell<SessionInner<S>>);
 
+impl<S> Deref for Session<S> {
+    type Target = RefCell<SessionInner<S>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 struct SessionInner<S> {
     session: S,
     write_buf: Option<Vec<u8>>,
+}
+
+impl<S> SessionInner<S> {
+    fn check_in(&mut self, mut buf: Vec<u8>) {
+        buf.clear();
+        self.write_buf.replace(buf);
+    }
 }
 
 impl<S, D> Session<S>
@@ -24,7 +43,7 @@ where
     D: SideData,
 {
     fn read_plain(&self, buf: &mut impl IoBufMut) -> io::Result<usize> {
-        let mut inner = self.0.borrow_mut();
+        let mut inner = self.borrow_mut();
         io::Read::read(&mut inner.session.reader(), io_buf_slice_mut(buf)).map(|n| {
             // SAFETY
             // have to trust IoBufMut trait to properly update initialized length.
@@ -34,7 +53,7 @@ where
     }
 
     fn read_tls(&self, buf: &impl IoBuf) -> io::Result<()> {
-        let mut inner = self.0.borrow_mut();
+        let mut inner = self.borrow_mut();
 
         let mut slice = io_buf_slice(buf);
         let len = slice.len();
@@ -101,9 +120,9 @@ where
         B: IoBuf,
     {
         async {
-            let mut inner = self.session.0.borrow_mut();
+            let mut inner = self.session.borrow_mut();
 
-            let n = match inner.session.writer().write(io_buf_slice(&buf)) {
+            let n = match io::Write::write(&mut inner.session.writer(), io_buf_slice(&buf)) {
                 Ok(n) => n,
                 Err(e) => return (Err(e), buf),
             };
@@ -113,6 +132,8 @@ where
                 .take()
                 .expect("<TlsStream as AsyncBufWrite>::write did not polled to completion");
 
+            let mut off = 0;
+
             loop {
                 inner
                     .session
@@ -121,36 +142,29 @@ where
 
                 drop(inner);
 
-                let mut slice = write_buf.slice(..);
+                let (res, slice) = self.io.write(write_buf.slice(off..)).await;
+                write_buf = slice.into_inner();
 
-                while !slice.is_empty() {
-                    match self.io.write(slice).await {
-                        (Ok(0), s) => {
-                            write_buf = s.into_inner();
-                            write_buf.clear();
-                            self.session.0.borrow_mut().write_buf.replace(write_buf);
-                            return (Err(io::ErrorKind::WriteZero.into()), buf);
-                        }
-                        (Ok(n), s) => slice = s.into_inner().slice(n..),
-                        (Err(e), s) => {
-                            write_buf = s.into_inner();
-                            write_buf.clear();
-                            self.session.0.borrow_mut().write_buf.replace(write_buf);
-                            return (Err(e), buf);
-                        }
+                match res {
+                    Ok(0) => {
+                        self.session.borrow_mut().check_in(write_buf);
+                        return (Err(io::ErrorKind::WriteZero.into()), buf);
+                    }
+                    Ok(n) => off = n,
+                    Err(e) => {
+                        self.session.borrow_mut().check_in(write_buf);
+                        return (Err(e), buf);
                     }
                 }
 
-                write_buf = slice.into_inner();
-
-                inner = self.session.0.borrow_mut();
+                inner = self.session.borrow_mut();
 
                 if !inner.session.wants_write() {
                     break;
                 }
             }
 
-            inner.write_buf.replace(write_buf);
+            inner.check_in(write_buf);
 
             (Ok(n), buf)
         }
