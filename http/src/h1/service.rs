@@ -8,9 +8,10 @@ use xitca_service::Service;
 
 use crate::{
     bytes::Bytes,
-    error::HttpServiceError,
+    error::{HttpServiceError, TimeoutError},
     http::{Request, RequestExt, Response},
     service::HttpService,
+    util::timer::Timeout,
 };
 
 use super::body::RequestBody;
@@ -23,8 +24,8 @@ impl<St, S, B, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, co
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
     A: Service<St>,
-    St: AsyncIo + 'static,
-    A::Response: AsyncIo,
+    St: AsyncIo,
+    A::Response: AsyncIo + 'static,
     B: Stream<Item = Result<Bytes, BE>>,
     HttpServiceError<S::Error, BE>: From<A::Error>,
 {
@@ -37,12 +38,18 @@ where
         St: 's,
     {
         async move {
-            // tls accept timer.
-            let timer = self.keep_alive();
+            // at this stage keep-alive timer is used to tracks tls accept timeout.
+            let mut timer = pin!(self.keep_alive());
+
+            let io = self
+                .tls_acceptor
+                .call(io)
+                .timeout(timer.as_mut())
+                .await
+                .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
+
             #[cfg(feature = "io-uring")]
             {
-                let timer = pin!(timer);
-
                 let io = (&mut Some(io) as &mut dyn std::any::Any)
                     .downcast_mut::<Option<xitca_io::net::TcpStream>>()
                     .expect("currently io-uring feature only support TcpStream.")
@@ -50,7 +57,7 @@ where
                     .unwrap();
 
                 let io = io.into_std().unwrap();
-                let io = tokio_uring::net::TcpStream::from_std(io);
+                let io = xitca_io::net::io_uring::TcpStream::from_std(io);
 
                 super::dispatcher_uring::Dispatcher::new(io, addr, timer, self.config, &self.service, self.date.get())
                     .run()
@@ -59,17 +66,7 @@ where
 
             #[cfg(not(feature = "io-uring"))]
             {
-                use crate::{error::TimeoutError, util::timer::Timeout};
-
-                let mut timer = pin!(timer);
-
-                let mut io = self
-                    .tls_acceptor
-                    .call(io)
-                    .timeout(timer.as_mut())
-                    .await
-                    .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
-
+                let mut io = io;
                 super::dispatcher::run(&mut io, addr, timer, self.config, &self.service, self.date.get()).await?;
             }
 

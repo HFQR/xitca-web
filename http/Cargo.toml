@@ -22,7 +22,7 @@ native-tls = ["dep:native-tls", "runtime"]
 runtime = ["xitca-io/runtime", "tokio"]
 
 # unstable features that are subject to be changed at anytime.
-io-uring = ["tokio-uring"]
+io-uring = ["xitca-io/runtime-uring", "tokio-uring"]
 util-service = ["xitca-router"]
 
 [dependencies]
