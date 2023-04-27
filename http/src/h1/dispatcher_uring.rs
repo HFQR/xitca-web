@@ -82,7 +82,7 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
             .take()
             .expect("WriteBuf::write_io is dropped before polling to complete");
 
-        let (res, mut buf) = write_all(buf, |slice| io.write(slice)).await;
+        let (res, mut buf) = write_all(buf, io).await;
 
         buf.clear();
         self.buf.replace(buf);
@@ -93,20 +93,16 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
     fn split_write_io<'i>(&mut self, io: &'i impl AsyncBufWrite) -> impl Future<Output = io::Result<()>> + 'i {
         let buf = self.get_mut().split();
         async {
-            let (res, _) = write_all(buf, |slice| io.write(slice)).await;
+            let (res, _) = write_all(buf, io).await;
             res
         }
     }
 }
 
-async fn write_all<F, Fut>(mut buf: BytesMut, mut func: F) -> (io::Result<()>, BytesMut)
-where
-    F: FnMut(Slice<BytesMut>) -> Fut,
-    Fut: Future<Output = (io::Result<usize>, Slice<BytesMut>)>,
-{
+async fn write_all(mut buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, BytesMut) {
     let mut n = 0;
     while n < buf.bytes_init() {
-        match func(buf.slice(n..)).await {
+        match io.write(buf.slice(n..)).await {
             (Ok(0), slice) => {
                 return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
             }
