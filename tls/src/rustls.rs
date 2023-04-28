@@ -5,7 +5,6 @@ use core::{
 };
 
 use std::io;
-use std::io::Write;
 
 pub use rustls::*;
 
@@ -169,7 +168,7 @@ where
     S: SideData,
     F: for<'r> FnOnce(&mut Writer<'r>) -> io::Result<usize>,
 {
-    stream.flush()?; // flush potential previous buffered write.
+    io::Write::flush(stream)?; // flush potential previous buffered write.
     func(&mut stream.conn.writer())
 }
 
