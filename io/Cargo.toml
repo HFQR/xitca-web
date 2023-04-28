@@ -5,14 +5,20 @@ edition = "2021"
 
 [features]
 default = []
+# tokio runtime support
 runtime = ["tokio"]
+# tokio-uring runtime support
+runtime-uring = ["tokio-uring"]
+# http/3 support
 http3 = ["quinn", "runtime"]
 
 [dependencies]
 xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
 bytes = "1.4"
+
 tokio = { version = "1.27", features = ["net"], optional = true }
 
-# http/3 support
+tokio-uring = { version = "0.4.0", features = ["bytes"], optional = true }
+
 quinn = { version = "0.9", optional = true }

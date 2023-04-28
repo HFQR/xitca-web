@@ -1,5 +1,8 @@
 //! re-export of [tokio::net] types
 
+#[cfg(feature = "runtime-uring")]
+pub mod io_uring;
+
 #[cfg(feature = "http3")]
 mod h3;
 mod tcp;

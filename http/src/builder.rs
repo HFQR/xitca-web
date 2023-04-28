@@ -19,6 +19,8 @@ pub(crate) mod marker {
     pub struct Http;
     #[cfg(feature = "http1")]
     pub struct Http1;
+    #[cfg(all(feature = "io-uring", feature = "http1"))]
+    pub struct Http1Uring;
     #[cfg(feature = "http2")]
     pub struct Http2;
 }
@@ -190,6 +192,22 @@ impl<V, St, F, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const
     ) -> HttpServiceBuilder<V, St, F, tls::rustls::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
         self.with_tls(tls::rustls::TlsAcceptorBuilder::new(config))
+    }
+
+    #[cfg(feature = "rustls-uring")]
+    pub fn rustls_uring(
+        self,
+        config: tls::rustls::RustlsConfig,
+    ) -> HttpServiceBuilder<
+        V,
+        St,
+        F,
+        tls::rustls_uring::TlsAcceptorBuilder,
+        HEADER_LIMIT,
+        READ_BUF_LIMIT,
+        WRITE_BUF_LIMIT,
+    > {
+        self.with_tls(tls::rustls_uring::TlsAcceptorBuilder::new(config))
     }
 
     #[cfg(feature = "native-tls")]

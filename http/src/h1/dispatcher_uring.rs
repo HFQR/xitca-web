@@ -15,9 +15,11 @@ use std::{
 };
 
 use futures_core::stream::Stream;
-use tokio_uring::{buf::IoBuf, net::TcpStream};
 use tracing::trace;
-use xitca_io::bytes::BytesMut;
+use xitca_io::{
+    bytes::BytesMut,
+    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, Slice},
+};
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
@@ -46,8 +48,8 @@ use super::{
 type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
 
 /// Http/1 dispatcher
-pub(super) struct Dispatcher<'a, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize> {
-    io: Rc<TcpStream>,
+pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize> {
+    io: Rc<Io>,
     timer: Timer<'a>,
     ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
@@ -74,22 +76,47 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
             .expect("WriteBuf::write_io is dropped before polling to complete")
     }
 
-    async fn write_io(&mut self, io: &TcpStream) -> io::Result<()> {
-        let mut buf = self
+    async fn write_io(&mut self, io: &impl AsyncBufWrite) -> io::Result<()> {
+        let buf = self
             .buf
             .take()
             .expect("WriteBuf::write_io is dropped before polling to complete");
 
-        if !buf.is_empty() {
-            let (res, b) = io.write_all(buf).await;
-            buf = b;
-            buf.clear();
-            res?;
-        }
+        let (res, mut buf) = write_all(buf, io).await;
 
+        buf.clear();
         self.buf.replace(buf);
-        Ok(())
+
+        res
     }
+
+    fn split_write_io<'i>(&mut self, io: &'i impl AsyncBufWrite) -> impl Future<Output = io::Result<()>> + 'i {
+        let buf = self.get_mut().split();
+        async {
+            let (res, _) = write_all(buf, io).await;
+            res
+        }
+    }
+}
+
+async fn write_all(mut buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, BytesMut) {
+    let mut n = 0;
+    while n < buf.bytes_init() {
+        match io.write(buf.slice(n..)).await {
+            (Ok(0), slice) => {
+                return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
+            }
+            (Ok(m), slice) => {
+                n += m;
+                buf = slice.into_inner();
+            }
+            (Err(e), slice) => {
+                return (Err(e), slice.into_inner());
+            }
+        }
+    }
+
+    (Ok(()), buf)
 }
 
 #[derive(Debug, Default)]
@@ -117,7 +144,11 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
         self.buf.len()
     }
 
-    async fn read_io(&mut self, io: &TcpStream) -> io::Result<()> {
+    async fn read_with<F, Fut>(&mut self, func: F) -> io::Result<()>
+    where
+        F: FnOnce(Slice<BytesMut>) -> Fut,
+        Fut: Future<Output = (io::Result<usize>, Slice<BytesMut>)>,
+    {
         let mut buf = mem::take(&mut self.buf).into_inner().into_inner();
 
         let len = buf.len();
@@ -126,7 +157,7 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
             buf.reserve(4096 - remaining);
         }
 
-        let (res, buf) = io.read(buf.slice(len..)).await;
+        let (res, buf) = func(buf.slice(len..)).await;
         let n = res?;
 
         if n == 0 {
@@ -139,16 +170,17 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
     }
 }
 
-impl<'a, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>
-    Dispatcher<'a, S, ReqB, D, H_LIMIT, R_LIMIT, W_LIMIT>
+impl<'a, Io, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>
+    Dispatcher<'a, Io, S, ReqB, D, H_LIMIT, R_LIMIT, W_LIMIT>
 where
+    Io: AsyncBufRead + AsyncBufWrite + 'static,
     S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
     D: DateTime,
 {
     pub(super) fn new(
-        io: TcpStream,
+        io: Io,
         addr: SocketAddr,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
@@ -183,7 +215,7 @@ where
                 Err(e) => return Err(e),
             }
 
-            self.write_buf.write_io(&self.io).await?;
+            self.write_buf.write_io(&*self.io).await?;
 
             if self.ctx.is_connection_closed() {
                 return self.io.shutdown(Shutdown::Both).map_err(Into::into);
@@ -195,7 +227,7 @@ where
         self.timer.update(self.ctx.date().now());
 
         self.read_buf
-            .read_io(&self.io)
+            .read_with(|slice| self.io.read(slice))
             .timeout(self.timer.get())
             .await
             .map_err(|_| self.timer.map_to_err())??;
@@ -251,8 +283,7 @@ where
                                 // with more bytes. (or exit with error)
                                 return pending().await;
                             }
-                            let buf = self.write_buf.get_mut().split();
-                            task.as_mut().set(Some(self.io.write_all(buf)));
+                            task.as_mut().set(Some(self.write_buf.split_write_io(&*self.io)));
                         }
                         task.as_mut().as_pin_mut().unwrap().await
                     };
@@ -269,7 +300,7 @@ where
                             err = Some(Error::Body(e));
                             break;
                         }
-                        SelectOutput::B((res, _)) => {
+                        SelectOutput::B(res) => {
                             task.as_mut().set(None);
                             res?
                         }
@@ -277,8 +308,7 @@ where
                 }
 
                 if let Some(task) = task.as_pin_mut() {
-                    let (res, _) = task.await;
-                    res?;
+                    task.await?;
                 }
 
                 if let Some(e) = err {
@@ -322,7 +352,7 @@ pub(super) enum Body {
 pub(super) type BodyFuture = Pin<Box<dyn Future<Output = io::Result<_Body>>>>;
 
 pub(super) struct _Body {
-    io: Rc<TcpStream>,
+    io: Rc<dyn AsyncBufReadH1Body>,
     limit: usize,
     decoder: Decoder,
 }
@@ -335,7 +365,7 @@ struct Decoder {
 
 impl Body {
     fn new(
-        io: Rc<TcpStream>,
+        io: Rc<dyn AsyncBufReadH1Body>,
         limit: usize,
         decoder: TransferCoding,
         read_buf: ReadBufErased,
@@ -400,7 +430,11 @@ impl Stream for Body {
                     let Self::_Body(mut body) = mem::replace(self.as_mut().get_mut(), Self::None) else { unreachable!() };
 
                     self.as_mut().set(Self::_Future(Box::pin(async {
-                        body.decoder.read_buf.read_io(&body.io).await.map(|_| body)
+                        body.decoder
+                            .read_buf
+                            .read_with(|slice| body.io.read_dyn(slice))
+                            .await
+                            .map(|_| body)
                     })))
                 }
                 Self::_Future(fut) => {
@@ -481,4 +515,19 @@ impl<T> Notifier<T> {
 struct Inner<V> {
     waker: Option<Waker>,
     val: Option<V>,
+}
+
+type Output<'s> = Pin<Box<dyn Future<Output = (io::Result<usize>, Slice<BytesMut>)> + 's>>;
+
+trait AsyncBufReadH1Body {
+    fn read_dyn(&self, buf: Slice<BytesMut>) -> Output;
+}
+
+impl<Io> AsyncBufReadH1Body for Io
+where
+    Io: AsyncBufRead,
+{
+    fn read_dyn(&self, buf: Slice<BytesMut>) -> Output {
+        Box::pin(<Io as AsyncBufRead>::read(self, buf))
+    }
 }
