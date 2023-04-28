@@ -1,60 +1,52 @@
-//! A Http/1 server read a temporary file filled with dummy string
-//! and return it's content as response.
+//! A Http/1 tls server returns Hello World String as Response.
+//!
+//! *. io_uring is a linux OS feature.
+//! *. random self signed cert is used for tls certification.
 
-use std::{io::Write, rc::Rc};
+use std::{convert::Infallible, io, sync::Arc};
 
-use tempfile::NamedTempFile;
-use tokio_uring::fs::File;
-use xitca_web::{
-    dev::service::fn_service,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
-    request::WebRequest,
-    response::WebResponse,
-    App, HttpServer,
+use rustls::{Certificate, PrivateKey, ServerConfig};
+use xitca_http::{
+    h1,
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, RequestExt, Response},
+    HttpServiceBuilder, ResponseBody,
 };
+use xitca_service::fn_service;
 
-const HELLO: &[u8] = b"hello world!";
-
-fn main() -> std::io::Result<()> {
-    HttpServer::new(move || {
-        // a temporary file with 64 hello world string.
-        let mut file = NamedTempFile::new().unwrap();
-        for _ in 0..64 {
-            file.write_all(HELLO).unwrap();
-        }
-        App::with_current_thread_state(Rc::new(file))
-            .at("/", fn_service(handler))
-            .finish()
-    })
-    .bind("127.0.0.1:8080")?
-    .run()
-    .wait()
+fn main() -> io::Result<()> {
+    let config = tls_config();
+    xitca_server::Builder::new()
+        .bind("http/1", "127.0.0.1:8080", move || {
+            HttpServiceBuilder::h1(fn_service(handler))
+                .io_uring() // specify io_uring flavor of http service.
+                .rustls_uring(config.clone()) // specify io_uring flavor of tls.
+        })?
+        .build()
+        .wait()
 }
 
-async fn handler(req: WebRequest<'_, Rc<NamedTempFile>>) -> Result<WebResponse, Box<dyn std::error::Error>> {
-    let file = File::open(req.state().path()).await?;
-    let res = read(&file).await;
-    file.close().await?;
-    let buf = res?;
-
-    let mut res = req.into_response(buf);
-    res.headers_mut().append(CONTENT_TYPE, TEXT_UTF8);
-
-    Ok(res)
+async fn handler(_: Request<RequestExt<h1::RequestBody>>) -> Result<Response<ResponseBody>, Infallible> {
+    Ok(Response::builder()
+        .header(CONTENT_TYPE, TEXT_UTF8)
+        .body("Hello World from io_uring!".into())
+        .unwrap())
 }
 
-async fn read(file: &File) -> std::io::Result<Vec<u8>> {
-    let cap = 64 * HELLO.len();
-    let mut buf = Vec::with_capacity(cap);
-    let mut current = 0;
+// rustls configuration.
+fn tls_config() -> Arc<ServerConfig> {
+    let subject_alt_names = vec!["127.0.0.1".to_string(), "localhost".to_string()];
 
-    while current < cap {
-        let (res, b) = file.read_at(buf, current as u64).await;
-        let n = res?;
-        buf = b;
+    let cert = rcgen::generate_simple_self_signed(subject_alt_names).unwrap();
+    let key = PrivateKey(cert.serialize_private_key_der());
+    let cert = vec![Certificate(cert.serialize_der().unwrap())];
 
-        current += n;
-    }
+    let mut config = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(cert, key)
+        .unwrap();
 
-    Ok(buf)
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+    Arc::new(config)
 }

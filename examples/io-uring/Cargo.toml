@@ -5,7 +5,9 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.1", features = ["io-uring"] }
+xitca-http = { version = "0.1", features = ["io-uring", "util-service", "rustls-uring"] }
+xitca-server = { version = "0.1", features = ["io-uring"] }
+xitca-service = "0.1"
 
-tempfile = "3.3.0"
-tokio-uring = "0.4.0"
+rcgen = "0.10.0"
+rustls = "0.21"
