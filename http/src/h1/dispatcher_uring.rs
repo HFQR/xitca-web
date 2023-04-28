@@ -517,21 +517,17 @@ struct Inner<V> {
     val: Option<V>,
 }
 
+type Output<'s> = Pin<Box<dyn Future<Output = (io::Result<usize>, Slice<BytesMut>)> + 's>>;
+
 trait AsyncBufReadH1Body {
-    fn read_dyn<'s>(
-        &'s self,
-        buf: Slice<BytesMut>,
-    ) -> Pin<Box<dyn Future<Output = (io::Result<usize>, Slice<BytesMut>)> + 's>>;
+    fn read_dyn(&self, buf: Slice<BytesMut>) -> Output;
 }
 
 impl<Io> AsyncBufReadH1Body for Io
 where
     Io: AsyncBufRead,
 {
-    fn read_dyn<'s>(
-        &'s self,
-        buf: Slice<BytesMut>,
-    ) -> Pin<Box<dyn Future<Output = (io::Result<usize>, Slice<BytesMut>)> + 's>> {
+    fn read_dyn(&self, buf: Slice<BytesMut>) -> Output {
         Box::pin(<Io as AsyncBufRead>::read(self, buf))
     }
 }
