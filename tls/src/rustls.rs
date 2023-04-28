@@ -153,7 +153,9 @@ where
 
     fn flush(&mut self) -> io::Result<()> {
         while self.conn.wants_write() {
-            self.write_tls()?;
+            if self.write_tls()? == 0 {
+                return Err(io::ErrorKind::WriteZero.into());
+            }
         }
         Ok(())
     }
@@ -166,12 +168,7 @@ where
     S: SideData,
     F: for<'r> FnOnce(&mut Writer<'r>) -> io::Result<usize>,
 {
-    // try to drain previous write.
-    while stream.conn.wants_write() {
-        stream.write_tls()?;
-    }
-
-    // write to tls buffer.
+    io::Write::flush(stream)?; // flush potential previous buffered write.
     func(&mut stream.conn.writer())
 }
 
