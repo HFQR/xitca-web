@@ -1,4 +1,5 @@
 use core::{
+    any::Any,
     cell::RefCell,
     future::Future,
     ops::{Deref, DerefMut},
@@ -8,7 +9,10 @@ use core::{
 use std::{io, net::Shutdown};
 
 use rustls::{ConnectionCommon, SideData};
-use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut};
+use xitca_io::{
+    bytes::BytesMut,
+    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut, Slice},
+};
 
 use self::buf::{ReadBuf, WriteBuf};
 
@@ -44,6 +48,43 @@ struct Session<C> {
     session: C,
     read_buf: Option<ReadBuf>,
     write_buf: Option<WriteBuf>,
+}
+
+impl<C, S> Session<C>
+where
+    C: DerefMut + Deref<Target = ConnectionCommon<S>>,
+    S: SideData,
+{
+    fn read_tls(&mut self, res: io::Result<usize>, bytes: &mut Slice<BytesMut>) -> io::Result<()> {
+        if res? == 0 {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+
+        let mut slice = io_ref_slice(bytes);
+
+        // have to drain Slices<BytesMut>'s data as later it will be cleared and
+        // reused for writing plaintext bytes decrypted by rustls.
+        // this can fail due to buffer upper limit of rustls' internal buffer which
+        // can be configured.
+        while !slice.is_empty() {
+            match self.session.read_tls(&mut slice) {
+                Ok(0) => unreachable!("an empty slice can not be used for reading tls"),
+                Ok(_) => match self.session.process_new_packets() {
+                    Ok(state) => {
+                        if state.peer_has_closed() && self.session.is_handshaking() {
+                            return Err(io::ErrorKind::UnexpectedEof.into());
+                        }
+                    }
+                    Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+                },
+                Err(e) => return Err(e),
+            }
+        }
+
+        bytes.get_mut().clear();
+
+        Ok(())
+    }
 }
 
 impl<C, S, Io> TlsStream<C, Io>
@@ -189,11 +230,10 @@ where
         B: IoBufMut,
     {
         async {
+            let mut session = self.session.borrow_mut();
+
             loop {
-                match io::Read::read(
-                    &mut self.session.borrow_mut().session.reader(),
-                    io_ref_mut_slice(&mut buf),
-                ) {
+                match io::Read::read(&mut session.session.reader(), io_ref_mut_slice(&mut buf)) {
                     Ok(n) => {
                         // SAFETY
                         // required by IoBufMut trait. when n bytes is write into buffer this method
@@ -208,11 +248,32 @@ where
                     }
                 }
 
-                match self.read_io().await {
-                    Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
-                    Ok(_) => {}
-                    Err(e) => return (Err(e), buf),
-                };
+                drop(session);
+
+                // this is a hack targeting xitca_http which often use Slice<BytesMut> type.
+                // the purpose is to reuse B type without touching TlsStream's internal buffer to
+                // reduce memory copy.
+                // related issue:
+                // https://github.com/tokio-rs/tokio-uring/issues/216
+                match downcast_to_slice(buf) {
+                    Ok(bytes) => {
+                        let (res, mut bytes) = self.io.read(bytes).await;
+                        session = self.session.borrow_mut();
+                        let res = session.read_tls(res, &mut bytes);
+                        buf = upcast_to_buf(bytes);
+                        if let Err(e) = res {
+                            return (Err(e), buf);
+                        }
+                    }
+                    Err(b) => {
+                        buf = b;
+                        match self.read_io().await {
+                            Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
+                            Ok(_) => session = self.session.borrow_mut(),
+                            Err(e) => return (Err(e), buf),
+                        };
+                    }
+                }
             }
         }
     }
@@ -268,6 +329,28 @@ where
     }
 }
 
+fn downcast_to_slice<B>(buf: B) -> Result<Slice<BytesMut>, B>
+where
+    B: 'static,
+{
+    let mut opt = Some(buf);
+    (&mut opt as &mut dyn Any)
+        .downcast_mut::<Option<Slice<BytesMut>>>()
+        .map(|opt| opt.take().unwrap())
+        .ok_or_else(|| opt.take().unwrap())
+}
+
+fn upcast_to_buf<B>(bytes: Slice<BytesMut>) -> B
+where
+    B: 'static,
+{
+    (&mut Some(bytes) as &mut dyn Any)
+        .downcast_mut::<Option<B>>()
+        .unwrap()
+        .take()
+        .unwrap()
+}
+
 fn io_ref_slice(buf: &impl IoBuf) -> &[u8] {
     // SAFETY
     // have to trust IoBuf implementor to provide valid pointer and it's length.
@@ -279,6 +362,8 @@ fn io_ref_mut_slice(buf: &mut impl IoBufMut) -> &mut [u8] {
     // have to trust IoBufMut implementor to provide valid pointer and it's capacity.
     unsafe { slice::from_raw_parts_mut(buf.stable_mut_ptr(), buf.bytes_total()) }
 }
+
+const POLL_TO_COMPLETE: &str = "previous call to future dropped before polling to completion";
 
 mod buf {
     use xitca_io::bytes::{Buf, BytesMut};
@@ -406,5 +491,3 @@ mod buf {
         }
     }
 }
-
-const POLL_TO_COMPLETE: &str = "previous call to future dropped before polling to completion";
