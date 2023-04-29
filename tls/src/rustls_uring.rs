@@ -67,17 +67,13 @@ where
         // this can fail due to buffer upper limit of rustls' internal buffer which
         // can be configured.
         while !slice.is_empty() {
-            match self.session.read_tls(&mut slice) {
-                Ok(0) => unreachable!("an empty slice can not be used for reading tls"),
-                Ok(_) => match self.session.process_new_packets() {
-                    Ok(state) => {
-                        if state.peer_has_closed() && self.session.is_handshaking() {
-                            return Err(io::ErrorKind::UnexpectedEof.into());
-                        }
-                    }
-                    Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-                },
-                Err(e) => return Err(e),
+            self.session.read_tls(&mut slice)?;
+            let state = self
+                .session
+                .process_new_packets()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            if state.peer_has_closed() && self.session.is_handshaking() {
+                return Err(io::ErrorKind::UnexpectedEof.into());
             }
         }
 
