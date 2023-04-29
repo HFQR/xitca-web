@@ -12,6 +12,29 @@ use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut};
 
 use self::buf::{ReadBuf, WriteBuf};
 
+/// A tls stream type enable concurrent async read/write through [AsyncBufRead] and [AsyncBufWrite]
+/// traits.
+///
+/// # Panics
+/// For now due to design limitation TlsStream offers concurrency with [AsyncBufRead::read] and
+/// [AsyncBufWrite::write] but in either case the async function must run to completion and cancel
+/// it prematurely would cause panic.
+/// ```rust(no_run)
+/// # async fn complete(stream: TlsStream<ServerConnection, TcpStream>) {
+///     let _ = stream.read(vec![0; 128]).await;
+///     let _ = stream.read(vec![0; 128]).await; // serialize read to complete is ok.
+///
+///     let _ = stream.read(vec![0; 128]);
+///     let _ = stream.write(vec![0; 128]); // concurrent read and write is ok.
+///
+///     let read = stream.read(vec![0; 128]);
+///     drop(read); // drop read without completion.
+///     let read = stream.read(vec![0; 128]).await; // this line would cause panic.
+///
+///     let read = stream.read(vec![0; 128]); // making two concurrent read future.
+///     let read = stream.read(vec![0; 128]); // this line would cause panic.
+/// }
+/// ```
 pub struct TlsStream<C, Io> {
     io: Io,
     session: RefCell<Session<C>>,
