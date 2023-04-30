@@ -33,7 +33,7 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
     }
 
     #[inline(always)]
-    pub fn cast_limit<const LIMIT2: usize>(self) -> ReadBuf<LIMIT2> {
+    pub fn limit<const LIMIT2: usize>(self) -> ReadBuf<LIMIT2> {
         ReadBuf(self.0)
     }
 }
