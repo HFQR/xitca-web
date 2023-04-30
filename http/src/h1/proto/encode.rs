@@ -14,13 +14,9 @@ use crate::{
 
 use super::{buf_write::H1BufWrite, codec::TransferCoding, context::Context, error::ProtoError};
 
-impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
-    pub fn encode_continue<W>(buf: &mut W)
-    where
-        W: H1BufWrite,
-    {
-        buf.write_buf_static(b"HTTP/1.1 100 Continue\r\n\r\n");
-    }
+#[inline]
+pub fn encode_continue(buf: &mut impl H1BufWrite) {
+    buf.write_buf_static(b"HTTP/1.1 100 Continue\r\n\r\n");
 }
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
