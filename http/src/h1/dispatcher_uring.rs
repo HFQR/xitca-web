@@ -41,6 +41,7 @@ use super::{
     proto::{
         codec::{ChunkResult, TransferCoding},
         context::Context,
+        encode::encode_continue,
         error::ProtoError,
     },
 };
@@ -82,7 +83,7 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
             .take()
             .expect("WriteBuf::write_io is dropped before polling to complete");
 
-        let (res, mut buf) = write_all(buf, io).await;
+        let (res, mut buf) = write_all_with(buf, |slice| io.write(slice)).await;
 
         buf.clear();
         self.buf.replace(buf);
@@ -93,16 +94,20 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
     fn split_write_io<'i>(&mut self, io: &'i impl AsyncBufWrite) -> impl Future<Output = io::Result<()>> + 'i {
         let buf = self.get_mut().split();
         async {
-            let (res, _) = write_all(buf, io).await;
+            let (res, _) = write_all_with(buf, |slice| io.write(slice)).await;
             res
         }
     }
 }
 
-async fn write_all(mut buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, BytesMut) {
+async fn write_all_with<F, Fut>(mut buf: BytesMut, mut func: F) -> (io::Result<()>, BytesMut)
+where
+    F: FnMut(Slice<BytesMut>) -> Fut,
+    Fut: Future<Output = (io::Result<usize>, Slice<BytesMut>)>,
+{
     let mut n = 0;
     while n < buf.bytes_init() {
-        match io.write(buf.slice(n..)).await {
+        match func(buf.slice(n..)).await {
             (Ok(0), slice) => {
                 return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
             }
@@ -238,14 +243,13 @@ where
             let (waiter, body) = if decoder.is_eof() {
                 (None, RequestBody::default())
             } else {
-                let notify = self.waiter.notifier();
-
                 let body = Body::new(
                     self.io.clone(),
+                    self.ctx.is_expect_header(),
                     R_LIMIT,
                     decoder,
                     mem::take(&mut self.read_buf).cast_limit(),
-                    notify,
+                    self.waiter.notifier(),
                 );
 
                 (Some(&mut self.waiter), RequestBody::io_uring(body))
@@ -366,12 +370,13 @@ struct Decoder {
 impl Body {
     fn new(
         io: Rc<dyn AsyncBufReadH1Body>,
+        is_expect: bool,
         limit: usize,
         decoder: TransferCoding,
         read_buf: ReadBufErased,
         notify: Notifier<ReadBufErased>,
     ) -> Self {
-        Self::_Body(_Body {
+        let body = _Body {
             io,
             limit,
             decoder: Decoder {
@@ -379,7 +384,18 @@ impl Body {
                 read_buf,
                 notify,
             },
-        })
+        };
+
+        if is_expect {
+            Self::_Future(Box::pin(async {
+                let mut bytes = BytesMut::new();
+                encode_continue(&mut bytes);
+                let (res, _) = write_all_with(bytes, |slice| body.io.write_dyn(slice)).await;
+                res.map(|_| body)
+            }))
+        } else {
+            Self::_Body(body)
+        }
     }
 }
 
@@ -464,10 +480,7 @@ impl<T> Waiter<T> {
         let mut inner = self.inner.borrow_mut();
         inner.val = None;
         inner.waker = None;
-        Notifier {
-            inner: self.inner.clone(),
-            notified: false,
-        }
+        Notifier(self.inner.clone())
     }
 
     async fn wait(&mut self) -> Option<T> {
@@ -486,29 +499,19 @@ impl<T> Waiter<T> {
     }
 }
 
-struct Notifier<T> {
-    inner: Rc<RefCell<Inner<T>>>,
-    notified: bool,
-}
+struct Notifier<T>(Rc<RefCell<Inner<T>>>);
 
 impl<T> Drop for Notifier<T> {
     fn drop(&mut self) {
-        if !self.notified {
-            if let Some(waker) = self.inner.borrow_mut().waker.take() {
-                waker.wake();
-            }
+        if let Some(waker) = self.0.borrow_mut().waker.take() {
+            waker.wake();
         }
     }
 }
 
 impl<T> Notifier<T> {
     fn notify(&mut self, val: T) {
-        self.notified = true;
-        let mut inner = self.inner.borrow_mut();
-        inner.val = Some(val);
-        if let Some(waker) = inner.waker.take() {
-            waker.wake();
-        }
+        self.0.borrow_mut().val = Some(val);
     }
 }
 
@@ -521,13 +524,19 @@ type Output<'s> = Pin<Box<dyn Future<Output = (io::Result<usize>, Slice<BytesMut
 
 trait AsyncBufReadH1Body {
     fn read_dyn(&self, buf: Slice<BytesMut>) -> Output;
+
+    fn write_dyn(&self, buf: Slice<BytesMut>) -> Output;
 }
 
 impl<Io> AsyncBufReadH1Body for Io
 where
-    Io: AsyncBufRead,
+    Io: AsyncBufRead + AsyncBufWrite,
 {
     fn read_dyn(&self, buf: Slice<BytesMut>) -> Output {
         Box::pin(<Io as AsyncBufRead>::read(self, buf))
+    }
+
+    fn write_dyn(&self, buf: Slice<BytesMut>) -> Output {
+        Box::pin(<Io as AsyncBufWrite>::write(self, buf))
     }
 }
