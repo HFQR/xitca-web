@@ -31,7 +31,7 @@ use crate::{
     h1::{body::RequestBody, error::Error},
     http::{response::Response, StatusCode},
     util::{
-        buffered,
+        buffered::ReadBuf,
         timer::{KeepAlive, Timeout},
     },
 };
@@ -124,37 +124,16 @@ where
     (Ok(()), buf)
 }
 
-#[derive(Debug, Default)]
-struct ReadBuf<const LIMIT: usize> {
-    buf: buffered::ReadBuf<LIMIT>,
-}
-
 // erase const generic type to ease public type param.
 type ReadBufErased = ReadBuf<0>;
 
 impl<const LIMIT: usize> ReadBuf<LIMIT> {
-    fn new() -> Self {
-        Self {
-            buf: buffered::ReadBuf::new(),
-        }
-    }
-
-    fn cast_limit<const LIMIT2: usize>(self) -> ReadBuf<LIMIT2> {
-        ReadBuf {
-            buf: self.buf.cast_limit(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.buf.len()
-    }
-
-    async fn read_with<F, Fut>(&mut self, func: F) -> io::Result<()>
+    async fn read_with<F, Fut>(&mut self, func: F) -> io::Result<usize>
     where
         F: FnOnce(Slice<BytesMut>) -> Fut,
         Fut: Future<Output = (io::Result<usize>, Slice<BytesMut>)>,
     {
-        let mut buf = mem::take(&mut self.buf).into_inner().into_inner();
+        let mut buf = mem::take(self).into_inner().into_inner();
 
         let len = buf.len();
         let remaining = buf.capacity() - len;
@@ -163,15 +142,8 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
         }
 
         let (res, buf) = func(buf.slice(len..)).await;
-        let n = res?;
-
-        if n == 0 {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-
-        self.buf = buffered::ReadBuf::from(buf.into_inner());
-
-        Ok(())
+        *self = Self::from(buf.into_inner());
+        res
     }
 }
 
@@ -231,13 +203,19 @@ where
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
         self.timer.update(self.ctx.date().now());
 
-        self.read_buf
+        let read = self
+            .read_buf
             .read_with(|slice| self.io.read(slice))
             .timeout(self.timer.get())
             .await
             .map_err(|_| self.timer.map_to_err())??;
 
-        while let Some((req, decoder)) = self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf.buf)? {
+        if read == 0 {
+            self.ctx.set_close();
+            return Ok(());
+        }
+
+        while let Some((req, decoder)) = self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf)? {
             self.timer.reset_state();
 
             let (waiter, body) = if decoder.is_eof() {
@@ -248,7 +226,7 @@ where
                     self.ctx.is_expect_header(),
                     R_LIMIT,
                     decoder,
-                    mem::take(&mut self.read_buf).cast_limit(),
+                    mem::take(&mut self.read_buf).limit(),
                     self.waiter.notifier(),
                 );
 
@@ -323,7 +301,7 @@ where
             if let Some(waiter) = waiter {
                 match waiter.wait().await {
                     Some(read_buf) => {
-                        let _ = mem::replace(&mut self.read_buf, read_buf.cast_limit());
+                        let _ = mem::replace(&mut self.read_buf, read_buf.limit());
                     }
                     None => {
                         self.ctx.set_close();
@@ -427,7 +405,7 @@ impl Stream for Body {
         loop {
             match self.as_mut().get_mut() {
                 Self::_Body(body) => {
-                    match body.decoder.decoder.decode(&mut body.decoder.read_buf.buf) {
+                    match body.decoder.decoder.decode(&mut body.decoder.read_buf) {
                         ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
                         ChunkResult::Err(e) => return Poll::Ready(Some(Err(e))),
                         ChunkResult::InsufficientData => {}
@@ -446,11 +424,11 @@ impl Stream for Body {
                     let Self::_Body(mut body) = mem::replace(self.as_mut().get_mut(), Self::None) else { unreachable!() };
 
                     self.as_mut().set(Self::_Future(Box::pin(async {
-                        body.decoder
-                            .read_buf
-                            .read_with(|slice| body.io.read_dyn(slice))
-                            .await
-                            .map(|_| body)
+                        let read = body.decoder.read_buf.read_with(|slice| body.io.read_dyn(slice)).await?;
+                        if read == 0 {
+                            return Err(io::ErrorKind::UnexpectedEof.into());
+                        }
+                        Ok(body)
                     })))
                 }
                 Self::_Future(fut) => {
