@@ -56,7 +56,7 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
     service: &'a S,
     read_buf: ReadBuf<R_LIMIT>,
     write_buf: WriteBuf<W_LIMIT>,
-    waiter: Waiter<ReadBufErased>,
+    notify: Notify<ReadBufErased>,
     _phantom: PhantomData<ReqB>,
 }
 
@@ -120,7 +120,6 @@ where
             }
         }
     }
-
     (Ok(()), buf)
 }
 
@@ -171,7 +170,7 @@ where
             service,
             read_buf: ReadBuf::<R_LIMIT>::new(),
             write_buf: WriteBuf::<W_LIMIT>::new(),
-            waiter: Waiter::new(),
+            notify: Notify::new(),
             _phantom: PhantomData,
         }
     }
@@ -227,10 +226,10 @@ where
                     R_LIMIT,
                     decoder,
                     mem::take(&mut self.read_buf).limit(),
-                    self.waiter.notifier(),
+                    self.notify.notifier(),
                 );
 
-                (Some(&mut self.waiter), RequestBody::io_uring(body))
+                (Some(&mut self.notify), RequestBody::io_uring(body))
             };
 
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
@@ -443,11 +442,11 @@ impl Stream for Body {
     }
 }
 
-struct Waiter<T> {
+struct Notify<T> {
     inner: Rc<RefCell<Inner<T>>>,
 }
 
-impl<T> Waiter<T> {
+impl<T> Notify<T> {
     fn new() -> Self {
         Self {
             inner: Rc::new(RefCell::new(Inner { waker: None, val: None })),
@@ -455,9 +454,6 @@ impl<T> Waiter<T> {
     }
 
     fn notifier(&mut self) -> Notifier<T> {
-        let mut inner = self.inner.borrow_mut();
-        inner.val = None;
-        inner.waker = None;
         Notifier(self.inner.clone())
     }
 
