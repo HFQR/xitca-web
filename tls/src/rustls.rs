@@ -161,15 +161,21 @@ where
     }
 }
 
-fn write_with<C, Io, S, F>(stream: &mut TlsStream<C, Io>, func: F) -> io::Result<usize>
+fn write_with<C, Io, S, F>(stream: &mut TlsStream<C, Io>, mut func: F) -> io::Result<usize>
 where
     Io: AsyncIo,
     C: DerefMut<Target = ConnectionCommon<S>>,
     S: SideData,
-    F: for<'r> FnOnce(&mut Writer<'r>) -> io::Result<usize>,
+    F: for<'r> FnMut(&mut Writer<'r>) -> io::Result<usize>,
 {
-    io::Write::flush(stream)?; // flush potential previous buffered write.
-    func(&mut stream.conn.writer())
+    loop {
+        match func(&mut stream.conn.writer())? {
+            // when rustls writer write 0 it means either the input buffer is empty or it's internal
+            // buffer is full. check the condition and flush the io.
+            0 if stream.conn.wants_write() => io::Write::flush(stream)?,
+            n => return Ok(n),
+        }
+    }
 }
 
 impl<C, S, Io> AsyncRead for TlsStream<C, Io>
