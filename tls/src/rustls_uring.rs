@@ -92,7 +92,7 @@ where
     async fn read(&self) -> io::Result<usize> {
         let mut session = self.session.borrow_mut();
 
-        let mut buf = session.read_buf.take().unwrap();
+        let mut buf = session.read_buf.take().expect(POLL_TO_COMPLETE);
 
         if buf.is_empty() {
             drop(session);
