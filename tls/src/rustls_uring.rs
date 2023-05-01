@@ -1,5 +1,4 @@
 use core::{
-    any::Any,
     cell::RefCell,
     future::Future,
     ops::{Deref, DerefMut},
@@ -11,7 +10,7 @@ use std::{io, net::Shutdown};
 use rustls::{ConnectionCommon, SideData};
 use xitca_io::{
     bytes::{Buf, BytesMut},
-    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut, Slice},
+    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut},
 };
 
 use self::buf::WriteBuf;
@@ -48,39 +47,6 @@ struct Session<C> {
     session: C,
     read_buf: Option<BytesMut>,
     write_buf: Option<WriteBuf>,
-}
-
-impl<C, S> Session<C>
-where
-    C: DerefMut + Deref<Target = ConnectionCommon<S>>,
-    S: SideData,
-{
-    fn read_tls(&mut self, res: io::Result<usize>, bytes: &mut Slice<BytesMut>) -> io::Result<()> {
-        if res? == 0 {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-
-        let mut slice = io_ref_slice(bytes);
-
-        // have to drain Slices<BytesMut>'s data as later it will be cleared and
-        // reused for writing plaintext bytes decrypted by rustls.
-        // this can fail due to buffer upper limit of rustls' internal buffer which
-        // can be configured.
-        while !slice.is_empty() {
-            self.session.read_tls(&mut slice)?;
-            let state = self
-                .session
-                .process_new_packets()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            if state.peer_has_closed() && self.session.is_handshaking() {
-                return Err(io::ErrorKind::UnexpectedEof.into());
-            }
-        }
-
-        bytes.get_mut().clear();
-
-        Ok(())
-    }
 }
 
 impl<C, S, Io> TlsStream<C, Io>
@@ -259,30 +225,11 @@ where
 
                 drop(session);
 
-                // this is a hack targeting xitca_http which often use Slice<BytesMut> type.
-                // the purpose is to reuse B type without touching TlsStream's internal buffer to
-                // reduce memory copy.
-                // related issue:
-                // https://github.com/tokio-rs/tokio-uring/issues/216
-                match downcast_to_slice(buf) {
-                    Ok(bytes) => {
-                        let (res, mut bytes) = self.io.read(bytes).await;
-                        session = self.session.borrow_mut();
-                        let res = session.read_tls(res, &mut bytes);
-                        buf = upcast_to_buf(bytes);
-                        if let Err(e) = res {
-                            return (Err(e), buf);
-                        }
-                    }
-                    Err(b) => {
-                        buf = b;
-                        match self.read().await {
-                            Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
-                            Ok(_) => session = self.session.borrow_mut(),
-                            Err(e) => return (Err(e), buf),
-                        };
-                    }
-                }
+                match self.read().await {
+                    Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
+                    Ok(_) => session = self.session.borrow_mut(),
+                    Err(e) => return (Err(e), buf),
+                };
             }
         }
     }
@@ -336,28 +283,6 @@ where
     fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
         self.io.shutdown(direction)
     }
-}
-
-fn downcast_to_slice<B>(buf: B) -> Result<Slice<BytesMut>, B>
-where
-    B: 'static,
-{
-    let mut opt = Some(buf);
-    (&mut opt as &mut dyn Any)
-        .downcast_mut::<Option<Slice<BytesMut>>>()
-        .map(|opt| opt.take().unwrap())
-        .ok_or_else(|| opt.take().unwrap())
-}
-
-fn upcast_to_buf<B>(bytes: Slice<BytesMut>) -> B
-where
-    B: 'static,
-{
-    (&mut Some(bytes) as &mut dyn Any)
-        .downcast_mut::<Option<B>>()
-        .unwrap()
-        .take()
-        .unwrap()
 }
 
 fn io_ref_slice(buf: &impl IoBuf) -> &[u8] {
