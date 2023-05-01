@@ -9,12 +9,13 @@ use core::{
 use std::{io, net::Shutdown};
 
 use rustls::{ConnectionCommon, SideData};
+use xitca_io::bytes::Buf;
 use xitca_io::{
     bytes::BytesMut,
     io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut, Slice},
 };
 
-use self::buf::{ReadBuf, WriteBuf};
+use self::buf::WriteBuf;
 
 /// A tls stream type enable concurrent async read/write through [AsyncBufRead] and [AsyncBufWrite]
 /// traits.
@@ -46,7 +47,7 @@ pub struct TlsStream<C, Io> {
 
 struct Session<C> {
     session: C,
-    read_buf: Option<ReadBuf>,
+    read_buf: Option<BytesMut>,
     write_buf: Option<WriteBuf>,
 }
 
@@ -89,36 +90,49 @@ where
     S: SideData,
     Io: AsyncBufRead,
 {
-    async fn read_io(&self) -> io::Result<usize> {
-        let mut borrow = self.session.borrow_mut();
+    async fn read(&self) -> io::Result<usize> {
+        let mut session = self.session.borrow_mut();
 
-        loop {
-            let Session { session, read_buf, .. } = &mut *borrow;
-            match session.read_tls(read_buf.as_mut().expect(POLL_TO_COMPLETE)) {
-                Ok(n) => {
-                    let state = session
-                        .process_new_packets()
-                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut buf = session.read_buf.take().unwrap();
 
-                    return if state.peer_has_closed() && session.is_handshaking() {
-                        Err(io::ErrorKind::UnexpectedEof.into())
-                    } else {
-                        Ok(n)
-                    };
-                }
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                    let read_buf = read_buf.take().expect(POLL_TO_COMPLETE);
-                    drop(borrow);
+        if buf.is_empty() {
+            drop(session);
 
-                    let read_buf = read_buf.do_io(&self.io).await;
+            let rem = buf.capacity() - buf.len();
+            if rem < 4096 {
+                buf.reserve(4096 - rem);
+            }
 
-                    borrow = self.session.borrow_mut();
+            let (res, b) = self.io.read(buf).await;
+            buf = b;
 
-                    borrow.read_buf.replace(read_buf);
-                }
-                Err(err) => return Err(err),
+            session = self.session.borrow_mut();
+
+            if res? == 0 {
+                session.read_buf.replace(buf);
+                return Ok(0);
             }
         }
+
+        let res = session.session.read_tls(&mut buf.as_ref()).map(|n| {
+            buf.advance(n);
+            n
+        });
+
+        session.read_buf.replace(buf);
+
+        let n = res?;
+
+        let state = session
+            .session
+            .process_new_packets()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        if state.peer_has_closed() && session.session.is_handshaking() {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+
+        Ok(n)
     }
 }
 
@@ -166,7 +180,7 @@ where
             io,
             session: RefCell::new(Session {
                 session,
-                read_buf: Some(ReadBuf::default()),
+                read_buf: Some(BytesMut::new()),
                 write_buf: Some(WriteBuf::default()),
             }),
         };
@@ -186,7 +200,7 @@ where
 
             while !eof && self.session.get_mut().session.wants_read() && self.session.get_mut().session.is_handshaking()
             {
-                let n = self.read_io().await?;
+                let n = self.read().await?;
                 rdlen += n;
                 if n == 0 {
                     eof = true;
@@ -263,7 +277,7 @@ where
                     }
                     Err(b) => {
                         buf = b;
-                        match self.read_io().await {
+                        match self.read().await {
                             Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
                             Ok(_) => session = self.session.borrow_mut(),
                             Err(e) => return (Err(e), buf),
@@ -369,65 +383,6 @@ mod buf {
     #[derive(Debug, Default)]
     struct State {
         err: Option<io::Error>,
-        is_eof: bool,
-    }
-
-    pub(crate) struct ReadBuf {
-        buf: BytesMut,
-        state: State,
-    }
-
-    impl Default for ReadBuf {
-        fn default() -> Self {
-            Self {
-                buf: BytesMut::new(),
-                state: State::default(),
-            }
-        }
-    }
-
-    impl ReadBuf {
-        pub(super) async fn do_io(mut self, io: &impl AsyncBufRead) -> Self {
-            if !self.buf.is_empty() {
-                return self;
-            }
-            let rem = self.buf.capacity() - self.buf.len();
-            if rem < 4096 {
-                self.buf.reserve(4096 - rem);
-            }
-            let (res, buf) = io.read(self.buf).await;
-            self.buf = buf;
-            match res {
-                Ok(0) => self.state.is_eof = true,
-                Ok(_) => {}
-                Err(e) => self.state.err = Some(e),
-            }
-            self
-        }
-    }
-
-    impl io::Read for ReadBuf {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            if buf.is_empty() {
-                return Ok(0);
-            }
-
-            if self.buf.is_empty() {
-                return if self.state.err.is_some() {
-                    Err(self.state.err.take().unwrap())
-                } else if self.state.is_eof {
-                    Ok(0)
-                } else {
-                    Err(io::ErrorKind::WouldBlock.into())
-                };
-            }
-
-            let len = self.buf.len().min(buf.len());
-
-            self.buf.copy_to_slice(&mut buf[..len]);
-
-            Ok(len)
-        }
     }
 
     pub(super) struct WriteBuf {
