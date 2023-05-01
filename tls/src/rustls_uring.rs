@@ -9,9 +9,8 @@ use core::{
 use std::{io, net::Shutdown};
 
 use rustls::{ConnectionCommon, SideData};
-use xitca_io::bytes::Buf;
 use xitca_io::{
-    bytes::BytesMut,
+    bytes::{Buf, BytesMut},
     io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut, Slice},
 };
 
