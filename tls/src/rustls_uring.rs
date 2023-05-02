@@ -49,6 +49,19 @@ struct Session<C> {
     write_buf: Option<WriteBuf>,
 }
 
+impl<C, S> Session<C>
+where
+    C: DerefMut + Deref<Target = ConnectionCommon<S>>,
+{
+    fn write_plain(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let writer = &mut self.session.writer();
+        let n = io::Write::write(writer, buf)?;
+        // keep this no op in case rustls change it's behavior.
+        io::Write::flush(writer).expect("<rustls::conn::Writer as std::io::Write>::flush should be no op");
+        Ok(n)
+    }
+}
+
 impl<C, S, Io> TlsStream<C, Io>
 where
     C: DerefMut + Deref<Target = ConnectionCommon<S>>,
@@ -107,29 +120,30 @@ where
     S: SideData,
     Io: AsyncBufWrite,
 {
-    async fn write_io(&self) -> io::Result<usize> {
-        let mut borrow = self.session.borrow_mut();
+    async fn write_tls(&self) -> io::Result<usize> {
+        let mut session = self.session.borrow_mut();
 
-        loop {
-            let Session { session, write_buf, .. } = &mut *borrow;
+        let mut write_buf = session.write_buf.take().expect(POLL_TO_COMPLETE);
 
-            let mut write_buf = write_buf.take().expect(POLL_TO_COMPLETE);
-            let read_some = match session.write_tls(&mut write_buf) {
-                Ok(n) => Some(n),
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => None,
-                Err(err) => return Err(err),
-            };
-
-            drop(borrow);
-
-            let buf = write_buf.write_io(&self.io).await;
-
-            borrow = self.session.borrow_mut();
-            borrow.write_buf.replace(buf);
-
-            if let Some(n) = read_some {
-                return Ok(n);
+        let n = match session.session.write_tls(&mut write_buf) {
+            Ok(n) => n,
+            Err(e) => {
+                session.write_buf.replace(write_buf);
+                return Err(e);
             }
+        };
+
+        drop(session);
+
+        let (res, write_buf) = write_buf.write_io(&self.io).await;
+
+        session = self.session.borrow_mut();
+        session.write_buf.replace(write_buf);
+
+        match res {
+            Ok(0) => Err(io::ErrorKind::UnexpectedEof.into()),
+            Ok(_) => Ok(n),
+            Err(e) => Err(e),
         }
     }
 }
@@ -160,7 +174,7 @@ where
 
         loop {
             while self.session.get_mut().session.wants_write() && self.session.get_mut().session.is_handshaking() {
-                wrlen += self.write_io().await?;
+                wrlen += self.write_tls().await?;
             }
 
             while !eof && self.session.get_mut().session.wants_read() && self.session.get_mut().session.is_handshaking()
@@ -182,7 +196,7 @@ where
         }
 
         while self.session.get_mut().session.wants_write() {
-            wrlen += self.write_io().await?;
+            wrlen += self.write_tls().await?;
         }
 
         Ok((rdlen, wrlen))
@@ -251,28 +265,38 @@ where
         B: IoBuf,
     {
         async {
-            let (len, mut want_write) = {
-                let mut session = self.session.borrow_mut();
+            let mut session = self.session.borrow_mut();
 
-                let slice = io_ref_slice(&buf);
-                let len = slice.len();
-
-                let writer = &mut session.session.writer();
-
-                if let Err(e) = io::Write::write_all(writer, slice) {
-                    return (Err(e), buf);
-                };
-
-                io::Write::flush(writer).expect("<rustls::conn::Writer as std::io::Write>::flush should be no op");
-
-                (len, session.session.wants_write())
+            let len = match session.write_plain(io_ref_slice(&buf)) {
+                Ok(n) => n,
+                e => return (e, buf),
             };
 
-            while want_write {
-                match self.write_io().await {
-                    Ok(0) => break,
-                    Ok(_) => want_write = self.session.borrow_mut().session.wants_write(),
-                    Err(e) => return (Err(e), buf),
+            let mut write_buf = session.write_buf.take().expect(POLL_TO_COMPLETE);
+
+            while session.session.wants_write() {
+                if let Err(e) = session.session.write_tls(&mut write_buf) {
+                    session.write_buf.replace(write_buf);
+                    return (Err(e), buf);
+                }
+
+                drop(session);
+
+                let (res, b) = write_buf.write_io(&self.io).await;
+                write_buf = b;
+
+                session = self.session.borrow_mut();
+
+                match res {
+                    Ok(0) => {
+                        session.write_buf.replace(write_buf);
+                        return (Err(io::ErrorKind::UnexpectedEof.into()), buf);
+                    }
+                    Ok(_) => {}
+                    e => {
+                        session.write_buf.replace(write_buf);
+                        return (e, buf);
+                    }
                 }
             }
 
@@ -303,65 +327,41 @@ mod buf {
     use xitca_io::bytes::{Buf, BytesMut};
 
     use super::*;
-
-    #[derive(Debug, Default)]
-    struct State {
-        err: Option<io::Error>,
-    }
-
     pub(super) struct WriteBuf {
         buf: BytesMut,
-        state: State,
     }
 
     impl Default for WriteBuf {
         fn default() -> Self {
-            Self {
-                buf: BytesMut::new(),
-                state: State::default(),
-            }
+            Self { buf: BytesMut::new() }
         }
     }
 
     impl WriteBuf {
-        pub(super) async fn write_io(mut self, io: &impl AsyncBufWrite) -> Self {
+        pub(super) async fn write_io(mut self, io: &impl AsyncBufWrite) -> (io::Result<usize>, Self) {
             if self.buf.is_empty() {
-                return self;
+                return (Ok(0), self);
             }
             let (res, buf) = io.write(self.buf).await;
             self.buf = buf;
-            match res {
-                Ok(n) => self.buf.advance(n),
-                Err(e) => self.state.err = Some(e),
-            }
-            self
+
+            (
+                res.map(|n| {
+                    self.buf.advance(n);
+                    n
+                }),
+                self,
+            )
         }
     }
 
     impl io::Write for WriteBuf {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            if buf.is_empty() {
-                return Ok(0);
-            }
-
-            if self.state.err.is_some() {
-                return Err(self.state.err.take().unwrap());
-            }
-
             self.buf.extend_from_slice(buf);
-
             Ok(buf.len())
         }
 
         fn flush(&mut self) -> io::Result<()> {
-            if self.state.err.is_some() {
-                return Err(self.state.err.take().unwrap());
-            }
-
-            if !self.buf.is_empty() {
-                return Err(io::ErrorKind::WouldBlock.into());
-            }
-
             Ok(())
         }
     }
