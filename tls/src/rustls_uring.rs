@@ -53,9 +53,19 @@ impl<C, S> Session<C>
 where
     C: DerefMut + Deref<Target = ConnectionCommon<S>>,
 {
-    fn write_plain(&mut self, buf: &[u8]) -> io::Result<usize> {
+    fn read_plain(&mut self, buf: &mut impl IoBufMut) -> io::Result<usize> {
+        io::Read::read(&mut self.session.reader(), io_ref_mut_slice(buf)).map(|n| {
+            // SAFETY
+            // required by IoBufMut trait. when n bytes is write into buffer this method
+            // must be called to advance the initialized part of it.
+            unsafe { buf.set_init(n) };
+            n
+        })
+    }
+
+    fn write_plain(&mut self, buf: &impl IoBuf) -> io::Result<usize> {
         let writer = &mut self.session.writer();
-        let n = io::Write::write(writer, buf)?;
+        let n = io::Write::write(writer, io_ref_slice(buf))?;
         // keep this no op in case rustls change it's behavior.
         io::Write::flush(writer).expect("<rustls::conn::Writer as std::io::Write>::flush should be no op");
         Ok(n)
@@ -68,7 +78,7 @@ where
     S: SideData,
     Io: AsyncBufRead,
 {
-    async fn read(&self) -> io::Result<usize> {
+    async fn read_tls(&self) -> io::Result<usize> {
         let mut session = self.session.borrow_mut();
 
         let mut buf = session.read_buf.take().expect(POLL_TO_COMPLETE);
@@ -179,7 +189,7 @@ where
 
             while !eof && self.session.get_mut().session.wants_read() && self.session.get_mut().session.is_handshaking()
             {
-                let n = self.read().await?;
+                let n = self.read_tls().await?;
                 rdlen += n;
                 if n == 0 {
                     eof = true;
@@ -222,27 +232,17 @@ where
             let mut session = self.session.borrow_mut();
 
             loop {
-                match io::Read::read(&mut session.session.reader(), io_ref_mut_slice(&mut buf)) {
-                    Ok(n) => {
-                        // SAFETY
-                        // required by IoBufMut trait. when n bytes is write into buffer this method
-                        // must be called to advance the initialized part of it.
-                        unsafe { buf.set_init(n) };
-
-                        return (Ok(n), buf);
-                    }
+                match session.read_plain(&mut buf) {
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(e) => {
-                        return (Err(e), buf);
-                    }
+                    res => return (res, buf),
                 }
 
                 drop(session);
 
-                match self.read().await {
+                match self.read_tls().await {
                     Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
                     Ok(_) => session = self.session.borrow_mut(),
-                    Err(e) => return (Err(e), buf),
+                    e => return (e, buf),
                 };
             }
         }
@@ -267,13 +267,16 @@ where
         async {
             let mut session = self.session.borrow_mut();
 
-            let len = match session.write_plain(io_ref_slice(&buf)) {
+            let len = match session.write_plain(&buf) {
                 Ok(n) => n,
                 e => return (e, buf),
             };
 
             let mut write_buf = session.write_buf.take().expect(POLL_TO_COMPLETE);
 
+            // currently there is no AsyncBufWrite::flush so write must keep flushing io until
+            // every bit of tls data is sent. this could be changed in the future for more efficient
+            // rustl buffer usage.
             while session.session.wants_write() {
                 if let Err(e) = session.session.write_tls(&mut write_buf) {
                     session.write_buf.replace(write_buf);
