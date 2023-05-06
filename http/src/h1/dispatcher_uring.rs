@@ -1,7 +1,7 @@
 use core::{
     cell::RefCell,
     fmt,
-    future::{pending, poll_fn, Future},
+    future::{poll_fn, Future},
     marker::PhantomData,
     mem,
     pin::{pin, Pin},
@@ -21,7 +21,7 @@ use xitca_io::{
     io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, Slice},
 };
 use xitca_service::Service;
-use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
+use xitca_unsafe_collection::futures::SelectOutput;
 
 use crate::{
     body::NoneBody,
@@ -89,14 +89,6 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
         self.buf.replace(buf);
 
         res
-    }
-
-    fn split_write_io<'i>(&mut self, io: &'i impl AsyncBufWrite) -> impl Future<Output = io::Result<()>> + 'i {
-        let buf = self.get_mut().split();
-        async {
-            let (res, _) = write_all_with(buf, |slice| io.write(slice)).await;
-            res
-        }
     }
 }
 
@@ -243,57 +235,33 @@ where
             // Notifier from waking up Notify.
             {
                 let mut body = pin!(body);
-                let mut task = pin!(None);
-                let mut err = None;
 
                 loop {
-                    let want_body = self.write_buf.get_mut().len() < W_LIMIT;
+                    let buf = self.write_buf.get_mut();
 
-                    let poll_body = async {
-                        if want_body {
-                            poll_fn(|cx| body.as_mut().poll_next(cx)).await
-                        } else {
-                            pending().await
-                        }
-                    };
+                    if buf.len() < W_LIMIT {
+                        let res = poll_fn(|cx| match body.as_mut().poll_next(cx) {
+                            Poll::Ready(res) => Poll::Ready(SelectOutput::A(res)),
+                            Poll::Pending if buf.is_empty() => Poll::Pending,
+                            Poll::Pending => Poll::Ready(SelectOutput::B(())),
+                        })
+                        .await;
 
-                    let poll_write = async {
-                        if task.is_none() {
-                            if self.write_buf.get_mut().is_empty() {
-                                // pending when buffer is empty. wait for body to make progress
-                                // with more bytes. (or exit with error)
-                                return pending().await;
+                        match res {
+                            SelectOutput::A(Some(res)) => {
+                                let bytes = res.map_err(Error::Body)?;
+                                encoder.encode(bytes, self.write_buf.get_mut());
+                                continue;
                             }
-                            task.as_mut().set(Some(self.write_buf.split_write_io(&*self.io)));
-                        }
-                        task.as_mut().as_pin_mut().unwrap().await
-                    };
-
-                    match poll_body.select(poll_write).await {
-                        SelectOutput::A(Some(Ok(bytes))) => {
-                            encoder.encode(bytes, self.write_buf.get_mut());
-                        }
-                        SelectOutput::A(None) => {
-                            encoder.encode_eof(self.write_buf.get_mut());
-                            break;
-                        }
-                        SelectOutput::A(Some(Err(e))) => {
-                            err = Some(Error::Body(e));
-                            break;
-                        }
-                        SelectOutput::B(res) => {
-                            task.as_mut().set(None);
-                            res?
+                            SelectOutput::A(None) => {
+                                encoder.encode_eof(self.write_buf.get_mut());
+                                break;
+                            }
+                            SelectOutput::B(_) => {}
                         }
                     }
-                }
 
-                if let Some(task) = task.as_pin_mut() {
-                    task.await?;
-                }
-
-                if let Some(e) = err {
-                    return Err(e);
+                    self.write_buf.write_io(&*self.io).await?;
                 }
             }
 
