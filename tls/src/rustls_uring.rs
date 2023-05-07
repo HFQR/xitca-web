@@ -303,6 +303,8 @@ where
                 }
             }
 
+            session.write_buf.replace(write_buf);
+
             (Ok(len), buf)
         }
     }
