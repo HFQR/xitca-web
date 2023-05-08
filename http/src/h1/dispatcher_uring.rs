@@ -5,7 +5,7 @@ use core::{
     marker::PhantomData,
     mem,
     pin::{pin, Pin},
-    task::{ready, Poll, Waker},
+    task::{self, ready, Poll, Waker},
 };
 
 use std::{
@@ -83,7 +83,7 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
             .take()
             .expect("WriteBuf::write_io is dropped before polling to complete");
 
-        let (res, mut buf) = write_all_with(buf, |slice| io.write(slice)).await;
+        let (res, mut buf) = write_all(io, buf).await;
 
         buf.clear();
         self.buf.replace(buf);
@@ -92,14 +92,10 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
     }
 }
 
-async fn write_all_with<F, Fut>(mut buf: BytesMut, mut func: F) -> (io::Result<()>, BytesMut)
-where
-    F: FnMut(Slice<BytesMut>) -> Fut,
-    Fut: Future<Output = (io::Result<usize>, Slice<BytesMut>)>,
-{
+async fn write_all(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
     let mut n = 0;
     while n < buf.bytes_init() {
-        match func(buf.slice(n..)).await {
+        match io.write(buf.slice(n..)).await {
             (Ok(0), slice) => {
                 return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
             }
@@ -250,11 +246,11 @@ where
                         match res {
                             SelectOutput::A(Some(res)) => {
                                 let bytes = res.map_err(Error::Body)?;
-                                encoder.encode(bytes, self.write_buf.get_mut());
+                                encoder.encode(bytes, buf);
                                 continue;
                             }
                             SelectOutput::A(None) => {
-                                encoder.encode_eof(self.write_buf.get_mut());
+                                encoder.encode_eof(buf);
                                 break;
                             }
                             SelectOutput::B(_) => {}
@@ -292,35 +288,20 @@ where
     }
 }
 
-pub(super) enum Body {
-    _Body(_Body),
-    _Future(BodyFuture),
-    None,
-}
-
-pub(super) type BodyFuture = Pin<Box<dyn Future<Output = io::Result<_Body>>>>;
-
-pub(super) struct _Body {
-    io: Rc<dyn AsyncBufReadH1Body>,
-    limit: usize,
-    decoder: Decoder,
-}
-
-struct Decoder {
-    decoder: TransferCoding,
-    read_buf: ReadBufErased,
-    notify: Notifier<ReadBufErased>,
-}
+pub(super) struct Body(Pin<Box<dyn Stream<Item = io::Result<Bytes>>>>);
 
 impl Body {
-    fn new(
-        io: Rc<dyn AsyncBufReadH1Body>,
+    fn new<Io>(
+        io: Rc<Io>,
         is_expect: bool,
         limit: usize,
         decoder: TransferCoding,
         read_buf: ReadBufErased,
         notify: Notifier<ReadBufErased>,
-    ) -> Self {
+    ) -> Self
+    where
+        Io: AsyncBufRead + AsyncBufWrite + 'static,
+    {
         let body = _Body {
             io,
             limit,
@@ -331,25 +312,18 @@ impl Body {
             },
         };
 
-        if is_expect {
-            Self::_Future(Box::pin(async {
+        let body = if is_expect {
+            BodyState::Future(Box::pin(async {
                 let mut bytes = BytesMut::new();
                 encode_continue(&mut bytes);
-                let (res, _) = write_all_with(bytes, |slice| body.io.write_dyn(slice)).await;
+                let (res, _) = write_all(&*body.io, bytes).await;
                 res.map(|_| body)
             }))
         } else {
-            Self::_Body(body)
-        }
-    }
-}
+            BodyState::Body(body)
+        };
 
-impl Drop for Decoder {
-    fn drop(&mut self) {
-        if self.decoder.is_eof() {
-            let buf = mem::take(&mut self.read_buf);
-            self.notify.notify(buf);
-        }
+        Self(Box::pin(body))
     }
 }
 
@@ -368,10 +342,35 @@ impl Clone for Body {
 impl Stream for Body {
     type Item = io::Result<Bytes>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+    #[inline]
+    fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.get_mut().0).poll_next(cx)
+    }
+}
+
+enum BodyState<Io> {
+    Body(_Body<Io>),
+    Future(Pin<Box<dyn Future<Output = io::Result<_Body<Io>>>>>),
+    None,
+}
+
+struct _Body<Io> {
+    io: Rc<Io>,
+    limit: usize,
+    decoder: Decoder,
+}
+
+impl<Io> Stream for BodyState<Io>
+where
+    Io: AsyncBufRead + 'static,
+{
+    type Item = io::Result<Bytes>;
+
+    #[inline]
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match self.as_mut().get_mut() {
-                Self::_Body(body) => {
+                Self::Body(body) => {
                     match body.decoder.decoder.decode(&mut body.decoder.read_buf) {
                         ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
                         ChunkResult::Err(e) => return Poll::Ready(Some(Err(e))),
@@ -388,24 +387,39 @@ impl Stream for Body {
                         return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, msg))));
                     }
 
-                    let Self::_Body(mut body) = mem::replace(self.as_mut().get_mut(), Self::None) else { unreachable!() };
+                    let Self::Body(mut body) = mem::replace(self.as_mut().get_mut(), Self::None) else { unreachable!() };
 
-                    self.as_mut().set(Self::_Future(Box::pin(async {
-                        let read = body.decoder.read_buf.read_with(|slice| body.io.read_dyn(slice)).await?;
+                    self.as_mut().set(Self::Future(Box::pin(async {
+                        let read = body.decoder.read_buf.read_with(|slice| body.io.read(slice)).await?;
                         if read == 0 {
                             return Err(io::ErrorKind::UnexpectedEof.into());
                         }
                         Ok(body)
                     })))
                 }
-                Self::_Future(fut) => {
+                Self::Future(fut) => {
                     let body = ready!(Pin::new(fut).poll(cx))?;
-                    self.as_mut().set(Body::_Body(body));
+                    self.as_mut().set(Self::Body(body));
                 }
                 Self::None => unreachable!(
                     "None variant is only used internally and must not be observable from stream consumer."
                 ),
             }
+        }
+    }
+}
+
+struct Decoder {
+    decoder: TransferCoding,
+    read_buf: ReadBufErased,
+    notify: Notifier<ReadBufErased>,
+}
+
+impl Drop for Decoder {
+    fn drop(&mut self) {
+        if self.decoder.is_eof() {
+            let buf = mem::take(&mut self.read_buf);
+            self.notify.notify(buf);
         }
     }
 }
@@ -460,25 +474,4 @@ impl<T> Notifier<T> {
 struct Inner<V> {
     waker: Option<Waker>,
     val: Option<V>,
-}
-
-type Output<'s> = Pin<Box<dyn Future<Output = (io::Result<usize>, Slice<BytesMut>)> + 's>>;
-
-trait AsyncBufReadH1Body {
-    fn read_dyn(&self, buf: Slice<BytesMut>) -> Output;
-
-    fn write_dyn(&self, buf: Slice<BytesMut>) -> Output;
-}
-
-impl<Io> AsyncBufReadH1Body for Io
-where
-    Io: AsyncBufRead + AsyncBufWrite,
-{
-    fn read_dyn(&self, buf: Slice<BytesMut>) -> Output {
-        Box::pin(<Io as AsyncBufRead>::read(self, buf))
-    }
-
-    fn write_dyn(&self, buf: Slice<BytesMut>) -> Output {
-        Box::pin(<Io as AsyncBufWrite>::write(self, buf))
-    }
 }
