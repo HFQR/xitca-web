@@ -24,7 +24,7 @@ use xitca_unsafe_collection::futures::{Select, SelectOutput};
 use crate::{
     http::{Request, RequestExt, Response, Version},
     util::{
-        buffered::{self, BufInterest, BufWrite, ListWriteBuf, PagedBytesMut},
+        buffered::{self, BufInterest, BufWrite, ListWriteBuf},
         futures::Queue,
     },
 };
@@ -61,7 +61,7 @@ impl Context {
         }
     }
 
-    fn try_decode<F>(&mut self, buf: &mut PagedBytesMut, mut on_msg: F)
+    fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F)
     where
         F: FnMut(Request<RequestExt<RequestBodyV2>>),
     {

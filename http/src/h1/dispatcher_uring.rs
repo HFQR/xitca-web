@@ -116,7 +116,7 @@ type ReadBufErased = ReadBuf<0>;
 
 impl<const LIMIT: usize> ReadBuf<LIMIT> {
     async fn read_io(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
-        let mut buf = mem::take(self).into_inner().into_inner();
+        let mut buf = mem::take(self).into_inner();
 
         let len = buf.len();
         let remaining = buf.capacity() - len;

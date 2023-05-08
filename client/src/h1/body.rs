@@ -9,20 +9,19 @@ use futures_core::stream::Stream;
 use tokio::io::AsyncRead;
 use tokio_util::io::poll_read_buf;
 use xitca_http::{
-    bytes::Bytes,
+    bytes::{Bytes, BytesMut},
     error::BodyError,
     h1::proto::codec::{ChunkResult, TransferCoding},
-    util::buffered::PagedBytesMut,
 };
 
 pub struct ResponseBody<C> {
     conn: C,
-    buf: PagedBytesMut,
+    buf: BytesMut,
     decoder: TransferCoding,
 }
 
 impl<C> ResponseBody<C> {
-    pub(crate) fn new(conn: C, buf: PagedBytesMut, decoder: TransferCoding) -> Self {
+    pub(crate) fn new(conn: C, buf: BytesMut, decoder: TransferCoding) -> Self {
         Self { conn, buf, decoder }
     }
 
