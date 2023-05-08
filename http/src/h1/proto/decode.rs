@@ -2,12 +2,11 @@ use httparse::Status;
 use xitca_unsafe_collection::uninit;
 
 use crate::{
-    bytes::{Buf, Bytes},
+    bytes::{Buf, Bytes, BytesMut},
     http::{
         header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
         Extension, Method, Request, RequestExt, Uri, Version,
     },
-    util::buffered::PagedBytesMut,
 };
 
 use super::{codec::TransferCoding, context::Context, error::ProtoError, header::HeaderIndex};
@@ -18,7 +17,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
     // decode head and generate request and body decoder.
     pub fn decode_head<const READ_BUF_LIMIT: usize>(
         &mut self,
-        buf: &mut PagedBytesMut,
+        buf: &mut BytesMut,
     ) -> Result<Option<Decoded>, ProtoError> {
         let mut req = httparse::Request::new(&mut []);
         let mut headers = uninit::uninit_array::<_, MAX_HEADERS>();
@@ -183,7 +182,7 @@ mod test {
                 Connection: keep-alive, upgrade\r\n\
                 \r\n\
                 ";
-        let mut buf = PagedBytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
         let _ = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
         assert!(!ctx.is_connection_closed());
@@ -196,7 +195,7 @@ mod test {
                 Connection: keep-alive, close, upgrade\r\n\
                 \r\n\
                 ";
-        let mut buf = PagedBytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
         let _ = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
         assert!(ctx.is_connection_closed());
@@ -206,7 +205,7 @@ mod test {
                 Connection: close, keep-alive, upgrade\r\n\
                 \r\n\
                 ";
-        let mut buf = PagedBytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
         let _ = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
         assert!(!ctx.is_connection_closed());
@@ -221,7 +220,7 @@ mod test {
                 Transfer-Encoding: gzip, chunked\r\n\
                 \r\n\
                 ";
-        let mut buf = PagedBytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
         let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
         assert_eq!(
@@ -241,7 +240,7 @@ mod test {
                 Transfer-Encoding: chunked\r\n\
                 \r\n\
                 ";
-        let mut buf = PagedBytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
         let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
         assert_eq!(
@@ -259,7 +258,7 @@ mod test {
                 Transfer-Encoding: identity\r\n\
                 \r\n\
                 ";
-        let mut buf = PagedBytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
         assert!(ctx.decode_head::<128>(&mut buf).is_err());
 
@@ -268,7 +267,7 @@ mod test {
                 Transfer-Encoding: chunked, gzip\r\n\
                 \r\n\
                 ";
-        let mut buf = PagedBytesMut::from(&head[..]);
+        let mut buf = BytesMut::from(&head[..]);
 
         assert!(ctx.decode_head::<128>(&mut buf).is_err());
     }

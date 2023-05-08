@@ -35,9 +35,9 @@ impl From<Stream> for (TcpStream, SocketAddr) {
 
 impl AsyncBufRead for TcpStream {
     type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-        where
-            Self: 'f,
-            B: IoBufMut + 'f;
+    where
+        Self: 'f,
+        B: IoBufMut + 'f;
 
     #[inline(always)]
     fn read<B>(&self, buf: B) -> Self::Future<'_, B>
@@ -50,9 +50,9 @@ impl AsyncBufRead for TcpStream {
 
 impl AsyncBufWrite for TcpStream {
     type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-        where
-            Self: 'f,
-            B: IoBuf + 'f;
+    where
+        Self: 'f,
+        B: IoBuf + 'f;
 
     #[inline(always)]
     fn write<B>(&self, buf: B) -> Self::Future<'_, B>
@@ -99,9 +99,9 @@ mod unix {
 
     impl AsyncBufRead for UnixStream {
         type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-            where
-                Self: 'f,
-                B: IoBufMut+ 'f;
+        where
+            Self: 'f,
+            B: IoBufMut+ 'f;
 
         #[inline(always)]
         fn read<B>(&self, buf: B) -> Self::Future<'_, B>
@@ -114,9 +114,9 @@ mod unix {
 
     impl AsyncBufWrite for UnixStream {
         type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-            where
-                Self: 'f,
-                B: IoBuf + 'f;
+        where
+            Self: 'f,
+            B: IoBuf + 'f;
 
         #[inline(always)]
         fn write<B>(&self, buf: B) -> Self::Future<'_, B>

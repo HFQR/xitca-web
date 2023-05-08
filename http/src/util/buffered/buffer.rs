@@ -14,21 +14,18 @@ use xitca_unsafe_collection::{
 
 pub use xitca_io::bytes::{BufInterest, BufRead, BufWrite};
 
-/// a hard code BytesMut that reserving additional 4kb heap memory everytime reallocating needed.
-pub type PagedBytesMut = xitca_io::bytes::PagedBytesMut<4096>;
-
 /// a writable buffer with const generic guarded max size limit.
 #[derive(Debug)]
-pub struct ReadBuf<const LIMIT: usize>(PagedBytesMut);
+pub struct ReadBuf<const LIMIT: usize>(BytesMut);
 
 impl<const LIMIT: usize> ReadBuf<LIMIT> {
     #[inline(always)]
     pub fn new() -> Self {
-        Self(PagedBytesMut::new())
+        Self(BytesMut::new())
     }
 
     #[inline(always)]
-    pub fn into_inner(self) -> PagedBytesMut {
+    pub fn into_inner(self) -> BytesMut {
         self.0
     }
 
@@ -40,7 +37,7 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
 
 impl<const LIMIT: usize> From<BytesMut> for ReadBuf<LIMIT> {
     fn from(bytes: BytesMut) -> Self {
-        Self(PagedBytesMut::from(bytes))
+        Self(bytes)
     }
 }
 
@@ -51,7 +48,7 @@ impl<const LIMIT: usize> Default for ReadBuf<LIMIT> {
 }
 
 impl<const LIMIT: usize> Deref for ReadBuf<LIMIT> {
-    type Target = PagedBytesMut;
+    type Target = BytesMut;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
