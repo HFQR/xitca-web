@@ -18,7 +18,7 @@ use futures_core::stream::Stream;
 use tracing::trace;
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, Slice},
+    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf},
 };
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
@@ -115,11 +115,7 @@ async fn write_all(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()
 type ReadBufErased = ReadBuf<0>;
 
 impl<const LIMIT: usize> ReadBuf<LIMIT> {
-    async fn read_with<F, Fut>(&mut self, func: F) -> io::Result<usize>
-    where
-        F: FnOnce(Slice<BytesMut>) -> Fut,
-        Fut: Future<Output = (io::Result<usize>, Slice<BytesMut>)>,
-    {
+    async fn read_io(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
         let mut buf = mem::take(self).into_inner().into_inner();
 
         let len = buf.len();
@@ -128,7 +124,7 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
             buf.reserve(4096 - remaining);
         }
 
-        let (res, buf) = func(buf.slice(len..)).await;
+        let (res, buf) = io.read(buf.slice(len..)).await;
         *self = Self::from(buf.into_inner());
         res
     }
@@ -192,7 +188,7 @@ where
 
         let read = self
             .read_buf
-            .read_with(|slice| self.io.read(slice))
+            .read_io(&*self.io)
             .timeout(self.timer.get())
             .await
             .map_err(|_| self.timer.map_to_err())??;
@@ -390,7 +386,7 @@ where
                     let Self::Body(mut body) = mem::replace(self.as_mut().get_mut(), Self::None) else { unreachable!() };
 
                     self.as_mut().set(Self::Future(Box::pin(async {
-                        let read = body.decoder.read_buf.read_with(|slice| body.io.read(slice)).await?;
+                        let read = body.decoder.read_buf.read_io(&*body.io).await?;
                         if read == 0 {
                             return Err(io::ErrorKind::UnexpectedEof.into());
                         }
