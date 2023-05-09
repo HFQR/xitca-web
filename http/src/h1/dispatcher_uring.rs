@@ -60,33 +60,16 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
     _phantom: PhantomData<ReqB>,
 }
 
-struct WriteBuf<const LIMIT: usize> {
-    buf: Option<BytesMut>,
-}
+type WriteBuf<const LIMIT: usize> = ReadBuf<LIMIT>;
 
 impl<const LIMIT: usize> WriteBuf<LIMIT> {
-    fn new() -> Self {
-        Self {
-            buf: Some(BytesMut::new()),
-        }
-    }
-
-    fn get_mut(&mut self) -> &mut BytesMut {
-        self.buf
-            .as_mut()
-            .expect("WriteBuf::write_io is dropped before polling to complete")
-    }
-
     async fn write_io(&mut self, io: &impl AsyncBufWrite) -> io::Result<()> {
-        let buf = self
-            .buf
-            .take()
-            .expect("WriteBuf::write_io is dropped before polling to complete");
+        let buf = mem::take(self).into_inner();
 
         let (res, mut buf) = write_all(io, buf).await;
 
         buf.clear();
-        self.buf.replace(buf);
+        let _ = mem::replace(self, Self::from(buf));
 
         res
     }
@@ -220,7 +203,7 @@ where
 
             let (parts, body) = self.service.call(req).await.map_err(Error::Service)?.into_parts();
 
-            let mut encoder = self.ctx.encode_head(parts, &body, self.write_buf.get_mut())?;
+            let mut encoder = self.ctx.encode_head(parts, &body, &mut *self.write_buf)?;
 
             // this block is necessary. ResB has to be dropped asap as it may hold ownership of
             // Body type which if not dropped before Notifier::notify is called would prevent
@@ -229,7 +212,7 @@ where
                 let mut body = pin!(body);
 
                 loop {
-                    let buf = self.write_buf.get_mut();
+                    let buf = &mut *self.write_buf;
 
                     if buf.len() < W_LIMIT {
                         let res = poll_fn(|cx| match body.as_mut().poll_next(cx) {
@@ -279,7 +262,7 @@ where
         self.ctx.set_close();
         let (parts, body) = func().into_parts();
         self.ctx
-            .encode_head(parts, &body, self.write_buf.get_mut())
+            .encode_head(parts, &body, &mut *self.write_buf)
             .expect("request_error must be correct");
     }
 }
@@ -420,25 +403,21 @@ impl Drop for Decoder {
     }
 }
 
-struct Notify<T> {
-    inner: Rc<RefCell<Inner<T>>>,
-}
+struct Notify<T>(Rc<RefCell<Inner<T>>>);
 
 impl<T> Notify<T> {
     fn new() -> Self {
-        Self {
-            inner: Rc::new(RefCell::new(Inner { waker: None, val: None })),
-        }
+        Self(Rc::new(RefCell::new(Inner { waker: None, val: None })))
     }
 
     fn notifier(&mut self) -> Notifier<T> {
-        Notifier(self.inner.clone())
+        Notifier(self.0.clone())
     }
 
     async fn wait(&mut self) -> Option<T> {
         poll_fn(|cx| {
-            let strong_count = Rc::strong_count(&self.inner);
-            let mut inner = self.inner.borrow_mut();
+            let strong_count = Rc::strong_count(&self.0);
+            let mut inner = self.0.borrow_mut();
             if let Some(val) = inner.val.take() {
                 return Poll::Ready(Some(val));
             } else if strong_count == 1 {
