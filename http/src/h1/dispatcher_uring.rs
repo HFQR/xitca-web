@@ -15,6 +15,7 @@ use std::{
 };
 
 use futures_core::stream::Stream;
+use pin_project_lite::pin_project;
 use tracing::trace;
 use xitca_io::{
     bytes::BytesMut,
@@ -281,7 +282,7 @@ impl Body {
     where
         Io: AsyncBufRead + AsyncBufWrite + 'static,
     {
-        let body = _Body {
+        let body = BodyInner {
             io,
             limit,
             decoder: Decoder {
@@ -291,18 +292,23 @@ impl Body {
             },
         };
 
-        let body = if is_expect {
-            BodyState::Future(Box::pin(async {
-                let mut bytes = BytesMut::new();
-                encode_continue(&mut bytes);
-                let (res, _) = write_all(&*body.io, bytes).await;
-                res.map(|_| body)
-            }))
+        let state = if is_expect {
+            State::ExpectWrite {
+                fut: async {
+                    let mut bytes = BytesMut::new();
+                    encode_continue(&mut bytes);
+                    let (res, _) = write_all(&*body.io, bytes).await;
+                    res.map(|_| body)
+                },
+            }
         } else {
-            BodyState::Body(body)
+            State::Body { body }
         };
 
-        Self(Box::pin(body))
+        Self(Box::pin(BodyReader {
+            chunk_read: |body: BodyInner<Io>| body.chunk_read(),
+            state,
+        }))
     }
 }
 
@@ -327,29 +333,67 @@ impl Stream for Body {
     }
 }
 
-enum BodyState<Io> {
-    Body(_Body<Io>),
-    Future(Pin<Box<dyn Future<Output = io::Result<_Body<Io>>>>>),
-    None,
+pin_project! {
+    #[project = StateProj]
+    #[project_replace = StateProjReplace]
+    enum State<Io, FutC, FutE> {
+        Body {
+            body: BodyInner<Io>
+        },
+        ChunkRead {
+            #[pin]
+            fut: FutC
+        },
+        ExpectWrite {
+            #[pin]
+            fut: FutE,
+        },
+        None,
+    }
 }
 
-struct _Body<Io> {
+pin_project! {
+    struct BodyReader<Io, F, FutC, FutE> {
+        chunk_read: F,
+        #[pin]
+        state: State<Io, FutC, FutE>
+    }
+}
+
+struct BodyInner<Io> {
     io: Rc<Io>,
     limit: usize,
     decoder: Decoder,
 }
 
-impl<Io> Stream for BodyState<Io>
+impl<Io> BodyInner<Io>
 where
-    Io: AsyncBufRead + 'static,
+    Io: AsyncBufRead,
+{
+    async fn chunk_read(mut self) -> io::Result<Self> {
+        let read = self.decoder.read_buf.read_io(&*self.io).await?;
+        if read == 0 {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        Ok(self)
+    }
+}
+
+impl<Io, F, FutC, FutE> Stream for BodyReader<Io, F, FutC, FutE>
+where
+    Io: AsyncBufRead,
+    F: Fn(BodyInner<Io>) -> FutC,
+    FutC: Future<Output = io::Result<BodyInner<Io>>>,
+    FutE: Future<Output = io::Result<BodyInner<Io>>>,
 {
     type Item = io::Result<Bytes>;
 
     #[inline]
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
         loop {
-            match self.as_mut().get_mut() {
-                Self::Body(body) => {
+            match this.state.as_mut().project() {
+                StateProj::Body { body } => {
                     match body.decoder.decoder.decode(&mut body.decoder.read_buf) {
                         ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
                         ChunkResult::Err(e) => return Poll::Ready(Some(Err(e))),
@@ -366,21 +410,22 @@ where
                         return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, msg))));
                     }
 
-                    let Self::Body(mut body) = mem::replace(self.as_mut().get_mut(), Self::None) else { unreachable!() };
-
-                    self.as_mut().set(Self::Future(Box::pin(async {
-                        let read = body.decoder.read_buf.read_io(&*body.io).await?;
-                        if read == 0 {
-                            return Err(io::ErrorKind::UnexpectedEof.into());
-                        }
-                        Ok(body)
-                    })))
+                    let StateProjReplace::Body { body } = this.state.as_mut().project_replace(State::None) else { unreachable!() };
+                    this.state.as_mut().project_replace(State::ChunkRead {
+                        fut: (this.chunk_read)(body),
+                    });
                 }
-                Self::Future(fut) => {
-                    let body = ready!(Pin::new(fut).poll(cx))?;
-                    self.as_mut().set(Self::Body(body));
+                StateProj::ChunkRead { fut } => {
+                    let body = ready!(fut.poll(cx))?;
+                    this.state.as_mut().project_replace(State::Body { body });
                 }
-                Self::None => unreachable!(
+                StateProj::ExpectWrite { fut } => {
+                    let body = ready!(fut.poll(cx))?;
+                    this.state.as_mut().project_replace(State::ChunkRead {
+                        fut: (this.chunk_read)(body),
+                    });
+                }
+                StateProj::None => unreachable!(
                     "None variant is only used internally and must not be observable from stream consumer."
                 ),
             }
