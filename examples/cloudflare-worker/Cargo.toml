@@ -17,7 +17,7 @@ futures-util = { version = "0.3.25", default-features = false }
 http-file = { version = "0.1", default-features = false }
 rust-embed = "6.4.2"
 serde_json = "1.0.89"
-worker = "0.0.12"
+worker = "0.0.16"
 xitca-http = { version = "0.1", default-features = false, features = ["util-service"] }
 xitca-service = "0.1"
 xitca-unsafe-collection = "0.1"
