@@ -149,7 +149,7 @@ where
                         // the header is checked again and written properly afterwards.
                         continue;
                     }
-                    self.try_set_ctype_from_header(&value)?;
+                    self.try_set_close_from_header(&value)?;
                 }
                 UPGRADE => encoding = TransferCoding::upgrade(),
                 DATE => skip_date = true,

@@ -119,11 +119,10 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     .map(|v| v.trim().eq_ignore_ascii_case("chunked"))
                     .unwrap_or(false);
 
-                if chunked {
-                    decoder.try_set(TransferCoding::decode_chunked())?;
-                } else {
+                if !chunked {
                     return Err(ProtoError::HeaderName);
                 }
+                decoder.try_set(TransferCoding::decode_chunked())?;
             }
             CONTENT_LENGTH => {
                 let len = value
@@ -131,11 +130,10 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     .ok()
                     .and_then(|v| v.parse::<u64>().ok())
                     .ok_or(ProtoError::HeaderValue)?;
-                if len != 0 {
-                    decoder.try_set(TransferCoding::length(len))?;
-                }
+
+                decoder.try_set(TransferCoding::length(len))?;
             }
-            CONNECTION => self.try_set_ctype_from_header(&value)?,
+            CONNECTION => self.try_set_close_from_header(&value)?,
             EXPECT => {
                 if value.as_bytes() != b"100-continue" {
                     return Err(ProtoError::HeaderValue);
@@ -156,7 +154,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
         Ok(())
     }
 
-    pub(super) fn try_set_ctype_from_header(&mut self, val: &HeaderValue) -> Result<(), ProtoError> {
+    pub(super) fn try_set_close_from_header(&mut self, val: &HeaderValue) -> Result<(), ProtoError> {
         for val in val.to_str().map_err(|_| ProtoError::HeaderValue)?.split(',') {
             let val = val.trim();
             if val.eq_ignore_ascii_case("keep-alive") {
