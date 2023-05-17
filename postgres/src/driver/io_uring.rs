@@ -76,6 +76,7 @@ impl<Io> IoUringDriver<Io>
 where
     Io: AsyncBufRead + AsyncBufWrite + 'static,
 {
+    #[allow(dead_code)]
     pub(crate) fn new(
         io: Io,
         rx: GenericDriverRx,

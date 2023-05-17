@@ -205,6 +205,7 @@ impl Driver {
     // downcast Driver to IoUringDriver if it's Tcp variant.
     // IoUringDriver can not be a new variant of Dirver as it's !Send.
     pub fn try_into_io_uring_tcp(self) -> io_uring::IoUringDriver<xitca_io::net::io_uring::TcpStream> {
+        #[cfg(not(feature = "quic"))]
         match self.inner {
             _Driver::Tcp(drv) => {
                 let std = drv.io.into_std().unwrap();
@@ -219,6 +220,9 @@ impl Driver {
             }
             _ => todo!(),
         }
+
+        #[cfg(feature = "quic")]
+        todo!()
     }
 }
 
