@@ -119,6 +119,11 @@ impl WriteBuf {
         self.buf.is_empty()
     }
 
+    #[inline]
+    pub fn into_inner(self) -> BytesMut {
+        self.buf
+    }
+
     /// clear remaining bytes in buffer and set flush flag to false.
     /// this would make following [BufInterest::want_write_io] call return false.
     #[inline]
