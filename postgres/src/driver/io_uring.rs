@@ -145,7 +145,16 @@ where
                         SelectOutput::B(_) => {
                             let buf = mem::take(&mut self.write_buf);
                             let io = self.io.clone();
-                            self.write_task.set(async move { io.write(buf).await });
+                            self.write_task.set(async move {
+                                let (res, mut buf) = io.write(buf).await;
+                                (
+                                    res.map(|n| {
+                                        buf.advance(n);
+                                        n
+                                    }),
+                                    buf,
+                                )
+                            });
                         }
                     }
                 }
@@ -160,7 +169,6 @@ where
                     if n == 0 {
                         return Ok(None);
                     }
-                    self.write_buf.advance(n);
                 }
                 SelectOutput::B((res, buf)) => {
                     self.read_buf = buf;
