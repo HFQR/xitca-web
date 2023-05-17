@@ -29,14 +29,14 @@ type Opt = (io::Result<usize>, BytesMut);
 // it must poll one future to completion before the next one can be set.
 struct Task {
     fut: ReusableLocalBoxFuture<'static, Opt>,
-    can_set: bool,
+    idle: bool,
 }
 
 impl Default for Task {
     fn default() -> Self {
         Self {
             fut: ReusableLocalBoxFuture::new(pending()),
-            can_set: true,
+            idle: true,
         }
     }
 }
@@ -44,20 +44,20 @@ impl Default for Task {
 impl Task {
     fn set(&mut self, fut: impl Future<Output = Opt> + 'static) {
         assert!(
-            mem::replace(&mut self.can_set, false),
+            mem::replace(&mut self.idle, false),
             "Task must not be set multiple times before Task::poll is finished"
         );
         self.fut.set(fut);
     }
 
-    fn can_set(&self) -> bool {
-        self.can_set
+    fn idle(&self) -> bool {
+        self.idle
     }
 
     async fn poll(&mut self) -> Opt {
-        debug_assert!(!self.can_set(), "Task must not be polled before Task::set is called");
+        debug_assert!(!self.idle(), "Task must not be polled before Task::set is called");
         let res = self.fut.get_pin().await;
-        self.can_set = true;
+        self.idle = true;
         res
     }
 }
@@ -96,7 +96,7 @@ where
 
     pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
-            if self.read_task.can_set() {
+            if self.read_task.idle() {
                 while let Some(res) = ResponseMessage::try_from_buf(&mut self.read_buf)? {
                     match res {
                         ResponseMessage::Normal { buf, complete } => {
@@ -124,53 +124,49 @@ where
                 });
             }
 
-            let res = self
-                .read_task
-                .poll()
-                .select(async {
-                    if self.write_task.can_set() {
-                        let res = poll_fn(|cx| match self.rx.poll_recv(cx) {
-                            Poll::Ready(res) => Poll::Ready(SelectOutput::A(res)),
-                            Poll::Pending if !self.write_buf.is_empty() => Poll::Ready(SelectOutput::B(())),
-                            Poll::Pending => Poll::Pending,
-                        })
-                        .await;
+            let write_task = async {
+                while self.write_task.idle() {
+                    let res = poll_fn(|cx| match self.rx.poll_recv(cx) {
+                        Poll::Ready(Some(req)) => Poll::Ready(SelectOutput::A(Some(req))),
+                        Poll::Ready(None) if !self.write_buf.is_empty() => Poll::Ready(SelectOutput::B(())),
+                        Poll::Ready(None) => Poll::Ready(SelectOutput::A(None)),
+                        Poll::Pending if !self.write_buf.is_empty() => Poll::Ready(SelectOutput::B(())),
+                        Poll::Pending => Poll::Pending,
+                    })
+                    .await;
 
-                        match res {
-                            SelectOutput::A(req) => return SelectOutput::A(req),
-                            SelectOutput::B(_) => {
-                                let buf = mem::take(&mut self.write_buf);
-                                let io = self.io.clone();
-                                self.write_task.set(async move { io.write(buf).await });
-                            }
+                    match res {
+                        SelectOutput::A(Some(req)) => {
+                            self.write_buf.extend_from_slice(req.msg.as_ref());
+                            self.res.push_back(req.tx);
+                        }
+                        SelectOutput::A(None) => return (Ok(0), mem::take(&mut self.write_buf)),
+                        SelectOutput::B(_) => {
+                            let buf = mem::take(&mut self.write_buf);
+                            let io = self.io.clone();
+                            self.write_task.set(async move { io.write(buf).await });
                         }
                     }
+                }
 
-                    let res = self.write_task.poll().await;
-                    SelectOutput::B(res)
-                })
-                .await;
+                self.write_task.poll().await
+            };
 
-            match res {
+            match write_task.select(self.read_task.poll()).await {
                 SelectOutput::A((res, buf)) => {
-                    self.read_buf = buf;
-                    let n = res?;
-                    if n == 0 {
-                        return Ok(None);
-                    }
-                }
-                SelectOutput::B(SelectOutput::A(Some(req))) => {
-                    self.write_buf.extend_from_slice(req.msg.as_ref());
-                    self.res.push_back(req.tx);
-                }
-                SelectOutput::B(SelectOutput::A(None)) => return Ok(None),
-                SelectOutput::B(SelectOutput::B((res, buf))) => {
                     self.write_buf = buf;
                     let n = res?;
                     if n == 0 {
                         return Ok(None);
                     }
                     self.write_buf.advance(n);
+                }
+                SelectOutput::B((res, buf)) => {
+                    self.read_buf = buf;
+                    let n = res?;
+                    if n == 0 {
+                        return Ok(None);
+                    }
                 }
             }
         }
