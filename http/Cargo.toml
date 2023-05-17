@@ -61,7 +61,7 @@ futures-util = { version = "0.3.17", default-features = false, optional = true }
 
 # http/3 support
 h3 = { version = "0.0.2", optional = true }
-h3-quinn = { version = "0.0.2", optional = true }
+h3-quinn = { version = "0.0.3", optional = true }
 
 # async runtime support.
 tokio = { version = "1.27", features = ["rt", "time"], optional = true }

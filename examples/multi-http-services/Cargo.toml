@@ -10,8 +10,8 @@ xitca-server = { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
 
 openssl = "0.10.44"
-quinn = "0.9"
-rustls = "0.20"
+quinn = "0.10"
+rustls = "0.21"
 rustls-pemfile = "1.0.1"
 tracing = { version = "0.1.37", default-features = false }
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }
