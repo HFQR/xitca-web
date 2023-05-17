@@ -30,11 +30,11 @@ pub(crate) type GenericDriverTx = UnboundedSender<Request>;
 pub(crate) type GenericDriverRx = UnboundedReceiver<Request>;
 
 pub(crate) struct GenericDriver<Io> {
-    io: Io,
-    write_buf: WriteBuf,
-    read_buf: PagedBytesMut,
-    rx: Option<GenericDriverRx>,
-    res: VecDeque<ResponseSender>,
+    pub(crate) io: Io,
+    pub(crate) write_buf: WriteBuf,
+    pub(crate) read_buf: PagedBytesMut,
+    pub(crate) rx: Option<GenericDriverRx>,
+    pub(crate) res: VecDeque<ResponseSender>,
 }
 
 impl<Io> GenericDriver<Io>
@@ -164,7 +164,7 @@ where
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
-        while let Some(res) = ResponseMessage::try_from_buf(&mut self.read_buf)? {
+        while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
                     let _ = self.res.front_mut().expect("out of bound must not happen").send(buf);

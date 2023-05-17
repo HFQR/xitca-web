@@ -4,6 +4,9 @@ pub(crate) mod generic;
 #[cfg(feature = "tls")]
 mod tls;
 
+#[cfg(feature = "io-uring")]
+mod io_uring;
+
 #[cfg(not(feature = "quic"))]
 mod raw;
 
@@ -195,6 +198,28 @@ async fn resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
         })
         .collect::<Vec<_>>();
     Ok(addrs)
+}
+
+#[cfg(feature = "io-uring")]
+impl Driver {
+    // downcast Driver to IoUringDriver if it's Tcp variant.
+    // IoUringDriver can not be a new variant of Dirver as it's !Send.
+    pub fn try_into_io_uring_tcp(self) -> io_uring::IoUringDriver<xitca_io::net::io_uring::TcpStream> {
+        match self.inner {
+            _Driver::Tcp(drv) => {
+                let std = drv.io.into_std().unwrap();
+                let tcp = xitca_io::net::io_uring::TcpStream::from_std(std);
+                io_uring::IoUringDriver::new(
+                    tcp,
+                    drv.rx.unwrap(),
+                    drv.write_buf.into_inner(),
+                    drv.read_buf.into_inner(),
+                    drv.res,
+                )
+            }
+            _ => todo!(),
+        }
+    }
 }
 
 pub(crate) trait Drive: Send {

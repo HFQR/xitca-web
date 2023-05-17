@@ -11,6 +11,8 @@ tls = ["xitca-tls/rustls", "ring", "rustls/dangerous_configuration"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
 quic = ["tls", "quinn", "quinn-proto", "rustls-pemfile"]
+# feature for using tokio_uring as IO reactor.
+io-uring = ["xitca-io/runtime-uring"]
 
 [dependencies]
 xitca-io = { version = "0.1", features = ["runtime"] }
@@ -19,6 +21,7 @@ xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
 fallible-iterator = "0.2"
 percent-encoding = "2"
+pin-project-lite = "0.2.9"
 postgres-protocol = "0.6.5"
 postgres-types = "0.2"
 tokio = { version = "1.27", features = ["net", "sync"] }

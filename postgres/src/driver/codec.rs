@@ -1,7 +1,6 @@
 use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
-use xitca_unsafe_collection::bytes::PagedBytesMut;
 
 use crate::error::Error;
 
@@ -30,7 +29,7 @@ pub enum ResponseMessage {
 }
 
 impl ResponseMessage {
-    pub(crate) fn try_from_buf<const P: usize>(buf: &mut PagedBytesMut<P>) -> Result<Option<Self>, Error> {
+    pub(crate) fn try_from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
         let mut idx = 0;
         let mut complete = false;
 
@@ -49,7 +48,7 @@ impl ResponseMessage {
                         // TODO:
                         // PagedBytesMut should never expose underlying BytesMut type as reference.
                         // this is needed because postgres-protocol is an external crate.
-                        let message = backend::Message::parse(buf.get_mut())?.unwrap();
+                        let message = backend::Message::parse(buf)?.unwrap();
                         return Ok(Some(ResponseMessage::Async(message)));
                     }
 
