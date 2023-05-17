@@ -37,8 +37,8 @@ h2 = { version = "0.3.17", optional = true }
 
 # http/3 support
 h3 = { version = "0.0.2", optional = true }
-h3-quinn = { version = "0.0.2", optional = true }
-quinn = { version = "0.9", optional = true }
+h3-quinn = { version = "0.0.3", optional = true }
+quinn = { version = "0.10", optional = true }
 async-stream = { version = "0.3", optional = true }
 
 # http/2 and http/3 shared
@@ -49,8 +49,8 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 tokio-openssl = { version = "0.6.3", optional = true }
 
 # rustls, http3 and dangerous features shared support
-tokio-rustls = { version = "0.23", optional = true }
-webpki-roots = { version = "0.22", optional = true }
+tokio-rustls = { version = "0.24.0", optional = true }
+webpki-roots = { version = "0.23.0", optional = true }
 
 # serde support
 serde = { version = "1.0.130", default-features = false, optional = true }
