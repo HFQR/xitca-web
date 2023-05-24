@@ -68,9 +68,8 @@ impl<const LIMIT: usize> WriteBuf<LIMIT> {
         let buf = mem::take(self).into_inner();
 
         let (res, mut buf) = write_all(io, buf).await;
-
         buf.clear();
-        let _ = mem::replace(self, Self::from(buf));
+        *self = buf.into();
 
         res
     }
@@ -243,9 +242,7 @@ where
 
             if let Some(waiter) = waiter {
                 match waiter.wait().await {
-                    Some(read_buf) => {
-                        let _ = mem::replace(&mut self.read_buf, read_buf.limit());
-                    }
+                    Some(read_buf) => self.read_buf = read_buf.limit(),
                     None => {
                         self.ctx.set_close();
                         break;
