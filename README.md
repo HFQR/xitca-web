@@ -18,4 +18,8 @@
 - Feature in-complete.
 - Test cover is poor.
 
+## Benchmarks
+
+One of the fastest web frameworks available according to the [TechEmpower Framework Benchmark](https://www.techempower.com/benchmarks/#section=data-r21&test=composite).
+
 [^1]: only guaranteed inside project's own code. unsafe can and is used by dependencies
