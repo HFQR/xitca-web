@@ -31,7 +31,7 @@ xitca-tls = { version = "0.1", optional = true }
 ring = { version = "0.16", optional = true }
 
 # quic
-quinn = { version = "0.10", git = "https://github.com/quinn-rs/quinn.git", optional = true }
+quinn = { version = "0.11", git = "https://github.com/quinn-rs/quinn.git", optional = true }
 quinn-proto = { git = "https://github.com/quinn-rs/quinn.git", optional = true }
 rustls-pemfile = { version = "1.0.2", optional = true }
 
@@ -39,5 +39,5 @@ rustls-pemfile = { version = "1.0.2", optional = true }
 rustls = { version = "0.21", optional = true }
 
 [dev-dependencies]
-rcgen = "0.10"
+rcgen = "0.11"
 tokio = { version = "1.27", features = ["macros", "rt"] }
