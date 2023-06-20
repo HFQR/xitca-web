@@ -8,7 +8,6 @@ use std::io;
 
 pub use rustls::*;
 
-use rustls::{ConnectionCommon, SideData};
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 
 /// A stream managed by `rustls` crate for tls read/write.
