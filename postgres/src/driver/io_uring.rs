@@ -43,19 +43,15 @@ impl Default for Task {
 
 impl Task {
     fn set(&mut self, fut: impl Future<Output = Opt> + 'static) {
-        assert!(
+        debug_assert!(
             mem::replace(&mut self.idle, false),
             "Task must not be set multiple times before Task::poll is finished"
         );
         self.fut.set(fut);
     }
 
-    fn idle(&self) -> bool {
-        self.idle
-    }
-
     async fn poll(&mut self) -> Opt {
-        debug_assert!(!self.idle(), "Task must not be polled before Task::set is called");
+        debug_assert!(!self.idle, "Task must not be polled before Task::set is called");
         let res = self.fut.get_pin().await;
         self.idle = true;
         res
@@ -66,8 +62,8 @@ pub struct IoUringDriver<Io> {
     io: Rc<Io>,
     read_task: Task,
     write_task: Task,
-    write_buf: BytesMut,
-    read_buf: BytesMut,
+    write_buf: Option<BytesMut>,
+    read_buf: Option<BytesMut>,
     rx: GenericDriverRx,
     res: VecDeque<ResponseSender>,
 }
@@ -88,8 +84,8 @@ where
             io: Rc::new(io),
             read_task: Task::default(),
             write_task: Task::default(),
-            write_buf,
-            read_buf,
+            write_buf: Some(write_buf),
+            read_buf: Some(read_buf),
             rx,
             res,
         }
@@ -97,8 +93,8 @@ where
 
     pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
-            if self.read_task.idle() {
-                while let Some(res) = ResponseMessage::try_from_buf(&mut self.read_buf)? {
+            if let Some(ref mut buf) = self.read_buf {
+                while let Some(res) = ResponseMessage::try_from_buf(buf)? {
                     match res {
                         ResponseMessage::Normal { buf, complete } => {
                             let _ = self.res.front_mut().expect("out of bound must not happen").send(buf);
@@ -110,7 +106,7 @@ where
                     }
                 }
 
-                let mut buf = mem::take(&mut self.read_buf);
+                let mut buf = self.read_buf.take().unwrap();
                 let len = buf.len();
                 let rem = buf.capacity() - len;
 
@@ -126,24 +122,24 @@ where
             }
 
             let write_task = async {
-                while self.write_task.idle() {
+                while let Some(ref mut buf) = self.write_buf {
                     let res = poll_fn(|cx| match self.rx.poll_recv(cx) {
                         Poll::Ready(Some(req)) => Poll::Ready(SelectOutput::A(Some(req))),
-                        Poll::Ready(None) if !self.write_buf.is_empty() => Poll::Ready(SelectOutput::B(())),
+                        Poll::Ready(None) if !buf.is_empty() => Poll::Ready(SelectOutput::B(())),
                         Poll::Ready(None) => Poll::Ready(SelectOutput::A(None)),
-                        Poll::Pending if !self.write_buf.is_empty() => Poll::Ready(SelectOutput::B(())),
+                        Poll::Pending if !buf.is_empty() => Poll::Ready(SelectOutput::B(())),
                         Poll::Pending => Poll::Pending,
                     })
                     .await;
 
                     match res {
                         SelectOutput::A(Some(req)) => {
-                            self.write_buf.extend_from_slice(req.msg.as_ref());
+                            buf.extend_from_slice(req.msg.as_ref());
                             self.res.push_back(req.tx);
                         }
-                        SelectOutput::A(None) => return (Ok(0), mem::take(&mut self.write_buf)),
+                        SelectOutput::A(None) => return (Ok(0), self.write_buf.take().unwrap()),
                         SelectOutput::B(_) => {
-                            let buf = mem::take(&mut self.write_buf);
+                            let buf = self.write_buf.take().unwrap();
                             let io = self.io.clone();
                             self.write_task.set(async move {
                                 let (res, mut buf) = io.write(buf).await;
@@ -164,14 +160,14 @@ where
 
             match write_task.select(self.read_task.poll()).await {
                 SelectOutput::A((res, buf)) => {
-                    self.write_buf = buf;
+                    self.write_buf = Some(buf);
                     let n = res?;
                     if n == 0 {
                         return Ok(None);
                     }
                 }
                 SelectOutput::B((res, buf)) => {
-                    self.read_buf = buf;
+                    self.read_buf = Some(buf);
                     let n = res?;
                     if n == 0 {
                         return Ok(None);
