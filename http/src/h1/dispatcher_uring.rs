@@ -295,9 +295,9 @@ impl Body {
     {
         let body = BodyInner {
             io,
-            limit,
             decoder: Decoder {
                 decoder,
+                limit,
                 read_buf,
                 notify,
             },
@@ -316,10 +316,7 @@ impl Body {
             State::Body { body }
         };
 
-        Self(Box::pin(BodyReader {
-            chunk_read: |body: BodyInner<Io>| body.chunk_read(),
-            state,
-        }))
+        Self(Box::pin(BodyReader { chunk_read, state }))
     }
 }
 
@@ -373,21 +370,18 @@ pin_project! {
 
 struct BodyInner<Io> {
     io: Rc<Io>,
-    limit: usize,
     decoder: Decoder,
 }
 
-impl<Io> BodyInner<Io>
+async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<BodyInner<Io>>
 where
     Io: AsyncBufRead,
 {
-    async fn chunk_read(mut self) -> io::Result<Self> {
-        let read = self.decoder.read_buf.read_io(&*self.io).await?;
-        if read == 0 {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-        Ok(self)
+    let read = body.decoder.read_buf.read_io(&*body.io).await?;
+    if read == 0 {
+        return Err(io::ErrorKind::UnexpectedEof.into());
     }
+    Ok(body)
 }
 
 impl<Io, F, FutC, FutE> Stream for BodyReader<Io, F, FutC, FutE>
@@ -412,10 +406,10 @@ where
                         _ => return Poll::Ready(None),
                     }
 
-                    if body.decoder.read_buf.len() >= body.limit {
+                    if body.decoder.read_buf.len() >= body.decoder.limit {
                         let msg = format!(
                             "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
-                            body.limit,
+                            body.decoder.limit,
                             body.decoder.read_buf.len()
                         );
                         return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, msg))));
@@ -446,6 +440,7 @@ where
 
 struct Decoder {
     decoder: TransferCoding,
+    limit: usize,
     read_buf: BufOwned,
     notify: Notifier<BufOwned>,
 }
