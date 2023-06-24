@@ -4,6 +4,7 @@ use core::{
     future::{poll_fn, Future},
     marker::PhantomData,
     mem,
+    ops::{Deref, DerefMut},
     pin::{pin, Pin},
     task::{self, ready, Poll, Waker},
 };
@@ -31,10 +32,7 @@ use crate::{
     date::DateTime,
     h1::{body::RequestBody, error::Error},
     http::{response::Response, StatusCode},
-    util::{
-        buffered::ReadBuf,
-        timer::{KeepAlive, Timeout},
-    },
+    util::timer::{KeepAlive, Timeout},
 };
 
 use super::{
@@ -55,22 +53,57 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
     timer: Timer<'a>,
     ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
-    read_buf: ReadBuf<R_LIMIT>,
-    write_buf: WriteBuf<W_LIMIT>,
-    notify: Notify<ReadBufErased>,
+    read_buf: BufOwned,
+    write_buf: BufOwned,
+    notify: Notify<BufOwned>,
     _phantom: PhantomData<ReqB>,
 }
 
-type WriteBuf<const LIMIT: usize> = ReadBuf<LIMIT>;
+#[derive(Default)]
+struct BufOwned {
+    buf: Option<BytesMut>,
+}
 
-impl<const LIMIT: usize> WriteBuf<LIMIT> {
+impl Deref for BufOwned {
+    type Target = BytesMut;
+
+    fn deref(&self) -> &Self::Target {
+        self.buf.as_ref().unwrap()
+    }
+}
+
+impl DerefMut for BufOwned {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.buf.as_mut().unwrap()
+    }
+}
+
+impl BufOwned {
+    fn new() -> Self {
+        Self {
+            buf: Some(BytesMut::new()),
+        }
+    }
+
+    async fn read_io(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
+        let mut buf = self.buf.take().unwrap();
+
+        let len = buf.len();
+        let remaining = buf.capacity() - len;
+        if remaining < 4096 {
+            buf.reserve(4096 - remaining);
+        }
+
+        let (res, buf) = io.read(buf.slice(len..)).await;
+        self.buf = Some(buf.into_inner());
+        res
+    }
+
     async fn write_io(&mut self, io: &impl AsyncBufWrite) -> io::Result<()> {
-        let buf = mem::take(self).into_inner();
-
+        let buf = self.buf.take().unwrap();
         let (res, mut buf) = write_all(io, buf).await;
         buf.clear();
-        *self = buf.into();
-
+        self.buf = Some(buf);
         res
     }
 }
@@ -92,25 +125,6 @@ async fn write_all(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()
         }
     }
     (Ok(()), buf)
-}
-
-// erase const generic type to ease public type param.
-type ReadBufErased = ReadBuf<0>;
-
-impl<const LIMIT: usize> ReadBuf<LIMIT> {
-    async fn read_io(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
-        let mut buf = mem::take(self).into_inner();
-
-        let len = buf.len();
-        let remaining = buf.capacity() - len;
-        if remaining < 4096 {
-            buf.reserve(4096 - remaining);
-        }
-
-        let (res, buf) = io.read(buf.slice(len..)).await;
-        *self = Self::from(buf.into_inner());
-        res
-    }
 }
 
 impl<'a, Io, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>
@@ -135,8 +149,8 @@ where
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
             ctx: Context::<_, H_LIMIT>::with_addr(addr, date),
             service,
-            read_buf: ReadBuf::<R_LIMIT>::new(),
-            write_buf: WriteBuf::<W_LIMIT>::new(),
+            read_buf: BufOwned::new(),
+            write_buf: BufOwned::new(),
             notify: Notify::new(),
             _phantom: PhantomData,
         }
@@ -192,7 +206,7 @@ where
                     self.ctx.is_expect_header(),
                     R_LIMIT,
                     decoder,
-                    mem::take(&mut self.read_buf).limit(),
+                    mem::take(&mut self.read_buf),
                     self.notify.notifier(),
                 );
 
@@ -242,7 +256,7 @@ where
 
             if let Some(waiter) = waiter {
                 match waiter.wait().await {
-                    Some(read_buf) => self.read_buf = read_buf.limit(),
+                    Some(read_buf) => self.read_buf = read_buf,
                     None => {
                         self.ctx.set_close();
                         break;
@@ -273,17 +287,17 @@ impl Body {
         is_expect: bool,
         limit: usize,
         decoder: TransferCoding,
-        read_buf: ReadBufErased,
-        notify: Notifier<ReadBufErased>,
+        read_buf: BufOwned,
+        notify: Notifier<BufOwned>,
     ) -> Self
     where
         Io: AsyncBufRead + AsyncBufWrite + 'static,
     {
         let body = BodyInner {
             io,
-            limit,
             decoder: Decoder {
                 decoder,
+                limit,
                 read_buf,
                 notify,
             },
@@ -302,10 +316,7 @@ impl Body {
             State::Body { body }
         };
 
-        Self(Box::pin(BodyReader {
-            chunk_read: |body: BodyInner<Io>| body.chunk_read(),
-            state,
-        }))
+        Self(Box::pin(BodyReader { chunk_read, state }))
     }
 }
 
@@ -359,21 +370,18 @@ pin_project! {
 
 struct BodyInner<Io> {
     io: Rc<Io>,
-    limit: usize,
     decoder: Decoder,
 }
 
-impl<Io> BodyInner<Io>
+async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<BodyInner<Io>>
 where
     Io: AsyncBufRead,
 {
-    async fn chunk_read(mut self) -> io::Result<Self> {
-        let read = self.decoder.read_buf.read_io(&*self.io).await?;
-        if read == 0 {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-        Ok(self)
+    let read = body.decoder.read_buf.read_io(&*body.io).await?;
+    if read == 0 {
+        return Err(io::ErrorKind::UnexpectedEof.into());
     }
+    Ok(body)
 }
 
 impl<Io, F, FutC, FutE> Stream for BodyReader<Io, F, FutC, FutE>
@@ -398,10 +406,10 @@ where
                         _ => return Poll::Ready(None),
                     }
 
-                    if body.decoder.read_buf.len() >= body.limit {
+                    if body.decoder.read_buf.len() >= body.decoder.limit {
                         let msg = format!(
                             "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
-                            body.limit,
+                            body.decoder.limit,
                             body.decoder.read_buf.len()
                         );
                         return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, msg))));
@@ -432,8 +440,9 @@ where
 
 struct Decoder {
     decoder: TransferCoding,
-    read_buf: ReadBufErased,
-    notify: Notifier<ReadBufErased>,
+    limit: usize,
+    read_buf: BufOwned,
+    notify: Notifier<BufOwned>,
 }
 
 impl Drop for Decoder {

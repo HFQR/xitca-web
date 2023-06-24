@@ -28,11 +28,6 @@ impl<const LIMIT: usize> ReadBuf<LIMIT> {
     pub fn into_inner(self) -> BytesMut {
         self.0
     }
-
-    #[inline(always)]
-    pub fn limit<const LIMIT2: usize>(self) -> ReadBuf<LIMIT2> {
-        ReadBuf(self.0)
-    }
 }
 
 impl<const LIMIT: usize> From<BytesMut> for ReadBuf<LIMIT> {
