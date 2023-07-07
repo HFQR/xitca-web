@@ -20,7 +20,7 @@ pub fn handler_service<Arg, F, T, O>(
     func: F,
 ) -> FnService<impl Fn(Arg) -> Ready<Result<HandlerService<F, T, O>, Infallible>>>
 where
-    F: Clone,
+    F: AsyncClosure<T> + Clone,
 {
     fn_build(move |_| ready(Ok(HandlerService::new(func.clone()))))
 }
@@ -40,9 +40,9 @@ impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O>
 where
     // for borrowed extractors, `T` is the `'static` version of the extractors
     T: FromRequest<'static, Req>,
-    F: AsyncClosure<T>, // just to assist type inference to pinpoint `T`
-
-    F: for<'a> AsyncClosure<T::Type<'a>, Output = O> + Clone + 'static,
+    // just to assist type inference to pinpoint `T`
+    F: AsyncClosure<T>,
+    F: for<'a> AsyncClosure<T::Type<'a>, Output = O>,
     O: Responder<Req>,
 {
     type Response = O::Output;

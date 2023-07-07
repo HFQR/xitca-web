@@ -282,7 +282,9 @@ mod test {
         let dir = ServeDir::new("sample");
         let req = Request::builder().uri("/test.txt").body(()).unwrap();
         let res = dir.serve(&req).await.unwrap();
-        let (lower, Some(upper)) = res.body().size_hint() else { panic!("ChunkReadStream does not have a size") };
+        let (lower, Some(upper)) = res.body().size_hint() else {
+            panic!("ChunkReadStream does not have a size")
+        };
         assert_eq!(lower, upper);
         assert_eq!(lower, "hello, world!".len());
     }

@@ -21,7 +21,9 @@ where
 }
 
 fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
-    let Some(val) = headers.get(&CONTENT_ENCODING) else { return Ok(FeaturedCode::default()) };
+    let Some(val) = headers.get(&CONTENT_ENCODING) else {
+        return Ok(FeaturedCode::default());
+    };
     let enc = val.to_str().map_err(|_| EncodingError::ParseAcceptEncoding)?;
     match ContentEncoding::try_parse(enc)? {
         ContentEncoding::Br => {

@@ -262,8 +262,9 @@ mod test {
                 let mut header = [httparse::EMPTY_HEADER; 8];
                 let mut res = httparse::Response::new(&mut header);
 
-                let httparse::Status::Complete(_) = res.parse(buf.as_ref()).unwrap()
-                    else { panic!("failed to parse response") };
+                let httparse::Status::Complete(_) = res.parse(buf.as_ref()).unwrap() else {
+                    panic!("failed to parse response")
+                };
 
                 for h in header {
                     if h.name == "connection" {
