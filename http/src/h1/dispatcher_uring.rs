@@ -415,7 +415,9 @@ where
                         return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, msg))));
                     }
 
-                    let StateProjReplace::Body { body } = this.state.as_mut().project_replace(State::None) else { unreachable!() };
+                    let StateProjReplace::Body { body } = this.state.as_mut().project_replace(State::None) else {
+                        unreachable!()
+                    };
                     this.state.as_mut().project_replace(State::ChunkRead {
                         fut: (this.chunk_read)(body),
                     });

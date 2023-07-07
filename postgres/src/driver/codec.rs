@@ -35,7 +35,9 @@ impl ResponseMessage {
 
         loop {
             let slice = &buf[idx..];
-            let Some(header) = backend::Header::parse(slice)? else { break };
+            let Some(header) = backend::Header::parse(slice)? else {
+                break;
+            };
             let len = header.len() as usize + 1;
 
             if slice.len() < len {

@@ -190,7 +190,9 @@ mod tokio_uring_impl {
         type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
 
         fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_> {
-            let SeekFrom::Start(pos) = pos else { unreachable!("ChunkRead::seek only accept pos as SeekFrom::Start variant") };
+            let SeekFrom::Start(pos) = pos else {
+                unreachable!("ChunkRead::seek only accept pos as SeekFrom::Start variant")
+            };
             self.pos += pos;
             async { Ok(()) }
         }
