@@ -21,7 +21,7 @@ mod io_impl {
         #[inline]
         fn as_version(&self) -> Version {
             match *self {
-                Self::Tcp(ref tcp, _) => tcp.as_version(),
+                Self::Tcp(..) => Version::HTTP_11,
                 #[cfg(unix)]
                 Self::Unix(..) => Version::HTTP_11,
                 #[cfg(feature = "http3")]

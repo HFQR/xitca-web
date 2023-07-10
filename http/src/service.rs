@@ -105,6 +105,7 @@ where
                     .await
                     .map_err(From::from),
                 ServerStream::Tcp(io, _addr) => {
+                    let io = TcpStream::from_std(io).expect("TODO: handle io error");
                     let mut _tls_stream = self
                         .tls_acceptor
                         .call(io)
@@ -160,7 +161,7 @@ where
                     }
                 }
                 #[cfg(unix)]
-                ServerStream::Unix(mut _io, _) => {
+                ServerStream::Unix(_io, _) => {
                     #[cfg(not(feature = "http1"))]
                     {
                         Err(HttpServiceError::UnSupportedVersion(super::http::Version::HTTP_11))
@@ -168,8 +169,10 @@ where
 
                     #[cfg(feature = "http1")]
                     {
+                        let mut io = xitca_io::net::UnixStream::from_std(_io).expect("TODO: handle io error");
+
                         super::h1::dispatcher::run(
-                            &mut _io,
+                            &mut io,
                             crate::unspecified_socket_addr(),
                             timer.as_mut(),
                             self.config,
