@@ -175,11 +175,7 @@ impl Listener {
         match *self {
             Self::Tcp(ref tcp) => {
                 let (stream, addr) = tcp.accept().await?;
-
-                // This two way conversion is to deregister stream from the listener thread's poll
-                // and re-register it to current thread's poll.
                 let stream = stream.into_std()?;
-                let stream = TcpStream::from_std(stream)?;
                 Ok(Stream::Tcp(stream, addr))
             }
             #[cfg(feature = "http3")]
@@ -190,12 +186,9 @@ impl Listener {
             }
             #[cfg(unix)]
             Self::Unix(ref unix) => {
-                let (stream, addr) = unix.accept().await?;
-
-                // This two way conversion is to deregister stream from the listener thread's poll
-                // and re-register it to current thread's poll.
+                let (stream, _) = unix.accept().await?;
                 let stream = stream.into_std()?;
-                let stream = UnixStream::from_std(stream)?;
+                let addr = stream.peer_addr()?;
                 Ok(Stream::Unix(stream, addr))
             }
         }
@@ -204,9 +197,9 @@ impl Listener {
 
 /// A collection of stream types of different protocol.
 pub enum Stream {
-    Tcp(TcpStream, SocketAddr),
+    Tcp(std::net::TcpStream, SocketAddr),
     #[cfg(feature = "http3")]
     Udp(UdpStream, SocketAddr),
     #[cfg(unix)]
-    Unix(UnixStream, tokio::net::unix::SocketAddr),
+    Unix(std::os::unix::net::UnixStream, std::os::unix::net::SocketAddr),
 }

@@ -91,19 +91,20 @@ impl UdpStream {
     }
 }
 
-impl From<Stream> for UdpStream {
-    fn from(stream: Stream) -> Self {
-        match stream {
-            Stream::Udp(udp, _) => udp,
-            _ => unreachable!("Can not be casted to UdpStream"),
-        }
+impl TryFrom<Stream> for UdpStream {
+    type Error = io::Error;
+
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
+        <(UdpStream, SocketAddr)>::try_from(stream).map(|(udp, _)| udp)
     }
 }
 
-impl From<Stream> for (UdpStream, SocketAddr) {
-    fn from(stream: Stream) -> Self {
+impl TryFrom<Stream> for (UdpStream, SocketAddr) {
+    type Error = io::Error;
+
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
         match stream {
-            Stream::Udp(udp, addr) => (udp, addr),
+            Stream::Udp(udp, addr) => Ok((udp, addr)),
             _ => unreachable!("Can not be casted to UdpStream"),
         }
     }

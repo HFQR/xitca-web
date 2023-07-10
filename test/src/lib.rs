@@ -35,7 +35,7 @@ where
     F: Fn() -> T + Send + Sync + 'static,
     T: Service,
     T::Response: ReadyService + Service<Req>,
-    Req: From<NetStream> + 'static,
+    Req: TryFrom<NetStream> + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;
 

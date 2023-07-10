@@ -23,7 +23,7 @@ pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S) -> JoinHandle
 where
     S: ReadyService + Service<Req> + Clone + 'static,
     S::Ready: 'static,
-    Req: From<Stream>,
+    Req: TryFrom<Stream> + 'static,
 {
     let listener = listener.clone();
     let service = service.clone();
@@ -34,11 +34,13 @@ where
 
             match listener.accept().await {
                 Ok(stream) => {
-                    let service = service.clone();
-                    tokio::task::spawn_local(async move {
-                        let _ = service.call(From::from(stream)).await;
-                        drop(ready);
-                    });
+                    if let Ok(req) = TryFrom::try_from(stream) {
+                        let service = service.clone();
+                        tokio::task::spawn_local(async move {
+                            let _ = service.call(req).await;
+                            drop(ready);
+                        });
+                    }
                 }
                 Err(ref e) if connection_error(e) => continue,
                 Err(ref e) if fatal_error(e) => return,

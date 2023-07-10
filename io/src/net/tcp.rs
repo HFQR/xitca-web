@@ -30,20 +30,20 @@ impl TcpStream {
     }
 }
 
-impl From<Stream> for TcpStream {
-    fn from(stream: Stream) -> Self {
-        match stream {
-            Stream::Tcp(tcp, _) => tcp,
-            #[allow(unreachable_patterns)]
-            _ => unreachable!("Can not be casted to TcpStream"),
-        }
+impl TryFrom<Stream> for TcpStream {
+    type Error = io::Error;
+
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
+        <(TcpStream, SocketAddr)>::try_from(stream).map(|(tcp, _)| tcp)
     }
 }
 
-impl From<Stream> for (TcpStream, SocketAddr) {
-    fn from(stream: Stream) -> Self {
+impl TryFrom<Stream> for (TcpStream, SocketAddr) {
+    type Error = io::Error;
+
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
         match stream {
-            Stream::Tcp(tcp, addr) => (tcp, addr),
+            Stream::Tcp(tcp, addr) => TcpStream::from_std(tcp).map(|tcp| (tcp, addr)),
             #[allow(unreachable_patterns)]
             _ => unreachable!("Can not be casted to TcpStream"),
         }

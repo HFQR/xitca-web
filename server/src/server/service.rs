@@ -27,7 +27,7 @@ struct Container<F, Req> {
 impl<F, Req> BuildService for Container<F, Req>
 where
     F: BuildServiceFn<Req>,
-    Req: From<Stream> + 'static,
+    Req: TryFrom<Stream> + 'static,
 {
     fn call<'s, 'f>(
         &'s self,
@@ -66,7 +66,7 @@ where
     F: Fn() -> T + Send + Sync + 'static,
     T: Service,
     T::Response: ReadyService + Service<Req>,
-    Req: From<Stream> + 'static,
+    Req: TryFrom<Stream> + 'static,
 {
     type BuildService = T;
     type Service = T::Response;

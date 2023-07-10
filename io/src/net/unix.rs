@@ -1,9 +1,8 @@
 use std::{
     io,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     os::unix::{
         io::{AsFd, BorrowedFd},
-        net,
+        net::{self, SocketAddr},
     },
     path::Path,
 };
@@ -28,30 +27,20 @@ impl UnixStream {
     }
 }
 
-impl From<Stream> for UnixStream {
-    fn from(stream: Stream) -> Self {
-        match stream {
-            Stream::Unix(unix, _) => unix,
-            _ => unreachable!("Can not be casted to UnixStream"),
-        }
+impl TryFrom<Stream> for UnixStream {
+    type Error = io::Error;
+
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
+        <(UnixStream, SocketAddr)>::try_from(stream).map(|(unix, _)| unix)
     }
 }
 
-impl From<Stream> for (UnixStream, SocketAddr) {
-    fn from(stream: Stream) -> Self {
-        match stream {
-            // UnixStream can not have a ip based socket address but to keep consistence with TcpStream/UdpStream types a unspecified address
-            // is hand out as a placeholder.
-            Stream::Unix(unix, _) => (unix, SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))),
-            _ => unreachable!("Can not be casted to UnixStream"),
-        }
-    }
-}
+impl TryFrom<Stream> for (UnixStream, SocketAddr) {
+    type Error = io::Error;
 
-impl From<Stream> for (UnixStream, tokio::net::unix::SocketAddr) {
-    fn from(stream: Stream) -> Self {
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
         match stream {
-            Stream::Unix(unix, addr) => (unix, addr),
+            Stream::Unix(unix, addr) => UnixStream::from_std(unix).map(|unix| (unix, addr)),
             _ => unreachable!("Can not be casted to UnixStream"),
         }
     }
