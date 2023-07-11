@@ -3,12 +3,15 @@ name = "xitca-test"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+io-uring = ["xitca-http/io-uring", "xitca-server/io-uring"]
+
 [dependencies]
 xitca-client = { version = "0.1", features = ["http2", "http3", "websocket", "dangerous"] }
-xitca-http = { version = "0.1", features = ["http2", "http3", "io-uring"] }
+xitca-http = { version = "0.1", features = ["http2", "http3"] }
 xitca-codegen = "0.1"
 xitca-io = "0.1"
-xitca-server = { version = "0.1", features = ["http3", "io-uring"] }
+xitca-server = { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
 xitca-unsafe-collection = "0.1"
 
