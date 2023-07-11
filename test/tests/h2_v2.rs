@@ -6,7 +6,7 @@ use xitca_http::{
     h2,
     http::{Request, RequestExt, Response, Version},
 };
-use xitca_io::net::TcpStream;
+use xitca_io::net::io_uring::TcpStream;
 use xitca_service::{fn_service, Service};
 use xitca_unsafe_collection::futures::NowOrPanic;
 

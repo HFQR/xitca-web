@@ -35,7 +35,7 @@ xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 futures-core = "0.3.17"
 http = "0.2.8"
 httpdate = "1.0"
-pin-project-lite = "0.2.7"
+pin-project-lite = "0.2.10"
 tracing = { version = "0.1.32", default-features = false }
 
 # openssl support

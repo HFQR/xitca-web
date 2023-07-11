@@ -5,7 +5,7 @@ use core::{
 
 use futures_core::stream::Stream;
 use h2::RecvStream;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{bytes::Bytes, error::BodyError};
 
@@ -52,8 +52,9 @@ impl From<RecvStream> for crate::body::RequestBody {
 pub struct RequestBodyV2(UnboundedReceiver<Result<Bytes, BodyError>>);
 
 impl RequestBodyV2 {
-    pub(super) fn new_pair() -> (Self, UnboundedSender<Result<Bytes, BodyError>>) {
-        let (tx, rx) = unbounded_channel();
+    #[cfg(feature = "io-uring")]
+    pub(super) fn new_pair() -> (Self, tokio::sync::mpsc::UnboundedSender<Result<Bytes, BodyError>>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         (Self(rx), tx)
     }
 }
