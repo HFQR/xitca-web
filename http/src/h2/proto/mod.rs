@@ -69,7 +69,7 @@ mod io_uring {
 
         fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F)
         where
-            F: FnMut(Request<RequestExt<RequestBodyV2>>),
+            F: FnMut(Request<RequestExt<RequestBodyV2>>, super::stream_id::StreamId),
         {
             loop {
                 if self.next_frame_len == 0 {
@@ -105,7 +105,7 @@ mod io_uring {
                         *req.version_mut() = Version::HTTP_2;
                         *req.headers_mut() = headers;
 
-                        on_msg(req);
+                        on_msg(req, head.stream_id());
                     }
                     head::Kind::Data => {}
                     _ => {}
@@ -206,16 +206,20 @@ mod io_uring {
                         break;
                     }
 
-                    ctx.try_decode(read_buf.as_mut().unwrap(), |req| {
-                        queue.push(service.call(req));
+                    ctx.try_decode(read_buf.as_mut().unwrap(), |req, stream_id| {
+                        let s = &service;
+                        queue.push(async move { (s.call(req).await, stream_id) });
                     });
 
                     read_task.set(read_io(read_buf.take().unwrap(), &io));
                 }
-                SelectOutput::B(res) => {
-                    let (parts, _) = res.unwrap().into_parts();
+                SelectOutput::B((res, id)) => {
+                    let (parts, _) = match res {
+                        Ok(res) => res.into_parts(),
+                        Err(_) => continue,
+                    };
                     let pseudo = headers::Pseudo::response(parts.status);
-                    let headers = headers::Headers::new(1.into(), pseudo, parts.headers);
+                    let headers = headers::Headers::new(id, pseudo, parts.headers);
                     let mut buf = write_buf.as_mut().unwrap().limit(4096);
                     headers.encode(&mut ctx.encoder, &mut buf);
 
