@@ -11,5 +11,6 @@ pub use self::body::{RequestBody, RequestBodyV2};
 pub use self::error::Error;
 pub use self::service::H2Service;
 
+#[cfg(feature = "io-uring")]
 #[doc(hidden)]
 pub use self::proto::run;

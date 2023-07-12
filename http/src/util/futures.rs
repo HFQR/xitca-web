@@ -14,7 +14,7 @@ mod queue {
             Self(FuturesUnordered::new())
         }
 
-        #[cfg(any(feature = "http2", feature = "http3"))]
+        #[cfg(any(all(feature = "http2", feature = "io-uring"), feature = "http3"))]
         pub(crate) async fn next(&mut self) -> F::Output {
             if self.is_empty() {
                 std::future::pending().await
