@@ -665,4 +665,4 @@ macro_rules! tsr_tests {
    )* };
 }
 
-pub(self) use {insert_tests, match_tests, tsr_tests};
+use {insert_tests, match_tests, tsr_tests};
