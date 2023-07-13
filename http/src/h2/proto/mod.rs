@@ -87,14 +87,14 @@ mod io_uring {
                 let mut frame = buf.split_to(len);
                 let head = head::Head::parse(&frame);
 
-                match dbg!(head.kind()) {
+                // TODO: Make Head::parse auto advance the frame?
+                frame.advance(6);
+
+                match head.kind() {
                     head::Kind::Settings => {
-                        // let _setting = Settings::load(head, &frame);
+                        let _setting = settings::Settings::load(head, &frame);
                     }
                     head::Kind::Headers => {
-                        // TODO: Make Head::parse auto advance the frame?
-                        frame.advance(6);
-
                         let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
 
                         headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();

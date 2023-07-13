@@ -392,10 +392,14 @@ impl From<SettingsFlags> for u8 {
 }
 
 impl fmt::Debug for SettingsFlags {
-    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // util::debug_flags(f, self.0)
         //     .flag_if(self.is_ack(), "ACK")
         //     .finish()
-        todo!()
+        if self.is_ack() {
+            f.write_str("ACK")
+        } else {
+            write!(f, "{}", self.0)
+        }
     }
 }
