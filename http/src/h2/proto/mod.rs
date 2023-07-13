@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod data;
 mod dispatcher;
 mod head;
 mod headers;
@@ -41,7 +42,7 @@ mod io_uring {
         util::futures::Queue,
     };
 
-    use super::{head, headers, hpack, settings};
+    use super::{data, head, headers, hpack, settings};
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
@@ -107,7 +108,9 @@ mod io_uring {
 
                         on_msg(req, head.stream_id());
                     }
-                    head::Kind::Data => {}
+                    head::Kind::Data => {
+                        let _data = data::Data::load(head, frame.freeze()).unwrap();
+                    }
                     _ => {}
                 }
             }
