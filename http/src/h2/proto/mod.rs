@@ -25,8 +25,7 @@ mod io_uring {
         pin::{pin, Pin},
         task::{Context, Poll},
     };
-
-    use std::io;
+    use std::{collections::HashMap, io};
 
     use pin_project_lite::pin_project;
     use xitca_io::{
@@ -37,18 +36,19 @@ mod io_uring {
     use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
     use crate::{
-        h2::RequestBodyV2,
+        h2::{RequestBodySender, RequestBodyV2},
         http::{Request, RequestExt, Response, Version},
         util::futures::Queue,
     };
 
-    use super::{data, head, headers, hpack, settings};
+    use super::{data, head, headers, hpack, settings, stream_id};
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
     struct H2Context {
         decoder: hpack::Decoder,
         encoder: hpack::Encoder,
+        tx_map: HashMap<stream_id::StreamId, RequestBodySender>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
     }
@@ -64,13 +64,14 @@ mod io_uring {
             Self {
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
                 encoder: hpack::Encoder::new(65535, 4096),
+                tx_map: HashMap::new(),
                 next_frame_len: 0,
             }
         }
 
         fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F)
         where
-            F: FnMut(Request<RequestExt<RequestBodyV2>>, super::stream_id::StreamId),
+            F: FnMut(Request<RequestExt<RequestBodyV2>>, stream_id::StreamId),
         {
             loop {
                 if self.next_frame_len == 0 {
@@ -101,7 +102,7 @@ mod io_uring {
                         headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
                         let (_pseudo, headers) = headers.into_parts();
 
-                        let (body, _) = RequestBodyV2::new_pair();
+                        let (body, _tx) = RequestBodyV2::new_pair();
                         let mut req = Request::new(RequestExt::default()).map(|ext| ext.map_body(|_: ()| body));
                         *req.version_mut() = Version::HTTP_2;
                         *req.headers_mut() = headers;
