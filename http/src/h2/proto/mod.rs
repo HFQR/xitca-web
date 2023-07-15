@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod data;
 mod dispatcher;
 mod head;
 mod headers;
@@ -24,8 +25,7 @@ mod io_uring {
         pin::{pin, Pin},
         task::{Context, Poll},
     };
-
-    use std::io;
+    use std::{collections::HashMap, io};
 
     use pin_project_lite::pin_project;
     use xitca_io::{
@@ -36,18 +36,19 @@ mod io_uring {
     use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
     use crate::{
-        h2::RequestBodyV2,
+        h2::{RequestBodySender, RequestBodyV2},
         http::{Request, RequestExt, Response, Version},
         util::futures::Queue,
     };
 
-    use super::{head, headers, hpack, settings};
+    use super::{data, head, headers, hpack, settings, stream_id};
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
     struct H2Context {
         decoder: hpack::Decoder,
         encoder: hpack::Encoder,
+        tx_map: HashMap<stream_id::StreamId, RequestBodySender>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
     }
@@ -63,13 +64,14 @@ mod io_uring {
             Self {
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
                 encoder: hpack::Encoder::new(65535, 4096),
+                tx_map: HashMap::new(),
                 next_frame_len: 0,
             }
         }
 
         fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F)
         where
-            F: FnMut(Request<RequestExt<RequestBodyV2>>),
+            F: FnMut(Request<RequestExt<RequestBodyV2>>, stream_id::StreamId),
         {
             loop {
                 if self.next_frame_len == 0 {
@@ -87,27 +89,29 @@ mod io_uring {
                 let mut frame = buf.split_to(len);
                 let head = head::Head::parse(&frame);
 
-                match dbg!(head.kind()) {
+                // TODO: Make Head::parse auto advance the frame?
+                frame.advance(6);
+
+                match head.kind() {
                     head::Kind::Settings => {
-                        // let _setting = Settings::load(head, &frame);
+                        let _setting = settings::Settings::load(head, &frame);
                     }
                     head::Kind::Headers => {
-                        // TODO: Make Head::parse auto advance the frame?
-                        frame.advance(6);
-
                         let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
 
                         headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
                         let (_pseudo, headers) = headers.into_parts();
 
-                        let (body, _) = RequestBodyV2::new_pair();
+                        let (body, _tx) = RequestBodyV2::new_pair();
                         let mut req = Request::new(RequestExt::default()).map(|ext| ext.map_body(|_: ()| body));
                         *req.version_mut() = Version::HTTP_2;
                         *req.headers_mut() = headers;
 
-                        on_msg(req);
+                        on_msg(req, head.stream_id());
                     }
-                    head::Kind::Data => {}
+                    head::Kind::Data => {
+                        let _data = data::Data::load(head, frame.freeze()).unwrap();
+                    }
                     _ => {}
                 }
             }
@@ -206,16 +210,20 @@ mod io_uring {
                         break;
                     }
 
-                    ctx.try_decode(read_buf.as_mut().unwrap(), |req| {
-                        queue.push(service.call(req));
+                    ctx.try_decode(read_buf.as_mut().unwrap(), |req, stream_id| {
+                        let s = &service;
+                        queue.push(async move { (s.call(req).await, stream_id) });
                     });
 
                     read_task.set(read_io(read_buf.take().unwrap(), &io));
                 }
-                SelectOutput::B(res) => {
-                    let (parts, _) = res.unwrap().into_parts();
+                SelectOutput::B((res, id)) => {
+                    let (parts, _) = match res {
+                        Ok(res) => res.into_parts(),
+                        Err(_) => continue,
+                    };
                     let pseudo = headers::Pseudo::response(parts.status);
-                    let headers = headers::Headers::new(1.into(), pseudo, parts.headers);
+                    let headers = headers::Headers::new(id, pseudo, parts.headers);
                     let mut buf = write_buf.as_mut().unwrap().limit(4096);
                     headers.encode(&mut ctx.encoder, &mut buf);
 

@@ -51,9 +51,12 @@ impl From<RecvStream> for crate::body::RequestBody {
 /// Request body type for Http/2 specifically.
 pub struct RequestBodyV2(UnboundedReceiver<Result<Bytes, BodyError>>);
 
+#[cfg(feature = "io-uring")]
+pub type RequestBodySender = tokio::sync::mpsc::UnboundedSender<Result<Bytes, BodyError>>;
+
 impl RequestBodyV2 {
     #[cfg(feature = "io-uring")]
-    pub(super) fn new_pair() -> (Self, tokio::sync::mpsc::UnboundedSender<Result<Bytes, BodyError>>) {
+    pub(super) fn new_pair() -> (Self, RequestBodySender) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         (Self(rx), tx)
     }
