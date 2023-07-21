@@ -25,9 +25,11 @@ mod io_uring {
         pin::{pin, Pin},
         task::{Context, Poll},
     };
+
     use std::{collections::HashMap, io};
 
     use pin_project_lite::pin_project;
+    use tracing::error;
     use xitca_io::{
         bytes::{Buf, BufMut, BytesMut},
         io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf},
@@ -45,10 +47,15 @@ mod io_uring {
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
+    enum RequestState {
+        WaitHeader(Request<RequestExt<()>>),
+        WaitBody(RequestBodySender),
+    }
+
     struct H2Context {
         decoder: hpack::Decoder,
         encoder: hpack::Encoder,
-        tx_map: HashMap<stream_id::StreamId, RequestBodySender>,
+        tx_map: HashMap<stream_id::StreamId, RequestState>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
     }
@@ -98,19 +105,98 @@ mod io_uring {
                     }
                     head::Kind::Headers => {
                         let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
-
                         headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
-                        let (_pseudo, headers) = headers.into_parts();
 
-                        let (body, _tx) = RequestBodyV2::new_pair();
-                        let mut req = Request::new(RequestExt::default()).map(|ext| ext.map_body(|_: ()| body));
-                        *req.version_mut() = Version::HTTP_2;
-                        *req.headers_mut() = headers;
+                        let id = headers.stream_id();
+                        let is_end_headers = headers.is_end_headers();
+                        let is_end_stream = headers.is_end_stream();
 
-                        on_msg(req, head.stream_id());
+                        let (pseudo, headers) = headers.into_parts();
+
+                        let req = match self.tx_map.remove(&id) {
+                            Some(RequestState::WaitHeader(mut req)) => {
+                                req.headers_mut().extend(headers);
+                                req
+                            }
+                            Some(RequestState::WaitBody(_)) => {
+                                error!("trailer is not supported yet");
+                                continue;
+                            }
+                            None => {
+                                let mut req = Request::new(RequestExt::default());
+                                *req.version_mut() = Version::HTTP_2;
+                                *req.headers_mut() = headers;
+                                *req.method_mut() = pseudo.method.unwrap();
+                                req
+                            }
+                        };
+
+                        if !is_end_headers {
+                            self.tx_map.insert(id, RequestState::WaitHeader(req));
+                            continue;
+                        }
+
+                        let (body, tx) = RequestBodyV2::new_pair();
+
+                        if is_end_stream {
+                            drop(tx);
+                        } else {
+                            self.tx_map.insert(id, RequestState::WaitBody(tx));
+                        }
+
+                        let req = req.map(|ext| ext.map_body(|_| body));
+
+                        on_msg(req, id);
+                    }
+                    head::Kind::Continuation => {
+                        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
+                        headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
+
+                        let id = headers.stream_id();
+                        let is_end_headers = headers.is_end_headers();
+                        let is_end_stream = headers.is_end_stream();
+
+                        let (_, headers) = headers.into_parts();
+
+                        let state = self.tx_map.remove(&id).unwrap();
+                        let RequestState::WaitHeader(mut req) = state else {
+                            unreachable!()
+                        };
+
+                        req.headers_mut().extend(headers);
+
+                        if !is_end_headers {
+                            self.tx_map.insert(id, RequestState::WaitHeader(req));
+                            continue;
+                        }
+
+                        let (body, tx) = RequestBodyV2::new_pair();
+
+                        if is_end_stream {
+                            drop(tx);
+                        } else {
+                            self.tx_map.insert(id, RequestState::WaitBody(tx));
+                        };
+
+                        let req = req.map(|ext| ext.map_body(|_| body));
+
+                        on_msg(req, id);
                     }
                     head::Kind::Data => {
-                        let _data = data::Data::load(head, frame.freeze()).unwrap();
+                        let data = data::Data::load(head, frame.freeze()).unwrap();
+                        let is_end = data.is_end_stream();
+                        let id = data.stream_id();
+                        let payload = data.into_payload();
+
+                        let RequestState::WaitBody(tx) = self.tx_map.get_mut(&id).unwrap() else {
+                            unreachable!()
+                        };
+
+                        tx.send(Ok(payload)).unwrap();
+
+                        if is_end {
+                            self.tx_map.remove(&id);
+                        }
                     }
                     _ => {}
                 }

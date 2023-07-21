@@ -1,7 +1,7 @@
 #[cfg(feature = "io-uring")]
 use {
-    std::convert::Infallible,
-    std::net::SocketAddr,
+    futures_util::stream::StreamExt,
+    std::{convert::Infallible, net::SocketAddr},
     xitca_client::Client,
     xitca_http::{
         h2,
@@ -14,9 +14,18 @@ use {
 
 #[cfg(feature = "io-uring")]
 #[tokio::test]
-async fn h2_v2_get() {
+async fn h2_v2_post() {
     async fn handler(req: Request<RequestExt<h2::RequestBodyV2>>) -> Result<Response<()>, Infallible> {
-        dbg!(req.headers());
+        let (_, ext) = req.into_parts();
+        let (_, mut body) = ext.replace_body(());
+
+        let mut s = String::new();
+
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.unwrap();
+            s.push_str(std::str::from_utf8(chunk.as_ref()).unwrap());
+        }
+
         Ok(Response::new(()))
     }
 
@@ -40,11 +49,11 @@ async fn h2_v2_get() {
 
     let c = Client::new();
 
-    let mut req = c.get("https://localhost:8080/").unwrap();
+    let mut req = c.post("https://localhost:8080/").unwrap();
 
     req.headers_mut().insert("foo", "bar".parse().unwrap());
 
-    let res = req.version(Version::HTTP_2).send().await.unwrap();
+    let res = req.version(Version::HTTP_2).body("hello,world!").send().await.unwrap();
 
     assert!(res.status().is_success());
 }
