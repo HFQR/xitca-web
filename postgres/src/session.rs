@@ -48,7 +48,7 @@ impl Client {
         }
 
         if matches!(cfg.get_target_session_attrs(), TargetSessionAttrs::ReadWrite) {
-            let buf = self.try_encode_with(|buf| frontend::query("SHOW transaction_read_only", buf))?;
+            let buf = self.try_buf_and_split(|buf| frontend::query("SHOW transaction_read_only", buf))?;
             drv.send(buf).await?;
             // TODO: use RowSimple for parsing?
             loop {
@@ -89,7 +89,7 @@ impl Client {
             params.push(("application_name", &**application_name));
         }
 
-        let msg = self.try_encode_with(|buf| frontend::startup_message(params, buf))?;
+        let msg = self.try_buf_and_split(|buf| frontend::startup_message(params, buf))?;
         drv.send(msg).await?;
 
         loop {
@@ -144,13 +144,13 @@ impl Client {
                     let mut scram = sasl::ScramSha256::new(pass, channel_binding);
 
                     let msg =
-                        self.try_encode_with(|buf| frontend::sasl_initial_response(mechanism, scram.message(), buf))?;
+                        self.try_buf_and_split(|buf| frontend::sasl_initial_response(mechanism, scram.message(), buf))?;
                     drv.send(msg).await?;
 
                     match drv.recv().await? {
                         backend::Message::AuthenticationSaslContinue(body) => {
                             scram.update(body.data())?;
-                            let msg = self.try_encode_with(|buf| frontend::sasl_response(scram.message(), buf))?;
+                            let msg = self.try_buf_and_split(|buf| frontend::sasl_response(scram.message(), buf))?;
                             drv.send(msg).await?;
                         }
                         _ => return Err(Error::ToDo),
@@ -171,7 +171,7 @@ impl Client {
     where
         D: Drive,
     {
-        let msg = self.try_encode_with(|buf| frontend::password_message(pass.as_ref(), buf))?;
+        let msg = self.try_buf_and_split(|buf| frontend::password_message(pass.as_ref(), buf))?;
         drv.send(msg).await
     }
 }

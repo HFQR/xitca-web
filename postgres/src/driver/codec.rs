@@ -4,7 +4,31 @@ use xitca_io::bytes::BytesMut;
 
 use crate::error::Error;
 
-pub(super) type ResponseSender = UnboundedSender<BytesMut>;
+#[derive(Debug)]
+pub(crate) struct ResponseSender {
+    tx: UnboundedSender<BytesMut>,
+    msg_count: usize,
+}
+
+impl ResponseSender {
+    fn new(tx: UnboundedSender<BytesMut>, msg_count: usize) -> Self {
+        Self { tx, msg_count }
+    }
+
+    pub(super) fn send(&mut self, msg: BytesMut) {
+        let _ = self.tx.send(msg);
+    }
+
+    pub(super) fn complete(&mut self, current_msg_complete: bool) -> bool {
+        assert!(self.msg_count > 0);
+
+        if current_msg_complete {
+            self.msg_count -= 1;
+        }
+
+        current_msg_complete && self.msg_count == 0
+    }
+}
 
 // TODO: remove this lint.
 #[allow(dead_code)]
@@ -12,14 +36,23 @@ pub(super) type ResponseReceiver = UnboundedReceiver<BytesMut>;
 
 #[derive(Debug)]
 pub struct Request {
-    pub(crate) tx: ResponseSender,
+    pub(super) tx: ResponseSender,
     pub(crate) msg: BytesMut,
 }
 
 impl Request {
-    // a Request that does not care for a response from database.
-    pub(crate) fn new(tx: ResponseSender, msg: BytesMut) -> Self {
-        Self { tx, msg }
+    // a request with a single response message from database.
+    pub(crate) fn single(tx: UnboundedSender<BytesMut>, msg: BytesMut) -> Self {
+        Self::multi(tx, 1, msg)
+    }
+
+    // a request with multiple response messages from database with msg_count as the count of total
+    // number of messages.
+    pub(crate) fn multi(tx: UnboundedSender<BytesMut>, msg_count: usize, msg: BytesMut) -> Self {
+        Self {
+            tx: ResponseSender::new(tx, msg_count),
+            msg,
+        }
     }
 }
 

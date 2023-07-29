@@ -35,7 +35,7 @@ impl<'a> StatementGuarded<'a> {
             if !self.client.closed() {
                 let res = self
                     .client
-                    .try_encode_with(|b| frontend::close(b'S', &statement.name, b).map(|_| frontend::sync(b)));
+                    .try_buf_and_split(|b| frontend::close(b'S', &statement.name, b).map(|_| frontend::sync(b)));
 
                 if let Ok(msg) = res {
                     self.client.do_send(msg);
@@ -59,6 +59,16 @@ impl Statement {
             params: params.into_boxed_slice(),
             columns: columns.into_boxed_slice(),
         }
+    }
+
+    pub(crate) fn params_assert(&self, params: &impl ExactSizeIterator) {
+        assert_eq!(
+            self.params().len(),
+            params.len(),
+            "expected {} parameters but got {}",
+            self.params().len(),
+            params.len()
+        );
     }
 
     pub(crate) fn name(&self) -> &str {

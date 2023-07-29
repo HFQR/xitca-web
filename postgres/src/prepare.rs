@@ -223,7 +223,7 @@ impl Client {
             debug!("preparing query {} with types {:?}: {}", name, types, query);
         }
 
-        self.try_encode_with(|buf| {
+        self.try_buf_and_split(|buf| {
             frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
             frontend::describe(b'S', name, buf)?;
             frontend::sync(buf);

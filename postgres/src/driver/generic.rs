@@ -167,9 +167,10 @@ where
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    let _ = self.res.front_mut().expect("out of bound must not happen").send(buf);
-                    if complete {
-                        let _ = self.res.pop_front();
+                    let front = self.res.front_mut().expect("out of bound must not happen");
+                    front.send(buf);
+                    if front.complete(complete) {
+                        self.res.pop_front();
                     }
                 }
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),
