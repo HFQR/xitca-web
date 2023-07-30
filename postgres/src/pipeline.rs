@@ -90,7 +90,6 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
             res,
             columns: self.columns,
             ranges: Vec::new(),
-            consume_last_msg: false,
         })
     }
 }
@@ -99,7 +98,6 @@ pub struct PipelineStream<'a> {
     res: Response,
     columns: VecDeque<&'a [Column]>,
     ranges: Vec<Option<Range<usize>>>,
-    consume_last_msg: bool,
 }
 
 impl<'a> AsyncIterator for PipelineStream<'a> {
@@ -108,30 +106,19 @@ impl<'a> AsyncIterator for PipelineStream<'a> {
 
     fn next(&mut self) -> Self::Future<'_> {
         async {
-            // if previous PipelineItem is dropped mid flight do some catch up.
-            while self.consume_last_msg {
-                match self.res.recv().await {
-                    Ok(msg) => match msg {
-                        backend::Message::DataRow(_) => {}
-                        backend::Message::CommandComplete(_) => {
-                            self.consume_last_msg = false;
-                        }
-                        _ => return Some(Err(Error::UnexpectedMessage)),
-                    },
-                    Err(e) => return Some(Err(e)),
-                }
-            }
-
             while !self.columns.is_empty() {
                 match self.res.recv().await {
                     Ok(msg) => match msg {
                         backend::Message::BindComplete => {
-                            self.consume_last_msg = true;
                             return Some(Ok(PipelineItem {
                                 finished: false,
                                 stream: self,
                                 rows_affected: 0,
                             }));
+                        }
+                        backend::Message::DataRow(_) | backend::Message::CommandComplete(_) => {
+                            // last PieplineItem dropped before finish. do some catch up until next
+                            // next item arrives.
                         }
                         backend::Message::ReadyForQuery(_) => {}
                         _ => return Some(Err(Error::UnexpectedMessage)),
@@ -187,7 +174,6 @@ impl AsyncIterator for PipelineItem<'_, '_> {
                         }
                         backend::Message::CommandComplete(body) => {
                             self.finished = true;
-                            self.stream.consume_last_msg = false;
                             self.rows_affected = match crate::query::decode::body_to_affected_rows(&body) {
                                 Ok(rows) => rows,
                                 Err(e) => return Some(Err(e)),
