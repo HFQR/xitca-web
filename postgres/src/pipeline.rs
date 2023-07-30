@@ -7,15 +7,40 @@ use postgres_types::BorrowToSql;
 use xitca_io::bytes::BytesMut;
 
 use super::{
-    client::Client, column::Column, driver::Response, error::Error, iter::AsyncIterator, statement::Statement, Row,
+    client::Client, column::Column, driver::Response, error::Error, iter::slice_iter, iter::AsyncIterator,
+    statement::Statement, Row, ToSql,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
 /// with the least amount of syscall when pipeline starts.
+///
+/// # Examples
+/// ```rust
+/// use xitca_postgres::{AsyncIterator, Client};
+/// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+///     let statement = client.prepare("SELECT * FROM public.users", &[]).await?;
+///
+///     let mut pipe = client.pipeline();
+///     pipe.query(statement.as_ref(), &[])?;
+///     pipe.query_raw::<[i32; 0]>(statement.as_ref(), [])?;
+///
+///     let mut res = pipe.run().await?;
+///
+///     while let Some(item) = res.next().await {
+///         let mut item = item?;
+///         while let Some(row) = item.next().await {
+///             let row = row?;
+///             let _: u32 = row.get("id");
+///         }
+///     }
+///
+///     Ok(())
+/// }
+/// ```
 pub struct Pipeline<'a, const SYNC_MODE: bool = true> {
     client: &'a Client,
     columns: VecDeque<&'a [Column]>,
-    // how many SNYC message we are sending to database.
+    // how many SYNC message we are sending to database.
     // it determines when the driver would shutdown the pipeline.
     sync_count: usize,
     buf: BytesMut,
@@ -49,6 +74,12 @@ impl Client {
 }
 
 impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
+    /// pipelined version of [Client::query] and [Client::execute]
+    #[inline]
+    pub fn query(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<(), Error> {
+        self.query_raw(stmt, slice_iter(params))
+    }
+
     /// pipelined version of [Client::query_raw] and [Client::execute_raw]
     pub fn query_raw<I>(&mut self, stmt: &'a Statement, params: I) -> Result<(), Error>
     where
@@ -94,6 +125,8 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
     }
 }
 
+/// streaming response of pipeline.
+/// impls [AsyncIterator] trait and can be collected asynchronously.
 pub struct PipelineStream<'a> {
     res: Response,
     columns: VecDeque<&'a [Column]>,
@@ -138,6 +171,8 @@ impl<'a> AsyncIterator for PipelineStream<'a> {
     }
 }
 
+/// streaming item of certain query inside pipeline's [PipelineStream].
+/// impls [AsyncIterator] and can be used to collect [Row] from item.
 pub struct PipelineItem<'a, 'c> {
     finished: bool,
     stream: &'a mut PipelineStream<'c>,
@@ -145,6 +180,7 @@ pub struct PipelineItem<'a, 'c> {
 }
 
 impl PipelineItem<'_, '_> {
+    /// return the number of rows affected by certain query in pipeline.
     pub fn rows_affected(&self) -> u64 {
         self.rows_affected
     }
