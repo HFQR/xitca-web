@@ -196,9 +196,9 @@ impl<S> ReadyService for RouterService<S> {
 
 #[cfg(test)]
 mod test {
-    use std::convert::Infallible;
+    use core::convert::Infallible;
 
-    use xitca_service::{fn_service, middleware::UncheckedReady, Service, ServiceExt};
+    use xitca_service::{fn_service, Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::http::{Request, RequestExt, Response};
@@ -274,47 +274,37 @@ mod test {
 
     #[test]
     fn router_nest() {
-        let router = Router::new()
-            .insert(
-                "/nest",
-                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
-            )
-            .enclosed_fn(enclosed)
-            .enclosed(UncheckedReady);
+        let router = || {
+            Router::new()
+                .insert(
+                    "/nest",
+                    fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
+                )
+                .enclosed_fn(enclosed)
+        };
+
+        let req = || {
+            Request::builder()
+                .uri("http://foo.bar/scope/nest")
+                .body(Default::default())
+                .unwrap()
+        };
 
         Router::new()
-            .insert("/scope", router)
+            .insert("/scope", router())
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(
-                Request::builder()
-                    .uri("http://foo.bar/scope/nest")
-                    .body(Default::default())
-                    .unwrap(),
-            )
+            .call(req())
             .now_or_panic()
             .unwrap();
 
-        let router = Router::new()
-            .insert(
-                "/nest",
-                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
-            )
-            .enclosed_fn(enclosed)
-            .enclosed(UncheckedReady);
-
         Router::new()
-            .insert("/scope/", router)
+            .insert("/scope/", router())
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(
-                Request::builder()
-                    .uri("http://foo.bar/scope/nest")
-                    .body(Default::default())
-                    .unwrap(),
-            )
+            .call(req())
             .now_or_panic()
             .unwrap();
     }

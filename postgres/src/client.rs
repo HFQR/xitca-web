@@ -98,7 +98,7 @@ impl Client {
         self.cached_typeinfo.lock().types.clear();
     }
 
-    pub(crate) fn try_encode_with<F, E>(&self, f: F) -> Result<BytesMut, E>
+    pub(crate) fn try_buf_and_split<F, E>(&self, f: F) -> Result<BytesMut, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), E>,
     {

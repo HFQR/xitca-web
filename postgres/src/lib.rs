@@ -11,6 +11,8 @@ mod config;
 mod driver;
 mod from_sql;
 mod iter;
+#[cfg(not(feature = "quic"))]
+mod pipeline;
 mod prepare;
 mod query;
 mod row;

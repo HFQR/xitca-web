@@ -6,6 +6,8 @@ mod tls;
 
 pub use self::response::Response;
 
+use core::future::Future;
+
 use std::io;
 
 use postgres_protocol::message::frontend;
@@ -36,15 +38,19 @@ impl ClientTx {
         self.0.is_closed()
     }
 
-    pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
+    pub(crate) fn send(&self, msg: BytesMut) -> impl Future<Output = Result<Response, Error>> + '_ {
+        self.send_multi(1, msg)
+    }
+
+    pub(crate) async fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
         let (tx, rx) = unbounded_channel();
-        self.0.send(Request::new(tx, msg))?;
+        self.0.send(Request::multi(tx, msg_count, msg))?;
         Ok(Response::new(rx))
     }
 
     pub(crate) fn do_send(&self, msg: BytesMut) {
         let (tx, _) = unbounded_channel();
-        let _ = self.0.send(Request::new(tx, msg));
+        let _ = self.0.send(Request::single(tx, msg));
     }
 }
 

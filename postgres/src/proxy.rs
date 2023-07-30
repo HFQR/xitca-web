@@ -172,7 +172,7 @@ async fn handler(mut stream_tx: SendStream, tx: GenericDriverTx, mut rx: RecvStr
 
     let (recv_tx, mut recv_rx) = unbounded_channel();
 
-    let msg = Request::new(recv_tx, bytes);
+    let msg = Request::single(recv_tx, bytes);
 
     tx.send(msg)?;
 

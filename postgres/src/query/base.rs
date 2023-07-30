@@ -1,8 +1,7 @@
 use core::{future::Future, ops::Range};
 
-use postgres_protocol::message::{backend, frontend};
-use postgres_types::{BorrowToSql, IsNull};
-use xitca_io::bytes::BytesMut;
+use postgres_protocol::message::backend;
+use postgres_types::BorrowToSql;
 
 use crate::{
     client::Client,
@@ -85,63 +84,14 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let buf = encode(self, stmt, params.into_iter())?;
+        let params = params.into_iter();
+        stmt.params_assert(&params);
+        let buf = self.try_buf_and_split(|buf| super::encode::encode(buf, stmt, params))?;
         let mut res = self.send(buf).await?;
         match res.recv().await? {
             backend::Message::BindComplete => Ok(res),
             _ => Err(Error::UnexpectedMessage),
         }
-    }
-}
-
-fn encode<I>(client: &Client, stmt: &Statement, params: I) -> Result<BytesMut, Error>
-where
-    I: ExactSizeIterator,
-    I::Item: BorrowToSql,
-{
-    assert_eq!(
-        stmt.params().len(),
-        params.len(),
-        "expected {} parameters but got {}",
-        stmt.params().len(),
-        params.len()
-    );
-
-    client.try_encode_with(|buf| {
-        encode_bind(stmt, params, "", buf)?;
-        frontend::execute("", 0, buf).map_err(|_| Error::ToDo)?;
-        frontend::sync(buf);
-        Ok(())
-    })
-}
-
-fn encode_bind<I>(stmt: &Statement, params: I, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
-where
-    I: ExactSizeIterator,
-    I::Item: BorrowToSql,
-{
-    let mut error_idx = 0;
-    let r = frontend::bind(
-        portal,
-        stmt.name(),
-        Some(1),
-        params.zip(stmt.params()).enumerate(),
-        |(idx, (param, ty)), buf| match param.borrow_to_sql().to_sql_checked(ty, buf) {
-            Ok(IsNull::No) => Ok(postgres_protocol::IsNull::No),
-            Ok(IsNull::Yes) => Ok(postgres_protocol::IsNull::Yes),
-            Err(e) => {
-                error_idx = idx;
-                Err(e)
-            }
-        },
-        Some(1),
-        buf,
-    );
-
-    match r {
-        Ok(()) => Ok(()),
-        Err(frontend::BindError::Conversion(_)) => Err(Error::ToDo),
-        Err(frontend::BindError::Serialization(_)) => Err(Error::ToDo),
     }
 }
 
@@ -151,20 +101,13 @@ pub(super) async fn res_to_row_affected(mut res: Response) -> Result<u64, Error>
         match res.recv().await? {
             backend::Message::RowDescription(_) | backend::Message::DataRow(_) => {}
             backend::Message::CommandComplete(body) => {
-                rows = body_to_affected_rows(&body)?;
+                rows = super::decode::body_to_affected_rows(&body)?;
             }
             backend::Message::EmptyQueryResponse => rows = 0,
             backend::Message::ReadyForQuery(_) => return Ok(rows),
             _ => return Err(Error::UnexpectedMessage),
         }
     }
-}
-
-// Extract the number of rows affected.
-fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Result<u64, Error> {
-    body.tag()
-        .map_err(|_| Error::ToDo)
-        .map(|r| r.rsplit(' ').next().unwrap().parse().unwrap_or(0))
 }
 
 /// A stream of table rows.

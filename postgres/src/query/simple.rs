@@ -25,7 +25,7 @@ impl Client {
     }
 
     async fn simple(&self, stmt: &str) -> Result<Response, Error> {
-        let buf = self.try_encode_with(|buf| frontend::query(stmt, buf))?;
+        let buf = self.try_buf_and_split(|buf| frontend::query(stmt, buf))?;
         self.send(buf).await
     }
 }
