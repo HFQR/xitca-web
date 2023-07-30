@@ -26,7 +26,7 @@ impl ResponseSender {
             self.msg_count -= 1;
         }
 
-        current_msg_complete && self.msg_count == 0
+        self.msg_count == 0
     }
 }
 

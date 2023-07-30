@@ -1,4 +1,4 @@
-use core::{future::Future, mem, ops::Range};
+use core::{future::Future, ops::Range};
 
 use std::collections::VecDeque;
 
@@ -12,39 +12,39 @@ use super::{
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
 /// with the least amount of syscall when pipeline starts.
-///
-/// by default pipeline adds SYNC message to every query inside the pipeline.
-/// see [Pipeline::un_sync] for detail if un-sync mode is desired.
 pub struct Pipeline<'a, const SYNC_MODE: bool = true> {
     client: &'a Client,
     columns: VecDeque<&'a [Column]>,
+    // how many SNYC message we are sending to database.
+    // it determines when the driver would shutdown the pipeline.
+    sync_count: usize,
     buf: BytesMut,
+}
+
+impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
+    fn new(client: &'a Client) -> Self {
+        Self {
+            client,
+            columns: VecDeque::new(),
+            sync_count: 0,
+            buf: BytesMut::new(),
+        }
+    }
 }
 
 impl Client {
     /// start a new pipeline.
     #[inline]
     pub fn pipeline(&self) -> Pipeline<'_> {
-        Pipeline {
-            client: self,
-            columns: VecDeque::new(),
-            buf: BytesMut::new(),
-        }
+        Pipeline::new(self)
     }
-}
 
-impl<'a> Pipeline<'a> {
-    /// switch Pipeline to un-sync mode.
-    /// after go into un-sync mode new query added to pipeline is not attached with SYNC message.
-    /// (queries already inside the pipeline is not affected by mode change)
+    /// start a new un-sync pipeline.
+    /// in un-sync mode query added to pipeline is not attached with SYNC message.
     /// instead a single SYNC message is attached to pipeline when [Pipeline::run] method is called.
     #[inline]
-    pub fn unsync(self) -> Pipeline<'a, false> {
-        Pipeline {
-            client: self.client,
-            columns: self.columns,
-            buf: self.buf,
-        }
+    pub fn pipeline_unsync(&self) -> Pipeline<'_, false> {
+        Pipeline::new(self)
     }
 }
 
@@ -62,6 +62,9 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
         crate::query::encode::encode_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params)
             .map(|_| {
                 self.columns.push_back(stmt.columns());
+                if SYNC_MODE {
+                    self.sync_count += 1;
+                }
             })
             .map_err(|e| {
                 // revert back to last pipelined query when encoding error occurred.
@@ -72,19 +75,22 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
 
     /// execute the pipeline and send previous batched queries to server.
     pub async fn run(mut self) -> Result<PipelineStream<'a>, Error> {
+        if self.buf.is_empty() {
+            todo!("add error for empty pipeline");
+        }
+
         if !SYNC_MODE {
+            self.sync_count += 1;
             frontend::sync(&mut self.buf);
         }
 
-        let count = self.columns.len();
-        let res = self.client.tx.send_multi(count, self.buf).await?;
+        let res = self.client.tx.send_multi(self.sync_count, self.buf).await?;
 
         Ok(PipelineStream {
             res,
             columns: self.columns,
             ranges: Vec::new(),
             consume_last_msg: false,
-            next_rows_affected: 0,
         })
     }
 }
@@ -94,7 +100,6 @@ pub struct PipelineStream<'a> {
     columns: VecDeque<&'a [Column]>,
     ranges: Vec<Option<Range<usize>>>,
     consume_last_msg: bool,
-    next_rows_affected: u64,
 }
 
 impl<'a> AsyncIterator for PipelineStream<'a> {
@@ -103,16 +108,12 @@ impl<'a> AsyncIterator for PipelineStream<'a> {
 
     fn next(&mut self) -> Self::Future<'_> {
         async {
-            if self.columns.is_empty() {
-                return None;
-            }
-
             // if previous PipelineItem is dropped mid flight do some catch up.
             while self.consume_last_msg {
                 match self.res.recv().await {
                     Ok(msg) => match msg {
                         backend::Message::DataRow(_) => {}
-                        backend::Message::ReadyForQuery(_) => {
+                        backend::Message::CommandComplete(_) => {
                             self.consume_last_msg = false;
                         }
                         _ => return Some(Err(Error::UnexpectedMessage)),
@@ -121,42 +122,25 @@ impl<'a> AsyncIterator for PipelineStream<'a> {
                 }
             }
 
-            loop {
+            while !self.columns.is_empty() {
                 match self.res.recv().await {
                     Ok(msg) => match msg {
-                        backend::Message::DataRow(body) => {
+                        backend::Message::BindComplete => {
                             self.consume_last_msg = true;
-                            let rows_affected = mem::replace(&mut self.next_rows_affected, 0);
                             return Some(Ok(PipelineItem {
                                 finished: false,
                                 stream: self,
-                                first_row: Some(body),
-                                rows_affected,
+                                rows_affected: 0,
                             }));
                         }
-                        backend::Message::EmptyQueryResponse => self.next_rows_affected = 0,
-                        // TODO: parse command complete body to rows affected.
-                        backend::Message::CommandComplete(body) => {
-                            self.next_rows_affected = match crate::query::decode::body_to_affected_rows(&body) {
-                                Ok(rows) => rows,
-                                Err(e) => return Some(Err(e)),
-                            }
-                        }
-                        backend::Message::PortalSuspended => {}
-                        backend::Message::ReadyForQuery(_) => {
-                            let rows_affected = mem::replace(&mut self.next_rows_affected, 0);
-                            return Some(Ok(PipelineItem {
-                                finished: true,
-                                stream: self,
-                                first_row: None,
-                                rows_affected,
-                            }));
-                        }
+                        backend::Message::ReadyForQuery(_) => {}
                         _ => return Some(Err(Error::UnexpectedMessage)),
                     },
                     Err(e) => return Some(Err(e)),
                 }
             }
+
+            None
         }
     }
 
@@ -170,7 +154,6 @@ impl<'a> AsyncIterator for PipelineStream<'a> {
 pub struct PipelineItem<'a, 'c> {
     finished: bool,
     stream: &'a mut PipelineStream<'c>,
-    first_row: Option<backend::DataRowBody>,
     rows_affected: u64,
 }
 
@@ -192,34 +175,31 @@ impl AsyncIterator for PipelineItem<'_, '_> {
 
     fn next(&mut self) -> Self::Future<'_> {
         async {
-            if self.finished {
-                return None;
+            while !self.finished {
+                match self.stream.res.recv().await {
+                    Ok(msg) => match msg {
+                        backend::Message::DataRow(body) => {
+                            return Some(Row::try_new(
+                                self.stream.columns.front().unwrap(),
+                                body,
+                                &mut self.stream.ranges,
+                            ))
+                        }
+                        backend::Message::CommandComplete(body) => {
+                            self.finished = true;
+                            self.stream.consume_last_msg = false;
+                            self.rows_affected = match crate::query::decode::body_to_affected_rows(&body) {
+                                Ok(rows) => rows,
+                                Err(e) => return Some(Err(e)),
+                            };
+                        }
+                        _ => return Some(Err(Error::UnexpectedMessage)),
+                    },
+                    Err(e) => return Some(Err(e)),
+                }
             }
 
-            if let Some(first) = self.first_row.take() {
-                return Some(Row::try_new(
-                    self.stream.columns.front().unwrap(),
-                    first,
-                    &mut self.stream.ranges,
-                ));
-            }
-
-            match self.stream.res.recv().await {
-                Ok(msg) => match msg {
-                    backend::Message::DataRow(body) => Some(Row::try_new(
-                        self.stream.columns.front().unwrap(),
-                        body,
-                        &mut self.stream.ranges,
-                    )),
-                    backend::Message::ReadyForQuery(_) => {
-                        self.stream.consume_last_msg = false;
-                        self.finished = true;
-                        None
-                    }
-                    _ => Some(Err(Error::UnexpectedMessage)),
-                },
-                Err(e) => Some(Err(e)),
-            }
+            None
         }
     }
 }
