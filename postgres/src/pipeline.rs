@@ -59,14 +59,26 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
 
 impl Client {
     /// start a new pipeline.
+    ///
+    /// pipeline is sync by default. which means every query inside is considered separate binding
+    /// and the pipeline is transparent to database server. the pipeline only happen on socket
+    /// transport where minimal amount of syscall is needed.
+    ///
+    /// for more relaxed [Pipeline Mode][libpq_link] see [Pipeline::pipeline_unsync] api.
+    ///
+    /// [libpq_link]: https://www.postgresql.org/docs/current/libpq-pipeline-mode.html
     #[inline]
     pub fn pipeline(&self) -> Pipeline<'_> {
         Pipeline::new(self)
     }
 
     /// start a new un-sync pipeline.
-    /// in un-sync mode query added to pipeline is not attached with SYNC message.
-    /// instead a single SYNC message is attached to pipeline when [Pipeline::run] method is called.
+    ///
+    /// in un-sync mode pipeline treat all queries inside as one single binding and database server
+    /// can see them as no sync point in between which can result in potential performance gain.
+    ///
+    /// it behaves the same on transportation level as [Pipeline::pipeline_unsync] where minimal
+    /// amount of socket syscall is needed.
     #[inline]
     pub fn pipeline_unsync(&self) -> Pipeline<'_, false> {
         Pipeline::new(self)
@@ -104,7 +116,7 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
             })
     }
 
-    /// execute the pipeline and send previous batched queries to server.
+    /// execute the pipeline.
     pub async fn run(mut self) -> Result<PipelineStream<'a>, Error> {
         if self.buf.is_empty() {
             todo!("add error for empty pipeline");
@@ -150,8 +162,8 @@ impl<'a> AsyncIterator for PipelineStream<'a> {
                             }));
                         }
                         backend::Message::DataRow(_) | backend::Message::CommandComplete(_) => {
-                            // last PieplineItem dropped before finish. do some catch up until next
-                            // next item arrives.
+                            // last PipelineItem dropped before finish. do some catch up until next
+                            // item arrives.
                         }
                         backend::Message::ReadyForQuery(_) => {}
                         _ => return Some(Err(Error::UnexpectedMessage)),
