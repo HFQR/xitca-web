@@ -77,8 +77,8 @@ impl Client {
     /// in un-sync mode pipeline treat all queries inside as one single binding and database server
     /// can see them as no sync point in between which can result in potential performance gain.
     ///
-    /// it behaves the same on transportation level as [Pipeline::pipeline_unsync] where minimal
-    /// amount of socket syscall is needed.
+    /// it behaves the same on transportation level as [Pipeline::pipeline] where minimal amount
+    /// of socket syscall is needed.
     #[inline]
     pub fn pipeline_unsync(&self) -> Pipeline<'_, false> {
         Pipeline::new(self)
@@ -146,7 +146,7 @@ pub struct PipelineStream<'a> {
 }
 
 impl<'a> AsyncIterator for PipelineStream<'a> {
-    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + 'f where Self: 'f;
+    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
     type Item<'i> = Result<PipelineItem<'i, 'a>, Error> where Self: 'i;
 
     fn next(&mut self) -> Self::Future<'_> {
@@ -205,7 +205,7 @@ impl Drop for PipelineItem<'_, '_> {
 }
 
 impl AsyncIterator for PipelineItem<'_, '_> {
-    type Future<'f> = impl Future<Output=Option<Self::Item<'f>>> + 'f where Self: 'f;
+    type Future<'f> = impl Future<Output=Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
     type Item<'i> = Result<Row<'i>, Error> where Self: 'i;
 
     fn next(&mut self) -> Self::Future<'_> {
@@ -215,7 +215,10 @@ impl AsyncIterator for PipelineItem<'_, '_> {
                     Ok(msg) => match msg {
                         backend::Message::DataRow(body) => {
                             return Some(Row::try_new(
-                                self.stream.columns.front().unwrap(),
+                                self.stream
+                                    .columns
+                                    .front()
+                                    .expect("PipelineItem must not overflow PipelineStream's columns array"),
                                 body,
                                 &mut self.stream.ranges,
                             ))
