@@ -7,8 +7,14 @@ use postgres_types::BorrowToSql;
 use xitca_io::bytes::BytesMut;
 
 use super::{
-    client::Client, column::Column, driver::Response, error::Error, iter::slice_iter, iter::AsyncIterator,
-    statement::Statement, Row, ToSql,
+    client::Client,
+    column::Column,
+    driver::ClientTx,
+    driver::Response,
+    error::Error,
+    iter::{slice_iter, AsyncIterator},
+    statement::Statement,
+    Row, ToSql,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
@@ -36,7 +42,7 @@ use super::{
 /// }
 /// ```
 pub struct Pipeline<'a, const SYNC_MODE: bool = true> {
-    client: &'a Client,
+    tx: &'a ClientTx,
     columns: VecDeque<&'a [Column]>,
     // how many SYNC message we are sending to database.
     // it determines when the driver would shutdown the pipeline.
@@ -44,10 +50,14 @@ pub struct Pipeline<'a, const SYNC_MODE: bool = true> {
     buf: BytesMut,
 }
 
+fn _assert_pipe_send() {
+    crate::_assert_send2::<Pipeline<'_>>();
+}
+
 impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
     fn new(client: &'a Client) -> Self {
         Self {
-            client,
+            tx: &client.tx,
             columns: VecDeque::new(),
             sync_count: 0,
             buf: BytesMut::new(),
@@ -125,7 +135,7 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
             frontend::sync(&mut self.buf);
         }
 
-        let res = self.client.tx.send_multi(self.sync_count, self.buf).await?;
+        let res = self.tx.send_multi(self.sync_count, self.buf).await?;
 
         Ok(PipelineStream {
             res,
