@@ -7,8 +7,14 @@ use postgres_types::BorrowToSql;
 use xitca_io::bytes::BytesMut;
 
 use super::{
-    client::Client, column::Column, driver::ClientTx, driver::Response, error::Error, iter::slice_iter,
-    iter::AsyncIterator, statement::Statement, Row, ToSql,
+    client::Client,
+    column::Column,
+    driver::ClientTx,
+    driver::Response,
+    error::Error,
+    iter::{slice_iter, AsyncIterator},
+    statement::Statement,
+    Row, ToSql,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
