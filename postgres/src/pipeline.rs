@@ -26,10 +26,8 @@ use super::{
 ///
 ///     let mut res = pipe.run().await?;
 ///
-///     while let Some(item) = res.next().await {
-///         let mut item = item?;
-///         while let Some(row) = item.next().await {
-///             let row = row?;
+///     while let Some(item) = res.next().await.transpose()? {
+///         while let Some(row) = item.next().await.transpose()? {
 ///             let _: u32 = row.get("id");
 ///         }
 ///     }
