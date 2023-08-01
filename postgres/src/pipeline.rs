@@ -32,7 +32,7 @@ use super::{
 ///
 ///     let mut res = pipe.run().await?;
 ///
-///     while let Some(item) = res.next().await.transpose()? {
+///     while let Some(mut item) = res.next().await.transpose()? {
 ///         while let Some(row) = item.next().await.transpose()? {
 ///             let _: u32 = row.get("id");
 ///         }
@@ -127,7 +127,11 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
     /// execute the pipeline.
     pub async fn run(mut self) -> Result<PipelineStream<'a>, Error> {
         if self.buf.is_empty() {
-            todo!("add error for empty pipeline");
+            return Ok(PipelineStream {
+                res: Response::no_op(),
+                columns: VecDeque::new(),
+                ranges: Vec::new(),
+            });
         }
 
         if !SYNC_MODE {
