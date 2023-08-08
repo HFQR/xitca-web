@@ -35,17 +35,13 @@ impl Drop for Transaction<'_> {
 impl Transaction<'_> {
     /// [Client::query] for transaction.
     #[inline]
-    pub async fn query<'a>(
-        &mut self,
-        stmt: &'a Statement,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<RowStream<'a>, Error> {
+    pub async fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         self.client.query(stmt, params).await
     }
 
     /// [Client::query_raw] for transaction.
     #[inline]
-    pub async fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub async fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
@@ -54,12 +50,12 @@ impl Transaction<'_> {
         self.client.query_raw(stmt, params).await
     }
 
-    pub async fn commit(&mut self) -> Result<(), Error> {
+    pub async fn commit(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         self.client.execute_simple("COMMIT").await.map(|_| ())
     }
 
-    pub async fn rollback(&mut self) -> Result<(), Error> {
+    pub async fn rollback(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         self.client.execute_simple("ROLLBACK").await.map(|_| ())
     }
