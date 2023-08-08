@@ -7,7 +7,7 @@ use crate::{
     client::Client, column::Column, driver::Response, error::Error, iter::AsyncIterator, row::RowSimple, Type,
 };
 
-use super::base::GenericRowStream;
+use super::row_stream::GenericRowStream;
 
 impl Client {
     #[inline]

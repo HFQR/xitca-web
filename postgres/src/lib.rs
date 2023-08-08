@@ -11,13 +11,16 @@ mod config;
 mod driver;
 mod from_sql;
 mod iter;
-#[cfg(not(feature = "quic"))]
-mod pipeline;
 mod prepare;
 mod query;
 mod row;
 mod session;
 mod util;
+
+#[cfg(not(feature = "quic"))]
+mod pipeline;
+#[cfg(not(feature = "quic"))]
+mod transaction;
 
 pub mod error;
 pub mod statement;
@@ -25,7 +28,7 @@ pub mod statement;
 #[cfg(feature = "quic")]
 pub mod proxy;
 
-pub use postgres_types::{FromSql, ToSql, Type};
+pub use postgres_types::{BorrowToSql, FromSql, ToSql, Type};
 
 pub use self::{
     client::Client,
@@ -34,6 +37,7 @@ pub use self::{
     error::Error,
     from_sql::FromSqlExt,
     iter::AsyncIterator,
+    query::{RowSimpleStream, RowStream},
     row::{Row, RowSimple},
 };
 
