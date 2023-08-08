@@ -1,7 +1,6 @@
-use core::{future::Future, ops::Range};
+use core::future::Future;
 
 use postgres_protocol::message::backend;
-use postgres_types::BorrowToSql;
 
 use crate::{
     client::Client,
@@ -11,8 +10,10 @@ use crate::{
     iter::{slice_iter, AsyncIterator},
     row::Row,
     statement::Statement,
-    ToSql,
+    BorrowToSql, ToSql,
 };
+
+use super::row_stream::GenericRowStream;
 
 impl Client {
     /// Executes a statement, returning a vector of the resulting rows.
@@ -112,12 +113,6 @@ pub(super) async fn res_to_row_affected(mut res: Response) -> Result<u64, Error>
 
 /// A stream of table rows.
 pub type RowStream<'a> = GenericRowStream<&'a [Column]>;
-
-pub struct GenericRowStream<C> {
-    pub(super) res: Response,
-    pub(super) col: C,
-    pub(super) ranges: Vec<Option<Range<usize>>>,
-}
 
 impl<'a> AsyncIterator for RowStream<'a> {
     type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where 'a: 'f;
