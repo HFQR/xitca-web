@@ -23,7 +23,7 @@ fallible-iterator = "0.2"
 percent-encoding = "2"
 postgres-protocol = "0.6.5"
 postgres-types = "0.2"
-tokio = { version = "1.27", features = ["net", "sync"] }
+tokio = { version = "1.30", features = ["net", "sync"] }
 tracing = { version = "0.1", default-features = false }
 
 # tls
@@ -40,4 +40,4 @@ rustls = { version = "0.21", optional = true }
 
 [dev-dependencies]
 rcgen = "0.11"
-tokio = { version = "1.27", features = ["macros", "rt"] }
+tokio = { version = "1.30", features = ["macros", "rt"] }
