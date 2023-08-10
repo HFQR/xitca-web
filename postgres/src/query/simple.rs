@@ -12,19 +12,19 @@ use super::row_stream::GenericRowStream;
 impl Client {
     #[inline]
     pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self.simple(stmt).await.map(|res| RowSimpleStream {
+        self.encode_send_simple(stmt).await.map(|res| RowSimpleStream {
             res,
             col: Vec::new(),
             ranges: Vec::new(),
         })
     }
 
+    #[inline]
     pub async fn execute_simple(&self, stmt: &str) -> Result<u64, Error> {
-        let res = self.simple(stmt).await?;
-        super::base::res_to_row_affected(res).await
+        self.encode_send_simple(stmt).await?.try_into_row_affected().await
     }
 
-    async fn simple(&self, stmt: &str) -> Result<Response, Error> {
+    pub(crate) async fn encode_send_simple(&self, stmt: &str) -> Result<Response, Error> {
         let buf = self.try_buf_and_split(|buf| frontend::query(stmt, buf))?;
         self.send(buf).await
     }

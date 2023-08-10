@@ -41,7 +41,7 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        self.bind(stmt, params).await.map(|res| RowStream {
+        self.encode_send(stmt, params).await.map(|res| RowStream {
             col: stmt.columns(),
             res,
             ranges: Vec::new(),
@@ -69,17 +69,17 @@ impl Client {
     /// # Panics
     ///
     /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
+    #[inline]
     pub async fn execute_raw<I>(&self, stmt: &Statement, params: I) -> Result<u64, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let res = self.bind(stmt, params).await?;
-        res_to_row_affected(res).await
+        self.encode_send(stmt, params).await?.try_into_row_affected().await
     }
 
-    async fn bind<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
+    async fn encode_send<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
@@ -96,17 +96,32 @@ impl Client {
     }
 }
 
-pub(super) async fn res_to_row_affected(mut res: Response) -> Result<u64, Error> {
-    let mut rows = 0;
-    loop {
-        match res.recv().await? {
-            backend::Message::RowDescription(_) | backend::Message::DataRow(_) => {}
-            backend::Message::CommandComplete(body) => {
-                rows = super::decode::body_to_affected_rows(&body)?;
+impl Response {
+    pub(super) async fn try_into_row_affected(mut self) -> Result<u64, Error> {
+        let mut rows = 0;
+        loop {
+            match self.recv().await? {
+                backend::Message::RowDescription(_) | backend::Message::DataRow(_) => {}
+                backend::Message::CommandComplete(body) => {
+                    rows = super::decode::body_to_affected_rows(&body)?;
+                }
+                backend::Message::EmptyQueryResponse => rows = 0,
+                backend::Message::ReadyForQuery(_) => return Ok(rows),
+                _ => return Err(Error::UnexpectedMessage),
             }
-            backend::Message::EmptyQueryResponse => rows = 0,
-            backend::Message::ReadyForQuery(_) => return Ok(rows),
-            _ => return Err(Error::UnexpectedMessage),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn try_into_ready(mut self) -> Result<(), Error> {
+        loop {
+            match self.recv().await? {
+                backend::Message::RowDescription(_)
+                | backend::Message::DataRow(_)
+                | backend::Message::EmptyQueryResponse => {}
+                backend::Message::ReadyForQuery(_) => return Ok(()),
+                _ => return Err(Error::UnexpectedMessage),
+            }
         }
     }
 }
