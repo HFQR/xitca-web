@@ -20,14 +20,15 @@ pub struct Transaction<'a> {
 
 enum State {
     Begin,
+    WantRollback,
     Finish,
 }
 
 impl Drop for Transaction<'_> {
     fn drop(&mut self) {
         match self.state {
-            State::Begin => self.cancel(),
-            State::Finish => {}
+            State::WantRollback => self.do_rollback(),
+            State::Begin | State::Finish => {}
         }
     }
 }
@@ -51,20 +52,25 @@ impl Transaction<'_> {
     }
 
     pub async fn commit(mut self) -> Result<(), Error> {
+        let res = self.client.encode_send_simple("COMMIT").await?;
         self.state = State::Finish;
-        self.client.execute_simple("COMMIT").await.map(|_| ())
+        res.try_into_ready().await
     }
 
     pub async fn rollback(mut self) -> Result<(), Error> {
+        let res = self.client.encode_send_simple("ROLLBACK").await?;
         self.state = State::Finish;
-        self.client.execute_simple("ROLLBACK").await.map(|_| ())
+        res.try_into_ready().await
     }
 
     async fn begin(&mut self) -> Result<(), Error> {
-        self.client.execute_simple("BEGIN").await.map(|_| ())
+        self.client
+            .execute_simple("BEGIN")
+            .await
+            .map(|_| self.state = State::WantRollback)
     }
 
-    fn cancel(&mut self) {
+    fn do_rollback(&mut self) {
         if !self.client.closed() {
             let res = self.client.try_buf_and_split(|b| frontend::query("ROLLBACK", b));
             if let Ok(msg) = res {
