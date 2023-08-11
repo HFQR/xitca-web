@@ -6,7 +6,7 @@ mod map_err;
 
 use core::{future::Future, ops::Deref, pin::Pin};
 
-/// Extend trait for [Service].
+/// Extend trait for [Service](crate::Service).
 ///
 /// Can be used to cehck the ready state of a service before calling it.
 ///

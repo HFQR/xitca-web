@@ -13,7 +13,7 @@ pub type FromSqlError = Box<dyn std::error::Error + Sync + Send>;
 ///
 /// # Examples
 /// ```rust
-/// # use xitca_postgres::Row;
+/// # use xitca_postgres::row::Row;
 /// use xitca_unsafe_collection::bytes::BytesStr; // a reference counted &str type.
 /// fn parse_row(row: Row<'_>) {
 ///     let s = row.get::<BytesStr>(0); // parse index0 column with zero copy.
