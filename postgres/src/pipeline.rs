@@ -13,8 +13,9 @@ use super::{
     driver::Response,
     error::Error,
     iter::{slice_iter, AsyncIterator},
+    row::Row,
     statement::Statement,
-    Row, ToSql,
+    ToSql,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
@@ -72,7 +73,7 @@ impl Client {
     /// and the pipeline is transparent to database server. the pipeline only happen on socket
     /// transport where minimal amount of syscall is needed.
     ///
-    /// for more relaxed [Pipeline Mode][libpq_link] see [Pipeline::pipeline_unsync] api.
+    /// for more relaxed [Pipeline Mode][libpq_link] see [Client::pipeline_unsync] api.
     ///
     /// [libpq_link]: https://www.postgresql.org/docs/current/libpq-pipeline-mode.html
     #[inline]
@@ -85,7 +86,7 @@ impl Client {
     /// in un-sync mode pipeline treat all queries inside as one single binding and database server
     /// can see them as no sync point in between which can result in potential performance gain.
     ///
-    /// it behaves the same on transportation level as [Pipeline::pipeline] where minimal amount
+    /// it behaves the same on transportation level as [Client::pipeline] where minimal amount
     /// of socket syscall is needed.
     #[inline]
     pub fn pipeline_unsync(&self) -> Pipeline<'_, false> {

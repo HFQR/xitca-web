@@ -101,7 +101,7 @@ mod inner {
     }
 }
 
-/// Data structure aiming to have the same memory size of Box<str> that being able to store str
+/// Data structure aiming to have the same memory size of `Box<str>` that being able to store str
 /// on stack and only allocate on heap when necessary.
 pub struct SmallBoxedStr {
     len: usize,

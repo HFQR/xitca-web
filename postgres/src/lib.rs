@@ -13,17 +13,17 @@ mod from_sql;
 mod iter;
 mod prepare;
 mod query;
-mod row;
 mod session;
 mod util;
 
+pub mod error;
+pub mod row;
+pub mod statement;
+
 #[cfg(not(feature = "quic"))]
-mod pipeline;
+pub mod pipeline;
 #[cfg(not(feature = "quic"))]
 mod transaction;
-
-pub mod error;
-pub mod statement;
 
 #[cfg(feature = "quic")]
 pub mod proxy;
@@ -38,7 +38,6 @@ pub use self::{
     from_sql::FromSqlExt,
     iter::AsyncIterator,
     query::{RowSimpleStream, RowStream},
-    row::{Row, RowSimple},
 };
 
 #[derive(Debug)]
