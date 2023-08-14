@@ -3,7 +3,6 @@
 ## Requirement
 - nightly Rust
 - [cloudflare workers](https://workers.cloudflare.com/)
-- [wrangler v1](https://crates.io/crates/wrangler)
 
 ## API
 Same as auto generated worker template with additional static stie.
@@ -18,13 +17,13 @@ https://xitca-web-worker.fakeshadow.workers.dev/
 
 ## Usage
 ```bash
-# compiles your project to WebAssembly and will warn of any issues
-wrangler build 
+# install wrangler cli.
+npm install
 
 # run your Worker in an ideal development workflow (with a local server, file watcher & more)
-wrangler dev
+npm run dev
 
 # deploy your Worker globally to the Cloudflare network (update your wrangler.toml file for configuration)
-wrangler publish
+npm run deploy
 ```
 Read the latest `worker` crate documentation here: https://docs.rs/worker
