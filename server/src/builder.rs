@@ -157,7 +157,7 @@ impl Builder {
     {
         self.listeners
             .entry(name.as_ref().to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(Box::new(listener));
 
         self.factories.insert(name.as_ref().to_string(), factory.into_object());

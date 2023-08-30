@@ -185,7 +185,7 @@ impl Parser {
                 }
                 payload
             })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         Parser::write_message(dst, payload, OpCode::Close, true, mask)
     }

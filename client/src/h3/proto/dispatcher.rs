@@ -41,7 +41,7 @@ where
             req.headers_mut().remove(CONTENT_LENGTH);
             false
         }
-        BodySize::Sized(len) if len == 0 => {
+        BodySize::Sized(0) => {
             req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
             true
         }
