@@ -76,7 +76,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     /// When Context does not have one a new HeaderMap is constructed.
     #[inline]
     pub fn take_headers(&mut self) -> HeaderMap {
-        self.header.take().unwrap_or_else(HeaderMap::new)
+        self.header.take().unwrap_or_default()
     }
 
     /// Take ownership of Extensions stored in Context.
