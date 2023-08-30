@@ -1,13 +1,8 @@
 mod shutdown;
 
-use std::{
-    any::Any,
-    io,
-    rc::Rc,
-    sync::{atomic::AtomicBool, Arc},
-    thread,
-    time::Duration,
-};
+use core::{any::Any, sync::atomic::AtomicBool, time::Duration};
+
+use std::{io, rc::Rc, sync::Arc, thread};
 
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
@@ -19,9 +14,9 @@ use self::shutdown::ShutdownHandle;
 // erase Rc<S: ReadyService<_>> type and only use it for counting the reference counter of Rc.
 pub(crate) type ServiceAny = Rc<dyn Any>;
 
-pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &S) -> JoinHandle<()>
+pub(crate) fn start<S, Req>(listener: &Arc<Listener>, service: &Rc<S>) -> JoinHandle<()>
 where
-    S: ReadyService + Service<Req> + Clone + 'static,
+    S: ReadyService + Service<Req> + 'static,
     S::Ready: 'static,
     Req: TryFrom<Stream> + 'static,
 {
