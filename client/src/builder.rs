@@ -163,7 +163,7 @@ impl ClientBuilder {
                             cert.name_constraints,
                         );
                         let certs = vec![cert].into_iter();
-                        root_certs.add_server_trust_anchors(certs);
+                        root_certs.add_trust_anchors(certs);
                     }
 
                     let mut crypto = rustls::ClientConfig::builder()
