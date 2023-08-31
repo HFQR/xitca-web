@@ -34,38 +34,6 @@ pub trait Service<Req = ()> {
         Req: 's;
 }
 
-#[cfg(feature = "alloc")]
-mod alloc_impl {
-    use super::Service;
-
-    use alloc::{boxed::Box, rc::Rc, sync::Arc};
-
-    macro_rules! impl_alloc {
-        ($alloc: ident) => {
-            impl<S, Req> Service<Req> for $alloc<S>
-            where
-                S: Service<Req> + ?Sized,
-            {
-                type Response = S::Response;
-                type Error = S::Error;
-                type Future<'f> = S::Future<'f> where Self: 'f, Req: 'f;
-
-                #[inline]
-                fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-                where
-                    Req: 's,
-                {
-                    (**self).call(req)
-                }
-            }
-        };
-    }
-
-    impl_alloc!(Box);
-    impl_alloc!(Rc);
-    impl_alloc!(Arc);
-}
-
 impl<S, Req> Service<Req> for Pin<S>
 where
     S: Deref,
