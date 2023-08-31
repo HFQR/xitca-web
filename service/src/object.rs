@@ -1,6 +1,8 @@
 use core::{future::Future, marker::PhantomData};
 
-pub use helpers::{BoxedServiceObject, ServiceObject, StaticObject};
+use alloc::boxed::Box;
+
+pub use helpers::ServiceObject;
 
 use super::service::Service;
 
@@ -31,7 +33,7 @@ where
     T: Service<Arg, Error = BErr> + 'static,
     T::Response: Service<Req, Response = Res, Error = Err> + 'static,
 {
-    type Object = StaticObject<Arg, StaticObject<Req, Res, Err>, BErr>;
+    type Object = BoxedServiceObject<Arg, BoxedServiceObject<Req, Res, Err>, BErr>;
 
     fn into_object(inner: T) -> Self::Object {
         struct DefaultObjBuilder<T, Req>(T, PhantomData<Req>);
@@ -41,7 +43,7 @@ where
             T: Service<Arg, Error = BErr> + 'static,
             T::Response: Service<Req, Response = Res, Error = Err> + 'static,
         {
-            type Response = StaticObject<Req, Res, Err>;
+            type Response = BoxedServiceObject<Req, Res, Err>;
             type Error = BErr;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
@@ -51,22 +53,26 @@ where
             {
                 async {
                     let service = self.0.call(req).await?;
-                    Ok(StaticObject::from_service(service))
+                    Ok(Box::new(service) as _)
                 }
             }
         }
 
-        StaticObject::from_service(DefaultObjBuilder(inner, PhantomData))
+        Box::new(DefaultObjBuilder(inner, PhantomData))
     }
 }
+
+/// An often used type alias for boxed service object. used when Req type is not bound to any
+/// lifetime.
+pub type BoxedServiceObject<Req, Res, Err> = Box<dyn ServiceObject<Req, Response = Res, Error = Err>>;
 
 mod helpers {
     //! Useful types and traits for implementing a custom
     //! [ObjectConstructor](super::ObjectConstructor).
 
-    use alloc::boxed::Box;
-
     use crate::{service::Service, BoxFuture};
+
+    use super::Box;
 
     /// Object-safe counterpart of [Service].
     pub trait ServiceObject<Req> {
@@ -94,17 +100,7 @@ mod helpers {
         }
     }
 
-    /// new type for `Box<dyn ServiceObject>`. used for implementing [Service] trait.
-    ///
-    /// For any given type impl `Service<Req>` where Req is 'static lifetime it's recommended
-    /// to use [StaticObject] instead.
-    ///
-    /// [BoxedServiceObject] on the other hand is more useful for Req type where it has non static
-    /// lifetime params like `Foo<'_>` for example. In order to express it's lifetime with HRTB
-    /// currently it's necessary to use pattern as `dyn for<'i> ServiceObject<Foo<'i>>`.
-    pub struct BoxedServiceObject<I: ?Sized>(pub Box<I>);
-
-    impl<I, Req> Service<Req> for BoxedServiceObject<I>
+    impl<I, Req> Service<Req> for Box<I>
     where
         I: ServiceObject<Req> + ?Sized,
     {
@@ -117,20 +113,7 @@ mod helpers {
         where
             Req: 's,
         {
-            ServiceObject::call(&*self.0, req)
-        }
-    }
-
-    /// An often used type alias for boxed service object. used when Arg type is not bound to any
-    /// lifetime.
-    pub type StaticObject<Req, Res, Err> = BoxedServiceObject<dyn ServiceObject<Req, Response = Res, Error = Err>>;
-
-    impl<Req, Res, Err> StaticObject<Req, Res, Err> {
-        pub fn from_service<I>(service: I) -> Self
-        where
-            I: Service<Req, Response = Res, Error = Err> + 'static,
-        {
-            BoxedServiceObject(Box::new(service))
+            ServiceObject::call(&**self, req)
         }
     }
 }

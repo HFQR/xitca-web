@@ -5,7 +5,7 @@ use core::{future::Future, marker::PhantomData};
 use std::{borrow::Cow, collections::HashMap};
 
 use xitca_service::{
-    object::{DefaultObjectConstructor, ObjectConstructor, StaticObject},
+    object::{BoxedServiceObject, DefaultObjectConstructor, ObjectConstructor},
     pipeline::PipelineE,
     ready::ReadyService,
     EnclosedFactory, EnclosedFnFactory, FnService, Service,
@@ -17,7 +17,7 @@ use super::route::Route;
 
 /// A [GenericRouter] specialized with [DefaultObjectConstructor]
 pub type Router<Req, Arg, BErr, Res, Err> =
-    GenericRouter<DefaultObjectConstructor<Req, Arg>, StaticObject<Arg, StaticObject<Req, Res, Err>, BErr>>;
+    GenericRouter<DefaultObjectConstructor<Req, Arg>, BoxedServiceObject<Arg, BoxedServiceObject<Req, Res, Err>, BErr>>;
 
 /// Simple router for matching on [Request](crate::http::Request)'s path and call according service.
 ///

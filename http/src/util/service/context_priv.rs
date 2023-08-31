@@ -191,14 +191,14 @@ pub mod object {
     use std::{boxed::Box, marker::PhantomData};
 
     use xitca_service::{
-        object::{BoxedServiceObject, ObjectConstructor, ServiceObject, StaticObject},
+        object::{BoxedServiceObject, ObjectConstructor, ServiceObject},
         Service,
     };
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
     pub type ContextServiceAlias<Req, C, Res, Err> =
-        BoxedServiceObject<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
+        Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
     impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
     where
@@ -207,7 +207,7 @@ pub mod object {
         I: Service<Response = Svc, Error = BErr> + 'static,
         Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
-        type Object = StaticObject<(), ContextServiceAlias<Req, C, Res, Err>, BErr>;
+        type Object = BoxedServiceObject<(), ContextServiceAlias<Req, C, Res, Err>, BErr>;
 
         fn into_object(inner: I) -> Self::Object {
             struct ContextObjBuilder<I, Req, C>(I, PhantomData<(Req, C)>);
@@ -227,12 +227,12 @@ pub mod object {
                 {
                     async move {
                         let service = self.0.call(arg).await?;
-                        Ok(BoxedServiceObject(Box::new(service) as _))
+                        Ok(Box::new(service) as _)
                     }
                 }
             }
 
-            StaticObject::from_service(ContextObjBuilder(inner, PhantomData))
+            Box::new(ContextObjBuilder(inner, PhantomData))
         }
     }
 }
