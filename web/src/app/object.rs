@@ -1,7 +1,7 @@
 use std::{boxed::Box, future::Future, marker::PhantomData};
 
 use xitca_service::{
-    object::{BoxedServiceObject, ObjectConstructor, ServiceObject, StaticObject},
+    object::{BoxedServiceObject, ObjectConstructor, ServiceObject},
     Service,
 };
 
@@ -10,7 +10,7 @@ use crate::request::WebRequest;
 pub struct WebObjectConstructor<C, B>(PhantomData<(C, B)>);
 
 pub type WebServiceAlias<C, B, Res, Err> =
-    BoxedServiceObject<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>;
+    Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>;
 
 impl<C, B, I, Svc, BErr, Res, Err> ObjectConstructor<I> for WebObjectConstructor<C, B>
 where
@@ -19,7 +19,7 @@ where
     I: Service<Response = Svc, Error = BErr> + 'static,
     Svc: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err> + 'static,
 {
-    type Object = StaticObject<(), WebServiceAlias<C, B, Res, Err>, BErr>;
+    type Object = BoxedServiceObject<(), WebServiceAlias<C, B, Res, Err>, BErr>;
 
     fn into_object(inner: I) -> Self::Object {
         struct WebObjBuilder<I, C, B>(I, PhantomData<(C, B)>);
@@ -39,11 +39,11 @@ where
             {
                 async move {
                     let service = self.0.call(arg).await?;
-                    Ok(BoxedServiceObject(Box::new(service) as _))
+                    Ok(Box::new(service) as _)
                 }
             }
         }
 
-        StaticObject::from_service(WebObjBuilder(inner, PhantomData))
+        Box::new(WebObjBuilder(inner, PhantomData))
     }
 }
