@@ -188,7 +188,7 @@ where
 pub mod object {
     use super::*;
 
-    use std::{boxed::Box, marker::PhantomData};
+    use core::marker::PhantomData;
 
     use xitca_service::{
         object::{BoxedServiceObject, ObjectConstructor, ServiceObject},
@@ -197,7 +197,7 @@ pub mod object {
 
     pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
 
-    pub type ContextServiceAlias<Req, C, Res, Err> =
+    pub type ContextObject<Req, C, Res, Err> =
         Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
     impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
@@ -207,17 +207,17 @@ pub mod object {
         I: Service<Response = Svc, Error = BErr> + 'static,
         Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
-        type Object = BoxedServiceObject<(), ContextServiceAlias<Req, C, Res, Err>, BErr>;
+        type Object = BoxedServiceObject<(), ContextObject<Req, C, Res, Err>, BErr>;
 
         fn into_object(inner: I) -> Self::Object {
-            struct ContextObjBuilder<I, Req, C>(I, PhantomData<(Req, C)>);
+            struct Builder<I, Req, C>(I, PhantomData<(Req, C)>);
 
-            impl<C, I, Svc, BErr, Req, Res, Err> Service for ContextObjBuilder<I, Req, C>
+            impl<C, I, Svc, BErr, Req, Res, Err> Service for Builder<I, Req, C>
             where
                 I: Service<Response = Svc, Error = BErr>,
                 Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
             {
-                type Response = ContextServiceAlias<Req, C, Res, Err>;
+                type Response = ContextObject<Req, C, Res, Err>;
                 type Error = BErr;
                 type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
@@ -232,7 +232,7 @@ pub mod object {
                 }
             }
 
-            Box::new(ContextObjBuilder(inner, PhantomData))
+            Box::new(Builder(inner, PhantomData))
         }
     }
 }
