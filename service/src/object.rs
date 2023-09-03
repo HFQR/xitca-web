@@ -2,9 +2,54 @@ use core::{future::Future, marker::PhantomData};
 
 use alloc::boxed::Box;
 
-pub use helpers::ServiceObject;
+use super::{service::Service, BoxFuture};
 
-use super::service::Service;
+/// Object-safe counterpart of [Service].
+pub trait ServiceObject<Req> {
+    type Response;
+    type Error;
+
+    fn call<'s>(&'s self, req: Req) -> BoxFuture<'s, Self::Response, Self::Error>
+    where
+        Req: 's;
+}
+
+impl<S, Req> ServiceObject<Req> for S
+where
+    S: Service<Req>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+
+    #[inline]
+    fn call<'s>(&'s self, req: Req) -> BoxFuture<'s, Self::Response, Self::Error>
+    where
+        Req: 's,
+    {
+        Box::pin(Service::call(self, req))
+    }
+}
+
+impl<I, Req> Service<Req> for Box<I>
+where
+    I: ServiceObject<Req> + ?Sized,
+{
+    type Response = I::Response;
+    type Error = I::Error;
+    type Future<'f> = BoxFuture<'f, Self::Response, Self::Error> where Self: 'f, Req: 'f;
+
+    #[inline]
+    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
+    where
+        Req: 's,
+    {
+        ServiceObject::call(&**self, req)
+    }
+}
+
+/// An often used type alias for boxed service object. used when Req type is not bound to any
+/// lifetime.
+pub type BoxedServiceObject<Req, Res, Err> = Box<dyn ServiceObject<Req, Response = Res, Error = Err>>;
 
 /// An object constructor represents a one of possibly many ways to create a trait object from `I`.
 ///
@@ -36,9 +81,9 @@ where
     type Object = BoxedServiceObject<Arg, BoxedServiceObject<Req, Res, Err>, BErr>;
 
     fn into_object(inner: T) -> Self::Object {
-        struct DefaultObjBuilder<T, Req>(T, PhantomData<Req>);
+        struct Builder<T, Req>(T, PhantomData<Req>);
 
-        impl<T, Req, Arg, BErr, Res, Err> Service<Arg> for DefaultObjBuilder<T, Req>
+        impl<T, Req, Arg, BErr, Res, Err> Service<Arg> for Builder<T, Req>
         where
             T: Service<Arg, Error = BErr> + 'static,
             T::Response: Service<Req, Response = Res, Error = Err> + 'static,
@@ -58,62 +103,6 @@ where
             }
         }
 
-        Box::new(DefaultObjBuilder(inner, PhantomData))
-    }
-}
-
-/// An often used type alias for boxed service object. used when Req type is not bound to any
-/// lifetime.
-pub type BoxedServiceObject<Req, Res, Err> = Box<dyn ServiceObject<Req, Response = Res, Error = Err>>;
-
-mod helpers {
-    //! Useful types and traits for implementing a custom
-    //! [ObjectConstructor](super::ObjectConstructor).
-
-    use crate::{service::Service, BoxFuture};
-
-    use super::Box;
-
-    /// Object-safe counterpart of [Service].
-    pub trait ServiceObject<Req> {
-        type Response;
-        type Error;
-
-        fn call<'s>(&'s self, req: Req) -> BoxFuture<'s, Self::Response, Self::Error>
-        where
-            Req: 's;
-    }
-
-    impl<S, Req> ServiceObject<Req> for S
-    where
-        S: Service<Req>,
-    {
-        type Response = S::Response;
-        type Error = S::Error;
-
-        #[inline]
-        fn call<'s>(&'s self, req: Req) -> BoxFuture<'s, Self::Response, Self::Error>
-        where
-            Req: 's,
-        {
-            Box::pin(Service::call(self, req))
-        }
-    }
-
-    impl<I, Req> Service<Req> for Box<I>
-    where
-        I: ServiceObject<Req> + ?Sized,
-    {
-        type Response = I::Response;
-        type Error = I::Error;
-        type Future<'f> = BoxFuture<'f, Self::Response, Self::Error> where Self: 'f, Req: 'f;
-
-        #[inline]
-        fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-        where
-            Req: 's,
-        {
-            ServiceObject::call(&**self, req)
-        }
+        Box::new(Builder(inner, PhantomData))
     }
 }
