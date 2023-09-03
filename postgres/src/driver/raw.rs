@@ -56,7 +56,7 @@ impl ClientTx {
 
 #[cold]
 #[inline(never)]
-pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Driver), Error> {
+pub(super) async fn _connect(host: Host, cfg: &Config) -> Result<(Client, Driver), Error> {
     // this block have repeated code due to HRTB limitation.
     // namely for <'_> AsyncIo::Future<'_>: Send bound can not be expressed correctly.
     match host {
