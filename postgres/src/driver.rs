@@ -41,11 +41,11 @@ use xitca_tls::rustls::{ClientConnection, TlsStream};
 #[cfg(unix)]
 use xitca_io::net::UnixStream;
 
-pub(super) async fn connect(mut cfg: Config) -> Result<(Client, Driver), Error> {
+pub(super) async fn connect(cfg: Config) -> Result<(Client, Driver), Error> {
     let mut err = None;
     let hosts = cfg.get_hosts().to_vec();
     for host in hosts {
-        match _connect(host, &mut cfg).await {
+        match _connect(host, &cfg).await {
             Ok(t) => return Ok(t),
             Err(e) => err = Some(e),
         }

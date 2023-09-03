@@ -82,7 +82,7 @@ impl ClientTx {
 
 #[cold]
 #[inline(never)]
-pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Driver), Error> {
+pub(super) async fn _connect(host: Host, cfg: &Config) -> Result<(Client, Driver), Error> {
     match host {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;
