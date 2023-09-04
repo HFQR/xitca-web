@@ -5,7 +5,7 @@ use core::{future::Future, marker::PhantomData};
 use std::{borrow::Cow, collections::HashMap};
 
 use xitca_service::{
-    object::{BoxedServiceObject, DefaultObjectConstructor, ObjectConstructor},
+    object::{BoxedServiceObject, DefaultObjectConstructor, IntoObject},
     pipeline::PipelineE,
     ready::ReadyService,
     EnclosedFactory, EnclosedFnFactory, FnService, Service,
@@ -17,7 +17,7 @@ use super::route::Route;
 
 /// A [GenericRouter] specialized with [DefaultObjectConstructor]
 pub type Router<Req, Arg, BErr, Res, Err> =
-    GenericRouter<DefaultObjectConstructor<Req, Arg>, BoxedServiceObject<Arg, BoxedServiceObject<Req, Res, Err>, BErr>>;
+    GenericRouter<DefaultObjectConstructor, BoxedServiceObject<Arg, BoxedServiceObject<Req, Res, Err>, BErr>>;
 
 /// Simple router for matching on [Request](crate::http::Request)'s path and call according service.
 ///
@@ -25,7 +25,7 @@ pub type Router<Req, Arg, BErr, Res, Err> =
 /// in order to determine how the router type-erases node services.
 pub struct GenericRouter<ObjCons, SF> {
     routes: HashMap<Cow<'static, str>, SF>,
-    _req_body: PhantomData<ObjCons>,
+    _obj: PhantomData<ObjCons>,
 }
 
 /// Error type of Router service.
@@ -41,7 +41,7 @@ impl<ObjCons, SF> Default for GenericRouter<ObjCons, SF> {
 
 impl<SF> GenericRouter<(), SF> {
     /// Creates a new router with the [default object constructor](DefaultObjectConstructor).
-    pub fn with_default_object<Req, Arg>() -> GenericRouter<DefaultObjectConstructor<Req, Arg>, SF> {
+    pub fn with_default_object() -> GenericRouter<DefaultObjectConstructor, SF> {
         GenericRouter::new()
     }
 
@@ -55,7 +55,7 @@ impl<ObjCons, SF> GenericRouter<ObjCons, SF> {
     pub fn new() -> Self {
         Self {
             routes: HashMap::new(),
-            _req_body: PhantomData,
+            _obj: PhantomData,
         }
     }
 
@@ -64,10 +64,12 @@ impl<ObjCons, SF> GenericRouter<ObjCons, SF> {
     /// # Panic:
     ///
     /// When multiple services inserted with the same path.
-    pub fn insert<F>(mut self, path: &'static str, mut factory: F) -> Self
+    pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut factory: F) -> Self
     where
         F: PathGen,
-        ObjCons: ObjectConstructor<F, Object = SF>,
+        F: Service<Arg>,
+        F::Response: Service<Req>,
+        ObjCons: IntoObject<F, Arg, Req, Object = SF>,
     {
         let path = factory.gen(path);
         assert!(self.routes.insert(path, ObjCons::into_object(factory)).is_none());

@@ -1,17 +1,17 @@
 use std::{boxed::Box, future::Future, marker::PhantomData};
 
 use xitca_service::{
-    object::{BoxedServiceObject, ObjectConstructor, ServiceObject},
+    object::{BoxedServiceObject, IntoObject, ServiceObject},
     Service,
 };
 
 use crate::request::WebRequest;
 
-pub struct WebObjectConstructor<C, B>(PhantomData<(C, B)>);
+pub struct WebObjectConstructor;
 
 pub type WebObject<C, B, Res, Err> = Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>;
 
-impl<C, B, I, Svc, BErr, Res, Err> ObjectConstructor<I> for WebObjectConstructor<C, B>
+impl<C, B, I, Svc, BErr, Res, Err> IntoObject<I, (), WebRequest<'_, C, B>> for WebObjectConstructor
 where
     C: 'static,
     B: 'static,
@@ -36,10 +36,7 @@ where
             where
                 (): 's,
             {
-                async move {
-                    let service = self.0.call(arg).await?;
-                    Ok(Box::new(service) as _)
-                }
+                async move { self.0.call(arg).await.map(|s| Box::new(s) as _) }
             }
         }
 

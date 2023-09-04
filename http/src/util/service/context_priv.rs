@@ -191,44 +191,41 @@ pub mod object {
     use core::marker::PhantomData;
 
     use xitca_service::{
-        object::{BoxedServiceObject, ObjectConstructor, ServiceObject},
+        object::{BoxedServiceObject, IntoObject, ServiceObject},
         Service,
     };
 
-    pub struct ContextObjectConstructor<Req, C>(PhantomData<(Req, C)>);
+    pub struct ContextObjectConstructor;
 
     pub type ContextObject<Req, C, Res, Err> =
         Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
-    impl<C, I, Svc, BErr, Req, Res, Err> ObjectConstructor<I> for ContextObjectConstructor<Req, C>
+    impl<C, I, Arg, Svc, BErr, Req, Res, Err> IntoObject<I, Arg, Context<'_, Req, C>> for ContextObjectConstructor
     where
         C: 'static,
         Req: 'static,
-        I: Service<Response = Svc, Error = BErr> + 'static,
+        I: Service<Arg, Response = Svc, Error = BErr> + 'static,
         Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
-        type Object = BoxedServiceObject<(), ContextObject<Req, C, Res, Err>, BErr>;
+        type Object = BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, BErr>;
 
         fn into_object(inner: I) -> Self::Object {
             struct Builder<I, Req, C>(I, PhantomData<(Req, C)>);
 
-            impl<C, I, Svc, BErr, Req, Res, Err> Service for Builder<I, Req, C>
+            impl<C, I, Arg, Svc, BErr, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
             where
-                I: Service<Response = Svc, Error = BErr>,
+                I: Service<Arg, Response = Svc, Error = BErr>,
                 Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
             {
                 type Response = ContextObject<Req, C, Res, Err>;
                 type Error = BErr;
-                type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
+                type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Arg:'f, Self: 'f;
 
-                fn call<'s>(&'s self, arg: ()) -> Self::Future<'s>
+                fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
                 where
-                    (): 's,
+                    Arg: 's,
                 {
-                    async move {
-                        let service = self.0.call(arg).await?;
-                        Ok(Box::new(service) as _)
-                    }
+                    async move { self.0.call(arg).await.map(|s| Box::new(s) as _) }
                 }
             }
 
@@ -298,7 +295,7 @@ mod test {
             service.call(req).await
         }
 
-        let router = GenericRouter::with_custom_object::<object::ContextObjectConstructor<_, _>>()
+        let router = GenericRouter::with_custom_object::<object::ContextObjectConstructor>()
             .insert("/", get(fn_service(handler)))
             .enclosed_fn(enclosed);
 

@@ -55,8 +55,12 @@ pub type BoxedServiceObject<Req, Res, Err> = Box<dyn ServiceObject<Req, Response
 ///
 /// A [Service] type, for example, may be type-erased into `Box<dyn Service<&'static str>>`,
 /// `Box<dyn for<'a> Service<&'a str>>`, `Box<dyn Service<&'static str> + Service<u8>>`, etc.
-/// Each would be a separate impl for [ObjectConstructor].
-pub trait ObjectConstructor<I> {
+/// Each would be a separate impl for [IntoObject].
+pub trait IntoObject<I, Arg, Req>
+where
+    I: Service<Arg>,
+    I::Response: Service<Req>,
+{
     /// The type-erased form of `I`.
     type Object;
 
@@ -64,15 +68,15 @@ pub trait ObjectConstructor<I> {
     fn into_object(inner: I) -> Self::Object;
 }
 
-/// The most trivial [ObjectConstructor] for [Service] types.
+/// The most trivial [IntoObject] for [Service] types.
 ///
 /// Its main limitation is that the trait object is not polymorphic over `Req`.
 /// So if the original service type is `impl for<'r> Service<&'r str>`,
 /// the resulting object type would only be `impl Service<&'r str>`
 /// for some specific lifetime `'r`.
-pub struct DefaultObjectConstructor<Req, Arg>(PhantomData<(Req, Arg)>);
+pub struct DefaultObjectConstructor;
 
-impl<T, Req, Arg, BErr, Res, Err> ObjectConstructor<T> for DefaultObjectConstructor<Req, Arg>
+impl<T, Req, Arg, BErr, Res, Err> IntoObject<T, Arg, Req> for DefaultObjectConstructor
 where
     Req: 'static,
     T: Service<Arg, Error = BErr> + 'static,
@@ -96,10 +100,7 @@ where
             where
                 Arg: 's,
             {
-                async {
-                    let service = self.0.call(req).await?;
-                    Ok(Box::new(service) as _)
-                }
+                async { self.0.call(req).await.map(|s| Box::new(s) as _) }
             }
         }
 

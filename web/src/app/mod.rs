@@ -18,7 +18,7 @@ use crate::{
     dev::{
         bytes::Bytes,
         service::{
-            object::ObjectConstructor, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
+            object::IntoObject, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
             ServiceExt,
         },
     },
@@ -35,19 +35,17 @@ pub struct App<CF = (), R = ()> {
     router: R,
 }
 
-type Router<C, B, SF> = GenericRouter<WebObjectConstructor<C, B>, SF>;
+type Router<SF> = GenericRouter<WebObjectConstructor, SF>;
 
 impl App {
-    pub fn new<B, SF>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<(), B, SF>> {
+    pub fn new<SF>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<SF>> {
         Self::with_async_state(|| ready(Ok(())))
     }
 
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<C, B, SF>(
-        state: C,
-    ) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<C, B, SF>>
+    pub fn with_current_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<SF>>
     where
         C: Clone + 'static,
     {
@@ -57,9 +55,7 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<C, B, SF>(
-        state: C,
-    ) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<C, B, SF>>
+    pub fn with_multi_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<SF>>
     where
         C: Send + Sync + Clone + 'static,
     {
@@ -68,11 +64,7 @@ impl App {
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<CF, Fut, E, C, B, SF>(ctx_factory: CF) -> App<CF, Router<C, B, SF>>
-    where
-        CF: Fn() -> Fut,
-        Fut: Future<Output = Result<C, E>>,
-    {
+    pub fn with_async_state<CF, SF>(ctx_factory: CF) -> App<CF, Router<SF>> {
         App {
             ctx_factory,
             router: GenericRouter::with_custom_object(),
@@ -80,11 +72,13 @@ impl App {
     }
 }
 
-impl<CF, C, B, SF> App<CF, Router<C, B, SF>> {
-    pub fn at<F>(mut self, path: &'static str, factory: F) -> App<CF, Router<C, B, SF>>
+impl<CF, SF> App<CF, Router<SF>> {
+    pub fn at<F, Arg, Req>(mut self, path: &'static str, factory: F) -> App<CF, Router<SF>>
     where
         F: PathGen,
-        WebObjectConstructor<C, B>: ObjectConstructor<F, Object = SF>,
+        F: Service<Arg>,
+        F::Response: Service<Req>,
+        WebObjectConstructor: IntoObject<F, Arg, Req, Object = SF>,
     {
         self.router = self.router.insert(path, factory);
         self
