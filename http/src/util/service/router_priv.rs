@@ -15,14 +15,11 @@ use crate::http::{BorrowReq, BorrowReqMut, Uri};
 
 use super::route::Route;
 
-/// A [GenericRouter] specialized with [DefaultObjectConstructor]
-pub type Router<SF> = GenericRouter<DefaultObjectConstructor, SF>;
-
 /// Simple router for matching on [Request](crate::http::Request)'s path and call according service.
 ///
 /// An [ObjectConstructor] must be specified as a type parameter
 /// in order to determine how the router type-erases node services.
-pub struct GenericRouter<ObjCons, SF> {
+pub struct Router<SF, ObjCons = DefaultObjectConstructor> {
     routes: HashMap<Cow<'static, str>, SF>,
     _obj: PhantomData<ObjCons>,
 }
@@ -32,32 +29,27 @@ pub struct GenericRouter<ObjCons, SF> {
 /// `Second` variant contains error returned by the services passed to Router.
 pub type RouterError<E> = PipelineE<MatchError, E>;
 
-impl<ObjCons, SF> Default for GenericRouter<ObjCons, SF> {
+impl<SF, ObjCons> Default for Router<SF, ObjCons> {
     fn default() -> Self {
-        Self::new()
+        Router::with_custom_object()
     }
 }
 
-impl<SF> GenericRouter<DefaultObjectConstructor, SF> {
-    /// Creates a new router with the [default object constructor](DefaultObjectConstructor).
-    pub fn with_default_object() -> Self {
-        GenericRouter::new()
+impl<SF> Router<SF> {
+    pub fn new() -> Self {
+        Router::with_custom_object()
     }
 
     /// Creates a new router with a custom [object constructor](ObjectConstructor).
-    pub fn with_custom_object<ObjCons>() -> GenericRouter<ObjCons, SF> {
-        GenericRouter::new()
-    }
-}
-
-impl<ObjCons, SF> GenericRouter<ObjCons, SF> {
-    pub fn new() -> Self {
-        Self {
+    pub fn with_custom_object<ObjCons>() -> Router<SF, ObjCons> {
+        Router {
             routes: HashMap::new(),
             _obj: PhantomData,
         }
     }
+}
 
+impl<SF, ObjCons> Router<SF, ObjCons> {
     /// Insert a new service factory to given path.
     ///
     /// # Panic:
@@ -85,7 +77,7 @@ pub trait PathGen {
 }
 
 // nest router needs special handling for path generation.
-impl<ObjCons, SF> PathGen for GenericRouter<ObjCons, SF> {
+impl<SF, ObjCons> PathGen for Router<SF, ObjCons> {
     fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         let mut path = String::from(prefix);
         if path.ends_with('/') {
@@ -130,7 +122,7 @@ where
     }
 }
 
-impl<ObjCons, SF, Arg> Service<Arg> for GenericRouter<ObjCons, SF>
+impl<SF, ObjCons, Arg> Service<Arg> for Router<SF, ObjCons>
 where
     SF: Service<Arg>,
     Arg: Clone,
