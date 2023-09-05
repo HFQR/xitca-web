@@ -76,10 +76,9 @@ where {
 impl<CF, SF> App<CF, WebRouter<SF>> {
     pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, WebRouter<SF>>
     where
-        F: PathGen + Service,
+        F: PathGen,
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, E>>,
-        F::Response: for<'r> Service<WebRequest<'r, C, B>>,
         WebObjectConstructor: for<'r> IntoObject<F, (), WebRequest<'r, C, B>, Object = SF>,
     {
         self.router = self.router.insert(path, factory);

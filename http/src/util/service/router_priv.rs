@@ -58,8 +58,6 @@ impl<SF, ObjCons> Router<SF, ObjCons> {
     pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut factory: F) -> Self
     where
         F: PathGen,
-        F: Service<Arg>,
-        F::Response: Service<Req>,
         ObjCons: IntoObject<F, Arg, Req, Object = SF>,
     {
         let path = factory.gen(path);

@@ -66,7 +66,6 @@ pub trait ServiceExt<Arg>: Service<Arg> {
     fn into_object<Req>(self) -> <DefaultObjectConstructor as IntoObject<Self, Arg, Req>>::Object
     where
         Self: Sized,
-        Self::Response: Service<Req>,
         DefaultObjectConstructor: IntoObject<Self, Arg, Req>,
     {
         DefaultObjectConstructor::into_object(self)

@@ -56,11 +56,7 @@ pub type BoxedServiceObject<Req, Res, Err> = Box<dyn ServiceObject<Req, Response
 /// A [Service] type, for example, may be type-erased into `Box<dyn Service<&'static str>>`,
 /// `Box<dyn for<'a> Service<&'a str>>`, `Box<dyn Service<&'static str> + Service<u8>>`, etc.
 /// Each would be a separate impl for [IntoObject].
-pub trait IntoObject<I, Arg, Req>
-where
-    I: Service<Arg>,
-    I::Response: Service<Req>,
-{
+pub trait IntoObject<I, Arg, Req> {
     /// The type-erased form of `I`.
     type Object;
 
