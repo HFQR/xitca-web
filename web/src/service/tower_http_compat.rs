@@ -81,7 +81,7 @@ where
     type Error = S::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
     where
-    Self: 'f, 'r: 'f;
+        Self: 'f, 'r: 'f;
 
     fn call<'s>(&'s self, mut req: WebRequest<'r, C, ReqB>) -> Self::Future<'s>
     where
@@ -101,9 +101,7 @@ where
 impl<S> ReadyService for TowerCompatService<S> {
     type Ready = ();
 
-    type Future<'f> = impl Future<Output = Self::Ready>
-    where
-        Self: 'f;
+    type Future<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     #[inline]
     fn ready(&self) -> Self::Future<'_> {

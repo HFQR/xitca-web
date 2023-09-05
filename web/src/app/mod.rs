@@ -64,7 +64,8 @@ impl App {
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<CF, SF>(ctx_factory: CF) -> App<CF, Router<SF>> {
+    pub fn with_async_state<CF, SF>(ctx_factory: CF) -> App<CF, Router<SF>>
+where {
         App {
             ctx_factory,
             router: GenericRouter::with_custom_object(),
@@ -73,12 +74,13 @@ impl App {
 }
 
 impl<CF, SF> App<CF, Router<SF>> {
-    pub fn at<F, Arg, Req>(mut self, path: &'static str, factory: F) -> App<CF, Router<SF>>
+    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, Router<SF>>
     where
-        F: PathGen,
-        F: Service<Arg>,
-        F::Response: Service<Req>,
-        WebObjectConstructor: IntoObject<F, Arg, Req, Object = SF>,
+        F: PathGen + Service,
+        CF: Fn() -> Fut,
+        Fut: Future<Output = Result<C, E>>,
+        F::Response: for<'r> Service<WebRequest<'r, C, B>>,
+        WebObjectConstructor: for<'r> IntoObject<F, (), WebRequest<'r, C, B>, Object = SF>,
     {
         self.router = self.router.insert(path, factory);
         self
