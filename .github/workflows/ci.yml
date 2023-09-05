@@ -19,7 +19,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
@@ -68,7 +68,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
@@ -117,7 +117,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
@@ -166,7 +166,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install ${{ matrix.version }}
         uses: actions-rs/toolchain@v1
@@ -228,7 +228,7 @@ jobs:
           - 5432:5432
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
@@ -272,7 +272,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install ${{ matrix.version }}
         uses: actions-rs/toolchain@v1
