@@ -10,7 +10,7 @@ use core::{
 use futures_core::stream::Stream;
 use xitca_http::util::service::{
     context::{Context, ContextBuilder},
-    router::{GenericRouter, PathGen},
+    router::{PathGen, Router},
 };
 
 use crate::{
@@ -35,17 +35,17 @@ pub struct App<CF = (), R = ()> {
     router: R,
 }
 
-type Router<SF> = GenericRouter<WebObjectConstructor, SF>;
+type WebRouter<SF> = Router<SF, WebObjectConstructor>;
 
 impl App {
-    pub fn new<SF>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<SF>> {
+    pub fn new<SF>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, WebRouter<SF>> {
         Self::with_async_state(|| ready(Ok(())))
     }
 
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<SF>>
+    pub fn with_current_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, WebRouter<SF>>
     where
         C: Clone + 'static,
     {
@@ -55,7 +55,7 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<SF>>
+    pub fn with_multi_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, WebRouter<SF>>
     where
         C: Send + Sync + Clone + 'static,
     {
@@ -64,17 +64,17 @@ impl App {
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<CF, SF>(ctx_factory: CF) -> App<CF, Router<SF>>
+    pub fn with_async_state<CF, SF>(ctx_factory: CF) -> App<CF, WebRouter<SF>>
 where {
         App {
             ctx_factory,
-            router: GenericRouter::with_custom_object(),
+            router: Router::with_custom_object(),
         }
     }
 }
 
-impl<CF, SF> App<CF, Router<SF>> {
-    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, Router<SF>>
+impl<CF, SF> App<CF, WebRouter<SF>> {
+    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, WebRouter<SF>>
     where
         F: PathGen + Service,
         CF: Fn() -> Fut,

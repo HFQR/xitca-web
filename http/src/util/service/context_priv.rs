@@ -243,7 +243,7 @@ mod test {
 
     use crate::{
         http::{Request, RequestExt, Response},
-        util::service::{route::get, GenericRouter},
+        util::service::{route::get, Router},
     };
 
     use super::*;
@@ -295,7 +295,7 @@ mod test {
             service.call(req).await
         }
 
-        let router = GenericRouter::with_custom_object::<object::ContextObjectConstructor>()
+        let router = Router::with_custom_object::<object::ContextObjectConstructor>()
             .insert("/", get(fn_service(handler)))
             .enclosed_fn(enclosed);
 
