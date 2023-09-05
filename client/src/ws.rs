@@ -10,7 +10,7 @@ use core::{
 use std::sync::Mutex;
 
 use futures_core::stream::Stream;
-use futures_util::sink::Sink;
+use futures_sink::Sink;
 use http_ws::Codec;
 use xitca_http::bytes::{Buf, Bytes, BytesMut};
 

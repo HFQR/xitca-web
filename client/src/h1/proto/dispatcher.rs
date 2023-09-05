@@ -1,10 +1,13 @@
-use core::{future::poll_fn, pin::pin};
+use core::{
+    future::poll_fn,
+    pin::{pin, Pin},
+};
 
 use std::io;
 
 use futures_core::Stream;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use xitca_http::h1::proto::codec::TransferCoding;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
+use xitca_http::{bytes::Buf, h1::proto::codec::TransferCoding};
 
 use crate::{
     body::BodyError,
@@ -58,9 +61,8 @@ where
     // encode request head and return transfer encoding for request body
     let encoder = ctx.encode_head(&mut buf, parts, &body)?;
 
-    // send request head for potential intermediate handling like expect header.
-    stream.write_all_buf(&mut buf).await?;
-    stream.flush().await?;
+    write_all_buf(&mut *stream, &mut buf).await?;
+    poll_fn(|cx| Pin::new(&mut *stream).poll_flush(cx)).await?;
 
     // TODO: concurrent read write is needed in case server decide to do two way
     // streaming with very large body surpass socket buffer size.
@@ -80,7 +82,7 @@ where
         let n = stream.read_buf(&mut buf).await?;
 
         if n == 0 {
-            return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
+            return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
         }
 
         if let Some((res, mut decoder)) = ctx.decode_head(&mut buf)? {
@@ -126,13 +128,33 @@ where
             let bytes = bytes.map_err(BodyError::from)?;
             encoder.encode(bytes, buf);
             // we are not in a hurry here so write before handling next chunk.
-            stream.write_all_buf(buf).await?;
+            write_all_buf(&mut *stream, buf).await?;
         }
 
         // body is finished. encode eof and clean up.
         encoder.encode_eof(buf);
-        stream.write_all_buf(buf).await?;
+
+        write_all_buf(&mut *stream, buf).await?;
     }
 
-    stream.flush().await.map_err(Into::into)
+    poll_fn(|cx| Pin::new(&mut *stream).poll_flush(cx))
+        .await
+        .map_err(Into::into)
+}
+
+async fn write_all_buf<S>(stream: &mut S, buf: &mut BytesMut) -> io::Result<()>
+where
+    S: AsyncWrite + Unpin,
+{
+    let mut stream = Pin::new(stream);
+
+    while buf.has_remaining() {
+        let n = poll_fn(|cx| stream.as_mut().poll_write(cx, buf.chunk())).await?;
+        buf.advance(n);
+        if n == 0 {
+            return Err(io::Error::from(io::ErrorKind::WriteZero));
+        }
+    }
+
+    Ok(())
 }

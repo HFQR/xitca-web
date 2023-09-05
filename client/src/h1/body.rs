@@ -45,7 +45,6 @@ where
                 ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
                 ChunkResult::InsufficientData => {
                     let n = ready!(poll_read_buf(Pin::new(&mut *this.conn), cx, &mut this.buf))?;
-
                     if n == 0 {
                         return Poll::Ready(Some(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())));
                     }
