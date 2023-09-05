@@ -4,7 +4,7 @@ use crate::{
 };
 
 #[cfg(feature = "alloc")]
-use crate::object::{DefaultObjectConstructor, ObjectConstructor};
+use crate::object::{DefaultObjectConstructor, IntoObject};
 
 use super::Service;
 
@@ -63,10 +63,11 @@ pub trait ServiceExt<Arg>: Service<Arg> {
     /// This would erase `Self::Response` type and it's GAT nature.
     ///
     /// See [crate::object::DefaultObjectConstructor] for detail.
-    fn into_object<Req>(self) -> <DefaultObjectConstructor<Req, Arg> as ObjectConstructor<Self>>::Object
+    fn into_object<Req>(self) -> <DefaultObjectConstructor as IntoObject<Self, Arg, Req>>::Object
     where
         Self: Sized,
-        DefaultObjectConstructor<Req, Arg>: ObjectConstructor<Self>,
+        Self::Response: Service<Req>,
+        DefaultObjectConstructor: IntoObject<Self, Arg, Req>,
     {
         DefaultObjectConstructor::into_object(self)
     }
