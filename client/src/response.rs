@@ -1,11 +1,11 @@
 use core::{
     fmt,
+    future::poll_fn,
     ops::{Deref, DerefMut},
     pin::{pin, Pin},
     time::Duration,
 };
-
-use futures_util::StreamExt;
+use futures_core::stream::Stream;
 use tokio::time::{Instant, Sleep};
 use tracing::debug;
 use xitca_http::{bytes::BytesMut, http};
@@ -134,7 +134,7 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
         timer.as_mut().reset(Instant::now() + self.timeout);
 
         loop {
-            match body.next().timeout(timer.as_mut()).await {
+            match poll_fn(|cx| body.as_mut().poll_next(cx)).timeout(timer.as_mut()).await {
                 Ok(Some(res)) => {
                     let buf = match res {
                         Ok(buf) => buf,
