@@ -14,7 +14,7 @@ tokio-uring = ["dep:tokio", "dep:tokio-uring"]
 bytes = "1.4"
 http = "0.2.8"
 httpdate = "1.0.2"
-http-range-header = "0.3.0"
+http-range-header = "0.4"
 futures-core = { version = "0.3.25", default-features = false }
 mime_guess = "2.0.4"
 percent-encoding = "2.2.0"
