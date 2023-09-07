@@ -821,9 +821,9 @@ mod test {
     fn test_peek_u8() {
         let b = 0xff;
         let mut buf = Cursor::new(vec![b]);
-        assert_eq!(peek_u8(&mut buf), Some(b));
+        assert_eq!(peek_u8(&buf), Some(b));
         assert_eq!(buf.get_u8(), b);
-        assert_eq!(peek_u8(&mut buf), None);
+        assert_eq!(peek_u8(&buf), None);
     }
 
     #[test]
