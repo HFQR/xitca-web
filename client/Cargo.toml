@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["http1"]
-http1 = ["httparse", "tokio-util", "xitca-http/http1"]
+http1 = ["httparse", "xitca-http/http1"]
 http2 = ["h2", "itoa", "xitca-http/http2"]
 http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "tokio-rustls", "webpki-roots"]
 openssl = ["openssl-crate", "tokio-openssl"]
@@ -24,12 +24,11 @@ xitca-unsafe-collection = "0.1"
 
 futures-core = { version = "0.3.17", default-features = false }
 pin-project-lite = "0.2.9"
-tokio = { version = "1.30", features = ["io-util", "sync", "time"] }
+tokio = { version = "1.30", features = ["sync", "time"] }
 tracing = { version = "0.1.36", default-features = false }
 
 # http/1 support
 httparse = { version = "1.8.0", optional = true }
-tokio-util = { version = "0.7", features = ["io"], optional = true }
 
 # http/2 support
 h2 = { version = "0.3.17", optional = true }
