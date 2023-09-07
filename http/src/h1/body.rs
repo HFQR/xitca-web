@@ -205,7 +205,7 @@ impl Inner {
 
     /// Register future waiting data from payload.
     /// Waker would be used in `Inner::wake`
-    fn register(&mut self, cx: &mut Context<'_>) {
+    fn register(&mut self, cx: &Context<'_>) {
         if self.task.as_ref().map(|w| !cx.waker().will_wake(w)).unwrap_or(true) {
             self.task = Some(cx.waker().clone());
         }
@@ -213,7 +213,7 @@ impl Inner {
 
     // Register future feeding data to payload.
     /// Waker would be used in `Inner::wake_io`
-    fn register_io(&mut self, cx: &mut Context<'_>) {
+    fn register_io(&mut self, cx: &Context<'_>) {
         if self.io_task.as_ref().map(|w| !cx.waker().will_wake(w)).unwrap_or(true) {
             self.io_task = Some(cx.waker().clone());
         }
@@ -239,7 +239,7 @@ impl Inner {
         self.len >= MAX_BUFFER_SIZE
     }
 
-    fn poll_next_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
+    fn poll_next_unpin(&mut self, cx: &Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
         if let Some(data) = self.items.pop_front() {
             self.len -= data.len();
             Poll::Ready(Some(Ok(data)))
