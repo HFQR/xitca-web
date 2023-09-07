@@ -179,7 +179,7 @@ impl ChunkedState {
         }
     }
 
-    fn read_size_lf(rdr: &mut BytesMut, size: &mut u64) -> io::Result<Option<Self>> {
+    fn read_size_lf(rdr: &mut BytesMut, size: &u64) -> io::Result<Option<Self>> {
         match byte!(rdr) {
             b'\n' if *size > 0 => Ok(Some(Self::Body)),
             b'\n' if *size == 0 => Ok(Some(Self::EndCr)),

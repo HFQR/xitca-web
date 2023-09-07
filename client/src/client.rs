@@ -209,7 +209,7 @@ impl Client {
         }
     }
 
-    async fn make_tcp(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<TcpStream, Error> {
+    async fn make_tcp(&self, connect: &Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<TcpStream, Error> {
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
@@ -226,7 +226,7 @@ impl Client {
         Ok(stream)
     }
 
-    async fn make_tcp_inner(&self, connect: &mut Connect<'_>) -> Result<TcpStream, Error> {
+    async fn make_tcp_inner(&self, connect: &Connect<'_>) -> Result<TcpStream, Error> {
         let mut iter = connect.addrs();
 
         let mut addr = iter.next().ok_or(Error::Resolve)?;
@@ -268,7 +268,7 @@ impl Client {
 
     async fn make_tls(
         &self,
-        connect: &mut Connect<'_>,
+        connect: &Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
         max_version: Version,
     ) -> Result<Connection, Error> {

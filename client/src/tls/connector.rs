@@ -68,7 +68,7 @@ impl Connector {
     #[cfg(feature = "rustls")]
     pub fn rustls(protocols: &[&[u8]]) -> Self {
         let mut root_certs = RootCertStore::empty();
-        for cert in TLS_SERVER_ROOTS.0 {
+        for cert in TLS_SERVER_ROOTS {
             let cert =
                 OwnedTrustAnchor::from_subject_spki_name_constraints(cert.subject, cert.spki, cert.name_constraints);
             let certs = vec![cert].into_iter();
