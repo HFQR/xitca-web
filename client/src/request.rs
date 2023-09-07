@@ -256,12 +256,12 @@ impl<'a, B> Request<'a, B> {
 
         #[cfg(feature = "http1")]
         match res {
-            Ok(Ok((res, buf, decoder, is_close))) => {
+            Ok(Ok((res, buf, chunk, decoder, is_close))) => {
                 if is_close {
                     conn.destroy_on_drop();
                 }
 
-                let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
+                let body = crate::h1::body::ResponseBody::new(conn, buf, chunk, decoder);
                 let res = res.map(|_| crate::body::ResponseBody::H1(body));
                 let timeout = client.timeout_config.response_timeout;
 

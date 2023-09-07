@@ -6,7 +6,7 @@ use core::{
 use std::io;
 
 use futures_core::Stream;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use xitca_http::{bytes::Buf, h1::proto::codec::TransferCoding};
 
 use crate::{
@@ -27,12 +27,14 @@ pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
     mut req: http::Request<B>,
-) -> Result<(http::Response<()>, BytesMut, TransferCoding, bool), Error>
+) -> Result<(http::Response<()>, BytesMut, Vec<u8>, TransferCoding, bool), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
+    let mut stream = Pin::new(stream);
+
     let is_head_method = *req.method() == Method::HEAD;
 
     if !req.headers().contains_key(HOST) {
@@ -61,8 +63,8 @@ where
     // encode request head and return transfer encoding for request body
     let encoder = ctx.encode_head(&mut buf, parts, &body)?;
 
-    write_all_buf(&mut *stream, &mut buf).await?;
-    poll_fn(|cx| Pin::new(&mut *stream).poll_flush(cx)).await?;
+    write_all_buf(stream.as_mut(), &mut buf).await?;
+    poll_fn(|cx| stream.as_mut().poll_flush(cx)).await?;
 
     // TODO: concurrent read write is needed in case server decide to do two way
     // streaming with very large body surpass socket buffer size.
@@ -70,20 +72,26 @@ where
 
     // try to send request body.
     // continue to read response no matter the outcome.
-    if send_inner(stream, encoder, body, &mut buf).await.is_err() {
+    if send_inner(stream.as_mut(), encoder, body, &mut buf).await.is_err() {
         // an error indicate connection should be closed.
         ctx.set_close();
         // clear the buffer as there could be unfinished request data inside.
         buf.clear();
     }
 
+    let mut chunk = vec![0; 4096];
+
     // read response head and get body decoder.
     loop {
-        let n = stream.read_buf(&mut buf).await?;
+        let mut b = ReadBuf::new(&mut chunk);
+        poll_fn(|cx| stream.as_mut().poll_read(cx, &mut b)).await?;
+        let filled = b.filled();
 
-        if n == 0 {
+        if filled.is_empty() {
             return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
         }
+
+        buf.extend_from_slice(filled);
 
         if let Some((res, mut decoder)) = ctx.decode_head(&mut buf)? {
             // check if server sent connection close header.
@@ -104,19 +112,19 @@ where
                 decoder = TransferCoding::eof();
             }
 
-            return Ok((res, buf, decoder, is_close));
+            return Ok((res, buf, chunk, decoder, is_close));
         }
     }
 }
 
 async fn send_inner<S, B, E>(
-    stream: &mut S,
+    mut stream: Pin<&mut S>,
     mut encoder: TransferCoding,
     body: B,
     buf: &mut BytesMut,
 ) -> Result<(), Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncWrite,
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
@@ -128,26 +136,22 @@ where
             let bytes = bytes.map_err(BodyError::from)?;
             encoder.encode(bytes, buf);
             // we are not in a hurry here so write before handling next chunk.
-            write_all_buf(&mut *stream, buf).await?;
+            write_all_buf(stream.as_mut(), buf).await?;
         }
 
         // body is finished. encode eof and clean up.
         encoder.encode_eof(buf);
 
-        write_all_buf(&mut *stream, buf).await?;
+        write_all_buf(stream.as_mut(), buf).await?;
     }
 
-    poll_fn(|cx| Pin::new(&mut *stream).poll_flush(cx))
-        .await
-        .map_err(Into::into)
+    poll_fn(|cx| stream.as_mut().poll_flush(cx)).await.map_err(Into::into)
 }
 
-async fn write_all_buf<S>(stream: &mut S, buf: &mut BytesMut) -> io::Result<()>
+async fn write_all_buf<S>(mut stream: Pin<&mut S>, buf: &mut BytesMut) -> io::Result<()>
 where
-    S: AsyncWrite + Unpin,
+    S: AsyncWrite,
 {
-    let mut stream = Pin::new(stream);
-
     while buf.has_remaining() {
         let n = poll_fn(|cx| stream.as_mut().poll_write(cx, buf.chunk())).await?;
         buf.advance(n);
@@ -155,6 +159,5 @@ where
             return Err(io::Error::from(io::ErrorKind::WriteZero));
         }
     }
-
     Ok(())
 }
