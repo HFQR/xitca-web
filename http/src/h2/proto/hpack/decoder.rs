@@ -438,7 +438,7 @@ fn decode_int<B: Buf>(buf: &mut B, prefix_size: u8) -> Result<usize, DecoderErro
     Err(DecoderError::NeedMore(NeedMore::IntegerUnderflow))
 }
 
-fn peek_u8<B: Buf>(buf: &mut B) -> Option<u8> {
+fn peek_u8<B: Buf>(buf: &B) -> Option<u8> {
     if buf.has_remaining() {
         Some(buf.chunk()[0])
     } else {
