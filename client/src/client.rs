@@ -314,7 +314,7 @@ impl Client {
     }
 
     #[cfg(feature = "http3")]
-    async fn make_h3(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
+    async fn make_h3(&self, connect: &Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
@@ -329,7 +329,7 @@ impl Client {
     }
 
     #[cfg(feature = "http3")]
-    async fn make_h3_inner(&self, connect: &mut Connect<'_>) -> Result<Connection, Error> {
+    async fn make_h3_inner(&self, connect: &Connect<'_>) -> Result<Connection, Error> {
         let mut iter = connect.addrs();
 
         let mut addr = iter.next().ok_or(Error::Resolve)?;

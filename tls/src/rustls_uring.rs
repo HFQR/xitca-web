@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_refcell_ref)] // clippy is dumb
+
 use core::{
     cell::RefCell,
     future::Future,
