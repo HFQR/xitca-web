@@ -9,7 +9,6 @@ mod utils;
 
 use std::{cell::RefCell, rc::Rc};
 
-use futures_util::{pin_mut, StreamExt};
 use http_file::{ServeDir, ServeError};
 use serde_json::json;
 use worker::*;
@@ -109,8 +108,12 @@ async fn form(mut http: HttpRequest) -> Result<Response> {
         .into_inner()
         .into_inner();
 
-    let Some(name) = http.body().params().get("field") else { return bad_req() };
-    let Some(entry) = req.form_data().await.ok().and_then(|form| form.get(name)) else { return bad_req() };
+    let Some(name) = http.body().params().get("field") else {
+        return bad_req();
+    };
+    let Some(entry) = req.form_data().await.ok().and_then(|form| form.get(name)) else {
+        return bad_req();
+    };
     match entry {
         FormEntry::Field(value) => Response::from_json(&json!({ name: value })),
         FormEntry::File(_) => Response::error("`field` param in form shouldn't be a File", 422),
@@ -169,19 +172,7 @@ async fn serve(mut req: HttpRequest) -> Result<Response> {
     // destruct http response and construct worker response
     let (parts, body) = res.into_parts();
 
-    // collect static file streaming body to Vec<u8>.
-    // this is a workaround because for some reason streaming directly does not work.
-
-    pin_mut!(body);
-
-    let mut v = Vec::new();
-
-    while let Some(chunk) = body.next().await {
-        let Ok(chunk) = chunk else { return internal() };
-        v.extend_from_slice(chunk.as_ref());
-    }
-
-    let mut res = Response::from_bytes(v)?;
+    let mut res = Response::from_stream(body)?;
 
     // remove default content-type header because it's wrong.
     let _ = res.headers_mut().delete("content-type");
