@@ -5,23 +5,20 @@ use core::{future::Future, marker::PhantomData};
 use std::{borrow::Cow, collections::HashMap};
 
 use xitca_service::{
-    object::{DefaultObjectConstructor, IntoObject},
-    pipeline::PipelineE,
-    ready::ReadyService,
-    EnclosedFactory, EnclosedFnFactory, FnService, Service,
+    object::BoxedServiceObject, pipeline::PipelineE, ready::ReadyService, EnclosedFactory, EnclosedFnFactory,
+    FnService, Service,
 };
 
-use crate::http::{BorrowReq, BorrowReqMut, Uri};
+use crate::http::{BorrowReq, BorrowReqMut, Request, Uri};
 
 use super::route::Route;
 
-/// Simple router for matching on [Request](crate::http::Request)'s path and call according service.
+/// Simple router for matching path and call according service.
 ///
-/// An [ObjectConstructor] must be specified as a type parameter
+/// An [ServiceObject](xitca_service::object::ServiceObject) must be specified as a type parameter
 /// in order to determine how the router type-erases node services.
-pub struct Router<SF, ObjCons = DefaultObjectConstructor> {
-    routes: HashMap<Cow<'static, str>, SF>,
-    _obj: PhantomData<ObjCons>,
+pub struct Router<Obj> {
+    routes: HashMap<Cow<'static, str>, Obj>,
 }
 
 /// Error type of Router service.
@@ -29,27 +26,19 @@ pub struct Router<SF, ObjCons = DefaultObjectConstructor> {
 /// `Second` variant contains error returned by the services passed to Router.
 pub type RouterError<E> = PipelineE<MatchError, E>;
 
-impl<SF, ObjCons> Default for Router<SF, ObjCons> {
+impl<Obj> Default for Router<Obj> {
     fn default() -> Self {
-        Router::with_custom_object()
+        Router::new()
     }
 }
 
-impl<SF> Router<SF> {
+impl<Obj> Router<Obj> {
     pub fn new() -> Self {
-        Router::with_custom_object()
-    }
-
-    /// Creates a new router with a custom [object constructor](ObjectConstructor).
-    pub fn with_custom_object<ObjCons>() -> Router<SF, ObjCons> {
-        Router {
-            routes: HashMap::new(),
-            _obj: PhantomData,
-        }
+        Router { routes: HashMap::new() }
     }
 }
 
-impl<SF, ObjCons> Router<SF, ObjCons> {
+impl<Obj> Router<Obj> {
     /// Insert a new service factory to given path.
     ///
     /// # Panic:
@@ -57,11 +46,12 @@ impl<SF, ObjCons> Router<SF, ObjCons> {
     /// When multiple services inserted with the same path.
     pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut factory: F) -> Self
     where
-        F: PathGen,
-        ObjCons: IntoObject<F, Arg, Req, Object = SF>,
+        F: Service<Arg> + PathGen,
+        F::Response: Service<Req>,
+        Req: IntoObject<F, Arg, Object = Obj>,
     {
         let path = factory.gen(path);
-        assert!(self.routes.insert(path, ObjCons::into_object(factory)).is_none());
+        assert!(self.routes.insert(path, Req::into_object(factory)).is_none());
         self
     }
 }
@@ -75,7 +65,7 @@ pub trait PathGen {
 }
 
 // nest router needs special handling for path generation.
-impl<SF, ObjCons> PathGen for Router<SF, ObjCons> {
+impl<Obj> PathGen for Router<Obj> {
     fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         let mut path = String::from(prefix);
         if path.ends_with('/') {
@@ -120,13 +110,13 @@ where
     }
 }
 
-impl<SF, ObjCons, Arg> Service<Arg> for Router<SF, ObjCons>
+impl<Obj, Arg> Service<Arg> for Router<Obj>
 where
-    SF: Service<Arg>,
+    Obj: Service<Arg>,
     Arg: Clone,
 {
-    type Response = RouterService<SF::Response>;
-    type Error = SF::Error;
+    type Response = RouterService<Obj::Response>;
+    type Error = Obj::Error;
     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
     fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
@@ -182,6 +172,51 @@ impl<S> ReadyService for RouterService<S> {
     #[inline]
     fn ready(&self) -> Self::Future<'_> {
         async {}
+    }
+}
+
+/// An object constructor represents a one of possibly many ways to create a trait object from `I`.
+///
+/// A [Service] type, for example, may be type-erased into `Box<dyn Service<&'static str>>`,
+/// `Box<dyn for<'a> Service<&'a str>>`, `Box<dyn Service<&'static str> + Service<u8>>`, etc.
+/// Each would be a separate impl for [IntoObject].
+pub trait IntoObject<I, Arg> {
+    /// The type-erased form of `I`.
+    type Object;
+
+    /// Constructs `Self::Object` from `I`.
+    fn into_object(inner: I) -> Self::Object;
+}
+
+impl<T, Arg, Ext, Res, Err> IntoObject<T, Arg> for Request<Ext>
+where
+    Ext: 'static,
+    T: Service<Arg> + 'static,
+    T::Response: Service<Request<Ext>, Response = Res, Error = Err> + 'static,
+{
+    type Object = BoxedServiceObject<Arg, BoxedServiceObject<Request<Ext>, Res, Err>, T::Error>;
+
+    fn into_object(inner: T) -> Self::Object {
+        struct Builder<T, Req>(T, PhantomData<Req>);
+
+        impl<T, Req, Arg, Res, Err> Service<Arg> for Builder<T, Req>
+        where
+            T: Service<Arg> + 'static,
+            T::Response: Service<Req, Response = Res, Error = Err> + 'static,
+        {
+            type Response = BoxedServiceObject<Req, Res, Err>;
+            type Error = T::Error;
+            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
+
+            fn call<'s>(&'s self, req: Arg) -> Self::Future<'s>
+            where
+                Arg: 's,
+            {
+                async { self.0.call(req).await.map(|s| Box::new(s) as _) }
+            }
+        }
+
+        Box::new(Builder(inner, PhantomData))
     }
 }
 

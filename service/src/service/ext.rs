@@ -3,9 +3,6 @@ use crate::{
     pipeline::{marker, PipelineT},
 };
 
-#[cfg(feature = "alloc")]
-use crate::object::{DefaultObjectConstructor, IntoObject};
-
 use super::Service;
 
 pub trait ServiceExt<Arg>: Service<Arg> {
@@ -55,20 +52,6 @@ pub trait ServiceExt<Arg>: Service<Arg> {
         Self: Sized,
     {
         PipelineT::new(self, factory)
-    }
-
-    #[cfg(feature = "alloc")]
-    /// Box self and cast it to a trait object.
-    ///
-    /// This would erase `Self::Response` type and it's GAT nature.
-    ///
-    /// See [crate::object::DefaultObjectConstructor] for detail.
-    fn into_object<Req>(self) -> <DefaultObjectConstructor as IntoObject<Self, Arg, Req>>::Object
-    where
-        Self: Sized,
-        DefaultObjectConstructor: IntoObject<Self, Arg, Req>,
-    {
-        DefaultObjectConstructor::into_object(self)
     }
 }
 
@@ -134,7 +117,6 @@ mod test {
     fn service_object() {
         let service = fn_service(index)
             .enclosed(DummyMiddleware)
-            .into_object()
             .call(())
             .now_or_panic()
             .unwrap();
@@ -192,7 +174,6 @@ mod test {
     fn enclosed_opt() {
         let service = fn_service(index)
             .enclosed(Some(DummyMiddleware))
-            .into_object()
             .call(())
             .now_or_panic()
             .unwrap();
