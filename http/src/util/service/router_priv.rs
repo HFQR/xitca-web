@@ -188,24 +188,24 @@ pub trait IntoObject<I, Arg> {
     fn into_object(inner: I) -> Self::Object;
 }
 
-impl<T, Arg, Ext, BErr, Res, Err> IntoObject<T, Arg> for Request<Ext>
+impl<T, Arg, Ext, Res, Err> IntoObject<T, Arg> for Request<Ext>
 where
     Ext: 'static,
-    T: Service<Arg, Error = BErr> + 'static,
+    T: Service<Arg> + 'static,
     T::Response: Service<Request<Ext>, Response = Res, Error = Err> + 'static,
 {
-    type Object = BoxedServiceObject<Arg, BoxedServiceObject<Request<Ext>, Res, Err>, BErr>;
+    type Object = BoxedServiceObject<Arg, BoxedServiceObject<Request<Ext>, Res, Err>, T::Error>;
 
     fn into_object(inner: T) -> Self::Object {
         struct Builder<T, Req>(T, PhantomData<Req>);
 
-        impl<T, Req, Arg, BErr, Res, Err> Service<Arg> for Builder<T, Req>
+        impl<T, Req, Arg, Res, Err> Service<Arg> for Builder<T, Req>
         where
-            T: Service<Arg, Error = BErr> + 'static,
+            T: Service<Arg> + 'static,
             T::Response: Service<Req, Response = Res, Error = Err> + 'static,
         {
             type Response = BoxedServiceObject<Req, Res, Err>;
-            type Error = BErr;
+            type Error = T::Error;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
             fn call<'s>(&'s self, req: Arg) -> Self::Future<'s>
