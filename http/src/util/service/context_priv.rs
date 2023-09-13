@@ -202,13 +202,13 @@ where
     fn into_object(inner: I) -> Self::Object {
         struct Builder<I, Req, C>(I, PhantomData<(Req, C)>);
 
-        impl<C, I, Arg, Svc, BErr, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
+        impl<C, I, Arg, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
         where
-            I: Service<Arg, Response = Svc, Error = BErr>,
-            Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
+            I: Service<Arg>,
+            I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
         {
             type Response = ContextObject<Req, C, Res, Err>;
-            type Error = BErr;
+            type Error = I::Error;
             type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Arg:'f, Self: 'f;
 
             fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
