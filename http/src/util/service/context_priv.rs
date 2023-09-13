@@ -190,14 +190,14 @@ where
 pub type ContextObject<Req, C, Res, Err> =
     Box<dyn for<'c> xitca_service::object::ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
-impl<C, I, Arg, Svc, BErr, Req, Res, Err> IntoObject<I, Arg> for Context<'_, Req, C>
+impl<C, I, Arg, Req, Res, Err> IntoObject<I, Arg> for Context<'_, Req, C>
 where
     C: 'static,
     Req: 'static,
-    I: Service<Arg, Response = Svc, Error = BErr> + 'static,
-    Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
+    I: Service<Arg> + 'static,
+    I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
 {
-    type Object = BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, BErr>;
+    type Object = BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
 
     fn into_object(inner: I) -> Self::Object {
         struct Builder<I, Req, C>(I, PhantomData<(Req, C)>);
