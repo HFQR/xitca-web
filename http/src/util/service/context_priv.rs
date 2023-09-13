@@ -1,8 +1,10 @@
-use std::{future::Future, marker::PhantomData};
+use core::{future::Future, marker::PhantomData};
 
-use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
+use xitca_service::{object::BoxedServiceObject, pipeline::PipelineE, ready::ReadyService, Service};
 
 use crate::http::{BorrowReq, BorrowReqMut};
+
+use super::router_priv::IntoObject;
 
 /// ServiceFactory type for constructing compile time checked stateful service.
 ///
@@ -185,52 +187,39 @@ where
     }
 }
 
-pub mod object {
-    use super::*;
+pub type ContextObject<Req, C, Res, Err> =
+    Box<dyn for<'c> xitca_service::object::ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
-    use core::marker::PhantomData;
+impl<C, I, Arg, Svc, BErr, Req, Res, Err> IntoObject<I, Arg> for Context<'_, Req, C>
+where
+    C: 'static,
+    Req: 'static,
+    I: Service<Arg, Response = Svc, Error = BErr> + 'static,
+    Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
+{
+    type Object = BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, BErr>;
 
-    use xitca_service::{
-        object::{BoxedServiceObject, IntoObject, ServiceObject},
-        Service,
-    };
+    fn into_object(inner: I) -> Self::Object {
+        struct Builder<I, Req, C>(I, PhantomData<(Req, C)>);
 
-    pub struct ContextObjectConstructor;
+        impl<C, I, Arg, Svc, BErr, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
+        where
+            I: Service<Arg, Response = Svc, Error = BErr>,
+            Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
+        {
+            type Response = ContextObject<Req, C, Res, Err>;
+            type Error = BErr;
+            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Arg:'f, Self: 'f;
 
-    pub type ContextObject<Req, C, Res, Err> =
-        Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
-
-    impl<C, I, Arg, Svc, BErr, Req, Res, Err> IntoObject<I, Arg, Context<'_, Req, C>> for ContextObjectConstructor
-    where
-        C: 'static,
-        Req: 'static,
-        I: Service<Arg, Response = Svc, Error = BErr> + 'static,
-        Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
-    {
-        type Object = BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, BErr>;
-
-        fn into_object(inner: I) -> Self::Object {
-            struct Builder<I, Req, C>(I, PhantomData<(Req, C)>);
-
-            impl<C, I, Arg, Svc, BErr, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
+            fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
             where
-                I: Service<Arg, Response = Svc, Error = BErr>,
-                Svc: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
+                Arg: 's,
             {
-                type Response = ContextObject<Req, C, Res, Err>;
-                type Error = BErr;
-                type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Arg:'f, Self: 'f;
-
-                fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-                where
-                    Arg: 's,
-                {
-                    async move { self.0.call(arg).await.map(|s| Box::new(s) as _) }
-                }
+                async move { self.0.call(arg).await.map(|s| Box::new(s) as _) }
             }
-
-            Box::new(Builder(inner, PhantomData))
         }
+
+        Box::new(Builder(inner, PhantomData))
     }
 }
 
@@ -295,7 +284,7 @@ mod test {
             service.call(req).await
         }
 
-        let router = Router::with_custom_object::<object::ContextObjectConstructor>()
+        let router = Router::new()
             .insert("/", get(fn_service(handler)))
             .enclosed_fn(enclosed);
 

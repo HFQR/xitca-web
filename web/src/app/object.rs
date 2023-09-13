@@ -1,17 +1,16 @@
-use std::{boxed::Box, future::Future, marker::PhantomData};
+use core::{future::Future, marker::PhantomData};
 
+use xitca_http::util::service::router::IntoObject;
 use xitca_service::{
-    object::{BoxedServiceObject, IntoObject, ServiceObject},
+    object::{BoxedServiceObject, ServiceObject},
     Service,
 };
 
 use crate::request::WebRequest;
 
-pub struct WebObjectConstructor;
-
 pub type WebObject<C, B, Res, Err> = Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>;
 
-impl<C, B, I, Svc, BErr, Res, Err> IntoObject<I, (), WebRequest<'_, C, B>> for WebObjectConstructor
+impl<C, B, I, Svc, BErr, Res, Err> IntoObject<I, ()> for WebRequest<'_, C, B>
 where
     C: 'static,
     B: 'static,

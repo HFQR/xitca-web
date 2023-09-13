@@ -10,17 +10,14 @@ use core::{
 use futures_core::stream::Stream;
 use xitca_http::util::service::{
     context::{Context, ContextBuilder},
-    router::{PathGen, Router},
+    router::{IntoObject, PathGen, Router},
 };
 
 use crate::{
     body::ResponseBody,
     dev::{
         bytes::Bytes,
-        service::{
-            object::IntoObject, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
-            ServiceExt,
-        },
+        service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
     },
     handler::Responder,
     http::{Request, RequestExt},
@@ -28,24 +25,20 @@ use crate::{
     response::WebResponse,
 };
 
-use self::object::WebObjectConstructor;
-
 pub struct App<CF = (), R = ()> {
     ctx_factory: CF,
     router: R,
 }
 
-type WebRouter<SF> = Router<SF, WebObjectConstructor>;
-
 impl App {
-    pub fn new<SF>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, WebRouter<SF>> {
+    pub fn new<Obj>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<Obj>> {
         Self::with_async_state(|| ready(Ok(())))
     }
 
     /// Construct App with a thread local state.
     ///
     /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, WebRouter<SF>>
+    pub fn with_current_thread_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
     where
         C: Clone + 'static,
     {
@@ -55,7 +48,7 @@ impl App {
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<C, SF>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, WebRouter<SF>>
+    pub fn with_multi_thread_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
     where
         C: Send + Sync + Clone + 'static,
     {
@@ -64,22 +57,23 @@ impl App {
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<CF, SF>(ctx_factory: CF) -> App<CF, WebRouter<SF>>
+    pub fn with_async_state<CF, Obj>(ctx_factory: CF) -> App<CF, Router<Obj>>
 where {
         App {
             ctx_factory,
-            router: Router::with_custom_object(),
+            router: Router::new(),
         }
     }
 }
 
-impl<CF, SF> App<CF, WebRouter<SF>> {
-    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, WebRouter<SF>>
+impl<CF, Obj> App<CF, Router<Obj>> {
+    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, Router<Obj>>
     where
-        F: PathGen,
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, E>>,
-        WebObjectConstructor: for<'r> IntoObject<F, (), WebRequest<'r, C, B>, Object = SF>,
+        F: PathGen + Service,
+        F::Response: for<'r> Service<WebRequest<'r, C, B>>,
+        for<'r> WebRequest<'r, C, B>: IntoObject<F, (), Object = Obj>,
     {
         self.router = self.router.insert(path, factory);
         self
