@@ -15,13 +15,8 @@ use super::router_priv::IntoObject;
 /// called.
 ///
 /// - State can be referenced in nested types and beyond closures.
-/// .eg:
-/// ```rust(no_run)
-/// fn_service(|req: &String| async { Ok(req) }).and_then(|_: &String| ..)
-/// ```
 ///
 /// # Example:
-///
 ///```rust
 /// # use std::convert::Infallible;
 /// # use xitca_http::util::service::context::{ContextBuilder, Context};
