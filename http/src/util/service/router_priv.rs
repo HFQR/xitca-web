@@ -271,13 +271,6 @@ mod test {
 
     #[test]
     fn router_add_params_http() {
-        async fn enclosed<S, Req>(service: &S, req: Req) -> Result<S::Response, S::Error>
-        where
-            S: Service<Req>,
-        {
-            service.call(req).await
-        }
-
         let req = Request::builder().uri("/users/1").body(Default::default()).unwrap();
 
         Router::new()
