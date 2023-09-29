@@ -1,6 +1,6 @@
 use core::{fmt, str::Utf8Error};
 
-use super::tree::Node;
+use super::tree::{denormalize_params, Node};
 
 /// Represents errors that can occur when inserting a new route.
 #[non_exhaustive]
@@ -54,11 +54,18 @@ impl InsertError {
             route.extend_from_slice(current.prefix.as_bytes());
         }
 
+        let mut last = current;
+        while let Some(node) = last.children.first() {
+            last = node;
+        }
+
         let mut current = current.children.first();
         while let Some(node) = current {
             route.extend_from_slice(node.prefix.as_bytes());
             current = node.children.first();
         }
+
+        denormalize_params(&mut route, &last.param_remapping);
 
         InsertError::Conflict {
             with: String::from_utf8(route).unwrap(),

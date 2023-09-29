@@ -52,7 +52,7 @@ impl<T> Router<T> {
         self.root.at(path).map(|(value, params)| Match { value, params })
     }
 
-    #[cfg(feature = "test_helpers")]
+    #[cfg(feature = "__test_helpers")]
     pub fn check_priorities(&self) -> Result<u32, (u32, u32)> {
         self.root.check_priorities()
     }
