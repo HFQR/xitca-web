@@ -96,6 +96,15 @@ impl Params {
             value: value.into(),
         });
     }
+
+    // Transform each key.
+    pub(crate) fn for_each_key_mut(&mut self, f: impl Fn((usize, &mut BytesStr))) {
+        self.inner
+            .iter_mut()
+            .map(|param| &mut param.key)
+            .enumerate()
+            .for_each(f);
+    }
 }
 
 impl IntoIterator for Params {

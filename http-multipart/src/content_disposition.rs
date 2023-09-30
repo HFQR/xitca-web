@@ -128,12 +128,12 @@ mod test {
 
     #[test]
     fn test_content_disposition_name_unquoted() {
-        let slice = br#"form-data; name=my_field"#;
+        let slice = br"form-data; name=my_field";
         let cp = ContentDisposition::from_slice(slice);
         assert_eq!(cp.name(slice).unwrap(), b"my_field");
         assert!(cp.filename(slice).is_none());
 
-        let slice = br#"form-data; name=my_field; filename=file-name.txt"#;
+        let slice = br"form-data; name=my_field; filename=file-name.txt";
         let cp = ContentDisposition::from_slice(slice);
         assert_eq!(cp.name(slice).unwrap(), b"my_field");
         assert_eq!(cp.filename(slice).unwrap(), b"file-name.txt");
