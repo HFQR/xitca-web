@@ -596,7 +596,7 @@ fn normalize_params(mut path: Vec<u8>) -> Result<(Vec<u8>, ParamRemapping), Inse
         let removed = path.splice((wildcard_index)..(wildcard_index + wildcard.len()), vec![b':', next]);
 
         // remember the original name for remappings
-        let param = BytesStr::try_from(&removed.collect::<Vec<u8>>()[..])?;
+        let param = BytesStr::try_from(removed.collect::<Vec<u8>>())?;
         original.push(param);
 
         // get the next key

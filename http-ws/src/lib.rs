@@ -145,7 +145,7 @@ where
 
             #[allow(clippy::needless_borrow)] // clippy dumb.
             let n =
-                base64::engine::Engine::encode_slice(&base64::engine::general_purpose::STANDARD, &input, &mut output)
+                base64::engine::Engine::encode_slice(&base64::engine::general_purpose::STANDARD, input, &mut output)
                     .unwrap();
             assert_eq!(n, output.len());
 

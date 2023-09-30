@@ -214,7 +214,7 @@ pub fn hash_key(key: &[u8]) -> [u8; 28] {
     let mut hash_b64 = [0; 28];
     #[allow(clippy::needless_borrow)] // clippy dumb.
     let n =
-        base64::engine::Engine::encode_slice(&base64::engine::general_purpose::STANDARD, &hash, &mut hash_b64).unwrap();
+        base64::engine::Engine::encode_slice(&base64::engine::general_purpose::STANDARD, hash, &mut hash_b64).unwrap();
     assert_eq!(n, 28);
 
     hash_b64

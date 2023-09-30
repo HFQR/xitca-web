@@ -71,6 +71,15 @@ impl TryFrom<&[u8]> for BytesStr {
     }
 }
 
+impl TryFrom<Vec<u8>> for BytesStr {
+    type Error = Utf8Error;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        str::from_utf8(value.as_slice())?;
+        Ok(BytesStr(Bytes::from(value)))
+    }
+}
+
 impl Deref for BytesStr {
     type Target = str;
 
