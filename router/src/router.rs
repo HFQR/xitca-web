@@ -9,15 +9,9 @@ pub struct Router<T> {
     root: Node<T>,
 }
 
-impl<T> Default for Router<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T> Router<T> {
     /// Construct a new router.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { root: Node::new() }
     }
 

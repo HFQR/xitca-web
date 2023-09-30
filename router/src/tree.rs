@@ -26,7 +26,7 @@ pub struct Node<T> {
     value: Option<T>,
     pub(crate) param_remapping: ParamRemapping,
     pub(crate) node_type: NodeType,
-    pub(crate) prefix: Box<str>,
+    pub(crate) prefix: String,
     pub(crate) children: Vec<Self>,
 }
 
@@ -37,7 +37,7 @@ impl<T> Default for Node<T> {
 }
 
 impl<T> Node<T> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             priority: 0,
             wild_child: false,
@@ -45,7 +45,7 @@ impl<T> Node<T> {
             value: None,
             param_remapping: ParamRemapping::new(),
             node_type: NodeType::Static,
-            prefix: "".into(),
+            prefix: String::new(),
             children: Vec::new(),
         }
     }
@@ -353,7 +353,7 @@ impl<T> Node<T> {
                 let (prefix, rest) = path.split_at(current.prefix.len());
 
                 // the prefix matches
-                if prefix == current.prefix.as_ref() {
+                if prefix == current.prefix {
                     let consumed = path;
                     path = rest;
 
@@ -373,7 +373,7 @@ impl<T> Node<T> {
                             }
 
                             // child won't match because of an extra trailing slash
-                            if path == "/" && current.children[i].prefix.as_ref() != "/" && current.value.is_some() {
+                            if path == "/" && current.children[i].prefix != "/" && current.value.is_some() {
                                 return Err(MatchError::ExtraTrailingSlash);
                             }
 
@@ -411,7 +411,7 @@ impl<T> Node<T> {
 
                                     if let [child] = current.children.as_slice() {
                                         // child won't match because of an extra trailing slash
-                                        if rest == "/" && child.prefix.as_ref() != "/" && current.value.is_some() {
+                                        if rest == "/" && child.prefix != "/" && current.value.is_some() {
                                             return Err(MatchError::ExtraTrailingSlash);
                                         }
 
@@ -454,7 +454,7 @@ impl<T> Node<T> {
                                     if let [child] = current.children.as_slice() {
                                         current = child;
 
-                                        if (current.prefix.as_ref() == "/" && current.value.is_some())
+                                        if (current.prefix == "/" && current.value.is_some())
                                             || (current.prefix.is_empty() && current.indices == b"/")
                                         {
                                             return Err(MatchError::MissingTrailingSlash);
@@ -490,7 +490,7 @@ impl<T> Node<T> {
             }
 
             // this is it, we should have reached the node containing the value
-            if current.prefix.as_ref() == path {
+            if current.prefix == path {
                 if let Some(ref value) = current.value {
                     // remap parameter keys
                     params.for_each_key_mut(|(i, key)| *key = current.param_remapping[i][1..].into());
