@@ -398,7 +398,7 @@ impl<T> Node<T> {
                         }
 
                         // nothing found
-                        return Err(MatchError::NotFound);
+                        break;
                     }
 
                     // handle the wildcard child, which is always at the end of the list
@@ -437,8 +437,6 @@ impl<T> Node<T> {
                                     if path != "/" {
                                         try_backtrack!();
                                     }
-
-                                    return Err(MatchError::NotFound);
                                 }
                                 // this is the last path segment
                                 None => {
@@ -469,30 +467,27 @@ impl<T> Node<T> {
                                             try_backtrack!();
                                         }
                                     }
-
                                     // this node doesn't have the value, no match
-                                    return Err(MatchError::NotFound);
                                 }
                             }
                         }
                         NodeType::CatchAll => {
                             // catch all segments are only allowed at the end of the route,
                             // either this node has the value or there is no match
-                            return match current.value {
-                                Some(ref value) => {
-                                    // remap parameter keys
-                                    params.for_each_key_mut(|(i, key)| *key = current.param_remapping[i].slice(1..));
+                            if let Some(ref value) = current.value {
+                                // remap parameter keys
+                                params.for_each_key_mut(|(i, key)| *key = current.param_remapping[i].slice(1..));
 
-                                    // store the final catch-all parameter
-                                    params.push(current.prefix.slice(1..), path);
+                                // store the final catch-all parameter
+                                params.push(current.prefix.slice(1..), path);
 
-                                    Ok((value, params))
-                                }
-                                None => Err(MatchError::NotFound),
-                            };
+                                return Ok((value, params));
+                            }
                         }
                         _ => unreachable!(),
-                    }
+                    };
+
+                    break;
                 }
             }
 
@@ -525,7 +520,7 @@ impl<T> Node<T> {
                     }
                 }
 
-                return Err(MatchError::NotFound);
+                break;
             }
 
             // nothing matches, check for a missing trailing slash
@@ -538,8 +533,10 @@ impl<T> Node<T> {
                 try_backtrack!();
             }
 
-            return Err(MatchError::NotFound);
+            break;
         }
+
+        Err(MatchError::NotFound)
     }
 
     #[cfg(feature = "__test_helpers")]

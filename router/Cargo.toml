@@ -8,7 +8,7 @@ xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
 [dev-dependencies]
 criterion = "0.5"
-matchit = "0.7"
+matchit = "0.7.3"
 
 [features]
 default = []
