@@ -10,7 +10,7 @@ mod inner {
     extern crate alloc;
 
     use core::{
-        mem::MaybeUninit,
+        mem::{ManuallyDrop, MaybeUninit},
         ptr::{self, NonNull},
         slice,
     };
@@ -19,83 +19,166 @@ mod inner {
 
     use crate::uninit::{slice_assume_init, uninit_array};
 
-    // union is used as it can stably fit 8 bytes inline while enum requires one byte for tag.
+    const TAG: u8 = 0b1000_0000;
+
     pub(super) union Inner {
-        inline: [MaybeUninit<u8>; 8],
-        heap: NonNull<u8>,
+        inline: Inline,
+        heap: ManuallyDrop<Heap>,
+    }
+
+    #[derive(Copy, Clone)]
+    struct Inline {
+        arr: [MaybeUninit<u8>; 15],
+        len: u8,
+    }
+
+    impl Inline {
+        const fn empty() -> Self {
+            Self {
+                arr: uninit_array(),
+                len: TAG,
+            }
+        }
+
+        fn clone(&self) -> Self {
+            *self
+        }
+
+        // SAFETY:
+        // caller must make sure slice is no more than 15 bytes in length.
+        unsafe fn from_slice(slice: &[u8]) -> Self {
+            let mut arr = uninit_array();
+
+            let len = slice.len();
+
+            ptr::copy_nonoverlapping(slice.as_ptr(), arr.as_mut_ptr().cast(), len);
+            let len = TAG | (len as u8);
+
+            Inline { arr, len }
+        }
+
+        // SAFETY:
+        // caller must make sure the variant is properly intialized.
+        unsafe fn as_slice(&self) -> &[u8] {
+            let len = (self.len & !TAG) as usize;
+            let s = &self.arr[..len];
+            slice_assume_init(s)
+        }
+    }
+
+    struct Heap {
+        ptr: NonNull<u8>,
+        len: usize,
+    }
+
+    impl Heap {
+        fn clone(&self) -> ManuallyDrop<Self> {
+            let ptr = self.ptr.as_ptr();
+            let len = self.len;
+            // SAFETY:
+            // Heap is constructed from &[u8] and upload all safety requirement.
+            let slice = unsafe { slice::from_raw_parts(ptr, len) };
+            Self::from_slice(slice)
+        }
+
+        fn from_slice(slice: &[u8]) -> ManuallyDrop<Self> {
+            let len = slice.len();
+
+            // the last u8's highest bit is used as union tag of Inner.
+            if len > isize::MAX as usize {
+                panic!("capacity overflow");
+            }
+
+            let boxed = Box::<[u8]>::from(slice);
+            let ptr = Box::into_raw(boxed).cast();
+            // SAFETY:
+            // ptr is from newly allcolated box and it's not null.
+            let heap = unsafe { NonNull::new_unchecked(ptr) };
+            ManuallyDrop::new(Heap { ptr: heap, len })
+        }
+
+        // SAFETY:
+        // caller must make sure the variant is properly intialized.
+        unsafe fn as_slice(&self) -> &[u8] {
+            let ptr = self.ptr.as_ptr();
+            slice::from_raw_parts(ptr, self.len)
+        }
     }
 
     impl Inner {
-        // SAFETY:
-        // given slice must not be empty.
-        unsafe fn heap_from_slice(slice: &[u8]) -> Self {
-            let boxed = Box::<[u8]>::from(slice);
-            let ptr = Box::into_raw(boxed).cast();
-            let heap = NonNull::new_unchecked(ptr);
-            Self { heap }
+        pub(super) fn is_inline(&self) -> bool {
+            // SAFETY:
+            // for either Heap or Inline variant the tag u8 is always initliazed.
+            let tag = unsafe { self.inline.len };
+            tag & TAG == TAG
         }
 
         pub(super) const fn empty() -> Self {
-            Self { inline: uninit_array() }
+            Self {
+                inline: Inline::empty(),
+            }
         }
 
         pub(super) fn from_slice(slice: &[u8]) -> Self {
-            let len = slice.len();
-            if len > 8 {
-                // SAFETY:
-                // slice is not empty
-                unsafe { Inner::heap_from_slice(slice) }
-            } else {
-                let mut inline = uninit_array();
+            // for bigendian always use heap variant.
+            #[cfg(target_endian = "big")]
+            {
+                let heap = Heap::from_slice(slice);
+                Self { heap }
+            }
 
-                // SAFETY:
-                // copy slice to inlined array.
-                unsafe {
-                    ptr::copy_nonoverlapping(slice.as_ptr(), inline.as_mut_ptr().cast(), len);
+            #[cfg(target_endian = "little")]
+            {
+                if slice.len() > 15 {
+                    let heap = Heap::from_slice(slice);
+                    Self { heap }
+                } else {
+                    // SAFETY:
+                    // slice is no more than 15 bytes.
+                    let inline = unsafe { Inline::from_slice(slice) };
+                    Self { inline }
                 }
-
-                Inner { inline }
             }
         }
 
-        // SAFETY:
-        // caller must make sure len equals to the length of input &[u8] when constructing Self with
-        // Inner::from_slice function.
-        pub(super) unsafe fn as_slice(&self, len: usize) -> &[u8] {
-            if len > 8 {
-                let ptr = self.heap.as_ptr();
-                slice::from_raw_parts(ptr, len)
+        pub(super) fn as_slice(&self) -> &[u8] {
+            if self.is_inline() {
+                // SAFETY:
+                // just checked the variant is inline.
+                unsafe { self.inline.as_slice() }
             } else {
-                let s = &self.inline[..len];
-                slice_assume_init(s)
+                // SAFETY:
+                // just checked the variant is Heap.
+                unsafe { self.heap.as_slice() }
             }
         }
 
-        // SAFETY:
-        // caller must make sure len equals to the length of input &[u8] when constructing Self with
-        // Inner::from_slice function.
-        pub(super) unsafe fn clone_with(&self, len: usize) -> Self {
-            if len > 8 {
-                let ptr = self.heap.as_ptr();
-                let slice = slice::from_raw_parts(ptr, len);
-                Inner::heap_from_slice(slice)
-            } else {
-                let inline = self.inline;
+        pub(super) fn _clone(&self) -> Self {
+            if self.is_inline() {
+                // SAFETY:
+                // just checked the variant is inline.
+                let inline = unsafe { self.inline.clone() };
                 Inner { inline }
+            } else {
+                // SAFETY:
+                // just checked the variant is Heap.
+                let heap = unsafe { self.heap.clone() };
+                Inner { heap }
             }
         }
 
-        // SAFETY:
-        // caller must make sure len equals to the length of input &[u8] when constructing Self with
-        // Inner::from_slice function.
-        // caller must not call this method multiple times on a single Self instance.
-        pub(super) unsafe fn drop_with(&mut self, len: usize) {
-            if len > 8 {
-                let ptr = self.heap.as_ptr();
-                let ptr = ptr::slice_from_raw_parts_mut(ptr, len);
-                drop(Box::from_raw(ptr));
+        pub(super) fn _drop(&mut self) {
+            if !self.is_inline() {
+                // SAFETY:
+                // just check the variant is Heap.
+                // manually drop the allocated boxed slice.
+                unsafe {
+                    let ptr = self.heap.ptr.as_ptr();
+                    let len = self.heap.len;
+                    let ptr = ptr::slice_from_raw_parts_mut(ptr, len);
+                    drop(Box::from_raw(ptr));
+                }
             }
-
             // inline field is Copy which do not need explicit destruction.
         }
     }
@@ -104,23 +187,17 @@ mod inner {
 /// Data structure aiming to have the same memory size of `Box<str>` that being able to store str
 /// on stack and only allocate on heap when necessary.
 pub struct SmallBoxedStr {
-    len: usize,
     inner: Inner,
 }
 
 impl SmallBoxedStr {
     #[inline]
     pub const fn new() -> Self {
-        Self {
-            len: 0,
-            inner: Inner::empty(),
-        }
+        Self { inner: Inner::empty() }
     }
 
     fn as_str(&self) -> &str {
-        // SAFETY
-        // len validation is guaranteed when constructing.
-        let slice = unsafe { self.inner.as_slice(self.len) };
+        let slice = self.inner.as_slice();
 
         // SAFETY
         // str validation is guaranteed when constructing.
@@ -129,7 +206,6 @@ impl SmallBoxedStr {
 
     fn from_str(str: &str) -> Self {
         Self {
-            len: str.len(),
             inner: Inner::from_slice(str.as_bytes()),
         }
     }
@@ -143,19 +219,14 @@ unsafe impl Sync for SmallBoxedStr {}
 impl Clone for SmallBoxedStr {
     fn clone(&self) -> Self {
         Self {
-            len: self.len,
-            // SAFETY:
-            // length is guaranteed when constructing.
-            inner: unsafe { self.inner.clone_with(self.len) },
+            inner: self.inner._clone(),
         }
     }
 }
 
 impl Drop for SmallBoxedStr {
     fn drop(&mut self) {
-        // SAFETY:
-        // length is guaranteed when constructing.
-        unsafe { self.inner.drop_with(self.len) };
+        self.inner._drop();
     }
 }
 
@@ -220,17 +291,19 @@ mod test {
 
     #[test]
     fn from_str() {
-        let s = SmallBoxedStr::from("12345678");
-        assert_eq!(&s, "12345678");
+        let s = SmallBoxedStr::from("123456789012345");
+        assert!(s.inner.is_inline());
+        assert_eq!(&s, "123456789012345");
 
-        let s = SmallBoxedStr::from_str("123456789");
-        assert_eq!(&s, "123456789");
+        let s = SmallBoxedStr::from_str("1234567890123456");
+        assert!(!s.inner.is_inline());
+        assert_eq!(&s, "1234567890123456");
     }
 
     #[test]
     fn clone_and_drop() {
-        let s = SmallBoxedStr::from_str("1234567890");
-        assert_eq!(&s, "1234567890");
+        let s = SmallBoxedStr::from_str("1234567890123456");
+        assert_eq!(&s, "1234567890123456");
 
         let s1 = s.clone();
         assert_eq!(s, s1);

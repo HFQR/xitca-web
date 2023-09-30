@@ -1,15 +1,16 @@
-pub use xitca_router::{params::Params, MatchError};
+pub use matchit::MatchError;
 
 use core::{future::Future, marker::PhantomData};
 
 use std::{borrow::Cow, collections::HashMap};
 
+use matchit::Match;
 use xitca_service::{
     object::BoxedServiceObject, pipeline::PipelineE, ready::ReadyService, EnclosedFactory, EnclosedFnFactory,
     FnService, Service,
 };
 
-use crate::http::{BorrowReq, BorrowReqMut, Request, Uri};
+use crate::http::{BorrowReq, BorrowReqMut, Params, Request, Uri};
 
 use super::route::Route;
 
@@ -124,7 +125,7 @@ where
         Arg: 's,
     {
         async move {
-            let mut routes = xitca_router::Router::new();
+            let mut routes = matchit::Router::new();
 
             for (path, service) in self.routes.iter() {
                 let service = service.call(arg.clone()).await?;
@@ -137,7 +138,7 @@ where
 }
 
 pub struct RouterService<S> {
-    routes: xitca_router::Router<S>,
+    routes: matchit::Router<S>,
 }
 
 impl<S, Req> Service<Req> for RouterService<S>
@@ -155,10 +156,9 @@ where
         Req: 's,
     {
         async {
-            let xitca_router::Match { value, params } =
-                self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
+            let Match { value, params } = self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
 
-            *req.borrow_mut() = params;
+            *req.borrow_mut() = params.into();
 
             value.call(req).await.map_err(RouterError::Second)
         }

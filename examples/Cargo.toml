@@ -18,7 +18,6 @@ members = [
 [patch.crates-io]
 xitca-http = { path = "../http" }
 xitca-io = { path = "../io" }
-xitca-router = { path = "../router" }
 xitca-server = { path = "../server" }
 xitca-service = { path = "../service" }
 xitca-tls = { path = "../tls" }

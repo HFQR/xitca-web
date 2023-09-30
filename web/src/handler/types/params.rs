@@ -3,7 +3,7 @@ use std::{future::Future, ops::Deref};
 use serde::de::{self, Deserializer, Error as DeError, Visitor};
 use serde::{forward_to_deserialize_any, Deserialize};
 
-use xitca_http::util::service::router;
+use xitca_http::http;
 
 use crate::{
     body::BodyStream,
@@ -38,10 +38,10 @@ where
 }
 
 #[derive(Debug)]
-pub struct ParamsRef<'a>(&'a router::Params);
+pub struct ParamsRef<'a>(&'a http::Params);
 
 impl Deref for ParamsRef<'_> {
-    type Target = router::Params;
+    type Target = http::Params;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -58,7 +58,7 @@ where
 
     #[inline]
     fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async { Ok(ParamsRef(req.req().extensions().get::<router::Params>().unwrap())) }
+        async { Ok(ParamsRef(req.req().extensions().get::<http::Params>().unwrap())) }
     }
 }
 
@@ -86,8 +86,10 @@ macro_rules! parse_single_value {
                 )));
             }
 
-            let param = self.params.iter().next().unwrap().1;
+            let param = self.params.iter().next().unwrap();
+
             let v = param
+                .value()
                 .parse()
                 .map_err(|_| de::value::Error::custom(format!("can not parse {param:?} to a {}", $tp)))?;
             visitor.$visit_fn(v)
@@ -96,12 +98,12 @@ macro_rules! parse_single_value {
 }
 
 pub struct Params2<'de> {
-    params: &'de router::Params,
+    params: &'de http::Params,
 }
 
 impl<'a> Params2<'a> {
     #[inline]
-    pub fn new(params: &'a router::Params) -> Self {
+    pub fn new(params: &'a http::Params) -> Self {
         Params2 { params }
     }
 }
@@ -114,7 +116,7 @@ impl<'de> Deserializer<'de> for Params2<'de> {
         V: Visitor<'de>,
     {
         match self.params.iter().next() {
-            Some((_, v)) => visitor.visit_borrowed_str(v),
+            Some(param) => visitor.visit_borrowed_str(param.value()),
             None => Err(de::value::Error::custom("expected at least one parameters")),
         }
     }
@@ -211,7 +213,7 @@ impl<'de> Deserializer<'de> for Params2<'de> {
         V: Visitor<'de>,
     {
         match self.params.iter().next() {
-            Some((_, value)) => visitor.visit_enum(ValueEnum { value }),
+            Some(param) => visitor.visit_enum(ValueEnum { value: param.value() }),
             None => Err(de::value::Error::custom("expected at least one parameters")),
         }
     }
@@ -240,12 +242,12 @@ impl<'de> Deserializer<'de> for Params2<'de> {
 
 struct MapAccess<'de, I> {
     params: I,
-    current: Option<(&'de str, &'de str)>,
+    current: Option<&'de http::Param>,
 }
 
 impl<'de, I> de::MapAccess<'de> for MapAccess<'de, I>
 where
-    I: Iterator<Item = (&'de str, &'de str)>,
+    I: Iterator<Item = &'de http::Param>,
 {
     type Error = de::value::Error;
 
@@ -255,7 +257,7 @@ where
     {
         self.current = self.params.next();
         match self.current {
-            Some((key, _)) => Ok(Some(seed.deserialize(Key { key })?)),
+            Some(param) => Ok(Some(seed.deserialize(Key { key: param.key() })?)),
             None => Ok(None),
         }
     }
@@ -264,8 +266,8 @@ where
     where
         V: de::DeserializeSeed<'de>,
     {
-        if let Some((_, value)) = self.current.take() {
-            seed.deserialize(Value { value })
+        if let Some(param) = self.current.take() {
+            seed.deserialize(Value { value: param.value() })
         } else {
             Err(de::value::Error::custom("unexpected item"))
         }
@@ -431,7 +433,7 @@ struct SeqAccess<I> {
 
 impl<'de, I> de::SeqAccess<'de> for SeqAccess<I>
 where
-    I: Iterator<Item = (&'de str, &'de str)>,
+    I: Iterator<Item = &'de http::Param>,
 {
     type Error = de::value::Error;
 
@@ -440,7 +442,7 @@ where
         U: de::DeserializeSeed<'de>,
     {
         match self.params.next() {
-            Some((_, value)) => Ok(Some(seed.deserialize(Value { value })?)),
+            Some(param) => Ok(Some(seed.deserialize(Value { value: param.value() })?)),
             None => Ok(None),
         }
     }

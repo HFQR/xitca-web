@@ -25,7 +25,7 @@ runtime = ["xitca-io/runtime", "tokio"]
 
 # unstable features that are subject to be changed at anytime.
 io-uring = ["xitca-io/runtime-uring", "tokio-uring"]
-util-service = ["xitca-router"]
+util-service = ["matchit"]
 
 [dependencies]
 xitca-io = "0.1"
@@ -67,7 +67,7 @@ h3-quinn = { version = "0.0.3", optional = true }
 tokio = { version = "1.30", features = ["rt", "time"], optional = true }
 
 # util service support
-xitca-router = { version = "0.1", optional = true }
+matchit = { version = "0.7.3", optional = true }
 
 # io-uring support
 tokio-uring = { version = "0.4.0", features = ["bytes"], optional = true }

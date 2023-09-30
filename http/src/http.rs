@@ -87,9 +87,6 @@ where
     }
 }
 
-#[cfg(feature = "util-service")]
-use super::util::service::router::Params;
-
 pin_project! {
     /// typed http extension
     #[derive(Debug)]
@@ -268,5 +265,73 @@ where
     #[inline]
     fn borrow_mut(&mut self) -> &mut T {
         self.body_mut().borrow_mut()
+    }
+}
+
+#[cfg(feature = "util-service")]
+pub use params::{Param, Params};
+
+#[cfg(feature = "util-service")]
+mod params {
+    use xitca_unsafe_collection::small_str::SmallBoxedStr;
+
+    #[derive(Debug, Default)]
+    pub struct Params {
+        inner: Vec<Param>,
+    }
+
+    impl Params {
+        pub fn get(&self, key: &str) -> Option<&str> {
+            self.inner
+                .iter()
+                .find_map(|p| (p.key.as_ref() == key).then_some(p.value.as_ref()))
+        }
+
+        #[inline]
+        pub fn iter(&self) -> core::slice::Iter<'_, Param> {
+            self.inner.iter()
+        }
+
+        #[inline]
+        pub fn len(&self) -> usize {
+            self.inner.len()
+        }
+
+        #[inline]
+        pub fn is_empty(&self) -> bool {
+            self.inner.is_empty()
+        }
+    }
+
+    impl From<matchit::Params<'_, '_>> for Params {
+        fn from(params: matchit::Params<'_, '_>) -> Self {
+            Self {
+                inner: params
+                    .iter()
+                    .map(|(k, v)| Param {
+                        key: SmallBoxedStr::from(k),
+                        value: SmallBoxedStr::from(v),
+                    })
+                    .collect(),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Param {
+        key: SmallBoxedStr,
+        value: SmallBoxedStr,
+    }
+
+    impl Param {
+        #[inline]
+        pub fn key(&self) -> &str {
+            self.key.as_ref()
+        }
+
+        #[inline]
+        pub fn value(&self) -> &str {
+            self.value.as_ref()
+        }
     }
 }
