@@ -1,6 +1,4 @@
-use core::{cmp::min, mem};
-
-use xitca_unsafe_collection::bytes::BytesStr;
+use core::{cmp::min, mem, str::from_utf8};
 
 use super::{params::Params, InsertError, MatchError};
 
@@ -28,7 +26,7 @@ pub struct Node<T> {
     value: Option<T>,
     pub(crate) param_remapping: ParamRemapping,
     pub(crate) node_type: NodeType,
-    pub(crate) prefix: BytesStr,
+    pub(crate) prefix: String,
     pub(crate) children: Vec<Self>,
 }
 
@@ -47,7 +45,7 @@ impl<T> Node<T> {
             value: None,
             param_remapping: ParamRemapping::new(),
             node_type: NodeType::Static,
-            prefix: BytesStr::new(),
+            prefix: String::new(),
             children: Vec::new(),
         }
     }
@@ -79,7 +77,7 @@ impl<T> Node<T> {
             // the common prefix is a substring of the current node's prefix, split the node
             if common_prefix < current.prefix.len() {
                 let child = Node {
-                    prefix: current.prefix.slice(common_prefix..),
+                    prefix: current.prefix[common_prefix..].into(),
                     children: mem::take(&mut current.children),
                     wild_child: current.wild_child,
                     indices: current.indices.clone(),
@@ -92,7 +90,7 @@ impl<T> Node<T> {
                 // the current node now holds only the common prefix
                 current.children = vec![child];
                 current.indices = vec![current.prefix.as_bytes()[common_prefix]];
-                current.prefix = BytesStr::try_from(&prefix[..common_prefix])?;
+                current.prefix = from_utf8(&prefix[..common_prefix])?.into();
                 current.wild_child = false;
             }
 
@@ -225,7 +223,7 @@ impl<T> Node<T> {
                 // no wildcard, simply use the current node
                 None => {
                     current.value = Some(val);
-                    current.prefix = BytesStr::try_from(prefix)?;
+                    current.prefix = from_utf8(prefix)?.into();
                     return Ok(current);
                 }
             };
@@ -234,13 +232,13 @@ impl<T> Node<T> {
             if wildcard[0] == b':' {
                 // insert prefix before the current wildcard
                 if wildcard_index > 0 {
-                    current.prefix = BytesStr::try_from(&prefix[..wildcard_index])?;
+                    current.prefix = from_utf8(&prefix[..wildcard_index])?.into();
                     prefix = &prefix[wildcard_index..];
                 }
 
                 let child = Self {
                     node_type: NodeType::Param,
-                    prefix: BytesStr::try_from(wildcard)?,
+                    prefix: from_utf8(wildcard)?.into(),
                     ..Self::default()
                 };
 
@@ -288,12 +286,12 @@ impl<T> Node<T> {
 
                 // insert prefix before the current wildcard
                 if wildcard_index > 0 {
-                    current.prefix = BytesStr::try_from(&prefix[..wildcard_index])?;
+                    current.prefix = from_utf8(&prefix[..wildcard_index])?.into();
                     prefix = &prefix[wildcard_index..];
                 }
 
                 let child = Self {
-                    prefix: BytesStr::try_from(prefix)?,
+                    prefix: from_utf8(prefix)?.into(),
                     node_type: NodeType::CatchAll,
                     value: Some(val),
                     priority: 1,
@@ -355,7 +353,7 @@ impl<T> Node<T> {
                 let (prefix, rest) = path.split_at(current.prefix.len());
 
                 // the prefix matches
-                if current.prefix.eq(prefix) {
+                if prefix == current.prefix {
                     let consumed = path;
                     path = rest;
 
@@ -375,7 +373,7 @@ impl<T> Node<T> {
                             }
 
                             // child won't match because of an extra trailing slash
-                            if path == "/" && current.children[i].prefix.ne("/") && current.value.is_some() {
+                            if path == "/" && current.children[i].prefix != "/" && current.value.is_some() {
                                 return Err(MatchError::ExtraTrailingSlash);
                             }
 
@@ -413,12 +411,12 @@ impl<T> Node<T> {
 
                                     if let [child] = current.children.as_slice() {
                                         // child won't match because of an extra trailing slash
-                                        if rest == "/" && child.prefix.ne("/") && current.value.is_some() {
+                                        if rest == "/" && child.prefix != "/" && current.value.is_some() {
                                             return Err(MatchError::ExtraTrailingSlash);
                                         }
 
                                         // store the parameter value
-                                        params.push(current.prefix.slice(1..), param);
+                                        params.push(&current.prefix[1..], param);
 
                                         // continue with the child node
                                         path = rest;
@@ -441,13 +439,13 @@ impl<T> Node<T> {
                                 // this is the last path segment
                                 None => {
                                     // store the parameter value
-                                    params.push(current.prefix.slice(1..), path);
+                                    params.push(&current.prefix[1..], path);
 
                                     // found the matching value
                                     if let Some(ref value) = current.value {
                                         // remap parameter keys
                                         params
-                                            .for_each_key_mut(|(i, key)| *key = current.param_remapping[i].slice(1..));
+                                            .for_each_key_mut(|(i, key)| *key = current.param_remapping[i][1..].into());
 
                                         return Ok((value, params));
                                     }
@@ -456,7 +454,7 @@ impl<T> Node<T> {
                                     if let [child] = current.children.as_slice() {
                                         current = child;
 
-                                        if (current.prefix.eq("/") && current.value.is_some())
+                                        if (current.prefix == "/" && current.value.is_some())
                                             || (current.prefix.is_empty() && current.indices == b"/")
                                         {
                                             return Err(MatchError::MissingTrailingSlash);
@@ -476,10 +474,10 @@ impl<T> Node<T> {
                             // either this node has the value or there is no match
                             if let Some(ref value) = current.value {
                                 // remap parameter keys
-                                params.for_each_key_mut(|(i, key)| *key = current.param_remapping[i].slice(1..));
+                                params.for_each_key_mut(|(i, key)| *key = current.param_remapping[i][1..].into());
 
                                 // store the final catch-all parameter
-                                params.push(current.prefix.slice(1..), path);
+                                params.push(&current.prefix[1..], path);
 
                                 return Ok((value, params));
                             }
@@ -492,10 +490,10 @@ impl<T> Node<T> {
             }
 
             // this is it, we should have reached the node containing the value
-            if current.prefix.eq(path) {
+            if current.prefix == path {
                 if let Some(ref value) = current.value {
                     // remap parameter keys
-                    params.for_each_key_mut(|(i, key)| *key = current.param_remapping[i].slice(1..));
+                    params.for_each_key_mut(|(i, key)| *key = current.param_remapping[i][1..].into());
                     return Ok((value, params));
                 }
 
@@ -559,7 +557,7 @@ impl<T> Node<T> {
 }
 
 /// An ordered list of route parameters keys for a specific route, stored at leaf nodes.
-type ParamRemapping = Vec<BytesStr>;
+type ParamRemapping = Vec<Box<str>>;
 
 /// Returns `path` with normalized route parameters, and a parameter remapping
 /// to store at the leaf node for this route.
@@ -593,8 +591,8 @@ fn normalize_params(mut path: Vec<u8>) -> Result<(Vec<u8>, ParamRemapping), Inse
         let removed = path.splice((wildcard_index)..(wildcard_index + wildcard.len()), vec![b':', next]);
 
         // remember the original name for remappings
-        let param = BytesStr::try_from(removed.collect::<Vec<u8>>())?;
-        original.push(param);
+        let removed = removed.collect::<Vec<u8>>();
+        original.push(from_utf8(&removed[..])?.into());
 
         // get the next key
         next += 1;
@@ -670,7 +668,7 @@ const _: () = {
 
             let indices = self.indices.iter().map(|&x| char::from_u32(x as _)).collect::<Vec<_>>();
 
-            let param_names = self.param_remapping.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+            let param_names = self.param_remapping.iter().map(|x| x.as_ref()).collect::<Vec<_>>();
 
             let mut fmt = f.debug_struct("Node");
             fmt.field("value", &value);

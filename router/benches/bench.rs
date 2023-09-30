@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn call() -> impl IntoIterator<Item = &'static str> {
@@ -61,7 +59,7 @@ fn compare_erase(c: &mut Criterion) {
                         .iter()
                         // as of writing the bench this is roughly what axum do to erase lifetime
                         // of params.
-                        .map(|(k, v)| (Arc::<str>::from(k), String::from(v)))
+                        .map(|(k, v)| (String::from(k), String::from(v)))
                         .collect::<Vec<_>>(),
                 );
             }
