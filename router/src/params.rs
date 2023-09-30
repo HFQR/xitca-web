@@ -2,12 +2,12 @@ use core::slice;
 
 use alloc::vec::{self, Vec};
 
-use xitca_unsafe_collection::{bytes::BytesStr, small_str::SmallBoxedStr};
+use xitca_unsafe_collection::small_str::SmallBoxedStr;
 
 /// A single URL parameter, consisting of a key and a value.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 struct Param {
-    key: BytesStr,
+    key: SmallBoxedStr,
     value: SmallBoxedStr,
 }
 
@@ -90,15 +90,15 @@ impl Params {
         self.inner.truncate(n)
     }
 
-    pub(super) fn push(&mut self, key: BytesStr, value: &str) {
+    pub(super) fn push(&mut self, key: &str, value: &str) {
         self.inner.push(Param {
-            key,
+            key: key.into(),
             value: value.into(),
         });
     }
 
     // Transform each key.
-    pub(crate) fn for_each_key_mut(&mut self, f: impl Fn((usize, &mut BytesStr))) {
+    pub(crate) fn for_each_key_mut(&mut self, f: impl Fn((usize, &mut SmallBoxedStr))) {
         self.inner
             .iter_mut()
             .map(|param| &mut param.key)
@@ -108,7 +108,7 @@ impl Params {
 }
 
 impl IntoIterator for Params {
-    type Item = (BytesStr, SmallBoxedStr);
+    type Item = (SmallBoxedStr, SmallBoxedStr);
     type IntoIter = IntoIter;
 
     #[inline]
@@ -142,7 +142,7 @@ pub struct IntoIter {
 }
 
 impl Iterator for IntoIter {
-    type Item = (BytesStr, SmallBoxedStr);
+    type Item = (SmallBoxedStr, SmallBoxedStr);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {

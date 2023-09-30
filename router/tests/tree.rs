@@ -1,7 +1,7 @@
 use core::cell::RefCell;
 
 use xitca_router::{InsertError, MatchError, Router};
-use xitca_unsafe_collection::{bytes::BytesStr, small_str::SmallBoxedStr};
+use xitca_unsafe_collection::small_str::SmallBoxedStr;
 
 #[test]
 fn issue_22() {
@@ -648,7 +648,7 @@ macro_rules! match_tests {
                             );
                         }
 
-                        let expected_params = vec![$((BytesStr::from($key), SmallBoxedStr::from($val))),*];
+                        let expected_params = vec![$((SmallBoxedStr::from($key), SmallBoxedStr::from($val))),*];
                         let got_params = result.params.into_iter().collect::<Vec<_>>();
 
                         assert_eq!(
