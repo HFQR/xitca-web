@@ -25,7 +25,7 @@ runtime = ["xitca-io/runtime", "tokio"]
 
 # unstable features that are subject to be changed at anytime.
 io-uring = ["xitca-io/runtime-uring", "tokio-uring"]
-util-service = ["xitca-router"]
+router = ["xitca-router"]
 
 [dependencies]
 xitca-io = "0.1"

@@ -291,10 +291,7 @@ mod test {
     use xitca_service::{Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{
-        http::{Request, RequestExt, Response, StatusCode},
-        util::service::{route::get, Router},
-    };
+    use crate::http::{Request, RequestExt, Response, StatusCode};
 
     use super::*;
 
@@ -380,8 +377,11 @@ mod test {
         assert_eq!(res.status(), StatusCode::MULTI_STATUS);
     }
 
+    #[cfg(feature = "router")]
     #[test]
     fn handler_in_router() {
+        use crate::util::service::{route::get, Router};
+
         let res = Router::new()
             .insert("/", get(handler_service(handler)))
             .call(())

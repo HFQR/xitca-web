@@ -48,7 +48,7 @@ tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 __server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
-xitca-http = { version = "0.1", features = ["util-service"], default-features = false }
+xitca-http = { version = "0.1", features = ["router"], default-features = false }
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = "0.1"
 
