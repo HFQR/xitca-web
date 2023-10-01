@@ -11,9 +11,9 @@ xitca-service = "0.1"
 
 anyhow = "1.0.66"
 futures-util = { version = "0.3", default-features = false }
-prost = "0.10.3"
+prost = "0.12"
 tracing = { version = "0.1.37", default-features = false }
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }
 
 [build-dependencies]
-prost-build = "0.10.3"
+prost-build = "0.12"

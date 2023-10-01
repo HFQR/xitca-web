@@ -294,6 +294,11 @@ jobs:
           command: install
           args: cargo-hack
 
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@3.23.4
+
       - name: check-non-linux
         if: matrix.target.os != 'ubuntu-latest'
         run: |
