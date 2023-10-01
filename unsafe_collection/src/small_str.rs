@@ -33,13 +33,6 @@ mod inner {
     }
 
     impl Inline {
-        const fn empty() -> Self {
-            Self {
-                arr: uninit_array(),
-                len: TAG,
-            }
-        }
-
         fn clone(&self) -> Self {
             *self
         }
@@ -100,33 +93,61 @@ mod inner {
         // SAFETY:
         // caller must make sure the variant is properly intialized.
         unsafe fn as_slice(&self) -> &[u8] {
+            // see Inner::empty method for reason.
+            #[cfg(target_endian = "big")]
+            {
+                if self.len == 0 {
+                    return &[];
+                }
+            }
+
             let ptr = self.ptr.as_ptr();
             slice::from_raw_parts(ptr, self.len)
         }
     }
 
     impl Inner {
-        pub(super) fn is_inline(&self) -> bool {
-            // SAFETY:
-            // for either Heap or Inline variant the tag u8 is always initliazed.
-            let tag = unsafe { self.inline.len };
-            tag & TAG == TAG
+        pub(super) const fn empty() -> Self {
+            #[cfg(target_endian = "little")]
+            {
+                Self {
+                    inline: Inline {
+                        arr: uninit_array(),
+                        len: TAG,
+                    },
+                }
+            }
+
+            // for bigendian default to heap variant. the pointer is dangling and
+            // Heap::as_slice method must check the length to avoid dereferencing it.
+            #[cfg(target_endian = "big")]
+            {
+                Self {
+                    heap: Heap {
+                        ptr: NonNull::dangling(),
+                        len: 0,
+                    },
+                }
+            }
         }
 
-        pub(super) const fn empty() -> Self {
-            Self {
-                inline: Inline::empty(),
+        pub(super) fn is_inline(&self) -> bool {
+            #[cfg(target_endian = "little")]
+            {
+                // SAFETY:
+                // for either Heap or Inline variant the tag u8 is always initliazed.
+                let tag = unsafe { self.inline.len };
+                tag & TAG == TAG
+            }
+
+            // for bigendian always use heap variant.
+            #[cfg(target_endian = "big")]
+            {
+                false
             }
         }
 
         pub(super) fn from_slice(slice: &[u8]) -> Self {
-            // for bigendian always use heap variant.
-            #[cfg(target_endian = "big")]
-            {
-                let heap = Heap::from_slice(slice);
-                Self { heap }
-            }
-
             #[cfg(target_endian = "little")]
             {
                 if slice.len() > 15 {
@@ -138,6 +159,13 @@ mod inner {
                     let inline = unsafe { Inline::from_slice(slice) };
                     Self { inline }
                 }
+            }
+
+            // for bigendian always use heap variant.
+            #[cfg(target_endian = "big")]
+            {
+                let heap = Heap::from_slice(slice);
+                Self { heap }
             }
         }
 
