@@ -33,7 +33,7 @@ mod inner {
     }
 
     impl Inline {
-        fn clone(&self) -> Self {
+        const fn clone(&self) -> Self {
             *self
         }
 
@@ -69,7 +69,7 @@ mod inner {
             let ptr = self.ptr.as_ptr();
             let len = self.len;
             // SAFETY:
-            // Heap is constructed from &[u8] and upload all safety requirement.
+            // Heap is constructed from &[u8] and uphold all safety requirement.
             let slice = unsafe { slice::from_raw_parts(ptr, len) };
             Self::from_slice(slice)
         }
@@ -92,7 +92,7 @@ mod inner {
 
         // SAFETY:
         // caller must make sure the variant is properly intialized.
-        unsafe fn as_slice(&self) -> &[u8] {
+        const unsafe fn as_slice(&self) -> &[u8] {
             // see Inner::empty method for reason.
             #[cfg(target_endian = "big")]
             {
@@ -131,7 +131,7 @@ mod inner {
             }
         }
 
-        pub(super) fn is_inline(&self) -> bool {
+        pub(super) const fn is_inline(&self) -> bool {
             #[cfg(target_endian = "little")]
             {
                 // SAFETY:
@@ -148,24 +148,18 @@ mod inner {
         }
 
         pub(super) fn from_slice(slice: &[u8]) -> Self {
+            // for bigendian always use heap variant.
             #[cfg(target_endian = "little")]
-            {
-                if slice.len() > 15 {
-                    let heap = Heap::from_slice(slice);
-                    Self { heap }
-                } else {
+            if slice.len() < 16 {
+                return Self {
                     // SAFETY:
                     // slice is no more than 15 bytes.
-                    let inline = unsafe { Inline::from_slice(slice) };
-                    Self { inline }
-                }
+                    inline: unsafe { Inline::from_slice(slice) },
+                };
             }
 
-            // for bigendian always use heap variant.
-            #[cfg(target_endian = "big")]
-            {
-                let heap = Heap::from_slice(slice);
-                Self { heap }
+            Self {
+                heap: Heap::from_slice(slice),
             }
         }
 
