@@ -87,7 +87,7 @@ where
     }
 }
 
-#[cfg(feature = "util-service")]
+#[cfg(feature = "router")]
 use super::util::service::router::Params;
 
 pin_project! {
@@ -109,7 +109,7 @@ impl Extension {
     pub(crate) fn new(addr: SocketAddr) -> Self {
         Self(Box::new(_Extension {
             addr,
-            #[cfg(feature = "util-service")]
+            #[cfg(feature = "router")]
             params: Default::default(),
         }))
     }
@@ -118,7 +118,7 @@ impl Extension {
 #[derive(Debug)]
 struct _Extension {
     addr: SocketAddr,
-    #[cfg(feature = "util-service")]
+    #[cfg(feature = "router")]
     params: Params,
 }
 
@@ -156,7 +156,7 @@ impl<B> RequestExt<B> {
     }
 }
 
-#[cfg(feature = "util-service")]
+#[cfg(feature = "router")]
 impl<B> RequestExt<B> {
     #[inline]
     pub fn params(&self) -> &Params {
@@ -202,7 +202,7 @@ impl<B> Borrow<SocketAddr> for RequestExt<B> {
     }
 }
 
-#[cfg(feature = "util-service")]
+#[cfg(feature = "router")]
 impl<B> Borrow<Params> for RequestExt<B> {
     #[inline]
     fn borrow(&self) -> &Params {
@@ -210,7 +210,7 @@ impl<B> Borrow<Params> for RequestExt<B> {
     }
 }
 
-#[cfg(feature = "util-service")]
+#[cfg(feature = "router")]
 impl<B> BorrowMut<Params> for RequestExt<B> {
     #[inline]
     fn borrow_mut(&mut self) -> &mut Params {

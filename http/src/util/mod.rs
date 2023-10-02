@@ -1,6 +1,5 @@
 pub mod middleware;
 
-#[cfg(feature = "util-service")]
 pub mod service;
 
 #[cfg(any(feature = "http1", feature = "http2"))]

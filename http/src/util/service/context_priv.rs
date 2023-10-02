@@ -1,10 +1,8 @@
 use core::{future::Future, marker::PhantomData};
 
-use xitca_service::{object::BoxedServiceObject, pipeline::PipelineE, ready::ReadyService, Service};
+use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
 
 use crate::http::{BorrowReq, BorrowReqMut};
-
-use super::router_priv::IntoObject;
 
 /// ServiceFactory type for constructing compile time checked stateful service.
 ///
@@ -182,17 +180,19 @@ where
     }
 }
 
+#[cfg(feature = "router")]
 pub type ContextObject<Req, C, Res, Err> =
     Box<dyn for<'c> xitca_service::object::ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
-impl<C, I, Arg, Req, Res, Err> IntoObject<I, Arg> for Context<'_, Req, C>
+#[cfg(feature = "router")]
+impl<C, I, Arg, Req, Res, Err> super::router_priv::IntoObject<I, Arg> for Context<'_, Req, C>
 where
     C: 'static,
     Req: 'static,
     I: Service<Arg> + 'static,
     I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
 {
-    type Object = BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
+    type Object = xitca_service::object::BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
 
     fn into_object(inner: I) -> Self::Object {
         struct Builder<I, Req, C>(I, PhantomData<(Req, C)>);
@@ -225,10 +225,7 @@ mod test {
     use xitca_service::{fn_service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{
-        http::{Request, RequestExt, Response},
-        util::service::{route::get, Router},
-    };
+    use crate::http::{Request, Response};
 
     use super::*;
 
@@ -264,14 +261,20 @@ mod test {
         assert_eq!(res.status().as_u16(), 200);
     }
 
-    async fn handler(req: Context<'_, Request<RequestExt<()>>, String>) -> Result<Response<()>, Infallible> {
-        let (_, state) = req.into_parts();
-        assert_eq!(state, "string_state");
-        Ok(Response::new(()))
-    }
-
+    #[cfg(feature = "router")]
     #[test]
     fn test_state_in_router() {
+        use crate::{
+            http::RequestExt,
+            util::service::{route::get, Router},
+        };
+
+        async fn handler(req: Context<'_, Request<RequestExt<()>>, String>) -> Result<Response<()>, Infallible> {
+            let (_, state) = req.into_parts();
+            assert_eq!(state, "string_state");
+            Ok(Response::new(()))
+        }
+
         async fn enclosed<S, Req, C, Res, Err>(service: &S, req: Context<'_, Req, C>) -> Result<Res, Err>
         where
             S: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>,
