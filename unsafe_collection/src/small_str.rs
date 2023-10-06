@@ -33,10 +33,6 @@ mod inner {
     }
 
     impl Inline {
-        const fn clone(&self) -> Self {
-            *self
-        }
-
         // SAFETY:
         // caller must make sure slice is no more than 15 bytes in length.
         unsafe fn from_slice(slice: &[u8]) -> Self {
@@ -175,12 +171,14 @@ mod inner {
                 unsafe { self.heap.as_slice() }
             }
         }
+    }
 
-        pub(super) fn _clone(&self) -> Self {
+    impl Clone for Inner {
+        fn clone(&self) -> Self {
             if self.is_inline() {
                 // SAFETY:
                 // just checked the variant is inline.
-                let inline = unsafe { self.inline.clone() };
+                let inline = unsafe { self.inline };
                 Inner { inline }
             } else {
                 // SAFETY:
@@ -216,6 +214,7 @@ mod inner {
 
 /// Data structure aiming to have the same memory size of `Box<str>` that being able to store str
 /// on stack and only allocate on heap when necessary.
+#[derive(Clone)]
 pub struct SmallBoxedStr {
     inner: Inner,
 }
@@ -237,14 +236,6 @@ impl SmallBoxedStr {
     fn from_str(str: &str) -> Self {
         Self {
             inner: Inner::from_slice(str.as_bytes()),
-        }
-    }
-}
-
-impl Clone for SmallBoxedStr {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner._clone(),
         }
     }
 }
