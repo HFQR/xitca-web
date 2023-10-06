@@ -1,5 +1,5 @@
-use ring::digest;
 use rustls::ClientConnection;
+use sha2::{Digest, Sha256};
 use xitca_io::io::AsyncIo;
 use xitca_tls::rustls::TlsStream;
 
@@ -19,9 +19,9 @@ where
         .session()
         .peer_certificates()
         .and_then(|certs| certs.get(0))
-        .map(|cert| digest::digest(&digest::SHA256, cert.as_ref()))
+        .map(|cert| Sha256::digest(cert.as_ref()).to_vec())
     {
-        cfg.tls_server_end_point(sha256.as_ref().into());
+        cfg.tls_server_end_point(sha256);
     }
 
     Ok(stream)
