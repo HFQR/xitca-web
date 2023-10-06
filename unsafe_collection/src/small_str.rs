@@ -84,6 +84,7 @@ mod inner {
 
             let boxed = Box::<[u8]>::from(slice);
             let ptr = Box::into_raw(boxed).cast();
+
             // SAFETY:
             // ptr is from newly allcolated box and it's not null.
             let heap = unsafe { NonNull::new_unchecked(ptr) };
@@ -188,8 +189,10 @@ mod inner {
                 Inner { heap }
             }
         }
+    }
 
-        pub(super) fn _drop(&mut self) {
+    impl Drop for Inner {
+        fn drop(&mut self) {
             if !self.is_inline() {
                 // SAFETY:
                 // just check the variant is Heap.
@@ -198,12 +201,17 @@ mod inner {
                     let ptr = self.heap.ptr.as_ptr();
                     let len = self.heap.len;
                     let ptr = ptr::slice_from_raw_parts_mut(ptr, len);
-                    drop(Box::from_raw(ptr));
+                    let _ = Box::from_raw(ptr);
                 }
             }
             // inline field is Copy which do not need explicit destruction.
         }
     }
+
+    // SAFETY
+    // it's safe to share Inner between threads.
+    unsafe impl Send for Inner {}
+    unsafe impl Sync for Inner {}
 }
 
 /// Data structure aiming to have the same memory size of `Box<str>` that being able to store str
@@ -233,22 +241,11 @@ impl SmallBoxedStr {
     }
 }
 
-// SAFETY
-// it's safe to share SmallBoxedStr between threads.
-unsafe impl Send for SmallBoxedStr {}
-unsafe impl Sync for SmallBoxedStr {}
-
 impl Clone for SmallBoxedStr {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner._clone(),
         }
-    }
-}
-
-impl Drop for SmallBoxedStr {
-    fn drop(&mut self) {
-        self.inner._drop();
     }
 }
 
@@ -294,11 +291,18 @@ impl PartialEq<str> for SmallBoxedStr {
     }
 }
 
+fn _assert_send_sync<T: Send + Sync>() {}
+
 #[cfg(test)]
 mod test {
     use core::mem;
 
     use super::*;
+
+    #[test]
+    fn send_sync() {
+        _assert_send_sync::<SmallBoxedStr>();
+    }
 
     #[test]
     fn size() {
