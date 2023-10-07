@@ -1,12 +1,6 @@
 pub mod handler;
 pub mod route;
 
-mod context_priv;
-
-pub mod context {
-    pub use super::context_priv::{Context, ContextBuilder, ContextError};
-}
-
 #[cfg(feature = "router")]
 mod router_priv;
 

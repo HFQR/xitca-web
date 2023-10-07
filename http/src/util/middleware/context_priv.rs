@@ -1,6 +1,6 @@
-use core::{future::Future, marker::PhantomData};
+use core::future::Future;
 
-use xitca_service::{pipeline::PipelineE, ready::ReadyService, Service};
+use xitca_service::{ready::ReadyService, Service};
 
 use crate::http::{BorrowReq, BorrowReqMut};
 
@@ -17,8 +17,8 @@ use crate::http::{BorrowReq, BorrowReqMut};
 /// # Example:
 ///```rust
 /// # use std::convert::Infallible;
-/// # use xitca_http::util::service::context::{ContextBuilder, Context};
-/// # use xitca_service::{fn_service, Service};
+/// # use xitca_http::util::middleware::context::{ContextBuilder, Context};
+/// # use xitca_service::{fn_service, Service, ServiceExt};
 ///
 /// // function service.
 /// async fn state_handler(req: Context<'_, String, String>) -> Result<String, Infallible> {
@@ -29,12 +29,12 @@ use crate::http::{BorrowReq, BorrowReqMut};
 ///
 /// # async fn stateful() {
 /// // Construct Stateful service factory with closure.
-/// let service = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
-///    // Stateful service factory would construct given service factory and pass (&State, Req) to it.
-///    .service(fn_service(state_handler))
-///    .call(())
-///    .await
-///    .unwrap();
+/// let service = fn_service(state_handler)
+///     // Stateful service factory would construct given service factory and pass (&State, Req) to it.
+///     .enclosed(ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) }))
+///     .call(())
+///     .await
+///     .unwrap();
 ///
 /// let req = String::default();
 /// let res = service.call(req).await.unwrap();
@@ -43,38 +43,18 @@ use crate::http::{BorrowReq, BorrowReqMut};
 /// # }
 ///```
 ///
-pub struct ContextBuilder<CF, C, SF = ()> {
-    ctx_factory: CF,
-    service_factory: SF,
-    _ctx: PhantomData<C>,
+pub struct ContextBuilder<CF> {
+    builder: CF,
 }
 
-impl<CF, Fut, C, CErr> ContextBuilder<CF, C>
+impl<CF, Fut, C, CErr> ContextBuilder<CF>
 where
     CF: Fn() -> Fut,
     Fut: Future<Output = Result<C, CErr>>,
 {
     /// Make a stateful service factory with given future.
-    pub fn new(ctx_factory: CF) -> Self {
-        Self {
-            ctx_factory,
-            service_factory: (),
-            _ctx: PhantomData,
-        }
-    }
-}
-
-impl<CF, C, SF> ContextBuilder<CF, C, SF> {
-    /// The constructor of service type that would receive state.
-    pub fn service<Req, SF1>(self, factory: SF1) -> ContextBuilder<CF, C, SF1>
-    where
-        ContextBuilder<CF, C, SF1>: Service<Req>,
-    {
-        ContextBuilder {
-            ctx_factory: self.ctx_factory,
-            service_factory: factory,
-            _ctx: PhantomData,
-        }
+    pub fn new(builder: CF) -> Self {
+        Self { builder }
     }
 }
 
@@ -116,27 +96,22 @@ where
     }
 }
 
-/// Error type for [ContextBuilder] and it's service type.
-pub type ContextError<A, B> = PipelineE<A, B>;
-
-impl<CF, Fut, C, CErr, F, Arg> Service<Arg> for ContextBuilder<CF, C, F>
+impl<CF, Fut, C, CErr, S> Service<S> for ContextBuilder<CF>
 where
     CF: Fn() -> Fut,
     Fut: Future<Output = Result<C, CErr>>,
     C: 'static,
-    F: Service<Arg>,
 {
-    type Response = ContextService<C, F::Response>;
-    type Error = ContextError<CErr, F::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
+    type Response = ContextService<C, S>;
+    type Error = CErr;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
+    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
     where
-        Arg: 's,
+        S: 's,
     {
         async {
-            let state = (self.ctx_factory)().await.map_err(ContextError::First)?;
-            let service = self.service_factory.call(arg).await.map_err(ContextError::Second)?;
+            let state = (self.builder)().await?;
             Ok(ContextService { service, state })
         }
     }
@@ -185,7 +160,7 @@ pub type ContextObject<Req, C, Res, Err> =
     Box<dyn for<'c> xitca_service::object::ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
 #[cfg(feature = "router")]
-impl<C, I, Arg, Req, Res, Err> super::router_priv::IntoObject<I, Arg> for Context<'_, Req, C>
+impl<C, I, Arg, Req, Res, Err> crate::util::service::router::IntoObject<I, Arg> for Context<'_, Req, C>
 where
     C: 'static,
     Req: 'static,
@@ -195,7 +170,7 @@ where
     type Object = xitca_service::object::BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
 
     fn into_object(inner: I) -> Self::Object {
-        struct Builder<I, Req, C>(I, PhantomData<(Req, C)>);
+        struct Builder<I, Req, C>(I, core::marker::PhantomData<(Req, C)>);
 
         impl<C, I, Arg, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
         where
@@ -214,7 +189,7 @@ where
             }
         }
 
-        Box::new(Builder(inner, PhantomData))
+        Box::new(Builder(inner, core::marker::PhantomData))
     }
 }
 
@@ -248,8 +223,11 @@ mod test {
 
     #[test]
     fn test_state_and_then() {
-        let res = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
-            .service(fn_service(into_context).and_then(fn_service(ctx_handler)))
+        let res = fn_service(into_context)
+            .and_then(fn_service(ctx_handler))
+            .enclosed(ContextBuilder::new(|| async {
+                Ok::<_, Infallible>(String::from("string_state"))
+            }))
             .call(())
             .now_or_panic()
             .ok()
@@ -282,12 +260,12 @@ mod test {
             service.call(req).await
         }
 
-        let router = Router::new()
+        let res = Router::new()
             .insert("/", get(fn_service(handler)))
-            .enclosed_fn(enclosed);
-
-        let res = ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) })
-            .service(router)
+            .enclosed_fn(enclosed)
+            .enclosed(ContextBuilder::new(|| async {
+                Ok::<_, Infallible>(String::from("string_state"))
+            }))
             .call(())
             .now_or_panic()
             .ok()
