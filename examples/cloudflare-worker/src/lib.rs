@@ -7,7 +7,7 @@
 mod file;
 mod utils;
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::OnceCell, rc::Rc};
 
 use http_file::{ServeDir, ServeError};
 use serde_json::json;
@@ -33,7 +33,7 @@ type RouterService = Rc<dyn object::ServiceObject<HttpRequest, Response = Respon
 
 // thread local for storing router service.
 thread_local! {
-    static R: RefCell<Option<RouterService>> = RefCell::new(None);
+    static R: OnceCell<RouterService> = OnceCell::new();
 }
 
 #[event(start)]
@@ -55,7 +55,7 @@ pub fn start() {
 
     let service = router.call(()).now_or_panic().unwrap();
 
-    R.with(|r| *r.borrow_mut() = Some(Rc::new(service)));
+    let _ = R.with(|r| r.set(Rc::new(service)));
 }
 
 #[event(fetch)]
@@ -63,7 +63,7 @@ pub async fn main(req: Request, env: Env, _: Context) -> Result<Response> {
     log_request(&req);
 
     // clone router service to async context.
-    let router = R.with(|r| r.borrow().as_ref().cloned().unwrap());
+    let router = R.with(|r| r.get().cloned().unwrap());
 
     // convert worker request to http request.
     let http_req = worker_to_http(req, env);

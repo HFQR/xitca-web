@@ -1,5 +1,10 @@
+mod context_priv;
 mod extension;
 mod logger;
+
+pub mod context {
+    pub use super::context_priv::{Context, ContextBuilder};
+}
 
 #[cfg(not(target_family = "wasm"))]
 #[cfg(feature = "runtime")]

@@ -8,9 +8,9 @@ use core::{
 };
 
 use futures_core::stream::Stream;
-use xitca_http::util::service::{
-    context::{Context, ContextBuilder},
-    router::{IntoObject, PathGen, Router},
+use xitca_http::util::{
+    middleware::context::{Context, ContextBuilder},
+    service::router::{IntoObject, PathGen, Router},
 };
 
 use crate::{
@@ -127,9 +127,10 @@ where
         ResB: Stream<Item = Result<Bytes, E>>,
     {
         let App { ctx_factory, router } = self;
-        let service = router.enclosed_fn(map_response).enclosed_fn(map_request);
-
-        ContextBuilder::new(ctx_factory).service(service)
+        router
+            .enclosed_fn(map_response)
+            .enclosed_fn(map_request)
+            .enclosed(ContextBuilder::new(ctx_factory))
     }
 }
 
