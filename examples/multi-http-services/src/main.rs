@@ -30,33 +30,30 @@ fn main() -> io::Result<()> {
     // construct http3 quic server config
     let config = h3_config()?;
 
-    let h1_factory = || {
-        HttpServiceBuilder::h1(fn_service(handler_h1))
-            .enclosed(SocketConfig::new())
-            .enclosed(Logger::default())
-    };
-
-    let h2_factory = move || {
-        HttpServiceBuilder::h2(fn_service(handler_h2))
-            .openssl(acceptor.clone())
-            .with_logger()
-    };
-
-    let h3_factory = || HttpServiceBuilder::h3(fn_service(handler_h3)).enclosed(Logger::default());
-
     // construct server
     xitca_server::Builder::new()
         // bind to a http/1 service.
-        .bind("http/1", "127.0.0.1:8080", h1_factory)?
+        .bind("http/1", "127.0.0.1:8080", || {
+            fn_service(handler_h1)
+                .enclosed(HttpServiceBuilder::h1())
+                .enclosed(SocketConfig::new())
+                .enclosed(Logger::default())
+        })?
         // bind to a http/2 service.
         // *. http/1 and http/2 both use tcp listener so it should be using a separate port.
-        .bind("http/2", "127.0.0.1:8081", h2_factory)?
+        .bind("http/2", "127.0.0.1:8081", move || {
+            fn_service(handler_h2).enclosed(HttpServiceBuilder::h2().openssl(acceptor.clone()).with_logger())
+        })?
         // bind to a http/3 service.
         // *. note the service name must be unique.
         //
         // Bind to same service with different bind_xxx API is allowed for reusing one service
         // on multiple socket addresses and protocols.
-        .bind_h3("http/3", "127.0.0.1:8081", config, h3_factory)?
+        .bind_h3("http/3", "127.0.0.1:8081", config, || {
+            fn_service(handler_h3)
+                .enclosed(HttpServiceBuilder::h3())
+                .enclosed(Logger::default())
+        })?
         .build()
         .wait()
 }

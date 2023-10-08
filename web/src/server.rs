@@ -7,6 +7,7 @@ use xitca_http::{
     HttpServiceBuilder,
 };
 use xitca_server::{Builder, ServerFuture};
+use xitca_service::ServiceExt;
 
 use crate::{
     dev::{
@@ -180,7 +181,7 @@ where
         let config = self.config;
         self.builder = self.builder.bind("xitca-web", addr, move || {
             let factory = factory();
-            HttpServiceBuilder::with_config(factory, config).with_logger()
+            factory.enclosed(HttpServiceBuilder::with_config(config).with_logger())
         })?;
 
         Ok(self)
@@ -199,7 +200,7 @@ where
         let config = self.config;
         self.builder = self.builder.listen("xitca-web", listener, move || {
             let factory = factory();
-            HttpServiceBuilder::with_config(factory, config).with_logger()
+            factory.enclosed(HttpServiceBuilder::with_config(config).with_logger())
         });
 
         Ok(self)
@@ -253,9 +254,11 @@ where
 
         self.builder = self.builder.bind("xitca-web-openssl", addr, move || {
             let factory = factory();
-            HttpServiceBuilder::with_config(factory, config)
-                .openssl(acceptor.clone())
-                .with_logger()
+            factory.enclosed(
+                HttpServiceBuilder::with_config(config)
+                    .openssl(acceptor.clone())
+                    .with_logger(),
+            )
         })?;
 
         Ok(self)
@@ -289,9 +292,11 @@ where
 
         self.builder = self.builder.bind("xitca-web-rustls", addr, move || {
             let factory = factory();
-            HttpServiceBuilder::with_config(factory, service_config)
-                .rustls(config.clone())
-                .with_logger()
+            factory.enclosed(
+                HttpServiceBuilder::with_config(service_config)
+                    .rustls(config.clone())
+                    .with_logger(),
+            )
         })?;
 
         Ok(self)
@@ -312,7 +317,7 @@ where
 
         self.builder = self.builder.bind_unix("xitca-web", path, move || {
             let factory = factory();
-            HttpServiceBuilder::with_config(factory, config).with_logger()
+            factory.enclosed(HttpServiceBuilder::with_config(config).with_logger())
         })?;
 
         Ok(self)
