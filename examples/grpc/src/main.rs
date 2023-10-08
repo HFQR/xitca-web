@@ -14,7 +14,7 @@ use xitca_http::{
     util::service::{route::post, Router},
     HttpServiceBuilder,
 };
-use xitca_service::fn_service;
+use xitca_service::{fn_service, ServiceExt};
 
 mod hello_world {
     include!(concat!(env!("OUT_DIR"), "/helloworld.rs"));
@@ -24,12 +24,12 @@ fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=info,[xitca-logger]=trace")
         .init();
-    let factory = || {
-        let route = Router::new().insert("/helloworld.Greeter/SayHello", post(fn_service(grpc)));
-        HttpServiceBuilder::h2(route)
-    };
     xitca_server::Builder::new()
-        .bind("http/2", "localhost:50051", factory)?
+        .bind("http/2", "localhost:50051", || {
+            Router::new()
+                .insert("/helloworld.Greeter/SayHello", post(fn_service(grpc)))
+                .enclosed(HttpServiceBuilder::h2())
+        })?
         .build()
         .wait()
 }

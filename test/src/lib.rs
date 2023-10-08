@@ -22,7 +22,7 @@ use xitca_io::{
     net::{Stream as NetStream, TcpStream},
 };
 use xitca_server::{Builder, ServerFuture, ServerHandle};
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{ready::ReadyService, Service, ServiceExt};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -62,10 +62,7 @@ where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
-    test_server::<_, _, (TcpStream, SocketAddr)>(move || {
-        let f = factory();
-        HttpServiceBuilder::h1(f)
-    })
+    test_server::<_, _, (TcpStream, SocketAddr)>(move || factory().enclosed(HttpServiceBuilder::h1()))
 }
 
 /// A specialized http/2 server on top of [test_server]
@@ -80,12 +77,14 @@ where
     E: fmt::Debug + 'static,
 {
     test_server::<_, _, (TcpStream, SocketAddr)>(move || {
-        let f = factory();
-        let config = HttpServiceConfig::new()
-            .request_head_timeout(Duration::from_millis(500))
-            .tls_accept_timeout(Duration::from_millis(500))
-            .keep_alive_timeout(Duration::from_millis(500));
-        HttpServiceBuilder::h2(f).config(config)
+        factory().enclosed(
+            HttpServiceBuilder::h2().config(
+                HttpServiceConfig::new()
+                    .request_head_timeout(Duration::from_millis(500))
+                    .tls_accept_timeout(Duration::from_millis(500))
+                    .keep_alive_timeout(Duration::from_millis(500)),
+            ),
+        )
     })
 }
 
@@ -127,8 +126,7 @@ where
         .server_threads(1)
         .disable_signal()
         .bind_h3("test_server", addr, config, move || {
-            let f = factory();
-            HttpServiceBuilder::h3(f)
+            factory().enclosed(HttpServiceBuilder::h3())
         })?
         .build();
 

@@ -11,9 +11,6 @@ use super::http::Version;
 
 pub(crate) use super::tls::TlsError;
 
-#[cfg(feature = "runtime")]
-pub(crate) type BuildError<Tls, Svc> = xitca_service::pipeline::PipelineE<Tls, Svc>;
-
 /// HttpService layer error.
 pub enum HttpServiceError<S, B> {
     Ignored,

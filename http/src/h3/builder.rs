@@ -2,38 +2,28 @@ use std::{convert::Infallible, future::Future};
 
 use xitca_service::Service;
 
-use crate::error::BuildError;
-
 use super::service::H3Service;
 
 /// Http/3 Builder type.
 /// Take in generic types of ServiceFactory for `quinn`.
-pub struct H3ServiceBuilder<F> {
-    factory: F,
-}
+pub struct H3ServiceBuilder;
 
-impl<F> H3ServiceBuilder<F> {
+impl H3ServiceBuilder {
     /// Construct a new Service Builder with given service factory.
-    pub fn new(factory: F) -> Self {
-        Self { factory }
+    pub fn new() -> Self {
+        H3ServiceBuilder
     }
 }
 
-impl<F, Arg> Service<Arg> for H3ServiceBuilder<F>
-where
-    F: Service<Arg>,
-{
-    type Response = H3Service<F::Response>;
-    type Error = BuildError<Infallible, F::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
+impl<S> Service<S> for H3ServiceBuilder {
+    type Response = H3Service<S>;
+    type Error = Infallible;
+    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
+    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
     where
-        Arg: 's,
+        S: 's,
     {
-        async {
-            let service = self.factory.call(arg).await.map_err(BuildError::Second)?;
-            Ok(H3Service::new(service))
-        }
+        async { Ok(H3Service::new(service)) }
     }
 }

@@ -11,15 +11,17 @@ use xitca_http::{
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, RequestExt, Response},
     HttpServiceBuilder, ResponseBody,
 };
-use xitca_service::fn_service;
+use xitca_service::{fn_service, ServiceExt};
 
 fn main() -> io::Result<()> {
     let config = tls_config();
     xitca_server::Builder::new()
         .bind("http/1", "127.0.0.1:8080", move || {
-            HttpServiceBuilder::h1(fn_service(handler))
-                .io_uring() // specify io_uring flavor of http service.
-                .rustls_uring(config.clone()) // specify io_uring flavor of tls.
+            fn_service(handler).enclosed(
+                HttpServiceBuilder::h1()
+                    .io_uring() // specify io_uring flavor of http service.
+                    .rustls_uring(config.clone()), // specify io_uring flavor of tls.
+            )
         })?
         .build()
         .wait()
