@@ -1,8 +1,13 @@
-use std::{ops::Deref, sync::Arc, sync::RwLock, time::Duration};
+use std::{
+    ops::Deref,
+    sync::Arc,
+    sync::RwLock,
+    time::{Duration, Instant},
+};
 
 use tokio::{
     task::{spawn, JoinHandle},
-    time::{interval, Instant},
+    time::interval,
 };
 use xitca_http::date::{DateTime, DateTimeState, DATE_VALUE_LENGTH};
 

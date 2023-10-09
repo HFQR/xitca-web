@@ -8,9 +8,15 @@ use super::service::H3Service;
 /// Take in generic types of ServiceFactory for `quinn`.
 pub struct H3ServiceBuilder;
 
+impl Default for H3ServiceBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl H3ServiceBuilder {
     /// Construct a new Service Builder with given service factory.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         H3ServiceBuilder
     }
 }
