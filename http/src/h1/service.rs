@@ -118,7 +118,7 @@ where
         async move {
             let accept_dur = self.config.tls_accept_timeout;
             let deadline = self.date.get().now() + accept_dur;
-            let mut timer = pin!(KeepAlive::new(deadline));
+            let mut timer = pin!(KeepAlive::new(deadline.into()));
 
             let io = self
                 .tls_acceptor

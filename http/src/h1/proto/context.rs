@@ -48,12 +48,16 @@ impl ContextState {
 
 impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     /// Context is constructed with reference of certain type that impl [DateTime] trait.
+    ///
+    /// [DateTime]: crate::date::DateTime
     #[inline]
     pub fn new(date: &'a D) -> Self {
         Self::with_addr(crate::unspecified_socket_addr(), date)
     }
 
     /// Context is constructed with [SocketAddr] and reference of certain type that impl [DateTime] trait.
+    ///
+    /// [DateTime]: crate::date::DateTime
     #[inline]
     pub fn with_addr(addr: SocketAddr, date: &'a D) -> Self {
         Self {
@@ -153,7 +157,7 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state.contains(ContextState::HEAD)
     }
 
-    /// Return true if connection type is [ConnectionType::Close].
+    /// Return true if connection type is `Connection: Close`.
     #[inline]
     pub const fn is_connection_closed(&self) -> bool {
         self.state.contains(ContextState::CLOSE)

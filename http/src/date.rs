@@ -1,16 +1,4 @@
-use std::{
-    cell::RefCell,
-    fmt::{self, Write},
-    ops::Deref,
-    rc::Rc,
-    time::{Duration, SystemTime},
-};
-
-use httpdate::HttpDate;
-use tokio::{
-    task::JoinHandle,
-    time::{interval, Instant},
-};
+use std::time::Instant;
 
 /// Trait for getting current date/time.
 ///
@@ -19,7 +7,7 @@ pub trait DateTime {
     /// The size hint of slice by Self::date method.
     const DATE_VALUE_LENGTH: usize;
 
-    /// closure would receive byte slice representation of [HttpDate].
+    /// closure would receive byte slice representation of date time.
     fn with_date<F, O>(&self, f: F) -> O
     where
         F: FnOnce(&[u8]) -> O;
@@ -27,102 +15,125 @@ pub trait DateTime {
     fn now(&self) -> Instant;
 }
 
-/// Struct with Date update periodically at 500 milli seconds interval.
-pub struct DateTimeService {
-    state: Rc<RefCell<DateTimeState>>,
-    handle: JoinHandle<()>,
-}
+#[cfg(feature = "runtime")]
+pub use default_date_time::*;
 
-impl Drop for DateTimeService {
-    fn drop(&mut self) {
-        // stop the timer update async task on drop.
-        self.handle.abort();
-    }
-}
+#[cfg(feature = "runtime")]
+mod default_date_time {
+    use core::{
+        cell::RefCell,
+        fmt::{self, Write},
+        ops::Deref,
+        time::Duration,
+    };
 
-impl Default for DateTimeService {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+    use std::{
+        rc::Rc,
+        time::{Instant, SystemTime},
+    };
 
-impl DateTimeService {
-    pub fn new() -> Self {
-        // shared date and timer for Date and update async task.
-        let state = Rc::new(RefCell::new(DateTimeState::new()));
-        let state_clone = Rc::clone(&state);
-        // spawn an async task sleep for 1 sec and update date in a loop.
-        // handle is used to stop the task on Date drop.
-        let handle = tokio::task::spawn_local(async move {
-            let mut interval = interval(Duration::from_millis(500));
-            let state = &*state_clone;
-            loop {
-                let _ = interval.tick().await;
-                *state.borrow_mut() = DateTimeState::new();
-            }
-        });
+    use httpdate::HttpDate;
+    use tokio::{task::JoinHandle, time::interval};
 
-        Self { state, handle }
+    use super::DateTime;
+
+    /// Struct with Date update periodically at 500 milli seconds interval.
+    pub struct DateTimeService {
+        state: Rc<RefCell<DateTimeState>>,
+        handle: JoinHandle<()>,
     }
 
-    #[inline]
-    pub fn get(&self) -> &DateTimeHandle {
-        self.state.deref()
-    }
-}
-
-pub(crate) type DateTimeHandle = RefCell<DateTimeState>;
-
-/// The length of byte representation of [HttpDate].
-pub const DATE_VALUE_LENGTH: usize = 29;
-
-/// struct contains byte representation of [HttpDate] and [Instant].
-#[derive(Copy, Clone)]
-pub struct DateTimeState {
-    pub date: [u8; DATE_VALUE_LENGTH],
-    pub now: Instant,
-}
-
-impl Default for DateTimeState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DateTimeState {
-    pub fn new() -> Self {
-        let mut date = Self {
-            date: [0; DATE_VALUE_LENGTH],
-            now: Instant::now(),
-        };
-        let _ = write!(date, "{}", HttpDate::from(SystemTime::now()));
-        date
-    }
-}
-
-impl Write for DateTimeState {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        self.date[..].copy_from_slice(s.as_bytes());
-        Ok(())
-    }
-}
-
-impl DateTime for DateTimeHandle {
-    const DATE_VALUE_LENGTH: usize = DATE_VALUE_LENGTH;
-
-    // TODO: remove this allow
-    #[allow(dead_code)]
-    #[inline]
-    fn with_date<F, O>(&self, f: F) -> O
-    where
-        F: FnOnce(&[u8]) -> O,
-    {
-        let date = self.borrow();
-        f(&date.date[..])
+    impl Drop for DateTimeService {
+        fn drop(&mut self) {
+            // stop the timer update async task on drop.
+            self.handle.abort();
+        }
     }
 
-    #[inline(always)]
-    fn now(&self) -> Instant {
-        self.borrow().now
+    impl Default for DateTimeService {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl DateTimeService {
+        pub fn new() -> Self {
+            // shared date and timer for Date and update async task.
+            let state = Rc::new(RefCell::new(DateTimeState::new()));
+            let state_clone = Rc::clone(&state);
+            // spawn an async task sleep for 1 sec and update date in a loop.
+            // handle is used to stop the task on Date drop.
+            let handle = tokio::task::spawn_local(async move {
+                let mut interval = interval(Duration::from_millis(500));
+                let state = &*state_clone;
+                loop {
+                    let _ = interval.tick().await;
+                    *state.borrow_mut() = DateTimeState::new();
+                }
+            });
+
+            Self { state, handle }
+        }
+
+        #[inline]
+        pub fn get(&self) -> &DateTimeHandle {
+            self.state.deref()
+        }
+    }
+
+    pub(crate) type DateTimeHandle = RefCell<DateTimeState>;
+
+    /// The length of byte representation of [HttpDate].
+    pub const DATE_VALUE_LENGTH: usize = 29;
+
+    /// struct contains byte representation of [HttpDate] and [Instant].
+    #[derive(Copy, Clone)]
+    pub struct DateTimeState {
+        pub date: [u8; DATE_VALUE_LENGTH],
+        pub now: Instant,
+    }
+
+    impl Default for DateTimeState {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl DateTimeState {
+        pub fn new() -> Self {
+            let mut date = Self {
+                date: [0; DATE_VALUE_LENGTH],
+                now: Instant::now(),
+            };
+            let _ = write!(date, "{}", HttpDate::from(SystemTime::now()));
+            date
+        }
+    }
+
+    impl Write for DateTimeState {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            self.date[..].copy_from_slice(s.as_bytes());
+            Ok(())
+        }
+    }
+
+    impl DateTime for DateTimeHandle {
+        const DATE_VALUE_LENGTH: usize = DATE_VALUE_LENGTH;
+
+        // TODO: remove this allow
+        #[allow(dead_code)]
+        #[inline]
+        fn with_date<F, O>(&self, f: F) -> O
+        where
+            F: FnOnce(&[u8]) -> O,
+        {
+            let date = self.borrow();
+            f(&date.date[..])
+        }
+
+        #[inline(always)]
+        fn now(&self) -> Instant {
+            self.borrow().now
+        }
     }
 }

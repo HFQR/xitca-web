@@ -88,7 +88,7 @@ where
 
         // reset timer to keep alive.
         let deadline = date.now() + ka_dur;
-        keep_alive.as_mut().update(deadline);
+        keep_alive.as_mut().update(deadline.into());
 
         // timer for ping pong interval and keep alive.
         let mut ping_pong = H2PingPong {
@@ -178,7 +178,7 @@ impl Future for H2PingPong<'_> {
 
                         let deadline = this.date.now() + this.ka_dur;
 
-                        this.keep_alive.as_mut().update(deadline);
+                        this.keep_alive.as_mut().update(deadline.into());
                         this.keep_alive.as_mut().reset();
                     }
                     Poll::Pending => return this.keep_alive.as_mut().poll(cx).map(|_| Ok(())),
@@ -196,7 +196,7 @@ impl Future for H2PingPong<'_> {
                 // suggested to be kept alive for a relative long time.
                 let deadline = this.date.now() + (this.ka_dur * 10);
 
-                this.keep_alive.as_mut().update(deadline);
+                this.keep_alive.as_mut().update(deadline.into());
 
                 this.on_flight = true;
             }

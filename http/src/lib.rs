@@ -15,11 +15,10 @@ mod tls;
 mod version;
 
 pub mod body;
+pub mod date;
 pub mod error;
 pub mod http;
 
-#[cfg(feature = "runtime")]
-pub mod date;
 #[cfg(feature = "http1")]
 pub mod h1;
 #[cfg(feature = "http2")]

@@ -7,6 +7,11 @@ use xitca_service::{ready::ReadyService, Service};
 
 use crate::http::{BorrowReqMut, Extensions};
 
+/// middleware for inserting typed data [Extensions] map.
+/// inserted data has the same lifetime of [Request] and can be accessed through
+/// [Extensions::get] and it's neighbour apis.
+///
+/// [Request]: crate::http::Request
 #[derive(Clone)]
 pub struct Extension<F: Clone = ()> {
     factory: F,

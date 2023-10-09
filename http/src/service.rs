@@ -58,7 +58,7 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
     pub(crate) fn update_first_request_deadline(&self, timer: core::pin::Pin<&mut KeepAlive>) {
         let request_dur = self.config.request_head_timeout;
         let deadline = self.date.get().now() + request_dur;
-        timer.update(deadline);
+        timer.update(deadline.into());
     }
 
     /// keep alive start with timer for `HttpServiceConfig.tls_accept_timeout`.
@@ -69,7 +69,7 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
     pub(crate) fn keep_alive(&self) -> KeepAlive {
         let accept_dur = self.config.tls_accept_timeout;
         let deadline = self.date.get().now() + accept_dur;
-        KeepAlive::new(deadline)
+        KeepAlive::new(deadline.into())
     }
 }
 

@@ -10,7 +10,7 @@ use pin_project_lite::pin_project;
 use tracing::{error, span, Level, Span};
 use xitca_service::{ready::ReadyService, Service};
 
-/// A factory for logger service.
+/// middleware for [tracing] logging system.
 #[derive(Clone)]
 pub struct Logger {
     span: Span,
@@ -23,10 +23,12 @@ impl Default for Logger {
 }
 
 impl Logger {
+    /// enable middleware with default setting.
     pub fn new() -> Self {
-        Self::with_span(span!(Level::TRACE, "xitca-logger"))
+        Self::with_span(span!(Level::TRACE, "xitca-http-logger"))
     }
 
+    /// enable middleware with given [Span].
     pub fn with_span(span: Span) -> Self {
         Self { span }
     }
@@ -46,8 +48,6 @@ impl<S> Service<S> for Logger {
     }
 }
 
-/// Logger service uses a tracking span called `xitca_http_logger` and would collect
-/// log from all levels(from trace to info)
 pub struct LoggerService<S> {
     service: S,
     span: Span,
@@ -78,28 +78,6 @@ where
     }
 }
 
-pin_project! {
-    #[doc(hidden)]
-    /// a copy of `tracing::Instrumented` with borrowed Span.
-    pub struct Instrumented<'a, T> {
-        #[pin]
-        task: T,
-        span: &'a Span,
-    }
-}
-
-// === impl Instrumented ===
-
-impl<T: Future> Future for Instrumented<'_, T> {
-    type Output = T::Output;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        let _enter = this.span.enter();
-        this.task.poll(cx)
-    }
-}
-
 impl<S> ReadyService for LoggerService<S>
 where
     S: ReadyService,
@@ -111,5 +89,25 @@ where
     #[inline]
     fn ready(&self) -> Self::Future<'_> {
         self.service.ready()
+    }
+}
+
+pin_project! {
+    #[doc(hidden)]
+    /// a copy of `tracing::Instrumented` with borrowed Span.
+    pub struct Instrumented<'a, T> {
+        #[pin]
+        task: T,
+        span: &'a Span,
+    }
+}
+
+impl<T: Future> Future for Instrumented<'_, T> {
+    type Output = T::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let _enter = this.span.enter();
+        this.task.poll(cx)
     }
 }

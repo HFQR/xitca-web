@@ -181,7 +181,7 @@ where
     }
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        self.timer.update(self.ctx.date().now());
+        self.timer.update(self.ctx.date().now().into());
 
         let read = self
             .read_buf
