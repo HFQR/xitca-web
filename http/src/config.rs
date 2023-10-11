@@ -88,7 +88,7 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
 
     /// Define max read buffer size for a connection.
     ///
-    /// See [DEFAULT_READ_BUF_LIMIT](DEFAULT_READ_BUF_LIMIT) for default value
+    /// See [DEFAULT_READ_BUF_LIMIT] for default value
     /// and behavior.
     pub fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(
         self,
@@ -98,7 +98,7 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
 
     /// Define max write buffer size for a connection.
     ///
-    /// See [DEFAULT_WRITE_BUF_LIMIT](DEFAULT_WRITE_BUF_LIMIT) for default value
+    /// See [DEFAULT_WRITE_BUF_LIMIT] for default value
     /// and behavior.
     pub fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(
         self,
@@ -108,7 +108,7 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
 
     /// Define max request header count for a connection.    
     ///
-    /// See [DEFAULT_HEADER_LIMIT](DEFAULT_HEADER_LIMIT) for default value
+    /// See [DEFAULT_HEADER_LIMIT] for default value
     /// and behavior.
     pub fn max_request_headers<const HEADER_LIMIT_2: usize>(
         self,
