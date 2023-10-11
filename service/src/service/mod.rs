@@ -9,7 +9,7 @@ mod opt;
 
 pub use self::{
     ext::ServiceExt,
-    function::{fn_build, fn_service, FnService},
+    function::{fn_build, fn_build_nop, fn_service, FnService},
 };
 
 use core::{future::Future, ops::Deref, pin::Pin};

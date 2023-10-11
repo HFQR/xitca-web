@@ -168,7 +168,7 @@ impl<B: Buf, const LIMIT: usize> Default for ListWriteBuf<B, LIMIT> {
 
 impl<B: Buf, const LIMIT: usize> ListWriteBuf<B, LIMIT> {
     /// split buf field from Self.
-    /// this is often coupled with [ButWrite::write_buf] method to obtain what has been written to
+    /// this is often coupled with [BufWrite::write_buf] method to obtain what has been written to
     /// the buf.
     pub fn split_buf(&mut self) -> BytesMut {
         self.buf.split()
