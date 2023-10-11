@@ -12,7 +12,7 @@ pub mod ready;
 pub use self::{
     async_closure::AsyncClosure,
     pipeline::{EnclosedFactory, EnclosedFnFactory, MapErrorServiceFactory},
-    service::{fn_build, fn_service, FnService, Service, ServiceExt},
+    service::{fn_build, fn_build_nop, fn_service, FnService, Service, ServiceExt},
 };
 
 #[cfg(feature = "alloc")]
