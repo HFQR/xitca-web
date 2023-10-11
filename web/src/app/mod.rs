@@ -88,7 +88,7 @@ where
     /// Middleware must impl [Service] trait.
     pub fn enclosed<T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
     where
-        T: Service<R::Response> + Clone,
+        T: Service<R::Response>,
     {
         App {
             ctx_factory: self.ctx_factory,
