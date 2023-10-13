@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// App state extractor.
-/// S type must be the same with the type passed to App::with_xxx_state(<S>).
+/// S type must be the same with the type passed to App::with_xxx_state(S).
 pub struct StateRef<'a, S>(pub &'a S);
 
 impl<S: fmt::Debug> fmt::Debug for StateRef<'_, S> {

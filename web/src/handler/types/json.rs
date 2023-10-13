@@ -24,7 +24,7 @@ use super::{
     header::{self, HeaderRef},
 };
 
-const DEFAULT_LIMIT: usize = 1024 * 1024;
+pub const DEFAULT_LIMIT: usize = 1024 * 1024;
 
 /// Extract type for Json object. const generic param LIMIT is for max size of the object in bytes.
 /// Object larger than limit would be treated as error.

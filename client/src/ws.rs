@@ -59,7 +59,9 @@ impl<'a, B> WsRequest<'a, B> {
 
     /// Set timeout of this request.
     ///
-    /// The value passed would override global [TimeoutConfig].
+    /// The value passed would override global [ClientBuilder::set_request_timeout].
+    ///
+    /// [ClientBuilder::set_request_timeout]: crate::ClientBuilder::set_request_timeout
     pub fn timeout(mut self, dur: Duration) -> Self {
         self.0 = self.0.timeout(dur);
         self
