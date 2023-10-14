@@ -4,14 +4,11 @@ use super::ToSql;
 
 /// async streaming iterator with borrowed Item from Self.
 pub trait AsyncIterator {
-    type Future<'f>: Future<Output = Option<Self::Item<'f>>>
-    where
-        Self: 'f;
     type Item<'i>
     where
         Self: 'i;
 
-    fn next(&mut self) -> Self::Future<'_>;
+    fn next(&mut self) -> impl Future<Output = Option<Self::Item<'_>>> + Send;
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {

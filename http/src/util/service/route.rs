@@ -1,4 +1,4 @@
-use core::{fmt, future::Future};
+use core::fmt;
 
 use std::error;
 
@@ -108,21 +108,15 @@ where
 {
     type Response = RouteService<R::Response, next::Exist<N::Response>, M>;
     type Error = R::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-    where
-        Arg: 's,
-    {
-        async {
-            let route = self.route.call(arg.clone()).await?;
-            let next = self.next.0.call(arg).await?;
-            Ok(RouteService {
-                methods: self.methods.clone(),
-                route,
-                next: next::Exist(next),
-            })
-        }
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let route = self.route.call(arg.clone()).await?;
+        let next = self.next.0.call(arg).await?;
+        Ok(RouteService {
+            methods: self.methods.clone(),
+            route,
+            next: next::Exist(next),
+        })
     }
 }
 
@@ -132,20 +126,14 @@ where
 {
     type Response = RouteService<R::Response, next::Empty, M>;
     type Error = R::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-    where
-        Arg: 's,
-    {
-        async {
-            let route = self.route.call(arg).await?;
-            Ok(RouteService {
-                methods: self.methods.clone(),
-                route,
-                next: next::Empty,
-            })
-        }
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let route = self.route.call(arg).await?;
+        Ok(RouteService {
+            methods: self.methods.clone(),
+            route,
+            next: next::Empty,
+        })
     }
 }
 
@@ -163,23 +151,17 @@ where
 {
     type Response = R::Response;
     type Error = RouteError<E>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async {
-            if self.methods.contains(req.borrow()) {
-                self.route.call(req).await.map_err(RouteError::Second)
-            } else {
-                self.next
-                    .0
-                    .call(req)
-                    .await
-                    .map_err(|e| try_append_allowed(e, &self.methods))
-            }
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        if self.methods.contains(req.borrow()) {
+            self.route.call(req).await.map_err(RouteError::Second)
+        } else {
+            self.next
+                .0
+                .call(req)
+                .await
+                .map_err(|e| try_append_allowed(e, &self.methods))
         }
     }
 }
@@ -200,33 +182,24 @@ where
 {
     type Response = R::Response;
     type Error = RouteError<R::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async {
-            if self.methods.contains(req.borrow()) {
-                self.route.call(req).await.map_err(RouteError::Second)
-            } else {
-                Err(RouteError::First(MethodNotAllowed(
-                    self.methods.iter().cloned().collect(),
-                )))
-            }
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        if self.methods.contains(req.borrow()) {
+            self.route.call(req).await.map_err(RouteError::Second)
+        } else {
+            Err(RouteError::First(MethodNotAllowed(
+                self.methods.iter().cloned().collect(),
+            )))
         }
     }
 }
 
 impl<R, N, const M: usize> ReadyService for RouteService<R, N, M> {
     type Ready = ();
-    type Future<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        async {}
-    }
+    async fn ready(&self) -> Self::Ready {}
 }
 
 /// Error type of Route service.

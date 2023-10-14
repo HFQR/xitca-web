@@ -109,13 +109,10 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
         {
             type Response = #service_ty;
             type Error = #err_ty;
-            type Future<'f> = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, #arg_ty: 'f;
 
-            fn call<'s>(&'s self, #arg_ident: #arg_ty) -> Self::Future<'s> where #arg_ty: 's {
-                async move {
-                    let #factory_ident = &self;
-                    #(#factory_stmts)*
-                }
+            async fn call(&self, #arg_ident: #arg_ty) -> Result<Self::Response, Self::Error> {
+                let #factory_ident = &self;
+                #(#factory_stmts)*
             }
         }
 
@@ -124,13 +121,10 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
         {
             type Response = #res_ty;
             type Error = #err_ty;
-            type Future<'f> = impl ::core::future::Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, #req_ty: 'f;
 
             #[inline]
-            fn call<'s>(&'s self, #req_ident: #req_ty) -> Self::Future<'s> where #req_ty: 's {
-                async move {
-                    #(#call_stmts)*
-                }
+            async fn call(&self, #req_ident: #req_ty) -> Result<Self::Response, Self::Error> {
+                #(#call_stmts)*
             }
         }
     };
@@ -146,12 +140,10 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #where_clause
             {
                 type Ready = #ready_res_ty;
-                type Future<'f> = impl ::core::future::Future<Output = Self::Ready> + 'f where Self: 'f;
+
                 #[inline]
-                fn ready(&self) -> Self::Future<'_> {
-                    async move {
-                        #(#ready_stmts)*
-                    }
+                async fn ready(&self) -> Self::Ready {
+                    #(#ready_stmts)*
                 }
             }
         }

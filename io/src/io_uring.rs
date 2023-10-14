@@ -7,23 +7,13 @@ use std::{io, net::Shutdown};
 pub use tokio_uring::buf::{IoBuf, IoBufMut, Slice};
 
 pub trait AsyncBufRead {
-    type Future<'f, B>: Future<Output = (io::Result<usize>, B)> + 'f
-    where
-        Self: 'f,
-        B: IoBufMut + 'f;
-
-    fn read<B>(&self, buf: B) -> Self::Future<'_, B>
+    fn read<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
         B: IoBufMut;
 }
 
 pub trait AsyncBufWrite {
-    type Future<'f, B>: Future<Output = (io::Result<usize>, B)> + 'f
-    where
-        Self: 'f,
-        B: IoBuf + 'f;
-
-    fn write<B>(&self, buf: B) -> Self::Future<'_, B>
+    fn write<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
         B: IoBuf;
 

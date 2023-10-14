@@ -23,15 +23,7 @@ pub trait Service<Req = ()> {
     /// The Err part of output future.
     type Error;
 
-    /// The output future that can reference Self with GAT lifetime.
-    type Future<'f>: Future<Output = Result<Self::Response, Self::Error>>
-    where
-        Self: 'f,
-        Req: 'f;
-
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's;
+    fn call(&self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>>;
 }
 
 impl<S, Req> Service<Req> for Pin<S>
@@ -41,14 +33,10 @@ where
 {
     type Response = <S::Target as Service<Req>>::Response;
     type Error = <S::Target as Service<Req>>::Error;
-    type Future<'f> = <S::Target as Service<Req>>::Future<'f> where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        self.as_ref().get_ref().call(req)
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        self.as_ref().get_ref().call(req).await
     }
 }
 
@@ -77,16 +65,10 @@ mod test {
     {
         type Response = Res;
         type Error = Err;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-        fn call<'s>(&'s self, req: &'r str) -> Self::Future<'s>
-        where
-            'r: 's,
-        {
-            async move {
-                let req = (req, self.name.as_str());
-                self.service.call(req).await
-            }
+        async fn call(&self, req: &'r str) -> Result<Self::Response, Self::Error> {
+            let req = (req, self.name.as_str());
+            self.service.call(req).await
         }
     }
 
@@ -96,16 +78,10 @@ mod test {
     {
         type Response = Res;
         type Error = Err;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-        fn call<'s>(&'s self, req: (&'r str, &'r str)) -> Self::Future<'s>
-        where
-            'r: 's,
-        {
-            async move {
-                let req = (req.0, req.1, self.name.as_str());
-                self.service.call(req).await
-            }
+        async fn call(&self, req: (&'r str, &'r str)) -> Result<Self::Response, Self::Error> {
+            let req = (req.0, req.1, self.name.as_str());
+            self.service.call(req).await
         }
     }
 
@@ -114,20 +90,14 @@ mod test {
     impl<'r> Service<(&'r str, &'r str, &'r str)> for DummyService {
         type Response = String;
         type Error = ();
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-        fn call<'s>(&'s self, req: (&'r str, &'r str, &'r str)) -> Self::Future<'s>
-        where
-            'r: 's,
-        {
-            async move {
-                let mut res = String::new();
-                res.push_str(req.0);
-                res.push_str(req.1);
-                res.push_str(req.2);
+        async fn call(&self, req: (&'r str, &'r str, &'r str)) -> Result<Self::Response, Self::Error> {
+            let mut res = String::new();
+            res.push_str(req.0);
+            res.push_str(req.1);
+            res.push_str(req.2);
 
-                Ok(res)
-            }
+            Ok(res)
         }
     }
 

@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use crate::pipeline::{marker::AndThen, PipelineT};
 
 use super::ReadyService;
@@ -10,13 +8,10 @@ where
     S1: ReadyService,
 {
     type Ready = PipelineT<S::Ready, S1::Ready>;
-    type Future<'f> = impl Future<Output = Self::Ready> + 'f where Self: 'f;
 
-    fn ready(&self) -> Self::Future<'_> {
-        async move {
-            let first = self.first.ready().await;
-            let second = self.second.ready().await;
-            PipelineT::new(first, second)
-        }
+    async fn ready(&self) -> Self::Ready {
+        let first = self.first.ready().await;
+        let second = self.second.ready().await;
+        PipelineT::new(first, second)
     }
 }

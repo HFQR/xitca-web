@@ -1,13 +1,14 @@
 pub(crate) use openssl::ssl::SslAcceptor as TlsAcceptor;
 
-use std::{
+use core::{
     convert::Infallible,
     fmt::{self, Debug, Formatter},
     future::Future,
-    io,
     pin::Pin,
     task::{ready, Context, Poll},
 };
+
+use std::io;
 
 use openssl::{
     error::ErrorStack,
@@ -51,13 +52,12 @@ impl TlsAcceptorBuilder {
 impl Service for TlsAcceptorBuilder {
     type Response = TlsAcceptorService;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
         let service = TlsAcceptorService {
             acceptor: self.acceptor.clone(),
         };
-        async { Ok(service) }
+        Ok(service)
     }
 }
 
@@ -92,21 +92,15 @@ impl TlsAcceptorService {
 impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
     type Response = TlsStream<Io>;
     type Error = OpensslError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Io: 'f;
 
-    fn call<'s>(&'s self, io: Io) -> Self::Future<'s>
-    where
-        Io: 's,
-    {
-        self.accept(io)
+    async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
+        self.accept(io).await
     }
 }
 
 impl<Io: AsyncIo> AsyncIo for TlsStream<Io> {
-    type Future<'f> = impl Future<Output = io::Result<Ready>> + 'f where Self: 'f;
-
     #[inline]
-    fn ready(&self, interest: Interest) -> Self::Future<'_> {
+    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
         self.io.get_ref().ready(interest)
     }
 

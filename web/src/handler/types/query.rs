@@ -1,4 +1,4 @@
-use std::{fmt, future::Future};
+use core::fmt;
 
 use serde::de::DeserializeOwned;
 
@@ -29,15 +29,12 @@ where
 {
     type Type<'b> = Query<T>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move {
-            let value = serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default())
-                .map_err(_ParseError::UrlEncoded)?;
-            Ok(Query(value))
-        }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        let value =
+            serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default()).map_err(_ParseError::UrlEncoded)?;
+        Ok(Query(value))
     }
 }
 

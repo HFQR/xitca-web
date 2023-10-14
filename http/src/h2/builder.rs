@@ -1,5 +1,3 @@
-use std::future::Future;
-
 use xitca_service::Service;
 
 use crate::builder::{marker, HttpServiceBuilder};
@@ -13,15 +11,9 @@ where
 {
     type Response = H2Service<St, S, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = FA::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
-        async {
-            let tls_acceptor = self.tls_factory.call(()).await?;
-            Ok(H2Service::new(self.config, service, tls_acceptor))
-        }
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+        let tls_acceptor = self.tls_factory.call(()).await?;
+        Ok(H2Service::new(self.config, service, tls_acceptor))
     }
 }

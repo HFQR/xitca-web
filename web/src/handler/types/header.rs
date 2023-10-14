@@ -1,4 +1,4 @@
-use std::{fmt, future::Future, ops::Deref};
+use std::{fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,
@@ -63,18 +63,14 @@ where
 {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        let res = req
-            .req()
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        req.req()
             .headers()
             .get(&map_to_header_name::<HEADER_NAME>())
             .map(HeaderRef)
-            .ok_or_else(|| ExtractError::HeaderNotFound(map_to_header_name::<HEADER_NAME>()));
-
-        async { res }
+            .ok_or_else(|| ExtractError::HeaderNotFound(map_to_header_name::<HEADER_NAME>()))
     }
 }
 

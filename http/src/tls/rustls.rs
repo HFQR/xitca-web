@@ -1,12 +1,12 @@
-use std::{
+use core::{
     convert::Infallible,
-    error, fmt,
+    fmt,
     future::Future,
-    io,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
+
+use std::{error, io, sync::Arc};
 
 use rustls::{Error, ServerConfig, ServerConnection};
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
@@ -54,13 +54,12 @@ impl TlsAcceptorBuilder {
 impl Service for TlsAcceptorBuilder {
     type Response = TlsAcceptorService;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
         let service = TlsAcceptorService {
             acceptor: self.acceptor.clone(),
         };
-        async { Ok(service) }
+        Ok(service)
     }
 }
 
@@ -72,17 +71,11 @@ pub struct TlsAcceptorService {
 impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
     type Response = TlsStream<Io>;
     type Error = RustlsError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Io: 'f;
 
-    fn call<'s>(&'s self, io: Io) -> Self::Future<'s>
-    where
-        Io: 's,
-    {
-        async move {
-            let conn = ServerConnection::new(self.acceptor.clone())?;
-            let inner = _TlsStream::handshake(io, conn).await?;
-            Ok(TlsStream { inner })
-        }
+    async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
+        let conn = ServerConnection::new(self.acceptor.clone())?;
+        let inner = _TlsStream::handshake(io, conn).await?;
+        Ok(TlsStream { inner })
     }
 }
 
@@ -90,10 +83,8 @@ impl<Io> AsyncIo for TlsStream<Io>
 where
     Io: AsyncIo,
 {
-    type Future<'f> = Io::Future<'f> where Self: 'f;
-
     #[inline]
-    fn ready(&self, interest: Interest) -> Self::Future<'_> {
+    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
         self.inner.ready(interest)
     }
 

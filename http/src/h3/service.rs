@@ -1,4 +1,4 @@
-use std::{fmt, future::Future, net::SocketAddr};
+use std::{fmt, net::SocketAddr};
 
 use futures_core::Stream;
 use xitca_io::net::UdpStream;
@@ -34,19 +34,12 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
+    async fn call(&self, (stream, addr): (UdpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+        let dispatcher = Dispatcher::new(stream, addr, &self.service);
 
-    fn call<'s>(&'s self, (stream, addr): (UdpStream, SocketAddr)) -> Self::Future<'s>
-    where
-        UdpStream: 's,
-    {
-        async move {
-            let dispatcher = Dispatcher::new(stream, addr, &self.service);
+        dispatcher.run().await?;
 
-            dispatcher.run().await?;
-
-            Ok(())
-        }
+        Ok(())
     }
 }
 
@@ -55,10 +48,9 @@ where
     S: ReadyService,
 {
     type Ready = S::Ready;
-    type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.service.ready()
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
     }
 }

@@ -1,4 +1,4 @@
-use core::{future::Future, pin::pin};
+use core::pin::pin;
 
 use std::net::SocketAddr;
 
@@ -31,27 +31,21 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-    fn call<'s>(&'s self, (io, addr): (St, SocketAddr)) -> Self::Future<'s>
-    where
-        St: 's,
-    {
-        async move {
-            // at this stage keep-alive timer is used to tracks tls accept timeout.
-            let mut timer = pin!(self.keep_alive());
+    async fn call(&self, (io, addr): (St, SocketAddr)) -> Result<Self::Response, Self::Error> {
+        // at this stage keep-alive timer is used to tracks tls accept timeout.
+        let mut timer = pin!(self.keep_alive());
 
-            let mut io = self
-                .tls_acceptor
-                .call(io)
-                .timeout(timer.as_mut())
-                .await
-                .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
+        let mut io = self
+            .tls_acceptor
+            .call(io)
+            .timeout(timer.as_mut())
+            .await
+            .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            super::dispatcher::run(&mut io, addr, timer, self.config, &self.service, self.date.get())
-                .await
-                .map_err(Into::into)
-        }
+        super::dispatcher::run(&mut io, addr, timer, self.config, &self.service, self.date.get())
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -109,29 +103,22 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
+    async fn call(&self, (io, addr): (TcpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+        let accept_dur = self.config.tls_accept_timeout;
+        let deadline = self.date.get().now() + accept_dur;
+        let mut timer = pin!(KeepAlive::new(deadline));
 
-    fn call<'s>(&'s self, (io, addr): (TcpStream, SocketAddr)) -> Self::Future<'s>
-    where
-        TcpStream: 's,
-    {
-        async move {
-            let accept_dur = self.config.tls_accept_timeout;
-            let deadline = self.date.get().now() + accept_dur;
-            let mut timer = pin!(KeepAlive::new(deadline));
+        let io = self
+            .tls_acceptor
+            .call(io)
+            .timeout(timer.as_mut())
+            .await
+            .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            let io = self
-                .tls_acceptor
-                .call(io)
-                .timeout(timer.as_mut())
-                .await
-                .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
-
-            super::dispatcher_uring::Dispatcher::new(io, addr, timer, self.config, &self.service, self.date.get())
-                .run()
-                .await
-                .map_err(Into::into)
-        }
+        super::dispatcher_uring::Dispatcher::new(io, addr, timer, self.config, &self.service, self.date.get())
+            .run()
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -142,10 +129,9 @@ where
     S: ReadyService,
 {
     type Ready = S::Ready;
-    type Future<'f> = S::Future<'f> where Self: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.service.ready()
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
     }
 }

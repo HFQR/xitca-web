@@ -1,4 +1,4 @@
-use std::{convert::Infallible, error, fmt, future::Future, str::Utf8Error};
+use std::{convert::Infallible, error, fmt, str::Utf8Error};
 
 use crate::{
     dev::bytes::Bytes,
@@ -48,12 +48,11 @@ impl<E> From<Infallible> for ExtractError<E> {
 
 impl<'r, C, B, E> Responder<WebRequest<'r, C, B>> for ExtractError<E> {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
         let mut res = req.into_response(Bytes::new());
         *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-        async { res }
+        res
     }
 }
 

@@ -103,17 +103,11 @@ where
     C: 'static,
 {
     type Response = ContextService<C, S>;
-    type Error = CErr;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
-        async {
-            let state = (self.builder)().await?;
-            Ok(ContextService { service, state })
-        }
+    type Error = CErr;
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+        let state = (self.builder)().await?;
+        Ok(ContextService { service, state })
     }
 }
 
@@ -128,17 +122,15 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        self.service.call(Context {
-            req,
-            state: &self.state,
-        })
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        self.service
+            .call(Context {
+                req,
+                state: &self.state,
+            })
+            .await
     }
 }
 
@@ -147,11 +139,10 @@ where
     S: ReadyService,
 {
     type Ready = S::Ready;
-    type Future<'f> = S::Future<'f> where Self: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.service.ready()
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
     }
 }
 
@@ -179,13 +170,9 @@ where
         {
             type Response = ContextObject<Req, C, Res, Err>;
             type Error = I::Error;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Arg:'f, Self: 'f;
 
-            fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-            where
-                Arg: 's,
-            {
-                async move { self.0.call(arg).await.map(|s| Box::new(s) as _) }
+            async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+                self.0.call(arg).await.map(|s| Box::new(s) as _)
             }
         }
 

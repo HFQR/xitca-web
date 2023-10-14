@@ -183,21 +183,18 @@ where
 impl<Io> AsyncIterator for GenericDriver<Io>
 where
     Io: AsyncIo + Send,
-    for<'f> Io::Future<'f>: Send,
 {
-    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
     type Item<'i> = Result<backend::Message, Error> where Self: 'i;
 
     #[inline]
-    fn next(&mut self) -> Self::Future<'_> {
-        async { self.try_next().await.transpose() }
+    async fn next(&mut self) -> Option<Self::Item<'_>> {
+        self.try_next().await.transpose()
     }
 }
 
 impl<Io> Drive for GenericDriver<Io>
 where
     Io: AsyncIo + Send,
-    for<'f> Io::Future<'f>: Send,
 {
     fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
         Box::pin(self.send(msg))

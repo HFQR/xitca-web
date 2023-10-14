@@ -35,14 +35,10 @@ impl Logger {
 impl<S> Service<S> for Logger {
     type Response = LoggerService<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
         let span = self.span.clone();
-        async { Ok(LoggerService { service, span }) }
+        Ok(LoggerService { service, span })
     }
 }
 
@@ -60,12 +56,9 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f, Req: 'f;
 
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
+    #[inline]
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
         Instrumented {
             task: async {
                 self.service.call(req).await.map_err(|e| {
@@ -75,6 +68,7 @@ where
             },
             span: &self.span,
         }
+        .await
     }
 }
 
@@ -106,10 +100,8 @@ where
 {
     type Ready = S::Ready;
 
-    type Future<'f> = S::Future<'f> where S: 'f;
-
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.service.ready()
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
     }
 }

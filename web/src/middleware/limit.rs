@@ -2,7 +2,6 @@ use std::{
     cell::RefCell,
     convert::Infallible,
     error, fmt,
-    future::Future,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -48,13 +47,9 @@ impl Limit {
 impl<S> Service<S> for Limit {
     type Response = LimitService<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
-        async { Ok(LimitService { service, limit: *self }) }
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+        Ok(LimitService { service, limit: *self })
     }
 }
 
@@ -73,23 +68,17 @@ where
 {
     type Response = Res;
     type Error = LimitServiceError<Err>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, 'r: 'f;
 
-    fn call<'s>(&'s self, mut req: WebRequest<'r, C, B>) -> Self::Future<'s>
-    where
-        'r: 's,
-    {
-        async move {
-            let (parts, ext) = req.take_request().into_parts();
-            let ctx = req.ctx;
-            let (ext, body) = ext.replace_body(());
-            let mut body = RefCell::new(LimitBody::new(body, self.limit.request_body_size));
-            let mut req = Request::from_parts(parts, ext);
+    async fn call(&self, mut req: WebRequest<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let (parts, ext) = req.take_request().into_parts();
+        let ctx = req.ctx;
+        let (ext, body) = ext.replace_body(());
+        let mut body = RefCell::new(LimitBody::new(body, self.limit.request_body_size));
+        let mut req = Request::from_parts(parts, ext);
 
-            let req = WebRequest::new(&mut req, &mut body, ctx);
+        let req = WebRequest::new(&mut req, &mut body, ctx);
 
-            self.service.call(req).await.map_err(LimitServiceError::Second)
-        }
+        self.service.call(req).await.map_err(LimitServiceError::Second)
     }
 }
 
@@ -98,11 +87,10 @@ where
     S: ReadyService,
 {
     type Ready = S::Ready;
-    type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.service.ready()
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
     }
 }
 
@@ -175,13 +163,12 @@ impl error::Error for LimitError {}
 
 impl<'r, C, B> Responder<WebRequest<'r, C, B>> for LimitError {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
         let mut res = req.into_response(format!("{self}"));
         res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
         *res.status_mut() = StatusCode::BAD_REQUEST;
-        async { res }
+        res
     }
 }
 
