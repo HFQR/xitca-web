@@ -1,5 +1,3 @@
-#![allow(clippy::redundant_async_block)]
-
 use core::{
     convert::Infallible,
     future::{ready, Future, Ready},
@@ -70,7 +68,7 @@ where
     type Error = Err;
 
     #[inline]
-    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        (self.0)(req).await
+    fn call(&self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>> {
+        (self.0)(req)
     }
 }
