@@ -2,7 +2,6 @@
 
 use core::{
     cell::RefCell,
-    future::Future,
     ops::{Deref, DerefMut},
     slice,
 };
@@ -221,32 +220,25 @@ where
     S: SideData,
     Io: AsyncBufRead,
 {
-    type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-    where
-        Self: 'f,
-        B: IoBufMut + 'f;
-
-    fn read<B>(&self, mut buf: B) -> Self::Future<'_, B>
+    async fn read<B>(&self, mut buf: B) -> (io::Result<usize>, B)
     where
         B: IoBufMut,
     {
-        async {
-            let mut session = self.session.borrow_mut();
+        let mut session = self.session.borrow_mut();
 
-            loop {
-                match session.read_plain(&mut buf) {
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                    res => return (res, buf),
-                }
-
-                drop(session);
-
-                match self.read_tls().await {
-                    Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
-                    Ok(_) => session = self.session.borrow_mut(),
-                    e => return (e, buf),
-                };
+        loop {
+            match session.read_plain(&mut buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                res => return (res, buf),
             }
+
+            drop(session);
+
+            match self.read_tls().await {
+                Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
+                Ok(_) => session = self.session.borrow_mut(),
+                e => return (e, buf),
+            };
         }
     }
 }
@@ -257,58 +249,51 @@ where
     S: SideData,
     Io: AsyncBufWrite,
 {
-    type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-    where
-        Self: 'f,
-        B: IoBuf + 'f;
-
-    fn write<B>(&self, buf: B) -> Self::Future<'_, B>
+    async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
         B: IoBuf,
     {
-        async {
-            let mut session = self.session.borrow_mut();
+        let mut session = self.session.borrow_mut();
 
-            let len = match session.write_plain(&buf) {
-                Ok(n) => n,
-                e => return (e, buf),
-            };
+        let len = match session.write_plain(&buf) {
+            Ok(n) => n,
+            e => return (e, buf),
+        };
 
-            let mut write_buf = session.write_buf.take().expect(POLL_TO_COMPLETE);
+        let mut write_buf = session.write_buf.take().expect(POLL_TO_COMPLETE);
 
-            // currently there is no AsyncBufWrite::flush so write must keep flushing io until
-            // every bit of tls data is sent. this could be changed in the future for more efficient
-            // rustl buffer usage.
-            while session.session.wants_write() {
-                if let Err(e) = session.session.write_tls(&mut write_buf) {
-                    session.write_buf.replace(write_buf);
-                    return (Err(e), buf);
-                }
-
-                drop(session);
-
-                let (res, b) = write_buf.write_io(&self.io).await;
-                write_buf = b;
-
-                session = self.session.borrow_mut();
-
-                match res {
-                    Ok(0) => {
-                        session.write_buf.replace(write_buf);
-                        return (Err(io::ErrorKind::UnexpectedEof.into()), buf);
-                    }
-                    Ok(_) => {}
-                    e => {
-                        session.write_buf.replace(write_buf);
-                        return (e, buf);
-                    }
-                }
+        // currently there is no AsyncBufWrite::flush so write must keep flushing io until
+        // every bit of tls data is sent. this could be changed in the future for more efficient
+        // rustl buffer usage.
+        while session.session.wants_write() {
+            if let Err(e) = session.session.write_tls(&mut write_buf) {
+                session.write_buf.replace(write_buf);
+                return (Err(e), buf);
             }
 
-            session.write_buf.replace(write_buf);
+            drop(session);
 
-            (Ok(len), buf)
+            let (res, b) = write_buf.write_io(&self.io).await;
+            write_buf = b;
+
+            session = self.session.borrow_mut();
+
+            match res {
+                Ok(0) => {
+                    session.write_buf.replace(write_buf);
+                    return (Err(io::ErrorKind::UnexpectedEof.into()), buf);
+                }
+                Ok(_) => {}
+                e => {
+                    session.write_buf.replace(write_buf);
+                    return (e, buf);
+                }
+            }
         }
+
+        session.write_buf.replace(write_buf);
+
+        (Ok(len), buf)
     }
 
     fn shutdown(&self, direction: Shutdown) -> io::Result<()> {

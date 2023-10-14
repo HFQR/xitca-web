@@ -1,4 +1,4 @@
-use core::{convert::Infallible, future::Future, time::Duration};
+use core::{convert::Infallible, time::Duration};
 
 use std::{io, net::SocketAddr};
 
@@ -69,14 +69,10 @@ impl SocketConfig {
 impl<S> Service<S> for SocketConfig {
     type Response = SocketConfigService<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
         let config = self.clone();
-        async { Ok(SocketConfigService { config, service }) }
+        Ok(SocketConfigService { config, service })
     }
 }
 
@@ -85,11 +81,10 @@ where
     S: ReadyService,
 {
     type Ready = S::Ready;
-    type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.service.ready()
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
     }
 }
 
@@ -99,15 +94,10 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f> = S::Future<'f> where S: 'f;
 
-    #[inline]
-    fn call<'s>(&'s self, (stream, addr): (TcpStream, SocketAddr)) -> Self::Future<'s>
-    where
-        TcpStream: 's,
-    {
+    async fn call(&self, (stream, addr): (TcpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
         self.try_apply_config(&stream);
-        self.service.call((stream, addr))
+        self.service.call((stream, addr)).await
     }
 }
 
@@ -118,15 +108,10 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f> = S::Future<'f> where S: 'f;
 
-    #[inline]
-    fn call<'s>(&'s self, (stream, addr): (UnixStream, SocketAddr)) -> Self::Future<'s>
-    where
-        UnixStream: 's,
-    {
+    async fn call(&self, (stream, addr): (UnixStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
         self.try_apply_config(&stream);
-        self.service.call((stream, addr))
+        self.service.call((stream, addr)).await
     }
 }
 
@@ -136,13 +121,9 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f> = S::Future<'f> where S: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, stream: ServerStream) -> Self::Future<'s>
-    where
-        ServerStream: 's,
-    {
+    async fn call(&self, stream: ServerStream) -> Result<Self::Response, Self::Error> {
         #[cfg_attr(windows, allow(irrefutable_let_patterns))]
         if let ServerStream::Tcp(ref tcp, _) = stream {
             self.try_apply_config(tcp)
@@ -153,7 +134,7 @@ where
             self.try_apply_config(unix)
         };
 
-        self.service.call(stream)
+        self.service.call(stream).await
     }
 }
 

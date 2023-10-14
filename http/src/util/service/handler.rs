@@ -1,14 +1,10 @@
-#![allow(non_snake_case)]
-
-use std::{
+use core::{
     convert::Infallible,
-    future::{ready, Future, Ready},
+    future::Future,
+    future::{ready, Ready},
     marker::PhantomData,
-    pin::Pin,
-    task::{Context, Poll},
 };
 
-use pin_project_lite::pin_project;
 use xitca_service::{fn_build, pipeline::PipelineE, AsyncClosure, FnService, Service};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
@@ -47,18 +43,12 @@ where
 {
     type Response = O::Output;
     type Error = T::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async {
-            let extract = T::Type::<'_>::from_request(&req).await?;
-            let res = self.func.call(extract).await;
-            Ok(res.respond_to(req).await)
-        }
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        let extract = T::Type::<'_>::from_request(&req).await?;
+        let res = self.func.call(extract).await;
+        Ok(res.respond_to(req).await)
     }
 }
 
@@ -71,7 +61,7 @@ where
 ///
 /// # Examples
 /// ```
-/// #![feature(impl_trait_in_assoc_type)]
+/// #![feature(async_fn_in_trait)]
 /// # use std::future::Future;
 /// # use xitca_http::util::service::handler::FromRequest;
 /// struct MyExtractor<'a>(&'a str);
@@ -79,28 +69,22 @@ where
 /// impl<'a, 'r> FromRequest<'a, &'r String> for MyExtractor<'a> {
 ///     type Type<'b> = MyExtractor<'b>;
 ///     type Error = ();
-///     type Future = impl Future<Output = Result<Self, Self::Error>> where 'r: 'a;
-///     fn from_request(req: &'a &'r String) -> Self::Future {
-///         async { Ok(MyExtractor(req)) }
+///
+///     async fn from_request(req: &'a &'r String) -> Result<Self, Self::Error> {
+///         Ok(MyExtractor(req))
 ///     }
 /// }
 /// ```
 pub trait FromRequest<'a, Req>: Sized {
     // Used to construct the type for any lifetime 'b.
     type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
-
     type Error;
-    type Future: Future<Output = Result<Self, Self::Error>>
-    where
-        Req: 'a;
 
-    fn from_request(req: &'a Req) -> Self::Future;
+    fn from_request(req: &'a Req) -> impl Future<Output = Result<Self, Self::Error>>;
 }
 
 macro_rules! from_req_impl {
-    ($fut: ident; $req0: ident, $($req: ident,)*) => {
-        from_req_impl! { $fut, $req0, $($req,)* }
-
+    ($req0: ident, $($req: ident,)*) => {
         impl<'a, Req, $req0, $($req,)*> FromRequest<'a, Req> for ($req0, $($req,)*)
         where
             $req0: FromRequest<'a, Req>,
@@ -111,142 +95,33 @@ macro_rules! from_req_impl {
         {
             type Type<'r> = ($req0::Type<'r>, $($req::Type<'r>,)*);
             type Error = $req0::Error;
-            type Future = impl Future<Output = Result<Self, Self::Error>> where Req: 'a;
 
-            fn from_request(req: &'a Req) -> Self::Future {
-                $fut::new(req)
-            }
-        }
-
-        impl<'f, Req, $req0, $($req,)*> Future for $fut<'f, Req, $req0, $($req,)*>
-        where
-            Req: 'f,
-            $req0: FromRequest<'f, Req>,
-            $(
-                $req: FromRequest<'f, Req>,
-                $req0::Error: From<$req::Error>,
-            )*
-        {
-            type Output = Result<($req0, $($req,)*), $req0::Error>;
-
-            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-                let mut this = self.project();
-
-                let mut ready = true;
-
-                match this.$req0.as_mut().project() {
-                    ExtractProj::Future { fut } => match fut.poll(cx)? {
-                        Poll::Ready(output) => {
-                            let _ = this.$req0.as_mut().project_replace(ExtractFuture::Done { output });
-                        },
-                        Poll::Pending => ready = false,
-                    },
-                    ExtractProj::Done { .. } => {},
-                    ExtractProj::Empty => unreachable!("FromRequest polled after finished"),
-                }
-
-                $(
-                    match this.$req.as_mut().project() {
-                        ExtractProj::Future { fut } => match fut.poll(cx)? {
-                            Poll::Ready(output) => {
-                                let _ = this.$req.as_mut().project_replace(ExtractFuture::Done { output });
-                            },
-                            Poll::Pending => ready = false,
-                        },
-                        ExtractProj::Done { .. } => {},
-                        ExtractProj::Empty => unreachable!("FromRequest polled after finished"),
-                    }
-                )*
-
-                if ready {
-                    Poll::Ready(Ok(
-                        (
-                            match this.$req0.project_replace(ExtractFuture::Empty) {
-                                ExtractReplaceProj::Done { output } => output,
-                                _ => unreachable!("FromRequest polled after finished"),
-                            },
-                            $(
-                                match this.$req.project_replace(ExtractFuture::Empty) {
-                                    ExtractReplaceProj::Done { output } => output,
-                                    _ => unreachable!("FromRequest polled after finished"),
-                                },
-                            )*
-                        )
-                    ))
-                } else {
-                    Poll::Pending
-                }
-            }
-        }
-    };
-    ($fut: ident, $($req: ident,)*) => {
-        pin_project! {
-            struct $fut<'f, Req, $($req,)*>
-            where
-                Req: 'f,
-                $(
-                    $req: FromRequest<'f, Req>,
-                )*
-            {
-                $(
-                    #[pin]
-                    $req: ExtractFuture<$req::Future, $req>,
-                )*
-            }
-        }
-
-        impl<'f, Req, $($req,)*> $fut<'f, Req, $($req,)*>
-        where
-            Req: 'f,
-            $(
-                $req: FromRequest<'f, Req>,
-            )*
-        {
-            fn new(req: &'f Req) -> Self {
-                Self {
-                    $(
-                        $req: ExtractFuture::Future {
-                            fut: $req::from_request(req)
-                        },
-                    )*
-                }
+            #[inline]
+            async fn from_request(req: &'a Req) -> Result<Self, Self::Error> {
+                Ok((
+                    $req0::from_request(req).await?,
+                    $($req::from_request(req).await?,)*
+                ))
             }
         }
     }
 }
 
-pin_project! {
-    #[project = ExtractProj]
-    #[project_replace = ExtractReplaceProj]
-    enum ExtractFuture<Fut, Res> {
-        Future {
-            #[pin]
-            fut: Fut
-        },
-        Done {
-            output: Res,
-        },
-        Empty
-    }
-}
-
-from_req_impl! { Extract1; A, }
-from_req_impl! { Extract2; A, B, }
-from_req_impl! { Extract3; A, B, C, }
-from_req_impl! { Extract4; A, B, C, D, }
-from_req_impl! { Extract5; A, B, C, D, E, }
-from_req_impl! { Extract6; A, B, C, D, E, F, }
-from_req_impl! { Extract7; A, B, C, D, E, F, G, }
-from_req_impl! { Extract8; A, B, C, D, E, F, G, H, }
-from_req_impl! { Extract9; A, B, C, D, E, F, G, H, I, }
+from_req_impl! { A, }
+from_req_impl! { A, B, }
+from_req_impl! { A, B, C, }
+from_req_impl! { A, B, C, D, }
+from_req_impl! { A, B, C, D, E, }
+from_req_impl! { A, B, C, D, E, F, }
+from_req_impl! { A, B, C, D, E, F, G, }
+from_req_impl! { A, B, C, D, E, F, G, H, }
+from_req_impl! { A, B, C, D, E, F, G, H, I, }
 
 /// Make Response with reference of Req.
 /// The Output type is what returns from [handler_service] function.
 pub trait Responder<Req> {
     type Output;
-    type Future: Future<Output = Self::Output>;
-
-    fn respond_to(self, req: Req) -> Self::Future;
+    fn respond_to(self, req: Req) -> impl Future<Output = Self::Output>;
 }
 
 impl<R, T, E> Responder<R> for Result<T, E>
@@ -254,11 +129,10 @@ where
     T: Responder<R>,
 {
     type Output = Result<T::Output, E>;
-    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: R) -> Self::Future {
-        async { Ok(self?.respond_to(req).await) }
+    async fn respond_to(self, req: R) -> Self::Output {
+        Ok(self?.respond_to(req).await)
     }
 }
 
@@ -268,25 +142,19 @@ where
     S: Responder<R, Output = F::Output>,
 {
     type Output = F::Output;
-    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: R) -> Self::Future {
-        async {
-            match self {
-                Self::First(f) => f.respond_to(req).await,
-                Self::Second(s) => s.respond_to(req).await,
-            }
+    async fn respond_to(self, req: R) -> Self::Output {
+        match self {
+            Self::First(f) => f.respond_to(req).await,
+            Self::Second(s) => s.respond_to(req).await,
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::{
-        convert::Infallible,
-        future::{ready, Ready},
-    };
+    use std::convert::Infallible;
 
     use xitca_service::{Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
@@ -305,54 +173,47 @@ mod test {
 
     impl Responder<Request<RequestExt<()>>> for StatusCode {
         type Output = Response<()>;
-        type Future = impl Future<Output = Self::Output>;
 
-        fn respond_to(self, _: Request<RequestExt<()>>) -> Self::Future {
-            async move {
-                let mut res = Response::new(());
-                *res.status_mut() = self;
-                res
-            }
+        async fn respond_to(self, _: Request<RequestExt<()>>) -> Self::Output {
+            let mut res = Response::new(());
+            *res.status_mut() = self;
+            res
         }
     }
 
     impl<'a> FromRequest<'a, Request<RequestExt<()>>> for String {
         type Type<'f> = Self;
         type Error = Infallible;
-        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<RequestExt<()>>) -> Self::Future {
-            ready(Ok(String::from("996")))
+        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
+            Ok(String::from("996"))
         }
     }
 
     impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u32 {
         type Type<'f> = Self;
         type Error = Infallible;
-        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<RequestExt<()>>) -> Self::Future {
-            ready(Ok(996))
+        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
+            Ok(996)
         }
     }
 
     impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u64 {
         type Type<'f> = Self;
         type Error = Infallible;
-        type Future = Ready<Result<Self, Self::Error>>;
 
-        fn from_request(_: &'a Request<RequestExt<()>>) -> Self::Future {
-            ready(Ok(996))
+        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
+            Ok(996)
         }
     }
 
     impl<'a> FromRequest<'a, Request<RequestExt<()>>> for &'a Request<RequestExt<()>> {
         type Type<'f> = &'f Request<RequestExt<()>>;
         type Error = Infallible;
-        type Future = impl Future<Output = Result<Self, Self::Error>>;
 
-        fn from_request(req: &'a Request<RequestExt<()>>) -> Self::Future {
-            async move { Ok(req) }
+        async fn from_request(req: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
+            Ok(req)
         }
     }
 

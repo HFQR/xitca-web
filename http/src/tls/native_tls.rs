@@ -1,13 +1,14 @@
 pub(crate) use native_tls::TlsAcceptor;
 
-use std::{
+use core::{
     convert::Infallible,
     fmt,
     future::Future,
-    io,
     pin::Pin,
     task::{ready, Context, Poll},
 };
+
+use std::io;
 
 use native_tls::{Error, HandshakeError};
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
@@ -49,14 +50,13 @@ impl TlsAcceptorBuilder {
 impl Service for TlsAcceptorBuilder {
     type Response = TlsAcceptorService;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
         let service = TlsAcceptorService {
             acceptor: self.acceptor.clone(),
         };
 
-        async { Ok(service) }
+        Ok(service)
     }
 }
 
@@ -68,42 +68,34 @@ pub struct TlsAcceptorService {
 impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = NativeTlsError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where St: 'f;
 
-    fn call<'s>(&'s self, io: St) -> Self::Future<'s>
-    where
-        St: 's,
-    {
-        async move {
-            let mut interest = Interest::READABLE;
+    async fn call(&self, io: St) -> Result<Self::Response, Self::Error> {
+        let mut interest = Interest::READABLE;
 
-            io.ready(interest).await?;
+        io.ready(interest).await?;
 
-            let mut res = self.acceptor.accept(io);
+        let mut res = self.acceptor.accept(io);
 
-            loop {
-                let stream = match res {
-                    Ok(io) => return Ok(TlsStream { io }),
-                    Err(HandshakeError::WouldBlock(stream)) => {
-                        interest = Interest::READABLE;
-                        stream
-                    }
-                    Err(HandshakeError::Failure(e)) => return Err(e.into()),
-                };
+        loop {
+            let stream = match res {
+                Ok(io) => return Ok(TlsStream { io }),
+                Err(HandshakeError::WouldBlock(stream)) => {
+                    interest = Interest::READABLE;
+                    stream
+                }
+                Err(HandshakeError::Failure(e)) => return Err(e.into()),
+            };
 
-                stream.get_ref().ready(interest).await?;
+            stream.get_ref().ready(interest).await?;
 
-                res = stream.handshake();
-            }
+            res = stream.handshake();
         }
     }
 }
 
 impl<S: AsyncIo> AsyncIo for TlsStream<S> {
-    type Future<'f> = impl Future<Output = io::Result<Ready>> + 'f where Self: 'f;
-
     #[inline]
-    fn ready(&self, interest: Interest) -> Self::Future<'_> {
+    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
         self.io.get_ref().ready(interest)
     }
 

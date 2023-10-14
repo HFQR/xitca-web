@@ -5,7 +5,7 @@
 //! for handling different protocols in one place.
 
 #![forbid(unsafe_code)]
-#![feature(impl_trait_in_assoc_type)]
+#![feature(async_fn_in_trait, return_position_impl_trait_in_trait)]
 
 #[cfg(feature = "runtime")]
 mod builder;

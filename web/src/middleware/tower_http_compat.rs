@@ -3,6 +3,7 @@ use core::{
     convert::Infallible,
     future::Future,
     marker::PhantomData,
+    pin::Pin,
     task::{Context, Poll},
 };
 
@@ -78,17 +79,13 @@ where
 {
     type Response = TowerCompatService<L::Service>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
         let service = self.layer.layer(CompatLayer {
             service: Rc::new(service),
             _phantom: PhantomData,
         });
-        async { Ok(TowerCompatService::new(service)) }
+        Ok(TowerCompatService::new(service))
     }
 }
 
@@ -100,12 +97,13 @@ pub struct CompatLayer<S, C, ReqB, ResB, Err> {
 impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>>
     for CompatLayer<S, C, ReqB, ResB, Err>
 where
-    S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
+    S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
     C: Clone + 'static,
+    ReqB: 'static,
 {
     type Response = Response<CompatBody<ResB>>;
     type Error = Err;
-    type Future = impl Future<Output = Result<Self::Response, Self::Error>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
     #[inline]
     fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -114,7 +112,7 @@ where
 
     fn call(&mut self, req: Request<CompatBody<FakeSend<RequestExt<ReqB>>>>) -> Self::Future {
         let service = self.service.clone();
-        async move {
+        Box::pin(async move {
             let (mut parts, body) = req.into_parts();
 
             let ctx = parts
@@ -131,7 +129,7 @@ where
             let req = WebRequest::new(&mut req, &mut body, &ctx);
 
             service.call(req).await.map(|res| res.map(CompatBody::new))
-        }
+        })
     }
 }
 

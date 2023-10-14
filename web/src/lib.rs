@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![feature(impl_trait_in_assoc_type)]
+#![feature(async_fn_in_trait)]
 
 mod app;
 #[cfg(feature = "__server")]

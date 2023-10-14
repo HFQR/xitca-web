@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use crate::pipeline::{
     marker::{AndThen, BuildAndThen},
     PipelineT,
@@ -16,17 +14,11 @@ where
 {
     type Response = PipelineT<SF::Response, SF1::Response, AndThen>;
     type Error = SF1::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-    where
-        Arg: 's,
-    {
-        async move {
-            let first = self.first.call(arg.clone()).await?;
-            let second = self.second.call(arg).await?;
-            Ok(PipelineT::new(first, second))
-        }
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let first = self.first.call(arg.clone()).await?;
+        let second = self.second.call(arg).await?;
+        Ok(PipelineT::new(first, second))
     }
 }
 
@@ -37,16 +29,10 @@ where
 {
     type Response = S1::Response;
     type Error = S::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async {
-            let res = self.first.call(req).await?;
-            self.second.call(res).await
-        }
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        let res = self.first.call(req).await?;
+        self.second.call(res).await
     }
 }

@@ -1,5 +1,3 @@
-use std::future::Future;
-
 use crate::{
     body::BodyStream,
     handler::{error::ExtractError, FromRequest},
@@ -14,11 +12,9 @@ where
 {
     type Type<'b> = Body<B>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        let extract = Body(req.take_body_ref());
-        async { Ok(extract) }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(Body(req.take_body_ref()))
     }
 }

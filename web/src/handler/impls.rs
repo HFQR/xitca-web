@@ -1,4 +1,4 @@
-use core::{convert::Infallible, future::Future};
+use core::convert::Infallible;
 
 use std::{error, io};
 
@@ -24,11 +24,10 @@ where
 {
     type Type<'b> = Result<T, E>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r,  C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async { Ok(T::from_request(req).await) }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(T::from_request(req).await)
     }
 }
 
@@ -39,11 +38,10 @@ where
 {
     type Type<'b> = Option<T>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B, >: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async { Ok(T::from_request(req).await.ok()) }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(T::from_request(req).await.ok())
     }
 }
 
@@ -54,11 +52,10 @@ where
 {
     type Type<'b> = &'b WebRequest<'b, C, B>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move { Ok(req) }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(req)
     }
 }
 
@@ -68,40 +65,36 @@ where
 {
     type Type<'b> = ();
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(_: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async { Ok(()) }
+    async fn from_request(_: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(())
     }
 }
 
 impl<'r, C, B, ResB> Responder<WebRequest<'r, C, B>> for WebResponse<ResB> {
     type Output = WebResponse<ResB>;
-    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Future {
-        async { self }
+    async fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Output {
+        self
     }
 }
 
 impl<'r, C, B> Responder<WebRequest<'r, C, B>> for () {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
-        let res = req.into_response(Bytes::new());
-        async { res }
+    #[inline]
+    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
+        req.into_response(Bytes::new())
     }
 }
 
 impl<'r, C, B> Responder<WebRequest<'r, C, B>> for Infallible {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Future {
-        async { match self {} }
+    async fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Output {
+        match self {}
     }
 }
 
@@ -109,12 +102,11 @@ macro_rules! text_utf8 {
     ($type: ty) => {
         impl<'r, C, B> Responder<WebRequest<'r, C, B>> for $type {
             type Output = WebResponse;
-            type Future = impl Future<Output = Self::Output>;
 
-            fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+            async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
                 let mut res = req.into_response(self);
                 res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-                async { res }
+                res
             }
         }
     };
@@ -127,12 +119,11 @@ macro_rules! blank_internal {
     ($type: ty) => {
         impl<'r, C, B> Responder<WebRequest<'r, C, B>> for $type {
             type Output = WebResponse;
-            type Future = impl Future<Output = Self::Output>;
 
-            fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+            async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
                 let mut res = req.into_response(Bytes::new());
                 *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                async { res }
+                res
             }
         }
     };
@@ -145,20 +136,18 @@ blank_internal!(Box<dyn error::Error + Send + Sync>);
 
 impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MatchError {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
         let mut res = req.into_response(Bytes::new());
         *res.status_mut() = StatusCode::NOT_FOUND;
-        async { res }
+        res
     }
 }
 
 impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MethodNotAllowed {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
         let mut res = req.into_response(Bytes::new());
 
         let allowed = self.allowed_methods();
@@ -174,9 +163,9 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MethodNotAllowed {
         methods.pop();
 
         res.headers_mut().insert(ALLOW, methods.parse().unwrap());
-
         *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
-        async { res }
+
+        res
     }
 }
 

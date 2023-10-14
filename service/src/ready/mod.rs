@@ -12,7 +12,7 @@ use core::{future::Future, ops::Deref, pin::Pin};
 ///
 /// # Examples:
 /// ```rust
-/// #![feature(impl_trait_in_assoc_type)]
+/// #![feature(async_fn_in_trait)]
 /// # use std::{cell::Cell, rc::Rc, future::Future};
 /// # use xitca_service::{Service, ready::ReadyService};
 ///
@@ -32,29 +32,25 @@ use core::{future::Future, ops::Deref, pin::Pin};
 /// impl Service<()> for Foo {
 ///     type Response = ();
 ///     type Error = ();
-///     type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 ///
-///     fn call<'s>(&'s self, _req: ()) -> Self::Future<'s> where (): 's {
-///         async { Ok(()) }
+///     async fn call(&self, _req: ()) -> Result<Self::Response, Self::Error> {
+///         Ok(())
 ///     }
 /// }
 ///
 /// impl ReadyService for Foo {
 ///     type Ready = Result<Permit, ()>;
-///     type Future<'f> = impl Future<Output = Self::Ready> + 'f;
 ///
-///     fn ready(&self) -> Self::Future<'_> {
-///         async move {
-///             if self.0.0.get() {
-///                 // set permit to false and return with Ok<Permit>
-///                 self.0.0.set(false);
-///                 Ok(self.0.clone())
-///             } else {
-///                 // return error is to simply the example.
-///                 // In real world this branch should be an async waiting for Permit reset to true.
-///                 Err(())
-///             }                
-///         }
+///     async fn ready(&self) -> Self::Ready {
+///         if self.0.0.get() {
+///             // set permit to false and return with Ok<Permit>
+///             self.0.0.set(false);
+///             Ok(self.0.clone())
+///         } else {
+///             // return error is to simply the example.
+///             // In real world this branch should be an async waiting for Permit reset to true.
+///             Err(())
+///         }                
 ///     }
 /// }
 ///
@@ -73,11 +69,8 @@ use core::{future::Future, ops::Deref, pin::Pin};
 /// ```
 pub trait ReadyService {
     type Ready;
-    type Future<'f>: Future<Output = Self::Ready>
-    where
-        Self: 'f;
 
-    fn ready(&self) -> Self::Future<'_>;
+    fn ready(&self) -> impl Future<Output = Self::Ready>;
 }
 
 #[cfg(feature = "alloc")]
@@ -93,11 +86,10 @@ mod alloc_impl {
                 S: ReadyService + ?Sized,
             {
                 type Ready = S::Ready;
-                type Future<'f> = S::Future<'f> where S: 'f;
 
                 #[inline]
-                fn ready(&self) -> Self::Future<'_> {
-                    (**self).ready()
+                async fn ready(&self) -> Self::Ready {
+                    (**self).ready().await
                 }
             }
         };
@@ -114,12 +106,9 @@ where
     S::Target: ReadyService,
 {
     type Ready = <S::Target as ReadyService>::Ready;
-    type Future<'f> = <S::Target as ReadyService>::Future<'f>
-    where
-        S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.as_ref().get_ref().ready()
+    async fn ready(&self) -> Self::Ready {
+        self.as_ref().get_ref().ready().await
     }
 }

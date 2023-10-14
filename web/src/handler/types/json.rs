@@ -1,6 +1,6 @@
 use core::{
     fmt,
-    future::{poll_fn, Future},
+    future::poll_fn,
     ops::{Deref, DerefMut},
     pin::pin,
 };
@@ -65,37 +65,34 @@ where
 {
     type Type<'b> = Json<T, LIMIT>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move {
-            HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
 
-            let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(req)
-                .await
-                .ok()
-                .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
-                .map(|len| std::cmp::min(len, LIMIT))
-                .unwrap_or_else(|| LIMIT);
+        let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(req)
+            .await
+            .ok()
+            .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
+            .map(|len| std::cmp::min(len, LIMIT))
+            .unwrap_or_else(|| LIMIT);
 
-            let Body(body) = Body::from_request(req).await?;
+        let Body(body) = Body::from_request(req).await?;
 
-            let mut body = pin!(body);
+        let mut body = pin!(body);
 
-            let mut buf = BytesMut::new();
+        let mut buf = BytesMut::new();
 
-            while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                let chunk = chunk.map_err(ExtractError::Body)?;
-                buf.extend_from_slice(chunk.as_ref());
-                if buf.len() > limit {
-                    break;
-                }
+        while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+            let chunk = chunk.map_err(ExtractError::Body)?;
+            buf.extend_from_slice(chunk.as_ref());
+            if buf.len() > limit {
+                break;
             }
-
-            let json = serde_json::from_slice(&buf).map_err(_ParseError::JsonString)?;
-
-            Ok(Json(json))
         }
+
+        let json = serde_json::from_slice(&buf).map_err(_ParseError::JsonString)?;
+
+        Ok(Json(json))
     }
 }
 
@@ -104,14 +101,13 @@ where
     T: Serialize,
 {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
         let mut bytes = BytesMut::new();
         serde_json::to_writer(BufMutWriter(&mut bytes), &self.0).unwrap();
         let mut res = req.into_response(bytes.freeze());
         res.headers_mut().insert(CONTENT_TYPE, JSON);
-        async { res }
+        res
     }
 }

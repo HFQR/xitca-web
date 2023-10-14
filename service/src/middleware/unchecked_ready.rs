@@ -1,4 +1,4 @@
-use core::{convert::Infallible, future::Future};
+use core::convert::Infallible;
 
 use crate::{ready::ReadyService, service::Service};
 
@@ -10,13 +10,9 @@ pub struct UncheckedReady;
 impl<S> Service<S> for UncheckedReady {
     type Response = UncheckedReadyService<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
-        async { Ok(UncheckedReadyService { service }) }
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+        Ok(UncheckedReadyService { service })
     }
 }
 
@@ -30,28 +26,16 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future<'f> = S::Future<'f>
-    where
-        S: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        self.service.call(req)
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        self.service.call(req).await
     }
 }
 
 impl<S> ReadyService for UncheckedReadyService<S> {
     type Ready = ();
 
-    type Future<'f> = impl Future<Output = Self::Ready>
-    where
-        S: 'f;
-
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        async {}
-    }
+    async fn ready(&self) -> Self::Ready {}
 }

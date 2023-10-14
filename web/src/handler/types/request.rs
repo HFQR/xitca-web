@@ -1,4 +1,4 @@
-use core::{future::Future, ops::Deref};
+use core::ops::Deref;
 
 use crate::{
     body::BodyStream,
@@ -24,10 +24,9 @@ where
 {
     type Type<'b> = RequestRef<'b>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async { Ok(RequestRef(req.req())) }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(RequestRef(req.req()))
     }
 }

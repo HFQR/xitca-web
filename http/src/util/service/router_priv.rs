@@ -1,6 +1,6 @@
 pub use xitca_router::{params::Params, MatchError};
 
-use core::{future::Future, marker::PhantomData};
+use core::marker::PhantomData;
 
 use std::{borrow::Cow, collections::HashMap};
 
@@ -117,22 +117,16 @@ where
 {
     type Response = RouterService<Obj::Response>;
     type Error = Obj::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-    where
-        Arg: 's,
-    {
-        async move {
-            let mut routes = xitca_router::Router::new();
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let mut routes = xitca_router::Router::new();
 
-            for (path, service) in self.routes.iter() {
-                let service = service.call(arg.clone()).await?;
-                routes.insert(path.to_string(), service).unwrap();
-            }
-
-            Ok(RouterService { routes })
+        for (path, service) in self.routes.iter() {
+            let service = service.call(arg.clone()).await?;
+            routes.insert(path.to_string(), service).unwrap();
         }
+
+        Ok(RouterService { routes })
     }
 }
 
@@ -147,32 +141,22 @@ where
 {
     type Response = S::Response;
     type Error = RouterError<S::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, mut req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async {
-            let xitca_router::Match { value, params } =
-                self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
+    async fn call(&self, mut req: Req) -> Result<Self::Response, Self::Error> {
+        let xitca_router::Match { value, params } = self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
 
-            *req.borrow_mut() = params;
+        *req.borrow_mut() = params;
 
-            value.call(req).await.map_err(RouterError::Second)
-        }
+        value.call(req).await.map_err(RouterError::Second)
     }
 }
 
 impl<S> ReadyService for RouterService<S> {
     type Ready = ();
-    type Future<'f> = impl Future<Output = Self::Ready> where S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        async {}
-    }
+    async fn ready(&self) -> Self::Ready {}
 }
 
 /// An object constructor represents a one of possibly many ways to create a trait object from `I`.
@@ -206,13 +190,9 @@ where
         {
             type Response = BoxedServiceObject<Req, Res, Err>;
             type Error = T::Error;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-            fn call<'s>(&'s self, req: Arg) -> Self::Future<'s>
-            where
-                Arg: 's,
-            {
-                async { self.0.call(req).await.map(|s| Box::new(s) as _) }
+            async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+                self.0.call(arg).await.map(|s| Box::new(s) as _)
             }
         }
 

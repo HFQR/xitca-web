@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::Future};
+use std::convert::Infallible;
 
 use xitca_service::Service;
 
@@ -24,12 +24,8 @@ impl H3ServiceBuilder {
 impl<S> Service<S> for H3ServiceBuilder {
     type Response = H3Service<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
-        async { Ok(H3Service::new(service)) }
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+        Ok(H3Service::new(service))
     }
 }

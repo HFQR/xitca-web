@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use std::{
     io,
     net::{Shutdown, SocketAddr},
@@ -35,32 +33,22 @@ impl TryFrom<Stream> for (TcpStream, SocketAddr) {
 }
 
 impl AsyncBufRead for TcpStream {
-    type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-    where
-        Self: 'f,
-        B: IoBufMut + 'f;
-
     #[inline(always)]
-    fn read<B>(&self, buf: B) -> Self::Future<'_, B>
+    async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
         B: IoBufMut,
     {
-        TcpStream::read(self, buf)
+        TcpStream::read(self, buf).await
     }
 }
 
 impl AsyncBufWrite for TcpStream {
-    type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-    where
-        Self: 'f,
-        B: IoBuf + 'f;
-
     #[inline(always)]
-    fn write<B>(&self, buf: B) -> Self::Future<'_, B>
+    async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
         B: IoBuf,
     {
-        TcpStream::write(self, buf)
+        TcpStream::write(self, buf).await
     }
 
     #[inline(always)]
@@ -96,32 +84,22 @@ mod unix {
     }
 
     impl AsyncBufRead for UnixStream {
-        type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-        where
-            Self: 'f,
-            B: IoBufMut+ 'f;
-
         #[inline(always)]
-        fn read<B>(&self, buf: B) -> Self::Future<'_, B>
+        async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
         where
             B: IoBufMut,
         {
-            UnixStream::read(self, buf)
+            UnixStream::read(self, buf).await
         }
     }
 
     impl AsyncBufWrite for UnixStream {
-        type Future<'f, B> = impl Future<Output = (io::Result<usize>, B)> + 'f
-        where
-            Self: 'f,
-            B: IoBuf + 'f;
-
         #[inline(always)]
-        fn write<B>(&self, buf: B) -> Self::Future<'_, B>
+        async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
         where
             B: IoBuf,
         {
-            UnixStream::write(self, buf)
+            UnixStream::write(self, buf).await
         }
 
         #[inline(always)]

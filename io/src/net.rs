@@ -22,14 +22,16 @@ use std::{io, net::SocketAddr};
 macro_rules! default_aio_impl {
     ($ty: ty) => {
         impl crate::io::AsyncIo for $ty {
-            type Future<'f> = impl ::core::future::Future<Output = ::std::io::Result<crate::io::Ready>> + Send + 'f where Self: 'f;
-
             #[inline]
-            fn ready(&self, interest: crate::io::Interest) -> Self::Future<'_> {
-                self.0.ready(interest)
+            async fn ready(&self, interest: crate::io::Interest) -> ::std::io::Result<crate::io::Ready> {
+                self.0.ready(interest).await
             }
 
-            fn poll_ready(&self, interest: crate::io::Interest, cx: &mut ::core::task::Context<'_>) -> ::core::task::Poll<::std::io::Result<crate::io::Ready>> {
+            fn poll_ready(
+                &self,
+                interest: crate::io::Interest,
+                cx: &mut ::core::task::Context<'_>,
+            ) -> ::core::task::Poll<::std::io::Result<crate::io::Ready>> {
                 match interest {
                     crate::io::Interest::READABLE => self.0.poll_read_ready(cx).map_ok(|_| crate::io::Ready::READABLE),
                     crate::io::Interest::WRITABLE => self.0.poll_write_ready(cx).map_ok(|_| crate::io::Ready::WRITABLE),
@@ -38,10 +40,13 @@ macro_rules! default_aio_impl {
             }
 
             fn is_vectored_write(&self) -> bool {
-                 crate::io::AsyncWrite::is_write_vectored(&self.0)
+                crate::io::AsyncWrite::is_write_vectored(&self.0)
             }
 
-            fn poll_shutdown(self: ::core::pin::Pin<&mut Self>, cx: &mut ::core::task::Context<'_>) -> ::core::task::Poll<::std::io::Result<()>> {
+            fn poll_shutdown(
+                self: ::core::pin::Pin<&mut Self>,
+                cx: &mut ::core::task::Context<'_>,
+            ) -> ::core::task::Poll<::std::io::Result<()>> {
                 crate::io::AsyncWrite::poll_shutdown(::core::pin::Pin::new(&mut self.get_mut().0), cx)
             }
         }
