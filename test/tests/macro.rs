@@ -1,5 +1,3 @@
-#![feature(async_fn_in_trait)]
-
 use xitca_service::{ready::ReadyService, Service, ServiceExt};
 
 struct Test;

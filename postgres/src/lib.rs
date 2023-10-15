@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-#![feature(async_fn_in_trait, return_position_impl_trait_in_trait)]
 
 //! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/).
 

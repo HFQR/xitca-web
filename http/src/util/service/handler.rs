@@ -61,7 +61,6 @@ where
 ///
 /// # Examples
 /// ```
-/// #![feature(async_fn_in_trait)]
 /// # use std::future::Future;
 /// # use xitca_http::util::service::handler::FromRequest;
 /// struct MyExtractor<'a>(&'a str);
