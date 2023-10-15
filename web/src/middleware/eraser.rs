@@ -78,8 +78,6 @@ pub struct EraserService<M, S> {
 impl<'r, S, C, B, ResB, Err> Service<WebRequest<'r, C, B>> for EraserService<EraseResBody, S>
 where
     S: for<'rs> Service<WebRequest<'rs, C, B>, Response = WebResponse<ResB>, Error = Err>,
-    C: 'r,
-    B: 'r,
     ResB: BodyStream<Chunk = Bytes> + 'static,
     <ResB as BodyStream>::Error: Send + Sync,
 {

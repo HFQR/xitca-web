@@ -30,8 +30,6 @@ pub struct CompressService<S> {
 
 impl<'r, S, C, ReqB, ResB, Err> Service<WebRequest<'r, C, ReqB>> for CompressService<S>
 where
-    C: 'r,
-    ReqB: 'r,
     S: for<'rs> Service<WebRequest<'rs, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
     ResB: BodyStream,
 {

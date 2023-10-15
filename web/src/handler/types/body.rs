@@ -6,7 +6,7 @@ use crate::{
 
 pub struct Body<B>(pub B);
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Body<B>
+impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for Body<B>
 where
     B: BodyStream + Default,
 {
@@ -14,7 +14,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
         Ok(Body(req.take_body_ref()))
     }
 }

@@ -17,7 +17,7 @@ impl Deref for PathRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for PathRef<'a>
+impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for PathRef<'_>
 where
     B: BodyStream,
 {
@@ -25,7 +25,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
         Ok(PathRef(req.req().uri().path()))
     }
 }

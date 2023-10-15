@@ -131,7 +131,7 @@ impl<E> From<HandshakeError> for ExtractError<E> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for WebSocket<B>
+impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for WebSocket<B>
 where
     C: 'static,
     B: BodyStream + Default + 'static,
@@ -140,7 +140,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
         let body = req.take_body_ref();
         let ws = http_ws::ws(req.req(), body)?;
         Ok(WebSocket::new(ws))
