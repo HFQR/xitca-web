@@ -6,14 +6,14 @@ use crate::{
 
 pub type Multipart<'a, B = RequestBody> = http_multipart::Multipart<'a, B>;
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Multipart<'a, B>
+impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for Multipart<'_, B>
 where
     B: BodyStream + Default,
 {
     type Type<'b> = Multipart<'b, B>;
     type Error = ExtractError<B::Error>;
 
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
         let body = req.take_body_ref();
         let multipart = http_multipart::multipart(req.req(), body).unwrap();
         Ok(multipart)

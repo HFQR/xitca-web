@@ -24,7 +24,7 @@ impl<T> Deref for ExtensionRef<'_, T> {
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionRef<'a, T>
+impl<'r, C, B, T> FromRequest<WebRequest<'r, C, B>> for ExtensionRef<'_, T>
 where
     T: Send + Sync + 'static,
     B: BodyStream,
@@ -33,7 +33,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
         let ext = req
             .req()
             .extensions()
@@ -54,7 +54,7 @@ impl Deref for ExtensionsRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionsRef<'a>
+impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for ExtensionsRef<'_>
 where
     B: BodyStream,
 {
@@ -62,7 +62,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
         Ok(ExtensionsRef(req.req().extensions()))
     }
 }

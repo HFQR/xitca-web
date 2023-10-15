@@ -35,7 +35,7 @@ impl<F, T, O> HandlerService<F, T, O> {
 impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O>
 where
     // for borrowed extractors, `T` is the `'static` version of the extractors
-    T: FromRequest<'static, Req>,
+    T: FromRequest<Req>,
     // just to assist type inference to pinpoint `T`
     F: AsyncClosure<T>,
     F: for<'a> AsyncClosure<T::Type<'a>, Output = O>,
@@ -46,7 +46,7 @@ where
 
     #[inline]
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        let extract = T::Type::<'_>::from_request(&req).await?;
+        let extract = T::from_request(&req).await?;
         let res = self.func.call(extract).await;
         Ok(res.respond_to(req).await)
     }
@@ -65,30 +65,30 @@ where
 /// # use xitca_http::util::service::handler::FromRequest;
 /// struct MyExtractor<'a>(&'a str);
 ///
-/// impl<'a, 'r> FromRequest<'a, &'r String> for MyExtractor<'a> {
+/// impl<'r> FromRequest<&'r String> for MyExtractor<'_> {
 ///     type Type<'b> = MyExtractor<'b>;
 ///     type Error = ();
 ///
-///     async fn from_request(req: &'a &'r String) -> Result<Self, Self::Error> {
+///     async fn from_request<'a>(req: &'a &'r String) -> Result<Self::Type<'a>, Self::Error> {
 ///         Ok(MyExtractor(req))
 ///     }
 /// }
 /// ```
-pub trait FromRequest<'a, Req>: Sized {
+pub trait FromRequest<Req>: Sized {
     // Used to construct the type for any lifetime 'b.
-    type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
+    type Type<'b>;
     type Error;
 
-    fn from_request(req: &'a Req) -> impl Future<Output = Result<Self, Self::Error>>;
+    fn from_request(req: &Req) -> impl Future<Output = Result<Self::Type<'_>, Self::Error>>;
 }
 
 macro_rules! from_req_impl {
     ($req0: ident, $($req: ident,)*) => {
-        impl<'a, Req, $req0, $($req,)*> FromRequest<'a, Req> for ($req0, $($req,)*)
+        impl<Req, $req0, $($req,)*> FromRequest<Req> for ($req0, $($req,)*)
         where
-            $req0: FromRequest<'a, Req>,
+            $req0: FromRequest<Req>,
             $(
-                $req: FromRequest<'a, Req>,
+                $req: FromRequest<Req>,
                 $req0::Error: From<$req::Error>,
             )*
         {
@@ -96,7 +96,7 @@ macro_rules! from_req_impl {
             type Error = $req0::Error;
 
             #[inline]
-            async fn from_request(req: &'a Req) -> Result<Self, Self::Error> {
+            async fn from_request(req: &Req) -> Result<Self::Type<'_>, Self::Error> {
                 Ok((
                     $req0::from_request(req).await?,
                     $($req::from_request(req).await?,)*
@@ -120,6 +120,7 @@ from_req_impl! { A, B, C, D, E, F, G, H, I, }
 /// The Output type is what returns from [handler_service] function.
 pub trait Responder<Req> {
     type Output;
+
     fn respond_to(self, req: Req) -> impl Future<Output = Self::Output>;
 }
 
@@ -180,38 +181,38 @@ mod test {
         }
     }
 
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for String {
+    impl FromRequest<Request<RequestExt<()>>> for String {
         type Type<'f> = Self;
         type Error = Infallible;
 
-        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
+        async fn from_request(_: &Request<RequestExt<()>>) -> Result<Self::Type<'_>, Self::Error> {
             Ok(String::from("996"))
         }
     }
 
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u32 {
+    impl FromRequest<Request<RequestExt<()>>> for u32 {
         type Type<'f> = Self;
         type Error = Infallible;
 
-        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
+        async fn from_request(_: &Request<RequestExt<()>>) -> Result<Self::Type<'_>, Self::Error> {
             Ok(996)
         }
     }
 
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u64 {
+    impl FromRequest<Request<RequestExt<()>>> for u64 {
         type Type<'f> = Self;
         type Error = Infallible;
 
-        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
+        async fn from_request(_: &Request<RequestExt<()>>) -> Result<Self::Type<'_>, Self::Error> {
             Ok(996)
         }
     }
 
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for &'a Request<RequestExt<()>> {
+    impl FromRequest<Request<RequestExt<()>>> for &Request<RequestExt<()>> {
         type Type<'f> = &'f Request<RequestExt<()>>;
         type Error = Infallible;
 
-        async fn from_request(req: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
+        async fn from_request(req: &Request<RequestExt<()>>) -> Result<Self::Type<'_>, Self::Error> {
             Ok(req)
         }
     }

@@ -62,9 +62,8 @@ pub type LimitServiceError<E> = PipelineE<LimitError, E>;
 
 impl<'r, S, C, B, Res, Err> Service<WebRequest<'r, C, B>> for LimitService<S>
 where
-    C: 'r,
-    B: BodyStream + Default + 'r,
-    S: for<'rs> Service<WebRequest<'rs, C, LimitBody<B>>, Response = Res, Error = Err>,
+    B: BodyStream + Default,
+    S: for<'r2> Service<WebRequest<'r2, C, LimitBody<B>>, Response = Res, Error = Err>,
 {
     type Response = Res;
     type Error = LimitServiceError<Err>;

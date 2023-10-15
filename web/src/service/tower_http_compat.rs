@@ -72,7 +72,7 @@ where
     S: tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>, Response = Response<ResB>>,
     ResB: Body,
     C: Clone + 'static,
-    ReqB: Default + 'r,
+    ReqB: Default,
 {
     type Response = WebResponse<CompatBody<ResB>>;
     type Error = S::Error;

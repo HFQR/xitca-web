@@ -30,7 +30,7 @@ impl<S> Deref for StateRef<'_, S> {
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for StateRef<'a, T>
+impl<'r, C, B, T> FromRequest<WebRequest<'r, C, B>> for StateRef<'_, T>
 where
     C: Borrow<T>,
     B: BodyStream,
@@ -40,7 +40,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
         Ok(StateRef(req.state().borrow()))
     }
 }

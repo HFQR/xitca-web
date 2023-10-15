@@ -57,7 +57,7 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
     }
 }
 
-impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebRequest<'r, C, B>> for HeaderRef<'a, HEADER_NAME>
+impl<'r, C, B, const HEADER_NAME: usize> FromRequest<WebRequest<'r, C, B>> for HeaderRef<'_, HEADER_NAME>
 where
     B: BodyStream,
 {
@@ -65,7 +65,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
         req.req()
             .headers()
             .get(&map_to_header_name::<HEADER_NAME>())

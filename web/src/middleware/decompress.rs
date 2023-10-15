@@ -34,8 +34,7 @@ pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
 
 impl<'r, S, C, B, Res, Err> Service<WebRequest<'r, C, B>> for DecompressService<S>
 where
-    C: 'r,
-    B: BodyStream + Default + 'r,
+    B: BodyStream + Default,
     S: for<'rs> Service<WebRequest<'rs, C, Coder<B>>, Response = Res, Error = Err>,
 {
     type Response = Res;
