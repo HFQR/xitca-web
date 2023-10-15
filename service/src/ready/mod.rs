@@ -12,7 +12,6 @@ use core::{future::Future, ops::Deref, pin::Pin};
 ///
 /// # Examples:
 /// ```rust
-/// #![feature(async_fn_in_trait)]
 /// # use std::{cell::Cell, rc::Rc, future::Future};
 /// # use xitca_service::{Service, ready::ReadyService};
 ///
