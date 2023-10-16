@@ -249,7 +249,8 @@ impl TransferCoding {
         match (&self, &other) {
             // multiple set to plain chunked is allowed. This can happen from Connect method
             // and/or Connection header.
-            (TransferCoding::Upgrade, TransferCoding::Upgrade) => Ok(()),
+            // skip set when the request body is zero length.
+            (TransferCoding::Upgrade, TransferCoding::Upgrade) | (_, TransferCoding::Length(0)) => Ok(()),
             // multiple set to decoded chunked/content-length are forbidden.
             //
             // mutation between decoded chunked/content-length/plain chunked is forbidden.
