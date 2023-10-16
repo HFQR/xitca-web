@@ -62,7 +62,17 @@ where
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
-    test_server::<_, _, (TcpStream, SocketAddr)>(move || factory().enclosed(HttpServiceBuilder::h1()))
+    #[cfg(not(feature = "io-uring"))]
+    {
+        test_server::<_, _, (TcpStream, SocketAddr)>(move || factory().enclosed(HttpServiceBuilder::h1()))
+    }
+
+    #[cfg(feature = "io-uring")]
+    {
+        test_server::<_, _, (xitca_io::net::io_uring::TcpStream, SocketAddr)>(move || {
+            factory().enclosed(HttpServiceBuilder::h1().io_uring())
+        })
+    }
 }
 
 /// A specialized http/2 server on top of [test_server]
