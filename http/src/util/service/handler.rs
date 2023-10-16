@@ -52,31 +52,42 @@ where
     }
 }
 
-/// Extract type from Req and receive them with function passed to [handler_service].
+/// Extract type from Req asynchronously and receive them with function passed to [handler_service].
 ///
-/// `'a` is the lifetime of the extracted type.
-///
-/// When `Req` is also a borrowed type, the lifetimes of `Req` type and of the extracted type
-/// should be kept separate. See the example below.
+/// When `Req` is also a borrowed type, the lifetimes of `Req` type and of the extracted type should
+/// be kept separate. See example below of extracting &str from &String:
 ///
 /// # Examples
 /// ```
 /// # use std::future::Future;
 /// # use xitca_http::util::service::handler::FromRequest;
-/// struct MyExtractor<'a>(&'a str);
 ///
-/// impl<'r> FromRequest<&'r String> for MyExtractor<'_> {
-///     type Type<'b> = MyExtractor<'b>;
+/// // new type for implementing FromRequest trait to &str.
+/// struct Str<'a>(&'a str);
+///
+/// // use named lifetime for input &String and anonymous lifetime for output &str
+/// impl<'r> FromRequest<&'r String> for Str<'_> {
+///     type Type<'b> = Str<'b>; // use GAT lifetime to output a named lifetime instance of implementor.
 ///     type Error = ();
 ///
+///     // give trait method's lifetime to GAT associated type and keep input &String's original
+///     // lifetime as is.
 ///     async fn from_request<'a>(req: &'a &'r String) -> Result<Self::Type<'a>, Self::Error> {
-///         Ok(MyExtractor(req))
+///         Ok(Str(req))
 ///     }
 /// }
+///
+/// # async fn extract() {
+/// let input = &String::from("996");
+/// let extract = Str::from_request(&input).await.unwrap();
+/// assert_eq!(extract.0, input.as_str());
+/// # }
 /// ```
 pub trait FromRequest<Req>: Sized {
-    // Used to construct the type for any lifetime 'b.
+    // output type. GAT lifetime is used to give named lifetime to output while the trait
+    // implementator remain with anonymous lifetime (if any).
     type Type<'b>;
+    // error output type.
     type Error;
 
     fn from_request(req: &Req) -> impl Future<Output = Result<Self::Type<'_>, Self::Error>>;
@@ -116,7 +127,7 @@ from_req_impl! { A, B, C, D, E, F, G, }
 from_req_impl! { A, B, C, D, E, F, G, H, }
 from_req_impl! { A, B, C, D, E, F, G, H, I, }
 
-/// Make Response with reference of Req.
+/// Make Response asynchronously.
 /// The Output type is what returns from [handler_service] function.
 pub trait Responder<Req> {
     type Output;

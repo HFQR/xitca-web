@@ -39,11 +39,13 @@ impl<Obj> Router<Obj> {
 }
 
 impl<Obj> Router<Obj> {
-    /// Insert a new service factory to given path.
+    /// Insert a new service builder to given path. The service builder must produce another
+    /// service type that impl [Service] trait while it's generic `Req` type must impl
+    /// [IntoObject] trait.
     ///
     /// # Panic:
     ///
-    /// When multiple services inserted with the same path.
+    /// When multiple services inserted to the same path.
     pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut factory: F) -> Self
     where
         F: Service<Arg> + PathGen,
@@ -145,9 +147,7 @@ where
     #[inline]
     async fn call(&self, mut req: Req) -> Result<Self::Response, Self::Error> {
         let xitca_router::Match { value, params } = self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
-
         *req.borrow_mut() = params;
-
         value.call(req).await.map_err(RouterError::Second)
     }
 }

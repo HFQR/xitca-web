@@ -36,11 +36,17 @@ pub struct Route<R, N, const M: usize> {
 }
 
 impl<const N: usize> Route<(), next::Empty, N> {
+    /// construct a new Route given array of methods.
+    ///
+    /// # Panics
+    /// panic when input array is zero length.
     pub const fn new(methods: [Method; N]) -> Self {
         assert!(N > 0, "Route method can not be empty");
         Self::_new(methods, ())
     }
 
+    /// pass certain [Service] type to Route so it can be matched against the
+    /// methods Route contains.
     pub fn route<R>(self, route: R) -> Route<R, next::Empty, N> {
         Route {
             methods: self.methods,
@@ -67,7 +73,12 @@ macro_rules! route_method {
 }
 
 impl<R, N, const M: usize> Route<R, N, M> {
-    // TODO is this really the intended behavior? insert `next` between `self` and `self.next`?
+    /// chain another Route to existing Route type.
+    ///
+    /// # Panics
+    ///
+    /// panic when chained Routes contain overlapping [Method]. Route only do liner method matching
+    /// and overlapped method(s) will always enter the first Route matched against.
     pub fn next<R1, const M1: usize>(
         self,
         next: Route<R1, next::Empty, M1>,
@@ -78,6 +89,7 @@ impl<R, N, const M: usize> Route<R, N, M> {
             }
         }
 
+        // TODO is this really the intended behavior? insert `next` between `self` and `self.next`?
         Route {
             methods: self.methods,
             route: self.route,
