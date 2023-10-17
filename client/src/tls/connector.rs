@@ -28,13 +28,13 @@ use {
 /// All connections are passed to tls connector. Non tls connections would be returned
 /// with a noop pass through.
 pub enum Connector {
-    NoOp,
+    Nop,
     Custom(Box<dyn TlsConnectDyn>),
 }
 
 impl Default for Connector {
     fn default() -> Self {
-        Self::NoOp
+        Self::Nop
     }
 }
 
@@ -86,7 +86,7 @@ impl Connector {
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         match *self {
-            Self::NoOp => {
+            Self::Nop => {
                 #[cfg(not(feature = "dangerous"))]
                 {
                     Err(Error::TlsNotEnabled)

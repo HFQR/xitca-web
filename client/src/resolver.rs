@@ -3,7 +3,6 @@ use core::future::Future;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use futures_core::future::BoxFuture;
-use tokio::task;
 
 use crate::{connect::Connect, error::Error};
 
@@ -24,38 +23,27 @@ impl Resolver {
     }
 
     pub(crate) async fn resolve(&self, connect: &mut Connect<'_>) -> Result<(), Error> {
-        match *self {
+        let addrs = match *self {
             Self::Std => {
                 let host = connect.hostname().to_string();
-
-                let task = if connect
-                    .hostname()
-                    .splitn(2, ':')
-                    .last()
-                    .and_then(|p| p.parse::<u16>().ok())
-                    .is_some()
-                {
-                    task::spawn_blocking(move || host.to_socket_addrs())
-                } else {
-                    let host = (host, connect.port());
-                    task::spawn_blocking(move || host.to_socket_addrs())
-                };
-
-                let addrs = task.await.unwrap()?;
-
-                connect.set_addrs(addrs);
+                let port = connect.port();
+                tokio::task::spawn_blocking(move || (host, port).to_socket_addrs())
+                    .await
+                    .unwrap()?
             }
-            Self::Custom(ref resolve) => {
-                let addrs = resolve.resolve_dyn(connect.hostname(), connect.port()).await?;
-                connect.set_addrs(addrs);
-            }
+            Self::Custom(ref resolve) => resolve
+                .resolve_dyn(connect.hostname(), connect.port())
+                .await?
+                .into_iter(),
         };
+
+        connect.set_addrs(addrs);
 
         Ok(())
     }
 }
 
-/// Trait for custom resolver.
+/// Trait for custom DNS resolver.
 ///
 /// # Examples
 /// ```rust
@@ -66,9 +54,10 @@ impl Resolver {
 /// struct MyResolver;
 ///
 /// impl Resolve for MyResolver {
+///     // hostname is stripped of port number(if given).
 ///     async fn resolve(&self, hostname: &str, port: u16) -> Result<Vec<SocketAddr>, Error> {
 ///         // Your DNS resolve logic goes here.
-///         todo!()
+///         Ok(vec![])
 ///     }
 /// }
 ///

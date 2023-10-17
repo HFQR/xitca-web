@@ -1,3 +1,5 @@
+//! websocket request/response handling.
+
 pub use http_ws::Message;
 
 use core::{
@@ -21,6 +23,7 @@ use super::{
     request::Request,
 };
 
+/// new type of [Request] with extended functionality for websocket handling.
 pub struct WsRequest<'a, B>(Request<'a, B>);
 
 impl<'a, B> Deref for WsRequest<'a, B> {

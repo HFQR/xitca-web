@@ -11,8 +11,9 @@ use crate::{
     tls::connector::{Connector, TlsConnect},
 };
 
+/// Builder type for [Client]. Offer configurations before a client instance is created.
 pub struct ClientBuilder {
-    connector_builder: TlsConnectorBuilder,
+    connector: Connector,
     resolver: Resolver,
     pool_capacity: usize,
     timeout_config: TimeoutConfig,
@@ -22,38 +23,46 @@ pub struct ClientBuilder {
 
 impl Default for ClientBuilder {
     fn default() -> Self {
-        ClientBuilder {
-            connector_builder: TlsConnectorBuilder::Default,
-            resolver: Resolver::default(),
-            pool_capacity: 128,
-            timeout_config: TimeoutConfig::default(),
-            local_addr: None,
-            max_http_version: Version::HTTP_3,
-        }
+        Self::new()
     }
 }
 
 impl ClientBuilder {
     pub fn new() -> Self {
         ClientBuilder {
-            #[cfg(all(feature = "openssl", not(feature = "rustls")))]
-            connector_builder: TlsConnectorBuilder::Openssl,
-            #[cfg(all(feature = "rustls", not(feature = "openssl")))]
-            connector_builder: TlsConnectorBuilder::Rustls,
-            ..Default::default()
+            connector: Connector::Nop,
+            resolver: Resolver::default(),
+            pool_capacity: 128,
+            timeout_config: TimeoutConfig::default(),
+            local_addr: None,
+            max_http_version: max_http_version(),
         }
     }
 
     #[cfg(feature = "openssl")]
+    /// enable openssl as tls connector.
     pub fn openssl(mut self) -> Self {
-        self.connector_builder = TlsConnectorBuilder::Openssl;
+        self.connector = Connector::openssl(self.alpn_from_version());
         self
     }
 
     #[cfg(feature = "rustls")]
+    /// enable rustls as tls connector.
     pub fn rustls(mut self) -> Self {
-        self.connector_builder = TlsConnectorBuilder::Rustls;
+        self.connector = Connector::rustls(self.alpn_from_version());
         self
+    }
+
+    #[cfg(any(feature = "openssl", feature = "rustls"))]
+    const fn alpn_from_version(&self) -> &[&[u8]] {
+        match self.max_http_version {
+            Version::HTTP_09 | Version::HTTP_10 => {
+                panic!("tls can not be used on HTTP/0.9 nor HTTP/1.0")
+            }
+            Version::HTTP_11 => &[b"http/1.1"],
+            Version::HTTP_2 | Version::HTTP_3 => &[b"h2", b"http/1.1"],
+            _ => unreachable!(),
+        }
     }
 
     /// Use custom DNS resolver for domain look up.
@@ -68,7 +77,7 @@ impl ClientBuilder {
     ///
     /// See [TlsConnect] for detail.
     pub fn tls_connector(mut self, connector: impl TlsConnect + 'static) -> Self {
-        self.connector_builder = TlsConnectorBuilder::Custom(Connector::custom(connector));
+        self.connector = Connector::custom(connector);
         self
     }
 
@@ -134,7 +143,13 @@ impl ClientBuilder {
 
     /// Set max http version client would be used.
     ///
-    /// Default to Http/3
+    /// Default to the max version of http feature enabled within Cargo.toml
+    ///
+    /// # Examples
+    /// ```(no_run)
+    /// // default max http version would be Version::HTTP_2
+    /// xitca-client = { version = "*", features = ["http2"] }
+    /// ```
     pub fn set_max_http_version(mut self, version: Version) -> Self {
         self.max_http_version = version;
         self
@@ -142,154 +157,121 @@ impl ClientBuilder {
 
     /// Finish the builder and construct [Client] instance.
     pub fn finish(self) -> Client {
-        let mut client = {
-            #[cfg(feature = "http3")]
-            {
-                use std::sync::Arc;
+        #[cfg(feature = "http3")]
+        {
+            use std::sync::Arc;
 
-                use h3_quinn::quinn::{ClientConfig, Endpoint};
-                use tokio_rustls::rustls;
+            use h3_quinn::quinn::{ClientConfig, Endpoint};
+            use tokio_rustls::rustls;
 
-                #[cfg(not(feature = "dangerous"))]
-                let h3_client = {
-                    use rustls::{OwnedTrustAnchor, RootCertStore};
-                    use webpki_roots::TLS_SERVER_ROOTS;
+            #[cfg(not(feature = "dangerous"))]
+            let h3_client = {
+                use rustls::{OwnedTrustAnchor, RootCertStore};
+                use webpki_roots::TLS_SERVER_ROOTS;
 
-                    let mut root_certs = RootCertStore::empty();
-                    for cert in TLS_SERVER_ROOTS {
-                        let cert = OwnedTrustAnchor::from_subject_spki_name_constraints(
-                            cert.subject,
-                            cert.spki,
-                            cert.name_constraints,
-                        );
-                        let certs = vec![cert].into_iter();
-                        root_certs.add_trust_anchors(certs);
-                    }
-
-                    let mut crypto = rustls::ClientConfig::builder()
-                        .with_safe_defaults()
-                        .with_root_certificates(root_certs)
-                        .with_no_client_auth();
-
-                    crypto.alpn_protocols = vec![b"h3-29".to_vec()];
-
-                    let config = ClientConfig::new(Arc::new(crypto));
-
-                    let mut endpoint = match self.local_addr {
-                        Some(addr) => Endpoint::client(addr).unwrap(),
-                        None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
-                    };
-
-                    endpoint.set_default_client_config(config);
-
-                    endpoint
-                };
-
-                #[cfg(feature = "dangerous")]
-                let h3_client = {
-                    struct SkipServerVerification;
-
-                    impl SkipServerVerification {
-                        fn new() -> Arc<Self> {
-                            Arc::new(Self)
-                        }
-                    }
-                    impl rustls::client::ServerCertVerifier for SkipServerVerification {
-                        fn verify_server_cert(
-                            &self,
-                            _end_entity: &rustls::Certificate,
-                            _intermediates: &[rustls::Certificate],
-                            _server_name: &rustls::ServerName,
-                            _scts: &mut dyn Iterator<Item = &[u8]>,
-                            _ocsp_response: &[u8],
-                            _now: std::time::SystemTime,
-                        ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-                            Ok(rustls::client::ServerCertVerified::assertion())
-                        }
-                    }
-
-                    let mut crypto = rustls::ClientConfig::builder()
-                        .with_safe_defaults()
-                        .with_custom_certificate_verifier(SkipServerVerification::new())
-                        .with_no_client_auth();
-                    crypto.alpn_protocols = vec![b"h3-29".to_vec()];
-
-                    let config = ClientConfig::new(Arc::new(crypto));
-
-                    let mut endpoint = match self.local_addr {
-                        Some(addr) => Endpoint::client(addr).unwrap(),
-                        None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
-                    };
-
-                    endpoint.set_default_client_config(config);
-
-                    endpoint
-                };
-
-                Client {
-                    pool: Pool::with_capacity(self.pool_capacity),
-                    connector: Connector::default(),
-                    resolver: self.resolver,
-                    timeout_config: self.timeout_config,
-                    max_http_version: self.max_http_version,
-                    local_addr: self.local_addr,
-                    date_service: DateTimeService::new(),
-                    h3_client,
+                let mut root_certs = RootCertStore::empty();
+                for cert in TLS_SERVER_ROOTS {
+                    let cert = OwnedTrustAnchor::from_subject_spki_name_constraints(
+                        cert.subject,
+                        cert.spki,
+                        cert.name_constraints,
+                    );
+                    let certs = vec![cert].into_iter();
+                    root_certs.add_trust_anchors(certs);
                 }
-            }
 
-            #[cfg(not(feature = "http3"))]
+                let mut crypto = rustls::ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_root_certificates(root_certs)
+                    .with_no_client_auth();
+
+                crypto.alpn_protocols = vec![b"h3-29".to_vec()];
+
+                let config = ClientConfig::new(Arc::new(crypto));
+
+                let mut endpoint = match self.local_addr {
+                    Some(addr) => Endpoint::client(addr).unwrap(),
+                    None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
+                };
+
+                endpoint.set_default_client_config(config);
+
+                endpoint
+            };
+
+            #[cfg(feature = "dangerous")]
+            let h3_client = {
+                struct SkipServerVerification;
+
+                impl SkipServerVerification {
+                    fn new() -> Arc<Self> {
+                        Arc::new(Self)
+                    }
+                }
+                impl rustls::client::ServerCertVerifier for SkipServerVerification {
+                    fn verify_server_cert(
+                        &self,
+                        _end_entity: &rustls::Certificate,
+                        _intermediates: &[rustls::Certificate],
+                        _server_name: &rustls::ServerName,
+                        _scts: &mut dyn Iterator<Item = &[u8]>,
+                        _ocsp_response: &[u8],
+                        _now: std::time::SystemTime,
+                    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+                        Ok(rustls::client::ServerCertVerified::assertion())
+                    }
+                }
+
+                let mut crypto = rustls::ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_custom_certificate_verifier(SkipServerVerification::new())
+                    .with_no_client_auth();
+                crypto.alpn_protocols = vec![b"h3-29".to_vec()];
+
+                let config = ClientConfig::new(Arc::new(crypto));
+
+                let mut endpoint = match self.local_addr {
+                    Some(addr) => Endpoint::client(addr).unwrap(),
+                    None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
+                };
+
+                endpoint.set_default_client_config(config);
+
+                endpoint
+            };
+
             Client {
                 pool: Pool::with_capacity(self.pool_capacity),
-                connector: Connector::default(),
+                connector: self.connector,
                 resolver: self.resolver,
                 timeout_config: self.timeout_config,
                 max_http_version: self.max_http_version,
                 local_addr: self.local_addr,
                 date_service: DateTimeService::new(),
+                h3_client,
             }
-        };
+        }
 
-        match self.connector_builder {
-            TlsConnectorBuilder::Default => {}
-            TlsConnectorBuilder::Custom(connector) => client.connector = connector,
-            #[cfg(feature = "openssl")]
-            TlsConnectorBuilder::Openssl => match self.max_http_version {
-                Version::HTTP_09 | Version::HTTP_10 => {
-                    unimplemented!("rustls can not be used on HTTP/0.9 nor HTTP/1.0")
-                }
-                Version::HTTP_11 => {
-                    client.connector = Connector::openssl(&[b"http/1.1"]);
-                }
-                Version::HTTP_2 | Version::HTTP_3 => {
-                    client.connector = Connector::openssl(&[b"h2", b"http/1.1"]);
-                }
-                _ => unreachable!(),
-            },
-            #[cfg(feature = "rustls")]
-            TlsConnectorBuilder::Rustls => match self.max_http_version {
-                Version::HTTP_09 | Version::HTTP_10 => {
-                    unimplemented!("rustls can not be used on HTTP/0.9 nor HTTP/1.0")
-                }
-                Version::HTTP_11 => {
-                    client.connector = Connector::rustls(&[b"http/1.1"]);
-                }
-                Version::HTTP_2 | Version::HTTP_3 => {
-                    client.connector = Connector::rustls(&[b"h2", b"http/1.1"]);
-                }
-                _ => unreachable!(),
-            },
-        };
-
-        client
+        #[cfg(not(feature = "http3"))]
+        Client {
+            pool: Pool::with_capacity(self.pool_capacity),
+            connector: self.connector,
+            resolver: self.resolver,
+            timeout_config: self.timeout_config,
+            max_http_version: self.max_http_version,
+            local_addr: self.local_addr,
+            date_service: DateTimeService::new(),
+        }
     }
 }
 
-enum TlsConnectorBuilder {
-    Default,
-    Custom(Connector),
-    #[cfg(feature = "openssl")]
-    Openssl,
-    #[cfg(feature = "rustls")]
-    Rustls,
+#[allow(unreachable_code)]
+fn max_http_version() -> Version {
+    #[cfg(feature = "http3")]
+    return Version::HTTP_3;
+
+    #[cfg(feature = "http2")]
+    return Version::HTTP_2;
+
+    Version::HTTP_11
 }
