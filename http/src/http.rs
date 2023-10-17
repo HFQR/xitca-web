@@ -1,4 +1,5 @@
-// re-export everything from http crate.
+//! re-export of [http] crate types.
+
 pub use ::http::*;
 
 use core::{

@@ -30,7 +30,9 @@ pub mod error;
 
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
+pub use self::request::Request;
 pub use self::resolver::Resolve;
+pub use self::response::Response;
 pub use self::tls::{connector::TlsConnect, stream::Io};
 
 // re-export http crate.

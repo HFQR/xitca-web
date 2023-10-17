@@ -1,3 +1,5 @@
+//! strongly typed library error.
+
 use std::{convert::Infallible, error, fmt, io, str};
 
 use xitca_http::{error::BodyError, http::uri};

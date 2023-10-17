@@ -23,26 +23,27 @@ impl Resolver {
     }
 
     pub(crate) async fn resolve(&self, connect: &mut Connect<'_>) -> Result<(), Error> {
-        match *self {
+        let addrs = match *self {
             Self::Std => {
                 let host = connect.hostname().to_string();
                 let port = connect.port();
-                let addrs = tokio::task::spawn_blocking(move || (host, port).to_socket_addrs())
+                tokio::task::spawn_blocking(move || (host, port).to_socket_addrs())
                     .await
-                    .unwrap()?;
-                connect.set_addrs(addrs);
+                    .unwrap()?
             }
-            Self::Custom(ref resolve) => {
-                let addrs = resolve.resolve_dyn(connect.hostname(), connect.port()).await?;
-                connect.set_addrs(addrs);
-            }
+            Self::Custom(ref resolve) => resolve
+                .resolve_dyn(connect.hostname(), connect.port())
+                .await?
+                .into_iter(),
         };
+
+        connect.set_addrs(addrs);
 
         Ok(())
     }
 }
 
-/// Trait for custom resolver.
+/// Trait for custom DNS resolver.
 ///
 /// # Examples
 /// ```rust
@@ -53,9 +54,10 @@ impl Resolver {
 /// struct MyResolver;
 ///
 /// impl Resolve for MyResolver {
+///     // hostname is stripped of port number(if given).
 ///     async fn resolve(&self, hostname: &str, port: u16) -> Result<Vec<SocketAddr>, Error> {
 ///         // Your DNS resolve logic goes here.
-///         todo!()
+///         Ok(vec![])
 ///     }
 /// }
 ///

@@ -11,6 +11,7 @@ use crate::{
     tls::connector::{Connector, TlsConnect},
 };
 
+/// Builder type for [Client]. Offer configurations before a client instance is created.
 pub struct ClientBuilder {
     connector: Connector,
     resolver: Resolver,
@@ -39,12 +40,14 @@ impl ClientBuilder {
     }
 
     #[cfg(feature = "openssl")]
+    /// enable openssl as tls connector.
     pub fn openssl(mut self) -> Self {
         self.connector = Connector::openssl(self.alpn_from_version());
         self
     }
 
     #[cfg(feature = "rustls")]
+    /// enable rustls as tls connector.
     pub fn rustls(mut self) -> Self {
         self.connector = Connector::rustls(self.alpn_from_version());
         self
@@ -140,7 +143,13 @@ impl ClientBuilder {
 
     /// Set max http version client would be used.
     ///
-    /// Default to Http/3
+    /// Default to the max version of http feature enabled within Cargo.toml
+    ///
+    /// # Examples
+    /// ```
+    /// // default max http version would be Version::HTTP_2
+    /// xitca-client = { version = "*", features = ["http2"] }
+    /// ```
     pub fn set_max_http_version(mut self, version: Version) -> Self {
         self.max_http_version = version;
         self
