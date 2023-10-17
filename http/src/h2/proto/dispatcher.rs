@@ -117,8 +117,7 @@ where
                     });
                 }
                 SelectOutput::B(SelectOutput::A(res)) => match res {
-                    Ok(ConnectionState::KeepAlive) => {}
-                    Ok(ConnectionState::Close) => io.graceful_shutdown(),
+                    Ok(_) => io.graceful_shutdown(),
                     Err(e) => HttpServiceError::from(e).log("h2_dispatcher"),
                 },
                 SelectOutput::B(SelectOutput::B(Ok(_))) => {
@@ -139,17 +138,22 @@ where
     }
 }
 
-async fn try_poll_queue<F>(
+async fn try_poll_queue<F, E>(
     queue: &mut Queue<F>,
     ping_ping: &mut H2PingPong<'_>,
 ) -> SelectOutput<F::Output, Result<(), ::h2::Error>>
 where
-    F: Future,
+    F: Future<Output = Result<ConnectionState, E>>,
 {
-    if queue.is_empty() {
-        SelectOutput::B(ping_ping.await)
-    } else {
-        SelectOutput::A(queue.next2().await)
+    loop {
+        if queue.is_empty() {
+            return SelectOutput::B(ping_ping.await);
+        }
+
+        match queue.next2().await {
+            Ok(ConnectionState::KeepAlive) => {}
+            other => return SelectOutput::A(other),
+        }
     }
 }
 

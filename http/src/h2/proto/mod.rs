@@ -43,14 +43,14 @@ mod io_uring {
         util::futures::Queue,
     };
 
-    use super::{data, head, headers, hpack, settings, stream_id};
+    use super::{data, head, headers, hpack, settings, stream_id::StreamId};
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
     struct H2Context {
         decoder: hpack::Decoder,
         encoder: hpack::Encoder,
-        tx_map: HashMap<stream_id::StreamId, RequestBodySender>,
+        tx_map: HashMap<StreamId, RequestBodySender>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
         continuation: Option<(headers::Headers, BytesMut)>,
@@ -75,7 +75,7 @@ mod io_uring {
 
         fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F)
         where
-            F: FnMut(Request<RequestExt<RequestBodyV2>>, stream_id::StreamId),
+            F: FnMut(Request<RequestExt<RequestBodyV2>>, StreamId),
         {
             loop {
                 if self.next_frame_len == 0 {
@@ -113,35 +113,8 @@ mod io_uring {
                         }
 
                         let id = headers.stream_id();
-                        let is_end_stream = headers.is_end_stream();
 
-                        let (pseudo, headers) = headers.into_parts();
-
-                        let req = match self.tx_map.remove(&id) {
-                            Some(_) => {
-                                error!("trailer is not supported yet");
-                                continue;
-                            }
-                            None => {
-                                let mut req = Request::new(RequestExt::<()>::default());
-                                *req.version_mut() = Version::HTTP_2;
-                                *req.headers_mut() = headers;
-                                *req.method_mut() = pseudo.method.unwrap();
-                                req
-                            }
-                        };
-
-                        let (body, tx) = RequestBodyV2::new_pair();
-
-                        if is_end_stream {
-                            drop(tx);
-                        } else {
-                            self.tx_map.insert(id, tx);
-                        }
-
-                        let req = req.map(|ext| ext.map_body(|_| body));
-
-                        on_msg(req, id);
+                        self.handle_header_frame(id, headers, &mut on_msg);
                     }
                     head::Kind::Continuation => {
                         let is_end_headers = (head.flag() & 0x4) == 0x4;
@@ -165,35 +138,7 @@ mod io_uring {
                             continue;
                         }
 
-                        let is_end_stream = headers.is_end_stream();
-
-                        let (pseudo, headers) = headers.into_parts();
-
-                        let req = match self.tx_map.remove(&id) {
-                            Some(_) => {
-                                error!("trailer is not supported yet");
-                                continue;
-                            }
-                            None => {
-                                let mut req = Request::new(RequestExt::<()>::default());
-                                *req.version_mut() = Version::HTTP_2;
-                                *req.headers_mut() = headers;
-                                *req.method_mut() = pseudo.method.unwrap();
-                                req
-                            }
-                        };
-
-                        let (body, tx) = RequestBodyV2::new_pair();
-
-                        if is_end_stream {
-                            drop(tx);
-                        } else {
-                            self.tx_map.insert(id, tx);
-                        };
-
-                        let req = req.map(|ext| ext.map_body(|_| body));
-
-                        on_msg(req, id);
+                        self.handle_header_frame(id, headers, &mut on_msg);
                     }
                     head::Kind::Data => {
                         let data = data::Data::load(head, frame.freeze()).unwrap();
@@ -212,6 +157,41 @@ mod io_uring {
                     _ => {}
                 }
             }
+        }
+
+        fn handle_header_frame<F>(&mut self, id: StreamId, headers: headers::Headers, on_msg: &mut F)
+        where
+            F: FnMut(Request<RequestExt<RequestBodyV2>>, StreamId),
+        {
+            let is_end_stream = headers.is_end_stream();
+
+            let (pseudo, headers) = headers.into_parts();
+
+            let req = match self.tx_map.remove(&id) {
+                Some(_) => {
+                    error!("trailer is not supported yet");
+                    return;
+                }
+                None => {
+                    let mut req = Request::new(RequestExt::<()>::default());
+                    *req.version_mut() = Version::HTTP_2;
+                    *req.headers_mut() = headers;
+                    *req.method_mut() = pseudo.method.unwrap();
+                    req
+                }
+            };
+
+            let (body, tx) = RequestBodyV2::new_pair();
+
+            if is_end_stream {
+                drop(tx);
+            } else {
+                self.tx_map.insert(id, tx);
+            };
+
+            let req = req.map(|ext| ext.map_body(|_| body));
+
+            on_msg(req, id);
         }
     }
 
