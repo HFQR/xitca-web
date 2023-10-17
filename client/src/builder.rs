@@ -146,7 +146,7 @@ impl ClientBuilder {
     /// Default to the max version of http feature enabled within Cargo.toml
     ///
     /// # Examples
-    /// ```
+    /// ```(no_run)
     /// // default max http version would be Version::HTTP_2
     /// xitca-client = { version = "*", features = ["http2"] }
     /// ```
