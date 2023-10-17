@@ -3,7 +3,6 @@ use core::future::Future;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use futures_core::future::BoxFuture;
-use tokio::task;
 
 use crate::{connect::Connect, error::Error};
 
@@ -27,22 +26,10 @@ impl Resolver {
         match *self {
             Self::Std => {
                 let host = connect.hostname().to_string();
-
-                let task = if connect
-                    .hostname()
-                    .splitn(2, ':')
-                    .last()
-                    .and_then(|p| p.parse::<u16>().ok())
-                    .is_some()
-                {
-                    task::spawn_blocking(move || host.to_socket_addrs())
-                } else {
-                    let host = (host, connect.port());
-                    task::spawn_blocking(move || host.to_socket_addrs())
-                };
-
-                let addrs = task.await.unwrap()?;
-
+                let port = connect.port();
+                let addrs = tokio::task::spawn_blocking(move || (host, port).to_socket_addrs())
+                    .await
+                    .unwrap()?;
                 connect.set_addrs(addrs);
             }
             Self::Custom(ref resolve) => {

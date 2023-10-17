@@ -367,3 +367,25 @@ impl Client {
         Ok(stream.into())
     }
 }
+
+#[cfg(feature = "openssl")]
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn connect_google() {
+        let res = Client::builder()
+            .openssl()
+            .finish()
+            .get("https://www.google.com/")
+            .unwrap()
+            .send()
+            .await
+            .unwrap()
+            .body()
+            .await
+            .unwrap();
+        println!("{}", String::from_utf8_lossy(&res));
+    }
+}
