@@ -126,19 +126,13 @@ impl Connector {
 /// ```
 pub trait TlsConnect: Send + Sync {
     /// `Box<dyn Io>` is an async read/write type. See [Io] trait for detail.
-    fn connect(
-        &self,
-        domain: &str,
-        io: Box<dyn Io>,
-    ) -> impl Future<Output = Result<(Box<dyn Io>, Version), Error>> + Send;
+    fn connect(&self, domain: &str, io: Box<dyn Io>) -> impl Future<Output = ConnectResult> + Send;
 }
 
+type ConnectResult = Result<(Box<dyn Io>, Version), Error>;
+
 pub(crate) trait TlsConnectDyn: Send + Sync {
-    fn connect_dyn<'s, 'd>(
-        &'s self,
-        domain: &'d str,
-        io: Box<dyn Io>,
-    ) -> BoxFuture<'d, Result<(Box<dyn Io>, Version), Error>>
+    fn connect_dyn<'s, 'd>(&'s self, domain: &'d str, io: Box<dyn Io>) -> BoxFuture<'d, ConnectResult>
     where
         's: 'd;
 }
@@ -148,11 +142,7 @@ where
     T: TlsConnect,
 {
     #[inline]
-    fn connect_dyn<'s, 'd>(
-        &'s self,
-        domain: &'d str,
-        io: Box<dyn Io>,
-    ) -> BoxFuture<'d, Result<(Box<dyn Io>, Version), Error>>
+    fn connect_dyn<'s, 'd>(&'s self, domain: &'d str, io: Box<dyn Io>) -> BoxFuture<'d, ConnectResult>
     where
         's: 'd,
     {
@@ -162,7 +152,7 @@ where
 
 #[cfg(feature = "openssl")]
 impl TlsConnect for SslConnector {
-    async fn connect(&self, domain: &str, io: Box<dyn Io>) -> Result<(Box<dyn Io>, Version), Error> {
+    async fn connect(&self, domain: &str, io: Box<dyn Io>) -> ConnectResult {
         let ssl = self.configure()?.into_ssl(domain)?;
         let mut stream = SslStream::new(ssl, io)?;
 
@@ -185,7 +175,7 @@ impl TlsConnect for SslConnector {
 
 #[cfg(feature = "rustls")]
 impl TlsConnect for TlsConnector {
-    async fn connect(&self, domain: &str, io: Box<dyn Io>) -> Result<(Box<dyn Io>, Version), Error> {
+    async fn connect(&self, domain: &str, io: Box<dyn Io>) -> ConnectResult {
         let name = ServerName::try_from(domain).map_err(|_| crate::error::RustlsError::InvalidDnsName)?;
         let stream = self.connect(name, io).await.map_err(crate::error::RustlsError::Io)?;
 
