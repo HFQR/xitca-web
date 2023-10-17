@@ -47,17 +47,13 @@ mod io_uring {
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-    enum RequestState {
-        WaitHeader(Request<RequestExt<()>>),
-        WaitBody(RequestBodySender),
-    }
-
     struct H2Context {
         decoder: hpack::Decoder,
         encoder: hpack::Encoder,
-        tx_map: HashMap<stream_id::StreamId, RequestState>,
+        tx_map: HashMap<stream_id::StreamId, RequestBodySender>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
+        continuation: Option<(headers::Headers, BytesMut)>,
     }
 
     impl Default for H2Context {
@@ -73,6 +69,7 @@ mod io_uring {
                 encoder: hpack::Encoder::new(65535, 4096),
                 tx_map: HashMap::new(),
                 next_frame_len: 0,
+                continuation: None,
             }
         }
 
@@ -104,26 +101,29 @@ mod io_uring {
                         let _setting = settings::Settings::load(head, &frame);
                     }
                     head::Kind::Headers => {
-                        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
-                        headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
+                        let (mut headers, mut payload) = headers::Headers::load(head, frame).unwrap();
+
+                        let is_end_headers = headers.is_end_headers();
+
+                        headers.load_hpack(&mut payload, 4096, &mut self.decoder).unwrap();
+
+                        if !is_end_headers {
+                            self.continuation = Some((headers, payload));
+                            continue;
+                        }
 
                         let id = headers.stream_id();
-                        let is_end_headers = headers.is_end_headers();
                         let is_end_stream = headers.is_end_stream();
 
                         let (pseudo, headers) = headers.into_parts();
 
                         let req = match self.tx_map.remove(&id) {
-                            Some(RequestState::WaitHeader(mut req)) => {
-                                req.headers_mut().extend(headers);
-                                req
-                            }
-                            Some(RequestState::WaitBody(_)) => {
+                            Some(_) => {
                                 error!("trailer is not supported yet");
                                 continue;
                             }
                             None => {
-                                let mut req = Request::new(RequestExt::default());
+                                let mut req = Request::new(RequestExt::<()>::default());
                                 *req.version_mut() = Version::HTTP_2;
                                 *req.headers_mut() = headers;
                                 *req.method_mut() = pseudo.method.unwrap();
@@ -131,17 +131,12 @@ mod io_uring {
                             }
                         };
 
-                        if !is_end_headers {
-                            self.tx_map.insert(id, RequestState::WaitHeader(req));
-                            continue;
-                        }
-
                         let (body, tx) = RequestBodyV2::new_pair();
 
                         if is_end_stream {
                             drop(tx);
                         } else {
-                            self.tx_map.insert(id, RequestState::WaitBody(tx));
+                            self.tx_map.insert(id, tx);
                         }
 
                         let req = req.map(|ext| ext.map_body(|_| body));
@@ -149,33 +144,51 @@ mod io_uring {
                         on_msg(req, id);
                     }
                     head::Kind::Continuation => {
-                        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
-                        headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
+                        let is_end_headers = (head.flag() & 0x4) == 0x4;
 
-                        let id = headers.stream_id();
-                        let is_end_headers = headers.is_end_headers();
-                        let is_end_stream = headers.is_end_stream();
-
-                        let (_, headers) = headers.into_parts();
-
-                        let state = self.tx_map.remove(&id).unwrap();
-                        let RequestState::WaitHeader(mut req) = state else {
-                            unreachable!()
+                        let Some((mut headers, mut payload)) = self.continuation.take() else {
+                            panic!("illegal continuation frame");
                         };
 
-                        req.headers_mut().extend(headers);
+                        let id = headers.stream_id();
+
+                        if id != head.stream_id() {
+                            panic!("CONTINUATION frame stream ID does not match previous frame stream ID");
+                        }
+
+                        payload.extend_from_slice(&frame);
+
+                        headers.load_hpack(&mut payload, 4096, &mut self.decoder).unwrap();
 
                         if !is_end_headers {
-                            self.tx_map.insert(id, RequestState::WaitHeader(req));
+                            self.continuation = Some((headers, payload));
                             continue;
                         }
+
+                        let is_end_stream = headers.is_end_stream();
+
+                        let (pseudo, headers) = headers.into_parts();
+
+                        let req = match self.tx_map.remove(&id) {
+                            Some(_) => {
+                                error!("trailer is not supported yet");
+                                continue;
+                            }
+                            None => {
+                                let mut req = Request::new(RequestExt::<()>::default());
+                                *req.version_mut() = Version::HTTP_2;
+                                *req.headers_mut() = headers;
+                                *req.method_mut() = pseudo.method.unwrap();
+                                req
+                            }
+                        };
 
                         let (body, tx) = RequestBodyV2::new_pair();
 
                         if is_end_stream {
                             drop(tx);
                         } else {
-                            self.tx_map.insert(id, RequestState::WaitBody(tx));
+                            self.tx_map.insert(id, tx);
                         };
 
                         let req = req.map(|ext| ext.map_body(|_| body));
@@ -188,9 +201,7 @@ mod io_uring {
                         let id = data.stream_id();
                         let payload = data.into_payload();
 
-                        let RequestState::WaitBody(tx) = self.tx_map.get_mut(&id).unwrap() else {
-                            unreachable!()
-                        };
+                        let tx = self.tx_map.get_mut(&id).unwrap();
 
                         tx.send(Ok(payload)).unwrap();
 
