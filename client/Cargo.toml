@@ -61,5 +61,4 @@ futures-sink = { version = "0.3.17", default-features = false, optional = true }
 http-ws = { version = "0.1", default-features = false, optional = true }
 
 [dev-dependencies]
-async-trait = "0.1.51"
 tokio = { version = "1.30", features = ["macros"] }

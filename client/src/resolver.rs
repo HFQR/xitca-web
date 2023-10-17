@@ -1,3 +1,5 @@
+use core::future::Future;
+
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use futures_core::future::BoxFuture;
@@ -7,7 +9,7 @@ use crate::{connect::Connect, error::Error};
 
 pub(crate) enum Resolver {
     Std,
-    Custom(Box<dyn Resolve>),
+    Custom(Box<dyn ResolveDyn>),
 }
 
 impl Default for Resolver {
@@ -44,7 +46,7 @@ impl Resolver {
                 connect.set_addrs(addrs);
             }
             Self::Custom(ref resolve) => {
-                let addrs = resolve.resolve(connect.hostname(), connect.port()).await?;
+                let addrs = resolve.resolve_dyn(connect.hostname(), connect.port()).await?;
                 connect.set_addrs(addrs);
             }
         };
@@ -63,7 +65,6 @@ impl Resolver {
 ///
 /// struct MyResolver;
 ///
-/// #[async_trait::async_trait]
 /// impl Resolve for MyResolver {
 ///     async fn resolve(&self, hostname: &str, port: u16) -> Result<Vec<SocketAddr>, Error> {
 ///         // Your DNS resolve logic goes here.
@@ -77,8 +78,24 @@ impl Resolver {
 /// ```
 pub trait Resolve: Send + Sync {
     /// *. hostname does not include port number.
-    fn resolve<'s, 'h, 'f>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'f, Result<Vec<SocketAddr>, Error>>
+    fn resolve(&self, hostname: &str, port: u16) -> impl Future<Output = Result<Vec<SocketAddr>, Error>> + Send;
+}
+
+pub(crate) trait ResolveDyn: Send + Sync {
+    fn resolve_dyn<'s, 'h>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'h, Result<Vec<SocketAddr>, Error>>
     where
-        's: 'f,
-        'h: 'f;
+        's: 'h;
+}
+
+impl<R> ResolveDyn for R
+where
+    R: Resolve,
+{
+    #[inline]
+    fn resolve_dyn<'s, 'h>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'h, Result<Vec<SocketAddr>, Error>>
+    where
+        's: 'h,
+    {
+        Box::pin(self.resolve(hostname, port))
+    }
 }
