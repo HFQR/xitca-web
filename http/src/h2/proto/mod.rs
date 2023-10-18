@@ -2,6 +2,7 @@
 
 mod data;
 mod dispatcher;
+mod error;
 mod head;
 mod headers;
 mod hpack;
@@ -43,7 +44,7 @@ mod io_uring {
         util::futures::Queue,
     };
 
-    use super::{data, head, headers, hpack, settings, stream_id::StreamId};
+    use super::{data, error::Error, head, headers, hpack, settings, stream_id::StreamId};
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
@@ -73,20 +74,20 @@ mod io_uring {
             }
         }
 
-        fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F)
+        fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F) -> Result<(), Error>
         where
             F: FnMut(Request<RequestExt<RequestBodyV2>>, StreamId),
         {
             loop {
                 if self.next_frame_len == 0 {
                     if buf.len() < 3 {
-                        return;
+                        return Ok(());
                     }
                     self.next_frame_len = (buf.get_uint(3) + 6) as _;
                 }
 
                 if buf.len() < self.next_frame_len {
-                    return;
+                    return Ok(());
                 }
 
                 let len = mem::replace(&mut self.next_frame_len, 0);
@@ -131,11 +132,14 @@ mod io_uring {
 
                         payload.extend_from_slice(&frame);
 
-                        headers.load_hpack(&mut payload, 4096, &mut self.decoder).unwrap();
-
-                        if !is_end_headers {
-                            self.continuation = Some((headers, payload));
-                            continue;
+                        if let Err(e) = headers.load_hpack(&mut payload, 4096, &mut self.decoder) {
+                            match e {
+                                Error::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
+                                    self.continuation = Some((headers, payload));
+                                    continue;
+                                }
+                                e => return Err(e),
+                            }
                         }
 
                         self.handle_header_frame(id, headers, &mut on_msg);
@@ -287,10 +291,14 @@ mod io_uring {
                         break;
                     }
 
-                    ctx.try_decode(read_buf.as_mut().unwrap(), |req, stream_id| {
+                    let res = ctx.try_decode(read_buf.as_mut().unwrap(), |req, stream_id| {
                         let s = &service;
                         queue.push(async move { (s.call(req).await, stream_id) });
                     });
+
+                    if let Err(e) = res {
+                        panic!("{e:?}")
+                    }
 
                     read_task.set(read_io(read_buf.take().unwrap(), &io));
                 }

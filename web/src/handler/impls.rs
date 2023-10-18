@@ -17,35 +17,35 @@ use crate::{
 
 use super::{error::ExtractError, FromRequest, Responder};
 
-impl<'r, C, B, T, E> FromRequest<WebRequest<'r, C, B>> for Result<T, E>
+impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Result<T, E>
 where
     B: BodyStream,
-    T: FromRequest<WebRequest<'r, C, B>, Error = E>,
+    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>, Error = E>,
 {
-    type Type<'b> = Result<T::Type<'b>, E>;
+    type Type<'b> = Result<T, E>;
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(T::from_request(req).await)
     }
 }
 
-impl<'r, C, B, T> FromRequest<WebRequest<'r, C, B>> for Option<T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for Option<T>
 where
     B: BodyStream,
-    T: FromRequest<WebRequest<'r, C, B>>,
+    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>>,
 {
-    type Type<'b> = Option<T::Type<'b>>;
+    type Type<'b> = Option<T>;
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(T::from_request(req).await.ok())
     }
 }
 
-impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for &WebRequest<'_, C, B>
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for &'a WebRequest<'a, C, B>
 where
     C: 'static,
     B: BodyStream + 'static,
@@ -54,12 +54,12 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(req)
     }
 }
 
-impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for ()
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ()
 where
     B: BodyStream,
 {
@@ -67,7 +67,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request<'a>(_: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
+    async fn from_request(_: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(())
     }
 }

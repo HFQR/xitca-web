@@ -58,7 +58,7 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
     }
 }
 
-impl<'r, C, B, T, const LIMIT: usize> FromRequest<WebRequest<'r, C, B>> for Json<T, LIMIT>
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, C, B>> for Json<T, LIMIT>
 where
     B: BodyStream + Default,
     T: DeserializeOwned,
@@ -66,8 +66,8 @@ where
     type Type<'b> = Json<T, LIMIT>;
     type Error = ExtractError<B::Error>;
 
-    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
-        HeaderRef::<'_, { header::CONTENT_TYPE }>::from_request(req).await?;
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
 
         let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(req)
             .await

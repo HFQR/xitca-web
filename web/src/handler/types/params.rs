@@ -17,7 +17,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Params<T>(pub T);
 
-impl<'r, T, C, B> FromRequest<WebRequest<'r, C, B>> for Params<T>
+impl<'a, 'r, T, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Params<T>
 where
     B: BodyStream,
     T: for<'de> Deserialize<'de>,
@@ -26,9 +26,10 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         let params = req.req().body().params();
         let params = T::deserialize(Params2::new(params)).map_err(_ParseError::Params)?;
+
         Ok(Params(params))
     }
 }
@@ -44,7 +45,7 @@ impl Deref for ParamsRef<'_> {
     }
 }
 
-impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for ParamsRef<'_>
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ParamsRef<'a>
 where
     B: BodyStream,
 {
@@ -52,7 +53,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(ParamsRef(req.req().extensions().get::<router::Params>().unwrap()))
     }
 }
