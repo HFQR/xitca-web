@@ -7,22 +7,6 @@ use crate::{error::Error, http::Version};
 
 use super::stream::{Io, TlsStream};
 
-#[cfg(feature = "openssl")]
-use {
-    openssl_crate::ssl::{SslConnector, SslMethod},
-    tokio_openssl::SslStream,
-};
-
-#[cfg(feature = "rustls")]
-use {
-    std::sync::Arc,
-    tokio_rustls::{
-        rustls::{client::ServerName, ClientConfig, OwnedTrustAnchor, RootCertStore},
-        TlsConnector,
-    },
-    webpki_roots::TLS_SERVER_ROOTS,
-};
-
 /// Connector for tls connections.
 ///
 /// All connections are passed to tls connector. Non tls connections would be returned
@@ -41,7 +25,32 @@ impl Default for Connector {
 impl Connector {
     #[cfg(feature = "openssl")]
     pub(crate) fn openssl(protocols: &[&[u8]]) -> Self {
+        use openssl_crate::ssl::{SslConnector, SslMethod};
+        use tokio_openssl::SslStream;
         use xitca_http::bytes::BufMut;
+
+        impl TlsConnect for SslConnector {
+            async fn connect(&self, domain: &str, io: Box<dyn Io>) -> ConnectResult {
+                let ssl = self.configure()?.into_ssl(domain)?;
+                let mut stream = SslStream::new(ssl, io)?;
+
+                std::pin::Pin::new(&mut stream).connect().await?;
+
+                let version = stream
+                    .ssl()
+                    .selected_alpn_protocol()
+                    .map_or(Version::HTTP_11, |version| {
+                        if version.windows(2).any(|w| w == b"h2") {
+                            Version::HTTP_2
+                        } else {
+                            Version::HTTP_11
+                        }
+                    });
+
+                Ok((Box::new(stream), version))
+            }
+        }
+
         let mut alpn = Vec::with_capacity(20);
         for proto in protocols {
             alpn.put_u8(proto.len() as u8);
@@ -58,12 +67,37 @@ impl Connector {
 
     #[cfg(feature = "rustls")]
     pub(crate) fn rustls(protocols: &[&[u8]]) -> Self {
+        use std::sync::Arc;
+
+        use tokio_rustls::{
+            rustls::{client::ServerName, ClientConfig, OwnedTrustAnchor, RootCertStore},
+            TlsConnector,
+        };
+        use webpki_roots::TLS_SERVER_ROOTS;
+
+        impl TlsConnect for TlsConnector {
+            async fn connect(&self, domain: &str, io: Box<dyn Io>) -> ConnectResult {
+                let name = ServerName::try_from(domain).map_err(|_| crate::error::RustlsError::InvalidDnsName)?;
+                let stream = self.connect(name, io).await.map_err(crate::error::RustlsError::Io)?;
+
+                let version = stream.get_ref().1.alpn_protocol().map_or(Version::HTTP_11, |version| {
+                    if version.windows(2).any(|w| w == b"h2") {
+                        Version::HTTP_2
+                    } else {
+                        Version::HTTP_11
+                    }
+                });
+
+                Ok((Box::new(stream), version))
+            }
+        }
+
         let mut root_certs = RootCertStore::empty();
+
         for cert in TLS_SERVER_ROOTS {
             let cert =
                 OwnedTrustAnchor::from_subject_spki_name_constraints(cert.subject, cert.spki, cert.name_constraints);
-            let certs = vec![cert].into_iter();
-            root_certs.add_trust_anchors(certs);
+            root_certs.add_trust_anchors([cert].into_iter());
         }
 
         let mut config = ClientConfig::builder()
@@ -80,7 +114,6 @@ impl Connector {
         Self::Custom(Box::new(connector))
     }
 
-    #[allow(unused_variables)]
     pub(crate) async fn connect<S>(&self, stream: S, domain: &str) -> Result<(TlsStream, Version), Error>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -147,46 +180,5 @@ where
         's: 'd,
     {
         Box::pin(self.connect(domain, io))
-    }
-}
-
-#[cfg(feature = "openssl")]
-impl TlsConnect for SslConnector {
-    async fn connect(&self, domain: &str, io: Box<dyn Io>) -> ConnectResult {
-        let ssl = self.configure()?.into_ssl(domain)?;
-        let mut stream = SslStream::new(ssl, io)?;
-
-        std::pin::Pin::new(&mut stream).connect().await?;
-
-        let version = stream
-            .ssl()
-            .selected_alpn_protocol()
-            .map_or(Version::HTTP_11, |version| {
-                if version.windows(2).any(|w| w == b"h2") {
-                    Version::HTTP_2
-                } else {
-                    Version::HTTP_11
-                }
-            });
-
-        Ok((Box::new(stream), version))
-    }
-}
-
-#[cfg(feature = "rustls")]
-impl TlsConnect for TlsConnector {
-    async fn connect(&self, domain: &str, io: Box<dyn Io>) -> ConnectResult {
-        let name = ServerName::try_from(domain).map_err(|_| crate::error::RustlsError::InvalidDnsName)?;
-        let stream = self.connect(name, io).await.map_err(crate::error::RustlsError::Io)?;
-
-        let version = stream.get_ref().1.alpn_protocol().map_or(Version::HTTP_11, |version| {
-            if version.windows(2).any(|w| w == b"h2") {
-                Version::HTTP_2
-            } else {
-                Version::HTTP_11
-            }
-        });
-
-        Ok((Box::new(stream), version))
     }
 }
