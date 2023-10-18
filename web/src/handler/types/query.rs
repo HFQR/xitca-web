@@ -22,7 +22,7 @@ where
     }
 }
 
-impl<'r, C, B, T> FromRequest<WebRequest<'r, C, B>> for Query<T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for Query<T>
 where
     T: DeserializeOwned,
     B: BodyStream,
@@ -31,7 +31,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         let value =
             serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default()).map_err(_ParseError::UrlEncoded)?;
         Ok(Query(value))

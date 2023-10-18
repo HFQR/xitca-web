@@ -35,7 +35,7 @@ impl<F, T, O> HandlerService<F, T, O> {
 impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O>
 where
     // for borrowed extractors, `T` is the `'static` version of the extractors
-    T: FromRequest<Req>,
+    T: FromRequest<'static, Req>,
     // just to assist type inference to pinpoint `T`
     F: AsyncClosure<T>,
     F: for<'a> AsyncClosure<T::Type<'a>, Output = O>,
@@ -46,13 +46,15 @@ where
 
     #[inline]
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        let extract = T::from_request(&req).await?;
+        let extract = T::Type::<'_>::from_request(&req).await?;
         let res = self.func.call(extract).await;
         Ok(res.respond_to(req).await)
     }
 }
 
 /// Extract type from Req asynchronously and receive them with function passed to [handler_service].
+///
+/// `'a` is the lifetime of the extracted type.
 ///
 /// When `Req` is also a borrowed type, the lifetimes of `Req` type and of the extracted type should
 /// be kept separate. See example below of extracting &str from &String:
@@ -65,14 +67,13 @@ where
 /// // new type for implementing FromRequest trait to &str.
 /// struct Str<'a>(&'a str);
 ///
-/// // use named lifetime for input &String and anonymous lifetime for output &str
-/// impl<'r> FromRequest<&'r String> for Str<'_> {
+/// // borrowed Req type has a named lifetime of it self while trait implementor has the same lifetime
+/// // from FromRequest's lifetime param.
+/// impl<'a, 'r> FromRequest<'a, &'r String> for Str<'a> {
 ///     type Type<'b> = Str<'b>; // use GAT lifetime to output a named lifetime instance of implementor.
 ///     type Error = ();
 ///
-///     // give trait method's lifetime to GAT associated type and keep input &String's original
-///     // lifetime as is.
-///     async fn from_request<'a>(req: &'a &'r String) -> Result<Self::Type<'a>, Self::Error> {
+///     async fn from_request(req: &'a &'r String) -> Result<Self, Self::Error> {
 ///         Ok(Str(req))
 ///     }
 /// }
@@ -83,23 +84,21 @@ where
 /// assert_eq!(extract.0, input.as_str());
 /// # }
 /// ```
-pub trait FromRequest<Req>: Sized {
-    // output type. GAT lifetime is used to give named lifetime to output while the trait
-    // implementator remain with anonymous lifetime (if any).
-    type Type<'b>;
-    // error output type.
+pub trait FromRequest<'a, Req>: Sized {
+    // Used to construct the type for any lifetime 'b.
+    type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
     type Error;
 
-    fn from_request(req: &Req) -> impl Future<Output = Result<Self::Type<'_>, Self::Error>>;
+    fn from_request(req: &'a Req) -> impl Future<Output = Result<Self, Self::Error>>;
 }
 
 macro_rules! from_req_impl {
     ($req0: ident, $($req: ident,)*) => {
-        impl<Req, $req0, $($req,)*> FromRequest<Req> for ($req0, $($req,)*)
+        impl<'a, Req, $req0, $($req,)*> FromRequest<'a, Req> for ($req0, $($req,)*)
         where
-            $req0: FromRequest<Req>,
+            $req0: FromRequest<'a, Req>,
             $(
-                $req: FromRequest<Req>,
+                $req: FromRequest<'a, Req>,
                 $req0::Error: From<$req::Error>,
             )*
         {
@@ -107,7 +106,7 @@ macro_rules! from_req_impl {
             type Error = $req0::Error;
 
             #[inline]
-            async fn from_request(req: &Req) -> Result<Self::Type<'_>, Self::Error> {
+            async fn from_request(req: &'a Req) -> Result<Self, Self::Error> {
                 Ok((
                     $req0::from_request(req).await?,
                     $($req::from_request(req).await?,)*
@@ -127,11 +126,10 @@ from_req_impl! { A, B, C, D, E, F, G, }
 from_req_impl! { A, B, C, D, E, F, G, H, }
 from_req_impl! { A, B, C, D, E, F, G, H, I, }
 
-/// Make Response asynchronously.
+/// Make Response with reference of Req.
 /// The Output type is what returns from [handler_service] function.
 pub trait Responder<Req> {
     type Output;
-
     fn respond_to(self, req: Req) -> impl Future<Output = Self::Output>;
 }
 
@@ -192,38 +190,38 @@ mod test {
         }
     }
 
-    impl FromRequest<Request<RequestExt<()>>> for String {
+    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for String {
         type Type<'f> = Self;
         type Error = Infallible;
 
-        async fn from_request(_: &Request<RequestExt<()>>) -> Result<Self::Type<'_>, Self::Error> {
+        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
             Ok(String::from("996"))
         }
     }
 
-    impl FromRequest<Request<RequestExt<()>>> for u32 {
+    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u32 {
         type Type<'f> = Self;
         type Error = Infallible;
 
-        async fn from_request(_: &Request<RequestExt<()>>) -> Result<Self::Type<'_>, Self::Error> {
+        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
             Ok(996)
         }
     }
 
-    impl FromRequest<Request<RequestExt<()>>> for u64 {
+    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u64 {
         type Type<'f> = Self;
         type Error = Infallible;
 
-        async fn from_request(_: &Request<RequestExt<()>>) -> Result<Self::Type<'_>, Self::Error> {
+        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
             Ok(996)
         }
     }
 
-    impl FromRequest<Request<RequestExt<()>>> for &Request<RequestExt<()>> {
+    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for &'a Request<RequestExt<()>> {
         type Type<'f> = &'f Request<RequestExt<()>>;
         type Error = Infallible;
 
-        async fn from_request(req: &Request<RequestExt<()>>) -> Result<Self::Type<'_>, Self::Error> {
+        async fn from_request(req: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
             Ok(req)
         }
     }

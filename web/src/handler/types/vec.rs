@@ -7,7 +7,7 @@ use crate::{
     response::WebResponse,
 };
 
-impl<'r, C, B> FromRequest<WebRequest<'r, C, B>> for Vec<u8>
+impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Vec<u8>
 where
     B: BodyStream + Default,
 {
@@ -15,7 +15,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request<'a>(req: &'a WebRequest<'r, C, B>) -> Result<Self::Type<'a>, Self::Error> {
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         let body = req.take_body_ref();
 
         let mut body = pin!(body);
