@@ -266,10 +266,10 @@ mod io_uring {
         Io: AsyncBufRead + AsyncBufWrite,
         S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<()>, Error = Infallible>,
     {
-        let mut read_buf = Some(BytesMut::new());
+        let mut read_buf = BytesMut::new();
         let mut write_buf = Some(BytesMut::new());
 
-        prefix_check(&io, &mut read_buf).await?;
+        read_buf = prefix_check(&io, read_buf).await?;
 
         let settings = settings::Settings::default();
 
@@ -281,17 +281,17 @@ mod io_uring {
         let mut ctx = H2Context::new();
         let mut queue = Queue::new();
 
-        let mut read_task = pin!(read_io(read_buf.take().unwrap(), &io));
+        let mut read_task = pin!(read_io(read_buf, &io));
 
         loop {
             match read_task.as_mut().select(queue.next()).await {
                 SelectOutput::A((res, buf)) => {
-                    read_buf = Some(buf);
+                    read_buf = buf;
                     if res? == 0 {
                         break;
                     }
 
-                    let res = ctx.try_decode(read_buf.as_mut().unwrap(), |req, stream_id| {
+                    let res = ctx.try_decode(&mut read_buf, |req, stream_id| {
                         let s = &service;
                         queue.push(async move { (s.call(req).await, stream_id) });
                     });
@@ -300,7 +300,7 @@ mod io_uring {
                         panic!("{e:?}")
                     }
 
-                    read_task.set(read_io(read_buf.take().unwrap(), &io));
+                    read_task.set(read_io(read_buf, &io));
                 }
                 SelectOutput::B((res, id)) => {
                     let (parts, _) = match res {
@@ -324,23 +324,20 @@ mod io_uring {
 
     #[cold]
     #[inline(never)]
-    async fn prefix_check(io: &impl AsyncBufRead, buf: &mut Option<BytesMut>) -> io::Result<()> {
-        let mut b = buf.take().unwrap();
-        while b.len() < PREFACE.len() {
-            let (res, buf) = read_io(b, io).await;
-            b = buf;
+    async fn prefix_check(io: &impl AsyncBufRead, mut buf: BytesMut) -> io::Result<BytesMut> {
+        while buf.len() < PREFACE.len() {
+            let (res, b) = read_io(buf, io).await;
+            buf = b;
             res?;
         }
 
-        if &b[..PREFACE.len()] == PREFACE {
-            b.advance(PREFACE.len());
+        if &buf[..PREFACE.len()] == PREFACE {
+            buf.advance(PREFACE.len());
         } else {
             todo!()
         }
 
-        buf.replace(b);
-
-        Ok(())
+        Ok(buf)
     }
 }
 
