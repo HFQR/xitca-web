@@ -29,6 +29,7 @@ where
     type Response = Res;
     type Error = Err;
 
+    #[inline]
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
         self.second.call((&self.first, req)).await
     }
