@@ -144,11 +144,17 @@ where
     type Response = S::Response;
     type Error = RouterError<S::Error>;
 
+    // as of the time of committing rust compiler have problem optimizing this piece of code.
+    // using async fn call directly would cause significant code bloating.
+    #[allow(clippy::manual_async_fn)]
     #[inline]
-    async fn call(&self, mut req: Req) -> Result<Self::Response, Self::Error> {
-        let xitca_router::Match { value, params } = self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
-        *req.borrow_mut() = params;
-        value.call(req).await.map_err(RouterError::Second)
+    fn call(&self, mut req: Req) -> impl core::future::Future<Output = Result<Self::Response, Self::Error>> {
+        async {
+            let xitca_router::Match { value, params } =
+                self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
+            *req.borrow_mut() = params;
+            value.call(req).await.map_err(RouterError::Second)
+        }
     }
 }
 
