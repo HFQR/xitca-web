@@ -138,7 +138,7 @@ pub struct RouterService<S> {
 
 impl<S, Req> Service<Req> for RouterService<S>
 where
-    S: Service<Req>,
+    S: xitca_service::object::ServiceObject<Req>,
     Req: BorrowReq<Uri> + BorrowReqMut<Params>,
 {
     type Response = S::Response;
@@ -153,7 +153,9 @@ where
             let xitca_router::Match { value, params } =
                 self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
             *req.borrow_mut() = params;
-            value.call(req).await.map_err(RouterError::Second)
+            xitca_service::object::ServiceObject::call(value, req)
+                .await
+                .map_err(RouterError::Second)
         }
     }
 }
