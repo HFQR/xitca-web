@@ -24,8 +24,8 @@ pub(crate) mod marker {
     pub struct Http2;
 }
 
-/// HttpService Builder type.
-/// Take in generic types of ServiceFactory for http and tls.
+/// HttpService middleware.
+/// bridge TCP/UDP traffic and HTTP protocols for [Service] type.
 pub struct HttpServiceBuilder<
     V,
     St,

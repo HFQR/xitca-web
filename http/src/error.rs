@@ -1,3 +1,5 @@
+//! error types.
+
 use std::{
     convert::Infallible,
     error::Error,

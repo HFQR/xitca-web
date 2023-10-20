@@ -1,3 +1,5 @@
+//! HTTP body types.
+
 use std::{
     borrow::Cow,
     convert::Infallible,

@@ -1,3 +1,5 @@
+//! low resolution async date time for reduced syscall for generating http date time.
+
 use std::{
     cell::RefCell,
     fmt::{self, Write},
