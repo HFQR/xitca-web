@@ -40,7 +40,7 @@ use super::{
     proto::{
         codec::{ChunkResult, TransferCoding},
         context::Context,
-        encode::encode_continue,
+        encode::CONTINUE_BYTES,
         error::ProtoError,
     },
 };
@@ -108,7 +108,11 @@ impl BufOwned {
     }
 }
 
-async fn write_all(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
+async fn write_all<Io, B>(io: &Io, mut buf: B) -> (io::Result<()>, B)
+where
+    Io: AsyncBufWrite,
+    B: IoBuf,
+{
     let mut n = 0;
     while n < buf.bytes_init() {
         match io.write(buf.slice(n..)).await {
@@ -306,9 +310,7 @@ impl Body {
         let state = if is_expect {
             State::ExpectWrite {
                 fut: async {
-                    let mut bytes = BytesMut::new();
-                    encode_continue(&mut bytes);
-                    let (res, _) = write_all(&*body.io, bytes).await;
+                    let (res, _) = write_all(&*body.io, CONTINUE_BYTES).await;
                     res.map(|_| body)
                 },
             }

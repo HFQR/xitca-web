@@ -3,7 +3,7 @@ use tracing::{debug, warn};
 
 use crate::{
     body::BodySize,
-    bytes::BytesMut,
+    bytes::{Bytes, BytesMut},
     date::DateTime,
     http::{
         header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TE, TRANSFER_ENCODING, UPGRADE},
@@ -14,10 +14,10 @@ use crate::{
 
 use super::{buf_write::H1BufWrite, codec::TransferCoding, context::Context, error::ProtoError};
 
-#[inline]
-pub fn encode_continue(buf: &mut impl H1BufWrite) {
-    buf.write_buf_static(b"HTTP/1.1 100 Continue\r\n\r\n");
-}
+pub const CONTINUE: &[u8; 25] = b"HTTP/1.1 100 Continue\r\n\r\n";
+
+#[allow(clippy::declare_interior_mutable_const)]
+pub const CONTINUE_BYTES: Bytes = Bytes::from_static(CONTINUE);
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
 where
@@ -84,16 +84,9 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
         }
     }
 
-    encode_version_status_reason_slow(buf, status);
-}
-
-#[cold]
-#[inline(never)]
-fn encode_version_status_reason_slow(buf: &mut BytesMut, status: StatusCode) {
     // a reason MUST be written, as many parsers will expect it.
     let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();
     let status = status.as_str().as_bytes();
-
     buf.reserve(status.len() + reason.len() + 1);
     buf.extend_from_slice(status);
     buf.extend_from_slice(b" ");
@@ -170,7 +163,6 @@ where
                 buf.extend_from_slice(value);
             } else {
                 let name = name.as_str().as_bytes();
-
                 buf.reserve(name.len() + value.len() + 4);
                 buf.extend_from_slice(b"\r\n");
                 buf.extend_from_slice(name);
