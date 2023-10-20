@@ -23,18 +23,16 @@ impl Resolver {
     }
 
     pub(crate) async fn resolve(&self, connect: &mut Connect<'_>) -> Result<(), Error> {
+        let host = connect.hostname();
+        let port = connect.port();
         let addrs = match *self {
             Self::Std => {
-                let host = connect.hostname().to_string();
-                let port = connect.port();
+                let host = host.to_string();
                 tokio::task::spawn_blocking(move || (host, port).to_socket_addrs())
                     .await
                     .unwrap()?
             }
-            Self::Custom(ref resolve) => resolve
-                .resolve_dyn(connect.hostname(), connect.port())
-                .await?
-                .into_iter(),
+            Self::Custom(ref resolve) => resolve.resolve_dyn(host, port).await?.into_iter(),
         };
 
         connect.set_addrs(addrs);
