@@ -39,12 +39,12 @@ where
         let status = parts.status;
 
         // decide if content-length or transfer-encoding header would be skipped.
-        let skip_len = match (status, version) {
-            (StatusCode::SWITCHING_PROTOCOLS, _) => true,
+        let skip_len = match status {
+            StatusCode::SWITCHING_PROTOCOLS => true,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
-            (s, _) if self.is_connect_method() && s.is_success() => true,
-            (s, _) if s.is_informational() => {
+            s if self.is_connect_method() && s.is_success() => true,
+            s if s.is_informational() => {
                 warn!(target: "h1_encode", "response with 1xx status code not supported");
                 return Err(ProtoError::Status);
             }
@@ -84,6 +84,12 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
         }
     }
 
+    encode_version_status_reason_slow(buf, status);
+}
+
+#[cold]
+#[inline(never)]
+fn encode_version_status_reason_slow(buf: &mut BytesMut, status: StatusCode) {
     // a reason MUST be written, as many parsers will expect it.
     let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();
     let status = status.as_str().as_bytes();
