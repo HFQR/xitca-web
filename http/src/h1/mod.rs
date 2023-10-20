@@ -1,3 +1,5 @@
+//! http/1 specific module for types and protocol utilities.
+
 pub mod proto;
 
 pub(crate) mod dispatcher;

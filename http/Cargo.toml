@@ -77,3 +77,4 @@ socket2 = { version = "0.5.1", features = ["all"] }
 
 [dev-dependencies]
 tokio = { version = "1.30", features = ["macros", "rt"] }
+xitca-server = "0.1"

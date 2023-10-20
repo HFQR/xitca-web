@@ -1,4 +1,6 @@
-use std::time::Duration;
+//! Configuration for http service middlewares.
+
+use core::time::Duration;
 
 /// The default maximum read buffer size. If the head gets this big and
 /// a message is still not complete, a `TooLarge` error is triggered.
