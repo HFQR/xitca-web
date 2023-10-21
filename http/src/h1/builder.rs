@@ -8,8 +8,7 @@ impl<St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE
     HttpServiceBuilder<marker::Http1, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     #[cfg(unix)]
-    /// Transform Self to a Http1 service builder that able to take in [xitca_io::net::UnixStream]
-    /// IO type.
+    /// transform Self to a http1 service builder that producing a service that able to handle [xitca_io::net::UnixStream]
     pub fn unix(
         self,
     ) -> HttpServiceBuilder<marker::Http1, xitca_io::net::UnixStream, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
@@ -24,7 +23,7 @@ impl<St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE
     }
 
     #[cfg(feature = "io-uring")]
-    /// Transform Self to a Http1 service builder that able to take in [xitca_io::net::io_uring::TcpStream]
+    /// transform Self to a http1 service builder that producing a service that able to handle [xitca_io::net::io_uring::TcpStream]
     pub fn io_uring(
         self,
     ) -> HttpServiceBuilder<
