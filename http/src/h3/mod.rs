@@ -1,3 +1,5 @@
+//! http/2 specific module for types and protocol utilities.
+
 mod body;
 mod builder;
 mod error;

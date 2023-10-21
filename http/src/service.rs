@@ -19,7 +19,6 @@ use super::{
     version::AsVersion,
 };
 
-/// General purpose http service
 pub struct HttpService<
     St,
     S,
@@ -39,8 +38,7 @@ pub struct HttpService<
 impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     HttpService<St, S, ReqB, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
-    /// Construct new Http Service.
-    pub fn new(
+    pub(crate) fn new(
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
         service: S,
         tls_acceptor: A,
@@ -61,11 +59,9 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
         timer.update(deadline);
     }
 
-    /// keep alive start with timer for `HttpServiceConfig.tls_accept_timeout`.
-    ///
-    /// It would be re-used for all following timer operation.
-    ///
-    /// This is an optimization for reducing heap allocation of multiple timers.
+    // keep alive start with timer for `HttpServiceConfig.tls_accept_timeout`.
+    // It would be re-used for all following timer operation.
+    // This is an optimization for reducing heap allocation of multiple timers.
     pub(crate) fn keep_alive(&self) -> KeepAlive {
         let accept_dur = self.config.tls_accept_timeout;
         let deadline = self.date.get().now() + accept_dur;
