@@ -57,6 +57,7 @@ extern crate alloc;
 pub mod object;
 
 #[cfg(feature = "alloc")]
+/// boxed [core::future::Future] trait object with no extra auto trait bound(`!Send` and `!Sync`).
 pub type BoxFuture<'a, Res, Err> =
     core::pin::Pin<alloc::boxed::Box<dyn core::future::Future<Output = Result<Res, Err>> + 'a>>;
 

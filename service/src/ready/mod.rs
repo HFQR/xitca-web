@@ -1,3 +1,5 @@
+//! trait and types for backpressure handling.
+
 mod and_then;
 mod enclosed_fn;
 mod function;

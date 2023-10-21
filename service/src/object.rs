@@ -1,3 +1,5 @@
+//! trait and types making [Service] object safe.
+
 use alloc::boxed::Box;
 
 use super::{service::Service, BoxFuture};

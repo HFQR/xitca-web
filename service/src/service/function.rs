@@ -56,6 +56,7 @@ where
     fn_build(move |_| ready(Ok(FnService(f.clone()))))
 }
 
+/// new type for implementing [Service] trait to a `Fn(Req) -> impl Future<Output = Result<Res, Err>>` type.
 #[derive(Clone)]
 pub struct FnService<F>(F);
 
