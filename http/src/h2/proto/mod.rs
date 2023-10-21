@@ -20,7 +20,7 @@ pub use io_uring::run;
 #[cfg(feature = "io-uring")]
 mod io_uring {
     use core::{
-        convert::Infallible,
+        fmt,
         future::Future,
         mem,
         pin::{pin, Pin},
@@ -44,11 +44,18 @@ mod io_uring {
         util::futures::Queue,
     };
 
-    use super::{data, error::Error, head, headers, hpack, settings, stream_id::StreamId};
+    use super::{
+        data,
+        error::Error,
+        head, headers, hpack,
+        settings::{self, Settings},
+        stream_id::StreamId,
+    };
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
     struct H2Context {
+        max_header_list_size: usize,
         decoder: hpack::Decoder,
         encoder: hpack::Encoder,
         tx_map: HashMap<StreamId, RequestBodySender>,
@@ -57,15 +64,13 @@ mod io_uring {
         continuation: Option<(headers::Headers, BytesMut)>,
     }
 
-    impl Default for H2Context {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
     impl H2Context {
-        fn new() -> Self {
+        fn new(local_setting: Settings) -> Self {
             Self {
+                max_header_list_size: local_setting
+                    .max_header_list_size()
+                    .map(|val| val as _)
+                    .unwrap_or(settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE),
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
                 encoder: hpack::Encoder::new(65535, 4096),
                 tx_map: HashMap::new(),
@@ -99,14 +104,16 @@ mod io_uring {
 
                 match head.kind() {
                     head::Kind::Settings => {
-                        let _setting = settings::Settings::load(head, &frame);
+                        let _setting = settings::Settings::load(head, &frame).unwrap();
                     }
                     head::Kind::Headers => {
                         let (mut headers, mut payload) = headers::Headers::load(head, frame).unwrap();
 
                         let is_end_headers = headers.is_end_headers();
 
-                        headers.load_hpack(&mut payload, 4096, &mut self.decoder).unwrap();
+                        headers
+                            .load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder)
+                            .unwrap();
 
                         if !is_end_headers {
                             self.continuation = Some((headers, payload));
@@ -132,7 +139,7 @@ mod io_uring {
 
                         payload.extend_from_slice(&frame);
 
-                        if let Err(e) = headers.load_hpack(&mut payload, 4096, &mut self.decoder) {
+                        if let Err(e) = headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder) {
                             match e {
                                 Error::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
                                     self.continuation = Some((headers, payload));
@@ -264,21 +271,23 @@ mod io_uring {
     pub async fn run<Io, S>(io: Io, service: S) -> io::Result<()>
     where
         Io: AsyncBufRead + AsyncBufWrite,
-        S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<()>, Error = Infallible>,
+        S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<()>>,
+        S::Error: fmt::Debug,
     {
         let mut read_buf = BytesMut::new();
-        let mut write_buf = Some(BytesMut::new());
+        let mut write_buf = BytesMut::new();
 
         read_buf = prefix_check(&io, read_buf).await?;
 
-        let settings = settings::Settings::default();
+        let mut settings = settings::Settings::default();
+        settings.set_max_concurrent_streams(Some(256));
 
-        settings.encode(write_buf.as_mut().unwrap());
-        let (res, buf) = write_io(write_buf.take().unwrap(), &io).await;
-        write_buf = Some(buf);
+        settings.encode(&mut write_buf);
+        let (res, buf) = write_io(write_buf, &io).await;
+        write_buf = buf;
         res?;
 
-        let mut ctx = H2Context::new();
+        let mut ctx = H2Context::new(settings);
         let mut queue = Queue::new();
 
         let mut read_task = pin!(read_io(read_buf, &io));
@@ -297,7 +306,7 @@ mod io_uring {
                     });
 
                     if let Err(e) = res {
-                        panic!("{e:?}")
+                        panic!("decode error: {e:?}")
                     }
 
                     read_task.set(read_io(read_buf, &io));
@@ -305,15 +314,18 @@ mod io_uring {
                 SelectOutput::B((res, id)) => {
                     let (parts, _) = match res {
                         Ok(res) => res.into_parts(),
-                        Err(_) => continue,
+                        Err(e) => {
+                            error!("service error: {e:?}");
+                            continue;
+                        }
                     };
                     let pseudo = headers::Pseudo::response(parts.status);
                     let headers = headers::Headers::new(id, pseudo, parts.headers);
-                    let mut buf = write_buf.as_mut().unwrap().limit(4096);
+                    let mut buf = (&mut write_buf).limit(4096);
                     headers.encode(&mut ctx.encoder, &mut buf);
 
-                    let (res, buf) = write_io(write_buf.take().unwrap(), &io).await;
-                    write_buf = Some(buf);
+                    let (res, buf) = write_io(write_buf, &io).await;
+                    write_buf = buf;
                     res?;
                 }
             }
