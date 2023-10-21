@@ -5,7 +5,7 @@ use core::{
 
 use crate::{ready::ReadyService, service::Service};
 
-/// A pipeline type where two variants have a parent-child/first-second relationship
+/// A pipeline type where two variants have a either/or relationship
 pub enum Pipeline<F, S> {
     First(F),
     Second(S),

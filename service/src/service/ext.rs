@@ -5,9 +5,10 @@ use crate::{
 
 use super::Service;
 
+/// extend trait for [Service] providing combinator functionalities.
 pub trait ServiceExt<Arg>: Service<Arg> {
-    /// Enclose Self with given `T as Service<<Self as Service<_>>::Response>>`.
-    /// In other word T would take Self's Response type it's generic argument of `Service<_>`.
+    /// Enclose Self with given `T as Service<<Self as Service<_>>::Response>>`. In other word T
+    /// would take Self's `Service::Response`` type as it's generic argument of `Service<_>` impl.
     fn enclosed<T>(self, build: T) -> PipelineT<Self, T, marker::BuildEnclosed>
     where
         T: Service<Self::Response>,
