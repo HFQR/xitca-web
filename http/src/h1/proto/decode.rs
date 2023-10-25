@@ -31,6 +31,20 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
                 let uri = req.path.unwrap().parse::<Uri>()?;
 
+                // default body decoder from method.
+                let mut decoder = match method {
+                    // set method to context so it can pass method to response.
+                    Method::CONNECT => {
+                        self.set_connect_method();
+                        TransferCoding::upgrade()
+                    }
+                    Method::HEAD => {
+                        self.set_head_method();
+                        TransferCoding::eof()
+                    }
+                    _ => TransferCoding::eof(),
+                };
+
                 // Set connection type when doing version match.
                 let version = if req.version.unwrap() == 1 {
                     // Default ctype is KeepAlive so set_ctype is skipped here.
@@ -49,31 +63,18 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 // split the headers from buffer.
                 let slice = buf.split_to(len).freeze();
 
-                // default decoder.
-                let mut decoder = TransferCoding::eof();
-
                 // pop a cached headermap or construct a new one.
                 let mut headers = self.take_headers();
                 headers.reserve(headers_len);
 
                 // write headers to headermap and update request states.
-                header_idx_slice
-                    .iter()
-                    .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
+                for idx in header_idx_slice {
+                    self.try_write_header(&mut headers, &mut decoder, idx, &slice, version)?;
+                }
 
                 // decoder is supposed to be chunked but according value never showed up.
                 if decoder.is_maybe_decode_chunked() {
                     return Err(ProtoError::HeaderName);
-                }
-
-                // set method to context so it can pass method to response.
-                match method {
-                    Method::CONNECT => {
-                        self.set_connect_method();
-                        decoder.try_set(TransferCoding::upgrade())?;
-                    }
-                    Method::HEAD => self.set_head_method(),
-                    _ => {}
                 }
 
                 let ext = Extension::new(*self.socket_addr());
