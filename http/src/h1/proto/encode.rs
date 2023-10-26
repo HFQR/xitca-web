@@ -158,8 +158,8 @@ where
             let value = value.as_bytes();
 
             if is_continue {
-                buf.reserve(value.len() + 1);
-                buf.extend_from_slice(b",");
+                buf.reserve(value.len() + 2);
+                buf.extend_from_slice(b", ");
                 buf.extend_from_slice(value);
             } else {
                 let name = name.as_str().as_bytes();
@@ -266,7 +266,7 @@ mod test {
 
                 for h in header {
                     if h.name == "connection" {
-                        assert_eq!(h.value, b"keep-alive,upgrade");
+                        assert_eq!(h.value, b"keep-alive, upgrade");
                     }
                 }
             })
