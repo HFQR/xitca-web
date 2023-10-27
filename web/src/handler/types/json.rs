@@ -9,12 +9,12 @@ use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::{
     body::BodyStream,
-    dev::bytes::{BufMutWriter, BytesMut},
+    dev::bytes::{BufMutWriter, Bytes, BytesMut},
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest, Responder,
     },
-    http::{const_header_value::JSON, header::CONTENT_TYPE},
+    http::{const_header_value::JSON, header::CONTENT_TYPE, status::StatusCode},
     request::WebRequest,
     response::WebResponse,
 };
@@ -96,7 +96,7 @@ where
     }
 }
 
-impl<'r, C, B, T, const LIMIT: usize> Responder<WebRequest<'r, C, B>> for Json<T, LIMIT>
+impl<'r, C, B, T> Responder<WebRequest<'r, C, B>> for Json<T>
 where
     T: Serialize,
 {
@@ -105,9 +105,17 @@ where
     #[inline]
     async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
         let mut bytes = BytesMut::new();
-        serde_json::to_writer(BufMutWriter(&mut bytes), &self.0).unwrap();
-        let mut res = req.into_response(bytes.freeze());
-        res.headers_mut().insert(CONTENT_TYPE, JSON);
-        res
+        match serde_json::to_writer(BufMutWriter(&mut bytes), &self.0) {
+            Ok(_) => {
+                let mut res = req.into_response(bytes.freeze());
+                res.headers_mut().insert(CONTENT_TYPE, JSON);
+                res
+            }
+            Err(_) => {
+                let mut res = req.into_response(Bytes::new());
+                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                res
+            }
+        }
     }
 }
