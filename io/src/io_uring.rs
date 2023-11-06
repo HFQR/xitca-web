@@ -19,3 +19,26 @@ pub trait AsyncBufWrite {
 
     fn shutdown(&self, direction: Shutdown) -> io::Result<()>;
 }
+
+pub async fn write_all<Io, B>(io: &Io, mut buf: B) -> (io::Result<()>, B)
+where
+    Io: AsyncBufWrite,
+    B: IoBuf,
+{
+    let mut n = 0;
+    while n < buf.bytes_init() {
+        match io.write(buf.slice(n..)).await {
+            (Ok(0), slice) => {
+                return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
+            }
+            (Ok(m), slice) => {
+                n += m;
+                buf = slice.into_inner();
+            }
+            (Err(e), slice) => {
+                return (Err(e), slice.into_inner());
+            }
+        }
+    }
+    (Ok(()), buf)
+}

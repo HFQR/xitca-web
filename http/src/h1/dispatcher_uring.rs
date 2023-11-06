@@ -20,7 +20,7 @@ use pin_project_lite::pin_project;
 use tracing::trace;
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf},
+    io_uring::{write_all, AsyncBufRead, AsyncBufWrite, IoBuf},
 };
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
@@ -106,29 +106,6 @@ impl BufOwned {
         self.buf = Some(buf);
         res
     }
-}
-
-async fn write_all<Io, B>(io: &Io, mut buf: B) -> (io::Result<()>, B)
-where
-    Io: AsyncBufWrite,
-    B: IoBuf,
-{
-    let mut n = 0;
-    while n < buf.bytes_init() {
-        match io.write(buf.slice(n..)).await {
-            (Ok(0), slice) => {
-                return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
-            }
-            (Ok(m), slice) => {
-                n += m;
-                buf = slice.into_inner();
-            }
-            (Err(e), slice) => {
-                return (Err(e), slice.into_inner());
-            }
-        }
-    }
-    (Ok(()), buf)
 }
 
 impl<'a, Io, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>

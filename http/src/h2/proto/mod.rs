@@ -33,7 +33,7 @@ mod io_uring {
     use tracing::error;
     use xitca_io::{
         bytes::{Buf, BufMut, BytesMut},
-        io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf},
+        io_uring::{write_all, AsyncBufRead, AsyncBufWrite, IoBuf},
     };
     use xitca_service::Service;
     use xitca_unsafe_collection::futures::{Select, SelectOutput};
@@ -217,25 +217,6 @@ mod io_uring {
     }
 
     async fn write_io(buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, BytesMut) {
-        async fn write_all(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
-            let mut n = 0;
-            while n < buf.bytes_init() {
-                match io.write(buf.slice(n..)).await {
-                    (Ok(0), slice) => {
-                        return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
-                    }
-                    (Ok(m), slice) => {
-                        n += m;
-                        buf = slice.into_inner();
-                    }
-                    (Err(e), slice) => {
-                        return (Err(e), slice.into_inner());
-                    }
-                }
-            }
-            (Ok(()), buf)
-        }
-
         let (res, mut buf) = write_all(io, buf).await;
         buf.clear();
         (res, buf)
