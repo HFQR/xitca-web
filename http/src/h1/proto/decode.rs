@@ -142,7 +142,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
             }
             CONNECTION => self.try_set_close_from_header(&value)?,
             EXPECT => {
-                if value.as_bytes() != b"100-continue" {
+                if !value.as_bytes().eq_ignore_ascii_case(b"100-continue") {
                     return Err(ProtoError::HeaderValue);
                 }
                 self.set_expect_header()
