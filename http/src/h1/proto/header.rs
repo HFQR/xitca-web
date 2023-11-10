@@ -4,6 +4,10 @@ use xitca_unsafe_collection::uninit::PartialInit;
 
 use httparse::Header;
 
+use super::error::ProtoError;
+
+use crate::http::header::HeaderValue;
+
 #[derive(Clone, Copy)]
 pub struct HeaderIndex {
     pub name: (usize, usize),
@@ -25,4 +29,11 @@ impl HeaderIndex {
             }
         })
     }
+}
+
+pub(super) fn parse_content_length(val: &HeaderValue) -> Result<u64, ProtoError> {
+    val.to_str()
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .ok_or(ProtoError::HeaderValue)
 }
