@@ -9,7 +9,12 @@ use crate::{
     },
 };
 
-use super::{codec::TransferCoding, context::Context, error::ProtoError, header::HeaderIndex};
+use super::{
+    codec::TransferCoding,
+    context::Context,
+    error::ProtoError,
+    header::{self, HeaderIndex},
+};
 
 type Decoded = (Request<RequestExt<()>>, TransferCoding);
 
@@ -132,12 +137,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 }
             }
             CONTENT_LENGTH => {
-                let len = value
-                    .to_str()
-                    .ok()
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .ok_or(ProtoError::HeaderValue)?;
-
+                let len = header::parse_content_length(&value)?;
                 decoder.try_set(TransferCoding::length(len))?;
             }
             CONNECTION => self.try_set_close_from_header(&value)?,

@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-use super::{buf_write::H1BufWrite, codec::TransferCoding, context::Context, error::ProtoError};
+use super::{buf_write::H1BufWrite, codec::TransferCoding, context::Context, error::ProtoError, header};
 
 pub const CONTINUE: &[u8; 25] = b"HTTP/1.1 100 Continue\r\n\r\n";
 
@@ -129,11 +129,7 @@ where
             match name {
                 CONTENT_LENGTH => {
                     debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
-                    let value = value
-                        .to_str()
-                        .ok()
-                        .and_then(|v| v.parse().ok())
-                        .ok_or(ProtoError::HeaderValue)?;
+                    let value = header::parse_content_length(&value)?;
                     encoding = TransferCoding::length(value);
                     skip_len = true;
                 }
