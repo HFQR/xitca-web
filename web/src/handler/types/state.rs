@@ -45,6 +45,45 @@ where
     }
 }
 
+/// App state extractor for owned value.
+/// S type must be the same with the type passed to App::with_xxx_state(<S>).
+pub struct StateOwn<S>(pub S);
+
+impl<S: fmt::Debug> fmt::Debug for StateOwn<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StateOwn({:?})", self.0)
+    }
+}
+
+impl<S: fmt::Display> fmt::Display for StateOwn<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StateOwn({})", self.0)
+    }
+}
+
+impl<S> Deref for StateOwn<S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for StateOwn<T>
+where
+    C: Borrow<T>,
+    B: BodyStream,
+    T: Clone,
+{
+    type Type<'b> = StateOwn<T>;
+    type Error = ExtractError<B::Error>;
+
+    #[inline]
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(StateOwn(req.state().borrow().clone()))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
