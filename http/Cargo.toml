@@ -60,8 +60,8 @@ fnv = { version = "1.0.7", optional = true }
 futures-util = { version = "0.3.17", default-features = false, optional = true }
 
 # http/3 support
-h3 = { version = "0.0.2", optional = true }
-h3-quinn = { version = "0.0.3", optional = true }
+h3 = { version = "0.0.3", optional = true }
+h3-quinn = { version = "0.0.4", optional = true }
 
 # async runtime support.
 tokio = { version = "1.30", features = ["rt", "time"], optional = true }
@@ -76,4 +76,10 @@ tokio-uring = { version = "0.4.0", features = ["bytes"], optional = true }
 socket2 = { version = "0.5.1", features = ["all"] }
 
 [dev-dependencies]
+criterion = "0.5"
 tokio = { version = "1.30", features = ["macros", "rt"] }
+xitca-server = "0.1"
+
+[[bench]]
+name = "h1_decode"
+harness = false

@@ -1,4 +1,4 @@
-use std::{convert::Infallible, error, future::Future, marker::PhantomData};
+use std::{convert::Infallible, error, marker::PhantomData};
 
 use xitca_http::ResponseBody;
 
@@ -61,18 +61,12 @@ impl TypeEraser<EraseErr> {
 impl<M, S> Service<S> for TypeEraser<M> {
     type Response = EraserService<M, S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
-        async {
-            Ok(EraserService {
-                service,
-                _erase: PhantomData,
-            })
-        }
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+        Ok(EraserService {
+            service,
+            _erase: PhantomData,
+        })
     }
 }
 
@@ -84,26 +78,16 @@ pub struct EraserService<M, S> {
 impl<'r, S, C, B, ResB, Err> Service<WebRequest<'r, C, B>> for EraserService<EraseResBody, S>
 where
     S: for<'rs> Service<WebRequest<'rs, C, B>, Response = WebResponse<ResB>, Error = Err>,
-    C: 'r,
-    B: 'r,
     ResB: BodyStream<Chunk = Bytes> + 'static,
     <ResB as BodyStream>::Error: Send + Sync,
 {
     type Response = WebResponse;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
-    where
-        Self: 'f, 'r: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: WebRequest<'r, C, B>) -> Self::Future<'s>
-    where
-        'r: 's,
-    {
-        async {
-            let res = self.service.call(req).await?;
-            Ok(res.map(ResponseBody::box_stream))
-        }
+    async fn call(&self, req: WebRequest<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let res = self.service.call(req).await?;
+        Ok(res.map(ResponseBody::box_stream))
     }
 }
 
@@ -114,16 +98,10 @@ where
 {
     type Response = S::Response;
     type Error = Box<dyn error::Error + Send + Sync>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
-    where
-        Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async { self.service.call(req).await.map_err(|e| Box::new(e) as _) }
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        self.service.call(req).await.map_err(|e| Box::new(e) as _)
     }
 }
 
@@ -132,11 +110,10 @@ where
     S: ReadyService,
 {
     type Ready = S::Ready;
-    type Future<'f> = S::Future<'f> where Self: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.service.ready()
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
     }
 }
 

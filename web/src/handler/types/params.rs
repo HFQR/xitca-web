@@ -1,4 +1,4 @@
-use std::{future::Future, ops::Deref};
+use core::ops::Deref;
 
 use serde::de::{self, Deserializer, Error as DeError, Visitor};
 use serde::{forward_to_deserialize_any, Deserialize};
@@ -24,16 +24,13 @@ where
 {
     type Type<'b> = Params<T>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async {
-            let params = req.req().body().params();
-            let params = T::deserialize(Params2::new(params)).map_err(_ParseError::Params)?;
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        let params = req.req().body().params();
+        let params = T::deserialize(Params2::new(params)).map_err(_ParseError::Params)?;
 
-            Ok(Params(params))
-        }
+        Ok(Params(params))
     }
 }
 
@@ -54,11 +51,10 @@ where
 {
     type Type<'b> = ParamsRef<'b>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async { Ok(ParamsRef(req.req().extensions().get::<router::Params>().unwrap())) }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ParamsRef(req.req().extensions().get::<router::Params>().unwrap()))
     }
 }
 

@@ -14,10 +14,6 @@ use std::io;
 
 /// A wrapper trait for an [AsyncRead]/[AsyncWrite] tokio type with additional methods.
 pub trait AsyncIo: io::Read + io::Write + Unpin {
-    type Future<'f>: Future<Output = io::Result<Ready>>
-    where
-        Self: 'f;
-
     /// asynchronously wait for the IO type and return it's state as [Ready].
     ///
     /// # Errors:
@@ -29,7 +25,7 @@ pub trait AsyncIo: io::Read + io::Write + Unpin {
     ///
     /// This constraint is from `tokio`'s behavior which is what xitca built upon and rely on
     /// in downstream crates like `xitca-http` etc.
-    fn ready(&self, interest: Interest) -> Self::Future<'_>;
+    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send;
 
     /// a poll version of ready method.
     ///

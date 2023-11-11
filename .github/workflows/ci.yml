@@ -14,7 +14,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2023-09-26
+          - nightly-2023-10-15
     name: http check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -63,7 +63,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2023-09-26
+          - nightly-2023-10-15
     name: web check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -112,7 +112,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2023-09-26
+          - nightly-2023-10-15
     name: client check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -161,7 +161,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2023-09-26
+          - nightly-2023-10-15
     name: other check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -209,7 +209,7 @@ jobs:
         target:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
         version:
-          - nightly-2023-09-26
+          - nightly-2023-10-15
     name: test @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -267,7 +267,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
           - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
         version:
-          - nightly-2023-09-26
+          - nightly-2023-10-15
     name: example check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 

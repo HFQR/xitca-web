@@ -21,7 +21,7 @@ use crate::{
 #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
 use crate::{connection::Connection, error::TimeoutError, timeout::Timeout};
 
-/// crate level HTTP request type.
+/// new type of [http::Request] with extended functionalities.
 pub struct Request<'a, B = Once<Bytes>> {
     /// HTTP request type from [http] crate.
     req: http::Request<B>,
@@ -83,7 +83,9 @@ impl<'a, B> Request<'a, B> {
 
     /// Set timeout of this request.
     ///
-    /// The value passed would override global [TimeoutConfig].
+    /// The value passed would override global [ClientBuilder::set_request_timeout].
+    ///
+    /// [ClientBuilder::set_request_timeout]: crate::builder::ClientBuilder::set_request_timeout
     #[inline]
     pub fn timeout(mut self, dur: Duration) -> Self {
         self.timeout = dur;

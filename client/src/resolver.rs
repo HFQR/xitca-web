@@ -1,13 +1,14 @@
+use core::future::Future;
+
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use futures_core::future::BoxFuture;
-use tokio::task;
 
 use crate::{connect::Connect, error::Error};
 
 pub(crate) enum Resolver {
     Std,
-    Custom(Box<dyn Resolve>),
+    Custom(Box<dyn ResolveDyn>),
 }
 
 impl Default for Resolver {
@@ -22,38 +23,25 @@ impl Resolver {
     }
 
     pub(crate) async fn resolve(&self, connect: &mut Connect<'_>) -> Result<(), Error> {
-        match *self {
+        let host = connect.hostname();
+        let port = connect.port();
+        let addrs = match *self {
             Self::Std => {
-                let host = connect.hostname().to_string();
-
-                let task = if connect
-                    .hostname()
-                    .splitn(2, ':')
-                    .last()
-                    .and_then(|p| p.parse::<u16>().ok())
-                    .is_some()
-                {
-                    task::spawn_blocking(move || host.to_socket_addrs())
-                } else {
-                    let host = (host, connect.port());
-                    task::spawn_blocking(move || host.to_socket_addrs())
-                };
-
-                let addrs = task.await.unwrap()?;
-
-                connect.set_addrs(addrs);
+                let host = host.to_string();
+                tokio::task::spawn_blocking(move || (host, port).to_socket_addrs())
+                    .await
+                    .unwrap()?
             }
-            Self::Custom(ref resolve) => {
-                let addrs = resolve.resolve(connect.hostname(), connect.port()).await?;
-                connect.set_addrs(addrs);
-            }
+            Self::Custom(ref resolve) => resolve.resolve_dyn(host, port).await?.into_iter(),
         };
+
+        connect.set_addrs(addrs);
 
         Ok(())
     }
 }
 
-/// Trait for custom resolver.
+/// Trait for custom DNS resolver.
 ///
 /// # Examples
 /// ```rust
@@ -63,11 +51,11 @@ impl Resolver {
 ///
 /// struct MyResolver;
 ///
-/// #[async_trait::async_trait]
 /// impl Resolve for MyResolver {
+///     // hostname is stripped of port number(if given).
 ///     async fn resolve(&self, hostname: &str, port: u16) -> Result<Vec<SocketAddr>, Error> {
 ///         // Your DNS resolve logic goes here.
-///         todo!()
+///         Ok(vec![])
 ///     }
 /// }
 ///
@@ -77,8 +65,24 @@ impl Resolver {
 /// ```
 pub trait Resolve: Send + Sync {
     /// *. hostname does not include port number.
-    fn resolve<'s, 'h, 'f>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'f, Result<Vec<SocketAddr>, Error>>
+    fn resolve(&self, hostname: &str, port: u16) -> impl Future<Output = Result<Vec<SocketAddr>, Error>> + Send;
+}
+
+pub(crate) trait ResolveDyn: Send + Sync {
+    fn resolve_dyn<'s, 'h>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'h, Result<Vec<SocketAddr>, Error>>
     where
-        's: 'f,
-        'h: 'f;
+        's: 'h;
+}
+
+impl<R> ResolveDyn for R
+where
+    R: Resolve,
+{
+    #[inline]
+    fn resolve_dyn<'s, 'h>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'h, Result<Vec<SocketAddr>, Error>>
+    where
+        's: 'h,
+    {
+        Box::pin(self.resolve(hostname, port))
+    }
 }

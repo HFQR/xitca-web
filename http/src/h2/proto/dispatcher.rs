@@ -84,7 +84,7 @@ where
             ..
         } = self;
 
-        let ping_pong = io.ping_pong().unwrap();
+        let ping_pong = io.ping_pong().expect("first call to ping_pong should never fail");
 
         // reset timer to keep alive.
         let deadline = date.now() + ka_dur;
@@ -116,11 +116,7 @@ where
                         h2_handler(fut, tx, date).await
                     });
                 }
-                SelectOutput::B(SelectOutput::A(res)) => match res {
-                    Ok(ConnectionState::KeepAlive) => {}
-                    Ok(ConnectionState::Close) => io.graceful_shutdown(),
-                    Err(e) => HttpServiceError::from(e).log("h2_dispatcher"),
-                },
+                SelectOutput::B(SelectOutput::A(_)) => io.graceful_shutdown(),
                 SelectOutput::B(SelectOutput::B(Ok(_))) => {
                     trace!("Connection keep-alive timeout. Shutting down");
                     return Ok(());
@@ -135,21 +131,30 @@ where
 
         queue.drain().await;
 
-        poll_fn(|cx| io.poll_closed(cx)).await.map_err(From::from)
+        Ok(())
     }
 }
 
-async fn try_poll_queue<F>(
+async fn try_poll_queue<F, E, S, B>(
     queue: &mut Queue<F>,
     ping_ping: &mut H2PingPong<'_>,
-) -> SelectOutput<F::Output, Result<(), ::h2::Error>>
+) -> SelectOutput<(), Result<(), ::h2::Error>>
 where
-    F: Future,
+    F: Future<Output = Result<ConnectionState, E>>,
+    HttpServiceError<S, B>: From<E>,
+    S: fmt::Debug,
+    B: fmt::Debug,
 {
-    if queue.is_empty() {
-        SelectOutput::B(ping_ping.await)
-    } else {
-        SelectOutput::A(queue.next2().await)
+    loop {
+        if queue.is_empty() {
+            return SelectOutput::B(ping_ping.await);
+        }
+
+        match queue.next2().await {
+            Ok(ConnectionState::KeepAlive) => {}
+            Ok(ConnectionState::Close) => return SelectOutput::A(()),
+            Err(e) => HttpServiceError::from(e).log("h2_dispatcher"),
+        }
     }
 }
 

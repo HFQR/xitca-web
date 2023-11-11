@@ -37,7 +37,7 @@ use super::proto::{
     buf_write::H1BufWrite,
     codec::{ChunkResult, TransferCoding},
     context::Context,
-    encode::encode_continue,
+    encode::CONTINUE,
     error::ProtoError,
 };
 
@@ -282,7 +282,7 @@ where
             // wait for service future to start polling RequestBody.
             if body_reader.wait_for_poll().await.is_ok() {
                 // encode continue as service future want a body.
-                encode_continue(&mut self.io.write_buf);
+                self.io.write_buf.write_buf_static(CONTINUE);
                 // use drain write to make sure continue is sent to client.
                 self.io.drain_write().await?;
             }

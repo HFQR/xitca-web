@@ -138,16 +138,12 @@ where
 {
     type Type<'b> = WebSocket<B>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         let body = req.take_body_ref();
-
-        async {
-            let ws = http_ws::ws(req.req(), body)?;
-            Ok(WebSocket::new(ws))
-        }
+        let ws = http_ws::ws(req.req(), body)?;
+        Ok(WebSocket::new(ws))
     }
 }
 
@@ -156,9 +152,8 @@ where
     B: BodyStream + 'static,
 {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
-    fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Future {
+    async fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Output {
         let Self {
             ws,
             ping_interval,
@@ -174,9 +169,7 @@ where
             let _ = spawn_task(ping_interval, max_unanswered_ping, decode, tx, on_msg, on_err, on_close).await;
         });
 
-        let res = res.map(ResponseBody::box_stream);
-
-        async { res }
+        res.map(ResponseBody::box_stream)
     }
 }
 

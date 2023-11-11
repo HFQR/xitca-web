@@ -176,11 +176,11 @@ impl QuicDriver {
 }
 
 impl AsyncIterator for QuicDriver {
-    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
     type Item<'i> = Result<backend::Message, Error> where Self: 'i;
 
-    fn next(&mut self) -> Self::Future<'_> {
-        async move { self.try_next().await.transpose() }
+    #[inline]
+    async fn next(&mut self) -> Option<Self::Item<'_>> {
+        self.try_next().await.transpose()
     }
 }
 

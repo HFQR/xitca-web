@@ -1,3 +1,5 @@
+//! trait and types making [Service] object safe.
+
 use alloc::boxed::Box;
 
 use super::{service::Service, BoxFuture};
@@ -34,14 +36,10 @@ where
 {
     type Response = I::Response;
     type Error = I::Error;
-    type Future<'f> = BoxFuture<'f, Self::Response, Self::Error> where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        ServiceObject::call(&**self, req)
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        ServiceObject::call(&**self, req).await
     }
 }
 

@@ -1,4 +1,4 @@
-use core::{convert::Infallible, future::Future};
+use core::convert::Infallible;
 
 use std::{io, net::Shutdown, sync::Arc};
 
@@ -36,13 +36,12 @@ impl TlsAcceptorBuilder {
 impl Service for TlsAcceptorBuilder {
     type Response = TlsAcceptorService;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
         let service = TlsAcceptorService {
             acceptor: self.acceptor.clone(),
         };
-        async { Ok(service) }
+        Ok(service)
     }
 }
 
@@ -57,17 +56,11 @@ where
 {
     type Response = TlsStream<Io>;
     type Error = RustlsError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Io: 'f;
 
-    fn call<'s>(&'s self, io: Io) -> Self::Future<'s>
-    where
-        Io: 's,
-    {
-        async move {
-            let conn = ServerConnection::new(self.acceptor.clone())?;
-            let inner = _TlsStream::handshake(io, conn).await?;
-            Ok(TlsStream { inner })
-        }
+    async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
+        let conn = ServerConnection::new(self.acceptor.clone())?;
+        let inner = _TlsStream::handshake(io, conn).await?;
+        Ok(TlsStream { inner })
     }
 }
 
@@ -75,14 +68,12 @@ impl<Io> AsyncBufRead for TlsStream<Io>
 where
     Io: AsyncBufRead,
 {
-    type Future<'f, B> = impl Future<Output=(io::Result<usize>, B)> + 'f where Self: 'f, B: IoBufMut + 'f;
-
     #[inline]
-    fn read<B>(&self, buf: B) -> Self::Future<'_, B>
+    async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
         B: IoBufMut,
     {
-        self.inner.read(buf)
+        self.inner.read(buf).await
     }
 }
 
@@ -90,14 +81,12 @@ impl<Io> AsyncBufWrite for TlsStream<Io>
 where
     Io: AsyncBufWrite,
 {
-    type Future<'f, B> = impl Future<Output=(io::Result<usize>, B)> + 'f where Self: 'f, B: IoBuf + 'f;
-
     #[inline]
-    fn write<B>(&self, buf: B) -> Self::Future<'_, B>
+    async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
         B: IoBuf,
     {
-        self.inner.write(buf)
+        self.inner.write(buf).await
     }
 
     fn shutdown(&self, direction: Shutdown) -> io::Result<()> {

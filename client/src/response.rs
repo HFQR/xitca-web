@@ -18,6 +18,7 @@ use crate::{
 
 const DEFAULT_PAYLOAD_LIMIT: usize = 1024 * 1024 * 8;
 
+/// new type of [http::Response] with extended functionalities.
 pub struct Response<'a, const PAYLOAD_LIMIT: usize = DEFAULT_PAYLOAD_LIMIT> {
     pub(crate) res: http::Response<ResponseBody<'a>>,
     timer: Pin<Box<Sleep>>,
@@ -91,7 +92,7 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
         self.collect().await
     }
 
-    /// Collect response body as Vec<u8>. Response is consumed.
+    /// Collect response body as `Vec<u8>`. Response is consumed.
     #[inline]
     pub async fn body(self) -> Result<Vec<u8>, Error> {
         self.collect().await

@@ -36,7 +36,7 @@ compress-de = ["http-encoding/de"]
 multipart = ["http-multipart"]
 
 # websocket type extractor/responder
-websocket = ["http-ws/stream", "tokio"]
+websocket = ["http-ws/stream", "tokio/time"]
 
 # proc macro code generation
 codegen = ["xitca-codegen"]
@@ -54,6 +54,7 @@ xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3"
 pin-project-lite = "0.2.9"
+tokio = { version = "1", features = ["rt"] }
 
 # http server
 xitca-server = { version = "0.1", optional = true }
@@ -81,7 +82,6 @@ http-multipart = { version = "0.1", optional = true }
 
 # websocket
 http-ws = { version = "0.1", optional = true }
-tokio = { version = "1.30", features = ["rt", "sync", "time"], optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }

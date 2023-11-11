@@ -1,6 +1,6 @@
 pub use xitca_router::{params::Params, MatchError};
 
-use core::{future::Future, marker::PhantomData};
+use core::marker::PhantomData;
 
 use std::{borrow::Cow, collections::HashMap};
 
@@ -39,11 +39,13 @@ impl<Obj> Router<Obj> {
 }
 
 impl<Obj> Router<Obj> {
-    /// Insert a new service factory to given path.
+    /// Insert a new service builder to given path. The service builder must produce another
+    /// service type that impl [Service] trait while it's generic `Req` type must impl
+    /// [IntoObject] trait.
     ///
     /// # Panic:
     ///
-    /// When multiple services inserted with the same path.
+    /// When multiple services inserted to the same path.
     pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut factory: F) -> Self
     where
         F: Service<Arg> + PathGen,
@@ -117,22 +119,16 @@ where
 {
     type Response = RouterService<Obj::Response>;
     type Error = Obj::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-    where
-        Arg: 's,
-    {
-        async move {
-            let mut routes = xitca_router::Router::new();
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let mut routes = xitca_router::Router::new();
 
-            for (path, service) in self.routes.iter() {
-                let service = service.call(arg.clone()).await?;
-                routes.insert(path.to_string(), service).unwrap();
-            }
-
-            Ok(RouterService { routes })
+        for (path, service) in self.routes.iter() {
+            let service = service.call(arg.clone()).await?;
+            routes.insert(path.to_string(), service).unwrap();
         }
+
+        Ok(RouterService { routes })
     }
 }
 
@@ -142,37 +138,33 @@ pub struct RouterService<S> {
 
 impl<S, Req> Service<Req> for RouterService<S>
 where
-    S: Service<Req>,
+    S: xitca_service::object::ServiceObject<Req>,
     Req: BorrowReq<Uri> + BorrowReqMut<Params>,
 {
     type Response = S::Response;
     type Error = RouterError<S::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
+    // as of the time of committing rust compiler have problem optimizing this piece of code.
+    // using async fn call directly would cause significant code bloating.
+    #[allow(clippy::manual_async_fn)]
     #[inline]
-    fn call<'s>(&'s self, mut req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
+    fn call(&self, mut req: Req) -> impl core::future::Future<Output = Result<Self::Response, Self::Error>> {
         async {
             let xitca_router::Match { value, params } =
                 self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
-
             *req.borrow_mut() = params;
-
-            value.call(req).await.map_err(RouterError::Second)
+            xitca_service::object::ServiceObject::call(value, req)
+                .await
+                .map_err(RouterError::Second)
         }
     }
 }
 
 impl<S> ReadyService for RouterService<S> {
     type Ready = ();
-    type Future<'f> = impl Future<Output = Self::Ready> where S: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        async {}
-    }
+    async fn ready(&self) -> Self::Ready {}
 }
 
 /// An object constructor represents a one of possibly many ways to create a trait object from `I`.
@@ -206,13 +198,9 @@ where
         {
             type Response = BoxedServiceObject<Req, Res, Err>;
             type Error = T::Error;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-            fn call<'s>(&'s self, req: Arg) -> Self::Future<'s>
-            where
-                Arg: 's,
-            {
-                async { self.0.call(req).await.map(|s| Box::new(s) as _) }
+            async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+                self.0.call(arg).await.map(|s| Box::new(s) as _)
             }
         }
 

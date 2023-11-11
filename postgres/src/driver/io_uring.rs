@@ -15,7 +15,7 @@ use xitca_io::{
 };
 use xitca_unsafe_collection::futures::{ReusableLocalBoxFuture, Select, SelectOutput};
 
-use crate::{error::Error, iter::AsyncIterator};
+use crate::error::Error;
 
 use super::{
     codec::{ResponseMessage, ResponseSender},
@@ -93,7 +93,7 @@ where
         }
     }
 
-    pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
+    pub async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(buf) = self.read_task.try_buf() {
                 while let Some(res) = ResponseMessage::try_from_buf(buf)? {
@@ -171,18 +171,5 @@ where
                 }
             }
         }
-    }
-}
-
-impl<Io> AsyncIterator for IoUringDriver<Io>
-where
-    Io: AsyncBufRead + AsyncBufWrite + 'static,
-{
-    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + 'f where Self: 'f;
-    type Item<'i> = Result<backend::Message, Error> where Self: 'i;
-
-    #[inline]
-    fn next(&mut self) -> Self::Future<'_> {
-        async { self.try_next().await.transpose() }
     }
 }

@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use xitca_service::Service;
 
 use crate::builder::{marker, HttpServiceBuilder};
@@ -10,8 +8,7 @@ impl<St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE
     HttpServiceBuilder<marker::Http1, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     #[cfg(unix)]
-    /// Transform Self to a Http1 service builder that able to take in [xitca_io::net::UnixStream]
-    /// IO type.
+    /// transform Self to a http1 service builder that producing a service that able to handle [xitca_io::net::UnixStream]
     pub fn unix(
         self,
     ) -> HttpServiceBuilder<marker::Http1, xitca_io::net::UnixStream, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
@@ -26,7 +23,7 @@ impl<St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE
     }
 
     #[cfg(feature = "io-uring")]
-    /// Transform Self to a Http1 service builder that able to take in [xitca_io::net::io_uring::TcpStream]
+    /// transform Self to a http1 service builder that producing a service that able to handle [xitca_io::net::io_uring::TcpStream]
     pub fn io_uring(
         self,
     ) -> HttpServiceBuilder<
@@ -55,16 +52,10 @@ where
 {
     type Response = H1Service<St, S, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = FA::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
-        async {
-            let tls_acceptor = self.tls_factory.call(()).await?;
-            Ok(H1Service::new(self.config, service, tls_acceptor))
-        }
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+        let tls_acceptor = self.tls_factory.call(()).await?;
+        Ok(H1Service::new(self.config, service, tls_acceptor))
     }
 }
 
@@ -76,15 +67,9 @@ where
 {
     type Response = super::service::H1UringService<S, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = FA::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, S: 'f;
 
-    fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-    where
-        S: 's,
-    {
-        async {
-            let tls_acceptor = self.tls_factory.call(()).await?;
-            Ok(super::service::H1UringService::new(self.config, service, tls_acceptor))
-        }
+    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+        let tls_acceptor = self.tls_factory.call(()).await?;
+        Ok(super::service::H1UringService::new(self.config, service, tls_acceptor))
     }
 }

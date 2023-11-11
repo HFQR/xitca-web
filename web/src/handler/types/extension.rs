@@ -1,4 +1,4 @@
-use std::{fmt, future::Future, ops::Deref};
+use std::{fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,
@@ -31,18 +31,15 @@ where
 {
     type Type<'b> = ExtensionRef<'b, T>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move {
-            let ext = req
-                .req()
-                .extensions()
-                .get::<T>()
-                .ok_or(ExtractError::ExtensionNotFound)?;
-            Ok(ExtensionRef(ext))
-        }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        let ext = req
+            .req()
+            .extensions()
+            .get::<T>()
+            .ok_or(ExtractError::ExtensionNotFound)?;
+        Ok(ExtensionRef(ext))
     }
 }
 
@@ -103,10 +100,9 @@ where
 {
     type Type<'b> = ExtensionsRef<'b>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move { Ok(ExtensionsRef(req.req().extensions())) }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ExtensionsRef(req.req().extensions()))
     }
 }

@@ -23,6 +23,9 @@ use crate::{
     uri::Uri,
 };
 
+/// http client type used for sending [Request] and receive [Response].
+///
+/// [Response]: crate::response::Response
 pub struct Client {
     pub(crate) pool: Pool<ConnectionKey, Connection>,
     pub(crate) connector: Connector,
@@ -47,7 +50,7 @@ impl Client {
         Self::builder().finish()
     }
 
-    /// Start a new ClientBuilder.
+    /// Start a new ClientBuilder and with customizable configuration.
     ///
     /// See [ClientBuilder] for detail.
     pub fn builder() -> ClientBuilder {
@@ -365,5 +368,27 @@ impl Client {
             .map_err(|_| TimeoutError::Connect)??;
 
         Ok(stream.into())
+    }
+}
+
+#[cfg(feature = "openssl")]
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn connect_google() {
+        let res = Client::builder()
+            .openssl()
+            .finish()
+            .get("https://www.google.com/")
+            .unwrap()
+            .send()
+            .await
+            .unwrap()
+            .body()
+            .await
+            .unwrap();
+        println!("{}", String::from_utf8_lossy(&res));
     }
 }

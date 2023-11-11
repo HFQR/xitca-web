@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use postgres_protocol::message::backend;
 
 use crate::{
@@ -130,23 +128,20 @@ impl Response {
 pub type RowStream<'a> = GenericRowStream<&'a [Column]>;
 
 impl<'a> AsyncIterator for RowStream<'a> {
-    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where 'a: 'f;
     type Item<'i> = Result<Row<'i>, Error> where 'a: 'i;
 
-    fn next(&mut self) -> Self::Future<'_> {
-        async {
-            loop {
-                match self.res.recv().await {
-                    Ok(msg) => match msg {
-                        backend::Message::DataRow(body) => return Some(Row::try_new(self.col, body, &mut self.ranges)),
-                        backend::Message::EmptyQueryResponse
-                        | backend::Message::CommandComplete(_)
-                        | backend::Message::PortalSuspended => {}
-                        backend::Message::ReadyForQuery(_) => return None,
-                        _ => return Some(Err(Error::UnexpectedMessage)),
-                    },
-                    Err(e) => return Some(Err(e)),
-                }
+    async fn next(&mut self) -> Option<Self::Item<'_>> {
+        loop {
+            match self.res.recv().await {
+                Ok(msg) => match msg {
+                    backend::Message::DataRow(body) => return Some(Row::try_new(self.col, body, &mut self.ranges)),
+                    backend::Message::EmptyQueryResponse
+                    | backend::Message::CommandComplete(_)
+                    | backend::Message::PortalSuspended => {}
+                    backend::Message::ReadyForQuery(_) => return None,
+                    _ => return Some(Err(Error::UnexpectedMessage)),
+                },
+                Err(e) => return Some(Err(e)),
             }
         }
     }

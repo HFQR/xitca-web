@@ -9,7 +9,12 @@ use crate::{
     },
 };
 
-use super::{codec::TransferCoding, context::Context, error::ProtoError, header::HeaderIndex};
+use super::{
+    codec::TransferCoding,
+    context::Context,
+    error::ProtoError,
+    header::{self, HeaderIndex},
+};
 
 type Decoded = (Request<RequestExt<()>>, TransferCoding);
 
@@ -31,6 +36,20 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
                 let uri = req.path.unwrap().parse::<Uri>()?;
 
+                // default body decoder from method.
+                let mut decoder = match method {
+                    // set method to context so it can pass method to response.
+                    Method::CONNECT => {
+                        self.set_connect_method();
+                        TransferCoding::upgrade()
+                    }
+                    Method::HEAD => {
+                        self.set_head_method();
+                        TransferCoding::eof()
+                    }
+                    _ => TransferCoding::eof(),
+                };
+
                 // Set connection type when doing version match.
                 let version = if req.version.unwrap() == 1 {
                     // Default ctype is KeepAlive so set_ctype is skipped here.
@@ -49,26 +68,18 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 // split the headers from buffer.
                 let slice = buf.split_to(len).freeze();
 
-                // default decoder.
-                let mut decoder = TransferCoding::eof();
-
                 // pop a cached headermap or construct a new one.
                 let mut headers = self.take_headers();
                 headers.reserve(headers_len);
 
                 // write headers to headermap and update request states.
-                header_idx_slice
-                    .iter()
-                    .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
+                for idx in header_idx_slice {
+                    self.try_write_header(&mut headers, &mut decoder, idx, &slice, version)?;
+                }
 
-                // set method to context so it can pass method to response.
-                match method {
-                    Method::CONNECT => {
-                        self.set_connect_method();
-                        decoder.try_set(TransferCoding::upgrade())?;
-                    }
-                    Method::HEAD => self.set_head_method(),
-                    _ => {}
+                // decoder is supposed to be chunked but according value never showed up.
+                if decoder.is_maybe_decode_chunked() {
+                    return Err(ProtoError::HeaderName);
                 }
 
                 let ext = Extension::new(*self.socket_addr());
@@ -120,22 +131,18 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     .unwrap_or(false);
 
                 if !chunked {
-                    return Err(ProtoError::HeaderName);
+                    decoder.try_set(TransferCoding::maybe_decode_chunked())?;
+                } else {
+                    decoder.try_set(TransferCoding::decode_chunked())?;
                 }
-                decoder.try_set(TransferCoding::decode_chunked())?;
             }
             CONTENT_LENGTH => {
-                let len = value
-                    .to_str()
-                    .ok()
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .ok_or(ProtoError::HeaderValue)?;
-
+                let len = header::parse_content_length(&value)?;
                 decoder.try_set(TransferCoding::length(len))?;
             }
             CONNECTION => self.try_set_close_from_header(&value)?,
             EXPECT => {
-                if value.as_bytes() != b"100-continue" {
+                if !value.as_bytes().eq_ignore_ascii_case(b"100-continue") {
                     return Err(ProtoError::HeaderValue);
                 }
                 self.set_expect_header()
@@ -215,6 +222,44 @@ mod test {
 
         let head = b"\
                 GET / HTTP/1.1\r\n\
+                Transfer-Encoding: gzip\r\n\
+                Transfer-Encoding: chunked\r\n\
+                \r\n\
+                ";
+        let mut buf = BytesMut::from(&head[..]);
+
+        let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        let mut iter = req.headers().get_all(TRANSFER_ENCODING).into_iter();
+        assert_eq!(iter.next().unwrap().to_str().unwrap(), "gzip");
+        assert_eq!(iter.next().unwrap().to_str().unwrap(), "chunked");
+        assert!(
+            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            "transfer coding is not decoded to chunked"
+        );
+
+        ctx.reset();
+
+        let head = b"\
+        GET / HTTP/1.1\r\n\
+        Transfer-Encoding: chunked\r\n\
+        Transfer-Encoding: gzip\r\n\
+        \r\n\
+        ";
+        let mut buf = BytesMut::from(&head[..]);
+
+        let (req, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        let mut iter = req.headers().get_all(TRANSFER_ENCODING).into_iter();
+        assert_eq!(iter.next().unwrap().to_str().unwrap(), "chunked");
+        assert_eq!(iter.next().unwrap().to_str().unwrap(), "gzip");
+        assert!(
+            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            "transfer coding is not decoded to chunked"
+        );
+
+        ctx.reset();
+
+        let head = b"\
+                GET / HTTP/1.1\r\n\
                 Transfer-Encoding: gzip, chunked\r\n\
                 \r\n\
                 ";
@@ -225,7 +270,6 @@ mod test {
             req.headers().get(TRANSFER_ENCODING).unwrap().to_str().unwrap(),
             "gzip, chunked"
         );
-
         assert!(
             matches!(decoder, TransferCoding::DecodeChunked(..)),
             "transfer coding is not decoded to chunked"
@@ -245,7 +289,6 @@ mod test {
             req.headers().get(TRANSFER_ENCODING).unwrap().to_str().unwrap(),
             "chunked"
         );
-
         assert!(
             matches!(decoder, TransferCoding::DecodeChunked(..)),
             "transfer coding is not decoded to chunked"

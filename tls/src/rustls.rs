@@ -1,4 +1,5 @@
 use core::{
+    future::Future,
     ops::DerefMut,
     pin::Pin,
     task::{ready, Context, Poll},
@@ -93,10 +94,8 @@ where
     S: SideData,
     Io: AsyncIo,
 {
-    type Future<'f> = Io::Future<'f> where Self: 'f;
-
     #[inline]
-    fn ready(&self, interest: Interest) -> Self::Future<'_> {
+    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
         self.io.ready(interest)
     }
 

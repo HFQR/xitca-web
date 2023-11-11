@@ -20,7 +20,7 @@ use pin_project_lite::pin_project;
 use tracing::trace;
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf},
+    io_uring::{write_all, AsyncBufRead, AsyncBufWrite, IoBuf},
 };
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
@@ -40,7 +40,7 @@ use super::{
     proto::{
         codec::{ChunkResult, TransferCoding},
         context::Context,
-        encode::encode_continue,
+        encode::CONTINUE_BYTES,
         error::ProtoError,
     },
 };
@@ -106,25 +106,6 @@ impl BufOwned {
         self.buf = Some(buf);
         res
     }
-}
-
-async fn write_all(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
-    let mut n = 0;
-    while n < buf.bytes_init() {
-        match io.write(buf.slice(n..)).await {
-            (Ok(0), slice) => {
-                return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
-            }
-            (Ok(m), slice) => {
-                n += m;
-                buf = slice.into_inner();
-            }
-            (Err(e), slice) => {
-                return (Err(e), slice.into_inner());
-            }
-        }
-    }
-    (Ok(()), buf)
 }
 
 impl<'a, Io, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>
@@ -306,9 +287,7 @@ impl Body {
         let state = if is_expect {
             State::ExpectWrite {
                 fut: async {
-                    let mut bytes = BytesMut::new();
-                    encode_continue(&mut bytes);
-                    let (res, _) = write_all(&*body.io, bytes).await;
+                    let (res, _) = write_all(&*body.io, CONTINUE_BYTES).await;
                     res.map(|_| body)
                 },
             }

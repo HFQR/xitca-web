@@ -221,11 +221,6 @@ async fn h1_keepalive() -> Result<(), Error> {
 }
 
 async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
-    // Some yield for testing h1 dispatcher's concurrent future handling.
-    tokio::task::yield_now().await;
-    tokio::task::yield_now().await;
-    tokio::task::yield_now().await;
-
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => Ok(Response::new(Bytes::from("GET Response").into())),
         (&Method::POST, "/") => {

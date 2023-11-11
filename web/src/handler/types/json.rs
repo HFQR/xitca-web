@@ -1,6 +1,6 @@
 use core::{
     fmt,
-    future::{poll_fn, Future},
+    future::poll_fn,
     ops::{Deref, DerefMut},
     pin::pin,
 };
@@ -9,12 +9,12 @@ use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::{
     body::BodyStream,
-    dev::bytes::{BufMutWriter, BytesMut},
+    dev::bytes::{BufMutWriter, Bytes, BytesMut},
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest, Responder,
     },
-    http::{const_header_value::JSON, header::CONTENT_TYPE},
+    http::{const_header_value::JSON, header::CONTENT_TYPE, status::StatusCode},
     request::WebRequest,
     response::WebResponse,
 };
@@ -24,7 +24,7 @@ use super::{
     header::{self, HeaderRef},
 };
 
-const DEFAULT_LIMIT: usize = 1024 * 1024;
+pub const DEFAULT_LIMIT: usize = 1024 * 1024;
 
 /// Extract type for Json object. const generic param LIMIT is for max size of the object in bytes.
 /// Object larger than limit would be treated as error.
@@ -65,53 +65,57 @@ where
 {
     type Type<'b> = Json<T, LIMIT>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move {
-            HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
 
-            let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(req)
-                .await
-                .ok()
-                .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
-                .map(|len| std::cmp::min(len, LIMIT))
-                .unwrap_or_else(|| LIMIT);
+        let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(req)
+            .await
+            .ok()
+            .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
+            .map(|len| std::cmp::min(len, LIMIT))
+            .unwrap_or_else(|| LIMIT);
 
-            let Body(body) = Body::from_request(req).await?;
+        let Body(body) = Body::from_request(req).await?;
 
-            let mut body = pin!(body);
+        let mut body = pin!(body);
 
-            let mut buf = BytesMut::new();
+        let mut buf = BytesMut::new();
 
-            while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                let chunk = chunk.map_err(ExtractError::Body)?;
-                buf.extend_from_slice(chunk.as_ref());
-                if buf.len() > limit {
-                    break;
-                }
+        while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+            let chunk = chunk.map_err(ExtractError::Body)?;
+            buf.extend_from_slice(chunk.as_ref());
+            if buf.len() > limit {
+                break;
             }
-
-            let json = serde_json::from_slice(&buf).map_err(_ParseError::JsonString)?;
-
-            Ok(Json(json))
         }
+
+        let json = serde_json::from_slice(&buf).map_err(_ParseError::JsonString)?;
+
+        Ok(Json(json))
     }
 }
 
-impl<'r, C, B, T, const LIMIT: usize> Responder<WebRequest<'r, C, B>> for Json<T, LIMIT>
+impl<'r, C, B, T> Responder<WebRequest<'r, C, B>> for Json<T>
 where
     T: Serialize,
 {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Future {
+    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
         let mut bytes = BytesMut::new();
-        serde_json::to_writer(BufMutWriter(&mut bytes), &self.0).unwrap();
-        let mut res = req.into_response(bytes.freeze());
-        res.headers_mut().insert(CONTENT_TYPE, JSON);
-        async { res }
+        match serde_json::to_writer(BufMutWriter(&mut bytes), &self.0) {
+            Ok(_) => {
+                let mut res = req.into_response(bytes.freeze());
+                res.headers_mut().insert(CONTENT_TYPE, JSON);
+                res
+            }
+            Err(_) => {
+                let mut res = req.into_response(Bytes::new());
+                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                res
+            }
+        }
     }
 }

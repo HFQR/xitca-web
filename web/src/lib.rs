@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-#![feature(impl_trait_in_assoc_type)]
 
 mod app;
 #[cfg(feature = "__server")]

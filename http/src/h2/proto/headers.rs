@@ -12,6 +12,7 @@ use crate::http::{
 };
 
 use super::{
+    error::Error,
     head::{Head, Kind},
     hpack,
     priority::StreamDependency,
@@ -222,7 +223,7 @@ impl Headers {
         src: &mut BytesMut,
         max_header_list_size: usize,
         decoder: &mut hpack::Decoder,
-    ) -> Result<(), Infallible> {
+    ) -> Result<(), Error> {
         self.header_block.load(src, max_header_list_size, decoder)
     }
 
@@ -449,7 +450,7 @@ impl PushPromise {
         src: &mut BytesMut,
         max_header_list_size: usize,
         decoder: &mut hpack::Decoder,
-    ) -> Result<(), Infallible> {
+    ) -> Result<(), Error> {
         self.header_block.load(src, max_header_list_size, decoder)
     }
 
@@ -808,7 +809,7 @@ impl HeaderBlock {
         src: &mut BytesMut,
         max_header_list_size: usize,
         decoder: &mut hpack::Decoder,
-    ) -> Result<(), Infallible> {
+    ) -> Result<(), Error> {
         let mut reg = !self.fields.is_empty();
         let mut malformed = false;
         let mut headers_size = self.calculate_header_list_size();
@@ -885,14 +886,12 @@ impl HeaderBlock {
 
         if let Err(e) = res {
             tracing::trace!("hpack decoding error; err={:?}", e);
-            todo!()
-            // return Err(e.into());
+            return Err(e.into());
         }
 
         if malformed {
             tracing::trace!("malformed message");
-            todo!()
-            // return Err(Error::MalformedMessage);
+            return Err(Error::MalformedMessage);
         }
 
         Ok(())

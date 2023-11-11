@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use crate::{
     body::BodyStream,
     handler::{ExtractError, FromRequest},
@@ -14,14 +12,11 @@ where
 {
     type Type<'b> = Multipart<'b, B>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async move {
-            let body = req.take_body_ref();
-            let multipart = http_multipart::multipart(req.req(), body).unwrap();
-            Ok(multipart)
-        }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        let body = req.take_body_ref();
+        let multipart = http_multipart::multipart(req.req(), body).unwrap();
+        Ok(multipart)
     }
 }
 

@@ -1,4 +1,4 @@
-use core::{fmt, future::Future, pin::pin};
+use core::{fmt, pin::pin};
 
 use std::net::SocketAddr;
 
@@ -45,46 +45,40 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, St: 'f;
 
-    fn call<'s>(&'s self, (io, addr): (St, SocketAddr)) -> Self::Future<'s>
-    where
-        St: 's,
-    {
-        async move {
-            // tls accept timer.
-            let timer = self.keep_alive();
-            let mut timer = pin!(timer);
+    async fn call(&self, (io, addr): (St, SocketAddr)) -> Result<Self::Response, Self::Error> {
+        // tls accept timer.
+        let timer = self.keep_alive();
+        let mut timer = pin!(timer);
 
-            let tls_stream = self
-                .tls_acceptor
-                .call(io)
-                .timeout(timer.as_mut())
-                .await
-                .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
+        let tls_stream = self
+            .tls_acceptor
+            .call(io)
+            .timeout(timer.as_mut())
+            .await
+            .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            // update timer to first request timeout.
-            self.update_first_request_deadline(timer.as_mut());
+        // update timer to first request timeout.
+        self.update_first_request_deadline(timer.as_mut());
 
-            let mut conn = ::h2::server::Builder::new()
-                .enable_connect_protocol()
-                .handshake(tls_stream)
-                .timeout(timer.as_mut())
-                .await
-                .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
+        let mut conn = ::h2::server::Builder::new()
+            .enable_connect_protocol()
+            .handshake(tls_stream)
+            .timeout(timer.as_mut())
+            .await
+            .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
 
-            let dispatcher = Dispatcher::new(
-                &mut conn,
-                addr,
-                timer,
-                self.config.keep_alive_timeout,
-                &self.service,
-                self.date.get(),
-            );
+        let dispatcher = Dispatcher::new(
+            &mut conn,
+            addr,
+            timer,
+            self.config.keep_alive_timeout,
+            &self.service,
+            self.date.get(),
+        );
 
-            dispatcher.run().await?;
+        dispatcher.run().await?;
 
-            Ok(())
-        }
+        Ok(())
     }
 }

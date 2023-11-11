@@ -7,25 +7,38 @@ use std::{io, net::Shutdown};
 pub use tokio_uring::buf::{IoBuf, IoBufMut, Slice};
 
 pub trait AsyncBufRead {
-    type Future<'f, B>: Future<Output = (io::Result<usize>, B)> + 'f
-    where
-        Self: 'f,
-        B: IoBufMut + 'f;
-
-    fn read<B>(&self, buf: B) -> Self::Future<'_, B>
+    fn read<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
         B: IoBufMut;
 }
 
 pub trait AsyncBufWrite {
-    type Future<'f, B>: Future<Output = (io::Result<usize>, B)> + 'f
-    where
-        Self: 'f,
-        B: IoBuf + 'f;
-
-    fn write<B>(&self, buf: B) -> Self::Future<'_, B>
+    fn write<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
         B: IoBuf;
 
     fn shutdown(&self, direction: Shutdown) -> io::Result<()>;
+}
+
+pub async fn write_all<Io, B>(io: &Io, mut buf: B) -> (io::Result<()>, B)
+where
+    Io: AsyncBufWrite,
+    B: IoBuf,
+{
+    let mut n = 0;
+    while n < buf.bytes_init() {
+        match io.write(buf.slice(n..)).await {
+            (Ok(0), slice) => {
+                return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
+            }
+            (Ok(m), slice) => {
+                n += m;
+                buf = slice.into_inner();
+            }
+            (Err(e), slice) => {
+                return (Err(e), slice.into_inner());
+            }
+        }
+    }
+    (Ok(()), buf)
 }

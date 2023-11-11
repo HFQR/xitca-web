@@ -1,3 +1,5 @@
+//! websocket request/response handling.
+
 pub use http_ws::Message;
 
 use core::{
@@ -21,6 +23,7 @@ use super::{
     request::Request,
 };
 
+/// new type of [Request] with extended functionality for websocket handling.
 pub struct WsRequest<'a, B>(Request<'a, B>);
 
 impl<'a, B> Deref for WsRequest<'a, B> {
@@ -59,7 +62,9 @@ impl<'a, B> WsRequest<'a, B> {
 
     /// Set timeout of this request.
     ///
-    /// The value passed would override global [TimeoutConfig].
+    /// The value passed would override global [ClientBuilder::set_request_timeout].
+    ///
+    /// [ClientBuilder::set_request_timeout]: crate::ClientBuilder::set_request_timeout
     pub fn timeout(mut self, dur: Duration) -> Self {
         self.0 = self.0.timeout(dur);
         self

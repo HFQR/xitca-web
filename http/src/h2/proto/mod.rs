@@ -2,6 +2,7 @@
 
 mod data;
 mod dispatcher;
+mod error;
 mod head;
 mod headers;
 mod hpack;
@@ -19,7 +20,7 @@ pub use io_uring::run;
 #[cfg(feature = "io-uring")]
 mod io_uring {
     use core::{
-        convert::Infallible,
+        fmt,
         future::Future,
         mem,
         pin::{pin, Pin},
@@ -32,7 +33,7 @@ mod io_uring {
     use tracing::error;
     use xitca_io::{
         bytes::{Buf, BufMut, BytesMut},
-        io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf},
+        io_uring::{write_all, AsyncBufRead, AsyncBufWrite, IoBuf},
     };
     use xitca_service::Service;
     use xitca_unsafe_collection::futures::{Select, SelectOutput};
@@ -43,53 +44,55 @@ mod io_uring {
         util::futures::Queue,
     };
 
-    use super::{data, head, headers, hpack, settings, stream_id};
+    use super::{
+        data,
+        error::Error,
+        head, headers, hpack,
+        settings::{self, Settings},
+        stream_id::StreamId,
+    };
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-    enum RequestState {
-        WaitHeader(Request<RequestExt<()>>),
-        WaitBody(RequestBodySender),
-    }
-
     struct H2Context {
+        max_header_list_size: usize,
         decoder: hpack::Decoder,
         encoder: hpack::Encoder,
-        tx_map: HashMap<stream_id::StreamId, RequestState>,
+        tx_map: HashMap<StreamId, RequestBodySender>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
-    }
-
-    impl Default for H2Context {
-        fn default() -> Self {
-            Self::new()
-        }
+        continuation: Option<(headers::Headers, BytesMut)>,
     }
 
     impl H2Context {
-        fn new() -> Self {
+        fn new(local_setting: Settings) -> Self {
             Self {
+                max_header_list_size: local_setting
+                    .max_header_list_size()
+                    .map(|val| val as _)
+                    .unwrap_or(settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE),
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
                 encoder: hpack::Encoder::new(65535, 4096),
                 tx_map: HashMap::new(),
                 next_frame_len: 0,
+                continuation: None,
             }
         }
 
-        fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F)
+        fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F) -> Result<(), Error>
         where
-            F: FnMut(Request<RequestExt<RequestBodyV2>>, stream_id::StreamId),
+            F: FnMut(Request<RequestExt<RequestBodyV2>>, StreamId),
         {
             loop {
                 if self.next_frame_len == 0 {
                     if buf.len() < 3 {
-                        return;
+                        return Ok(());
                     }
                     self.next_frame_len = (buf.get_uint(3) + 6) as _;
                 }
 
                 if buf.len() < self.next_frame_len {
-                    return;
+                    return Ok(());
                 }
 
                 let len = mem::replace(&mut self.next_frame_len, 0);
@@ -101,86 +104,52 @@ mod io_uring {
 
                 match head.kind() {
                     head::Kind::Settings => {
-                        let _setting = settings::Settings::load(head, &frame);
+                        let _setting = settings::Settings::load(head, &frame).unwrap();
                     }
                     head::Kind::Headers => {
-                        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
-                        headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
+                        let (mut headers, mut payload) = headers::Headers::load(head, frame).unwrap();
 
-                        let id = headers.stream_id();
                         let is_end_headers = headers.is_end_headers();
-                        let is_end_stream = headers.is_end_stream();
 
-                        let (pseudo, headers) = headers.into_parts();
-
-                        let req = match self.tx_map.remove(&id) {
-                            Some(RequestState::WaitHeader(mut req)) => {
-                                req.headers_mut().extend(headers);
-                                req
-                            }
-                            Some(RequestState::WaitBody(_)) => {
-                                error!("trailer is not supported yet");
-                                continue;
-                            }
-                            None => {
-                                let mut req = Request::new(RequestExt::default());
-                                *req.version_mut() = Version::HTTP_2;
-                                *req.headers_mut() = headers;
-                                *req.method_mut() = pseudo.method.unwrap();
-                                req
-                            }
-                        };
+                        headers
+                            .load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder)
+                            .unwrap();
 
                         if !is_end_headers {
-                            self.tx_map.insert(id, RequestState::WaitHeader(req));
+                            self.continuation = Some((headers, payload));
                             continue;
                         }
 
-                        let (body, tx) = RequestBodyV2::new_pair();
+                        let id = headers.stream_id();
 
-                        if is_end_stream {
-                            drop(tx);
-                        } else {
-                            self.tx_map.insert(id, RequestState::WaitBody(tx));
-                        }
-
-                        let req = req.map(|ext| ext.map_body(|_| body));
-
-                        on_msg(req, id);
+                        self.handle_header_frame(id, headers, &mut on_msg);
                     }
                     head::Kind::Continuation => {
-                        let (mut headers, mut frame) = headers::Headers::load(head, frame).unwrap();
-                        headers.load_hpack(&mut frame, 4096, &mut self.decoder).unwrap();
+                        let is_end_headers = (head.flag() & 0x4) == 0x4;
+
+                        let Some((mut headers, mut payload)) = self.continuation.take() else {
+                            panic!("illegal continuation frame");
+                        };
 
                         let id = headers.stream_id();
-                        let is_end_headers = headers.is_end_headers();
-                        let is_end_stream = headers.is_end_stream();
 
-                        let (_, headers) = headers.into_parts();
-
-                        let state = self.tx_map.remove(&id).unwrap();
-                        let RequestState::WaitHeader(mut req) = state else {
-                            unreachable!()
-                        };
-
-                        req.headers_mut().extend(headers);
-
-                        if !is_end_headers {
-                            self.tx_map.insert(id, RequestState::WaitHeader(req));
-                            continue;
+                        if id != head.stream_id() {
+                            panic!("CONTINUATION frame stream ID does not match previous frame stream ID");
                         }
 
-                        let (body, tx) = RequestBodyV2::new_pair();
+                        payload.extend_from_slice(&frame);
 
-                        if is_end_stream {
-                            drop(tx);
-                        } else {
-                            self.tx_map.insert(id, RequestState::WaitBody(tx));
-                        };
+                        if let Err(e) = headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder) {
+                            match e {
+                                Error::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
+                                    self.continuation = Some((headers, payload));
+                                    continue;
+                                }
+                                e => return Err(e),
+                            }
+                        }
 
-                        let req = req.map(|ext| ext.map_body(|_| body));
-
-                        on_msg(req, id);
+                        self.handle_header_frame(id, headers, &mut on_msg);
                     }
                     head::Kind::Data => {
                         let data = data::Data::load(head, frame.freeze()).unwrap();
@@ -188,9 +157,7 @@ mod io_uring {
                         let id = data.stream_id();
                         let payload = data.into_payload();
 
-                        let RequestState::WaitBody(tx) = self.tx_map.get_mut(&id).unwrap() else {
-                            unreachable!()
-                        };
+                        let tx = self.tx_map.get_mut(&id).unwrap();
 
                         tx.send(Ok(payload)).unwrap();
 
@@ -201,6 +168,41 @@ mod io_uring {
                     _ => {}
                 }
             }
+        }
+
+        fn handle_header_frame<F>(&mut self, id: StreamId, headers: headers::Headers, on_msg: &mut F)
+        where
+            F: FnMut(Request<RequestExt<RequestBodyV2>>, StreamId),
+        {
+            let is_end_stream = headers.is_end_stream();
+
+            let (pseudo, headers) = headers.into_parts();
+
+            let req = match self.tx_map.remove(&id) {
+                Some(_) => {
+                    error!("trailer is not supported yet");
+                    return;
+                }
+                None => {
+                    let mut req = Request::new(RequestExt::<()>::default());
+                    *req.version_mut() = Version::HTTP_2;
+                    *req.headers_mut() = headers;
+                    *req.method_mut() = pseudo.method.unwrap();
+                    req
+                }
+            };
+
+            let (body, tx) = RequestBodyV2::new_pair();
+
+            if is_end_stream {
+                drop(tx);
+            } else {
+                self.tx_map.insert(id, tx);
+            };
+
+            let req = req.map(|ext| ext.map_body(|_| body));
+
+            on_msg(req, id);
         }
     }
 
@@ -215,25 +217,6 @@ mod io_uring {
     }
 
     async fn write_io(buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, BytesMut) {
-        async fn write_all(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
-            let mut n = 0;
-            while n < buf.bytes_init() {
-                match io.write(buf.slice(n..)).await {
-                    (Ok(0), slice) => {
-                        return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
-                    }
-                    (Ok(m), slice) => {
-                        n += m;
-                        buf = slice.into_inner();
-                    }
-                    (Err(e), slice) => {
-                        return (Err(e), slice.into_inner());
-                    }
-                }
-            }
-            (Ok(()), buf)
-        }
-
         let (res, mut buf) = write_all(io, buf).await;
         buf.clear();
         (res, buf)
@@ -269,52 +252,61 @@ mod io_uring {
     pub async fn run<Io, S>(io: Io, service: S) -> io::Result<()>
     where
         Io: AsyncBufRead + AsyncBufWrite,
-        S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<()>, Error = Infallible>,
+        S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<()>>,
+        S::Error: fmt::Debug,
     {
-        let mut read_buf = Some(BytesMut::new());
-        let mut write_buf = Some(BytesMut::new());
+        let mut read_buf = BytesMut::new();
+        let mut write_buf = BytesMut::new();
 
-        prefix_check(&io, &mut read_buf).await?;
+        read_buf = prefix_check(&io, read_buf).await?;
 
-        let settings = settings::Settings::default();
+        let mut settings = settings::Settings::default();
+        settings.set_max_concurrent_streams(Some(256));
 
-        settings.encode(write_buf.as_mut().unwrap());
-        let (res, buf) = write_io(write_buf.take().unwrap(), &io).await;
-        write_buf = Some(buf);
+        settings.encode(&mut write_buf);
+        let (res, buf) = write_io(write_buf, &io).await;
+        write_buf = buf;
         res?;
 
-        let mut ctx = H2Context::new();
+        let mut ctx = H2Context::new(settings);
         let mut queue = Queue::new();
 
-        let mut read_task = pin!(read_io(read_buf.take().unwrap(), &io));
+        let mut read_task = pin!(read_io(read_buf, &io));
 
         loop {
             match read_task.as_mut().select(queue.next()).await {
                 SelectOutput::A((res, buf)) => {
-                    read_buf = Some(buf);
+                    read_buf = buf;
                     if res? == 0 {
                         break;
                     }
 
-                    ctx.try_decode(read_buf.as_mut().unwrap(), |req, stream_id| {
+                    let res = ctx.try_decode(&mut read_buf, |req, stream_id| {
                         let s = &service;
                         queue.push(async move { (s.call(req).await, stream_id) });
                     });
 
-                    read_task.set(read_io(read_buf.take().unwrap(), &io));
+                    if let Err(e) = res {
+                        panic!("decode error: {e:?}")
+                    }
+
+                    read_task.set(read_io(read_buf, &io));
                 }
                 SelectOutput::B((res, id)) => {
                     let (parts, _) = match res {
                         Ok(res) => res.into_parts(),
-                        Err(_) => continue,
+                        Err(e) => {
+                            error!("service error: {e:?}");
+                            continue;
+                        }
                     };
                     let pseudo = headers::Pseudo::response(parts.status);
                     let headers = headers::Headers::new(id, pseudo, parts.headers);
-                    let mut buf = write_buf.as_mut().unwrap().limit(4096);
+                    let mut buf = (&mut write_buf).limit(4096);
                     headers.encode(&mut ctx.encoder, &mut buf);
 
-                    let (res, buf) = write_io(write_buf.take().unwrap(), &io).await;
-                    write_buf = Some(buf);
+                    let (res, buf) = write_io(write_buf, &io).await;
+                    write_buf = buf;
                     res?;
                 }
             }
@@ -325,23 +317,20 @@ mod io_uring {
 
     #[cold]
     #[inline(never)]
-    async fn prefix_check(io: &impl AsyncBufRead, buf: &mut Option<BytesMut>) -> io::Result<()> {
-        let mut b = buf.take().unwrap();
-        while b.len() < PREFACE.len() {
-            let (res, buf) = read_io(b, io).await;
-            b = buf;
+    async fn prefix_check(io: &impl AsyncBufRead, mut buf: BytesMut) -> io::Result<BytesMut> {
+        while buf.len() < PREFACE.len() {
+            let (res, b) = read_io(buf, io).await;
+            buf = b;
             res?;
         }
 
-        if &b[..PREFACE.len()] == PREFACE {
-            b.advance(PREFACE.len());
+        if &buf[..PREFACE.len()] == PREFACE {
+            buf.advance(PREFACE.len());
         } else {
             todo!()
         }
 
-        buf.replace(b);
-
-        Ok(())
+        Ok(buf)
     }
 }
 

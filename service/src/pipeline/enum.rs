@@ -1,12 +1,11 @@
 use core::{
     convert::Infallible,
     fmt::{self, Debug, Display, Formatter},
-    future::Future,
 };
 
 use crate::{ready::ReadyService, service::Service};
 
-/// A pipeline type where two variants have a parent-child/first-second relationship
+/// A pipeline type where two variants have a either/or relationship
 pub enum Pipeline<F, S> {
     First(F),
     Second(S),
@@ -89,19 +88,11 @@ where
 {
     type Response = F::Response;
     type Error = F::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
-    where
-        Self: 'f, Req: 'f;
 
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async move {
-            match self {
-                Self::First(ref f) => f.call(req).await,
-                Self::Second(ref s) => s.call(req).await,
-            }
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        match self {
+            Self::First(ref f) => f.call(req).await,
+            Self::Second(ref s) => s.call(req).await,
         }
     }
 }
@@ -113,14 +104,11 @@ where
 {
     type Ready = Pipeline<F::Ready, S::Ready>;
 
-    type Future<'f> = impl Future<Output = Self::Ready> + 'f where Self: 'f;
-
-    fn ready(&self) -> Self::Future<'_> {
-        async move {
-            match self {
-                Self::First(ref f) => Pipeline::First(f.ready().await),
-                Self::Second(ref s) => Pipeline::Second(s.ready().await),
-            }
+    #[inline]
+    async fn ready(&self) -> Self::Ready {
+        match self {
+            Self::First(ref f) => Pipeline::First(f.ready().await),
+            Self::Second(ref s) => Pipeline::Second(s.ready().await),
         }
     }
 }

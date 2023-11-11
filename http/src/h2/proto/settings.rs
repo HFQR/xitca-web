@@ -57,6 +57,9 @@ pub const MAX_INITIAL_WINDOW_SIZE: usize = (1 << 31) - 1;
 /// MAX_FRAME_SIZE upper bound
 pub const MAX_MAX_FRAME_SIZE: u32 = (1 << 24) - 1;
 
+// 16 MB "sane default" taken from golang http2
+pub const DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE: usize = 16 << 20;
+
 // ===== impl Settings =====
 
 impl Settings {

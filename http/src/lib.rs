@@ -3,9 +3,38 @@
 //! This crate tries to serve both low overhead and ease of use purpose.
 //! All http protocols can be used separately with corresponding feature flag or work together
 //! for handling different protocols in one place.
+//!
+//! # Examples
+//! ```rust
+//! use std::convert::Infallible;
+//!
+//! use xitca_http::{
+//!     http::{IntoResponse, Request, RequestExt, Response},
+//!     HttpServiceBuilder,
+//!     RequestBody,
+//!     ResponseBody
+//! };
+//! use xitca_service::{fn_service, Service, ServiceExt};
+//!
+//! # fn main() -> std::io::Result<()> {
+//! // xitca-http has to run inside a tcp/udp server.
+//! xitca_server::Builder::new()
+//!     // create http service with given name, socket address and service logic.
+//!     .bind("xitca-http", "localhost:0", || {
+//!         // a simple async function service produce hello world string as http response.
+//!         fn_service(|req: Request<RequestExt<RequestBody>>| async {
+//!             Ok::<Response<ResponseBody>, Infallible>(req.into_response("Hello,World!"))
+//!         })
+//!         // http service builder is a middleware take control of above function service
+//!         // and bridge tcp/udp transport with the http service.
+//!         .enclosed(HttpServiceBuilder::new())
+//!     })?
+//!     .build()
+//! # ; Ok(())
+//! # }
+//! ```
 
 #![forbid(unsafe_code)]
-#![feature(impl_trait_in_assoc_type)]
 
 #[cfg(feature = "runtime")]
 mod builder;
@@ -34,10 +63,10 @@ pub mod util;
 pub use xitca_io::bytes;
 
 pub use self::body::{RequestBody, ResponseBody};
+#[cfg(feature = "runtime")]
+pub use self::builder::HttpServiceBuilder;
 pub use self::error::{BodyError, HttpServiceError};
 pub use self::http::{Request, Response};
-#[cfg(feature = "runtime")]
-pub use self::{builder::HttpServiceBuilder, service::HttpService};
 
 // TODO: enable this conflict feature check.
 // temporary compile error for conflicted feature combination.

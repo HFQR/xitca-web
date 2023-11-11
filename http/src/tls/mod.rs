@@ -17,8 +17,6 @@ mod error;
 
 pub use error::TlsError;
 
-use std::future::Future;
-
 use xitca_service::Service;
 
 /// A NoOp Tls Acceptor pass through input Stream type.
@@ -28,10 +26,9 @@ pub struct NoOpTlsAcceptorBuilder;
 impl Service for NoOpTlsAcceptorBuilder {
     type Response = NoOpTlsAcceptorService;
     type Error = TlsError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>>;
 
-    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
-        async { Ok(NoOpTlsAcceptorService) }
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
+        Ok(NoOpTlsAcceptorService)
     }
 }
 
@@ -40,10 +37,8 @@ pub struct NoOpTlsAcceptorService;
 impl<St> Service<St> for NoOpTlsAcceptorService {
     type Response = St;
     type Error = TlsError;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where St: 'f;
 
-    #[inline(always)]
-    fn call<'s>(&self, io: St) -> Self::Future<'s> {
-        async { Ok(io) }
+    async fn call(&self, io: St) -> Result<Self::Response, Self::Error> {
+        Ok(io)
     }
 }

@@ -3,7 +3,7 @@ use tracing::{debug, warn};
 
 use crate::{
     body::BodySize,
-    bytes::BytesMut,
+    bytes::{Bytes, BytesMut},
     date::DateTime,
     http::{
         header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TE, TRANSFER_ENCODING, UPGRADE},
@@ -12,12 +12,12 @@ use crate::{
     },
 };
 
-use super::{buf_write::H1BufWrite, codec::TransferCoding, context::Context, error::ProtoError};
+use super::{buf_write::H1BufWrite, codec::TransferCoding, context::Context, error::ProtoError, header};
 
-#[inline]
-pub fn encode_continue(buf: &mut impl H1BufWrite) {
-    buf.write_buf_static(b"HTTP/1.1 100 Continue\r\n\r\n");
-}
+pub const CONTINUE: &[u8; 25] = b"HTTP/1.1 100 Continue\r\n\r\n";
+
+#[allow(clippy::declare_interior_mutable_const)]
+pub const CONTINUE_BYTES: Bytes = Bytes::from_static(CONTINUE);
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
 where
@@ -39,12 +39,12 @@ where
         let status = parts.status;
 
         // decide if content-length or transfer-encoding header would be skipped.
-        let skip_len = match (status, version) {
-            (StatusCode::SWITCHING_PROTOCOLS, _) => true,
+        let skip_len = match status {
+            StatusCode::SWITCHING_PROTOCOLS => true,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
-            (s, _) if self.is_connect_method() && s.is_success() => true,
-            (s, _) if s.is_informational() => {
+            s if self.is_connect_method() && s.is_success() => true,
+            s if s.is_informational() => {
                 warn!(target: "h1_encode", "response with 1xx status code not supported");
                 return Err(ProtoError::Status);
             }
@@ -87,7 +87,6 @@ fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: St
     // a reason MUST be written, as many parsers will expect it.
     let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();
     let status = status.as_str().as_bytes();
-
     buf.reserve(status.len() + reason.len() + 1);
     buf.extend_from_slice(status);
     buf.extend_from_slice(b" ");
@@ -130,11 +129,7 @@ where
             match name {
                 CONTENT_LENGTH => {
                     debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
-                    let value = value
-                        .to_str()
-                        .ok()
-                        .and_then(|v| v.parse().ok())
-                        .ok_or(ProtoError::HeaderValue)?;
+                    let value = header::parse_content_length(&value)?;
                     encoding = TransferCoding::length(value);
                     skip_len = true;
                 }
@@ -159,12 +154,11 @@ where
             let value = value.as_bytes();
 
             if is_continue {
-                buf.reserve(value.len() + 1);
-                buf.extend_from_slice(b",");
+                buf.reserve(value.len() + 2);
+                buf.extend_from_slice(b", ");
                 buf.extend_from_slice(value);
             } else {
                 let name = name.as_str().as_bytes();
-
                 buf.reserve(name.len() + value.len() + 4);
                 buf.extend_from_slice(b"\r\n");
                 buf.extend_from_slice(name);
@@ -268,7 +262,7 @@ mod test {
 
                 for h in header {
                     if h.name == "connection" {
-                        assert_eq!(h.value, b"keep-alive,upgrade");
+                        assert_eq!(h.value, b"keep-alive, upgrade");
                     }
                 }
             })

@@ -5,9 +5,10 @@ use crate::{
 
 use super::Service;
 
+/// extend trait for [Service] providing combinator functionalities.
 pub trait ServiceExt<Arg>: Service<Arg> {
-    /// Enclose Self with given `T as Service<<Self as Service<_>>::Response>>`.
-    /// In other word T would take Self's Response type it's generic argument of `Service<_>`.
+    /// Enclose Self with given `T as Service<<Self as Service<_>>::Response>>`. In other word T
+    /// would take Self's `Service::Response` type as it's generic argument of `Service<_>` impl.
     fn enclosed<T>(self, build: T) -> PipelineT<Self, T, marker::BuildEnclosed>
     where
         T: Service<Self::Response>,
@@ -61,7 +62,7 @@ impl<S, Arg> ServiceExt<Arg> for S where S: Service<Arg> {}
 mod test {
     use super::*;
 
-    use core::{convert::Infallible, future::Future};
+    use core::convert::Infallible;
 
     use xitca_unsafe_collection::futures::NowOrPanic;
 
@@ -76,16 +77,9 @@ mod test {
     impl<S: Clone> Service<S> for DummyMiddleware {
         type Response = DummyMiddlewareService<S>;
         type Error = Infallible;
-        type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
-        where
-            Self: 'f,
-            S: 'f;
 
-        fn call<'s>(&'s self, service: S) -> Self::Future<'s>
-        where
-            S: 's,
-        {
-            async { Ok(DummyMiddlewareService(service)) }
+        async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
+            Ok(DummyMiddlewareService(service))
         }
     }
 
@@ -95,16 +89,9 @@ mod test {
     {
         type Response = S::Response;
         type Error = S::Error;
-        type Future<'f> = S::Future<'f>
-        where
-            Self: 'f,
-            Req: 'f;
 
-        fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-        where
-            Req: 's,
-        {
-            self.0.call(req)
+        async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+            self.0.call(req).await
         }
     }
 

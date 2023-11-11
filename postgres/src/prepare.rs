@@ -135,6 +135,10 @@ impl Client {
         let stmt = match self._prepare(TYPEINFO_QUERY, &[]).await {
             Ok(stmt) => stmt,
             Err(_) => self._prepare(TYPEINFO_FALLBACK_QUERY, &[]).await?,
+            // Err(ref e) if e.code() == Some(&SqlState::UNDEFINED_TABLE) => {
+            //     self._prepare_boxed(TYPEINFO_FALLBACK_QUERY, &[]).await?
+            // }
+            // Err(e) => return Err(e),
         };
 
         self.set_typeinfo(&stmt);

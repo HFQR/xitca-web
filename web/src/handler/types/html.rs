@@ -1,4 +1,4 @@
-use std::{fmt, future::Future};
+use core::fmt;
 
 use xitca_http::body::ResponseBody;
 
@@ -25,12 +25,11 @@ where
     T: Into<ResponseBody>,
 {
     type Output = WebResponse;
-    type Future = impl Future<Output = Self::Output>;
 
     #[inline]
-    fn respond_to(self, req: WebRequest<'r, S>) -> Self::Future {
+    async fn respond_to(self, req: WebRequest<'r, S>) -> Self::Output {
         let mut res = req.into_response(self.0);
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
-        async { res }
+        res
     }
 }

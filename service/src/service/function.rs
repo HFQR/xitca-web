@@ -1,5 +1,3 @@
-#![allow(clippy::redundant_async_block)]
-
 use core::{
     convert::Infallible,
     future::{ready, Future, Ready},
@@ -58,6 +56,7 @@ where
     fn_build(move |_| ready(Ok(FnService(f.clone()))))
 }
 
+/// new type for implementing [Service] trait to a `Fn(Req) -> impl Future<Output = Result<Res, Err>>` type.
 #[derive(Clone)]
 pub struct FnService<F>(F);
 
@@ -68,13 +67,9 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async { (self.0)(req).await }
+    fn call(&self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>> {
+        (self.0)(req)
     }
 }

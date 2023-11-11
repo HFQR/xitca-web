@@ -7,10 +7,9 @@ where
     S: ReadyService,
 {
     type Ready = S::Ready;
-    type Future<'f> = S::Future<'f> where Self: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        self.first.ready()
+    async fn ready(&self) -> Self::Ready {
+        self.first.ready().await
     }
 }

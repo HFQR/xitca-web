@@ -1,4 +1,4 @@
-use core::{fmt, future::Future};
+use core::fmt;
 
 use std::error;
 
@@ -36,11 +36,17 @@ pub struct Route<R, N, const M: usize> {
 }
 
 impl<const N: usize> Route<(), next::Empty, N> {
+    /// construct a new Route given array of methods.
+    ///
+    /// # Panics
+    /// panic when input array is zero length.
     pub const fn new(methods: [Method; N]) -> Self {
         assert!(N > 0, "Route method can not be empty");
         Self::_new(methods, ())
     }
 
+    /// pass certain [Service] type to Route so it can be matched against the
+    /// methods Route contains.
     pub fn route<R>(self, route: R) -> Route<R, next::Empty, N> {
         Route {
             methods: self.methods,
@@ -67,7 +73,12 @@ macro_rules! route_method {
 }
 
 impl<R, N, const M: usize> Route<R, N, M> {
-    // TODO is this really the intended behavior? insert `next` between `self` and `self.next`?
+    /// chain another Route to existing Route type.
+    ///
+    /// # Panics
+    ///
+    /// panic when chained Routes contain overlapping [Method]. Route only do liner method matching
+    /// and overlapped method(s) will always enter the first Route matched against.
     pub fn next<R1, const M1: usize>(
         self,
         next: Route<R1, next::Empty, M1>,
@@ -78,6 +89,7 @@ impl<R, N, const M: usize> Route<R, N, M> {
             }
         }
 
+        // TODO is this really the intended behavior? insert `next` between `self` and `self.next`?
         Route {
             methods: self.methods,
             route: self.route,
@@ -108,21 +120,15 @@ where
 {
     type Response = RouteService<R::Response, next::Exist<N::Response>, M>;
     type Error = R::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-    where
-        Arg: 's,
-    {
-        async {
-            let route = self.route.call(arg.clone()).await?;
-            let next = self.next.0.call(arg).await?;
-            Ok(RouteService {
-                methods: self.methods.clone(),
-                route,
-                next: next::Exist(next),
-            })
-        }
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let route = self.route.call(arg.clone()).await?;
+        let next = self.next.0.call(arg).await?;
+        Ok(RouteService {
+            methods: self.methods.clone(),
+            route,
+            next: next::Exist(next),
+        })
     }
 }
 
@@ -132,20 +138,14 @@ where
 {
     type Response = RouteService<R::Response, next::Empty, M>;
     type Error = R::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-    where
-        Arg: 's,
-    {
-        async {
-            let route = self.route.call(arg).await?;
-            Ok(RouteService {
-                methods: self.methods.clone(),
-                route,
-                next: next::Empty,
-            })
-        }
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let route = self.route.call(arg).await?;
+        Ok(RouteService {
+            methods: self.methods.clone(),
+            route,
+            next: next::Empty,
+        })
     }
 }
 
@@ -163,23 +163,17 @@ where
 {
     type Response = R::Response;
     type Error = RouteError<E>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async {
-            if self.methods.contains(req.borrow()) {
-                self.route.call(req).await.map_err(RouteError::Second)
-            } else {
-                self.next
-                    .0
-                    .call(req)
-                    .await
-                    .map_err(|e| try_append_allowed(e, &self.methods))
-            }
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        if self.methods.contains(req.borrow()) {
+            self.route.call(req).await.map_err(RouteError::Second)
+        } else {
+            self.next
+                .0
+                .call(req)
+                .await
+                .map_err(|e| try_append_allowed(e, &self.methods))
         }
     }
 }
@@ -200,33 +194,24 @@ where
 {
     type Response = R::Response;
     type Error = RouteError<R::Error>;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        async {
-            if self.methods.contains(req.borrow()) {
-                self.route.call(req).await.map_err(RouteError::Second)
-            } else {
-                Err(RouteError::First(MethodNotAllowed(
-                    self.methods.iter().cloned().collect(),
-                )))
-            }
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        if self.methods.contains(req.borrow()) {
+            self.route.call(req).await.map_err(RouteError::Second)
+        } else {
+            Err(RouteError::First(MethodNotAllowed(
+                self.methods.iter().cloned().collect(),
+            )))
         }
     }
 }
 
 impl<R, N, const M: usize> ReadyService for RouteService<R, N, M> {
     type Ready = ();
-    type Future<'f> = impl Future<Output = Self::Ready> where Self: 'f;
 
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        async {}
-    }
+    async fn ready(&self) -> Self::Ready {}
 }
 
 /// Error type of Route service.

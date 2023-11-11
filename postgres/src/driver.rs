@@ -139,27 +139,24 @@ enum _Driver {
 }
 
 impl AsyncIterator for Driver {
-    type Future<'f> = impl Future<Output = Option<Self::Item<'f>>> + Send + 'f where Self: 'f;
     type Item<'i> = Result<backend::Message, Error> where Self: 'i;
 
     #[inline]
-    fn next(&mut self) -> Self::Future<'_> {
-        async {
-            #[cfg(not(feature = "quic"))]
-            match self.inner {
-                _Driver::Tcp(ref mut drv) => drv.next().await,
-                #[cfg(feature = "tls")]
-                _Driver::Tls(ref mut drv) => drv.next().await,
-                #[cfg(unix)]
-                _Driver::Unix(ref mut drv) => drv.next().await,
-                #[cfg(all(unix, feature = "tls"))]
-                _Driver::UnixTls(ref mut drv) => drv.next().await,
-            }
+    async fn next(&mut self) -> Option<Self::Item<'_>> {
+        #[cfg(not(feature = "quic"))]
+        match self.inner {
+            _Driver::Tcp(ref mut drv) => drv.next().await,
+            #[cfg(feature = "tls")]
+            _Driver::Tls(ref mut drv) => drv.next().await,
+            #[cfg(unix)]
+            _Driver::Unix(ref mut drv) => drv.next().await,
+            #[cfg(all(unix, feature = "tls"))]
+            _Driver::UnixTls(ref mut drv) => drv.next().await,
+        }
 
-            #[cfg(feature = "quic")]
-            match self.inner {
-                _Driver::Quic(ref mut drv) => drv.next().await,
-            }
+        #[cfg(feature = "quic")]
+        match self.inner {
+            _Driver::Quic(ref mut drv) => drv.next().await,
         }
     }
 }

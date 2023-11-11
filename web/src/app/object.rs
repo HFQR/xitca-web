@@ -1,4 +1,4 @@
-use core::{future::Future, marker::PhantomData};
+use core::marker::PhantomData;
 
 use xitca_http::util::service::router::IntoObject;
 use xitca_service::{
@@ -29,13 +29,9 @@ where
         {
             type Response = WebObject<C, B, Res, Err>;
             type Error = I::Error;
-            type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f;
 
-            fn call<'s>(&'s self, arg: ()) -> Self::Future<'s>
-            where
-                (): 's,
-            {
-                async move { self.0.call(arg).await.map(|s| Box::new(s) as _) }
+            async fn call(&self, arg: ()) -> Result<Self::Response, Self::Error> {
+                self.0.call(arg).await.map(|s| Box::new(s) as _)
             }
         }
 

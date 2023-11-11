@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
     convert::Infallible,
-    future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -44,15 +43,13 @@ where
 {
     type Response = TowerCompatService<S>;
     type Error = Infallible;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> where Self: 'f;
 
-    fn call<'s>(&self, _: ()) -> Self::Future<'s> {
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
         let service = self.service.clone();
-        async {
-            Ok(TowerCompatService {
-                service: RefCell::new(service),
-            })
-        }
+
+        Ok(TowerCompatService {
+            service: RefCell::new(service),
+        })
     }
 }
 
@@ -75,38 +72,26 @@ where
     S: tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>, Response = Response<ResB>>,
     ResB: Body,
     C: Clone + 'static,
-    ReqB: Default + 'r,
+    ReqB: Default,
 {
     type Response = WebResponse<CompatBody<ResB>>;
     type Error = S::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f
-    where
-        Self: 'f, 'r: 'f;
 
-    fn call<'s>(&'s self, mut req: WebRequest<'r, C, ReqB>) -> Self::Future<'s>
-    where
-        'r: 's,
-    {
-        async move {
-            let ctx = req.state().clone();
-            let (mut parts, ext) = req.take_request().into_parts();
-            parts.extensions.insert(FakeSync::new(FakeSend::new(ctx)));
-            let req = Request::from_parts(parts, CompatBody::new(FakeSend::new(ext)));
-            let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
-            fut.await.map(|res| res.map(CompatBody::new))
-        }
+    async fn call(&self, mut req: WebRequest<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
+        let ctx = req.state().clone();
+        let (mut parts, ext) = req.take_request().into_parts();
+        parts.extensions.insert(FakeSync::new(FakeSend::new(ctx)));
+        let req = Request::from_parts(parts, CompatBody::new(FakeSend::new(ext)));
+        let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
+        fut.await.map(|res| res.map(CompatBody::new))
     }
 }
 
 impl<S> ReadyService for TowerCompatService<S> {
     type Ready = ();
 
-    type Future<'f> = impl Future<Output = Self::Ready> where Self: 'f;
-
     #[inline]
-    fn ready(&self) -> Self::Future<'_> {
-        async {}
-    }
+    async fn ready(&self) -> Self::Ready {}
 }
 
 pin_project! {

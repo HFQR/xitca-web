@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use crate::{
     async_closure::AsyncClosure,
     pipeline::{
@@ -17,16 +15,10 @@ where
 {
     type Response = PipelineT<SF::Response, T, EnclosedFn>;
     type Error = SF::Error;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Arg: 'f;
 
-    fn call<'s>(&'s self, arg: Arg) -> Self::Future<'s>
-    where
-        Arg: 's,
-    {
-        async {
-            let service = self.first.call(arg).await?;
-            Ok(PipelineT::new(service, self.second.clone()))
-        }
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let service = self.first.call(arg).await?;
+        Ok(PipelineT::new(service, self.second.clone()))
     }
 }
 
@@ -36,13 +28,9 @@ where
 {
     type Response = Res;
     type Error = Err;
-    type Future<'f> = impl Future<Output = Result<Self::Response, Self::Error>> + 'f where Self: 'f, Req: 'f;
 
     #[inline]
-    fn call<'s>(&'s self, req: Req) -> Self::Future<'s>
-    where
-        Req: 's,
-    {
-        self.second.call((&self.first, req))
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        self.second.call((&self.first, req)).await
     }
 }

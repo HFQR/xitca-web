@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, fmt, future::Future, ops::Deref};
+use std::{borrow::Borrow, fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,
@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// App state extractor.
-/// S type must be the same with the type passed to App::with_xxx_state(<S>).
+/// S type must be the same with the type passed to App::with_xxx_state(S).
 pub struct StateRef<'a, S>(pub &'a S);
 
 impl<S: fmt::Debug> fmt::Debug for StateRef<'_, S> {
@@ -38,11 +38,10 @@ where
 {
     type Type<'b> = StateRef<'b, T>;
     type Error = ExtractError<B::Error>;
-    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
 
     #[inline]
-    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
-        async { Ok(StateRef(req.state().borrow())) }
+    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(StateRef(req.state().borrow()))
     }
 }
 
