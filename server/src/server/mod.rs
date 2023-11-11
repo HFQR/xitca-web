@@ -2,10 +2,7 @@ mod future;
 mod handle;
 mod service;
 
-pub use self::{
-    future::{ServerFuture, ServerFutureInner},
-    handle::ServerHandle,
-};
+pub use self::{future::ServerFuture, handle::ServerHandle};
 
 pub(crate) use self::service::{BuildServiceFn, BuildServiceObj};
 

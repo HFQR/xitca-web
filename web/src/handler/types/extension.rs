@@ -46,6 +46,46 @@ where
     }
 }
 
+/// Extract owned type stored inside [Extensions]
+pub struct ExtensionOwn<T>(pub T);
+
+impl<T: fmt::Debug> fmt::Debug for ExtensionOwn<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ExtensionOwn({:?})", self.0)
+    }
+}
+
+impl<T> Deref for ExtensionOwn<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionOwn<T>
+where
+    T: Send + Sync + Clone + 'static,
+    B: BodyStream,
+{
+    type Type<'b> = ExtensionOwn<T>;
+    type Error = ExtractError<B::Error>;
+    type Future = impl Future<Output = Result<Self, Self::Error>> where WebRequest<'r, C, B>: 'a;
+
+    #[inline]
+    fn from_request(req: &'a WebRequest<'r, C, B>) -> Self::Future {
+        async move {
+            let ext = req
+                .req()
+                .extensions()
+                .get::<T>()
+                .ok_or(ExtractError::ExtensionNotFound)?
+                .clone();
+            Ok(ExtensionOwn(ext))
+        }
+    }
+}
+
 /// Extract immutable reference of the [Extensions].
 pub struct ExtensionsRef<'a>(pub &'a Extensions);
 
