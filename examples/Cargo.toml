@@ -9,6 +9,7 @@ members = [
     "io-uring",
     "multipart",
     "multi-http-services",
+    "sync",
     "tower-http",
     "unix",
     "wasi",
