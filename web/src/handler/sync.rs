@@ -1,0 +1,87 @@
+#![allow(non_snake_case)]
+
+use core::{
+    convert::Infallible,
+    future::{ready, Ready},
+    marker::PhantomData,
+};
+
+use super::{FromRequest, Responder};
+
+use xitca_service::{fn_build, FnService, Service};
+
+pub fn handler_sync_service<Arg, F, T, O>(
+    func: F,
+) -> FnService<impl Fn(Arg) -> Ready<Result<HandlerServiceSync<F, T, O>, Infallible>>>
+where
+    F: Closure<T> + Send + Clone,
+{
+    fn_build(move |_| {
+        ready(Ok(HandlerServiceSync {
+            func: func.clone(),
+            _p: PhantomData,
+        }))
+    })
+}
+
+pub struct HandlerServiceSync<F, T, O> {
+    func: F,
+    _p: PhantomData<(T, O)>,
+}
+
+impl<F, Req, T, O> Service<Req> for HandlerServiceSync<F, T, O>
+where
+    // for borrowed extractors, `T` is the `'static` version of the extractors
+    T: FromRequest<'static, Req>,
+    // just to assist type inference to pinpoint `T`
+    F: Closure<T> + Send + Clone + 'static,
+    F: for<'a> Closure<T::Type<'a>, Output = O>,
+    O: Responder<Req> + Send + 'static,
+    for<'a> T::Type<'a>: Send + 'static,
+{
+    type Response = O::Output;
+    type Error = T::Error;
+
+    #[inline]
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        let extract = T::Type::<'_>::from_request(&req).await?;
+        let func = self.func.clone();
+        let res = tokio::task::spawn_blocking(move || func.call(extract)).await.unwrap();
+        Ok(res.respond_to(req).await)
+    }
+}
+
+#[doc(hidden)]
+/// sync version of xitca_service::AsyncClosure trait.
+pub trait Closure<Arg> {
+    type Output;
+
+    fn call(&self, arg: Arg) -> Self::Output;
+}
+
+macro_rules! closure_impl {
+    ($($arg: ident),*) => {
+        impl<Func, O, $($arg,)*> Closure<($($arg,)*)> for Func
+        where
+            Func: Fn($($arg),*) -> O,
+        {
+            type Output = O;
+
+            #[inline]
+            fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Output {
+                self($($arg,)*)
+            }
+        }
+    }
+}
+
+closure_impl! {}
+closure_impl! { A }
+closure_impl! { A, B }
+closure_impl! { A, B, C }
+closure_impl! { A, B, C, D }
+closure_impl! { A, B, C, D, E }
+closure_impl! { A, B, C, D, E, F }
+closure_impl! { A, B, C, D, E, F, G }
+closure_impl! { A, B, C, D, E, F, G, H }
+closure_impl! { A, B, C, D, E, F, G, H, I }
