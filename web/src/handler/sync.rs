@@ -10,6 +10,36 @@ use super::{FromRequest, Responder};
 
 use xitca_service::{fn_build, FnService, Service};
 
+/// synchronous version of [handler_service]
+///
+/// `handler_sync_service` run given function on a separate thread pool from the event loop and async
+/// logic of xitca-web itself. Therefore it comes with different requirement of function argument
+/// compared to [handler_service] where the arguments must be types that impl [FromRequest] trait,
+/// being thread safe with `Send` trait bound and with `'static` lifetime.
+///
+/// # Examples:
+/// ```rust
+/// # use xitca_web::{
+/// #     handler::{
+/// #         {handler_service, handler_sync_service},
+/// #         uri::{UriOwn, UriRef},
+/// #     },
+/// #     request::WebRequest,
+/// #     App,
+/// # };
+///
+/// App::new()
+///     .at("/valid", handler_sync_service(|_: UriOwn| "uri is thread safe and owned value"))
+///     // uncomment the line below would result in compile error.
+///     //.at("/invalid", handler_sync_service(|_: UriRef<'_>| { "uri ref is borrowed value" }));
+///    # .at("/nah", handler_service(nah));
+///
+/// # async fn nah(_: &WebRequest<'_>) {
+/// #   // needed to infer the body type of request
+/// # }
+/// ```
+///
+/// [handler_service]: super::handler_service
 pub fn handler_sync_service<Arg, F, T, O>(
     func: F,
 ) -> FnService<impl Fn(Arg) -> Ready<Result<HandlerServiceSync<F, T, O>, Infallible>>>

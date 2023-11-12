@@ -46,7 +46,7 @@ where
 }
 
 /// App state extractor for owned value.
-/// S type must be the same with the type passed to App::with_xxx_state(<S>).
+/// S type must be the same with the type passed to App::with_xxx_state(S).
 pub struct StateOwn<S>(pub S);
 
 impl<S: fmt::Debug> fmt::Debug for StateOwn<S> {
