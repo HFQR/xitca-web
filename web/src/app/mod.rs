@@ -25,12 +25,14 @@ use crate::{
     response::WebResponse,
 };
 
+/// composed application type with router, stateful context and default middlewares.
 pub struct App<CF = (), R = ()> {
     ctx_factory: CF,
     router: R,
 }
 
 impl App {
+    /// Construct a new application instance.
     pub fn new<Obj>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<Obj>> {
         Self::with_async_state(|| ready(Ok(())))
     }
@@ -67,6 +69,7 @@ where {
 }
 
 impl<CF, Obj> App<CF, Router<Obj>> {
+    /// insert routed service with given path to application.
     pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, Router<Obj>>
     where
         CF: Fn() -> Fut,

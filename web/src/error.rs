@@ -1,3 +1,5 @@
+//! web error types.
+
 pub use xitca_http::{
     error::BodyError,
     util::service::{

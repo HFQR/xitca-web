@@ -1,3 +1,5 @@
+//! web request types.
+
 pub use xitca_http::body::RequestBody;
 
 use core::{
@@ -9,6 +11,7 @@ use crate::http::{BorrowReq, BorrowReqMut, IntoResponse, Request, RequestExt};
 
 use super::{body::ResponseBody, response::WebResponse};
 
+/// web request type focus on stateful context and side effect based request data access.
 pub struct WebRequest<'a, C = (), B = RequestBody> {
     pub(crate) req: &'a mut Request<RequestExt<()>>,
     pub(crate) body: &'a mut RefCell<B>,

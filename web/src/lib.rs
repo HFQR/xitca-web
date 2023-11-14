@@ -47,6 +47,7 @@ pub mod codegen {
 }
 
 pub mod route {
+    //! route services.
     pub use xitca_http::util::service::route::{connect, delete, get, head, options, patch, post, put, trace, Route};
 }
 

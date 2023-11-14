@@ -17,6 +17,7 @@ use crate::{
     http::{Request, RequestExt, Response},
 };
 
+/// multi protocol handling http server
 pub struct HttpServer<
     F,
     const HEADER_LIMIT: usize = DEFAULT_HEADER_LIMIT,

@@ -1,3 +1,5 @@
+//! utilities for testing web application
+
 use core::{future::poll_fn, pin::pin};
 
 use futures_core::stream::Stream;
