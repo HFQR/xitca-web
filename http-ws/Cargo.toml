@@ -14,7 +14,7 @@ futures-core = { version = "0.3.25", default-features = false }
 http = "0.2.8"
 rand = { version = "0.8.5" }
 sha1 = "0.10"
-tracing = { version = "0.1.26", default-features = false }
+tracing = { version = "0.1.40", default-features = false }
 
 # stream feature
 pin-project-lite = { version = "0.2.9", optional = true }

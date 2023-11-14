@@ -41,9 +41,9 @@ async fn handler(mut ws: WebSocket) -> WebSocket {
             })
         })
         // async function that called when error occurred
-        .on_err(|e| Box::pin(async move { error!("{e}") }))
+        .on_err(|e| async move { error!("{e}") })
         // async function that called when closing websocket connection.
-        .on_close(|| Box::pin(async { info!("WebSocket connection closing") }));
+        .on_close(|| async { info!("WebSocket connection closing") });
 
     // return the instance after configuration.
     ws

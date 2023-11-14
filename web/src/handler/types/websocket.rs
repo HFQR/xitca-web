@@ -58,13 +58,19 @@ where
     B: BodyStream,
 {
     fn new(ws: WsOutput<B, B::Error>) -> Self {
+        #[cold]
+        #[inline(never)]
+        fn boxed_future() -> BoxFuture<'static> {
+            Box::pin(async {})
+        }
+
         Self {
             ws,
             ping_interval: Duration::from_secs(15),
             max_unanswered_ping: 3,
-            on_msg: Box::new(|_, _| Box::pin(async {})),
-            on_err: Box::new(|_| Box::pin(async {})),
-            on_close: Box::new(|| Box::pin(async {})),
+            on_msg: Box::new(|_, _| boxed_future()),
+            on_err: Box::new(|_| boxed_future()),
+            on_close: Box::new(|| boxed_future()),
         }
     }
 
@@ -101,20 +107,22 @@ where
     }
 
     /// Async function that would be called when error occurred.
-    pub fn on_err<F>(&mut self, func: F) -> &mut Self
+    pub fn on_err<F, Fut>(&mut self, mut func: F) -> &mut Self
     where
-        F: FnMut(WsError<B::Error>) -> BoxFuture<'static> + 'static,
+        F: FnMut(WsError<B::Error>) -> Fut + 'static,
+        Fut: Future<Output = ()> + 'static,
     {
-        self.on_err = Box::new(func);
+        self.on_err = Box::new(move |e| Box::pin(func(e)));
         self
     }
 
     /// Async function that would be called when closing the websocket connection.
-    pub fn on_close<F>(&mut self, func: F) -> &mut Self
+    pub fn on_close<F, Fut>(&mut self, func: F) -> &mut Self
     where
-        F: FnOnce() -> BoxFuture<'static> + 'static,
+        F: FnOnce() -> Fut + 'static,
+        Fut: Future<Output = ()> + 'static,
     {
-        self.on_close = Box::new(func);
+        self.on_close = Box::new(|| Box::pin(func()));
         self
     }
 }
@@ -165,9 +173,15 @@ where
 
         let (decode, res, tx) = ws;
 
-        tokio::task::spawn_local(async move {
-            let _ = spawn_task(ping_interval, max_unanswered_ping, decode, tx, on_msg, on_err, on_close).await;
-        });
+        tokio::task::spawn_local(spawn_task(
+            ping_interval,
+            max_unanswered_ping,
+            decode,
+            tx,
+            on_msg,
+            on_err,
+            on_close,
+        ));
 
         res.map(ResponseBody::box_stream)
     }
@@ -181,60 +195,65 @@ async fn spawn_task<B>(
     mut on_msg: OnMsgCB,
     mut on_err: OnErrCB<B::Error>,
     on_close: OnCloseCB,
-) -> Result<(), Box<dyn std::error::Error>>
-where
+) where
     B: BodyStream,
 {
-    let mut sleep = pin!(sleep(ping_interval));
-    let mut decode = pin!(decode);
-
-    let mut un_answered_ping = 0u8;
-
     let on_msg = &mut *on_msg;
     let on_err = &mut *on_err;
 
-    loop {
-        match poll_fn(|cx| decode.as_mut().poll_next(cx)).select(sleep.as_mut()).await {
-            SelectOutput::A(Some(Ok(msg))) => {
-                let msg = match msg {
-                    WsMessage::Pong(_) => {
-                        if let Some(num) = un_answered_ping.checked_sub(1) {
-                            un_answered_ping = num;
-                        }
-                        continue;
-                    }
-                    WsMessage::Ping(ping) => {
-                        tx.send(WsMessage::Pong(ping)).await?;
-                        continue;
-                    }
-                    WsMessage::Close(reason) => {
-                        let _ = tx.send(WsMessage::Close(reason)).await;
-                        break;
-                    }
-                    WsMessage::Text(txt) => Message::Text(BytesStr::try_from(txt).unwrap()),
-                    WsMessage::Binary(bin) => Message::Binary(bin),
-                    WsMessage::Continuation(item) => Message::Continuation(item),
-                    WsMessage::Nop => continue,
-                };
+    let spawn_inner = || async {
+        let mut sleep = pin!(sleep(ping_interval));
+        let mut decode = pin!(decode);
 
-                on_msg(&mut tx, msg).await
-            }
-            SelectOutput::A(Some(Err(e))) => on_err(e).await,
-            SelectOutput::A(None) => break,
-            SelectOutput::B(_) => {
-                if un_answered_ping > max_unanswered_ping {
-                    tx.send(WsMessage::Close(None)).await?;
-                    break;
-                } else {
-                    un_answered_ping += 1;
-                    tx.send(WsMessage::Ping(Bytes::new())).await?;
-                    sleep.as_mut().reset(Instant::now() + ping_interval);
+        let mut un_answered_ping = 0u8;
+
+        loop {
+            match poll_fn(|cx| decode.as_mut().poll_next(cx)).select(sleep.as_mut()).await {
+                SelectOutput::A(Some(Ok(msg))) => {
+                    let msg = match msg {
+                        WsMessage::Pong(_) => {
+                            if let Some(num) = un_answered_ping.checked_sub(1) {
+                                un_answered_ping = num;
+                            }
+                            continue;
+                        }
+                        WsMessage::Ping(ping) => {
+                            tx.send(WsMessage::Pong(ping)).await?;
+                            continue;
+                        }
+                        WsMessage::Close(reason) => {
+                            tx.send(WsMessage::Close(reason)).await?;
+                            break;
+                        }
+                        WsMessage::Text(txt) => Message::Text(BytesStr::try_from(txt).unwrap()),
+                        WsMessage::Binary(bin) => Message::Binary(bin),
+                        WsMessage::Continuation(item) => Message::Continuation(item),
+                        WsMessage::Nop => continue,
+                    };
+
+                    on_msg(&mut tx, msg).await
+                }
+                SelectOutput::A(Some(Err(e))) => on_err(e).await,
+                SelectOutput::A(None) => break,
+                SelectOutput::B(_) => {
+                    if un_answered_ping > max_unanswered_ping {
+                        tx.send(WsMessage::Close(None)).await?;
+                        break;
+                    } else {
+                        un_answered_ping += 1;
+                        tx.send(WsMessage::Ping(Bytes::new())).await?;
+                        sleep.as_mut().reset(Instant::now() + ping_interval);
+                    }
                 }
             }
         }
+
+        Ok(())
+    };
+
+    if let Err(e) = spawn_inner().await {
+        on_err(e).await;
     }
 
     on_close().await;
-
-    Ok(())
 }
