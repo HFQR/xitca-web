@@ -36,7 +36,7 @@ futures-core = "0.3.17"
 http = "0.2.8"
 httpdate = "1.0"
 pin-project-lite = "0.2.10"
-tracing = { version = "0.1.32", default-features = false }
+tracing = { version = "0.1.40", default-features = false }
 
 # openssl support
 openssl = { version = "0.10", optional = true }
