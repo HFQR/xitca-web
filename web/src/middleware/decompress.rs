@@ -85,7 +85,7 @@ mod test {
     use xitca_http::body::{Once, RequestBody};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{dev::bytes::Bytes, http::header::CONTENT_ENCODING};
+    use crate::{bytes::Bytes, http::header::CONTENT_ENCODING};
 
     use crate::{
         body::ResponseBody,

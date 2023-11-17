@@ -17,7 +17,7 @@ use xitca_unsafe_collection::{
 
 use crate::{
     body::{BodyStream, RequestBody, ResponseBody},
-    dev::bytes::Bytes,
+    bytes::Bytes,
     handler::{error::ExtractError, FromRequest, Responder},
     http::header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
     request::WebRequest,

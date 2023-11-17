@@ -1,3 +1,5 @@
+//! type extractor for uri params.
+
 use core::ops::Deref;
 
 use serde::de::{self, Deserializer, Error as DeError, Visitor};

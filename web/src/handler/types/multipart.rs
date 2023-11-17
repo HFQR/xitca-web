@@ -28,7 +28,8 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::{bytes::Bytes, service::Service},
+        bytes::Bytes,
+        dev::service::Service,
         handler::handler_service,
         http::{
             header::{HeaderValue, CONTENT_TYPE, TRANSFER_ENCODING},

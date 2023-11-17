@@ -1,3 +1,5 @@
+//! response generator for Html
+
 use core::fmt;
 
 use xitca_http::body::ResponseBody;

@@ -1,4 +1,6 @@
-use std::{borrow::Borrow, fmt, ops::Deref};
+//! type extractor or application state.
+
+use core::{borrow::Borrow, fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,

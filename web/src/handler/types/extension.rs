@@ -1,4 +1,6 @@
-use std::{fmt, ops::Deref};
+//! type extractor for value from [Extensions] and itself.
+
+use core::{fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,

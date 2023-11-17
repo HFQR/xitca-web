@@ -1,7 +1,7 @@
 use std::{convert::Infallible, error, fmt, str::Utf8Error};
 
 use crate::{
-    dev::bytes::Bytes,
+    bytes::Bytes,
     error::BodyError,
     http::{header::HeaderName, StatusCode},
     request::WebRequest,

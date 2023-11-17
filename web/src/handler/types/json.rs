@@ -1,3 +1,5 @@
+//! type extractor and response generator for json
+
 use core::{
     fmt,
     future::poll_fn,
@@ -9,7 +11,7 @@ use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::{
     body::BodyStream,
-    dev::bytes::{BufMutWriter, Bytes, BytesMut},
+    bytes::{BufMutWriter, Bytes, BytesMut},
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest, Responder,

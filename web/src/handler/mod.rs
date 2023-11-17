@@ -1,3 +1,5 @@
+//! type based high level async function service.
+
 mod error;
 mod impls;
 mod sync;

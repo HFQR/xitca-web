@@ -1,3 +1,5 @@
+//! type extractor for request uri query
+
 use core::fmt;
 
 use serde::de::DeserializeOwned;

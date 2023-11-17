@@ -4,7 +4,8 @@
 use http_file::ServeDir;
 use xitca_web::{
     body::ResponseBody,
-    dev::{bytes::Bytes, service::Service},
+    bytes::Bytes,
+    dev::service::Service,
     handler::{handler_service, request::RequestRef, state::StateRef},
     http::{Method, Uri},
     middleware::compress::Compress,

@@ -10,10 +10,8 @@ use xitca_server::{Builder, ServerFuture};
 use xitca_service::ServiceExt;
 
 use crate::{
-    dev::{
-        bytes::Bytes,
-        service::{ready::ReadyService, Service},
-    },
+    bytes::Bytes,
+    dev::service::{ready::ReadyService, Service},
     http::{Request, RequestExt, Response},
 };
 

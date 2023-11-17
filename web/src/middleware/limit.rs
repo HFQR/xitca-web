@@ -179,7 +179,7 @@ mod test {
 
     use crate::{
         body::BoxStream,
-        dev::bytes::Bytes,
+        bytes::Bytes,
         error::BodyError,
         handler::{body::Body, handler_service},
         http::{Request, RequestExt},

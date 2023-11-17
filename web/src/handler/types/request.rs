@@ -1,3 +1,5 @@
+//! type extractor for [Request] and [RequestExt]
+
 use core::ops::Deref;
 
 use crate::{

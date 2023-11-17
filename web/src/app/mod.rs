@@ -15,10 +15,8 @@ use xitca_http::util::{
 
 use crate::{
     body::ResponseBody,
-    dev::{
-        bytes::Bytes,
-        service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
-    },
+    bytes::Bytes,
+    dev::service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
     handler::Responder,
     http::{Request, RequestExt},
     request::WebRequest,

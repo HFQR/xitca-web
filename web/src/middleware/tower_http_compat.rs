@@ -138,11 +138,7 @@ mod test {
     use tower_http::set_status::SetStatusLayer;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{
-        dev::{bytes::Bytes, service::fn_service},
-        http::StatusCode,
-        App,
-    };
+    use crate::{bytes::Bytes, dev::service::fn_service, http::StatusCode, App};
 
     use super::*;
 
