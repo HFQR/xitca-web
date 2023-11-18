@@ -1,3 +1,5 @@
+//! type extractor for request body stream.
+
 use crate::{
     body::BodyStream,
     handler::{error::ExtractError, FromRequest},

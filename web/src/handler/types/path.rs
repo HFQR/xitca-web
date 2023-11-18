@@ -1,4 +1,6 @@
-use std::ops::Deref;
+//! type extractor for request uri path
+
+use core::ops::Deref;
 
 use crate::{
     body::BodyStream,

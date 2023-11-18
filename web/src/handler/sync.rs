@@ -31,12 +31,10 @@ use xitca_service::{fn_build, FnService, Service};
 /// App::new()
 ///     .at("/valid", handler_sync_service(|_: UriOwn| "uri is thread safe and owned value"))
 ///     // uncomment the line below would result in compile error.
-///     //.at("/invalid", handler_sync_service(|_: UriRef<'_>| { "uri ref is borrowed value" }));
-///    # .at("/nah", handler_service(nah));
-///
-/// # async fn nah(_: &WebRequest<'_>) {
-/// #   // needed to infer the body type of request
-/// # }
+///     // .at("/invalid1", handler_sync_service(|_: UriRef<'_>| { "uri ref is borrowed value" }))
+///     // uncomment the line below would result in compile error.
+///     // .at("/invalid2", handler_sync_service(|_: &WebRequest<'_>| { "web request is borrowed value and not thread safe" }))
+///     # .at("/nah", handler_service(|_: &WebRequest<'_>| async {}));
 /// ```
 ///
 /// [handler_service]: super::handler_service
@@ -72,7 +70,6 @@ where
     type Response = O::Output;
     type Error = T::Error;
 
-    #[inline]
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
         let extract = T::Type::<'_>::from_request(&req).await?;
         let func = self.func.clone();

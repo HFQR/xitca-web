@@ -1,3 +1,5 @@
+//! high level async function service with "variadic generic" ish.
+
 use core::{
     convert::Infallible,
     future::Future,

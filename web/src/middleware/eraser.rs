@@ -4,10 +4,8 @@ use xitca_http::ResponseBody;
 
 use crate::{
     body::BodyStream,
-    dev::{
-        bytes::Bytes,
-        service::{ready::ReadyService, Service},
-    },
+    bytes::Bytes,
+    dev::service::{ready::ReadyService, Service},
     request::WebRequest,
     response::WebResponse,
 };

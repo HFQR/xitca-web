@@ -1,4 +1,6 @@
-use std::{fmt, ops::Deref};
+//! type extractor for header value
+
+use core::{fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,

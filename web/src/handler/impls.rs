@@ -4,7 +4,7 @@ use std::{error, io};
 
 use crate::{
     body::BodyStream,
-    dev::bytes::Bytes,
+    bytes::Bytes,
     error::{MatchError, MethodNotAllowed},
     http::{
         const_header_value::TEXT_UTF8,

@@ -15,10 +15,8 @@ use xitca_http::{
 use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
 use crate::{
-    dev::{
-        bytes::Buf,
-        service::{ready::ReadyService, Service},
-    },
+    bytes::Buf,
+    dev::service::{ready::ReadyService, Service},
     http::{header::HeaderMap, Request, RequestExt, Response},
     request::WebRequest,
     response::WebResponse,
@@ -166,7 +164,7 @@ where
 mod test {
     use xitca_http::body::{exact_body_hint, Once};
 
-    use crate::dev::bytes::Bytes;
+    use crate::bytes::Bytes;
 
     use super::*;
 
