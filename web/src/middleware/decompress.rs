@@ -147,24 +147,27 @@ mod test {
         // a hack to generate a compressed client request from server response.
         let res = WebResponse::<ResponseBody>::new(ResponseBody::bytes(Bytes::from_static(Q)));
 
-        let encoding = {
+        #[allow(unreachable_code)]
+        let encoding = || {
             #[cfg(all(feature = "compress-br", not(any(feature = "compress-gz", feature = "compress-de"))))]
             {
-                ContentEncoding::Br
+                return ContentEncoding::Br;
             }
+
             #[cfg(all(feature = "compress-gz", not(any(feature = "compress-br", feature = "compress-de"))))]
             {
-                ContentEncoding::Gzip
+                return ContentEncoding::Gzip;
             }
+
             #[cfg(all(feature = "compress-de", not(any(feature = "compress-br", feature = "compress-gz"))))]
             {
-                ContentEncoding::Deflate
+                return ContentEncoding::Deflate;
             }
-            #[cfg(all(feature = "compress-de", feature = "compress-br", feature = "compress-gz"))]
-            {
-                ContentEncoding::Br
-            }
+
+            ContentEncoding::Br
         };
+
+        let encoding = encoding();
 
         let (mut parts, body) = encoder(res, encoding).into_parts();
 

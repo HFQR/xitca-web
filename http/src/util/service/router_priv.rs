@@ -50,7 +50,20 @@ impl<Obj> Router<Obj> {
     where
         F: Service<Arg> + PathGen,
         F::Response: Service<Req>,
-        Req: IntoObject<F, Arg, Object = Obj>,
+        Req: IntoObject<F, Arg, UnSyncMarker, Object = Obj>,
+    {
+        let path = factory.gen(path);
+        assert!(self.routes.insert(path, Req::into_object(factory)).is_none());
+        self
+    }
+
+    /// sync version of [Router::insert] where the service factory type must be a thread safe
+    /// type that is bound to `Send` and `Sync` auto traits.
+    pub fn insert_sync<F, Arg, Req>(mut self, path: &'static str, mut factory: F) -> Self
+    where
+        F: Service<Arg> + PathGen + Send + Sync,
+        F::Response: Service<Req>,
+        Req: IntoObject<F, Arg, SyncMarker, Object = Obj>,
     {
         let path = factory.gen(path);
         assert!(self.routes.insert(path, Req::into_object(factory)).is_none());
@@ -172,7 +185,10 @@ impl<S> ReadyService for RouterService<S> {
 /// A [Service] type, for example, may be type-erased into `Box<dyn Service<&'static str>>`,
 /// `Box<dyn for<'a> Service<&'a str>>`, `Box<dyn Service<&'static str> + Service<u8>>`, etc.
 /// Each would be a separate impl for [IntoObject].
-pub trait IntoObject<I, Arg> {
+pub trait IntoObject<I, Arg, M>
+where
+    M: _seal::Marker,
+{
     /// The type-erased form of `I`.
     type Object;
 
@@ -180,7 +196,22 @@ pub trait IntoObject<I, Arg> {
     fn into_object(inner: I) -> Self::Object;
 }
 
-impl<T, Arg, Ext, Res, Err> IntoObject<T, Arg> for Request<Ext>
+/// object marker that bound Router's routes to Send and Sync.
+pub struct SyncMarker;
+
+// object marker that bound Router's routes to !Send and !Sync.
+pub struct UnSyncMarker;
+
+mod _seal {
+    use super::{SyncMarker, UnSyncMarker};
+
+    pub trait Marker {}
+
+    impl Marker for SyncMarker {}
+    impl Marker for UnSyncMarker {}
+}
+
+impl<T, Arg, Ext, Res, Err> IntoObject<T, Arg, UnSyncMarker> for Request<Ext>
 where
     Ext: 'static,
     T: Service<Arg> + 'static,
@@ -189,22 +220,42 @@ where
     type Object = BoxedServiceObject<Arg, BoxedServiceObject<Request<Ext>, Res, Err>, T::Error>;
 
     fn into_object(inner: T) -> Self::Object {
-        struct Builder<T, Req>(T, PhantomData<Req>);
-
-        impl<T, Req, Arg, Res, Err> Service<Arg> for Builder<T, Req>
-        where
-            T: Service<Arg> + 'static,
-            T::Response: Service<Req, Response = Res, Error = Err> + 'static,
-        {
-            type Response = BoxedServiceObject<Req, Res, Err>;
-            type Error = T::Error;
-
-            async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
-                self.0.call(arg).await.map(|s| Box::new(s) as _)
-            }
-        }
-
         Box::new(Builder(inner, PhantomData))
+    }
+}
+
+impl<T, Arg, Ext, Res, Err> IntoObject<T, Arg, SyncMarker> for Request<Ext>
+where
+    Ext: 'static,
+    T: Service<Arg> + Send + Sync + 'static,
+    T::Response: Service<Request<Ext>, Response = Res, Error = Err> + 'static,
+{
+    type Object = Box<
+        dyn xitca_service::object::ServiceObject<
+                Arg,
+                Response = BoxedServiceObject<Request<Ext>, Res, Err>,
+                Error = T::Error,
+            > + Send
+            + Sync,
+    >;
+
+    fn into_object(inner: T) -> Self::Object {
+        Box::new(Builder(inner, PhantomData))
+    }
+}
+
+struct Builder<T, Req>(T, PhantomData<fn(Req)>);
+
+impl<T, Req, Arg, Res, Err> Service<Arg> for Builder<T, Req>
+where
+    T: Service<Arg> + 'static,
+    T::Response: Service<Req, Response = Res, Error = Err> + 'static,
+{
+    type Response = BoxedServiceObject<Req, Res, Err>;
+    type Error = T::Error;
+
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        self.0.call(arg).await.map(|s| Box::new(s) as _)
     }
 }
 
@@ -224,6 +275,20 @@ mod test {
         S: Service<Req>,
     {
         service.call(req).await
+    }
+
+    #[test]
+    fn router_sync() {
+        fn bound_check<T>(_: T)
+        where
+            T: Send + Sync,
+        {
+        }
+
+        bound_check(Router::new().insert_sync(
+            "/",
+            fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
+        ))
     }
 
     #[test]
