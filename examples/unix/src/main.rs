@@ -1,9 +1,9 @@
 //! A UnixDomain server returns Hello World String as Response.
 
-use xitca_web::{handler::handler_service, route::get, App, HttpServer};
+use xitca_web::{handler::handler_service, route::get, App};
 
 fn main() -> std::io::Result<()> {
-    let mut server = HttpServer::serve(App::new().at("/", get(handler_service(handler))).finish());
+    let mut server = App::new().at("/", get(handler_service(handler))).serve();
 
     #[cfg(unix)]
     {

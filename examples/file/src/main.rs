@@ -12,14 +12,14 @@ use xitca_web::{
     request::WebRequest,
     response::WebResponse,
     route::Route,
-    App, HttpServer,
+    App,
 };
 
 fn main() -> std::io::Result<()> {
     println!("open http://localhost:8080 in browser to visit the site");
 
     // use serve dir service as app state.
-    let app = App::with_state(ServeDir::new("static"))
+    App::with_state(ServeDir::new("static"))
         // catch all request path.
         .at(
             "/*path",
@@ -30,9 +30,10 @@ fn main() -> std::io::Result<()> {
         .enclosed(Compress)
         // simple function middleware that intercept empty path and replace it with index.html
         .enclosed_fn(path)
-        .finish();
-
-    HttpServer::serve(app).bind("localhost:8080")?.run().wait()
+        .serve()
+        .bind("localhost:8080")?
+        .run()
+        .wait()
 }
 
 // extract request and serve dir state and start serving file.
