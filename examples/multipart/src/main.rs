@@ -14,12 +14,12 @@ use xitca_web::{
 
 fn main() -> io::Result<()> {
     tracing_subscriber::fmt().with_env_filter("[xitca-logger]=info").init();
-    HttpServer::new(|| {
+    HttpServer::serve(
         App::new()
             .at("/", post(handler_service(root)))
             .enclosed_fn(error_handler)
-            .finish()
-    })
+            .finish(),
+    )
     .bind("127.0.0.1:8080")?
     .run()
     .wait()

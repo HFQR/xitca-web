@@ -17,26 +17,22 @@ use xitca_web::{
 
 fn main() -> std::io::Result<()> {
     println!("open http://localhost:8080 in browser to visit the site");
-    // construct a serve dir service
-    let serve = ServeDir::new("static");
-    HttpServer::new(move || {
-        // use serve dir service as app state.
-        App::with_multi_thread_state(serve.clone())
-            // catch all request path.
-            .at(
-                "/*path",
-                // only accept get/post method.
-                Route::new([Method::GET, Method::HEAD]).route(handler_service(index)),
-            )
-            // compression middleware
-            .enclosed(Compress)
-            // simple function middleware that intercept empty path and replace it with index.html
-            .enclosed_fn(path)
-            .finish()
-    })
-    .bind("localhost:8080")?
-    .run()
-    .wait()
+
+    // use serve dir service as app state.
+    let app = App::with_state(ServeDir::new("static"))
+        // catch all request path.
+        .at(
+            "/*path",
+            // only accept get/post method.
+            Route::new([Method::GET, Method::HEAD]).route(handler_service(index)),
+        )
+        // compression middleware
+        .enclosed(Compress)
+        // simple function middleware that intercept empty path and replace it with index.html
+        .enclosed_fn(path)
+        .finish();
+
+    HttpServer::serve(app).bind("localhost:8080")?.run().wait()
 }
 
 // extract request and serve dir state and start serving file.

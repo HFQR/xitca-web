@@ -3,7 +3,7 @@
 use xitca_web::{handler::handler_service, route::get, App, HttpServer};
 
 fn main() -> std::io::Result<()> {
-    let mut server = HttpServer::new(|| App::new().at("/", get(handler_service(handler))).finish());
+    let mut server = HttpServer::serve(App::new().at("/", get(handler_service(handler))).finish());
 
     #[cfg(unix)]
     {

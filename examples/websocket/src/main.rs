@@ -16,7 +16,7 @@ fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=info,websocket=info")
         .init();
-    HttpServer::new(|| App::new().at("/", get(handler_service(handler))).finish())
+    HttpServer::serve(App::new().at("/", get(handler_service(handler))).finish())
         .bind("127.0.0.1:8080")?
         .run()
         .wait()

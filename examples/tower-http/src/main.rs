@@ -10,7 +10,7 @@ use xitca_web::{
 };
 
 fn main() -> std::io::Result<()> {
-    HttpServer::new(|| {
+    HttpServer::serve(
         App::new()
             .at(
                 // catch all request path and pass it to ServeDir service where the path is matched against file.
@@ -22,8 +22,8 @@ fn main() -> std::io::Result<()> {
             .enclosed(CompatMiddleware::new(CompressionLayer::new()))
             // a simple middleware to intercept empty path and replace it with index.html
             .enclosed_fn(path)
-            .finish()
-    })
+            .finish(),
+    )
     .bind("localhost:8080")?
     .run()
     .wait()

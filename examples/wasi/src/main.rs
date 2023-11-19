@@ -12,13 +12,10 @@ fn main() -> io::Result<()> {
     // convert to tcp listener.
     let listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
 
-    // run server.
-    HttpServer::new(|| App::new().at("/", get(handler_service(index))).finish())
-        .listen(listener)?
-        .run()
-        .wait()
-}
+    let app = App::new()
+        .at("/", get(handler_service(|| async { "hello,wasi" })))
+        .finish();
 
-async fn index() -> &'static str {
-    "hello,wasi"
+    // run server.
+    HttpServer::serve(app).listen(listener)?.run().wait()
 }

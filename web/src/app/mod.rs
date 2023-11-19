@@ -35,20 +35,10 @@ impl App {
         Self::with_async_state(|| ready(Ok(())))
     }
 
-    /// Construct App with a thread local state.
-    ///
-    /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
-    where
-        C: Clone + 'static,
-    {
-        Self::with_async_state(move || ready(Ok(state.clone())))
-    }
-
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
+    pub fn with_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
     where
         C: Send + Sync + Clone + 'static,
     {

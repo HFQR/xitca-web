@@ -13,13 +13,13 @@ fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("xitca=trace,[xitca-logger]=trace")
         .init();
-    HttpServer::new(|| {
+    HttpServer::serve(
         App::new()
             .at("/", handler_service(root))
             .enclosed(Compress)
             .enclosed(Decompress)
-            .finish()
-    })
+            .finish(),
+    )
     .bind("127.0.0.1:8080")?
     .run()
     .wait()
