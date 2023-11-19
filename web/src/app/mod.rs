@@ -21,7 +21,6 @@ use crate::{
     http::{Request, RequestExt},
     request::WebRequest,
     response::WebResponse,
-    server::HttpServer,
 };
 
 /// composed application type with router, stateful context and default middlewares.
@@ -125,10 +124,13 @@ where
             .enclosed(ContextBuilder::new(ctx_factory))
     }
 
+    #[cfg(feature = "__server")]
     /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
+    ///
+    /// [HttpServer]: crate::server::HttpServer
     pub fn serve<C, Fut, CErr, ReqB, ResB, E, Err>(
         self,
-    ) -> HttpServer<
+    ) -> crate::server::HttpServer<
         impl Service<
             Response = impl ReadyService
                            + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
@@ -148,7 +150,7 @@ where
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
         E: 'static,
     {
-        HttpServer::serve(self.finish())
+        crate::server::HttpServer::serve(self.finish())
     }
 }
 
