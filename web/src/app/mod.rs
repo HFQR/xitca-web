@@ -266,7 +266,7 @@ mod test {
 
         let state = String::from("state");
 
-        let service = App::with_current_thread_state(state)
+        let service = App::with_state(state)
             .at("/", get(handler_service(handler)))
             .at(
                 "/stateless",
