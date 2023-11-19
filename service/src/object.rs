@@ -46,3 +46,6 @@ where
 /// An often used type alias for boxed service object. used when Req type is not bound to any
 /// lifetime.
 pub type BoxedServiceObject<Req, Res, Err> = Box<dyn ServiceObject<Req, Response = Res, Error = Err>>;
+
+/// sync version of [BoxedServiceObject]
+pub type BoxedSyncServiceObject<Req, Res, Err> = Box<dyn ServiceObject<Req, Response = Res, Error = Err> + Send + Sync>;

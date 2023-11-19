@@ -148,7 +148,7 @@ where
 
 #[cfg(feature = "router")]
 mod router_impl {
-    use xitca_service::object::{BoxedServiceObject, ServiceObject};
+    use xitca_service::object::{BoxedServiceObject, BoxedSyncServiceObject, ServiceObject};
 
     use crate::util::service::router::{IntoObject, SyncMarker, UnSyncMarker};
 
@@ -178,8 +178,7 @@ mod router_impl {
         I: Service<Arg> + Send + Sync + 'static,
         I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
-        type Object =
-            Box<dyn ServiceObject<Arg, Response = ContextObject<Req, C, Res, Err>, Error = I::Error> + Send + Sync>;
+        type Object = BoxedSyncServiceObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
 
         fn into_object(inner: I) -> Self::Object {
             Box::new(Builder(inner, core::marker::PhantomData))

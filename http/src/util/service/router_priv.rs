@@ -5,8 +5,10 @@ use core::marker::PhantomData;
 use std::{borrow::Cow, collections::HashMap};
 
 use xitca_service::{
-    object::BoxedServiceObject, pipeline::PipelineE, ready::ReadyService, EnclosedFactory, EnclosedFnFactory,
-    FnService, Service,
+    object::{BoxedServiceObject, BoxedSyncServiceObject},
+    pipeline::PipelineE,
+    ready::ReadyService,
+    EnclosedFactory, EnclosedFnFactory, FnService, Service,
 };
 
 use crate::http::{BorrowReq, BorrowReqMut, Request, Uri};
@@ -230,14 +232,7 @@ where
     T: Service<Arg> + Send + Sync + 'static,
     T::Response: Service<Request<Ext>, Response = Res, Error = Err> + 'static,
 {
-    type Object = Box<
-        dyn xitca_service::object::ServiceObject<
-                Arg,
-                Response = BoxedServiceObject<Request<Ext>, Res, Err>,
-                Error = T::Error,
-            > + Send
-            + Sync,
-    >;
+    type Object = BoxedSyncServiceObject<Arg, BoxedServiceObject<Request<Ext>, Res, Err>, T::Error>;
 
     fn into_object(inner: T) -> Self::Object {
         Box::new(Builder(inner, PhantomData))
