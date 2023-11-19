@@ -47,8 +47,9 @@ impl App {
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<CF, Obj>(ctx_factory: CF) -> App<CF, Router<Obj>>
-where {
+    /// async state is used to produce thread per core and/or non thread safe state copies.
+    /// The output state is not bound to `Send` and `Sync` auto traits.
+    pub fn with_async_state<CF, Obj>(ctx_factory: CF) -> App<CF, Router<Obj>> {
         App {
             ctx_factory,
             router: Router::new(),
