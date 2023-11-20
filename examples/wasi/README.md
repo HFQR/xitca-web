@@ -4,7 +4,7 @@
 - [wasmtime](https://docs.wasmtime.dev/)
 
 ## Setup
-- install wasmtime cli. <https://docs.wasmtime.dev/cli-install.html>
+- install wasmtime cli (version > 13.0). <https://docs.wasmtime.dev/cli-install.html>
 - compile project.
     - unix
       ```bash
@@ -18,6 +18,6 @@
 - (optional) optimize compiled wasm file. <https://github.com/WebAssembly/binaryen>
 - run compiled wasm file.
   ```commandline
-  wasmtime run ../target/wasm32-wasi/release/xitca-web-wasi.wasm --tcplisten 127.0.0.1:8080 --env FD_COUNT=3
+  wasmtime run -S tcplisten=127.0.0.1:8080 --env FD_COUNT=3 ../target/wasm32-wasi/release/xitca-web-wasi.wasm 
   ```
 - open browser and visit <http://127.0.0.1:8080>
