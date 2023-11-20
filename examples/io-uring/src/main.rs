@@ -14,15 +14,16 @@ use xitca_http::{
 use xitca_service::{fn_service, ServiceExt};
 
 fn main() -> io::Result<()> {
-    let config = tls_config();
     xitca_server::Builder::new()
-        .bind("http/1", "127.0.0.1:8080", move || {
+        .bind(
+            "http/1",
+            "127.0.0.1:8080",
             fn_service(handler).enclosed(
                 HttpServiceBuilder::h1()
                     .io_uring() // specify io_uring flavor of http service.
-                    .rustls_uring(config.clone()), // specify io_uring flavor of tls.
-            )
-        })?
+                    .rustls_uring(tls_config()), // specify io_uring flavor of tls.
+            ),
+        )?
         .build()
         .wait()
 }
