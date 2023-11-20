@@ -8,7 +8,7 @@ use xitca_test::{test_h2_server, Error};
 
 #[tokio::test]
 async fn message() -> Result<(), Error> {
-    let mut handle = xitca_test::test_h1_server(|| fn_service(handler))?;
+    let mut handle = xitca_test::test_h1_server(fn_service(handler))?;
 
     let c = Client::new();
 
@@ -39,7 +39,7 @@ async fn message() -> Result<(), Error> {
 
 #[tokio::test]
 async fn message_h2() -> Result<(), Error> {
-    let mut handle = test_h2_server(|| fn_service(handler))?;
+    let mut handle = test_h2_server(fn_service(handler))?;
 
     let server_url = format!("wss://{}/", handle.ip_port_string());
 

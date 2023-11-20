@@ -30,10 +30,9 @@ type HResponse<B> = Response<ResponseBody<B>>;
 
 /// A general test server for any given service type that accept the connection from
 /// xitca-server
-pub fn test_server<F, T, Req>(factory: F) -> Result<TestServerHandle, Error>
+pub fn test_server<T, Req>(service: T) -> Result<TestServerHandle, Error>
 where
-    F: Fn() -> T + Send + Sync + 'static,
-    T: Service,
+    T: Service + Send + Sync + 'static,
     T::Response: ReadyService + Service<Req>,
     Req: TryFrom<NetStream> + 'static,
 {
@@ -45,67 +44,64 @@ where
         .worker_threads(1)
         .server_threads(1)
         .disable_signal()
-        .listen::<_, _, Req>("test_server", lst, factory)
+        .listen::<_, _, Req>("test_server", lst, service)
         .build();
 
     Ok(TestServerHandle { addr, handle })
 }
 
 /// A specialized http/1 server on top of [test_server]
-pub fn test_h1_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
+pub fn test_h1_server<T, B, E>(service: T) -> Result<TestServerHandle, Error>
 where
-    F: Fn() -> I + Send + Sync + 'static,
-    I: Service + 'static,
-    I::Response: ReadyService + Service<Request<RequestExt<h1::RequestBody>>, Response = HResponse<B>> + 'static,
-    <I::Response as Service<Request<RequestExt<h1::RequestBody>>>>::Error: fmt::Debug,
-    I::Error: error::Error + 'static,
+    T: Service + Send + Sync + 'static,
+    T::Response: ReadyService + Service<Request<RequestExt<h1::RequestBody>>, Response = HResponse<B>> + 'static,
+    <T::Response as Service<Request<RequestExt<h1::RequestBody>>>>::Error: fmt::Debug,
+    T::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
     #[cfg(not(feature = "io-uring"))]
     {
-        test_server::<_, _, (TcpStream, SocketAddr)>(move || factory().enclosed(HttpServiceBuilder::h1()))
+        test_server::<_, (TcpStream, SocketAddr)>(service.enclosed(HttpServiceBuilder::h1()))
     }
 
     #[cfg(feature = "io-uring")]
     {
-        test_server::<_, _, (xitca_io::net::io_uring::TcpStream, SocketAddr)>(move || {
-            factory().enclosed(HttpServiceBuilder::h1().io_uring())
-        })
+        test_server::<_, (xitca_io::net::io_uring::TcpStream, SocketAddr)>(
+            service.enclosed(HttpServiceBuilder::h1().io_uring()),
+        )
     }
 }
 
 /// A specialized http/2 server on top of [test_server]
-pub fn test_h2_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
+pub fn test_h2_server<T, B, E>(service: T) -> Result<TestServerHandle, Error>
 where
-    F: Fn() -> I + Send + Sync + 'static,
-    I: Service + 'static,
-    I::Response: ReadyService + Service<Request<RequestExt<h2::RequestBody>>, Response = HResponse<B>> + 'static,
-    <I::Response as Service<Request<RequestExt<h2::RequestBody>>>>::Error: fmt::Debug,
-    I::Error: error::Error + 'static,
+    T: Service + Send + Sync + 'static,
+    T::Response: ReadyService + Service<Request<RequestExt<h2::RequestBody>>, Response = HResponse<B>> + 'static,
+    <T::Response as Service<Request<RequestExt<h2::RequestBody>>>>::Error: fmt::Debug,
+    T::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
-    test_server::<_, _, (TcpStream, SocketAddr)>(move || {
-        factory().enclosed(
+    test_server::<_, (TcpStream, SocketAddr)>(
+        service.enclosed(
             HttpServiceBuilder::h2().config(
                 HttpServiceConfig::new()
                     .request_head_timeout(Duration::from_millis(500))
                     .tls_accept_timeout(Duration::from_millis(500))
                     .keep_alive_timeout(Duration::from_millis(500)),
             ),
-        )
-    })
+        ),
+    )
 }
 
 /// A specialized http/3 server
-pub fn test_h3_server<F, I, B, E>(factory: F) -> Result<TestServerHandle, Error>
+pub fn test_h3_server<T, B, E>(service: T) -> Result<TestServerHandle, Error>
 where
-    F: Fn() -> I + Send + Sync + 'static,
-    I: Service + 'static,
-    I::Response: ReadyService + Service<Request<RequestExt<h3::RequestBody>>, Response = HResponse<B>> + 'static,
-    <I::Response as Service<Request<RequestExt<h3::RequestBody>>>>::Error: fmt::Debug,
-    I::Error: error::Error + 'static,
+    T: Service + Send + Sync + 'static,
+    T::Response: ReadyService + Service<Request<RequestExt<h3::RequestBody>>, Response = HResponse<B>> + 'static,
+    <T::Response as Service<Request<RequestExt<h3::RequestBody>>>>::Error: fmt::Debug,
+    T::Error: error::Error + 'static,
     B: Stream<Item = Result<Bytes, E>> + 'static,
     E: fmt::Debug + 'static,
 {
@@ -135,9 +131,7 @@ where
         .worker_threads(1)
         .server_threads(1)
         .disable_signal()
-        .bind_h3("test_server", addr, config, move || {
-            factory().enclosed(HttpServiceBuilder::h3())
-        })?
+        .bind_h3("test_server", addr, config, service.enclosed(HttpServiceBuilder::h3()))?
         .build();
 
     Ok(TestServerHandle { addr, handle })

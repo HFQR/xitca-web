@@ -148,30 +148,16 @@ where
 
 #[cfg(feature = "router")]
 mod router_impl {
-    use xitca_service::object::{BoxedServiceObject, BoxedSyncServiceObject, ServiceObject};
+    use xitca_service::object::{BoxedSyncServiceObject, ServiceObject};
 
-    use crate::util::service::router::{IntoObject, SyncMarker, UnSyncMarker};
+    use crate::util::service::router::IntoObject;
 
     use super::*;
 
     pub type ContextObject<Req, C, Res, Err> =
         Box<dyn for<'c> ServiceObject<Context<'c, Req, C>, Response = Res, Error = Err>>;
 
-    impl<C, I, Arg, Req, Res, Err> IntoObject<I, Arg, UnSyncMarker> for Context<'_, Req, C>
-    where
-        C: 'static,
-        Req: 'static,
-        I: Service<Arg> + 'static,
-        I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
-    {
-        type Object = BoxedServiceObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
-
-        fn into_object(inner: I) -> Self::Object {
-            Box::new(Builder(inner, core::marker::PhantomData))
-        }
-    }
-
-    impl<C, I, Arg, Req, Res, Err> IntoObject<I, Arg, SyncMarker> for Context<'_, Req, C>
+    impl<C, I, Arg, Req, Res, Err> IntoObject<I, Arg> for Context<'_, Req, C>
     where
         C: 'static,
         Req: 'static,
@@ -181,22 +167,22 @@ mod router_impl {
         type Object = BoxedSyncServiceObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
 
         fn into_object(inner: I) -> Self::Object {
+            struct Builder<I, Req, C>(I, core::marker::PhantomData<fn(Req, C)>);
+
+            impl<C, I, Arg, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
+            where
+                I: Service<Arg>,
+                I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
+            {
+                type Response = ContextObject<Req, C, Res, Err>;
+                type Error = I::Error;
+
+                async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+                    self.0.call(arg).await.map(|s| Box::new(s) as _)
+                }
+            }
+
             Box::new(Builder(inner, core::marker::PhantomData))
-        }
-    }
-
-    struct Builder<I, Req, C>(I, core::marker::PhantomData<fn(Req, C)>);
-
-    impl<C, I, Arg, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
-    where
-        I: Service<Arg>,
-        I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
-    {
-        type Response = ContextObject<Req, C, Res, Err>;
-        type Error = I::Error;
-
-        async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
-            self.0.call(arg).await.map(|s| Box::new(s) as _)
         }
     }
 }
@@ -292,7 +278,7 @@ mod test {
 
         bound_check(
             Router::new()
-                .insert_sync("/", get(fn_service(handler)))
+                .insert("/", get(fn_service(handler)))
                 .enclosed_fn(enclosed)
                 .enclosed(ContextBuilder::new(|| async {
                     Ok::<_, Infallible>(String::from("string_state"))

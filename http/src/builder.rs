@@ -36,7 +36,7 @@ pub struct HttpServiceBuilder<
 > {
     pub(crate) tls_factory: FA,
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    pub(crate) _body: PhantomData<(V, St)>,
+    pub(crate) _body: PhantomData<fn(V, St)>,
 }
 
 impl

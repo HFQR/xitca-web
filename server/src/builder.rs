@@ -7,7 +7,7 @@ use xitca_io::net::Stream;
 
 use crate::{
     net::AsListener,
-    server::{BuildServiceFn, BuildServiceObj, Server, ServerFuture},
+    server::{IntoServiceObj, Server, ServerFuture, ServiceObj},
 };
 
 pub struct Builder {
@@ -15,7 +15,7 @@ pub struct Builder {
     pub(crate) worker_threads: usize,
     pub(crate) worker_max_blocking_threads: usize,
     pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener>>>,
-    pub(crate) factories: HashMap<String, BuildServiceObj>,
+    pub(crate) factories: HashMap<String, ServiceObj>,
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
     pub(crate) on_worker_start: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
@@ -131,13 +131,13 @@ impl Builder {
         self
     }
 
-    pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, factory: F) -> Self
+    pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, service: F) -> Self
     where
         N: AsRef<str>,
-        F: BuildServiceFn<St>,
+        F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
     {
-        self._listen(name, Some(listener), factory)
+        self._listen(name, Some(listener), service)
     }
 
     pub fn build(self) -> ServerFuture {
@@ -148,11 +148,11 @@ impl Builder {
         }
     }
 
-    fn _listen<N, L, F, St>(mut self, name: N, listener: L, factory: F) -> Self
+    fn _listen<N, L, F, St>(mut self, name: N, listener: L, service: F) -> Self
     where
         N: AsRef<str>,
         L: AsListener + 'static,
-        F: BuildServiceFn<St>,
+        F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
     {
         self.listeners
@@ -160,7 +160,7 @@ impl Builder {
             .or_default()
             .push(Box::new(listener));
 
-        self.factories.insert(name.as_ref().to_string(), factory.into_object());
+        self.factories.insert(name.as_ref().to_string(), service.into_object());
 
         self
     }
@@ -168,11 +168,11 @@ impl Builder {
 
 #[cfg(not(target_family = "wasm"))]
 impl Builder {
-    pub fn bind<N, A, F, St>(self, name: N, addr: A, factory: F) -> io::Result<Self>
+    pub fn bind<N, A, F, St>(self, name: N, addr: A, service: F) -> io::Result<Self>
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceFn<St>,
+        F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
     {
         let addr = addr
@@ -180,13 +180,13 @@ impl Builder {
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
-        self._bind(name, addr, factory)
+        self._bind(name, addr, service)
     }
 
-    fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, factory: F) -> io::Result<Self>
+    fn _bind<N, F, St>(self, name: N, addr: net::SocketAddr, service: F) -> io::Result<Self>
     where
         N: AsRef<str>,
-        F: BuildServiceFn<St>,
+        F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
     {
         let listener = net::TcpListener::bind(addr)?;
@@ -196,17 +196,17 @@ impl Builder {
         socket.set_reuse_address(true)?;
         socket.listen(self.backlog as _)?;
 
-        Ok(self.listen(name, listener, factory))
+        Ok(self.listen(name, listener, service))
     }
 }
 
 #[cfg(unix)]
 impl Builder {
-    pub fn bind_unix<N, P, F, St>(self, name: N, path: P, factory: F) -> io::Result<Self>
+    pub fn bind_unix<N, P, F, St>(self, name: N, path: P, service: F) -> io::Result<Self>
     where
         N: AsRef<str>,
         P: AsRef<std::path::Path>,
-        F: BuildServiceFn<St>,
+        F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
     {
         // The path must not exist when we try to bind.
@@ -220,16 +220,16 @@ impl Builder {
 
         let listener = std::os::unix::net::UnixListener::bind(path)?;
 
-        Ok(self.listen_unix(name, listener, factory))
+        Ok(self.listen_unix(name, listener, service))
     }
 
-    pub fn listen_unix<N, F, St>(self, name: N, listener: std::os::unix::net::UnixListener, factory: F) -> Self
+    pub fn listen_unix<N, F, St>(self, name: N, listener: std::os::unix::net::UnixListener, service: F) -> Self
     where
         N: AsRef<str>,
-        F: BuildServiceFn<St>,
+        F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
     {
-        self._listen(name, Some(listener), factory)
+        self._listen(name, Some(listener), service)
     }
 }
 
@@ -242,19 +242,19 @@ impl Builder {
         name: N,
         addr: A,
         config: xitca_io::net::H3ServerConfig,
-        factory: F,
+        service: F,
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceFn<Stream>,
+        F: IntoServiceObj<Stream>,
     {
         let addr = addr
             .to_socket_addrs()?
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
-        self = self._bind(name.as_ref(), addr, factory)?;
+        self = self._bind(name.as_ref(), addr, service)?;
 
         let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
 
@@ -271,12 +271,12 @@ impl Builder {
         name: N,
         addr: A,
         config: xitca_io::net::H3ServerConfig,
-        factory: F,
+        service: F,
     ) -> io::Result<Self>
     where
         N: AsRef<str>,
         A: net::ToSocketAddrs,
-        F: BuildServiceFn<St>,
+        F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
     {
         let addr = addr
@@ -286,6 +286,6 @@ impl Builder {
 
         let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
 
-        Ok(self._listen(name, Some(builder), factory))
+        Ok(self._listen(name, Some(builder), service))
     }
 }

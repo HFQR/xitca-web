@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData, pin::Pin, rc::Rc, sync::Arc};
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
@@ -6,76 +6,65 @@ use xitca_service::{ready::ReadyService, Service};
 
 use crate::worker::{self, ServiceAny};
 
-type LocalBoxFuture<'a, O> = Pin<Box<dyn Future<Output = O> + 'a>>;
-
-type BuildServiceSyncOpt = Result<(Vec<JoinHandle<()>>, ServiceAny), ()>;
-
-pub type BuildServiceObj = Box<dyn BuildService + Send + Sync>;
-
-// a specialized BuildService trait that can return a future that reference the input arguments.
-pub trait BuildService {
-    fn call<'s, 'f>(&'s self, arg: (&'f str, &'f [(String, Arc<Listener>)])) -> LocalBoxFuture<'f, BuildServiceSyncOpt>
-    where
-        's: 'f;
-}
+pub type ServiceObj = Box<
+    dyn for<'a> xitca_service::object::ServiceObject<
+            (&'a str, &'a [(String, Arc<Listener>)]),
+            Response = (Vec<JoinHandle<()>>, ServiceAny),
+            Error = (),
+        > + Send
+        + Sync,
+>;
 
 struct Container<F, Req> {
     inner: F,
     _t: PhantomData<fn(Req)>,
 }
 
-impl<F, Req> BuildService for Container<F, Req>
+impl<'a, F, Req> Service<(&'a str, &'a [(String, Arc<Listener>)])> for Container<F, Req>
 where
-    F: BuildServiceFn<Req>,
+    F: IntoServiceObj<Req>,
     Req: TryFrom<Stream> + 'static,
 {
-    fn call<'s, 'f>(
-        &'s self,
-        (name, listeners): (&'f str, &'f [(String, Arc<Listener>)]),
-    ) -> LocalBoxFuture<'f, BuildServiceSyncOpt>
-    where
-        's: 'f,
-    {
-        Box::pin(async move {
-            let service = self.inner.call().call(()).await.map_err(|_| ())?;
-            let service = Rc::new(service);
+    type Response = (Vec<JoinHandle<()>>, ServiceAny);
+    type Error = ();
 
-            let handles = listeners
-                .iter()
-                .filter(|(n, _)| n == name)
-                .map(|(_, listener)| worker::start(listener, &service))
-                .collect::<Vec<_>>();
+    async fn call(
+        &self,
+        (name, listeners): (&'a str, &'a [(String, Arc<Listener>)]),
+    ) -> Result<Self::Response, Self::Error> {
+        let service = self.inner.call(()).await.map_err(|_| ())?;
+        let service = Rc::new(service);
 
-            Ok((handles, service as _))
-        })
+        let handles = listeners
+            .iter()
+            .filter(|(n, _)| n == name)
+            .map(|(_, listener)| worker::start(listener, &service))
+            .collect::<Vec<_>>();
+
+        Ok((handles, service as _))
     }
 }
 
-/// helper trait to alias impl Fn() -> impl BuildService type and hide it's generic type params(other than the Req type).
-pub trait BuildServiceFn<Req>: Send + Sync + 'static {
-    type BuildService: Service<Response = Self::Service>;
+/// helper trait for erase generic params of [Service]
+pub trait IntoServiceObj<Req>: Send + Sync + 'static
+where
+    Self: Service<Response = Self::Service> + Send + Sync + 'static,
+    Req: TryFrom<Stream> + 'static,
+{
     type Service: ReadyService + Service<Req>;
 
-    fn call(&self) -> Self::BuildService;
-
-    fn into_object(self) -> BuildServiceObj;
+    fn into_object(self) -> ServiceObj;
 }
 
-impl<F, T, Req> BuildServiceFn<Req> for F
+impl<T, Req> IntoServiceObj<Req> for T
 where
-    F: Fn() -> T + Send + Sync + 'static,
-    T: Service,
+    T: Service + Send + Sync + 'static,
     T::Response: ReadyService + Service<Req>,
     Req: TryFrom<Stream> + 'static,
 {
-    type BuildService = T;
     type Service = T::Response;
 
-    fn call(&self) -> T {
-        self()
-    }
-
-    fn into_object(self) -> BuildServiceObj {
+    fn into_object(self) -> ServiceObj {
         Box::new(Container {
             inner: self,
             _t: PhantomData,

@@ -29,7 +29,7 @@ impl ServerFuture {
     /// # #[tokio::main]
     /// # async fn main() {
     /// let mut server = Builder::new()
-    ///     .bind("test", "127.0.0.1:0", || fn_service(|_io: TcpStream| async { Ok::<_, ()>(())}))
+    ///     .bind("test", "127.0.0.1:0", fn_service(|_io: TcpStream| async { Ok::<_, ()>(())}))
     ///     .unwrap()
     ///     .build();
     ///

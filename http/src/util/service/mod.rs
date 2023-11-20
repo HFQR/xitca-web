@@ -6,9 +6,7 @@ mod router_priv;
 
 #[cfg(feature = "router")]
 pub mod router {
-    pub use super::router_priv::{
-        IntoObject, MatchError, Params, PathGen, Router, RouterError, SyncMarker, UnSyncMarker,
-    };
+    pub use super::router_priv::{IntoObject, MatchError, Params, PathGen, Router, RouterError};
 }
 
 #[cfg(feature = "router")]
