@@ -31,13 +31,11 @@ async fn h2_v2_post() {
 
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
-        let factory = || {
-            fn_service(|(stream, _): (TcpStream, SocketAddr)| {
-                h2::run(stream, fn_service(handler).call(()).now_or_panic().unwrap())
-            })
-        };
+        let service = fn_service(|(stream, _): (TcpStream, SocketAddr)| {
+            h2::run(stream, fn_service(handler).call(()).now_or_panic().unwrap())
+        });
         let server = xitca_server::Builder::new()
-            .bind("qa", "localhost:8080", factory)?
+            .bind("qa", "localhost:8080", service)?
             .build();
 
         tx.send(()).unwrap();

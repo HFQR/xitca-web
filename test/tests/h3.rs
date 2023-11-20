@@ -11,7 +11,7 @@ use xitca_test::{test_h3_server, Error};
 
 #[tokio::test]
 async fn h3_get() -> Result<(), Error> {
-    let mut handle = test_h3_server(|| fn_service(handle))?;
+    let mut handle = test_h3_server(fn_service(handle))?;
 
     let c = Client::new();
     let server_url = format!("https://localhost:{}/", handle.addr().port());
@@ -33,7 +33,7 @@ async fn h3_get() -> Result<(), Error> {
 
 #[tokio::test]
 async fn h3_post() -> Result<(), Error> {
-    let mut handle = test_h3_server(|| fn_service(handle))?;
+    let mut handle = test_h3_server(fn_service(handle))?;
 
     let c = Client::new();
 

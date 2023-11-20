@@ -17,7 +17,7 @@ use xitca_http::{
     util::middleware::{Logger, SocketConfig},
     HttpServiceBuilder, ResponseBody,
 };
-use xitca_service::{fn_service, ServiceExt};
+use xitca_service::{fn_build_nop, fn_service, ServiceExt};
 
 fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
@@ -33,27 +33,37 @@ fn main() -> io::Result<()> {
     // construct server
     xitca_server::Builder::new()
         // bind to a http/1 service.
-        .bind("http/1", "127.0.0.1:8080", || {
+        .bind(
+            "http/1",
+            "127.0.0.1:8080",
             fn_service(handler_h1)
                 .enclosed(HttpServiceBuilder::h1())
                 .enclosed(SocketConfig::new())
-                .enclosed(Logger::default())
-        })?
+                .enclosed(Logger::default()),
+        )?
         // bind to a http/2 service.
         // *. http/1 and http/2 both use tcp listener so it should be using a separate port.
-        .bind("http/2", "127.0.0.1:8081", move || {
-            fn_service(handler_h2).enclosed(HttpServiceBuilder::h2().openssl(acceptor.clone()).with_logger())
-        })?
+        .bind(
+            "http/2",
+            "127.0.0.1:8081",
+            fn_service(handler_h2).enclosed(HttpServiceBuilder::h2().openssl(acceptor).with_logger()),
+        )?
         // bind to a http/3 service.
         // *. note the service name must be unique.
         //
         // Bind to same service with different bind_xxx API is allowed for reusing one service
         // on multiple socket addresses and protocols.
-        .bind_h3("http/3", "127.0.0.1:8081", config, || {
-            fn_service(handler_h3)
-                .enclosed(HttpServiceBuilder::h3())
-                .enclosed(Logger::default())
-        })?
+        .bind_h3(
+            "http/3",
+            "127.0.0.1:8081",
+            config,
+            fn_service(handler_h3).enclosed(
+                // a show case of nested enclosed middleware
+                fn_build_nop()
+                    .enclosed(HttpServiceBuilder::h3())
+                    .enclosed(Logger::default()),
+            ),
+        )?
         .build()
         .wait()
 }

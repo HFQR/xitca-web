@@ -177,13 +177,12 @@ where
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let service = self.service.clone();
         let config = self.config;
-        self.builder = self.builder.bind("xitca-web", addr, move || {
-            let service = service.clone();
-            service.enclosed(HttpServiceBuilder::with_config(config).with_logger())
-        })?;
-
+        let service = self
+            .service
+            .clone()
+            .enclosed(HttpServiceBuilder::with_config(config).with_logger());
+        self.builder = self.builder.bind("xitca-web", addr, service)?;
         Ok(self)
     }
 
@@ -196,13 +195,12 @@ where
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let service = self.service.clone();
         let config = self.config;
-        self.builder = self.builder.listen("xitca-web", listener, move || {
-            let service = service.clone();
-            service.enclosed(HttpServiceBuilder::with_config(config).with_logger())
-        });
-
+        let service = self
+            .service
+            .clone()
+            .enclosed(HttpServiceBuilder::with_config(config).with_logger());
+        self.builder = self.builder.listen("xitca-web", listener, service);
         Ok(self)
     }
 
@@ -220,7 +218,6 @@ where
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let service = self.service.clone();
         let config = self.config;
 
         const H11: &[u8] = b"\x08http/1.1";
@@ -252,14 +249,12 @@ where
 
         let acceptor = builder.build();
 
-        self.builder = self.builder.bind("xitca-web-openssl", addr, move || {
-            let service = service.clone();
-            service.enclosed(
-                HttpServiceBuilder::with_config(config)
-                    .openssl(acceptor.clone())
-                    .with_logger(),
-            )
-        })?;
+        let service = self
+            .service
+            .clone()
+            .enclosed(HttpServiceBuilder::with_config(config).openssl(acceptor).with_logger());
+
+        self.builder = self.builder.bind("xitca-web-openssl", addr, service)?;
 
         Ok(self)
     }
@@ -279,7 +274,6 @@ where
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let service = self.service.clone();
         let service_config = self.config;
 
         #[cfg(feature = "http2")]
@@ -290,14 +284,13 @@ where
 
         let config = std::sync::Arc::new(config);
 
-        self.builder = self.builder.bind("xitca-web-rustls", addr, move || {
-            let service = service.clone();
-            service.enclosed(
-                HttpServiceBuilder::with_config(service_config)
-                    .rustls(config.clone())
-                    .with_logger(),
-            )
-        })?;
+        let service = self.service.clone().enclosed(
+            HttpServiceBuilder::with_config(service_config)
+                .rustls(config)
+                .with_logger(),
+        );
+
+        self.builder = self.builder.bind("xitca-web-rustls", addr, service)?;
 
         Ok(self)
     }
@@ -312,14 +305,12 @@ where
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let service = self.service.clone();
         let config = self.config;
-
-        self.builder = self.builder.bind_unix("xitca-web", path, move || {
-            let service = service.clone();
-            service.enclosed(HttpServiceBuilder::with_config(config).with_logger())
-        })?;
-
+        let service = self
+            .service
+            .clone()
+            .enclosed(HttpServiceBuilder::with_config(config).with_logger());
+        self.builder = self.builder.bind_unix("xitca-web", path, service)?;
         Ok(self)
     }
 

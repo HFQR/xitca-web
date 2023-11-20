@@ -25,11 +25,13 @@ fn main() -> std::io::Result<()> {
         .with_env_filter("xitca=info,[xitca-logger]=trace")
         .init();
     xitca_server::Builder::new()
-        .bind("http/2", "localhost:50051", || {
+        .bind(
+            "http/2",
+            "localhost:50051",
             Router::new()
                 .insert("/helloworld.Greeter/SayHello", post(fn_service(grpc)))
-                .enclosed(HttpServiceBuilder::h2())
-        })?
+                .enclosed(HttpServiceBuilder::h2()),
+        )?
         .build()
         .wait()
 }

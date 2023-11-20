@@ -20,7 +20,7 @@ use xitca_test::{test_h1_server, Error};
 
 #[tokio::test]
 async fn h1_get() -> Result<(), Error> {
-    let mut handle = test_h1_server(|| fn_service(handle))?;
+    let mut handle = test_h1_server(fn_service(handle))?;
 
     let server_url = format!("http://{}/", handle.ip_port_string());
 
@@ -43,7 +43,7 @@ async fn h1_get() -> Result<(), Error> {
 
 #[tokio::test]
 async fn h1_post() -> Result<(), Error> {
-    let mut handle = test_h1_server(|| fn_service(handle))?;
+    let mut handle = test_h1_server(fn_service(handle))?;
 
     let server_url = format!("http://{}/", handle.ip_port_string());
 
@@ -72,7 +72,7 @@ async fn h1_post() -> Result<(), Error> {
 
 #[tokio::test]
 async fn h1_drop_body_read() -> Result<(), Error> {
-    let mut handle = test_h1_server(|| fn_service(handle))?;
+    let mut handle = test_h1_server(fn_service(handle))?;
 
     let server_url = format!("http://{}/drop_body", handle.ip_port_string());
 
@@ -98,7 +98,7 @@ async fn h1_drop_body_read() -> Result<(), Error> {
 
 #[tokio::test]
 async fn h1_partial_body_read() -> Result<(), Error> {
-    let mut handle = test_h1_server(|| fn_service(handle))?;
+    let mut handle = test_h1_server(fn_service(handle))?;
 
     let server_url = format!("http://{}/partial_read", handle.ip_port_string());
 
@@ -124,7 +124,7 @@ async fn h1_partial_body_read() -> Result<(), Error> {
 
 #[tokio::test]
 async fn h1_close_connection() -> Result<(), Error> {
-    let mut handle = test_h1_server(|| fn_service(handle))?;
+    let mut handle = test_h1_server(fn_service(handle))?;
 
     let server_url = format!("http://{}/close_connection", handle.ip_port_string());
 
@@ -145,7 +145,7 @@ async fn h1_close_connection() -> Result<(), Error> {
 // If the default setting changed this test must be chagned to reflex it.
 #[tokio::test]
 async fn h1_request_too_large() -> Result<(), Error> {
-    let mut handle = test_h1_server(|| fn_service(handle))?;
+    let mut handle = test_h1_server(fn_service(handle))?;
 
     let server_url = format!("http://{}/", handle.ip_port_string());
 
@@ -180,7 +180,7 @@ async fn h1_request_too_large() -> Result<(), Error> {
 
 #[tokio::test]
 async fn h1_keepalive() -> Result<(), Error> {
-    let mut handle = test_h1_server(|| fn_service(handle))?;
+    let mut handle = test_h1_server(fn_service(handle))?;
 
     let mut stream = TcpStream::connect(handle.addr())?;
 

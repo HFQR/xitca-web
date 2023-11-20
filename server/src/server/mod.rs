@@ -4,7 +4,7 @@ mod service;
 
 pub use self::{future::ServerFuture, handle::ServerHandle};
 
-pub(crate) use self::service::{BuildServiceFn, BuildServiceObj};
+pub(crate) use self::service::{IntoServiceObj, ServiceObj};
 
 use std::{
     io, mem,

@@ -13,7 +13,7 @@ use xitca_test::{test_h2_server, Error};
 
 #[tokio::test]
 async fn h2_get() -> Result<(), Error> {
-    let mut handle = test_h2_server(|| fn_service(handle))?;
+    let mut handle = test_h2_server(fn_service(handle))?;
 
     let server_url = format!("https://{}/", handle.ip_port_string());
 
@@ -36,7 +36,7 @@ async fn h2_get() -> Result<(), Error> {
 
 #[tokio::test]
 async fn h2_post() -> Result<(), Error> {
-    let mut handle = test_h2_server(|| fn_service(handle))?;
+    let mut handle = test_h2_server(fn_service(handle))?;
 
     let server_url = format!("https://{}/", handle.ip_port_string());
 
@@ -62,7 +62,7 @@ async fn h2_post() -> Result<(), Error> {
 
 #[tokio::test]
 async fn h2_keepalive() -> Result<(), Error> {
-    let mut handle = test_h2_server(|| fn_service(handle))?;
+    let mut handle = test_h2_server(fn_service(handle))?;
 
     let server_url = format!("https://{}/", handle.ip_port_string());
 

@@ -20,7 +20,7 @@
 //! // xitca-http has to run inside a tcp/udp server.
 //! xitca_server::Builder::new()
 //!     // create http service with given name, socket address and service logic.
-//!     .bind("xitca-http", "localhost:0", || {
+//!     .bind("xitca-http", "localhost:0",
 //!         // a simple async function service produce hello world string as http response.
 //!         fn_service(|req: Request<RequestExt<RequestBody>>| async {
 //!             Ok::<Response<ResponseBody>, Infallible>(req.into_response("Hello,World!"))
@@ -28,7 +28,7 @@
 //!         // http service builder is a middleware take control of above function service
 //!         // and bridge tcp/udp transport with the http service.
 //!         .enclosed(HttpServiceBuilder::new())
-//!     })?
+//!     )?
 //!     .build()
 //! # ; Ok(())
 //! # }

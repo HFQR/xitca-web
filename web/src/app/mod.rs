@@ -10,7 +10,7 @@ use core::{
 use futures_core::stream::Stream;
 use xitca_http::util::{
     middleware::context::{Context, ContextBuilder},
-    service::router::{IntoObject, PathGen, Router, SyncMarker},
+    service::router::{IntoObject, PathGen, Router},
 };
 
 use crate::{
@@ -65,9 +65,9 @@ impl<CF, Obj> App<CF, Router<Obj>> {
         Fut: Future<Output = Result<C, E>>,
         F: PathGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebRequest<'r, C, B>>,
-        for<'r> WebRequest<'r, C, B>: IntoObject<F, (), SyncMarker, Object = Obj>,
+        for<'r> WebRequest<'r, C, B>: IntoObject<F, (), Object = Obj>,
     {
-        self.router = self.router.insert_sync(path, factory);
+        self.router = self.router.insert(path, factory);
         self
     }
 }
