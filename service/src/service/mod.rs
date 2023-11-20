@@ -41,6 +41,20 @@ where
 }
 
 #[cfg(feature = "alloc")]
+impl<S, Req> Service<Req> for alloc::sync::Arc<S>
+where
+    S: Service<Req> + ?Sized,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+
+    #[inline]
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        Service::call(&**self, req).await
+    }
+}
+
+#[cfg(feature = "alloc")]
 #[cfg(test)]
 mod test {
     use super::*;

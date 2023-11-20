@@ -35,20 +35,10 @@ impl App {
         Self::with_async_state(|| ready(Ok(())))
     }
 
-    /// Construct App with a thread local state.
-    ///
-    /// State would still be shared among tasks on the same thread.
-    pub fn with_current_thread_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
-    where
-        C: Clone + 'static,
-    {
-        Self::with_async_state(move || ready(Ok(state.clone())))
-    }
-
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_multi_thread_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
+    pub fn with_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
     where
         C: Send + Sync + Clone + 'static,
     {
@@ -57,8 +47,9 @@ impl App {
 
     #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
-    pub fn with_async_state<CF, Obj>(ctx_factory: CF) -> App<CF, Router<Obj>>
-where {
+    /// async state is used to produce thread per core and/or non thread safe state copies.
+    /// The output state is not bound to `Send` and `Sync` auto traits.
+    pub fn with_async_state<CF, Obj>(ctx_factory: CF) -> App<CF, Router<Obj>> {
         App {
             ctx_factory,
             router: Router::new(),
@@ -132,6 +123,35 @@ where
             .enclosed_fn(map_response)
             .enclosed_fn(map_request)
             .enclosed(ContextBuilder::new(ctx_factory))
+    }
+
+    #[cfg(feature = "__server")]
+    /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
+    ///
+    /// [HttpServer]: crate::server::HttpServer
+    pub fn serve<C, Fut, CErr, ReqB, ResB, E, Err>(
+        self,
+    ) -> crate::server::HttpServer<
+        impl Service<
+            Response = impl ReadyService
+                           + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
+            Error = impl fmt::Debug,
+        >,
+    >
+    where
+        R: Send + Sync + 'static,
+        CF: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<C, CErr>> + 'static,
+        C: 'static,
+        CErr: fmt::Debug + 'static,
+        ReqB: 'static,
+        R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
+        R::Error: fmt::Debug,
+        Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse> + 'static,
+        ResB: Stream<Item = Result<Bytes, E>> + 'static,
+        E: 'static,
+    {
+        crate::server::HttpServer::serve(self.finish())
     }
 }
 
@@ -276,7 +296,7 @@ mod test {
 
         let state = String::from("state");
 
-        let service = App::with_current_thread_state(state)
+        let service = App::with_state(state)
             .at("/", get(handler_service(handler)))
             .at(
                 "/stateless",

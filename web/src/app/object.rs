@@ -1,7 +1,10 @@
 use core::marker::PhantomData;
 
 use xitca_http::util::service::router::{IntoObject, SyncMarker};
-use xitca_service::{object::ServiceObject, Service};
+use xitca_service::{
+    object::{BoxedSyncServiceObject, ServiceObject},
+    Service,
+};
 
 use crate::request::WebRequest;
 
@@ -14,7 +17,7 @@ where
     I: Service + Send + Sync + 'static,
     I::Response: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err> + 'static,
 {
-    type Object = Box<dyn ServiceObject<(), Response = WebObject<C, B, Res, Err>, Error = I::Error> + Send + Sync>;
+    type Object = BoxedSyncServiceObject<(), WebObject<C, B, Res, Err>, I::Error>;
 
     fn into_object(inner: I) -> Self::Object {
         Box::new(Builder(inner, PhantomData))

@@ -124,7 +124,7 @@ mod test {
             field2: 996,
         };
 
-        App::with_current_thread_state(state)
+        App::with_state(state)
             .at("/", get(handler_service(handler)))
             .finish()
             .call(())

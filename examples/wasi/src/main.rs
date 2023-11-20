@@ -1,6 +1,6 @@
 use std::{io, os::wasi::io::FromRawFd};
 
-use xitca_web::{handler::handler_service, route::get, App, HttpServer};
+use xitca_web::{handler::handler_service, route::get, App};
 
 fn main() -> io::Result<()> {
     // get fd int from env.
@@ -13,12 +13,10 @@ fn main() -> io::Result<()> {
     let listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
 
     // run server.
-    HttpServer::new(|| App::new().at("/", get(handler_service(index))).finish())
+    App::new()
+        .at("/", get(handler_service(|| async { "hello,wasi" })))
+        .serve()
         .listen(listener)?
         .run()
         .wait()
-}
-
-async fn index() -> &'static str {
-    "hello,wasi"
 }

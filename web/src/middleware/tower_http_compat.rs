@@ -24,7 +24,7 @@ use crate::{
 /// Any `tower-http` type that impl [Layer] trait can be passed to it and used as xitca-web's middleware.
 pub struct TowerHttpCompat<L, C, ReqB, ResB, Err> {
     layer: L,
-    _phantom: PhantomData<(C, ReqB, ResB, Err)>,
+    _phantom: PhantomData<fn(C, ReqB, ResB, Err)>,
 }
 
 impl<L, C, ReqB, ResB, Err> Clone for TowerHttpCompat<L, C, ReqB, ResB, Err>
@@ -91,7 +91,7 @@ where
 
 pub struct CompatLayer<S, C, ReqB, ResB, Err> {
     service: Rc<S>,
-    _phantom: PhantomData<(C, ReqB, ResB, Err)>,
+    _phantom: PhantomData<fn(C, ReqB, ResB, Err)>,
 }
 
 impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>>
@@ -149,7 +149,7 @@ mod test {
 
     #[test]
     fn tower_set_status() {
-        let res = App::with_current_thread_state("996")
+        let res = App::with_state("996")
             .at("/", fn_service(handler))
             .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)))
             .finish()

@@ -6,27 +6,25 @@
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 use xitca_web::{
     dev::service::Service, http::Uri, middleware::tower_http_compat::TowerHttpCompat as CompatMiddleware,
-    request::WebRequest, service::tower_http_compat::TowerHttpCompat as CompatBuild, App, HttpServer,
+    request::WebRequest, service::tower_http_compat::TowerHttpCompat as CompatBuild, App,
 };
 
 fn main() -> std::io::Result<()> {
-    HttpServer::new(|| {
-        App::new()
-            .at(
-                // catch all request path and pass it to ServeDir service where the path is matched against file.
-                "/*path",
-                // use CompatBuild to wrap tower-http service which would transform it to a xitca service.
-                CompatBuild::new(ServeDir::new("files")),
-            )
-            // use CompatMiddleware to wrap tower-http middleware layer which would transform it to a xitca middleware.
-            .enclosed(CompatMiddleware::new(CompressionLayer::new()))
-            // a simple middleware to intercept empty path and replace it with index.html
-            .enclosed_fn(path)
-            .finish()
-    })
-    .bind("localhost:8080")?
-    .run()
-    .wait()
+    App::new()
+        .at(
+            // catch all request path and pass it to ServeDir service where the path is matched against file.
+            "/*path",
+            // use CompatBuild to wrap tower-http service which would transform it to a xitca service.
+            CompatBuild::new(ServeDir::new("files")),
+        )
+        // use CompatMiddleware to wrap tower-http middleware layer which would transform it to a xitca middleware.
+        .enclosed(CompatMiddleware::new(CompressionLayer::new()))
+        // a simple middleware to intercept empty path and replace it with index.html
+        .enclosed_fn(path)
+        .serve()
+        .bind("localhost:8080")?
+        .run()
+        .wait()
 }
 
 async fn path<Res, Err>(

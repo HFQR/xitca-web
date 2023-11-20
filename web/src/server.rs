@@ -1,4 +1,4 @@
-use std::{fmt, future::Future, time::Duration};
+use std::{fmt, future::Future, sync::Arc, time::Duration};
 
 use futures_core::stream::Stream;
 use xitca_http::{
@@ -17,33 +17,33 @@ use crate::{
 
 /// multi protocol handling http server
 pub struct HttpServer<
-    F,
+    S,
     const HEADER_LIMIT: usize = DEFAULT_HEADER_LIMIT,
     const READ_BUF_LIMIT: usize = DEFAULT_READ_BUF_LIMIT,
     const WRITE_BUF_LIMIT: usize = DEFAULT_WRITE_BUF_LIMIT,
 > {
-    factory: F,
+    service: Arc<S>,
     builder: Builder,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
 }
 
-impl<F, I> HttpServer<F>
+impl<S> HttpServer<S>
 where
-    F: Fn() -> I + Send + Sync + Clone + 'static,
+    S: Send + Sync + 'static,
 {
-    pub fn new(factory: F) -> Self {
+    pub fn serve(service: S) -> Self {
         Self {
-            factory,
+            service: Arc::new(service),
             builder: Builder::new(),
             config: HttpServiceConfig::default(),
         }
     }
 }
 
-impl<F, I, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServer<S, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    F: Fn() -> I + Send + Sync + Clone + 'static,
+    S: Send + Sync + 'static,
 {
     /// Set number of threads dedicated to accepting connections.
     ///
@@ -131,7 +131,7 @@ where
     /// Default to 1mb.
     pub fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(
         self,
-    ) -> HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
+    ) -> HttpServer<S, HEADER_LIMIT, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
         self.mutate_const_generic::<HEADER_LIMIT, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT>()
     }
 
@@ -143,7 +143,7 @@ where
     /// Default to 408kb.
     pub fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(
         self,
-    ) -> HttpServer<F, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2> {
+    ) -> HttpServer<S, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2> {
         self.mutate_const_generic::<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2>()
     }
 
@@ -152,7 +152,7 @@ where
     /// Default to 64.
     pub fn max_request_headers<const HEADER_LIMIT_2: usize>(
         self,
-    ) -> HttpServer<F, HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+    ) -> HttpServer<S, HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
         self.mutate_const_generic::<HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT>()
     }
 
@@ -167,20 +167,21 @@ where
     }
 
     #[cfg(not(target_family = "wasm"))]
-    pub fn bind<A: std::net::ToSocketAddrs, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
+    pub fn bind<A, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
-        I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
+        A: std::net::ToSocketAddrs,
+        S: Service + 'static,
+        S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let factory = self.factory.clone();
+        let service = self.service.clone();
         let config = self.config;
         self.builder = self.builder.bind("xitca-web", addr, move || {
-            let factory = factory();
-            factory.enclosed(HttpServiceBuilder::with_config(config).with_logger())
+            let service = service.clone();
+            service.enclosed(HttpServiceBuilder::with_config(config).with_logger())
         })?;
 
         Ok(self)
@@ -188,18 +189,18 @@ where
 
     pub fn listen<ResB, BE>(mut self, listener: std::net::TcpListener) -> std::io::Result<Self>
     where
-        I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
+        S: Service + 'static,
+        S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let factory = self.factory.clone();
+        let service = self.service.clone();
         let config = self.config;
         self.builder = self.builder.listen("xitca-web", listener, move || {
-            let factory = factory();
-            factory.enclosed(HttpServiceBuilder::with_config(config).with_logger())
+            let service = service.clone();
+            service.enclosed(HttpServiceBuilder::with_config(config).with_logger())
         });
 
         Ok(self)
@@ -212,14 +213,14 @@ where
         mut builder: openssl_crate::ssl::SslAcceptorBuilder,
     ) -> std::io::Result<Self>
     where
-        I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
+        S: Service + 'static,
+        S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let factory = self.factory.clone();
+        let service = self.service.clone();
         let config = self.config;
 
         const H11: &[u8] = b"\x08http/1.1";
@@ -252,8 +253,8 @@ where
         let acceptor = builder.build();
 
         self.builder = self.builder.bind("xitca-web-openssl", addr, move || {
-            let factory = factory();
-            factory.enclosed(
+            let service = service.clone();
+            service.enclosed(
                 HttpServiceBuilder::with_config(config)
                     .openssl(acceptor.clone())
                     .with_logger(),
@@ -271,14 +272,14 @@ where
         mut config: rustls_crate::ServerConfig,
     ) -> std::io::Result<Self>
     where
-        I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
+        S: Service + 'static,
+        S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let factory = self.factory.clone();
+        let service = self.service.clone();
         let service_config = self.config;
 
         #[cfg(feature = "http2")]
@@ -290,8 +291,8 @@ where
         let config = std::sync::Arc::new(config);
 
         self.builder = self.builder.bind("xitca-web-rustls", addr, move || {
-            let factory = factory();
-            factory.enclosed(
+            let service = service.clone();
+            service.enclosed(
                 HttpServiceBuilder::with_config(service_config)
                     .rustls(config.clone())
                     .with_logger(),
@@ -304,19 +305,19 @@ where
     #[cfg(unix)]
     pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
     where
-        I: Service + 'static,
-        I::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
-        <I::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
+        S: Service + 'static,
+        S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {
-        let factory = self.factory.clone();
+        let service = self.service.clone();
         let config = self.config;
 
         self.builder = self.builder.bind_unix("xitca-web", path, move || {
-            let factory = factory();
-            factory.enclosed(HttpServiceBuilder::with_config(config).with_logger())
+            let service = service.clone();
+            service.enclosed(HttpServiceBuilder::with_config(config).with_logger())
         })?;
 
         Ok(self)
@@ -328,9 +329,9 @@ where
 
     fn mutate_const_generic<const HEADER_LIMIT2: usize, const READ_BUF_LIMIT2: usize, const WRITE_BUF_LIMIT2: usize>(
         self,
-    ) -> HttpServer<F, HEADER_LIMIT2, READ_BUF_LIMIT2, WRITE_BUF_LIMIT2> {
+    ) -> HttpServer<S, HEADER_LIMIT2, READ_BUF_LIMIT2, WRITE_BUF_LIMIT2> {
         HttpServer {
-            factory: self.factory,
+            service: self.service,
             builder: self.builder,
             config: self
                 .config
