@@ -247,11 +247,11 @@ mod test {
             test\r\n\
             --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
             Content-Disposition: form-data; name=\"file\"; filename=\"bar.txt\"\r\n\
-            Content-Type: text/plain\r\nContent-Length: 8\r\n\r\n\
+            Content-Type: text/plain\r\n\r\n\
             testdata\r\n\
             --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
             Content-Disposition: form-data; name=\"file\"; filename=\"bar.txt\"\r\n\
-            Content-Type: text/plain\r\n\r\n\
+            Content-Type: text/plain\r\nContent-Length: 9\r\n\r\n\
             testdata2\r\n\
             --abbc761f78ff4d7cb7573b5a23f96ef0--\r\n\
             ";
@@ -306,10 +306,7 @@ mod test {
                 field.headers().get(CONTENT_TYPE).unwrap(),
                 HeaderValue::from_static("text/plain")
             );
-            assert_eq!(
-                field.headers().get(CONTENT_LENGTH).unwrap(),
-                HeaderValue::from_static("8")
-            );
+            assert!(field.headers().get(CONTENT_LENGTH).is_none());
             assert_eq!(
                 field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
                 b"testdata"
@@ -330,7 +327,10 @@ mod test {
                 field.headers().get(CONTENT_TYPE).unwrap(),
                 HeaderValue::from_static("text/plain")
             );
-            assert!(field.headers().get(CONTENT_LENGTH).is_none());
+            assert_eq!(
+                field.headers().get(CONTENT_LENGTH).unwrap(),
+                HeaderValue::from_static("9")
+            );
             assert_eq!(
                 field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
                 b"testdata2"
