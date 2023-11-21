@@ -188,11 +188,7 @@ where
 
                 let length = header::content_length_opt(this.headers)?;
 
-                return Ok(Field {
-                    length,
-                    cp,
-                    multipart: self,
-                });
+                return Ok(Field::new(length, cp, self));
             }
 
             if self.buf_overflow() {
@@ -205,7 +201,7 @@ where
 
     async fn try_read_stream_to_buf(mut self: Pin<&mut Self>) -> Result<(), MultipartError<E>> {
         let bytes = self.as_mut().try_read_stream().await?;
-        self.buf_extend(bytes.as_ref());
+        self.project().buf.extend_from_slice(bytes.as_ref());
         Ok(())
     }
 
@@ -215,17 +211,6 @@ where
             Some(Err(e)) => Err(MultipartError::Payload(e)),
             None => Err(MultipartError::UnexpectedEof),
         }
-    }
-
-    fn with_buf<F, O>(self: Pin<&mut Self>, func: F) -> O
-    where
-        F: FnOnce(&mut BytesMut) -> O,
-    {
-        func(self.project().buf)
-    }
-
-    fn buf_extend(self: Pin<&mut Self>, slice: &[u8]) {
-        self.with_buf(|buf| buf.extend_from_slice(slice));
     }
 
     fn buf_overflow(&self) -> bool {
@@ -262,9 +247,14 @@ mod test {
             test\r\n\
             --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
             Content-Disposition: form-data; name=\"file\"; filename=\"bar.txt\"\r\n\
-            Content-Type: text/plain\r\nContent-Length: 8\r\n\r\n\
+            Content-Type: text/plain\r\n\r\n\
             testdata\r\n\
-            --abbc761f78ff4d7cb7573b5a23f96ef0--\r\n";
+            --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
+            Content-Disposition: form-data; name=\"file\"; filename=\"bar.txt\"\r\n\
+            Content-Type: text/plain\r\nContent-Length: 9\r\n\r\n\
+            testdata2\r\n\
+            --abbc761f78ff4d7cb7573b5a23f96ef0--\r\n\
+            ";
 
         let mut req = Request::new(());
         *req.method_mut() = Method::POST;
@@ -316,13 +306,34 @@ mod test {
                 field.headers().get(CONTENT_TYPE).unwrap(),
                 HeaderValue::from_static("text/plain")
             );
-            assert_eq!(
-                field.headers().get(CONTENT_LENGTH).unwrap(),
-                HeaderValue::from_static("8")
-            );
+            assert!(field.headers().get(CONTENT_LENGTH).is_none());
             assert_eq!(
                 field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
                 b"testdata"
+            );
+            assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
+        }
+
+        {
+            let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+
+            assert_eq!(
+                field.headers().get(CONTENT_DISPOSITION).unwrap(),
+                HeaderValue::from_static("form-data; name=\"file\"; filename=\"bar.txt\"")
+            );
+            assert_eq!(field.name().unwrap(), "file");
+            assert_eq!(field.file_name().unwrap(), "bar.txt");
+            assert_eq!(
+                field.headers().get(CONTENT_TYPE).unwrap(),
+                HeaderValue::from_static("text/plain")
+            );
+            assert_eq!(
+                field.headers().get(CONTENT_LENGTH).unwrap(),
+                HeaderValue::from_static("9")
+            );
+            assert_eq!(
+                field.try_next().now_or_never().unwrap().unwrap().unwrap().chunk(),
+                b"testdata2"
             );
             assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
         }

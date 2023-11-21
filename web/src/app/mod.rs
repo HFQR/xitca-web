@@ -32,7 +32,7 @@ pub struct App<CF = (), R = ()> {
 impl App {
     /// Construct a new application instance.
     pub fn new<Obj>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<Obj>> {
-        Self::with_async_state(|| ready(Ok(())))
+        Self::with_state(())
     }
 
     /// Construct App with a thread safe state.
