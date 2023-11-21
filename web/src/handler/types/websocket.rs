@@ -1,3 +1,5 @@
+//! type extractor and responder for websocket
+
 use core::{
     future::{poll_fn, Future},
     pin::{pin, Pin},
@@ -7,7 +9,7 @@ use core::{
 use futures_core::stream::Stream;
 use http_ws::{
     stream::{RequestStream, ResponseSender, WsError},
-    HandshakeError, Item, Message as WsMessage, WsOutput,
+    HandshakeError, Item, Message as WsMessage, ProtocolError, WsOutput,
 };
 use tokio::time::{sleep, Instant};
 use xitca_unsafe_collection::{
@@ -25,7 +27,7 @@ use crate::{
 };
 
 /// simplified websocket message type.
-/// for more variant of message please reference [http_ws::Message] type.
+/// for more variant of message please reference [WsMessage] type.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Message {
     Text(BytesStr),
@@ -35,12 +37,19 @@ pub enum Message {
 
 type BoxFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 
-type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut ResponseSender, Message) -> BoxFuture<'a>>;
+type OnMsgCB = Box<dyn for<'a> FnMut(Message, &'a mut Context) -> BoxFuture<'a>>;
 
 type OnErrCB<E> = Box<dyn FnMut(WsError<E>) -> BoxFuture<'static>>;
 
 type OnCloseCB = Box<dyn FnOnce() -> BoxFuture<'static>>;
 
+/// type extractor and responder for WebSocket.
+///
+/// upon extraction the WebSocket type is supposed to be returned as response type
+/// after possible configuration.
+///
+/// dropping the websocket after extraction and return other response type(error)
+/// is allowed.
 pub struct WebSocket<B = RequestBody>
 where
     B: BodyStream,
@@ -57,23 +66,6 @@ impl<B> WebSocket<B>
 where
     B: BodyStream,
 {
-    fn new(ws: WsOutput<B, B::Error>) -> Self {
-        #[cold]
-        #[inline(never)]
-        fn boxed_future() -> BoxFuture<'static> {
-            Box::pin(async {})
-        }
-
-        Self {
-            ws,
-            ping_interval: Duration::from_secs(15),
-            max_unanswered_ping: 3,
-            on_msg: Box::new(|_, _| boxed_future()),
-            on_err: Box::new(|_| boxed_future()),
-            on_close: Box::new(|| boxed_future()),
-        }
-    }
-
     /// Set interval duration of server side ping message to client.
     pub fn set_ping_interval(&mut self, dur: Duration) -> &mut Self {
         self.ping_interval = dur;
@@ -91,18 +83,18 @@ where
         self
     }
 
-    /// Get a reference of Websocket message sender.
-    /// Can be used to send message to client.
+    /// Get a reference of sender part of a websocket connection.
+    /// Used for sending message to client.
     pub fn msg_sender(&self) -> &ResponseSender {
         &self.ws.2
     }
 
     /// Async function that would be called when new message arrived from client.
-    pub fn on_msg<F>(&mut self, func: F) -> &mut Self
+    pub fn on_msg<F>(&mut self, mut func: F) -> &mut Self
     where
-        F: for<'a> FnMut(&'a mut ResponseSender, Message) -> BoxFuture<'a> + 'static,
+        F: for<'a> MsgFn<(Message, &'a mut Context)> + 'static,
     {
-        self.on_msg = Box::new(func);
+        self.on_msg = Box::new(move |msg, ctx| Box::pin(func.call_mut((msg, ctx))));
         self
     }
 
@@ -124,6 +116,49 @@ where
     {
         self.on_close = Box::new(|| Box::pin(func()));
         self
+    }
+
+    fn new(ws: WsOutput<B, B::Error>) -> Self {
+        #[cold]
+        #[inline(never)]
+        fn boxed_future() -> BoxFuture<'static> {
+            Box::pin(async {})
+        }
+
+        Self {
+            ws,
+            ping_interval: Duration::from_secs(15),
+            max_unanswered_ping: 3,
+            on_msg: Box::new(|_, _| boxed_future()),
+            on_err: Box::new(|_| boxed_future()),
+            on_close: Box::new(|| boxed_future()),
+        }
+    }
+}
+
+/// websocket connection context.
+/// used for interacting with connection internal states.
+pub struct Context {
+    tx: ResponseSender,
+}
+
+impl Context {
+    /// send [WsMessage] to client.
+    #[inline]
+    pub fn send(&self, msg: WsMessage) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.tx.send(msg)
+    }
+
+    /// send text message to client.
+    #[inline]
+    pub fn text(&self, txt: impl Into<String>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.send(WsMessage::Text(Bytes::from(txt.into())))
+    }
+
+    /// send binary message to client.
+    #[inline]
+    pub fn binary(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.send(WsMessage::Binary(bin.into()))
     }
 }
 
@@ -191,7 +226,7 @@ async fn spawn_task<B>(
     ping_interval: Duration,
     max_unanswered_ping: u8,
     decode: RequestStream<B, B::Error>,
-    mut tx: ResponseSender,
+    tx: ResponseSender,
     mut on_msg: OnMsgCB,
     mut on_err: OnErrCB<B::Error>,
     on_close: OnCloseCB,
@@ -207,6 +242,8 @@ async fn spawn_task<B>(
 
         let mut un_answered_ping = 0u8;
 
+        let mut ctx = Context { tx };
+
         loop {
             match poll_fn(|cx| decode.as_mut().poll_next(cx)).select(sleep.as_mut()).await {
                 SelectOutput::A(Some(Ok(msg))) => {
@@ -218,11 +255,11 @@ async fn spawn_task<B>(
                             continue;
                         }
                         WsMessage::Ping(ping) => {
-                            tx.send(WsMessage::Pong(ping)).await?;
+                            ctx.tx.send(WsMessage::Pong(ping)).await?;
                             continue;
                         }
                         WsMessage::Close(reason) => {
-                            tx.send(WsMessage::Close(reason)).await?;
+                            ctx.tx.send(WsMessage::Close(reason)).await?;
                             break;
                         }
                         WsMessage::Text(txt) => Message::Text(BytesStr::try_from(txt).unwrap()),
@@ -231,17 +268,17 @@ async fn spawn_task<B>(
                         WsMessage::Nop => continue,
                     };
 
-                    on_msg(&mut tx, msg).await
+                    on_msg(msg, &mut ctx).await
                 }
                 SelectOutput::A(Some(Err(e))) => on_err(e).await,
                 SelectOutput::A(None) => break,
                 SelectOutput::B(_) => {
                     if un_answered_ping > max_unanswered_ping {
-                        tx.send(WsMessage::Close(None)).await?;
+                        ctx.tx.send(WsMessage::Close(None)).await?;
                         break;
                     } else {
                         un_answered_ping += 1;
-                        tx.send(WsMessage::Ping(Bytes::new())).await?;
+                        ctx.tx.send(WsMessage::Ping(Bytes::new())).await?;
                         sleep.as_mut().reset(Instant::now() + ping_interval);
                     }
                 }
@@ -256,4 +293,24 @@ async fn spawn_task<B>(
     }
 
     on_close().await;
+}
+
+#[doc(hidden)]
+/// implementation detail of async function as callback
+pub trait MsgFn<Arg> {
+    type Future: Future<Output = ()>;
+
+    fn call_mut(&mut self, arg: Arg) -> Self::Future;
+}
+
+impl<Arg1, Arg2, F, Fut> MsgFn<(Arg1, Arg2)> for F
+where
+    F: FnMut(Arg1, Arg2) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    type Future = Fut;
+
+    fn call_mut(&mut self, (arg1, arg2): (Arg1, Arg2)) -> Self::Future {
+        self(arg1, arg2)
+    }
 }

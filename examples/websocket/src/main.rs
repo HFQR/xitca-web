@@ -6,7 +6,7 @@ use tracing::{error, info};
 use xitca_web::{
     handler::{
         handler_service,
-        websocket::{Message, WebSocket},
+        websocket::{Context, Message, WebSocket},
     },
     route::get,
     App,
@@ -31,17 +31,7 @@ async fn handler(mut ws: WebSocket) -> WebSocket {
         .set_ping_interval(Duration::from_secs(5))
         // max consecutive unanswered pings until server close connection
         .set_max_unanswered_ping(2)
-        // async function that called on every incoming websocket message.
-        .on_msg(|tx, msg| {
-            Box::pin(async move {
-                // ignore non text message.
-                if let Message::Text(txt) = msg {
-                    info!("Got text message: {txt}");
-                    // echo back text.
-                    tx.text(format!("Echo: {txt}")).await.unwrap();
-                }
-            })
-        })
+        .on_msg(on_msg)
         // async function that called when error occurred
         .on_err(|e| async move { error!("{e}") })
         // async function that called when closing websocket connection.
@@ -49,4 +39,14 @@ async fn handler(mut ws: WebSocket) -> WebSocket {
 
     // return the instance after configuration.
     ws
+}
+
+// async function that called on every incoming websocket message.
+async fn on_msg(msg: Message, ctx: &mut Context) {
+    // ignore non text message.
+    if let Message::Text(txt) = msg {
+        info!("Got text message: {txt}");
+        // echo back text.
+        ctx.text(format!("Echo: {txt}")).await.unwrap();
+    }
 }
