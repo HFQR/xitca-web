@@ -27,7 +27,7 @@ impl<'a, C, B> WebRequest<'a, C, B> {
     ///
     /// # Note:
     ///
-    /// Reborrow is not pure and 0receiver of it can mutate Self in any way they like.
+    /// Reborrow is not pure and receiver of it can mutate Self in any way they like.
     ///
     /// # Example:
     /// ```rust

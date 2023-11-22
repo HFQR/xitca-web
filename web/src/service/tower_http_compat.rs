@@ -22,12 +22,14 @@ use crate::{
     response::WebResponse,
 };
 
+/// A middleware type that bridge `xitca-service` and `tower-service`.
+/// Any `tower-http` type that impl [tower::Service] trait can be passed to it and used as xitca-web's service type.
 pub struct TowerHttpCompat<S> {
     service: S,
 }
 
 impl<S> TowerHttpCompat<S> {
-    pub fn new(service: S) -> Self
+    pub const fn new(service: S) -> Self
     where
         S: Clone,
     {
