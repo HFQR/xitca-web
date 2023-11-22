@@ -2,6 +2,11 @@ use core::{convert::Infallible, fmt, str::Utf8Error};
 
 use std::error;
 
+#[cfg(feature = "multipart")]
+use http_multipart::MultipartError;
+#[cfg(feature = "json")]
+use serde_json::Error as JsonError;
+
 use crate::{
     bytes::Bytes,
     error::BodyError,
@@ -9,9 +14,6 @@ use crate::{
     request::WebRequest,
     response::WebResponse,
 };
-
-#[cfg(feature = "multipart")]
-use http_multipart::MultipartError;
 
 use super::Responder;
 
@@ -89,11 +91,11 @@ pub(super) enum _ParseError {
     #[cfg(feature = "params")]
     Params(serde::de::value::Error),
     #[cfg(feature = "json")]
-    JsonString(serde_json::Error),
+    JsonString(JsonError),
     #[cfg(feature = "urlencoded")]
     UrlEncoded(serde_urlencoded::de::Error),
     #[cfg(feature = "multipart")]
-    Multipart(MultipartError<BoxedError>),
+    Multipart(MultipartError<Infallible>),
 }
 
 impl<E> From<_ParseError> for ExtractError<E> {
@@ -103,8 +105,8 @@ impl<E> From<_ParseError> for ExtractError<E> {
 }
 
 #[cfg(feature = "json")]
-impl<E> From<serde_json::Error> for ExtractError<E> {
-    fn from(e: serde_json::Error) -> Self {
+impl<E> From<JsonError> for ExtractError<E> {
+    fn from(e: JsonError) -> Self {
         Self::from(_ParseError::JsonString(e))
     }
 }
@@ -114,22 +116,18 @@ impl<E> From<MultipartError<E>> for ExtractError<E> {
     fn from(e: MultipartError<E>) -> Self {
         // TODO: sort this out?
         match e {
-            MultipartError::NoPostMethod => ExtractError::from(_ParseError::Multipart(MultipartError::NoPostMethod)),
+            MultipartError::NoPostMethod => Self::from(_ParseError::Multipart(MultipartError::NoPostMethod)),
             MultipartError::NoContentDisposition => {
-                ExtractError::from(_ParseError::Multipart(MultipartError::NoContentDisposition))
+                Self::from(_ParseError::Multipart(MultipartError::NoContentDisposition))
             }
-            MultipartError::NoContentType => ExtractError::from(_ParseError::Multipart(MultipartError::NoContentType)),
-            MultipartError::ParseContentType => {
-                ExtractError::from(_ParseError::Multipart(MultipartError::ParseContentType))
-            }
-            MultipartError::Boundary => ExtractError::from(_ParseError::Multipart(MultipartError::Boundary)),
-            MultipartError::Nested => ExtractError::from(_ParseError::Multipart(MultipartError::Nested)),
-            MultipartError::UnexpectedEof => ExtractError::from(_ParseError::Multipart(MultipartError::UnexpectedEof)),
-            MultipartError::BufferOverflow => {
-                ExtractError::from(_ParseError::Multipart(MultipartError::BufferOverflow))
-            }
-            MultipartError::Header(e) => ExtractError::from(_ParseError::Multipart(MultipartError::Header(e))),
-            MultipartError::Payload(e) => ExtractError::Body(e),
+            MultipartError::NoContentType => Self::from(_ParseError::Multipart(MultipartError::NoContentType)),
+            MultipartError::ParseContentType => Self::from(_ParseError::Multipart(MultipartError::ParseContentType)),
+            MultipartError::Boundary => Self::from(_ParseError::Multipart(MultipartError::Boundary)),
+            MultipartError::Nested => Self::from(_ParseError::Multipart(MultipartError::Nested)),
+            MultipartError::UnexpectedEof => Self::from(_ParseError::Multipart(MultipartError::UnexpectedEof)),
+            MultipartError::BufferOverflow => Self::from(_ParseError::Multipart(MultipartError::BufferOverflow)),
+            MultipartError::Header(e) => Self::from(_ParseError::Multipart(MultipartError::Header(e))),
+            MultipartError::Payload(e) => Self::Body(e),
         }
     }
 }
