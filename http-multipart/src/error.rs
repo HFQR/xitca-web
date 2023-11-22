@@ -16,6 +16,8 @@ pub enum MultipartError<E> {
     Nested,
     /// Multipart stream is incomplete
     UnexpectedEof,
+    /// Multipart parsing internal buffer overflown
+    BufferOverflow,
     /// Error during header parsing
     Header(httparse::Error),
     /// Payload error
@@ -35,6 +37,7 @@ where
             Self::Boundary => f.write_str("Multipart boundary is not found"),
             Self::Nested => f.write_str("Nested multipart is not supported"),
             Self::UnexpectedEof => f.write_str("Multipart stream ended early than expected."),
+            Self::BufferOverflow => f.write_str("Multipart parsing internal buffer overflown"),
             Self::Header(ref e) => fmt::Display::fmt(e, f),
             Self::Payload(ref e) => fmt::Display::fmt(e, f),
         }

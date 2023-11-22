@@ -50,7 +50,7 @@ use self::content_disposition::ContentDisposition;
 ///     Ok(())
 /// }
 /// ```
-pub fn multipart<RB, B, T, E>(req: &Request<RB>, body: B) -> Result<Multipart<'_, B>, MultipartError<E>>
+pub fn multipart<Ext, B, T, E>(req: &Request<Ext>, body: B) -> Result<Multipart<'_, B>, MultipartError<E>>
 where
     B: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -59,8 +59,8 @@ where
 }
 
 /// [multipart] with [Config] that used for customize behaviour of [Multipart].
-pub fn multipart_with_config<RB, B, T, E>(
-    req: &Request<RB>,
+pub fn multipart_with_config<Ext, B, T, E>(
+    req: &Request<Ext>,
     body: B,
     config: Config,
 ) -> Result<Multipart<'_, B>, MultipartError<E>>
@@ -165,7 +165,7 @@ where
             }
 
             if self.buf_overflow() {
-                return Err(MultipartError::Boundary);
+                return Err(MultipartError::BufferOverflow);
             }
 
             self.as_mut().try_read_stream_to_buf().await?;
@@ -213,18 +213,20 @@ where
         }
     }
 
-    fn buf_overflow(&self) -> bool {
+    pub(crate) fn buf_overflow(&self) -> bool {
         self.buf.len() > self.config.buf_limit
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::pin::pin;
 
     use bytes::Bytes;
     use futures_util::FutureExt;
     use http::header::{HeaderValue, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
+
+    use super::*;
 
     fn once_body(b: impl Into<Bytes>) -> impl Stream<Item = Result<Bytes, ()>> {
         futures_util::stream::once(async { Ok::<_, ()>(b.into()) })
@@ -267,7 +269,7 @@ mod test {
 
         let multipart = multipart(&req, body).unwrap();
 
-        futures_util::pin_mut!(multipart);
+        let mut multipart = pin!(multipart);
 
         {
             let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
@@ -361,7 +363,7 @@ mod test {
         // limit is set to 7 so the first boundary can be parsed.
         let multipart = multipart_with_config(&req, body, Config { buf_limit: 7 }).unwrap();
 
-        futures_util::pin_mut!(multipart);
+        let mut multipart = pin!(multipart);
 
         assert_eq!(
             multipart.try_next().now_or_never().unwrap().err().unwrap(),
@@ -385,11 +387,11 @@ mod test {
         // limit is set to 7 so the first boundary can not be parsed.
         let multipart = multipart_with_config(&req, body, Config { buf_limit: 7 }).unwrap();
 
-        futures_util::pin_mut!(multipart);
+        let mut multipart = pin!(multipart);
 
         assert_eq!(
             multipart.try_next().now_or_never().unwrap().err().unwrap(),
-            MultipartError::Boundary
+            MultipartError::BufferOverflow
         );
     }
 }
