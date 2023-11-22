@@ -1,6 +1,6 @@
 use crate::{
     body::BodyStream,
-    handler::{ExtractError, FromRequest},
+    handler::{error::ExtractError, FromRequest},
     request::{RequestBody, WebRequest},
 };
 
@@ -15,8 +15,7 @@ where
 
     async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
         let body = req.take_body_ref();
-        let multipart = http_multipart::multipart(req.req(), body).unwrap();
-        Ok(multipart)
+        http_multipart::multipart(req.req(), body).map_err(Into::into)
     }
 }
 

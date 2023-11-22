@@ -12,10 +12,7 @@ use serde::{de::DeserializeOwned, ser::Serialize};
 use crate::{
     body::BodyStream,
     bytes::{BufMutWriter, Bytes, BytesMut},
-    handler::{
-        error::{ExtractError, _ParseError},
-        FromRequest, Responder,
-    },
+    handler::{error::ExtractError, FromRequest, Responder},
     http::{const_header_value::JSON, header::CONTENT_TYPE, status::StatusCode},
     request::WebRequest,
     response::WebResponse,
@@ -92,7 +89,7 @@ where
             }
         }
 
-        let json = serde_json::from_slice(&buf).map_err(_ParseError::JsonString)?;
+        let json = serde_json::from_slice(&buf)?;
 
         Ok(Json(json))
     }
