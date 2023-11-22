@@ -43,8 +43,8 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     /// Construct a new xitca-web middleware from tower-http layer type.
     ///
     /// # Limitation:
-    /// tower::Service::poll_ready implementation is ingorend by TowerHttpCompat.
-    /// if a tower Service is sensitive to poll_ready implemetnation it should not be used.
+    /// tower::Service::poll_ready implementation is ignored by TowerHttpCompat.
+    /// if a tower Service is sensitive to poll_ready implementation it should not be used.
     ///
     /// # Example:
     /// ```rust
