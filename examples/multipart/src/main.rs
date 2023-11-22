@@ -1,8 +1,7 @@
 //! A Http server read multipart request and log it's field names.
 
-use std::io;
+use std::{io, pin::pin};
 
-use futures_util::pin_mut;
 use tracing::info;
 use xitca_web::{
     dev::service::Service,
@@ -25,7 +24,7 @@ fn main() -> io::Result<()> {
 
 async fn root(multipart: Multipart<'_>) -> Result<&'static str, Box<dyn std::error::Error>> {
     // pin multipart on stack for async stream handling.
-    pin_mut!(multipart);
+    let mut multipart = pin!(multipart);
 
     // iterate multipart fields.
     while let Some(mut field) = multipart.try_next().await? {
