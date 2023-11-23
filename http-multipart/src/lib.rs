@@ -22,14 +22,16 @@ use self::content_disposition::ContentDisposition;
 ///
 /// # Examples:
 /// ```rust
-/// use std::{convert::Infallible, error};
+/// use std::{convert::Infallible, error, pin::pin};
 ///
-/// use bytes::Bytes;
-/// use futures_util::{pin_mut, stream::Stream};
+/// use futures_core::stream::Stream;
 /// use http::Request;
 ///
-/// async fn handle(req: Request<impl Stream<Item = Result<Bytes, Infallible>>>) -> Result<(), Box<dyn error::Error>>{
-///     // replace request body type with ()
+/// async fn handle<B>(req: Request<B>) -> Result<(), Box<dyn error::Error + Send + Sync>>
+/// where
+///     B: Stream<Item = Result<Vec<u8>, Infallible>>
+/// {
+///     // destruct request type.
 ///     let (parts, body) = req.into_parts();
 ///     let req = Request::from_parts(parts, ());
 ///
@@ -37,13 +39,13 @@ use self::content_disposition::ContentDisposition;
 ///     let mut multipart = http_multipart::multipart(&req, body)?;
 ///
 ///     // pin multipart and start await on the request body.
-///     pin_mut!(multipart);
+///     let mut multipart = pin!(multipart);
 ///
-///     // try individual field of the multipart.
+///     // try async iterate through fields of the multipart.
 ///     while let Some(mut field) = multipart.try_next().await? {
-///         // try chunked data for one field.
+///         // try async iterate through single field's bytes data.
 ///         while let Some(chunk) = field.try_next().await? {
-///             // handle chunk data.
+///             // handle bytes data.
 ///         }
 ///     }
 ///
@@ -58,7 +60,7 @@ where
     multipart_with_config(req, body, Config::default())
 }
 
-/// [multipart] with [Config] that used for customize behaviour of [Multipart].
+/// [multipart] with [Config] that used for customize behavior of [Multipart].
 pub fn multipart_with_config<Ext, B, T, E>(
     req: &Request<Ext>,
     body: B,
