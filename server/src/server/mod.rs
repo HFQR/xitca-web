@@ -27,7 +27,7 @@ pub struct Server {
     tx_cmd: UnboundedSender<Command>,
     rx_cmd: UnboundedReceiver<Command>,
     rt: Option<Runtime>,
-    worker_join_handles: Vec<thread::JoinHandle<()>>,
+    worker_join_handles: Vec<thread::JoinHandle<io::Result<()>>>,
 }
 
 impl Server {
@@ -132,71 +132,55 @@ impl Server {
             .spawn(move || {
                 let is_graceful_shutdown = is_graceful_shutdown2;
 
-                thread::scope(|s| {
-                    let mut handles = Vec::with_capacity(worker_threads);
+                // TODO: wait for startup error and return as io::Error on call site.
+                // currently the error only show when main thread is joined with handle.
+                thread::scope(|scope| {
+                    for idx in 0..worker_threads {
+                        let thread = thread::Builder::new().name(format!("xitca-server-worker-{idx}"));
 
-                    let spawner = |scope| {
-                        for idx in 0..worker_threads {
-                            let thread = thread::Builder::new().name(format!("xitca-server-worker-{idx}"));
+                        let task = || {
+                            let on_start_fut = on_worker_start();
 
-                            let task = || {
-                                let on_start_fut = on_worker_start();
+                            async {
+                                on_start_fut.await;
 
-                                async {
-                                    on_start_fut.await;
+                                let mut handles = Vec::new();
+                                let mut services = Vec::new();
 
-                                    let mut handles = Vec::new();
-                                    let mut services = Vec::new();
-
-                                    for (name, factory) in factories.iter() {
-                                        let (h, s) = factory.call((name, &listeners)).await?;
-                                        handles.extend(h);
-                                        services.push(s);
-                                    }
-
-                                    worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown)
-                                        .await;
-
-                                    Ok::<_, ()>(())
-                                }
-                            };
-
-                            let handle = {
-                                #[cfg(not(feature = "io-uring"))]
-                                {
-                                    let rt = tokio::runtime::Builder::new_current_thread()
-                                        .enable_all()
-                                        .max_blocking_threads(worker_max_blocking_threads)
-                                        .build()?;
-
-                                    thread.spawn_scoped(scope, move || {
-                                        rt.block_on(tokio::task::LocalSet::new().run_until(task()))
-                                    })?
+                                for (name, factory) in factories.iter() {
+                                    let (h, s) = factory.call((name, &listeners)).await?;
+                                    handles.extend(h);
+                                    services.push(s);
                                 }
 
-                                #[cfg(feature = "io-uring")]
-                                {
-                                    thread.spawn_scoped(scope, move || {
-                                        let _ = worker_max_blocking_threads;
-                                        tokio_uring::start(task())
-                                    })?
-                                }
-                            };
+                                worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown).await;
 
-                            handles.push(handle);
-                        }
-
-                        Ok::<_, io::Error>(handles)
-                    };
-
-                    match spawner(s) {
-                        Ok(handles) => {
-                            for handle in handles {
-                                let _ = handle.join();
+                                Ok::<_, ()>(())
                             }
+                        };
+
+                        #[cfg(not(feature = "io-uring"))]
+                        {
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .max_blocking_threads(worker_max_blocking_threads)
+                                .build()?;
+
+                            thread.spawn_scoped(scope, move || {
+                                rt.block_on(tokio::task::LocalSet::new().run_until(task()))
+                            })?;
                         }
-                        Err(_) => todo!("block main thread and wait for runtime and thread builder?"),
+
+                        #[cfg(feature = "io-uring")]
+                        {
+                            thread.spawn_scoped(scope, move || {
+                                let _ = worker_max_blocking_threads;
+                                tokio_uring::start(task())
+                            })?;
+                        }
                     }
+
+                    Ok(())
                 })
             })?;
 
@@ -217,7 +201,7 @@ impl Server {
         self.rt.take().unwrap().shutdown_background();
 
         mem::take(&mut self.worker_join_handles).into_iter().for_each(|handle| {
-            handle.join().unwrap();
+            let _ = handle.join().unwrap();
         });
     }
 }

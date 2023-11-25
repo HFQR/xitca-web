@@ -45,7 +45,6 @@ impl App {
         Self::with_async_state(move || ready(Ok(state.clone())))
     }
 
-    #[doc(hidden)]
     /// Construct App with async closure which it's output would be used as state.
     /// async state is used to produce thread per core and/or non thread safe state copies.
     /// The output state is not bound to `Send` and `Sync` auto traits.
