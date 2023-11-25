@@ -7,6 +7,8 @@ use core::{
     future::{ready, Future, Ready},
 };
 
+use std::error;
+
 use futures_core::stream::Stream;
 use xitca_http::util::{
     middleware::context::{Context, ContextBuilder},
@@ -71,9 +73,12 @@ impl<CF, Obj> App<CF, Router<Obj>> {
     }
 }
 
-impl<CF, R> App<CF, R>
+impl<CF, R, Fut, C, CErr> App<CF, R>
 where
     R: Service + Send + Sync,
+    CF: Fn() -> Fut + Send + Sync,
+    Fut: Future<Output = Result<C, CErr>>,
+    CErr: fmt::Debug,
 {
     /// Enclose App with middleware type.
     /// Middleware must impl [Service] trait.
@@ -99,7 +104,7 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<C, Fut, CErr, ReqB, ResB, E, Err>(
+    pub fn finish<ReqB, ResB, E, Err>(
         self,
     ) -> impl Service<
         Response = impl ReadyService
@@ -111,10 +116,7 @@ where
         Error = impl fmt::Debug,
     >
     where
-        CF: Fn() -> Fut,
-        Fut: Future<Output = Result<C, CErr>>,
         C: 'static,
-        CErr: fmt::Debug,
         ReqB: 'static,
         R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
         R::Error: fmt::Debug,
@@ -123,24 +125,19 @@ where
     {
         let App { ctx_factory, router } = self;
         router
-            .enclosed_fn(map_response)
-            .enclosed_fn(map_request)
+            .enclosed_fn(map_req_res)
             .enclosed(ContextBuilder::new(ctx_factory))
     }
 
-    #[doc(hidden)]
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish_boxed<C, Fut, CErr, ReqB, ResB, E, Err>(
+    pub fn finish_boxed<ReqB, ResB, E, Err>(
         self,
-    ) -> AppObject<
-        impl ReadyService
-            + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Infallible>,
-    >
+    ) -> AppObject<impl ReadyService + Service<Request<RequestExt<ReqB>>, Response = WebResponse, Error = Infallible>>
     where
-        CF: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<C, CErr>> + 'static,
+        CF: 'static,
+        Fut: 'static,
         C: 'static,
-        CErr: fmt::Debug + 'static,
+        CErr: 'static,
         ReqB: 'static,
         R: 'static,
         R::Response: ReadyService
@@ -149,7 +146,7 @@ where
         R::Error: fmt::Debug + 'static,
         Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse> + 'static,
         ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
+        E: error::Error + Send + Sync + 'static,
     {
         struct BoxApp<S>(S);
 
@@ -166,14 +163,23 @@ where
             }
         }
 
-        Box::new(BoxApp(self.finish()))
+        async fn box_res<S, Req, ResB, E>(service: &S, req: Req) -> Result<WebResponse, S::Error>
+        where
+            S: Service<Req, Response = WebResponse<ResponseBody<ResB>>>,
+            ResB: Stream<Item = Result<Bytes, E>> + 'static,
+            E: error::Error + Send + Sync + 'static,
+        {
+            service.call(req).await.map(|res| res.map(|body| body.into_boxed()))
+        }
+
+        Box::new(BoxApp(self.finish().enclosed_fn(box_res)))
     }
 
     #[cfg(feature = "__server")]
     /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
     ///
     /// [HttpServer]: crate::server::HttpServer
-    pub fn serve<C, Fut, CErr, ReqB, ResB, E, Err>(
+    pub fn serve<ReqB, ResB, E, Err>(
         self,
     ) -> crate::server::HttpServer<
         impl Service<
@@ -187,10 +193,10 @@ where
         >,
     >
     where
-        CF: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<C, CErr>> + 'static,
+        CF: 'static,
+        Fut: 'static,
         C: 'static,
-        CErr: fmt::Debug + 'static,
+        CErr: 'static,
         ReqB: 'static,
         R: 'static,
         R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
@@ -203,40 +209,35 @@ where
     }
 }
 
+/// object safe [App] instance. used for case where naming [App]'s type is needed.
 pub type AppObject<S> =
     Box<dyn xitca_service::object::ServiceObject<(), Response = S, Error = Box<dyn fmt::Debug>> + Send + Sync>;
 
-async fn map_response<B, C, S, ResB, E, Err>(
+// middleware for converting xitca_http types to xitca_web types.
+// this is for enabling side effect see [WebRequest::reborrow] for detail.
+async fn map_req_res<C, S, ReqB, ResB, E, Err>(
     service: &S,
-    mut req: WebRequest<'_, C, B>,
+    req: Context<'_, Request<RequestExt<ReqB>>, C>,
 ) -> Result<WebResponse<ResponseBody<ResB>>, Infallible>
 where
     C: 'static,
-    B: 'static,
-    S: for<'r> Service<WebRequest<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
-    Err: for<'r> Responder<WebRequest<'r, C, B>, Output = WebResponse>,
+    ReqB: 'static,
+    S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
+    Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse>,
     ResB: Stream<Item = Result<Bytes, E>>,
-{
-    match service.call(req.reborrow()).await {
-        Ok(res) => Ok(res.map(|body| ResponseBody::stream(body))),
-        // TODO: mutate response header according to outcome of drop_stream_cast?
-        Err(e) => Ok(e.respond_to(req).await.map(|body| body.drop_stream_cast())),
-    }
-}
-
-async fn map_request<B, C, S, Res, Err>(service: &S, req: Context<'_, Request<RequestExt<B>>, C>) -> Result<Res, Err>
-where
-    C: 'static,
-    B: 'static,
-    S: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err>,
 {
     let (req, state) = req.into_parts();
     let (parts, ext) = req.into_parts();
     let (ext, body) = ext.replace_body(());
     let mut req = Request::from_parts(parts, ext);
     let mut body = RefCell::new(body);
-    let req = WebRequest::new(&mut req, &mut body, state);
-    service.call(req).await
+    let mut req = WebRequest::new(&mut req, &mut body, state);
+
+    match service.call(req.reborrow()).await {
+        Ok(res) => Ok(res.map(|body| ResponseBody::stream(body))),
+        // TODO: mutate response header according to outcome of drop_stream_cast?
+        Err(e) => Ok(e.respond_to(req).await.map(|body| body.drop_stream_cast())),
+    }
 }
 
 #[cfg(test)]
