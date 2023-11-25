@@ -103,7 +103,11 @@ where
         self,
     ) -> impl Service<
         Response = impl ReadyService
-                       + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
+                       + Service<
+            Request<RequestExt<ReqB>>,
+            Response = WebResponse<ResponseBody<ResB>>,
+            Error = Infallible,
+        >,
         Error = impl fmt::Debug,
     >
     where
@@ -129,7 +133,8 @@ where
     pub fn finish_boxed<C, Fut, CErr, ReqB, ResB, E, Err>(
         self,
     ) -> AppObject<
-        impl ReadyService + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
+        impl ReadyService
+            + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Infallible>,
     >
     where
         CF: Fn() -> Fut + Send + Sync + 'static,
@@ -173,7 +178,11 @@ where
     ) -> crate::server::HttpServer<
         impl Service<
             Response = impl ReadyService
-                           + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
+                           + Service<
+                Request<RequestExt<ReqB>>,
+                Response = WebResponse<ResponseBody<ResB>>,
+                Error = Infallible,
+            >,
             Error = impl fmt::Debug,
         >,
     >
@@ -200,7 +209,7 @@ pub type AppObject<S> =
 async fn map_response<B, C, S, ResB, E, Err>(
     service: &S,
     mut req: WebRequest<'_, C, B>,
-) -> Result<WebResponse<ResponseBody<ResB>>, Err>
+) -> Result<WebResponse<ResponseBody<ResB>>, Infallible>
 where
     C: 'static,
     B: 'static,
