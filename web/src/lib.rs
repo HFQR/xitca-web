@@ -55,7 +55,7 @@ pub mod dev {
     pub use xitca_service as service;
 }
 
-pub use app::App;
+pub use app::{App, AppObject};
 pub use body::BodyStream;
 #[cfg(feature = "__server")]
 pub use server::HttpServer;

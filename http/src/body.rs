@@ -236,6 +236,20 @@ impl<B> ResponseBody<B> {
         }
     }
 
+    /// erase generic body type by boxing the variant.
+    #[inline]
+    pub fn into_boxed<E>(self) -> ResponseBody
+    where
+        B: Stream<Item = Result<Bytes, E>> + 'static,
+        E: error::Error + Send + Sync + 'static,
+    {
+        match self {
+            Self::None => ResponseBody::None,
+            Self::Bytes { bytes } => ResponseBody::bytes(bytes),
+            Self::Stream { stream } => ResponseBody::box_stream(stream),
+        }
+    }
+
     /// Drop [ResponseBody::Stream] variant to cast it to given generic B1 stream type.
     ///
     /// # Note:
