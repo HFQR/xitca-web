@@ -73,7 +73,7 @@ impl<CF, Obj> App<CF, Router<Obj>> {
 
 impl<CF, R> App<CF, R>
 where
-    R: Service,
+    R: Service + Send + Sync,
 {
     /// Enclose App with middleware type.
     /// Middleware must impl [Service] trait.
@@ -124,6 +124,46 @@ where
             .enclosed(ContextBuilder::new(ctx_factory))
     }
 
+    #[doc(hidden)]
+    /// Finish App build. No other App method can be called afterwards.
+    pub fn finish_boxed<C, Fut, CErr, ReqB, ResB, E, Err>(
+        self,
+    ) -> AppObject<
+        impl ReadyService + Service<Request<RequestExt<ReqB>>, Response = WebResponse<ResponseBody<ResB>>, Error = Err>,
+    >
+    where
+        CF: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<C, CErr>> + 'static,
+        C: 'static,
+        CErr: fmt::Debug + 'static,
+        ReqB: 'static,
+        R: 'static,
+        R::Response: ReadyService
+            + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>
+            + 'static,
+        R::Error: fmt::Debug + 'static,
+        Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse> + 'static,
+        ResB: Stream<Item = Result<Bytes, E>> + 'static,
+        E: 'static,
+    {
+        struct BoxApp<S>(S);
+
+        impl<S, Arg> Service<Arg> for BoxApp<S>
+        where
+            S: Service<Arg>,
+            S::Error: fmt::Debug + 'static,
+        {
+            type Response = S::Response;
+            type Error = Box<dyn fmt::Debug>;
+
+            async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+                self.0.call(arg).await.map_err(|e| Box::new(e) as _)
+            }
+        }
+
+        Box::new(BoxApp(self.finish()))
+    }
+
     #[cfg(feature = "__server")]
     /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
     ///
@@ -138,12 +178,12 @@ where
         >,
     >
     where
-        R: Send + Sync + 'static,
         CF: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<C, CErr>> + 'static,
         C: 'static,
         CErr: fmt::Debug + 'static,
         ReqB: 'static,
+        R: 'static,
         R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
         R::Error: fmt::Debug,
         Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse> + 'static,
@@ -153,6 +193,9 @@ where
         crate::server::HttpServer::serve(self.finish())
     }
 }
+
+pub type AppObject<S> =
+    Box<dyn xitca_service::object::ServiceObject<(), Response = S, Error = Box<dyn fmt::Debug>> + Send + Sync>;
 
 async fn map_response<B, C, S, ResB, E, Err>(
     service: &S,
