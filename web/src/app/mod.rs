@@ -76,6 +76,7 @@ impl<CF, Obj> App<CF, Router<Obj>> {
 impl<CF, R, Fut, C, CErr> App<CF, R>
 where
     R: Service + Send + Sync,
+    R::Error: fmt::Debug,
     CF: Fn() -> Fut + Send + Sync,
     Fut: Future<Output = Result<C, CErr>>,
     CErr: fmt::Debug,
@@ -104,7 +105,7 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<ReqB, ResB, E, Err>(
+    pub fn finish<ReqB, ResB, SE, B, BE>(
         self,
     ) -> impl Service<
         Response = impl ReadyService
@@ -117,11 +118,10 @@ where
     >
     where
         C: 'static,
+        R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
+        SE: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse>,
         ReqB: 'static,
-        R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
-        R::Error: fmt::Debug,
-        Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse>,
-        ResB: Stream<Item = Result<Bytes, E>>,
+        ResB: Stream<Item = Result<B, BE>>,
     {
         let App { ctx_factory, router } = self;
         router
@@ -130,7 +130,7 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish_boxed<ReqB, ResB, E, Err>(
+    pub fn finish_boxed<ReqB, ResB, SE, BE>(
         self,
     ) -> AppObject<impl ReadyService + Service<Request<RequestExt<ReqB>>, Response = WebResponse, Error = Infallible>>
     where
@@ -138,15 +138,14 @@ where
         Fut: 'static,
         C: 'static,
         CErr: 'static,
-        ReqB: 'static,
         R: 'static,
-        R::Response: ReadyService
-            + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>
-            + 'static,
-        R::Error: fmt::Debug + 'static,
-        Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse> + 'static,
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: error::Error + Send + Sync + 'static,
+        R::Response:
+            ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE> + 'static,
+        R::Error: 'static,
+        SE: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse> + 'static,
+        ReqB: 'static,
+        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+        BE: error::Error + Send + Sync + 'static,
     {
         struct BoxApp<S>(S);
 
@@ -179,7 +178,7 @@ where
     /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
     ///
     /// [HttpServer]: crate::server::HttpServer
-    pub fn serve<ReqB, ResB, E, Err>(
+    pub fn serve<ReqB, ResB, SE, B, BE>(
         self,
     ) -> crate::server::HttpServer<
         impl Service<
@@ -197,13 +196,13 @@ where
         Fut: 'static,
         C: 'static,
         CErr: 'static,
-        ReqB: 'static,
         R: 'static,
-        R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
-        R::Error: fmt::Debug,
-        Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse> + 'static,
-        ResB: Stream<Item = Result<Bytes, E>> + 'static,
-        E: 'static,
+        R::Response: ReadyService + for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
+        SE: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse> + 'static,
+        ReqB: 'static,
+        ResB: Stream<Item = Result<B, BE>> + 'static,
+        B: 'static,
+        BE: 'static,
     {
         crate::server::HttpServer::serve(self.finish())
     }
@@ -215,16 +214,16 @@ pub type AppObject<S> =
 
 // middleware for converting xitca_http types to xitca_web types.
 // this is for enabling side effect see [WebRequest::reborrow] for detail.
-async fn map_req_res<C, S, ReqB, ResB, E, Err>(
+async fn map_req_res<C, S, ReqB, ResB, SE, B, BE>(
     service: &S,
     req: Context<'_, Request<RequestExt<ReqB>>, C>,
 ) -> Result<WebResponse<ResponseBody<ResB>>, Infallible>
 where
     C: 'static,
+    S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
+    SE: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse>,
     ReqB: 'static,
-    S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
-    Err: for<'r> Responder<WebRequest<'r, C, ReqB>, Output = WebResponse>,
-    ResB: Stream<Item = Result<Bytes, E>>,
+    ResB: Stream<Item = Result<B, BE>>,
 {
     let (req, state) = req.into_parts();
     let (parts, ext) = req.into_parts();
