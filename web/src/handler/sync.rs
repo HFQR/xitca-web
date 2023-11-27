@@ -34,7 +34,7 @@ use xitca_service::{fn_build, FnService, Service};
 ///     // .at("/invalid1", handler_sync_service(|_: UriRef<'_>| { "uri ref is borrowed value" }))
 ///     // uncomment the line below would result in compile error.
 ///     // .at("/invalid2", handler_sync_service(|_: &WebRequest<'_>| { "web request is borrowed value and not thread safe" }))
-///     # .at("/nah", handler_service(|_: &WebRequest<'_>| async {}));
+///     # .at("/nah", handler_service(|_: &WebRequest<'_>| async { "" }));
 /// ```
 ///
 /// [handler_service]: super::handler_service
