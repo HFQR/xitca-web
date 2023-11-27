@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod content_disposition;
 mod error;
 mod field;
@@ -5,7 +7,7 @@ mod header;
 
 pub use self::{error::MultipartError, field::Field};
 
-use std::{future::poll_fn, pin::Pin};
+use core::{future::poll_fn, pin::Pin};
 
 use bytes::{Buf, BytesMut};
 use futures_core::stream::Stream;
@@ -52,7 +54,7 @@ use self::content_disposition::ContentDisposition;
 ///     Ok(())
 /// }
 /// ```
-pub fn multipart<Ext, B, T, E>(req: &Request<Ext>, body: B) -> Result<Multipart<'_, B>, MultipartError<E>>
+pub fn multipart<Ext, B, T, E>(req: &Request<Ext>, body: B) -> Result<Multipart<B>, MultipartError<E>>
 where
     B: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -65,7 +67,7 @@ pub fn multipart_with_config<Ext, B, T, E>(
     req: &Request<Ext>,
     body: B,
     config: Config,
-) -> Result<Multipart<'_, B>, MultipartError<E>>
+) -> Result<Multipart<B>, MultipartError<E>>
 where
     B: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -79,7 +81,7 @@ where
     Ok(Multipart {
         stream: body,
         buf: BytesMut::new(),
-        boundary,
+        boundary: boundary.into(),
         headers: HeaderMap::new(),
         config,
     })
@@ -101,11 +103,11 @@ impl Default for Config {
 }
 
 pin_project! {
-    pub struct Multipart<'a, S> {
+    pub struct Multipart<S> {
         #[pin]
         stream: S,
         buf: BytesMut,
-        boundary: &'a [u8],
+        boundary: Box<[u8]>,
         headers: HeaderMap,
         config: Config
     }
@@ -115,14 +117,14 @@ const DOUBLE_HYPHEN: &[u8; 2] = b"--";
 const LF: &[u8; 1] = b"\n";
 const DOUBLE_CR_LF: &[u8; 4] = b"\r\n\r\n";
 
-impl<'a, S, T, E> Multipart<'a, S>
+impl<S, T, E> Multipart<S>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
 {
     // take in &mut Pin<&mut Self> so Field can borrow it as Pin<&mut Multipart>.
     // this avoid another explicit stack pin when operating on Field type.
-    pub async fn try_next<'s>(self: &'s mut Pin<&mut Self>) -> Result<Option<Field<'s, 'a, S>>, MultipartError<E>> {
+    pub async fn try_next<'s>(self: &'s mut Pin<&mut Self>) -> Result<Option<Field<'s, S>>, MultipartError<E>> {
         let boundary_len = self.boundary.len();
         loop {
             let this = self.as_mut().project();
@@ -174,7 +176,7 @@ where
         }
     }
 
-    async fn parse_field(mut self: Pin<&mut Self>) -> Result<Field<'_, 'a, S>, MultipartError<E>> {
+    async fn parse_field(mut self: Pin<&mut Self>) -> Result<Field<'_, S>, MultipartError<E>> {
         loop {
             let this = self.as_mut().project();
 

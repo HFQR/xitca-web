@@ -7,20 +7,20 @@ use memchr::memmem;
 
 use super::{content_disposition::ContentDisposition, error::MultipartError, Multipart};
 
-pub struct Field<'a, 'b, S> {
+pub struct Field<'a, S> {
     typ: FieldType,
     cp: ContentDisposition,
-    multipart: Pin<&'a mut Multipart<'b, S>>,
+    multipart: Pin<&'a mut Multipart<S>>,
 }
 
-impl<S> Drop for Field<'_, '_, S> {
+impl<S> Drop for Field<'_, S> {
     fn drop(&mut self) {
         self.multipart.as_mut().project().headers.clear();
     }
 }
 
-impl<'a, 'b, S> Field<'a, 'b, S> {
-    pub(super) fn new(length: Option<u64>, cp: ContentDisposition, multipart: Pin<&'a mut Multipart<'b, S>>) -> Self {
+impl<'a, S> Field<'a, S> {
+    pub(super) fn new(length: Option<u64>, cp: ContentDisposition, multipart: Pin<&'a mut Multipart<S>>) -> Self {
         let typ = match length {
             Some(len) => FieldType::Fixed(len),
             None => FieldType::StreamBegin,
@@ -36,7 +36,7 @@ enum FieldType {
     StreamEnd,
 }
 
-impl<S, T, E> Field<'_, '_, S>
+impl<S, T, E> Field<'_, S>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]> + 'static,
@@ -155,6 +155,10 @@ where
 {
     match try_downcast_to_bytes(item) {
         Ok(mut item) => {
+            if item.len() == at {
+                return item;
+            }
+
             let bytes = item.split_to(at);
             buf.extend_from_slice(item.as_ref());
             bytes
