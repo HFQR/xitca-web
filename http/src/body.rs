@@ -1,14 +1,20 @@
 //! HTTP body types.
+//!
+//! body types are generic over [Stream] trait and mutation of body type must also implement said
+//! trait for being accepted as body type that xitca-http know of.
+//!
+//! When implementing customized body type please reference [none_body_hint] and [exact_body_hint]
+//! for contract of inferring body size with [Stream::size_hint] trait method.
 
-use std::{
-    borrow::Cow,
+use core::{
     convert::Infallible,
-    error,
     marker::PhantomData,
     mem,
     pin::Pin,
     task::{Context, Poll},
 };
+
+use std::{borrow::Cow, error};
 
 use futures_core::stream::{LocalBoxStream, Stream};
 use pin_project_lite::pin_project;
