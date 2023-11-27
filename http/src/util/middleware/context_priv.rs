@@ -103,8 +103,8 @@ where
     C: 'static,
 {
     type Response = ContextService<C, S>;
-
     type Error = CErr;
+
     async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
         let state = (self.builder)().await?;
         Ok(ContextService { service, state })

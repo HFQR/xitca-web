@@ -24,7 +24,7 @@ pub const fn none_body_hint() -> (usize, Option<usize>) {
     NONE_BODY_HINT
 }
 
-const NONE_BODY_HINT: (usize, Option<usize>) = (usize::MAX, Some(0));
+pub const NONE_BODY_HINT: (usize, Option<usize>) = (usize::MAX, Some(0));
 
 // this is a crate level hack to hint for exact body type.
 // A body type with this size hint means the body MUST be polled/collected for exact length of usize.

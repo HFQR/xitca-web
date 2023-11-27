@@ -3,9 +3,9 @@ use core::convert::Infallible;
 use http_encoding::{encoder, Coder, ContentEncoding};
 
 use crate::{
-    body::BodyStream,
+    body::{BodyStream, NONE_BODY_HINT},
     dev::service::{ready::ReadyService, Service},
-    request::WebRequest,
+    http::{header::HeaderMap, BorrowReq},
     response::WebResponse,
 };
 
@@ -28,23 +28,24 @@ pub struct CompressService<S> {
     service: S,
 }
 
-impl<'r, S, C, ReqB, ResB, Err> Service<WebRequest<'r, C, ReqB>> for CompressService<S>
+impl<S, Req, ResB> Service<Req> for CompressService<S>
 where
-    S: for<'rs> Service<WebRequest<'rs, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
+    Req: BorrowReq<HeaderMap>,
+    S: Service<Req, Response = WebResponse<ResB>>,
     ResB: BodyStream,
 {
     type Response = WebResponse<Coder<ResB>>;
-    type Error = Err;
+    type Error = S::Error;
 
-    async fn call(&self, req: WebRequest<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
-        let mut encoding = ContentEncoding::from_headers(req.req().headers());
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        let mut encoding = ContentEncoding::from_headers(req.borrow());
         let res = self.service.call(req).await?;
 
         // TODO: expose encoding filter as public api.
         match res.body().size_hint() {
             (low, Some(up)) if low == up && low < 64 => encoding = ContentEncoding::NoOp,
-            // this variant is a crate hack. see xitca_http::body::none_body_hint for detail.
-            (usize::MAX, Some(0)) => encoding = ContentEncoding::NoOp,
+            // this variant is a crate hack. see NONE_BODY_HINT for detail.
+            NONE_BODY_HINT => encoding = ContentEncoding::NoOp,
             _ => {}
         }
 

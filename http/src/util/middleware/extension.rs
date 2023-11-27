@@ -13,7 +13,7 @@ pub struct Extension<F: Clone = ()> {
 }
 
 impl Extension {
-    pub fn new<S>(state: S) -> Extension<impl Fn() -> Ready<Result<S, Infallible>> + Clone>
+    pub fn new<S>(state: S) -> Extension<impl Fn() -> Ready<Result<S, Infallible>> + Send + Sync + Clone>
     where
         S: Send + Sync + Clone + 'static,
     {
@@ -24,7 +24,7 @@ impl Extension {
 
     pub fn factory<F, Fut, Res, Err>(factory: F) -> Extension<F>
     where
-        F: Fn() -> Fut + Clone,
+        F: Fn() -> Fut + Send + Sync + Clone,
         Fut: Future<Output = Result<Res, Err>>,
         Res: Send + Sync + Clone + 'static,
     {
