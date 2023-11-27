@@ -22,7 +22,7 @@ fn main() -> io::Result<()> {
         .wait()
 }
 
-async fn root(multipart: Multipart<'_>) -> Result<&'static str, Box<dyn std::error::Error>> {
+async fn root(multipart: Multipart) -> Result<&'static str, Box<dyn std::error::Error>> {
     // pin multipart on stack for async stream handling.
     let mut multipart = pin!(multipart);
 
