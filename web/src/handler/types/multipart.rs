@@ -41,7 +41,7 @@ mod test {
 
     use super::*;
 
-    async fn handler(multipart: Multipart<'_, Once<Bytes>>) -> Vec<u8> {
+    async fn handler(multipart: Multipart<Once<Bytes>>) -> Vec<u8> {
         let mut multipart = pin!(multipart);
 
         let mut res = Vec::new();
