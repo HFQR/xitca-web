@@ -36,11 +36,13 @@ pub mod codegen {
     /// # }
     ///
     /// // extract u128 typed field from MyState.
-    /// async fn index(StateRef(num): StateRef<'_, u128>) {
+    /// async fn index(StateRef(num): StateRef<'_, u128>) -> String {
     ///     assert_eq!(*num, 996);
+    ///     num.to_string()
     /// }
-    /// # async fn nah(_: &WebRequest<'_, MyState>) {
+    /// # async fn nah(_: &WebRequest<'_, MyState>) -> &'static str {
     /// #   // needed to infer the body type of request
+    /// #   ""
     /// # }
     /// ```
     pub use xitca_codegen::State;
