@@ -81,15 +81,6 @@ impl<'r, C, B, ResB> Responder<WebRequest<'r, C, B>> for WebResponse<ResB> {
     }
 }
 
-impl<'r, C, B> Responder<WebRequest<'r, C, B>> for () {
-    type Output = WebResponse;
-
-    #[inline]
-    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
-        req.into_response(Bytes::new())
-    }
-}
-
 impl<'r, C, B> Responder<WebRequest<'r, C, B>> for Infallible {
     type Output = WebResponse;
 
