@@ -120,11 +120,9 @@ impl Server {
 
         // use a spawned thread to work around possible nest runtime issue.
         // *. Server::new is most likely already inside a tokio runtime.
-        let listeners =
-            thread::scope(|s| s.spawn(|| rt.block_on(fut)).join()).unwrap_or_else(|e| std::panic::resume_unwind(e))?;
+        let listeners = thread::scope(|s| s.spawn(|| rt.block_on(fut)).join()).unwrap()?;
 
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
-
         let is_graceful_shutdown2 = is_graceful_shutdown.clone();
 
         let worker_handles = thread::Builder::new()
@@ -132,31 +130,29 @@ impl Server {
             .spawn(move || {
                 let is_graceful_shutdown = is_graceful_shutdown2;
 
-                // TODO: wait for startup error and return as io::Error on call site.
-                // currently the error only show when main thread is joined with handle.
+                // TODO: wait for startup error(including panic) and return as io::Error on call site.
+                // currently the error only show when shared scope thread is joined with handle.
                 thread::scope(|scope| {
                     for idx in 0..worker_threads {
                         let thread = thread::Builder::new().name(format!("xitca-server-worker-{idx}"));
 
-                        let task = || {
-                            let on_start_fut = on_worker_start();
+                        let task = || async {
+                            on_worker_start().await;
 
-                            async {
-                                on_start_fut.await;
+                            let mut handles = Vec::new();
+                            let mut services = Vec::new();
 
-                                let mut handles = Vec::new();
-                                let mut services = Vec::new();
-
-                                for (name, factory) in factories.iter() {
-                                    let (h, s) = factory.call((name, &listeners)).await?;
-                                    handles.extend(h);
-                                    services.push(s);
+                            for (name, factory) in factories.iter() {
+                                match factory.call((name, &listeners)).await {
+                                    Ok((h, s)) => {
+                                        handles.extend(h);
+                                        services.push(s);
+                                    }
+                                    Err(_) => return,
                                 }
-
-                                worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown).await;
-
-                                Ok::<_, ()>(())
                             }
+
+                            worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown).await;
                         };
 
                         #[cfg(not(feature = "io-uring"))]
