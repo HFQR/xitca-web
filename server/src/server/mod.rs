@@ -196,13 +196,13 @@ impl Server {
     }
 
     pub(crate) fn stop(&mut self, graceful: bool) {
-        self.is_graceful_shutdown.store(graceful, Ordering::SeqCst);
-
-        self.rt.take().unwrap().shutdown_background();
-
-        mem::take(&mut self.worker_join_handles).into_iter().for_each(|handle| {
-            let _ = handle.join().unwrap();
-        });
+        if let Some(rt) = self.rt.take() {
+            self.is_graceful_shutdown.store(graceful, Ordering::SeqCst);
+            rt.shutdown_background();
+            mem::take(&mut self.worker_join_handles).into_iter().for_each(|handle| {
+                let _ = handle.join().unwrap();
+            });
+        }
     }
 }
 
