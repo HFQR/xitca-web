@@ -261,9 +261,6 @@ impl TransferCoding {
         match (&self, &other) {
             // skip set when the body is zero length.
             (_, TransferCoding::Length(0)) => {}
-            // multiple set to plain chunked is allowed. This can happen from Connect method
-            // and/or Connection header.
-            (TransferCoding::Upgrade, TransferCoding::Upgrade) => {}
             // ignore multiple set of body if the length is exactly the same.
             (TransferCoding::Length(n1), TransferCoding::Length(n2)) if n1 == n2 => {}
             // ignore maybe chunked coding when already transformed to chunked coding.
