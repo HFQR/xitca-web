@@ -39,7 +39,7 @@ impl<E: fmt::Display> fmt::Display for ExtractError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Body(ref e) => fmt::Display::fmt(e, f),
-            Self::ExtensionNotFound => write!(f, "Extension can not be found"),
+            Self::ExtensionNotFound => f.write_str("Extension can not be found"),
             Self::HeaderNotFound(ref name) => write!(f, "HeaderName: {name} not found."),
             Self::Parse(ref e) => fmt::Display::fmt(e, f),
             Self::Boxed(ref e) => fmt::Display::fmt(e, f),

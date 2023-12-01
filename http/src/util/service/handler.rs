@@ -135,18 +135,6 @@ pub trait Responder<Req> {
     fn respond_to(self, req: Req) -> impl Future<Output = Self::Output>;
 }
 
-impl<R, T, E> Responder<R> for Result<T, E>
-where
-    T: Responder<R>,
-{
-    type Output = Result<T::Output, E>;
-
-    #[inline]
-    async fn respond_to(self, req: R) -> Self::Output {
-        Ok(self?.respond_to(req).await)
-    }
-}
-
 impl<R, F, S> Responder<R> for PipelineE<F, S>
 where
     F: Responder<R>,
