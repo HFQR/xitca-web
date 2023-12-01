@@ -72,6 +72,18 @@ where
     }
 }
 
+impl<'r, C, B, T, O, E> Responder<WebRequest<'r, C, B>> for Result<T, E>
+where
+    T: for<'r2> Responder<WebRequest<'r2, C, B>, Output = O>,
+{
+    type Output = Result<O, E>;
+
+    #[inline]
+    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
+        Ok(self?.respond_to(req).await)
+    }
+}
+
 impl<'r, C, B, ResB> Responder<WebRequest<'r, C, B>> for WebResponse<ResB> {
     type Output = WebResponse<ResB>;
 

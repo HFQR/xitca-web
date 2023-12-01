@@ -71,7 +71,7 @@ impl Stream for RequestBody {
 
 /// None body type.
 /// B type is used to infer other types of body's output type used together with NoneBody.
-pub struct NoneBody<B>(PhantomData<B>);
+pub struct NoneBody<B>(PhantomData<fn(B)>);
 
 impl<B> Default for NoneBody<B> {
     fn default() -> Self {
