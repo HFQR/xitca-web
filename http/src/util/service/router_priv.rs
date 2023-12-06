@@ -68,7 +68,7 @@ pub trait RouterGen {
     /// service builder type for generating according error type of router service.
     type ErrGen<R>;
 
-    /// path generator when utilizing [Router::nest].
+    /// path generator when utilizing [Router::insert].
     ///
     /// default to passthrough of original prefix path.
     fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
@@ -165,6 +165,7 @@ where
     }
 }
 
+/// default error mapper service that map all service error type to `RouterError::Second`
 pub struct RouterMapErr<S>(pub S);
 
 impl<S, Arg> Service<Arg> for RouterMapErr<S>
