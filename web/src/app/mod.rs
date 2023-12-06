@@ -66,7 +66,7 @@ impl<CF, Obj> App<CF, Router<Obj>> {
         Fut: Future<Output = Result<C, E>>,
         F: RouterGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebRequest<'r, C, B>>,
-        for<'r> WebRequest<'r, C, B>: IntoObject<F::ErrGen, (), Object = Obj>,
+        for<'r> WebRequest<'r, C, B>: IntoObject<F::ErrGen<F>, (), Object = Obj>,
     {
         self.router = self.router.insert(path, factory);
         self

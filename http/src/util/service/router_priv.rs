@@ -1,6 +1,6 @@
 pub use xitca_router::{params::Params, MatchError};
 
-use core::{convert::Infallible, marker::PhantomData};
+use core::marker::PhantomData;
 
 use std::{borrow::Cow, collections::HashMap};
 
@@ -48,37 +48,17 @@ impl<Obj> Router<Obj> {
     /// # Panic:
     ///
     /// When multiple services inserted to the same path.
-    /// When [Router] is inserted in another Router.
-    ///
-    /// # Limitation:
-    /// When a [Router] is enclosed by middleware and/or middleware functions it can be inserted
-    /// into another router. This is due to complex type nesting result in losing information of
-    /// the inner router's [RouterGen] implement information.
-    pub fn insert<F, Arg, Req>(mut self, path: &'static str, builder: F) -> Self
+    pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut builder: F) -> Self
     where
         F: Service<Arg> + RouterGen + Send + Sync,
         F::Response: Service<Req>,
-        Req: IntoObject<F::ErrGen, Arg, Object = Obj>,
-    {
-        assert!(self
-            .routes
-            .insert(Cow::Borrowed(path), Req::into_object(F::insert_err_gen(builder)))
-            .is_none());
-        self
-    }
-
-    /// Nest a [Router] and/or it's transformed service builder to given path.
-    /// The service builder has the same constraints as [Router::insert] with additional
-    /// requirement of the produced [Service] type must output it's [Service::Error] type
-    /// as [RouterError]
-    pub fn nest<F, Arg, Req, E>(mut self, path: &'static str, mut builder: F) -> Self
-    where
-        F: Service<Arg> + RouterGen + Send + Sync,
-        F::Response: Service<Req, Error = RouterError<E>>,
-        Req: IntoObject<F, Arg, Object = Obj>,
+        Req: IntoObject<F::ErrGen<F>, Arg, Object = Obj>,
     {
         let path = builder.nest_path_gen(path);
-        assert!(self.routes.insert(path, Req::into_object(builder)).is_none());
+        assert!(self
+            .routes
+            .insert(path, Req::into_object(F::insert_err_gen(builder)))
+            .is_none());
         self
     }
 }
@@ -86,7 +66,7 @@ impl<Obj> Router<Obj> {
 /// trait for specialized route generation.
 pub trait RouterGen {
     /// service builder type for generating according error type of router service.
-    type ErrGen;
+    type ErrGen<R>;
 
     /// path generator when utilizing [Router::nest].
     ///
@@ -97,13 +77,13 @@ pub trait RouterGen {
 
     /// error generator when utilizing [Router::insert].
     ///
-    /// implicit default to map error type to [RouterError]
-    fn insert_err_gen(self) -> Self::ErrGen;
+    /// implicit default to map error type to [RouterError] with [RouterMapErr].
+    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R>;
 }
 
 // nest router needs special handling for path generation.
 impl<Obj> RouterGen for Router<Obj> {
-    type ErrGen = Infallible;
+    type ErrGen<R> = R;
 
     fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         let mut path = String::from(prefix);
@@ -126,32 +106,32 @@ impl<Obj> RouterGen for Router<Obj> {
         Cow::Owned(path)
     }
 
-    fn insert_err_gen(self) -> Self::ErrGen {
-        panic!("Router can not be inserted as routes of another Router. Try Router::nest")
+    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R> {
+        route
     }
 }
 
 impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
-    type ErrGen = RouterMapErr<Self>;
+    type ErrGen<R1> = RouterMapErr<R1>;
 
-    fn insert_err_gen(self) -> Self::ErrGen {
-        RouterMapErr(self)
+    fn insert_err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
+        RouterMapErr(route)
     }
 }
 
 impl<F, T, O, M> RouterGen for HandlerService<F, T, O, M> {
-    type ErrGen = RouterMapErr<Self>;
+    type ErrGen<R> = RouterMapErr<R>;
 
-    fn insert_err_gen(self) -> Self::ErrGen {
-        RouterMapErr(self)
+    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R> {
+        RouterMapErr(route)
     }
 }
 
 impl<F> RouterGen for FnService<F> {
-    type ErrGen = RouterMapErr<Self>;
+    type ErrGen<R1> = RouterMapErr<R1>;
 
-    fn insert_err_gen(self) -> Self::ErrGen {
-        RouterMapErr(self)
+    fn insert_err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
+        RouterMapErr(route)
     }
 }
 
@@ -159,14 +139,14 @@ impl<F, S> RouterGen for EnclosedFactory<F, S>
 where
     F: RouterGen,
 {
+    type ErrGen<R> = F::ErrGen<R>;
+
     fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         self.first.nest_path_gen(prefix)
     }
 
-    type ErrGen = RouterMapErr<Self>;
-
-    fn insert_err_gen(self) -> Self::ErrGen {
-        RouterMapErr(self)
+    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R> {
+        F::insert_err_gen(route)
     }
 }
 
@@ -174,14 +154,14 @@ impl<F, S> RouterGen for EnclosedFnFactory<F, S>
 where
     F: RouterGen,
 {
+    type ErrGen<R> = F::ErrGen<R>;
+
     fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         self.first.nest_path_gen(prefix)
     }
 
-    type ErrGen = RouterMapErr<Self>;
-
-    fn insert_err_gen(self) -> Self::ErrGen {
-        RouterMapErr(self)
+    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R> {
+        F::insert_err_gen(route)
     }
 }
 
@@ -413,7 +393,7 @@ mod test {
 
         Router::new()
             .insert("/root", handler())
-            .nest("/scope", router())
+            .insert("/scope", router())
             .call(())
             .now_or_panic()
             .unwrap()
@@ -423,7 +403,7 @@ mod test {
 
         Router::new()
             .insert("/root", handler())
-            .nest("/scope/", router())
+            .insert("/scope/", router())
             .call(())
             .now_or_panic()
             .unwrap()
