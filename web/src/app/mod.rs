@@ -387,4 +387,32 @@ mod test {
     }
 
     struct Foo;
+
+    #[test]
+    fn app_nest_router() {
+        async fn handler(StateRef(state): StateRef<'_, String>, PathRef(path): PathRef<'_>) -> String {
+            assert_eq!("state", state);
+            assert_eq!("/scope/nest", path);
+            state.to_string()
+        }
+
+        let state = String::from("state");
+        let service = App::with_state(state)
+            .at("/root", get(handler_service(handler)))
+            .at("/scope", Router::new().insert("/nest", get(handler_service(handler))))
+            .finish()
+            .call(())
+            .now_or_panic()
+            .ok()
+            .unwrap();
+
+        let req = Request::builder()
+            .uri("/scope/nest")
+            .body(RequestExt::<RequestBody>::default())
+            .unwrap();
+
+        let res = service.call(req).now_or_panic().unwrap();
+
+        assert_eq!(res.status().as_u16(), 200);
+    }
 }
