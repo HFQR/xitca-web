@@ -310,23 +310,21 @@ mod test {
         service.call(req).await
     }
 
+    async fn func(_: Request<RequestExt<()>>) -> Result<Response<()>, Infallible> {
+        Ok(Response::new(()))
+    }
+
     #[test]
     fn router_sync() {
         fn bound_check<T: Send + Sync>(_: T) {}
 
-        bound_check(Router::new().insert(
-            "/",
-            fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
-        ))
+        bound_check(Router::new().insert("/", fn_service(func)))
     }
 
     #[test]
     fn router_accept_request() {
         Router::new()
-            .insert(
-                "/",
-                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
-            )
+            .insert("/", fn_service(func))
             .call(())
             .now_or_panic()
             .unwrap()
@@ -338,10 +336,7 @@ mod test {
     #[test]
     fn router_enclosed_fn() {
         Router::new()
-            .insert(
-                "/",
-                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
-            )
+            .insert("/", fn_service(func))
             .enclosed_fn(enclosed)
             .call(())
             .now_or_panic()
@@ -375,13 +370,7 @@ mod test {
 
     #[test]
     fn router_nest() {
-        let handler = || {
-            get(
-                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) })
-                    .enclosed_fn(enclosed),
-            )
-            .enclosed_fn(enclosed)
-        };
+        let handler = || get(fn_service(func)).enclosed_fn(enclosed);
 
         let router = || Router::new().insert("/nest", handler()).enclosed_fn(enclosed);
 
