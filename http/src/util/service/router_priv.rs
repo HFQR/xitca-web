@@ -54,38 +54,38 @@ impl<Obj> Router<Obj> {
         F::Response: Service<Req>,
         Req: IntoObject<F::ErrGen<F>, Arg, Object = Obj>,
     {
-        let path = builder.nest_path_gen(path);
+        let path = builder.path_gen(path);
         assert!(self
             .routes
-            .insert(path, Req::into_object(F::insert_err_gen(builder)))
+            .insert(path, Req::into_object(F::err_gen(builder)))
             .is_none());
         self
     }
 }
 
-/// trait for specialized route generation.
+/// trait for specialized route generation when utilizing [Router::insert].
 pub trait RouterGen {
     /// service builder type for generating according error type of router service.
     type ErrGen<R>;
 
-    /// path generator when utilizing [Router::insert].
+    /// path generator.
     ///
     /// default to passthrough of original prefix path.
-    fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         Cow::Borrowed(prefix)
     }
 
-    /// error generator when utilizing [Router::insert].
+    /// error generator.
     ///
     /// implicit default to map error type to [RouterError] with [RouterMapErr].
-    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R>;
+    fn err_gen<R>(route: R) -> Self::ErrGen<R>;
 }
 
 // nest router needs special handling for path generation.
 impl<Obj> RouterGen for Router<Obj> {
     type ErrGen<R> = R;
 
-    fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         let mut path = String::from(prefix);
         if path.ends_with('/') {
             path.pop();
@@ -106,7 +106,7 @@ impl<Obj> RouterGen for Router<Obj> {
         Cow::Owned(path)
     }
 
-    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R> {
+    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
         route
     }
 }
@@ -114,7 +114,7 @@ impl<Obj> RouterGen for Router<Obj> {
 impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
     type ErrGen<R1> = RouterMapErr<R1>;
 
-    fn insert_err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
+    fn err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
         RouterMapErr(route)
     }
 }
@@ -122,7 +122,7 @@ impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
 impl<F, T, O, M> RouterGen for HandlerService<F, T, O, M> {
     type ErrGen<R> = RouterMapErr<R>;
 
-    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R> {
+    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
         RouterMapErr(route)
     }
 }
@@ -130,7 +130,7 @@ impl<F, T, O, M> RouterGen for HandlerService<F, T, O, M> {
 impl<F> RouterGen for FnService<F> {
     type ErrGen<R1> = RouterMapErr<R1>;
 
-    fn insert_err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
+    fn err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
         RouterMapErr(route)
     }
 }
@@ -141,12 +141,12 @@ where
 {
     type ErrGen<R> = F::ErrGen<R>;
 
-    fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        self.first.nest_path_gen(prefix)
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.first.path_gen(prefix)
     }
 
-    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R> {
-        F::insert_err_gen(route)
+    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
+        F::err_gen(route)
     }
 }
 
@@ -156,12 +156,12 @@ where
 {
     type ErrGen<R> = F::ErrGen<R>;
 
-    fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        self.first.nest_path_gen(prefix)
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.first.path_gen(prefix)
     }
 
-    fn insert_err_gen<R>(route: R) -> Self::ErrGen<R> {
-        F::insert_err_gen(route)
+    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
+        F::err_gen(route)
     }
 }
 
