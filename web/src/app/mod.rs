@@ -12,7 +12,7 @@ use std::error;
 use futures_core::stream::Stream;
 use xitca_http::util::{
     middleware::context::{Context, ContextBuilder},
-    service::router::{IntoObject, PathGen, Router},
+    service::router::{IntoObject, Router, RouterGen},
 };
 
 use crate::{
@@ -64,9 +64,9 @@ impl<CF, Obj> App<CF, Router<Obj>> {
     where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, E>>,
-        F: PathGen + Service + Send + Sync,
+        F: RouterGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebRequest<'r, C, B>>,
-        for<'r> WebRequest<'r, C, B>: IntoObject<F, (), Object = Obj>,
+        for<'r> WebRequest<'r, C, B>: IntoObject<F::ErrGen<F>, (), Object = Obj>,
     {
         self.router = self.router.insert(path, factory);
         self
