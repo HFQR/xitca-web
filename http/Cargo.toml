@@ -42,7 +42,7 @@ tracing = { version = "0.1.40", default-features = false }
 openssl = { version = "0.10", optional = true }
 
 # rustls support
-rustls = { version = "0.21", optional = true }
+rustls = { version = "0.22", optional = true }
 
 # native tls support
 native-tls = { version = "0.2.7", features = ["alpn"], optional = true }

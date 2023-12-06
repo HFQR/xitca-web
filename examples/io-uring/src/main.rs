@@ -5,7 +5,8 @@
 
 use std::{convert::Infallible, io, sync::Arc};
 
-use rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls::ServerConfig;
+use rustls_pki_types::PrivateKeyDer;
 use xitca_http::{
     h1,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, RequestExt, Response},
@@ -40,11 +41,10 @@ fn tls_config() -> Arc<ServerConfig> {
     let subject_alt_names = vec!["127.0.0.1".to_string(), "localhost".to_string()];
 
     let cert = rcgen::generate_simple_self_signed(subject_alt_names).unwrap();
-    let key = PrivateKey(cert.serialize_private_key_der());
-    let cert = vec![Certificate(cert.serialize_der().unwrap())];
+    let key = PrivateKeyDer::Pkcs8(cert.serialize_private_key_der().into());
+    let cert = vec![cert.serialize_der().unwrap().into()];
 
     let mut config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert, key)
         .unwrap();
