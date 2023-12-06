@@ -1,6 +1,6 @@
 pub use xitca_router::{params::Params, MatchError};
 
-use core::marker::PhantomData;
+use core::{convert::Infallible, marker::PhantomData};
 
 use std::{borrow::Cow, collections::HashMap};
 
@@ -13,7 +13,7 @@ use xitca_service::{
 
 use crate::http::{BorrowReq, BorrowReqMut, Request, Uri};
 
-use super::route::Route;
+use super::{handler::HandlerService, route::Route};
 
 /// Simple router for matching path and call according service.
 ///
@@ -48,29 +48,64 @@ impl<Obj> Router<Obj> {
     /// # Panic:
     ///
     /// When multiple services inserted to the same path.
-    pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut factory: F) -> Self
+    /// When [Router] is inserted in another Router.
+    ///
+    /// # Limitation:
+    /// When a [Router] is enclosed by middleware and/or middleware functions it can be inserted
+    /// into another router. This is due to complex type nesting result in losing information of
+    /// the inner router's [RouterGen] implement information.
+    pub fn insert<F, Arg, Req>(mut self, path: &'static str, builder: F) -> Self
     where
-        F: Service<Arg> + PathGen + Send + Sync,
+        F: Service<Arg> + RouterGen + Send + Sync,
         F::Response: Service<Req>,
+        Req: IntoObject<F::ErrGen, Arg, Object = Obj>,
+    {
+        assert!(self
+            .routes
+            .insert(Cow::Borrowed(path), Req::into_object(F::insert_err_gen(builder)))
+            .is_none());
+        self
+    }
+
+    /// Nest a [Router] and/or it's transformed service builder to given path.
+    /// The service builder has the same constraints as [Router::insert] with additional
+    /// requirement of the produced [Service] type must output it's [Service::Error] type
+    /// as [RouterError]
+    pub fn nest<F, Arg, Req, E>(mut self, path: &'static str, mut builder: F) -> Self
+    where
+        F: Service<Arg> + RouterGen + Send + Sync,
+        F::Response: Service<Req, Error = RouterError<E>>,
         Req: IntoObject<F, Arg, Object = Obj>,
     {
-        let path = factory.gen(path);
-        assert!(self.routes.insert(path, Req::into_object(factory)).is_none());
+        let path = builder.nest_path_gen(path);
+        assert!(self.routes.insert(path, Req::into_object(builder)).is_none());
         self
     }
 }
 
-/// trait for producing actual router path with given prefix str.
-/// default to pass through (the router path is the same as prefix)
-pub trait PathGen {
-    fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+/// trait for specialized route generation.
+pub trait RouterGen {
+    /// service builder type for generating according error type of router service.
+    type ErrGen;
+
+    /// path generator when utilizing [Router::nest].
+    ///
+    /// default to passthrough of original prefix path.
+    fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         Cow::Borrowed(prefix)
     }
+
+    /// error generator when utilizing [Router::insert].
+    ///
+    /// implicit default to map error type to [RouterError]
+    fn insert_err_gen(self) -> Self::ErrGen;
 }
 
 // nest router needs special handling for path generation.
-impl<Obj> PathGen for Router<Obj> {
-    fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+impl<Obj> RouterGen for Router<Obj> {
+    type ErrGen = Infallible;
+
+    fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         let mut path = String::from(prefix);
         if path.ends_with('/') {
             path.pop();
@@ -90,27 +125,92 @@ impl<Obj> PathGen for Router<Obj> {
 
         Cow::Owned(path)
     }
-}
 
-impl<R, N, const M: usize> PathGen for Route<R, N, M> {}
-
-impl<F> PathGen for FnService<F> {}
-
-impl<F, S> PathGen for EnclosedFactory<F, S>
-where
-    F: PathGen,
-{
-    fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        self.first.gen(prefix)
+    fn insert_err_gen(self) -> Self::ErrGen {
+        panic!("Router can not be inserted as routes of another Router. Try Router::nest")
     }
 }
 
-impl<F, S> PathGen for EnclosedFnFactory<F, S>
+impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
+    type ErrGen = RouterMapErr<Self>;
+
+    fn insert_err_gen(self) -> Self::ErrGen {
+        RouterMapErr(self)
+    }
+}
+
+impl<F, T, O, M> RouterGen for HandlerService<F, T, O, M> {
+    type ErrGen = RouterMapErr<Self>;
+
+    fn insert_err_gen(self) -> Self::ErrGen {
+        RouterMapErr(self)
+    }
+}
+
+impl<F> RouterGen for FnService<F> {
+    type ErrGen = RouterMapErr<Self>;
+
+    fn insert_err_gen(self) -> Self::ErrGen {
+        RouterMapErr(self)
+    }
+}
+
+impl<F, S> RouterGen for EnclosedFactory<F, S>
 where
-    F: PathGen,
+    F: RouterGen,
 {
-    fn gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        self.first.gen(prefix)
+    fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.first.nest_path_gen(prefix)
+    }
+
+    type ErrGen = RouterMapErr<Self>;
+
+    fn insert_err_gen(self) -> Self::ErrGen {
+        RouterMapErr(self)
+    }
+}
+
+impl<F, S> RouterGen for EnclosedFnFactory<F, S>
+where
+    F: RouterGen,
+{
+    fn nest_path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.first.nest_path_gen(prefix)
+    }
+
+    type ErrGen = RouterMapErr<Self>;
+
+    fn insert_err_gen(self) -> Self::ErrGen {
+        RouterMapErr(self)
+    }
+}
+
+pub struct RouterMapErr<S>(pub S);
+
+impl<S, Arg> Service<Arg> for RouterMapErr<S>
+where
+    S: Service<Arg>,
+{
+    type Response = MapErrService<S::Response>;
+    type Error = S::Error;
+
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        self.0.call(arg).await.map(MapErrService)
+    }
+}
+
+pub struct MapErrService<S>(S);
+
+impl<S, Req> Service<Req> for MapErrService<S>
+where
+    S: Service<Req>,
+{
+    type Response = S::Response;
+    type Error = RouterError<S::Error>;
+
+    #[inline]
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        self.0.call(req).await.map_err(RouterError::Second)
     }
 }
 
@@ -138,13 +238,13 @@ pub struct RouterService<S> {
     routes: xitca_router::Router<S>,
 }
 
-impl<S, Req> Service<Req> for RouterService<S>
+impl<S, Req, E> Service<Req> for RouterService<S>
 where
-    S: xitca_service::object::ServiceObject<Req>,
+    S: xitca_service::object::ServiceObject<Req, Error = RouterError<E>>,
     Req: BorrowReq<Uri> + BorrowReqMut<Params>,
 {
     type Response = S::Response;
-    type Error = RouterError<S::Error>;
+    type Error = S::Error;
 
     // as of the time of committing rust compiler have problem optimizing this piece of code.
     // using async fn call directly would cause significant code bloating.
@@ -155,9 +255,7 @@ where
             let xitca_router::Match { value, params } =
                 self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
             *req.borrow_mut() = params;
-            xitca_service::object::ServiceObject::call(value, req)
-                .await
-                .map_err(RouterError::Second)
+            xitca_service::object::ServiceObject::call(value, req).await
         }
     }
 }
@@ -217,7 +315,10 @@ mod test {
     use xitca_service::{fn_service, Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::http::{Request, RequestExt, Response};
+    use crate::{
+        http::{Request, RequestExt, Response},
+        util::service::route::get,
+    };
 
     use super::*;
 
@@ -230,11 +331,7 @@ mod test {
 
     #[test]
     fn router_sync() {
-        fn bound_check<T>(_: T)
-        where
-            T: Send + Sync,
-        {
-        }
+        fn bound_check<T: Send + Sync>(_: T) {}
 
         bound_check(Router::new().insert(
             "/",
@@ -297,14 +394,15 @@ mod test {
 
     #[test]
     fn router_nest() {
-        let router = || {
-            Router::new()
-                .insert(
-                    "/nest",
-                    fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) }),
-                )
-                .enclosed_fn(enclosed)
+        let handler = || {
+            get(
+                fn_service(|_: Request<RequestExt<()>>| async { Ok::<_, Infallible>(Response::new(())) })
+                    .enclosed_fn(enclosed),
+            )
+            .enclosed_fn(enclosed)
         };
+
+        let router = || Router::new().insert("/nest", handler()).enclosed_fn(enclosed);
 
         let req = || {
             Request::builder()
@@ -314,7 +412,8 @@ mod test {
         };
 
         Router::new()
-            .insert("/scope", router())
+            .insert("/root", handler())
+            .nest("/scope", router())
             .call(())
             .now_or_panic()
             .unwrap()
@@ -323,7 +422,8 @@ mod test {
             .unwrap();
 
         Router::new()
-            .insert("/scope/", router())
+            .insert("/root", handler())
+            .nest("/scope/", router())
             .call(())
             .now_or_panic()
             .unwrap()

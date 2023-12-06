@@ -10,7 +10,7 @@ use http_body::{Body, SizeHint};
 use pin_project_lite::pin_project;
 use xitca_http::{
     body::{none_body_hint, BodySize},
-    util::service::router::PathGen,
+    util::service::router::{RouterGen, RouterMapErr},
 };
 use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
@@ -53,7 +53,13 @@ where
     }
 }
 
-impl<S> PathGen for TowerHttpCompat<S> {}
+impl<S> RouterGen for TowerHttpCompat<S> {
+    type ErrGen = RouterMapErr<Self>;
+
+    fn insert_err_gen(self) -> Self::ErrGen {
+        RouterMapErr(self)
+    }
+}
 
 pub struct TowerCompatService<S> {
     service: RefCell<S>,

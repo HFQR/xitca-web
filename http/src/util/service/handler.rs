@@ -1,40 +1,51 @@
 //! high level async function service with "variadic generic" ish.
 
-use core::{
-    convert::Infallible,
-    future::Future,
-    future::{ready, Ready},
-    marker::PhantomData,
-};
+use core::{convert::Infallible, future::Future, marker::PhantomData};
 
-use xitca_service::{fn_build, pipeline::PipelineE, AsyncClosure, FnService, Service};
+use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
 ///
 /// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
 /// output type.
-pub fn handler_service<Arg, F, T, O>(
-    func: F,
-) -> FnService<impl Fn(Arg) -> Ready<Result<HandlerService<F, T, O>, Infallible>>>
+pub fn handler_service<F, T, O>(func: F) -> HandlerService<F, T, O, marker::BuilderMark>
 where
     F: AsyncClosure<T> + Clone,
 {
-    fn_build(move |_| ready(Ok(HandlerService::new(func.clone()))))
+    HandlerService::new(func)
 }
 
-pub struct HandlerService<F, T, O> {
+pub struct HandlerService<F, T, O, M> {
     func: F,
-    _p: PhantomData<(T, O)>,
+    _p: PhantomData<fn(T, O, M)>,
 }
 
-impl<F, T, O> HandlerService<F, T, O> {
+// marker for specialized trait implement on HandlerService
+mod marker {
+    pub struct BuilderMark;
+    pub struct ServiceMark;
+}
+
+impl<F, T, O, M> HandlerService<F, T, O, M> {
     pub const fn new(func: F) -> Self {
         Self { func, _p: PhantomData }
     }
 }
 
-impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O>
+impl<F, T, O> Service for HandlerService<F, T, O, marker::BuilderMark>
+where
+    F: Clone,
+{
+    type Response = HandlerService<F, T, O, marker::ServiceMark>;
+    type Error = Infallible;
+
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
+        Ok(HandlerService::new(self.func.clone()))
+    }
+}
+
+impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O, marker::ServiceMark>
 where
     // for borrowed extractors, `T` is the `'static` version of the extractors
     T: FromRequest<'static, Req>,
@@ -128,10 +139,11 @@ from_req_impl! { A, B, C, D, E, F, G, }
 from_req_impl! { A, B, C, D, E, F, G, H, }
 from_req_impl! { A, B, C, D, E, F, G, H, I, }
 
-/// Make Response with reference of Req.
+/// Make Response with ownership of Req.
 /// The Output type is what returns from [handler_service] function.
 pub trait Responder<Req> {
     type Output;
+
     fn respond_to(self, req: Req) -> impl Future<Output = Self::Output>;
 }
 
