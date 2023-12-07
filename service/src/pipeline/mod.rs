@@ -15,4 +15,4 @@ pub type EnclosedFnFactory<F, S> = PipelineT<F, S, marker::BuildEnclosedFn>;
 pub type EnclosedFactory<F, S> = PipelineT<F, S, marker::BuildEnclosed>;
 
 /// Type alias for specialized [PipelineT] type.
-pub type MapErrorServiceFactory<F, S> = PipelineT<F, S, marker::MapErr>;
+pub type MapErrorServiceFactory<F, S> = PipelineT<F, S, marker::BuildMapErr>;
