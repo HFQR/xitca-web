@@ -28,9 +28,10 @@ use crate::http::{BorrowReq, BorrowReqMut};
 /// }
 ///
 /// # async fn stateful() {
-/// // Construct Stateful service factory with closure.
+/// // Construct Stateful service builder with closure.
 /// let service = fn_service(state_handler)
-///     // Stateful service factory would construct given service factory and pass (&State, Req) to it.
+///     // Stateful service builder would construct given service builder and pass (&State, Req) to it's
+///     // Service::call method.
 ///     .enclosed(ContextBuilder::new(|| async { Ok::<_, Infallible>(String::from("string_state")) }))
 ///     .call(())
 ///     .await
@@ -254,9 +255,31 @@ mod test {
             service.call(req).await
         }
 
-        let res = Router::new()
-            .insert("/", get(fn_service(handler)))
-            .enclosed_fn(enclosed)
+        let router = || Router::new().insert("/", get(fn_service(handler)));
+
+        let router_with_ctx = || {
+            router().enclosed_fn(enclosed).enclosed(ContextBuilder::new(|| async {
+                Ok::<_, Infallible>(String::from("string_state"))
+            }))
+        };
+
+        fn bound_check<T: Send + Sync>(_: T) {}
+
+        bound_check(router_with_ctx());
+
+        let res = router_with_ctx()
+            .call(())
+            .now_or_panic()
+            .ok()
+            .unwrap()
+            .call(Request::default())
+            .now_or_panic()
+            .unwrap();
+
+        assert_eq!(res.status().as_u16(), 200);
+
+        let res = router()
+            .insert("/nest", router())
             .enclosed(ContextBuilder::new(|| async {
                 Ok::<_, Infallible>(String::from("string_state"))
             }))
@@ -269,20 +292,5 @@ mod test {
             .unwrap();
 
         assert_eq!(res.status().as_u16(), 200);
-
-        fn bound_check<T>(_: T)
-        where
-            T: Send + Sync,
-        {
-        }
-
-        bound_check(
-            Router::new()
-                .insert("/", get(fn_service(handler)))
-                .enclosed_fn(enclosed)
-                .enclosed(ContextBuilder::new(|| async {
-                    Ok::<_, Infallible>(String::from("string_state"))
-                })),
-        )
     }
 }
