@@ -8,7 +8,7 @@ use xitca_service::{
     object::{BoxedServiceObject, BoxedSyncServiceObject},
     pipeline::PipelineE,
     ready::ReadyService,
-    EnclosedFactory, EnclosedFnFactory, FnService, Service,
+    EnclosedFactory, EnclosedFnFactory, FnService, MapErrorServiceFactory, Service,
 };
 
 use crate::http::{BorrowReq, BorrowReqMut, Request, Uri};
@@ -132,6 +132,21 @@ impl<F> RouterGen for FnService<F> {
 
     fn err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
         RouterMapErr(route)
+    }
+}
+
+impl<F, S> RouterGen for MapErrorServiceFactory<F, S>
+where
+    F: RouterGen,
+{
+    type ErrGen<R> = F::ErrGen<R>;
+
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.first.path_gen(prefix)
+    }
+
+    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
+        F::err_gen(route)
     }
 }
 
