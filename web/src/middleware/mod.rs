@@ -9,6 +9,7 @@ pub mod tower_http_compat;
 
 pub mod eraser;
 pub mod limit;
+pub mod sync;
 
 pub use xitca_http::util::middleware::{Extension, Logger};
 pub use xitca_service::middleware::UncheckedReady;

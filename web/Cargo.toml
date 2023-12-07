@@ -96,4 +96,5 @@ xitca-codegen = { version = "0.1" }
 
 futures-util = { version = "0.3", features = ["alloc"] }
 serde = { version = "1.0.137", features = ["derive"] }
+tokio = { version = "1", features = ["macros"] }
 tower-http = { version = "0.4.0", features = ["set-status"] }
