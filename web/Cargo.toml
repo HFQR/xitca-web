@@ -54,7 +54,7 @@ xitca-unsafe-collection = "0.1"
 
 futures-core = "0.3"
 pin-project-lite = "0.2.9"
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "sync"] }
 
 # http server
 xitca-server = { version = "0.1", optional = true }
@@ -96,4 +96,5 @@ xitca-codegen = { version = "0.1" }
 
 futures-util = { version = "0.3", features = ["alloc"] }
 serde = { version = "1.0.137", features = ["derive"] }
+tokio = { version = "1", features = ["macros"] }
 tower-http = { version = "0.4.0", features = ["set-status"] }
