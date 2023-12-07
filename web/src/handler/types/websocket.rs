@@ -150,9 +150,9 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let body = req.take_body_ref();
-        let ws = http_ws::ws(req.req(), body)?;
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        let body = ctx.take_body_ref();
+        let ws = http_ws::ws(ctx.req(), body)?;
         Ok(WebSocket::new(ws))
     }
 }

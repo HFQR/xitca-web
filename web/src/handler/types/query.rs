@@ -33,9 +33,9 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let value =
-            serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default()).map_err(_ParseError::UrlEncoded)?;
+            serde_urlencoded::from_str(ctx.req().uri().query().unwrap_or_default()).map_err(_ParseError::UrlEncoded)?;
         Ok(Query(value))
     }
 }

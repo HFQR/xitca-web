@@ -25,8 +25,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(T::from_request(req).await)
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(T::from_request(ctx).await)
     }
 }
 
@@ -39,8 +39,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(T::from_request(req).await.ok())
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(T::from_request(ctx).await.ok())
     }
 }
 
@@ -53,8 +53,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(req)
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx)
     }
 }
 
@@ -78,8 +78,8 @@ where
     type Output = Result<O, E>;
 
     #[inline]
-    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
-        Ok(self?.respond_to(req).await)
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        Ok(self?.respond_to(ctx).await)
     }
 }
 
@@ -105,8 +105,8 @@ macro_rules! text_utf8 {
         impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
             type Output = WebResponse;
 
-            async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
-                let mut res = req.into_response(self);
+            async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+                let mut res = ctx.into_response(self);
                 res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
                 res
             }
@@ -122,8 +122,8 @@ macro_rules! blank_internal {
         impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
             type Output = WebResponse;
 
-            async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
-                let mut res = req.into_response(Bytes::new());
+            async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+                let mut res = ctx.into_response(Bytes::new());
                 *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                 res
             }
@@ -139,8 +139,8 @@ blank_internal!(Box<dyn error::Error + Send + Sync>);
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for MatchError {
     type Output = WebResponse;
 
-    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
-        let mut res = req.into_response(Bytes::new());
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        let mut res = ctx.into_response(Bytes::new());
         *res.status_mut() = StatusCode::NOT_FOUND;
         res
     }
@@ -149,8 +149,8 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for MatchError {
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for MethodNotAllowed {
     type Output = WebResponse;
 
-    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
-        let mut res = req.into_response(Bytes::new());
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        let mut res = ctx.into_response(Bytes::new());
 
         let allowed = self.allowed_methods();
 

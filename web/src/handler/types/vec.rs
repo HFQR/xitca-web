@@ -15,8 +15,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let body = req.take_body_ref();
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        let body = ctx.take_body_ref();
 
         let mut body = pin!(body);
 
@@ -34,7 +34,7 @@ where
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for Vec<u8> {
     type Output = WebResponse;
 
-    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
-        req.into_response(self)
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        ctx.into_response(self)
     }
 }

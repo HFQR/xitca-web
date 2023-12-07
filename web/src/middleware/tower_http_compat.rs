@@ -59,7 +59,7 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     ///     .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)));
     /// # }
     ///
-    /// # async fn handler(req: WebContext<'_>) -> Result<WebResponse, Infallible> {
+    /// # async fn handler(ctx: WebContext<'_>) -> Result<WebResponse, Infallible> {
     /// #   todo!()
     /// # }
     /// ```
@@ -141,9 +141,9 @@ mod test {
 
     use super::*;
 
-    async fn handler(req: WebContext<'_, &'static str>) -> Result<WebResponse, Infallible> {
-        assert_eq!(*req.state(), "996");
-        Ok(req.into_response(Bytes::new()))
+    async fn handler(ctx: WebContext<'_, &'static str>) -> Result<WebResponse, Infallible> {
+        assert_eq!(*ctx.state(), "996");
+        Ok(ctx.into_response(Bytes::new()))
     }
 
     #[test]

@@ -42,8 +42,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(StateRef(req.state().borrow()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(StateRef(ctx.state().borrow()))
     }
 }
 
@@ -81,8 +81,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(StateOwn(req.state().borrow().clone()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(StateOwn(ctx.state().borrow().clone()))
     }
 }
 
@@ -108,12 +108,12 @@ mod test {
         StateRef(state): StateRef<'_, String>,
         StateRef(state2): StateRef<'_, u32>,
         StateRef(state3): StateRef<'_, State>,
-        req: &WebContext<'_, State>,
+        ctx: &WebContext<'_, State>,
     ) -> String {
         assert_eq!("state", state);
         assert_eq!(&996, state2);
-        assert_eq!(state, req.state().field1.as_str());
-        assert_eq!(state3, req.state());
+        assert_eq!(state, ctx.state().field1.as_str());
+        assert_eq!(state3, ctx.state());
         state.to_string()
     }
 

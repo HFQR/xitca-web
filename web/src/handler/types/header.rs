@@ -67,8 +67,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        req.req()
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        ctx.req()
             .headers()
             .get(&map_to_header_name::<HEADER_NAME>())
             .map(HeaderRef)

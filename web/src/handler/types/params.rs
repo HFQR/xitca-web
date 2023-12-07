@@ -28,10 +28,9 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let params = req.req().body().params();
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        let params = ctx.req().body().params();
         let params = T::deserialize(Params2::new(params)).map_err(_ParseError::Params)?;
-
         Ok(Params(params))
     }
 }
@@ -55,8 +54,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(ParamsRef(req.req().extensions().get::<router::Params>().unwrap()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ParamsRef(ctx.req().extensions().get::<router::Params>().unwrap()))
     }
 }
 

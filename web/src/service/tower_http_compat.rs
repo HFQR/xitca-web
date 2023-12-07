@@ -82,10 +82,10 @@ where
     type Response = WebResponse<CompatBody<ResB>>;
     type Error = S::Error;
 
-    async fn call(&self, mut req: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
-        let ctx = req.state().clone();
-        let (mut parts, ext) = req.take_request().into_parts();
-        parts.extensions.insert(FakeSync::new(FakeSend::new(ctx)));
+    async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
+        let state = ctx.state().clone();
+        let (mut parts, ext) = ctx.take_request().into_parts();
+        parts.extensions.insert(FakeSync::new(FakeSend::new(state)));
         let req = Request::from_parts(parts, CompatBody::new(FakeSend::new(ext)));
         let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
         fut.await.map(|res| res.map(CompatBody::new))

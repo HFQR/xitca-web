@@ -14,9 +14,9 @@ where
     type Type<'b> = Multipart<B>;
     type Error = ExtractError<B::Error>;
 
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let body = req.take_body_ref();
-        http_multipart::multipart(req.req(), body).map_err(Into::into)
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        let body = ctx.take_body_ref();
+        http_multipart::multipart(ctx.req(), body).map_err(Into::into)
     }
 }
 

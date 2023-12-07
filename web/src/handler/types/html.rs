@@ -28,8 +28,8 @@ where
     type Output = WebResponse;
 
     #[inline]
-    async fn respond_to(self, req: WebContext<'r, S>) -> Self::Output {
-        let mut res = req.into_response(self.0);
+    async fn respond_to(self, ctx: WebContext<'r, S>) -> Self::Output {
+        let mut res = ctx.into_response(self.0);
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
         res
     }

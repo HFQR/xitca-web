@@ -39,9 +39,9 @@ where
     type Response = Res;
     type Error = DecompressServiceError<Err>;
 
-    async fn call(&self, mut req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let (parts, ext) = req.take_request().into_parts();
-        let ctx = req.ctx;
+    async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let (parts, ext) = ctx.take_request().into_parts();
+        let ctx = ctx.ctx;
         let (ext, body) = ext.replace_body(());
         let req = Request::from_parts(parts, ());
 
@@ -49,9 +49,9 @@ where
         let mut body = RefCell::new(decoder);
         let mut req = req.map(|_| ext);
 
-        let req = WebContext::new(&mut req, &mut body, ctx);
+        let ctx = WebContext::new(&mut req, &mut body, ctx);
 
-        self.service.call(req).await.map_err(DecompressServiceError::Second)
+        self.service.call(ctx).await.map_err(DecompressServiceError::Second)
     }
 }
 

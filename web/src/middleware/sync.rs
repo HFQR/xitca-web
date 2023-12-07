@@ -68,17 +68,17 @@ where
     type Response = WebResponse<ResB>;
     type Error = Err;
 
-    async fn call(&self, mut req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let func = self.func.clone();
-        let req2 = std::mem::take(req.req_mut());
+        let req = std::mem::take(ctx.req_mut());
 
         let (tx, mut rx) = unbounded_channel();
         let (tx2, rx2) = sync_channel(1);
 
         let mut next = Next { tx, rx: rx2 };
-        let handle = tokio::task::spawn_blocking(move || func(req2, &mut next));
+        let handle = tokio::task::spawn_blocking(move || func(req, &mut next));
 
-        *req.req_mut() = match rx.recv().await {
+        *ctx.req_mut() = match rx.recv().await {
             Some(req) => req,
             None => {
                 // tx is dropped which means spawned thread exited already. join it and panic if necessary.
@@ -89,7 +89,7 @@ where
             }
         };
 
-        match self.service.call(req).await {
+        match self.service.call(ctx).await {
             Ok(res) => {
                 let (parts, body) = res.into_parts();
                 tx2.send(Ok(Response::from_parts(parts, ()))).unwrap();

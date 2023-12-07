@@ -15,8 +15,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let vec = Vec::from_request(req).await?;
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        let vec = Vec::from_request(ctx).await?;
         Ok(String::from_utf8(vec).map_err(|e| _ParseError::String(e.utf8_error()))?)
     }
 }

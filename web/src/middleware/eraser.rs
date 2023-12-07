@@ -83,8 +83,8 @@ where
     type Error = Err;
 
     #[inline]
-    async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = self.service.call(req).await?;
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let res = self.service.call(ctx).await?;
         Ok(res.map(ResponseBody::box_stream))
     }
 }
@@ -135,11 +135,11 @@ mod test {
         Ok(WebResponse::new(Once::new(Bytes::new())))
     }
 
-    async fn middleware_fn<S, C, B, Err>(s: &S, req: WebContext<'_, C, B>) -> Result<WebResponse, Err>
+    async fn middleware_fn<S, C, B, Err>(s: &S, ctx: WebContext<'_, C, B>) -> Result<WebResponse, Err>
     where
         S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Err>,
     {
-        s.call(req).await
+        s.call(ctx).await
     }
 
     #[test]

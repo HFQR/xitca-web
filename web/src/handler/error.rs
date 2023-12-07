@@ -57,8 +57,8 @@ impl<E> From<Infallible> for ExtractError<E> {
 impl<'r, C, B, E> Responder<WebContext<'r, C, B>> for ExtractError<E> {
     type Output = WebResponse;
 
-    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
-        let mut res = req.into_response(Bytes::new());
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        let mut res = ctx.into_response(Bytes::new());
         *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         res
     }
