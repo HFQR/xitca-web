@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod context;
 #[cfg(feature = "__server")]
 mod server;
 
@@ -8,8 +9,6 @@ pub mod body;
 pub mod error;
 pub mod handler;
 pub mod middleware;
-pub mod request;
-pub mod response;
 pub mod service;
 pub mod test;
 
@@ -19,7 +18,7 @@ pub mod codegen {
     ///
     /// # Example:
     /// ```rust
-    /// # use xitca_web::{codegen::State, handler::{handler_service, state::StateRef}, request::WebRequest, App};
+    /// # use xitca_web::{codegen::State, handler::{handler_service, state::StateRef}, App, WebContext};
     ///
     /// // use derive macro and attribute to mark the field that can be extracted.
     /// #[derive(State, Clone)]
@@ -40,12 +39,26 @@ pub mod codegen {
     ///     assert_eq!(*num, 996);
     ///     num.to_string()
     /// }
-    /// # async fn nah(_: &WebRequest<'_, MyState>) -> &'static str {
+    /// # async fn nah(_: &WebContext<'_, MyState>) -> &'static str {
     /// #   // needed to infer the body type of request
     /// #   ""
     /// # }
     /// ```
     pub use xitca_codegen::State;
+}
+
+pub mod http {
+    //! http types
+
+    use super::body::{RequestBody, ResponseBody};
+
+    pub use xitca_http::http::*;
+
+    /// type alias for default request type xitca-web uses.
+    pub type WebRequest<B = RequestBody> = Request<RequestExt<B>>;
+
+    /// type alias for default response type xitca-web uses.
+    pub type WebResponse<B = ResponseBody> = Response<B>;
 }
 
 pub mod route {
@@ -59,8 +72,8 @@ pub mod dev {
 
 pub use app::{App, AppObject};
 pub use body::BodyStream;
+pub use context::WebContext;
 #[cfg(feature = "__server")]
 pub use server::HttpServer;
 
 pub use xitca_http::bytes;
-pub use xitca_http::http;

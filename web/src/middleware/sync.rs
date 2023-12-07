@@ -5,10 +5,9 @@ use std::sync::mpsc::{sync_channel, Receiver};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 use crate::{
+    context::WebContext,
     dev::service::{ready::ReadyService, Service},
-    http::{Request, RequestExt, Response},
-    request::WebRequest,
-    response::WebResponse,
+    http::{Request, RequestExt, Response, WebResponse},
 };
 
 /// experimental type for sync function as middleware.
@@ -60,16 +59,16 @@ pub struct SyncService<F, S> {
     service: S,
 }
 
-impl<'r, F, S, C, B, ResB, Err> Service<WebRequest<'r, C, B>> for SyncService<F, S>
+impl<'r, F, S, C, B, ResB, Err> Service<WebContext<'r, C, B>> for SyncService<F, S>
 where
     F: Fn(Request<RequestExt<()>>, &mut Next<Err>) -> Result<Response<()>, Err> + Send + Clone + 'static,
-    S: for<'r2> Service<WebRequest<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
+    S: for<'r2> Service<WebContext<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
     Err: Send + 'static,
 {
     type Response = WebResponse<ResB>;
     type Error = Err;
 
-    async fn call(&self, mut req: WebRequest<'r, C, B>) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, mut req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let func = self.func.clone();
         let req2 = std::mem::take(req.req_mut());
 
@@ -124,7 +123,7 @@ mod test {
 
     use super::*;
 
-    async fn handler(req: WebRequest<'_, &'static str>) -> Result<WebResponse, Infallible> {
+    async fn handler(req: WebContext<'_, &'static str>) -> Result<WebResponse, Infallible> {
         assert_eq!(*req.state(), "996");
         Ok(req.into_response(Bytes::new()))
     }

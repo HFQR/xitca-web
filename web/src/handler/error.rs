@@ -9,10 +9,9 @@ use serde_json::Error as JsonError;
 
 use crate::{
     bytes::Bytes,
+    context::WebContext,
     error::BodyError,
-    http::{header::HeaderName, StatusCode},
-    request::WebRequest,
-    response::WebResponse,
+    http::{header::HeaderName, StatusCode, WebResponse},
 };
 
 use super::Responder;
@@ -55,10 +54,10 @@ impl<E> From<Infallible> for ExtractError<E> {
     }
 }
 
-impl<'r, C, B, E> Responder<WebRequest<'r, C, B>> for ExtractError<E> {
+impl<'r, C, B, E> Responder<WebContext<'r, C, B>> for ExtractError<E> {
     type Output = WebResponse;
 
-    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
+    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
         let mut res = req.into_response(Bytes::new());
         *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         res

@@ -12,10 +12,9 @@ use serde::{de::DeserializeOwned, ser::Serialize};
 use crate::{
     body::BodyStream,
     bytes::{BufMutWriter, Bytes, BytesMut},
+    context::WebContext,
     handler::{error::ExtractError, FromRequest, Responder},
-    http::{const_header_value::JSON, header::CONTENT_TYPE, status::StatusCode},
-    request::WebRequest,
-    response::WebResponse,
+    http::{const_header_value::JSON, header::CONTENT_TYPE, status::StatusCode, WebResponse},
 };
 
 use super::{
@@ -57,7 +56,7 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
     }
 }
 
-impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebRequest<'r, C, B>> for Json<T, LIMIT>
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Json<T, LIMIT>
 where
     B: BodyStream + Default,
     T: DeserializeOwned,
@@ -65,7 +64,7 @@ where
     type Type<'b> = Json<T, LIMIT>;
     type Error = ExtractError<B::Error>;
 
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(req).await?;
 
         let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(req)
@@ -95,14 +94,14 @@ where
     }
 }
 
-impl<'r, C, B, T> Responder<WebRequest<'r, C, B>> for Json<T>
+impl<'r, C, B, T> Responder<WebContext<'r, C, B>> for Json<T>
 where
     T: Serialize,
 {
     type Output = WebResponse;
 
     #[inline]
-    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
+    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
         let mut bytes = BytesMut::new();
         match serde_json::to_writer(BufMutWriter(&mut bytes), &self.0) {
             Ok(_) => {

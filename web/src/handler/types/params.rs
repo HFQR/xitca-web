@@ -9,17 +9,17 @@ use xitca_http::util::service::router;
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest,
     },
-    request::WebRequest,
 };
 
 #[derive(Debug)]
 pub struct Params<T>(pub T);
 
-impl<'a, 'r, T, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Params<T>
+impl<'a, 'r, T, C, B> FromRequest<'a, WebContext<'r, C, B>> for Params<T>
 where
     B: BodyStream,
     T: for<'de> Deserialize<'de>,
@@ -28,7 +28,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let params = req.req().body().params();
         let params = T::deserialize(Params2::new(params)).map_err(_ParseError::Params)?;
 
@@ -47,7 +47,7 @@ impl Deref for ParamsRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ParamsRef<'a>
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ParamsRef<'a>
 where
     B: BodyStream,
 {
@@ -55,7 +55,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(ParamsRef(req.req().extensions().get::<router::Params>().unwrap()))
     }
 }

@@ -4,9 +4,9 @@ use core::ops::Deref;
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{error::ExtractError, FromRequest},
     http::{Request, RequestExt},
-    request::WebRequest,
 };
 
 #[derive(Debug)]
@@ -20,7 +20,7 @@ impl Deref for RequestRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for RequestRef<'a>
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for RequestRef<'a>
 where
     B: BodyStream,
 {
@@ -28,7 +28,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(RequestRef(req.req()))
     }
 }

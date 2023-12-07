@@ -5,9 +5,9 @@ use xitca_http::ResponseBody;
 use crate::{
     body::BodyStream,
     bytes::Bytes,
+    context::WebContext,
     dev::service::{ready::ReadyService, Service},
-    request::WebRequest,
-    response::WebResponse,
+    http::WebResponse,
 };
 
 #[doc(hidden)]
@@ -73,9 +73,9 @@ pub struct EraserService<M, S> {
     _erase: PhantomData<M>,
 }
 
-impl<'r, S, C, B, ResB, Err> Service<WebRequest<'r, C, B>> for EraserService<EraseResBody, S>
+impl<'r, S, C, B, ResB, Err> Service<WebContext<'r, C, B>> for EraserService<EraseResBody, S>
 where
-    S: for<'rs> Service<WebRequest<'rs, C, B>, Response = WebResponse<ResB>, Error = Err>,
+    S: for<'rs> Service<WebContext<'rs, C, B>, Response = WebResponse<ResB>, Error = Err>,
     ResB: BodyStream<Chunk = Bytes> + 'static,
     <ResB as BodyStream>::Error: Send + Sync,
 {
@@ -83,7 +83,7 @@ where
     type Error = Err;
 
     #[inline]
-    async fn call(&self, req: WebRequest<'r, C, B>) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = self.service.call(req).await?;
         Ok(res.map(ResponseBody::box_stream))
     }
@@ -124,20 +124,20 @@ mod test {
 
     use super::*;
 
-    async fn handler(_: &WebRequest<'_>) -> &'static str {
+    async fn handler(_: &WebContext<'_>) -> &'static str {
         "996"
     }
 
-    async fn map_body<S, C, B, Err>(_: &S, _: WebRequest<'_, C, B>) -> Result<WebResponse<Once<Bytes>>, Err>
+    async fn map_body<S, C, B, Err>(_: &S, _: WebContext<'_, C, B>) -> Result<WebResponse<Once<Bytes>>, Err>
     where
-        S: for<'r> Service<WebRequest<'r, C, B>, Response = WebResponse, Error = Err>,
+        S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Err>,
     {
         Ok(WebResponse::new(Once::new(Bytes::new())))
     }
 
-    async fn middleware_fn<S, C, B, Err>(s: &S, req: WebRequest<'_, C, B>) -> Result<WebResponse, Err>
+    async fn middleware_fn<S, C, B, Err>(s: &S, req: WebContext<'_, C, B>) -> Result<WebResponse, Err>
     where
-        S: for<'r> Service<WebRequest<'r, C, B>, Response = WebResponse, Error = Err>,
+        S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Err>,
     {
         s.call(req).await
     }

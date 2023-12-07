@@ -4,9 +4,9 @@ use core::{fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{error::ExtractError, FromRequest},
     http::Extensions,
-    request::WebRequest,
 };
 
 /// Extract immutable reference of element stored inside [Extensions]
@@ -26,7 +26,7 @@ impl<T> Deref for ExtensionRef<'_, T> {
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionRef<'a, T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for ExtensionRef<'a, T>
 where
     T: Send + Sync + 'static,
     B: BodyStream,
@@ -35,7 +35,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let ext = req
             .req()
             .extensions()
@@ -62,7 +62,7 @@ impl<T> Deref for ExtensionOwn<T> {
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionOwn<T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for ExtensionOwn<T>
 where
     T: Send + Sync + Clone + 'static,
     B: BodyStream,
@@ -71,7 +71,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let ext = req
             .req()
             .extensions()
@@ -93,7 +93,7 @@ impl Deref for ExtensionsRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ExtensionsRef<'a>
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionsRef<'a>
 where
     B: BodyStream,
 {
@@ -101,7 +101,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(ExtensionsRef(req.req().extensions()))
     }
 }

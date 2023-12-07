@@ -6,9 +6,8 @@ use tracing::info;
 use xitca_web::{
     dev::service::Service,
     handler::{handler_service, multipart::Multipart, Responder},
-    request::WebRequest,
     route::post,
-    App,
+    App, WebContext,
 };
 
 fn main() -> io::Result<()> {
@@ -45,13 +44,13 @@ async fn root(multipart: Multipart) -> Result<&'static str, Box<dyn std::error::
 }
 
 // an error handler that would catch root function's result type and transform it to response.
-async fn error_handler<S, C, B, Res, SErr, Err>(service: &S, mut req: WebRequest<'_, C, B>) -> Result<Res, Err>
+async fn error_handler<S, C, B, Res, SErr, Err>(service: &S, mut ctx: WebContext<'_, C, B>) -> Result<Res, Err>
 where
-    S: for<'r> Service<WebRequest<'r, C, B>, Response = Result<Res, SErr>, Error = Err>,
-    SErr: for<'r> Responder<WebRequest<'r, C, B>, Output = Res>,
+    S: for<'r> Service<WebContext<'r, C, B>, Response = Result<Res, SErr>, Error = Err>,
+    SErr: for<'r> Responder<WebContext<'r, C, B>, Output = Res>,
 {
-    match service.call(req.reborrow()).await? {
+    match service.call(ctx.reborrow()).await? {
         Ok(res) => Ok(res),
-        Err(err) => Ok(err.respond_to(req).await),
+        Err(err) => Ok(err.respond_to(ctx).await),
     }
 }

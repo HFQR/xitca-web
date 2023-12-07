@@ -5,8 +5,7 @@ use http_encoding::{encoder, Coder, ContentEncoding};
 use crate::{
     body::{BodyStream, NONE_BODY_HINT},
     dev::service::{ready::ReadyService, Service},
-    http::{header::HeaderMap, BorrowReq},
-    response::WebResponse,
+    http::{header::HeaderMap, BorrowReq, WebResponse},
 };
 
 /// A compress middleware look into [WebRequest]'s `Accept-Encoding` header and

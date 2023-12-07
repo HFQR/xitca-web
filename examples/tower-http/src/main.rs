@@ -6,7 +6,7 @@
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 use xitca_web::{
     dev::service::Service, http::Uri, middleware::tower_http_compat::TowerHttpCompat as CompatMiddleware,
-    request::WebRequest, service::tower_http_compat::TowerHttpCompat as CompatBuild, App,
+    service::tower_http_compat::TowerHttpCompat as CompatBuild, App, WebContext,
 };
 
 fn main() -> std::io::Result<()> {
@@ -28,12 +28,12 @@ fn main() -> std::io::Result<()> {
 }
 
 async fn path<Res, Err>(
-    service: &impl for<'r> Service<WebRequest<'r>, Response = Res, Error = Err>,
-    mut req: WebRequest<'_>,
+    service: &impl for<'r> Service<WebContext<'r>, Response = Res, Error = Err>,
+    mut ctx: WebContext<'_>,
 ) -> Result<Res, Err> {
-    match req.req().uri().path() {
-        "/" | "" => *req.req_mut().uri_mut() = Uri::from_static("/index.html"),
+    match ctx.req().uri().path() {
+        "/" | "" => *ctx.req_mut().uri_mut() = Uri::from_static("/index.html"),
         _ => {}
     }
-    service.call(req).await
+    service.call(ctx).await
 }

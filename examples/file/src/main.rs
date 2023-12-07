@@ -7,12 +7,10 @@ use xitca_web::{
     bytes::Bytes,
     dev::service::Service,
     handler::{handler_service, request::RequestRef, state::StateRef},
-    http::{Method, Uri},
+    http::{Method, Uri, WebResponse},
     middleware::compress::Compress,
-    request::WebRequest,
-    response::WebResponse,
     route::Route,
-    App,
+    App, WebContext,
 };
 
 fn main() -> std::io::Result<()> {
@@ -47,15 +45,15 @@ async fn index(RequestRef(req): RequestRef<'_>, StateRef(dir): StateRef<'_, Serv
 }
 
 // a type alias for web request with ServeDir as application state type attached to it.
-type Request<'a> = WebRequest<'a, ServeDir>;
+type Context<'a> = WebContext<'a, ServeDir>;
 
 async fn path<Res, Err>(
-    service: &impl for<'r> Service<Request<'r>, Response = Res, Error = Err>,
-    mut req: Request<'_>,
+    service: &impl for<'r> Service<Context<'r>, Response = Res, Error = Err>,
+    mut ctx: Context<'_>,
 ) -> Result<Res, Err> {
-    match req.req().uri().path() {
-        "/" | "" => *req.req_mut().uri_mut() = Uri::from_static("/index.html"),
+    match ctx.req().uri().path() {
+        "/" | "" => *ctx.req_mut().uri_mut() = Uri::from_static("/index.html"),
         _ => {}
     }
-    service.call(req).await
+    service.call(ctx).await
 }

@@ -18,10 +18,12 @@ use xitca_unsafe_collection::{
 use crate::{
     body::{BodyStream, RequestBody, ResponseBody},
     bytes::Bytes,
+    context::WebContext,
     handler::{error::ExtractError, FromRequest, Responder},
-    http::header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
-    request::WebRequest,
-    response::WebResponse,
+    http::{
+        header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
+        WebResponse,
+    },
 };
 
 /// simplified websocket message type.
@@ -139,7 +141,7 @@ impl<E> From<HandshakeError> for ExtractError<E> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for WebSocket<B>
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for WebSocket<B>
 where
     C: 'static,
     B: BodyStream + Default + 'static,
@@ -148,20 +150,20 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = req.take_body_ref();
         let ws = http_ws::ws(req.req(), body)?;
         Ok(WebSocket::new(ws))
     }
 }
 
-impl<'r, C, B> Responder<WebRequest<'r, C, B>> for WebSocket<B>
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for WebSocket<B>
 where
     B: BodyStream + 'static,
 {
     type Output = WebResponse;
 
-    async fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Output {
+    async fn respond_to(self, _: WebContext<'r, C, B>) -> Self::Output {
         let Self {
             ws,
             ping_interval,
