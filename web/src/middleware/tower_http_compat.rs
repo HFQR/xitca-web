@@ -13,10 +13,9 @@ use tower_layer::Layer;
 use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
 use crate::{
+    context::WebContext,
     dev::service::Service,
-    http::{Request, RequestExt, Response},
-    request::WebRequest,
-    response::WebResponse,
+    http::{Request, RequestExt, Response, WebResponse},
     service::tower_http_compat::{CompatBody, TowerCompatService},
 };
 
@@ -49,7 +48,7 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     /// # Example:
     /// ```rust
     /// # use std::convert::Infallible;
-    /// # use xitca_web::{dev::service::fn_service, request::WebRequest, response::WebResponse, App};
+    /// # use xitca_web::{dev::service::fn_service, http::WebResponse, App, WebContext};
     /// # use xitca_web::http::StatusCode;
     /// use xitca_web::middleware::tower_http_compat::TowerHttpCompat;
     /// use tower_http::set_status::SetStatusLayer;
@@ -60,7 +59,7 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     ///     .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)));
     /// # }
     ///
-    /// # async fn handler(req: WebRequest<'_>) -> Result<WebResponse, Infallible> {
+    /// # async fn handler(ctx: WebContext<'_>) -> Result<WebResponse, Infallible> {
     /// #   todo!()
     /// # }
     /// ```
@@ -75,7 +74,7 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
 impl<L, S, C, ReqB, ResB, Err> Service<S> for TowerHttpCompat<L, C, ReqB, ResB, Err>
 where
     L: Layer<CompatLayer<S, C, ReqB, ResB, Err>>,
-    S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
+    S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
 {
     type Response = TowerCompatService<L::Service>;
     type Error = Infallible;
@@ -97,7 +96,7 @@ pub struct CompatLayer<S, C, ReqB, ResB, Err> {
 impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>>
     for CompatLayer<S, C, ReqB, ResB, Err>
 where
-    S: for<'r> Service<WebRequest<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
+    S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
     C: Clone + 'static,
     ReqB: 'static,
 {
@@ -126,7 +125,7 @@ where
 
             let mut req = Request::from_parts(parts, ext);
             let mut body = RefCell::new(body);
-            let req = WebRequest::new(&mut req, &mut body, &ctx);
+            let req = WebContext::new(&mut req, &mut body, &ctx);
 
             service.call(req).await.map(|res| res.map(CompatBody::new))
         })
@@ -142,9 +141,9 @@ mod test {
 
     use super::*;
 
-    async fn handler(req: WebRequest<'_, &'static str>) -> Result<WebResponse, Infallible> {
-        assert_eq!(*req.state(), "996");
-        Ok(req.into_response(Bytes::new()))
+    async fn handler(ctx: WebContext<'_, &'static str>) -> Result<WebResponse, Infallible> {
+        assert_eq!(*ctx.state(), "996");
+        Ok(ctx.into_response(Bytes::new()))
     }
 
     #[test]

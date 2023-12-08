@@ -1,25 +1,24 @@
-//! web request types.
-
-pub use xitca_http::body::RequestBody;
+//! web context types.
 
 use core::{
     cell::{Ref, RefCell, RefMut},
     mem,
 };
 
-use crate::http::{BorrowReq, BorrowReqMut, IntoResponse, Request, RequestExt};
+use super::{
+    body::{RequestBody, ResponseBody},
+    http::{BorrowReq, BorrowReqMut, IntoResponse, Request, RequestExt, WebRequest, WebResponse},
+};
 
-use super::{body::ResponseBody, response::WebResponse};
-
-/// web request type focus on stateful context and side effect based request data access.
-pub struct WebRequest<'a, C = (), B = RequestBody> {
-    pub(crate) req: &'a mut Request<RequestExt<()>>,
+/// web context type focus on stateful and side effect based request data access.
+pub struct WebContext<'a, C = (), B = RequestBody> {
+    pub(crate) req: &'a mut WebRequest<()>,
     pub(crate) body: &'a mut RefCell<B>,
     pub(crate) ctx: &'a C,
 }
 
-impl<'a, C, B> WebRequest<'a, C, B> {
-    pub(crate) fn new(req: &'a mut Request<RequestExt<()>>, body: &'a mut RefCell<B>, ctx: &'a C) -> Self {
+impl<'a, C, B> WebContext<'a, C, B> {
+    pub(crate) fn new(req: &'a mut WebRequest<()>, body: &'a mut RefCell<B>, ctx: &'a C) -> Self {
         Self { req, body, ctx }
     }
 
@@ -31,13 +30,13 @@ impl<'a, C, B> WebRequest<'a, C, B> {
     ///
     /// # Example:
     /// ```rust
-    /// # use xitca_web::request::WebRequest;
+    /// # use xitca_web::WebContext;
     /// // a function need ownership of request but not return it in output.
-    /// fn handler(req: WebRequest<'_>) -> Result<(), ()> {
+    /// fn handler(req: WebContext<'_>) -> Result<(), ()> {
     ///     Err(())
     /// }
     ///
-    /// # fn call(mut req: WebRequest<'_>) {
+    /// # fn call(mut req: WebContext<'_>) {
     /// // use reborrow to avoid pass request by value.
     /// match handler(req.reborrow()) {
     ///     // still able to access request after handler return.
@@ -47,8 +46,8 @@ impl<'a, C, B> WebRequest<'a, C, B> {
     /// # }
     /// ```
     #[inline]
-    pub fn reborrow(&mut self) -> WebRequest<'_, C, B> {
-        WebRequest {
+    pub fn reborrow(&mut self) -> WebContext<'_, C, B> {
+        WebContext {
             req: self.req,
             body: self.body,
             ctx: self.ctx,
@@ -61,15 +60,15 @@ impl<'a, C, B> WebRequest<'a, C, B> {
         self.ctx
     }
 
-    /// Get an immutable reference of [Request]
+    /// Get an immutable reference of [WebRequest]
     #[inline]
-    pub fn req(&self) -> &Request<RequestExt<()>> {
+    pub fn req(&self) -> &WebRequest<()> {
         self.req
     }
 
-    /// Get a mutable reference of [Request]
+    /// Get a mutable reference of [WebRequest]
     #[inline]
-    pub fn req_mut(&mut self) -> &mut Request<RequestExt<()>> {
+    pub fn req_mut(&mut self) -> &mut WebRequest<()> {
         self.req
     }
 
@@ -93,7 +92,7 @@ impl<'a, C, B> WebRequest<'a, C, B> {
         self.body.get_mut()
     }
 
-    pub fn take_request(&mut self) -> Request<RequestExt<B>>
+    pub fn take_request(&mut self) -> WebRequest<B>
     where
         B: Default,
     {
@@ -134,9 +133,9 @@ impl<'a, C, B> WebRequest<'a, C, B> {
 }
 
 #[cfg(test)]
-impl<C> WebRequest<'_, C> {
-    pub(crate) fn new_test(ctx: C) -> TestRequest<C> {
-        TestRequest {
+impl<C> WebContext<'_, C> {
+    pub(crate) fn new_test(ctx: C) -> TestWebContext<C> {
+        TestWebContext {
             req: Request::new(RequestExt::default()),
             body: RefCell::new(RequestBody::None),
             ctx,
@@ -144,7 +143,7 @@ impl<C> WebRequest<'_, C> {
     }
 }
 
-impl<C, B, T> BorrowReq<T> for WebRequest<'_, C, B>
+impl<C, B, T> BorrowReq<T> for WebContext<'_, C, B>
 where
     Request<RequestExt<()>>: BorrowReq<T>,
 {
@@ -153,7 +152,7 @@ where
     }
 }
 
-impl<C, B, T> BorrowReqMut<T> for WebRequest<'_, C, B>
+impl<C, B, T> BorrowReqMut<T> for WebContext<'_, C, B>
 where
     Request<RequestExt<()>>: BorrowReqMut<T>,
 {
@@ -163,16 +162,16 @@ where
 }
 
 #[cfg(test)]
-pub(crate) struct TestRequest<C> {
+pub(crate) struct TestWebContext<C> {
     pub(crate) req: Request<RequestExt<()>>,
     pub(crate) body: RefCell<RequestBody>,
     pub(crate) ctx: C,
 }
 
 #[cfg(test)]
-impl<C> TestRequest<C> {
-    pub(crate) fn as_web_req(&mut self) -> WebRequest<'_, C> {
-        WebRequest {
+impl<C> TestWebContext<C> {
+    pub(crate) fn as_web_ctx(&mut self) -> WebContext<'_, C> {
+        WebContext {
             req: &mut self.req,
             body: &mut self.body,
             ctx: &self.ctx,

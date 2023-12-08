@@ -6,11 +6,11 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest,
     },
-    request::WebRequest,
 };
 
 pub struct Query<T>(pub T);
@@ -24,7 +24,7 @@ where
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for Query<T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for Query<T>
 where
     T: DeserializeOwned,
     B: BodyStream,
@@ -33,9 +33,9 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let value =
-            serde_urlencoded::from_str(req.req().uri().query().unwrap_or_default()).map_err(_ParseError::UrlEncoded)?;
+            serde_urlencoded::from_str(ctx.req().uri().query().unwrap_or_default()).map_err(_ParseError::UrlEncoded)?;
         Ok(Query(value))
     }
 }
@@ -55,8 +55,8 @@ mod test {
 
     #[test]
     fn query() {
-        let mut req = WebRequest::new_test(());
-        let mut req = req.as_web_req();
+        let mut req = WebContext::new_test(());
+        let mut req = req.as_web_ctx();
 
         *req.req_mut().uri_mut() = Uri::from_static("/996/251/?id=dagongren");
 

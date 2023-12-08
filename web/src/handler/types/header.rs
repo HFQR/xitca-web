@@ -4,9 +4,9 @@ use core::{fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{error::ExtractError, FromRequest},
     http::header::{self, HeaderValue},
-    request::WebRequest,
 };
 
 macro_rules! const_header_name {
@@ -59,7 +59,7 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
     }
 }
 
-impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebRequest<'r, C, B>> for HeaderRef<'a, HEADER_NAME>
+impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebContext<'r, C, B>> for HeaderRef<'a, HEADER_NAME>
 where
     B: BodyStream,
 {
@@ -67,8 +67,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        req.req()
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        ctx.req()
             .headers()
             .get(&map_to_header_name::<HEADER_NAME>())
             .map(HeaderRef)
@@ -84,8 +84,8 @@ mod test {
 
     #[test]
     fn extract_header() {
-        let mut req = WebRequest::new_test(());
-        let mut req = req.as_web_req();
+        let mut req = WebContext::new_test(());
+        let mut req = req.as_web_ctx();
         req.req_mut()
             .headers_mut()
             .insert(header::HOST, header::HeaderValue::from_static("996"));

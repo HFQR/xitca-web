@@ -6,16 +6,16 @@ use xitca_service::{
     Service,
 };
 
-use crate::request::WebRequest;
+use crate::context::WebContext;
 
-pub type WebObject<C, B, Res, Err> = Box<dyn for<'r> ServiceObject<WebRequest<'r, C, B>, Response = Res, Error = Err>>;
+pub type WebObject<C, B, Res, Err> = Box<dyn for<'r> ServiceObject<WebContext<'r, C, B>, Response = Res, Error = Err>>;
 
-impl<C, B, I, Res, Err> IntoObject<I, ()> for WebRequest<'_, C, B>
+impl<C, B, I, Res, Err> IntoObject<I, ()> for WebContext<'_, C, B>
 where
     C: 'static,
     B: 'static,
     I: Service + Send + Sync + 'static,
-    I::Response: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err> + 'static,
+    I::Response: for<'r> Service<WebContext<'r, C, B>, Response = Res, Error = Err> + 'static,
 {
     type Object = BoxedSyncServiceObject<(), WebObject<C, B, Res, Err>, I::Error>;
 
@@ -25,7 +25,7 @@ where
         impl<C, I, B, Res, Err> Service for Builder<I, C, B>
         where
             I: Service + 'static,
-            I::Response: for<'r> Service<WebRequest<'r, C, B>, Response = Res, Error = Err> + 'static,
+            I::Response: for<'r> Service<WebContext<'r, C, B>, Response = Res, Error = Err> + 'static,
         {
             type Response = WebObject<C, B, Res, Err>;
             type Error = I::Error;

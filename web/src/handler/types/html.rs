@@ -5,10 +5,9 @@ use core::fmt;
 use xitca_http::body::ResponseBody;
 
 use crate::{
+    context::WebContext,
     handler::Responder,
-    http::{const_header_value::TEXT_HTML_UTF8, header::CONTENT_TYPE},
-    request::WebRequest,
-    response::WebResponse,
+    http::{const_header_value::TEXT_HTML_UTF8, header::CONTENT_TYPE, WebResponse},
 };
 
 pub struct Html<T>(pub T);
@@ -22,15 +21,15 @@ where
     }
 }
 
-impl<'r, S, T> Responder<WebRequest<'r, S>> for Html<T>
+impl<'r, S, T> Responder<WebContext<'r, S>> for Html<T>
 where
     T: Into<ResponseBody>,
 {
     type Output = WebResponse;
 
     #[inline]
-    async fn respond_to(self, req: WebRequest<'r, S>) -> Self::Output {
-        let mut res = req.into_response(self.0);
+    async fn respond_to(self, ctx: WebContext<'r, S>) -> Self::Output {
+        let mut res = ctx.into_response(self.0);
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
         res
     }

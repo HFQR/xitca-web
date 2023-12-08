@@ -4,8 +4,8 @@ use core::{borrow::Borrow, fmt, ops::Deref};
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{error::ExtractError, FromRequest},
-    request::WebRequest,
 };
 
 /// App state extractor.
@@ -32,7 +32,7 @@ impl<S> Deref for StateRef<'_, S> {
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for StateRef<'a, T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for StateRef<'a, T>
 where
     C: Borrow<T>,
     B: BodyStream,
@@ -42,8 +42,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(StateRef(req.state().borrow()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(StateRef(ctx.state().borrow()))
     }
 }
 
@@ -71,7 +71,7 @@ impl<S> Deref for StateOwn<S> {
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for StateOwn<T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for StateOwn<T>
 where
     C: Borrow<T>,
     B: BodyStream,
@@ -81,8 +81,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(StateOwn(req.state().borrow().clone()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(StateOwn(ctx.state().borrow().clone()))
     }
 }
 
@@ -94,7 +94,7 @@ mod test {
     use xitca_http::Request;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{dev::service::Service, handler::handler_service, request::WebRequest, route::get, App};
+    use crate::{dev::service::Service, handler::handler_service, route::get, App};
 
     #[derive(State, Clone, Debug, Eq, PartialEq)]
     struct State {
@@ -108,12 +108,12 @@ mod test {
         StateRef(state): StateRef<'_, String>,
         StateRef(state2): StateRef<'_, u32>,
         StateRef(state3): StateRef<'_, State>,
-        req: &WebRequest<'_, State>,
+        ctx: &WebContext<'_, State>,
     ) -> String {
         assert_eq!("state", state);
         assert_eq!(&996, state2);
-        assert_eq!(state, req.state().field1.as_str());
-        assert_eq!(state3, req.state());
+        assert_eq!(state, ctx.state().field1.as_str());
+        assert_eq!(state3, ctx.state());
         state.to_string()
     }
 

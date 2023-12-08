@@ -16,10 +16,9 @@ use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
 use crate::{
     bytes::Buf,
+    context::WebContext,
     dev::service::{ready::ReadyService, Service},
-    http::{header::HeaderMap, Request, RequestExt, Response},
-    request::WebRequest,
-    response::WebResponse,
+    http::{header::HeaderMap, Request, RequestExt, Response, WebResponse},
 };
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.
@@ -73,7 +72,7 @@ impl<S> TowerCompatService<S> {
     }
 }
 
-impl<'r, C, ReqB, S, ResB> Service<WebRequest<'r, C, ReqB>> for TowerCompatService<S>
+impl<'r, C, ReqB, S, ResB> Service<WebContext<'r, C, ReqB>> for TowerCompatService<S>
 where
     S: tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>, Response = Response<ResB>>,
     ResB: Body,
@@ -83,10 +82,10 @@ where
     type Response = WebResponse<CompatBody<ResB>>;
     type Error = S::Error;
 
-    async fn call(&self, mut req: WebRequest<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
-        let ctx = req.state().clone();
-        let (mut parts, ext) = req.take_request().into_parts();
-        parts.extensions.insert(FakeSync::new(FakeSend::new(ctx)));
+    async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
+        let state = ctx.state().clone();
+        let (mut parts, ext) = ctx.take_request().into_parts();
+        parts.extensions.insert(FakeSync::new(FakeSend::new(state)));
         let req = Request::from_parts(parts, CompatBody::new(FakeSend::new(ext)));
         let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
         fut.await.map(|res| res.map(CompatBody::new))

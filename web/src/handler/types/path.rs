@@ -4,8 +4,8 @@ use core::ops::Deref;
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{error::ExtractError, FromRequest},
-    request::WebRequest,
 };
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ impl Deref for PathRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for PathRef<'a>
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for PathRef<'a>
 where
     B: BodyStream,
 {
@@ -27,8 +27,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(PathRef(req.req().uri().path()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(PathRef(ctx.req().uri().path()))
     }
 }
 
@@ -43,7 +43,7 @@ impl Deref for PathOwn {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for PathOwn
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for PathOwn
 where
     B: BodyStream,
 {
@@ -51,7 +51,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(PathOwn(req.req().uri().path().to_string()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(PathOwn(ctx.req().uri().path().to_string()))
     }
 }

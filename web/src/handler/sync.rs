@@ -24,8 +24,8 @@ use xitca_service::{fn_build, FnService, Service};
 /// #         {handler_service, handler_sync_service},
 /// #         uri::{UriOwn, UriRef},
 /// #     },
-/// #     request::WebRequest,
 /// #     App,
+/// #     WebContext
 /// # };
 ///
 /// App::new()
@@ -33,8 +33,8 @@ use xitca_service::{fn_build, FnService, Service};
 ///     // uncomment the line below would result in compile error.
 ///     // .at("/invalid1", handler_sync_service(|_: UriRef<'_>| { "uri ref is borrowed value" }))
 ///     // uncomment the line below would result in compile error.
-///     // .at("/invalid2", handler_sync_service(|_: &WebRequest<'_>| { "web request is borrowed value and not thread safe" }))
-///     # .at("/nah", handler_service(|_: &WebRequest<'_>| async { "" }));
+///     // .at("/invalid2", handler_sync_service(|_: &WebContext<'_>| { "web request is borrowed value and not thread safe" }))
+///     # .at("/nah", handler_service(|_: &WebContext<'_>| async { "" }));
 /// ```
 ///
 /// [handler_service]: super::handler_service

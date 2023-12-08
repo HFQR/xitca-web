@@ -12,11 +12,10 @@ use xitca_http::Request;
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
     handler::Responder,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, status::StatusCode},
-    request::WebRequest,
-    response::WebResponse,
+    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, status::StatusCode, WebResponse},
 };
 
 #[derive(Copy, Clone)]
@@ -60,24 +59,24 @@ pub struct LimitService<S> {
 
 pub type LimitServiceError<E> = PipelineE<LimitError, E>;
 
-impl<'r, S, C, B, Res, Err> Service<WebRequest<'r, C, B>> for LimitService<S>
+impl<'r, S, C, B, Res, Err> Service<WebContext<'r, C, B>> for LimitService<S>
 where
     B: BodyStream + Default,
-    S: for<'r2> Service<WebRequest<'r2, C, LimitBody<B>>, Response = Res, Error = Err>,
+    S: for<'r2> Service<WebContext<'r2, C, LimitBody<B>>, Response = Res, Error = Err>,
 {
     type Response = Res;
     type Error = LimitServiceError<Err>;
 
-    async fn call(&self, mut req: WebRequest<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let (parts, ext) = req.take_request().into_parts();
-        let ctx = req.ctx;
+    async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let (parts, ext) = ctx.take_request().into_parts();
+        let ctx = ctx.ctx;
         let (ext, body) = ext.replace_body(());
         let mut body = RefCell::new(LimitBody::new(body, self.limit.request_body_size));
         let mut req = Request::from_parts(parts, ext);
 
-        let req = WebRequest::new(&mut req, &mut body, ctx);
+        let ctx = WebContext::new(&mut req, &mut body, ctx);
 
-        self.service.call(req).await.map_err(LimitServiceError::Second)
+        self.service.call(ctx).await.map_err(LimitServiceError::Second)
     }
 }
 
@@ -160,10 +159,10 @@ impl fmt::Display for LimitError {
 
 impl error::Error for LimitError {}
 
-impl<'r, C, B> Responder<WebRequest<'r, C, B>> for LimitError {
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for LimitError {
     type Output = WebResponse;
 
-    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
+    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
         let mut res = req.into_response(format!("{self}"));
         res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
         *res.status_mut() = StatusCode::BAD_REQUEST;

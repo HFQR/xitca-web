@@ -2,9 +2,9 @@ use std::ops::Deref;
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{error::ExtractError, FromRequest},
     http::Uri,
-    request::WebRequest,
 };
 
 #[derive(Debug)]
@@ -18,7 +18,7 @@ impl Deref for UriRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for UriRef<'a>
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for UriRef<'a>
 where
     B: BodyStream,
 {
@@ -26,8 +26,8 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(UriRef(req.req().uri()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(UriRef(ctx.req().uri()))
     }
 }
 
@@ -42,7 +42,7 @@ impl Deref for UriOwn {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for UriOwn
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for UriOwn
 where
     B: BodyStream,
 {
@@ -50,7 +50,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(UriOwn(req.req().uri().clone()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(UriOwn(ctx.req().uri().clone()))
     }
 }

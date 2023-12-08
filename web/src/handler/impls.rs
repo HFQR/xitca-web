@@ -5,61 +5,60 @@ use std::{error, io};
 use crate::{
     body::BodyStream,
     bytes::Bytes,
+    context::WebContext,
     error::{MatchError, MethodNotAllowed},
     http::{
         const_header_value::TEXT_UTF8,
         header::{ALLOW, CONTENT_TYPE},
-        StatusCode,
+        StatusCode, WebResponse,
     },
-    request::WebRequest,
-    response::WebResponse,
 };
 
 use super::{error::ExtractError, FromRequest, Responder};
 
-impl<'a, 'r, C, B, T, E> FromRequest<'a, WebRequest<'r, C, B>> for Result<T, E>
+impl<'a, 'r, C, B, T, E> FromRequest<'a, WebContext<'r, C, B>> for Result<T, E>
 where
     B: BodyStream,
-    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>, Error = E>,
+    T: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = E>,
 {
     type Type<'b> = Result<T, E>;
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(T::from_request(req).await)
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(T::from_request(ctx).await)
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebRequest<'r, C, B>> for Option<T>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for Option<T>
 where
     B: BodyStream,
-    T: for<'a2, 'r2> FromRequest<'a2, WebRequest<'r2, C, B>>,
+    T: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>>,
 {
     type Type<'b> = Option<T>;
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(T::from_request(req).await.ok())
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(T::from_request(ctx).await.ok())
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for &'a WebRequest<'a, C, B>
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a WebContext<'a, C, B>
 where
     C: 'static,
     B: BodyStream + 'static,
 {
-    type Type<'b> = &'b WebRequest<'b, C, B>;
+    type Type<'b> = &'b WebContext<'b, C, B>;
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(req)
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx)
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for ()
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ()
 where
     B: BodyStream,
 {
@@ -67,47 +66,47 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(_: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
+    async fn from_request(_: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(())
     }
 }
 
-impl<'r, C, B, T, O, E> Responder<WebRequest<'r, C, B>> for Result<T, E>
+impl<'r, C, B, T, O, E> Responder<WebContext<'r, C, B>> for Result<T, E>
 where
-    T: for<'r2> Responder<WebRequest<'r2, C, B>, Output = O>,
+    T: for<'r2> Responder<WebContext<'r2, C, B>, Output = O>,
 {
     type Output = Result<O, E>;
 
     #[inline]
-    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
-        Ok(self?.respond_to(req).await)
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        Ok(self?.respond_to(ctx).await)
     }
 }
 
-impl<'r, C, B, ResB> Responder<WebRequest<'r, C, B>> for WebResponse<ResB> {
+impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for WebResponse<ResB> {
     type Output = WebResponse<ResB>;
 
     #[inline]
-    async fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Output {
+    async fn respond_to(self, _: WebContext<'r, C, B>) -> Self::Output {
         self
     }
 }
 
-impl<'r, C, B> Responder<WebRequest<'r, C, B>> for Infallible {
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for Infallible {
     type Output = WebResponse;
 
-    async fn respond_to(self, _: WebRequest<'r, C, B>) -> Self::Output {
+    async fn respond_to(self, _: WebContext<'r, C, B>) -> Self::Output {
         match self {}
     }
 }
 
 macro_rules! text_utf8 {
     ($type: ty) => {
-        impl<'r, C, B> Responder<WebRequest<'r, C, B>> for $type {
+        impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
             type Output = WebResponse;
 
-            async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
-                let mut res = req.into_response(self);
+            async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+                let mut res = ctx.into_response(self);
                 res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
                 res
             }
@@ -120,11 +119,11 @@ text_utf8!(&'static str);
 
 macro_rules! blank_internal {
     ($type: ty) => {
-        impl<'r, C, B> Responder<WebRequest<'r, C, B>> for $type {
+        impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
             type Output = WebResponse;
 
-            async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
-                let mut res = req.into_response(Bytes::new());
+            async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+                let mut res = ctx.into_response(Bytes::new());
                 *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                 res
             }
@@ -137,21 +136,21 @@ blank_internal!(Box<dyn error::Error>);
 blank_internal!(Box<dyn error::Error + Send>);
 blank_internal!(Box<dyn error::Error + Send + Sync>);
 
-impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MatchError {
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for MatchError {
     type Output = WebResponse;
 
-    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
-        let mut res = req.into_response(Bytes::new());
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        let mut res = ctx.into_response(Bytes::new());
         *res.status_mut() = StatusCode::NOT_FOUND;
         res
     }
 }
 
-impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MethodNotAllowed {
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for MethodNotAllowed {
     type Output = WebResponse;
 
-    async fn respond_to(self, req: WebRequest<'r, C, B>) -> Self::Output {
-        let mut res = req.into_response(Bytes::new());
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        let mut res = ctx.into_response(Bytes::new());
 
         let allowed = self.allowed_methods();
 
@@ -174,16 +173,15 @@ impl<'r, C, B> Responder<WebRequest<'r, C, B>> for MethodNotAllowed {
 
 #[cfg(test)]
 mod test {
+    use xitca_http::BodyError;
     use xitca_unsafe_collection::futures::NowOrPanic;
-
-    use crate::{error::BodyError, request::WebRequest};
 
     use super::*;
 
     #[test]
     fn extract_default_impls() {
-        let mut req = WebRequest::new_test(());
-        let req = req.as_web_req();
+        let mut req = WebContext::new_test(());
+        let req = req.as_web_ctx();
 
         Option::<()>::from_request(&req).now_or_panic().unwrap().unwrap();
 
@@ -192,7 +190,7 @@ mod test {
             .unwrap()
             .unwrap();
 
-        <&WebRequest<'_>>::from_request(&req).now_or_panic().unwrap();
+        <&WebContext<'_>>::from_request(&req).now_or_panic().unwrap();
 
         <()>::from_request(&req).now_or_panic().unwrap();
     }

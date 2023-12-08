@@ -2,13 +2,13 @@
 
 use crate::{
     body::BodyStream,
+    context::WebContext,
     handler::{error::ExtractError, FromRequest},
-    request::WebRequest,
 };
 
 pub struct Body<B>(pub B);
 
-impl<'a, 'r, C, B> FromRequest<'a, WebRequest<'r, C, B>> for Body<B>
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Body<B>
 where
     B: BodyStream + Default,
 {
@@ -16,7 +16,7 @@ where
     type Error = ExtractError<B::Error>;
 
     #[inline]
-    async fn from_request(req: &'a WebRequest<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(Body(req.take_body_ref()))
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(Body(ctx.take_body_ref()))
     }
 }
