@@ -220,7 +220,7 @@ pin_project! {
 }
 
 impl ResponseBody {
-    /// Construct a new Stream variant of ResponseBody with default type as [BoxStream]
+    /// Construct a new Stream variant of ResponseBody with default type as [BoxBody]
     #[inline]
     pub fn box_stream<B, E>(stream: B) -> Self
     where
