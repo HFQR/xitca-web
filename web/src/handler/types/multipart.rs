@@ -1,8 +1,8 @@
 use crate::{
-    body::BodyStream,
-    body::RequestBody,
+    body::{BodyStream, RequestBody},
     context::WebContext,
-    handler::{error::ExtractError, FromRequest},
+    error::Error,
+    handler::{ExtractError, FromRequest},
 };
 
 pub type Multipart<B = RequestBody> = http_multipart::Multipart<B>;
@@ -12,11 +12,11 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = Multipart<B>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        http_multipart::multipart(ctx.req(), body).map_err(Into::into)
+        http_multipart::multipart(ctx.req(), body).map_err(|e| ExtractError::from(e).into())
     }
 }
 

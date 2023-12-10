@@ -2,9 +2,12 @@
 
 use core::{fmt, ops::Deref};
 
+use xitca_http::util::service::router::MatchError;
+
 use crate::{
     body::BodyStream,
     context::WebContext,
+    error::Error,
     handler::{error::ExtractError, FromRequest},
     http::Extensions,
 };
@@ -32,16 +35,15 @@ where
     B: BodyStream,
 {
     type Type<'b> = ExtensionRef<'b, T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let ext = ctx
-            .req()
+        ctx.req()
             .extensions()
             .get::<T>()
-            .ok_or(ExtractError::ExtensionNotFound)?;
-        Ok(ExtensionRef(ext))
+            .map(ExtensionRef)
+            .ok_or_else(|| Box::new(MatchError::NotFound) as _)
     }
 }
 
@@ -68,17 +70,15 @@ where
     B: BodyStream,
 {
     type Type<'b> = ExtensionOwn<T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let ext = ctx
-            .req()
+        ctx.req()
             .extensions()
             .get::<T>()
-            .ok_or(ExtractError::ExtensionNotFound)?
-            .clone();
-        Ok(ExtensionOwn(ext))
+            .map(|t| ExtensionOwn(t.clone()))
+            .ok_or_else(|| ExtractError::ExtensionNotFound.into())
     }
 }
 
@@ -98,7 +98,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = ExtensionsRef<'b>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

@@ -10,7 +10,7 @@ use serde_json::Error as JsonError;
 use crate::{
     bytes::Bytes,
     context::WebContext,
-    error::BodyError,
+    error::Error,
     http::{header::HeaderName, StatusCode, WebResponse},
 };
 
@@ -19,11 +19,11 @@ use super::Responder;
 type BoxedError = Box<dyn error::Error + Send + Sync + 'static>;
 
 /// Collection of all default extract types's error.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[non_exhaustive]
-pub enum ExtractError<E = BodyError> {
-    /// Request body error.
-    Body(E),
+pub enum ExtractError {
+    #[default]
+    Internal,
     /// Absent type of request's (Extensions)[crate::http::Extensions] type map.
     ExtensionNotFound,
     /// Absent header value.
@@ -34,32 +34,38 @@ pub enum ExtractError<E = BodyError> {
     Boxed(BoxedError),
 }
 
-impl<E: fmt::Display> fmt::Display for ExtractError<E> {
+impl<C> From<ExtractError> for Error<C> {
+    fn from(e: ExtractError) -> Self {
+        Box::new(e)
+    }
+}
+
+impl fmt::Display for ExtractError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Body(ref e) => fmt::Display::fmt(e, f),
             Self::ExtensionNotFound => f.write_str("Extension can not be found"),
             Self::HeaderNotFound(ref name) => write!(f, "HeaderName: {name} not found."),
             Self::Parse(ref e) => fmt::Display::fmt(e, f),
             Self::Boxed(ref e) => fmt::Display::fmt(e, f),
+            _ => unreachable!(""),
         }
     }
 }
 
-impl<E> error::Error for ExtractError<E> where E: fmt::Debug + fmt::Display {}
+impl error::Error for ExtractError {}
 
-impl<E> From<Infallible> for ExtractError<E> {
+impl From<Infallible> for ExtractError {
     fn from(e: Infallible) -> Self {
         match e {}
     }
 }
 
-impl<'r, C, B, E> Responder<WebContext<'r, C, B>> for ExtractError<E> {
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for ExtractError {
     type Output = WebResponse;
 
     async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
         let mut res = ctx.into_response(Bytes::new());
-        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        *res.status_mut() = StatusCode::BAD_REQUEST;
         res
     }
 }
@@ -97,21 +103,21 @@ pub(super) enum _ParseError {
     Multipart(MultipartError<Infallible>),
 }
 
-impl<E> From<_ParseError> for ExtractError<E> {
+impl From<_ParseError> for ExtractError {
     fn from(e: _ParseError) -> Self {
         Self::Parse(ParseError(e))
     }
 }
 
 #[cfg(feature = "json")]
-impl<E> From<JsonError> for ExtractError<E> {
+impl From<JsonError> for ExtractError {
     fn from(e: JsonError) -> Self {
         Self::from(_ParseError::JsonString(e))
     }
 }
 
 #[cfg(feature = "multipart")]
-impl<E> From<MultipartError<E>> for ExtractError<E> {
+impl<E> From<MultipartError<E>> for ExtractError {
     fn from(e: MultipartError<E>) -> Self {
         // TODO: sort this out?
         match e {
@@ -126,7 +132,7 @@ impl<E> From<MultipartError<E>> for ExtractError<E> {
             MultipartError::UnexpectedEof => Self::from(_ParseError::Multipart(MultipartError::UnexpectedEof)),
             MultipartError::BufferOverflow => Self::from(_ParseError::Multipart(MultipartError::BufferOverflow)),
             MultipartError::Header(e) => Self::from(_ParseError::Multipart(MultipartError::Header(e))),
-            MultipartError::Payload(e) => Self::Body(e),
+            MultipartError::Payload(_) => unreachable!("extractor does not have access to multipart body error "),
         }
     }
 }

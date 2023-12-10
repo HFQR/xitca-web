@@ -19,6 +19,7 @@ use crate::{
     body::{BodyStream, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
+    error::Error,
     handler::{error::ExtractError, FromRequest, Responder},
     http::{
         header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
@@ -129,7 +130,7 @@ where
     }
 }
 
-impl<E> From<HandshakeError> for ExtractError<E> {
+impl From<HandshakeError> for ExtractError {
     fn from(e: HandshakeError) -> Self {
         match e {
             HandshakeError::NoConnectionUpgrade => ExtractError::HeaderNotFound(CONNECTION),
@@ -147,12 +148,12 @@ where
     B: BodyStream + Default + 'static,
 {
     type Type<'b> = WebSocket<B>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        let ws = http_ws::ws(ctx.req(), body)?;
+        let ws = http_ws::ws(ctx.req(), body).map_err(ExtractError::from)?;
         Ok(WebSocket::new(ws))
     }
 }

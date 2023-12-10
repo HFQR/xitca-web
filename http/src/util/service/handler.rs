@@ -1,6 +1,6 @@
 //! high level async function service with "variadic generic" ish.
 
-use core::{convert::Infallible, future::Future, marker::PhantomData};
+use core::{convert::Infallible, future::Future, marker::PhantomData, pin::Pin, mem};
 
 use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
 
@@ -163,6 +163,43 @@ where
     }
 }
 
+/// object safe version of [Responder] trait.
+pub trait ResponderDyn<Req> {
+    type Output;
+
+    fn respond_to<'f>(&mut self, req: Req) -> Pin<Box<dyn Future<Output = Self::Output> + 'f>>
+    where
+        Self: 'f,
+        Req: 'f;
+}
+
+impl<R, Req> ResponderDyn<Req> for R
+where
+    R: Responder<Req> + Default,
+{
+    type Output = R::Output;
+
+    fn respond_to<'f>(&mut self, req: Req) -> Pin<Box<dyn Future<Output = Self::Output> + 'f>>
+    where
+        R: 'f,
+        Req: 'f,
+    {
+        let this = mem::take(self);
+        Box::pin(Responder::respond_to(this, req))
+    }
+}
+
+impl<I, Req> Responder<Req> for Box<I> 
+where
+    I: ResponderDyn<Req> + ?Sized
+{
+    type Output = I::Output;
+
+    async fn respond_to(mut self, req: Req) -> Self::Output {
+        ResponderDyn::respond_to(&mut *self, req).await
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::convert::Infallible;
@@ -247,6 +284,28 @@ mod test {
             .unwrap();
 
         assert_eq!(res.status(), StatusCode::MULTI_STATUS);
+    }
+
+    #[test]
+    fn dynamic_responder() {
+        #[derive(Default)]
+        struct Foo;
+
+        impl Responder<String> for Foo {
+            type Output = String;
+
+            async fn respond_to(self, req: String) -> Self::Output {
+                req
+            }
+        }
+
+        let obj = Box::new(Foo) as Box<dyn ResponderDyn<String, Output = String>>;
+
+        let req = String::from("996");
+
+        let res = Responder::respond_to(obj, req).now_or_panic();
+
+        assert_eq!(res, "996");
     }
 
     #[cfg(feature = "router")]

@@ -13,6 +13,7 @@ use crate::{
     body::BodyStream,
     bytes::{BufMutWriter, Bytes, BytesMut},
     context::WebContext,
+    error::Error,
     handler::{error::ExtractError, FromRequest, Responder},
     http::{const_header_value::JSON, header::CONTENT_TYPE, status::StatusCode, WebResponse},
 };
@@ -62,7 +63,7 @@ where
     T: DeserializeOwned,
 {
     type Type<'b> = Json<T, LIMIT>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
@@ -81,14 +82,14 @@ where
         let mut buf = BytesMut::new();
 
         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(ExtractError::Body)?;
+            let chunk = chunk.map_err(|e| ExtractError::Boxed(Box::new(e)))?;
             buf.extend_from_slice(chunk.as_ref());
             if buf.len() > limit {
                 break;
             }
         }
 
-        let json = serde_json::from_slice(&buf)?;
+        let json = serde_json::from_slice(&buf).map_err(ExtractError::from)?;
 
         Ok(Json(json))
     }

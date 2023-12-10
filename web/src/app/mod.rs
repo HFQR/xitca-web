@@ -16,7 +16,7 @@ use xitca_http::util::{
 };
 
 use crate::{
-    body::ResponseBody,
+    body::{BoxBody, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
     dev::service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
@@ -104,7 +104,7 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<ReqB, ResB, SE, B, BE>(
+    pub fn finish<SE, ReqB, ReqBE, ReqBC, ResB, ResBC, ResBE>(
         self,
     ) -> impl Service<
         Response = impl ReadyService
@@ -118,9 +118,11 @@ where
     where
         C: 'static,
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
-        SE: for<'r> Responder<WebContext<'r, C, ReqB>, Output = WebResponse>,
-        ReqB: 'static,
-        ResB: Stream<Item = Result<B, BE>>,
+        SE: for<'r> Responder<WebContext<'r, C>, Output = WebResponse>,
+        ReqB: Stream<Item = Result<ReqBC, ReqBE>> + 'static,
+        ReqBC: Into<Bytes> + 'static,
+        ReqBE: std::error::Error + Send + Sync + 'static,
+        ResB: Stream<Item = Result<ResBC, ResBE>>,
     {
         let App { ctx_factory, router } = self;
         router
@@ -129,7 +131,7 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish_boxed<ReqB, ResB, SE, BE>(
+    pub fn finish_boxed<SE, ReqB, ReqBC, ReqBE, ResB, ResBE>(
         self,
     ) -> AppObject<impl ReadyService + Service<Request<RequestExt<ReqB>>, Response = WebResponse, Error = Infallible>>
     where
@@ -141,10 +143,12 @@ where
         R::Response:
             ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE> + 'static,
         R::Error: 'static,
-        SE: for<'r> Responder<WebContext<'r, C, ReqB>, Output = WebResponse> + 'static,
-        ReqB: 'static,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: error::Error + Send + Sync + 'static,
+        SE: for<'r> Responder<WebContext<'r, C>, Output = WebResponse> + 'static,
+        ReqB: Stream<Item = Result<ReqBC, ReqBE>> + 'static,
+        ReqBC: Into<Bytes> + 'static,
+        ReqBE: std::error::Error + Send + Sync + 'static,
+        ResB: Stream<Item = Result<Bytes, ResBE>> + 'static,
+        ResBE: error::Error + Send + Sync + 'static,
     {
         struct BoxApp<S>(S);
 
@@ -161,11 +165,11 @@ where
             }
         }
 
-        async fn box_res<S, Req, ResB, E>(service: &S, req: Req) -> Result<WebResponse, S::Error>
+        async fn box_res<S, Req, ResB, ResBE>(service: &S, req: Req) -> Result<WebResponse, S::Error>
         where
             S: Service<Req, Response = WebResponse<ResponseBody<ResB>>>,
-            ResB: Stream<Item = Result<Bytes, E>> + 'static,
-            E: error::Error + Send + Sync + 'static,
+            ResB: Stream<Item = Result<Bytes, ResBE>> + 'static,
+            ResBE: error::Error + Send + Sync + 'static,
         {
             service.call(req).await.map(|res| res.map(|body| body.into_boxed()))
         }
@@ -177,7 +181,7 @@ where
     /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
     ///
     /// [HttpServer]: crate::server::HttpServer
-    pub fn serve<ReqB, ResB, SE, B, BE>(
+    pub fn serve<SE, ReqB, ReqBC, ReqBE, ResB, ResBC, ResBE>(
         self,
     ) -> crate::server::HttpServer<
         impl Service<
@@ -197,11 +201,13 @@ where
         CErr: 'static,
         R: 'static,
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
-        SE: for<'r> Responder<WebContext<'r, C, ReqB>, Output = WebResponse> + 'static,
-        ReqB: 'static,
-        ResB: Stream<Item = Result<B, BE>> + 'static,
-        B: 'static,
-        BE: 'static,
+        SE: for<'r> Responder<WebContext<'r, C>, Output = WebResponse> + 'static,
+        ReqB: Stream<Item = Result<ReqBC, ReqBE>> + 'static,
+        ReqBC: Into<Bytes> + 'static,
+        ReqBE: std::error::Error + Send + Sync + 'static,
+        ResB: Stream<Item = Result<ResBC, ResBE>> + 'static,
+        ResBC: 'static,
+        ResBE: 'static,
     {
         crate::server::HttpServer::serve(self.finish())
     }
@@ -213,28 +219,32 @@ pub type AppObject<S> =
 
 // middleware for converting xitca_http types to xitca_web types.
 // this is for enabling side effect see [WebContext::reborrow] for detail.
-async fn map_req_res<C, S, ReqB, ResB, SE, B, BE>(
+async fn map_req_res<C, S, SE, ReqB, ReqBC, ReqBE, ResB, ResBC, ResBE>(
     service: &S,
     req: Context<'_, Request<RequestExt<ReqB>>, C>,
 ) -> Result<WebResponse<ResponseBody<ResB>>, Infallible>
 where
     C: 'static,
     S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
-    SE: for<'r> Responder<WebContext<'r, C, ReqB>, Output = WebResponse>,
-    ReqB: 'static,
-    ResB: Stream<Item = Result<B, BE>>,
+    SE: for<'r> Responder<WebContext<'r, C>, Output = WebResponse>,
+    ReqB: Stream<Item = Result<ReqBC, ReqBE>> + 'static,
+    ReqBC: Into<Bytes> + 'static,
+    ReqBE: std::error::Error + Send + Sync + 'static,
+    ResB: Stream<Item = Result<ResBC, ResBE>>,
 {
     let (req, state) = req.into_parts();
     let (parts, ext) = req.into_parts();
     let (ext, body) = ext.replace_body(());
     let mut req = Request::from_parts(parts, ext);
     let mut body = RefCell::new(body);
-    let mut req = WebContext::new(&mut req, &mut body, state);
-
-    match service.call(req.reborrow()).await {
+    match service.call(WebContext::new(&mut req, &mut body, state)).await {
         Ok(res) => Ok(res.map(|body| ResponseBody::stream(body))),
-        // TODO: mutate response header according to outcome of drop_stream_cast?
-        Err(e) => Ok(e.respond_to(req).await.map(|body| body.drop_stream_cast())),
+        Err(e) => {
+            let mut body = RefCell::new(RequestBody::Unknown(BoxBody::new(body.into_inner())));
+            let req = WebContext::new(&mut req, &mut body, state);
+            // TODO: mutate response header according to outcome of drop_stream_cast?
+            Ok(e.respond_to(req).await.map(|body| body.drop_stream_cast()))
+        }
     }
 }
 
@@ -332,13 +342,8 @@ mod test {
             B: Default,
             Err: for<'r> Responder<WebContext<'r, C, B>, Output = Res>,
         {
-            let body = &mut RefCell::new(NewBody(req.take_body_mut()));
-            let req2: WebContext<'_, C, NewBody<B>> = WebContext {
-                req: req.req,
-                body,
-                ctx: req.ctx,
-            };
-            match service.call(req2).await {
+            let mut body = RefCell::new(NewBody(req.take_body_mut()));
+            match service.call(WebContext::new(req.req, &mut body, req.ctx)).await {
                 Ok(res) => Ok(res),
                 Err(e) => Ok(e.respond_to(req).await),
             }

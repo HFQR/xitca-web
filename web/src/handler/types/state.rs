@@ -2,11 +2,7 @@
 
 use core::{borrow::Borrow, fmt, ops::Deref};
 
-use crate::{
-    body::BodyStream,
-    context::WebContext,
-    handler::{error::ExtractError, FromRequest},
-};
+use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
 
 /// App state extractor.
 /// S type must be the same with the type passed to App::with_xxx_state(S).
@@ -39,7 +35,7 @@ where
     T: 'static,
 {
     type Type<'b> = StateRef<'b, T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -78,7 +74,7 @@ where
     T: Clone,
 {
     type Type<'b> = StateOwn<T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

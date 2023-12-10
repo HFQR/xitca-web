@@ -65,7 +65,7 @@ where
     S: for<'r2> Service<WebContext<'r2, C, LimitBody<B>>, Response = Res, Error = Err>,
 {
     type Response = Res;
-    type Error = LimitServiceError<Err>;
+    type Error = Err;
 
     async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let (parts, ext) = ctx.take_request().into_parts();
@@ -73,10 +73,7 @@ where
         let (ext, body) = ext.replace_body(());
         let mut body = RefCell::new(LimitBody::new(body, self.limit.request_body_size));
         let mut req = Request::from_parts(parts, ext);
-
-        let ctx = WebContext::new(&mut req, &mut body, ctx);
-
-        self.service.call(ctx).await.map_err(LimitServiceError::Second)
+        self.service.call(WebContext::new(&mut req, &mut body, ctx)).await
     }
 }
 
@@ -177,7 +174,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        body::BoxStream,
+        body::BoxBody,
         bytes::Bytes,
         error::BodyError,
         handler::{body::Body, handler_service},
@@ -207,7 +204,7 @@ mod test {
         let item = || async { Ok::<_, BodyError>(Bytes::from_static(chunk)) };
 
         let body = stream::once(item()).chain(stream::once(item()));
-        let ext = RequestExt::default().map_body(|_: ()| BoxStream::new(body));
+        let ext = RequestExt::default().map_body(|_: ()| BoxBody::new(body));
         let req = Request::new(ext);
 
         let body = App::new()

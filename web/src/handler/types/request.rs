@@ -5,7 +5,8 @@ use core::ops::Deref;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    handler::{error::ExtractError, FromRequest},
+    error::Error,
+    handler::FromRequest,
     http::{Request, RequestExt},
 };
 
@@ -25,7 +26,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = RequestRef<'b>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

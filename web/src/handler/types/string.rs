@@ -1,6 +1,7 @@
 use crate::{
     body::BodyStream,
     context::WebContext,
+    error::Error,
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest,
@@ -12,11 +13,11 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = String;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let vec = Vec::from_request(ctx).await?;
-        Ok(String::from_utf8(vec).map_err(|e| _ParseError::String(e.utf8_error()))?)
+        Ok(String::from_utf8(vec).map_err(|e| ExtractError::from(_ParseError::String(e.utf8_error())))?)
     }
 }

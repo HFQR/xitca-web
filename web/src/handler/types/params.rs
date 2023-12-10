@@ -10,6 +10,7 @@ use xitca_http::util::service::router;
 use crate::{
     body::BodyStream,
     context::WebContext,
+    error::Error,
     handler::{
         error::{ExtractError, _ParseError},
         FromRequest,
@@ -25,12 +26,12 @@ where
     T: for<'de> Deserialize<'de>,
 {
     type Type<'b> = Params<T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let params = ctx.req().body().params();
-        let params = T::deserialize(Params2::new(params)).map_err(_ParseError::Params)?;
+        let params = T::deserialize(Params2::new(params)).map_err(|e| ExtractError::from(_ParseError::Params(e)))?;
         Ok(Params(params))
     }
 }
@@ -51,7 +52,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = ParamsRef<'b>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
