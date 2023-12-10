@@ -1,6 +1,6 @@
 //! high level async function service with "variadic generic" ish.
 
-use core::{convert::Infallible, future::Future, marker::PhantomData, pin::Pin, mem};
+use core::{convert::Infallible, future::Future, marker::PhantomData, mem, pin::Pin};
 
 use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
 
@@ -189,9 +189,9 @@ where
     }
 }
 
-impl<I, Req> Responder<Req> for Box<I> 
+impl<I, Req> Responder<Req> for Box<I>
 where
-    I: ResponderDyn<Req> + ?Sized
+    I: ResponderDyn<Req> + ?Sized,
 {
     type Output = I::Output;
 
