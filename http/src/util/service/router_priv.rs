@@ -190,6 +190,7 @@ where
     type Response = MapErrService<S::Response>;
     type Error = S::Error;
 
+    #[inline]
     async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
         self.0.call(arg).await.map(MapErrService)
     }
@@ -236,7 +237,7 @@ pub struct RouterService<S> {
 
 impl<S, Req, E> Service<Req> for RouterService<S>
 where
-    S: xitca_service::object::ServiceObject<Req, Error = RouterError<E>>,
+    S: Service<Req, Error = RouterError<E>>,
     Req: BorrowReq<Uri> + BorrowReqMut<Params>,
 {
     type Response = S::Response;
@@ -251,7 +252,7 @@ where
             let xitca_router::Match { value, params } =
                 self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
             *req.borrow_mut() = params;
-            xitca_service::object::ServiceObject::call(value, req).await
+            Service::call(value, req).await
         }
     }
 }
