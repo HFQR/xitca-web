@@ -1,8 +1,10 @@
 pub mod handler;
-pub mod route;
 
 #[cfg(feature = "router")]
 mod router_priv;
+
+#[cfg(feature = "router")]
+pub mod route;
 
 #[cfg(feature = "router")]
 pub mod router {
