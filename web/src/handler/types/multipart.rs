@@ -1,8 +1,12 @@
+use core::convert::Infallible;
+
 use crate::{
-    body::BodyStream,
-    body::RequestBody,
+    body::{BodyStream, RequestBody},
     context::WebContext,
-    handler::{error::ExtractError, FromRequest},
+    dev::service::Service,
+    error::Error,
+    handler::{error::blank_bad_request, FromRequest},
+    http::WebResponse,
 };
 
 pub type Multipart<B = RequestBody> = http_multipart::Multipart<B>;
@@ -12,11 +16,20 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = Multipart<B>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
         http_multipart::multipart(ctx.req(), body).map_err(Into::into)
+    }
+}
+
+impl<'r, C, B, E> Service<WebContext<'r, C, B>> for http_multipart::MultipartError<E> {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Ok(blank_bad_request(ctx))
     }
 }
 

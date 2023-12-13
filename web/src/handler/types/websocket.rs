@@ -1,4 +1,5 @@
 use core::{
+    convert::Infallible,
     future::{poll_fn, Future},
     pin::{pin, Pin},
     time::Duration,
@@ -19,6 +20,8 @@ use crate::{
     body::{BodyStream, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
+    dev::service::Service,
+    error::Error,
     handler::{error::ExtractError, FromRequest, Responder},
     http::{
         header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
@@ -129,15 +132,20 @@ where
     }
 }
 
-impl<E> From<HandshakeError> for ExtractError<E> {
-    fn from(e: HandshakeError) -> Self {
-        match e {
+impl<'r, C, B> Service<WebContext<'r, C, B>> for HandshakeError {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let e = match self {
             HandshakeError::NoConnectionUpgrade => ExtractError::HeaderNotFound(CONNECTION),
             HandshakeError::NoVersionHeader => ExtractError::HeaderNotFound(SEC_WEBSOCKET_VERSION),
             HandshakeError::NoWebsocketUpgrade => ExtractError::HeaderNotFound(UPGRADE),
             // TODO: refine error mapping of the remaining branches.
-            e => ExtractError::Boxed(Box::new(e)),
-        }
+            _ => ExtractError::Internal,
+        };
+
+        e.call(ctx).await
     }
 }
 
@@ -147,7 +155,7 @@ where
     B: BodyStream + Default + 'static,
 {
     type Type<'b> = WebSocket<B>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

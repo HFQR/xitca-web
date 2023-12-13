@@ -16,11 +16,10 @@ use xitca_http::util::{
 };
 
 use crate::{
-    body::ResponseBody,
+    body::{RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
     dev::service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
-    handler::Responder,
     http::{Request, RequestExt, WebResponse},
 };
 
@@ -118,7 +117,7 @@ where
     where
         C: 'static,
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
-        SE: for<'r> Responder<WebContext<'r, C, ReqB>, Output = WebResponse>,
+        SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>,
         ReqB: 'static,
         ResB: Stream<Item = Result<B, BE>>,
     {
@@ -141,7 +140,7 @@ where
         R::Response:
             ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE> + 'static,
         R::Error: 'static,
-        SE: for<'r> Responder<WebContext<'r, C, ReqB>, Output = WebResponse> + 'static,
+        SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
         ReqB: 'static,
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: error::Error + Send + Sync + 'static,
@@ -197,7 +196,7 @@ where
         CErr: 'static,
         R: 'static,
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
-        SE: for<'r> Responder<WebContext<'r, C, ReqB>, Output = WebResponse> + 'static,
+        SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
         ReqB: 'static,
         ResB: Stream<Item = Result<B, BE>> + 'static,
         B: 'static,
@@ -213,28 +212,32 @@ pub type AppObject<S> =
 
 // middleware for converting xitca_http types to xitca_web types.
 // this is for enabling side effect see [WebContext::reborrow] for detail.
-async fn map_req_res<C, S, ReqB, ResB, SE, B, BE>(
+async fn map_req_res<C, S, SE, ReqB, ResB, B, BE>(
     service: &S,
-    req: Context<'_, Request<RequestExt<ReqB>>, C>,
+    ctx: Context<'_, Request<RequestExt<ReqB>>, C>,
 ) -> Result<WebResponse<ResponseBody<ResB>>, Infallible>
 where
     C: 'static,
     S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
-    SE: for<'r> Responder<WebContext<'r, C, ReqB>, Output = WebResponse>,
+    SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>,
     ReqB: 'static,
     ResB: Stream<Item = Result<B, BE>>,
 {
-    let (req, state) = req.into_parts();
+    let (req, state) = ctx.into_parts();
     let (parts, ext) = req.into_parts();
     let (ext, body) = ext.replace_body(());
     let mut req = Request::from_parts(parts, ext);
     let mut body = RefCell::new(body);
-    let mut req = WebContext::new(&mut req, &mut body, state);
 
-    match service.call(req.reborrow()).await {
+    match service.call(WebContext::new(&mut req, &mut body, state)).await {
         Ok(res) => Ok(res.map(|body| ResponseBody::stream(body))),
         // TODO: mutate response header according to outcome of drop_stream_cast?
-        Err(e) => Ok(e.respond_to(req).await.map(|body| body.drop_stream_cast())),
+        Err(e) => {
+            let mut body = RefCell::new(RequestBody::None);
+            let ctx = WebContext::new(&mut req, &mut body, state);
+            let res = e.call(ctx).await?;
+            Ok(res.map(|body| body.drop_stream_cast()))
+        }
     }
 }
 
@@ -252,7 +255,7 @@ mod test {
         dev::service::Service,
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
-            uri::UriRef, Responder,
+            uri::UriRef,
         },
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Method, Uri},
         middleware::UncheckedReady,
@@ -329,18 +332,16 @@ mod test {
         async fn middleware_fn<S, C, B, Res, Err>(service: &S, mut req: WebContext<'_, C, B>) -> Result<Res, Infallible>
         where
             S: for<'r> Service<WebContext<'r, C, NewBody<B>>, Response = Res, Error = Err>,
+            Err: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Infallible>,
             B: Default,
-            Err: for<'r> Responder<WebContext<'r, C, B>, Output = Res>,
         {
-            let body = &mut RefCell::new(NewBody(req.take_body_mut()));
-            let req2: WebContext<'_, C, NewBody<B>> = WebContext {
-                req: req.req,
-                body,
-                ctx: req.ctx,
-            };
-            match service.call(req2).await {
+            let mut body = RefCell::new(NewBody(req.take_body_mut()));
+            match service.call(WebContext::new(req.req, &mut body, req.ctx)).await {
                 Ok(res) => Ok(res),
-                Err(e) => Ok(e.respond_to(req).await),
+                Err(e) => {
+                    let mut body = RefCell::new(RequestBody::None);
+                    e.call(WebContext::new(req.req, &mut body, req.ctx)).await
+                }
             }
         }
 

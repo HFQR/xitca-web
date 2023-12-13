@@ -1,11 +1,6 @@
 use std::ops::Deref;
 
-use crate::{
-    body::BodyStream,
-    context::WebContext,
-    handler::{error::ExtractError, FromRequest},
-    http::Uri,
-};
+use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest, http::Uri};
 
 #[derive(Debug)]
 pub struct UriRef<'a>(pub &'a Uri);
@@ -23,7 +18,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = UriRef<'b>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -47,7 +42,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = UriOwn;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

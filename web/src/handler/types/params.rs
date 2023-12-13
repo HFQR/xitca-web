@@ -7,14 +7,7 @@ use serde::{forward_to_deserialize_any, Deserialize};
 
 use xitca_http::util::service::router;
 
-use crate::{
-    body::BodyStream,
-    context::WebContext,
-    handler::{
-        error::{ExtractError, _ParseError},
-        FromRequest,
-    },
-};
+use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
 
 #[derive(Debug)]
 pub struct Params<T>(pub T);
@@ -25,12 +18,12 @@ where
     T: for<'de> Deserialize<'de>,
 {
     type Type<'b> = Params<T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let params = ctx.req().body().params();
-        let params = T::deserialize(Params2::new(params)).map_err(_ParseError::Params)?;
+        let params = T::deserialize(Params2::new(params))?;
         Ok(Params(params))
     }
 }
@@ -51,7 +44,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = ParamsRef<'b>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

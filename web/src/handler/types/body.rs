@@ -1,10 +1,6 @@
 //! type extractor for request body stream.
 
-use crate::{
-    body::BodyStream,
-    context::WebContext,
-    handler::{error::ExtractError, FromRequest},
-};
+use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
 
 pub struct Body<B>(pub B);
 
@@ -13,7 +9,7 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = Body<B>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

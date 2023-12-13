@@ -2,11 +2,7 @@
 
 use core::ops::Deref;
 
-use crate::{
-    body::BodyStream,
-    context::WebContext,
-    handler::{error::ExtractError, FromRequest},
-};
+use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
 
 #[derive(Debug)]
 pub struct PathRef<'a>(pub &'a str);
@@ -24,7 +20,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = PathRef<'b>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -48,7 +44,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = PathOwn;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

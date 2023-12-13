@@ -1,11 +1,11 @@
 //! A Http server read multipart request and log it's field names.
 
-use std::{io, pin::pin};
+use std::{convert::Infallible, io, pin::pin};
 
 use tracing::info;
 use xitca_web::{
     dev::service::Service,
-    handler::{handler_service, multipart::Multipart, Responder},
+    handler::{handler_service, multipart::Multipart},
     route::post,
     App, WebContext,
 };
@@ -21,7 +21,7 @@ fn main() -> io::Result<()> {
         .wait()
 }
 
-async fn root(multipart: Multipart) -> Result<&'static str, Box<dyn std::error::Error>> {
+async fn root(multipart: Multipart) -> Result<&'static str, Box<dyn std::error::Error + Send + Sync>> {
     // pin multipart on stack for async stream handling.
     let mut multipart = pin!(multipart);
 
@@ -47,10 +47,10 @@ async fn root(multipart: Multipart) -> Result<&'static str, Box<dyn std::error::
 async fn error_handler<S, C, B, Res, SErr, Err>(service: &S, mut ctx: WebContext<'_, C, B>) -> Result<Res, Err>
 where
     S: for<'r> Service<WebContext<'r, C, B>, Response = Result<Res, SErr>, Error = Err>,
-    SErr: for<'r> Responder<WebContext<'r, C, B>, Output = Res>,
+    SErr: for<'r> Service<WebContext<'r, C, B>, Response = Res, Error = Infallible>,
 {
     match service.call(ctx.reborrow()).await? {
         Ok(res) => Ok(res),
-        Err(err) => Ok(err.respond_to(ctx).await),
+        Err(err) => Ok(err.call(ctx).await.unwrap()),
     }
 }

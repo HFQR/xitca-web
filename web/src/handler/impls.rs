@@ -6,6 +6,8 @@ use crate::{
     body::BodyStream,
     bytes::Bytes,
     context::WebContext,
+    dev::service::Service,
+    error::Error,
     error::{MatchError, MethodNotAllowed, RouterError},
     http::{
         const_header_value::TEXT_UTF8,
@@ -14,7 +16,7 @@ use crate::{
     },
 };
 
-use super::{error::ExtractError, FromRequest, Responder};
+use super::{FromRequest, Responder};
 
 impl<'a, 'r, C, B, T, E> FromRequest<'a, WebContext<'r, C, B>> for Result<T, E>
 where
@@ -22,7 +24,7 @@ where
     T: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = E>,
 {
     type Type<'b> = Result<T, E>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -36,7 +38,7 @@ where
     T: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>>,
 {
     type Type<'b> = Option<T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -50,7 +52,7 @@ where
     B: BodyStream + 'static,
 {
     type Type<'b> = &'b WebContext<'b, C, B>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -63,7 +65,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = ();
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(_: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -92,11 +94,12 @@ impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for WebResponse<ResB> {
     }
 }
 
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for Infallible {
-    type Output = WebResponse;
+impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
+    type Response = WebResponse;
+    type Error = Infallible;
 
-    async fn respond_to(self, _: WebContext<'r, C, B>) -> Self::Output {
-        match self {}
+    async fn call(&self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        match *self {}
     }
 }
 
@@ -119,13 +122,14 @@ text_utf8!(&'static str);
 
 macro_rules! blank_internal {
     ($type: ty) => {
-        impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
-            type Output = WebResponse;
+        impl<'r, C, B> Service<WebContext<'r, C, B>> for $type {
+            type Response = WebResponse;
+            type Error = Infallible;
 
-            async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+            async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
                 let mut res = ctx.into_response(Bytes::new());
                 *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                res
+                Ok(res)
             }
         }
     };
@@ -136,35 +140,38 @@ blank_internal!(Box<dyn error::Error>);
 blank_internal!(Box<dyn error::Error + Send>);
 blank_internal!(Box<dyn error::Error + Send + Sync>);
 
-impl<'r, C, B, E> Responder<WebContext<'r, C, B>> for RouterError<E>
+impl<'r, C, B, E> Service<WebContext<'r, C, B>> for RouterError<E>
 where
-    E: for<'r2> Responder<WebContext<'r2, C, B>, Output = WebResponse>,
+    E: for<'r2> Service<WebContext<'r2, C, B>, Response = WebResponse, Error = Infallible>,
 {
-    type Output = WebResponse;
+    type Response = WebResponse;
+    type Error = Infallible;
 
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
-        match self {
-            Self::Match(e) => e.respond_to(ctx).await,
-            Self::NotAllowed(e) => e.respond_to(ctx).await,
-            Self::Service(e) => e.respond_to(ctx).await,
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        match *self {
+            Self::Match(ref e) => e.call(ctx).await,
+            Self::NotAllowed(ref e) => e.call(ctx).await,
+            Self::Service(ref e) => e.call(ctx).await,
         }
     }
 }
 
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for MatchError {
-    type Output = WebResponse;
+impl<'r, C, B> Service<WebContext<'r, C, B>> for MatchError {
+    type Response = WebResponse;
+    type Error = Infallible;
 
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let mut res = ctx.into_response(Bytes::new());
         *res.status_mut() = StatusCode::NOT_FOUND;
-        res
+        Ok(res)
     }
 }
 
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for MethodNotAllowed {
-    type Output = WebResponse;
+impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
+    type Response = WebResponse;
+    type Error = Infallible;
 
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let mut res = ctx.into_response(Bytes::new());
 
         let allowed = self.allowed_methods();
@@ -182,13 +189,12 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for MethodNotAllowed {
         res.headers_mut().insert(ALLOW, methods.parse().unwrap());
         *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
 
-        res
+        Ok(res)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use xitca_http::BodyError;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use super::*;
@@ -200,7 +206,7 @@ mod test {
 
         Option::<()>::from_request(&req).now_or_panic().unwrap().unwrap();
 
-        Result::<(), ExtractError<BodyError>>::from_request(&req)
+        Result::<(), Error<()>>::from_request(&req)
             .now_or_panic()
             .unwrap()
             .unwrap();
