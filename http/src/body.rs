@@ -214,6 +214,12 @@ pin_project! {
     }
 }
 
+impl<B> Default for ResponseBody<B> {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 impl ResponseBody {
     /// Construct a new Stream variant of ResponseBody with default type as [BoxStream]
     #[inline]

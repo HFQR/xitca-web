@@ -20,6 +20,7 @@ use crate::{
     bytes::Bytes,
     context::WebContext,
     dev::service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
+    error::{Error, RouterError},
     http::{Request, RequestExt, WebResponse},
 };
 
@@ -31,14 +32,14 @@ pub struct App<CF = (), R = ()> {
 
 impl App {
     /// Construct a new application instance.
-    pub fn new<Obj>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, Router<Obj>> {
+    pub fn new<Obj>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, AppRouter<Obj>> {
         Self::with_state(())
     }
 
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
-    pub fn with_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, Router<Obj>>
+    pub fn with_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, AppRouter<Obj>>
     where
         C: Send + Sync + Clone + 'static,
     {
@@ -48,17 +49,17 @@ impl App {
     /// Construct App with async closure which it's output would be used as state.
     /// async state is used to produce thread per core and/or non thread safe state copies.
     /// The output state is not bound to `Send` and `Sync` auto traits.
-    pub fn with_async_state<CF, Obj>(ctx_factory: CF) -> App<CF, Router<Obj>> {
+    pub fn with_async_state<CF, Obj>(ctx_factory: CF) -> App<CF, AppRouter<Obj>> {
         App {
             ctx_factory,
-            router: Router::new(),
+            router: AppRouter(Router::new()),
         }
     }
 }
 
-impl<CF, Obj> App<CF, Router<Obj>> {
+impl<CF, Obj> App<CF, AppRouter<Obj>> {
     /// insert routed service with given path to application.
-    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, Router<Obj>>
+    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, AppRouter<Obj>>
     where
         CF: Fn() -> Fut,
         Fut: Future<Output = Result<C, E>>,
@@ -66,7 +67,7 @@ impl<CF, Obj> App<CF, Router<Obj>> {
         F::Response: for<'r> Service<WebContext<'r, C, B>>,
         for<'r> WebContext<'r, C, B>: IntoObject<F::ErrGen<F>, (), Object = Obj>,
     {
-        self.router = self.router.insert(path, factory);
+        self.router = AppRouter(self.router.0.insert(path, factory));
         self
     }
 }
@@ -203,6 +204,52 @@ where
         BE: 'static,
     {
         crate::server::HttpServer::serve(self.finish())
+    }
+}
+
+/// application wrap around [Router] and transform it's error type into [Error]
+pub struct AppRouter<Obj>(Router<Obj>);
+
+impl<Arg, Obj> Service<Arg> for AppRouter<Obj>
+where
+    Router<Obj>: Service<Arg>,
+{
+    type Response = RouterService<<Router<Obj> as Service<Arg>>::Response>;
+    type Error = <Router<Obj> as Service<Arg>>::Error;
+
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        self.0.call(arg).await.map(RouterService)
+    }
+}
+
+pub struct RouterService<S>(S);
+
+impl<'r, S, C, B, Res, E> Service<WebContext<'r, C, B>> for RouterService<S>
+where
+    S: for<'r2> Service<WebContext<'r2, C, B>, Response = Res, Error = RouterError<E>>,
+    Error<C>: From<E>,
+{
+    type Response = Res;
+    type Error = Error<C>;
+
+    async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self.0.call(req).await.map_err(|e| match e {
+            RouterError::Match(e) => Error::from_service(e),
+            RouterError::NotAllowed(e) => Error::from_service(e),
+            RouterError::Service(e) => Error::from(e),
+        })
+    }
+}
+
+impl<S> ReadyService for RouterService<S>
+where
+    S: ReadyService,
+{
+    type Ready = S::Ready;
+
+    #[inline]
+    async fn ready(&self) -> Self::Ready {
+        self.0.ready().await
     }
 }
 

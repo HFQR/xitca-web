@@ -20,7 +20,7 @@ where
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        http_multipart::multipart(ctx.req(), body).map_err(Into::into)
+        http_multipart::multipart(ctx.req(), body).map_err(Error::from_service)
     }
 }
 

@@ -29,7 +29,7 @@ where
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         serde_urlencoded::from_str(ctx.req().uri().query().unwrap_or_default())
             .map(Query)
-            .map_err(Into::into)
+            .map_err(Error::from_service)
     }
 }
 

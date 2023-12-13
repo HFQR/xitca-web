@@ -39,7 +39,7 @@ where
             .extensions()
             .get::<T>()
             .map(ExtensionRef)
-            .ok_or_else(|| ExtensionNotFound.into())
+            .ok_or_else(|| Error::from_service(ExtensionNotFound))
     }
 }
 
@@ -74,7 +74,7 @@ where
             .extensions()
             .get::<T>()
             .map(|ext| ExtensionOwn(ext.clone()))
-            .ok_or_else(|| ExtensionNotFound.into())
+            .ok_or_else(|| Error::from_service(ExtensionNotFound))
     }
 }
 

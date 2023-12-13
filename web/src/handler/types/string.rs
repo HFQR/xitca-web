@@ -19,7 +19,7 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let vec = Vec::from_request(ctx).await?;
-        String::from_utf8(vec).map_err(Into::into)
+        String::from_utf8(vec).map_err(Error::from_service)
     }
 }
 
