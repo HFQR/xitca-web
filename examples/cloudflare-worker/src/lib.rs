@@ -15,7 +15,7 @@ use worker::*;
 use xitca_http::{
     http,
     util::service::{
-        route::{get, post, Route, RouteError},
+        route::{get, post, Route},
         router::{Router, RouterError},
     },
 };
@@ -190,13 +190,13 @@ async fn serve(mut req: HttpRequest) -> Result<Response> {
 // error handler middleware
 async fn error_handler<S>(service: &S, req: HttpRequest) -> Result<Response>
 where
-    S: Service<HttpRequest, Response = Response, Error = RouterError<RouteError<Error>>>,
+    S: Service<HttpRequest, Response = Response, Error = RouterError<Error>>,
 {
     match service.call(req).await {
         Ok(res) => Ok(res),
-        Err(RouterError::First(_)) => not_found(),
-        Err(RouterError::Second(RouteError::First(_))) => Response::error("MethodNotAllowed", 405),
-        Err(RouterError::Second(RouteError::Second(e))) => {
+        Err(RouterError::Match(_)) => not_found(),
+        Err(RouterError::NotAllowed(_)) => Response::error("MethodNotAllowed", 405),
+        Err(RouterError::Service(e)) => {
             console_log!("unhandled error: {e}");
             internal()
         }
