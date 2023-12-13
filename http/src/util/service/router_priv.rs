@@ -1,8 +1,8 @@
 pub use xitca_router::{params::Params, MatchError};
 
-use core::marker::PhantomData;
+use core::{fmt, marker::PhantomData};
 
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, error};
 
 use xitca_service::{
     object::{BoxedServiceObject, BoxedSyncServiceObject},
@@ -26,7 +26,6 @@ pub struct Router<Obj> {
 }
 
 /// Error type of Router service.
-#[derive(Debug)]
 pub enum RouterError<E> {
     /// failed to match on a routed service.
     Match(MatchError),
@@ -35,6 +34,34 @@ pub enum RouterError<E> {
     /// error produced by routed service.
     Service(E),
 }
+
+impl<E> fmt::Debug for RouterError<E>
+where
+    E: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Match(ref e) => fmt::Debug::fmt(e, f),
+            Self::NotAllowed(ref e) => fmt::Debug::fmt(e, f),
+            Self::Service(ref e) => fmt::Debug::fmt(e, f),
+        }
+    }
+}
+
+impl<E> fmt::Display for RouterError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Match(ref e) => fmt::Display::fmt(e, f),
+            Self::NotAllowed(ref e) => fmt::Display::fmt(e, f),
+            Self::Service(ref e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl<E> error::Error for RouterError<E> where E: error::Error {}
 
 impl<Obj> Default for Router<Obj> {
     fn default() -> Self {
