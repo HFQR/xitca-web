@@ -6,14 +6,16 @@ use std::{borrow::Cow, collections::HashMap};
 
 use xitca_service::{
     object::{BoxedServiceObject, BoxedSyncServiceObject},
-    pipeline::PipelineE,
     ready::ReadyService,
     EnclosedFactory, EnclosedFnFactory, FnService, MapErrorServiceFactory, Service,
 };
 
 use crate::http::{BorrowReq, BorrowReqMut, Request, Uri};
 
-use super::{handler::HandlerService, route::Route};
+use super::{
+    handler::HandlerService,
+    route::{MethodNotAllowed, Route},
+};
 
 /// Simple router for matching path and call according service.
 ///
@@ -24,9 +26,15 @@ pub struct Router<Obj> {
 }
 
 /// Error type of Router service.
-/// `First` variant contains [MatchError] error.
-/// `Second` variant contains error returned by the services passed to Router.
-pub type RouterError<E> = PipelineE<MatchError, E>;
+#[derive(Debug)]
+pub enum RouterError<E> {
+    /// failed to match on a routed service.
+    Match(MatchError),
+    /// a match of service is found but it's not allowed for access.
+    NotAllowed(MethodNotAllowed),
+    /// error produced by routed service.
+    Service(E),
+}
 
 impl<Obj> Default for Router<Obj> {
     fn default() -> Self {
@@ -112,10 +120,10 @@ impl<Obj> RouterGen for Router<Obj> {
 }
 
 impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
-    type ErrGen<R1> = RouterMapErr<R1>;
+    type ErrGen<R1> = R1;
 
     fn err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
-        RouterMapErr(route)
+        route
     }
 }
 
@@ -207,7 +215,7 @@ where
 
     #[inline]
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        self.0.call(req).await.map_err(RouterError::Second)
+        self.0.call(req).await.map_err(RouterError::Service)
     }
 }
 
@@ -250,7 +258,7 @@ where
     fn call(&self, mut req: Req) -> impl core::future::Future<Output = Result<Self::Response, Self::Error>> {
         async {
             let xitca_router::Match { value, params } =
-                self.routes.at(req.borrow().path()).map_err(RouterError::First)?;
+                self.routes.at(req.borrow().path()).map_err(RouterError::Match)?;
             *req.borrow_mut() = params;
             Service::call(value, req).await
         }
@@ -398,6 +406,7 @@ mod test {
         };
 
         Router::new()
+            .insert("/raw", fn_service(func))
             .insert("/root", handler())
             .insert("/scope", router())
             .call(())

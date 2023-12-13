@@ -3,7 +3,7 @@
 pub use xitca_http::{
     error::BodyError,
     util::service::{
-        route::{MethodNotAllowed, RouteError},
+        route::MethodNotAllowed,
         router::{MatchError, RouterError},
     },
 };

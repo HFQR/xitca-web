@@ -6,7 +6,7 @@ use crate::{
     body::BodyStream,
     bytes::Bytes,
     context::WebContext,
-    error::{MatchError, MethodNotAllowed},
+    error::{MatchError, MethodNotAllowed, RouterError},
     http::{
         const_header_value::TEXT_UTF8,
         header::{ALLOW, CONTENT_TYPE},
@@ -135,6 +135,21 @@ blank_internal!(io::Error);
 blank_internal!(Box<dyn error::Error>);
 blank_internal!(Box<dyn error::Error + Send>);
 blank_internal!(Box<dyn error::Error + Send + Sync>);
+
+impl<'r, C, B, E> Responder<WebContext<'r, C, B>> for RouterError<E>
+where
+    E: for<'r2> Responder<WebContext<'r2, C, B>, Output = WebResponse>,
+{
+    type Output = WebResponse;
+
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+        match self {
+            Self::Match(e) => e.respond_to(ctx).await,
+            Self::NotAllowed(e) => e.respond_to(ctx).await,
+            Self::Service(e) => e.respond_to(ctx).await,
+        }
+    }
+}
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for MatchError {
     type Output = WebResponse;
