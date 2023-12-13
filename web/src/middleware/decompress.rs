@@ -6,7 +6,6 @@ use crate::{
     body::BodyStream,
     context::WebContext,
     dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
-    handler::Responder,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode, WebResponse},
 };
 
@@ -67,14 +66,15 @@ where
     }
 }
 
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for EncodingError {
-    type Output = WebResponse;
+impl<'r, C, B> Service<WebContext<'r, C, B>> for EncodingError {
+    type Response = WebResponse;
+    type Error = Infallible;
 
-    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
+    async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let mut res = req.into_response(format!("{self}"));
         res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
         *res.status_mut() = StatusCode::UNSUPPORTED_MEDIA_TYPE;
-        res
+        Ok(res)
     }
 }
 

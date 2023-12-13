@@ -27,6 +27,8 @@ json = ["serde", "serde_json"]
 # urlencoded type extractor
 urlencoded = ["serde", "serde_urlencoded" ]
 
+serde = ["dep:serde"]
+
 # (de)compression middlewares
 compress-br = ["http-encoding/br"]
 compress-gz = ["http-encoding/gz"]

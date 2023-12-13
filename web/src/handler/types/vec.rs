@@ -3,7 +3,8 @@ use core::{future::poll_fn, pin::pin};
 use crate::{
     body::BodyStream,
     context::WebContext,
-    handler::{error::ExtractError, FromRequest, Responder},
+    error::Error,
+    handler::{ExtractError, FromRequest, Responder},
     http::WebResponse,
 };
 
@@ -12,7 +13,7 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = Vec<u8>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -23,7 +24,8 @@ where
         let mut vec = Vec::new();
 
         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(ExtractError::Body)?;
+            let chunk = chunk.map_err(|e| ExtractError::Boxed(Box::new(e)))?;
+
             vec.extend_from_slice(chunk.as_ref());
         }
 

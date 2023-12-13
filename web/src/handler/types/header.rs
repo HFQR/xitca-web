@@ -5,6 +5,7 @@ use core::{fmt, ops::Deref};
 use crate::{
     body::BodyStream,
     context::WebContext,
+    error::Error,
     handler::{error::ExtractError, FromRequest},
     http::header::{self, HeaderValue},
 };
@@ -64,7 +65,7 @@ where
     B: BodyStream,
 {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -72,7 +73,7 @@ where
             .headers()
             .get(&map_to_header_name::<HEADER_NAME>())
             .map(HeaderRef)
-            .ok_or_else(|| ExtractError::HeaderNotFound(map_to_header_name::<HEADER_NAME>()))
+            .ok_or_else(|| Error::from(ExtractError::HeaderNotFound(map_to_header_name::<HEADER_NAME>())))
     }
 }
 

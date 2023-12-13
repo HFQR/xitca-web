@@ -226,7 +226,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        body::{BoxStream, Once},
+        body::{BoxBody, Once},
         bytes::Bytes,
         date::DateTimeService,
         http::{HeaderValue, Response},
@@ -241,7 +241,7 @@ mod test {
                 let date = DateTimeService::new();
                 let mut ctx = Context::<_, 64>::new(date.get());
 
-                let mut res = Response::new(BoxStream::new(Once::new(Bytes::new())));
+                let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
 
                 res.headers_mut()
                     .insert(CONNECTION, HeaderValue::from_static("keep-alive"));

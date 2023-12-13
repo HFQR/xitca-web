@@ -2,21 +2,20 @@
 
 use core::{fmt, ops::Deref};
 
+use std::{convert::Infallible, error};
+
 use crate::{
     body::BodyStream,
     context::WebContext,
-    handler::{error::ExtractError, FromRequest},
-    http::Extensions,
+    dev::service::Service,
+    error::Error,
+    handler::{error::blank_bad_request, FromRequest},
+    http::{Extensions, WebResponse},
 };
 
 /// Extract immutable reference of element stored inside [Extensions]
+#[derive(Debug)]
 pub struct ExtensionRef<'a, T>(pub &'a T);
-
-impl<T: fmt::Debug> fmt::Debug for ExtensionRef<'_, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ExtensionRef({:?})", self.0)
-    }
-}
 
 impl<T> Deref for ExtensionRef<'_, T> {
     type Target = T;
@@ -32,16 +31,15 @@ where
     B: BodyStream,
 {
     type Type<'b> = ExtensionRef<'b, T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let ext = ctx
-            .req()
+        ctx.req()
             .extensions()
             .get::<T>()
-            .ok_or(ExtractError::ExtensionNotFound)?;
-        Ok(ExtensionRef(ext))
+            .map(ExtensionRef)
+            .ok_or_else(|| ExtensionNotFound.into())
     }
 }
 
@@ -68,17 +66,15 @@ where
     B: BodyStream,
 {
     type Type<'b> = ExtensionOwn<T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let ext = ctx
-            .req()
+        ctx.req()
             .extensions()
             .get::<T>()
-            .ok_or(ExtractError::ExtensionNotFound)?
-            .clone();
-        Ok(ExtensionOwn(ext))
+            .map(|ext| ExtensionOwn(ext.clone()))
+            .ok_or_else(|| ExtensionNotFound.into())
     }
 }
 
@@ -98,10 +94,31 @@ where
     B: BodyStream,
 {
     type Type<'b> = ExtensionsRef<'b>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(ExtensionsRef(ctx.req().extensions()))
+    }
+}
+
+/// Absent type of request's (Extensions)[crate::http::Extensions] type map.
+#[derive(Debug)]
+pub struct ExtensionNotFound;
+
+impl fmt::Display for ExtensionNotFound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Extension data type can not be found")
+    }
+}
+
+impl error::Error for ExtensionNotFound {}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for ExtensionNotFound {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Ok(blank_bad_request(ctx))
     }
 }

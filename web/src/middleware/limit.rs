@@ -14,7 +14,6 @@ use crate::{
     body::BodyStream,
     context::WebContext,
     dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
-    handler::Responder,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, status::StatusCode, WebResponse},
 };
 
@@ -159,14 +158,15 @@ impl fmt::Display for LimitError {
 
 impl error::Error for LimitError {}
 
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for LimitError {
-    type Output = WebResponse;
+impl<'r, C, B> Service<WebContext<'r, C, B>> for LimitError {
+    type Response = WebResponse;
+    type Error = Infallible;
 
-    async fn respond_to(self, req: WebContext<'r, C, B>) -> Self::Output {
-        let mut res = req.into_response(format!("{self}"));
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let mut res = ctx.into_response(format!("{self}"));
         res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
         *res.status_mut() = StatusCode::BAD_REQUEST;
-        res
+        Ok(res)
     }
 }
 
@@ -177,7 +177,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        body::BoxStream,
+        body::BoxBody,
         bytes::Bytes,
         error::BodyError,
         handler::{body::Body, handler_service},
@@ -207,7 +207,7 @@ mod test {
         let item = || async { Ok::<_, BodyError>(Bytes::from_static(chunk)) };
 
         let body = stream::once(item()).chain(stream::once(item()));
-        let ext = RequestExt::default().map_body(|_: ()| BoxStream::new(body));
+        let ext = RequestExt::default().map_body(|_: ()| BoxBody::new(body));
         let req = Request::new(ext);
 
         let body = App::new()

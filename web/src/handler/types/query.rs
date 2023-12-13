@@ -4,14 +4,7 @@ use core::fmt;
 
 use serde::de::DeserializeOwned;
 
-use crate::{
-    body::BodyStream,
-    context::WebContext,
-    handler::{
-        error::{ExtractError, _ParseError},
-        FromRequest,
-    },
-};
+use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
 
 pub struct Query<T>(pub T);
 
@@ -30,13 +23,13 @@ where
     B: BodyStream,
 {
     type Type<'b> = Query<T>;
-    type Error = ExtractError<B::Error>;
+    type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let value =
-            serde_urlencoded::from_str(ctx.req().uri().query().unwrap_or_default()).map_err(_ParseError::UrlEncoded)?;
-        Ok(Query(value))
+        serde_urlencoded::from_str(ctx.req().uri().query().unwrap_or_default())
+            .map(Query)
+            .map_err(Into::into)
     }
 }
 
