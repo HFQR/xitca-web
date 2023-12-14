@@ -53,9 +53,9 @@ where
 }
 
 impl<S> RouterGen for TowerHttpCompat<S> {
-    type ErrGen<R> = RouterMapErr<R>;
+    type Route<R> = RouterMapErr<R>;
 
-    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
+    fn route_gen<R>(route: R) -> Self::Route<R> {
         RouterMapErr(route)
     }
 }

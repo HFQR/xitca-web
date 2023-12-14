@@ -7,12 +7,12 @@ use core::{
     future::{ready, Future, Ready},
 };
 
-use std::error;
+use std::{borrow::Cow, error};
 
 use futures_core::stream::Stream;
 use xitca_http::util::{
     middleware::context::{Context, ContextBuilder},
-    service::router::{IntoObject, Router, RouterGen},
+    service::router::{IntoObject, Router, RouterGen, RouterMapErr},
 };
 
 use crate::{
@@ -34,6 +34,11 @@ impl App {
     /// Construct a new application instance.
     pub fn new<Obj>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, AppRouter<Obj>> {
         Self::with_state(())
+    }
+
+    /// Construct a new scoped application instance.
+    pub fn scope<Obj, State>() -> App<impl Fn() -> Ready<Result<State, Infallible>>, AppRouter<Obj>> {
+        Self::with_async_state(|| unreachable!(""))
     }
 
     /// Construct App with a thread safe state.
@@ -65,7 +70,7 @@ impl<CF, Obj> App<CF, AppRouter<Obj>> {
         Fut: Future<Output = Result<C, E>>,
         F: RouterGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebContext<'r, C, B>>,
-        for<'r> WebContext<'r, C, B>: IntoObject<F::ErrGen<F>, (), Object = Obj>,
+        for<'r> WebContext<'r, C, B>: IntoObject<F::Route<F>, (), Object = Obj>,
     {
         self.router = AppRouter(self.router.0.insert(path, factory));
         self
@@ -207,8 +212,47 @@ where
     }
 }
 
+impl<CF, R> RouterGen for App<CF, R>
+where
+    R: RouterGen,
+{
+    type Route<R1> = R::Route<R1>;
+
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.router.path_gen(prefix)
+    }
+
+    fn route_gen<R1>(route: R1) -> Self::Route<R1> {
+        R::route_gen(route)
+    }
+}
+
+impl<CF, R, Arg> Service<Arg> for App<CF, R>
+where
+    R: Service<Arg>,
+{
+    type Response = R::Response;
+    type Error = R::Error;
+
+    async fn call(&self, req: Arg) -> Result<Self::Response, Self::Error> {
+        self.router.call(req).await
+    }
+}
+
 /// application wrap around [Router] and transform it's error type into [Error]
 pub struct AppRouter<Obj>(Router<Obj>);
+
+impl<Obj> RouterGen for AppRouter<Obj> {
+    type Route<R1> = RouterMapErr<<Router<Obj> as RouterGen>::Route<R1>>;
+
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.0.path_gen(prefix)
+    }
+
+    fn route_gen<R1>(route: R1) -> Self::Route<R1> {
+        RouterMapErr(<Router<Obj> as RouterGen>::route_gen(route))
+    }
+}
 
 impl<Arg, Obj> Service<Arg> for AppRouter<Obj>
 where
@@ -446,7 +490,7 @@ mod test {
         let state = String::from("state");
         let service = App::with_state(state)
             .at("/root", get(handler_service(handler)))
-            .at("/scope", Router::new().insert("/nest", get(handler_service(handler))))
+            .at("/scope", App::scope().at("/nest", get(handler_service(handler))))
             .finish()
             .call(())
             .now_or_panic()

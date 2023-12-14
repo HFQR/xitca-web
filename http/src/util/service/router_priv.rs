@@ -87,12 +87,12 @@ impl<Obj> Router<Obj> {
     where
         F: Service<Arg> + RouterGen + Send + Sync,
         F::Response: Service<Req>,
-        Req: IntoObject<F::ErrGen<F>, Arg, Object = Obj>,
+        Req: IntoObject<F::Route<F>, Arg, Object = Obj>,
     {
         let path = builder.path_gen(path);
         assert!(self
             .routes
-            .insert(path, Req::into_object(F::err_gen(builder)))
+            .insert(path, Req::into_object(F::route_gen(builder)))
             .is_none());
         self
     }
@@ -100,8 +100,8 @@ impl<Obj> Router<Obj> {
 
 /// trait for specialized route generation when utilizing [Router::insert].
 pub trait RouterGen {
-    /// service builder type for generating according error type of router service.
-    type ErrGen<R>;
+    /// service builder type for generating the final route service.
+    type Route<R>;
 
     /// path generator.
     ///
@@ -110,15 +110,15 @@ pub trait RouterGen {
         Cow::Borrowed(prefix)
     }
 
-    /// error generator.
+    /// route service generator.
     ///
     /// implicit default to map error type to [RouterError] with [RouterMapErr].
-    fn err_gen<R>(route: R) -> Self::ErrGen<R>;
+    fn route_gen<R>(route: R) -> Self::Route<R>;
 }
 
 // nest router needs special handling for path generation.
 impl<Obj> RouterGen for Router<Obj> {
-    type ErrGen<R> = R;
+    type Route<R> = R;
 
     fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         let mut path = String::from(prefix);
@@ -141,31 +141,31 @@ impl<Obj> RouterGen for Router<Obj> {
         Cow::Owned(path)
     }
 
-    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
+    fn route_gen<R>(route: R) -> Self::Route<R> {
         route
     }
 }
 
 impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
-    type ErrGen<R1> = R1;
+    type Route<R1> = R1;
 
-    fn err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
+    fn route_gen<R1>(route: R1) -> Self::Route<R1> {
         route
     }
 }
 
 impl<F, T, O, M> RouterGen for HandlerService<F, T, O, M> {
-    type ErrGen<R> = RouterMapErr<R>;
+    type Route<R> = RouterMapErr<R>;
 
-    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
+    fn route_gen<R>(route: R) -> Self::Route<R> {
         RouterMapErr(route)
     }
 }
 
 impl<F> RouterGen for FnService<F> {
-    type ErrGen<R1> = RouterMapErr<R1>;
+    type Route<R1> = RouterMapErr<R1>;
 
-    fn err_gen<R1>(route: R1) -> Self::ErrGen<R1> {
+    fn route_gen<R1>(route: R1) -> Self::Route<R1> {
         RouterMapErr(route)
     }
 }
@@ -174,14 +174,14 @@ impl<F, S> RouterGen for MapErrorServiceFactory<F, S>
 where
     F: RouterGen,
 {
-    type ErrGen<R> = F::ErrGen<R>;
+    type Route<R> = F::Route<R>;
 
     fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         self.first.path_gen(prefix)
     }
 
-    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
-        F::err_gen(route)
+    fn route_gen<R>(route: R) -> Self::Route<R> {
+        F::route_gen(route)
     }
 }
 
@@ -189,14 +189,14 @@ impl<F, S> RouterGen for EnclosedFactory<F, S>
 where
     F: RouterGen,
 {
-    type ErrGen<R> = F::ErrGen<R>;
+    type Route<R> = F::Route<R>;
 
     fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         self.first.path_gen(prefix)
     }
 
-    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
-        F::err_gen(route)
+    fn route_gen<R>(route: R) -> Self::Route<R> {
+        F::route_gen(route)
     }
 }
 
@@ -204,14 +204,14 @@ impl<F, S> RouterGen for EnclosedFnFactory<F, S>
 where
     F: RouterGen,
 {
-    type ErrGen<R> = F::ErrGen<R>;
+    type Route<R> = F::Route<R>;
 
     fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
         self.first.path_gen(prefix)
     }
 
-    fn err_gen<R>(route: R) -> Self::ErrGen<R> {
-        F::err_gen(route)
+    fn route_gen<R>(route: R) -> Self::Route<R> {
+        F::route_gen(route)
     }
 }
 
@@ -225,7 +225,6 @@ where
     type Response = MapErrService<S::Response>;
     type Error = S::Error;
 
-    #[inline]
     async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
         self.0.call(arg).await.map(MapErrService)
     }
@@ -452,5 +451,24 @@ mod test {
             .call(req())
             .now_or_panic()
             .unwrap();
+    }
+
+    #[test]
+    fn router_service_call_size() {
+        let service = Router::new()
+            .insert("/", fn_service(func))
+            .call(())
+            .now_or_panic()
+            .unwrap();
+
+        println!(
+            "router service ready call size: {:?}",
+            core::mem::size_of_val(&service.ready())
+        );
+
+        println!(
+            "router service call size: {:?}",
+            core::mem::size_of_val(&service.call(Request::default()))
+        );
     }
 }
