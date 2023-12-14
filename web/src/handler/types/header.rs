@@ -73,7 +73,7 @@ where
             .headers()
             .get(&map_to_header_name::<HEADER_NAME>())
             .map(HeaderRef)
-            .ok_or_else(|| Error::from(ExtractError::HeaderNotFound(map_to_header_name::<HEADER_NAME>())))
+            .ok_or_else(|| Error::from_service(ExtractError::HeaderNotFound(map_to_header_name::<HEADER_NAME>())))
     }
 }
 

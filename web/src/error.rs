@@ -26,8 +26,77 @@ use self::service_impl::ErrorService;
 
 type BoxErrService<C> = Box<dyn for<'r> ErrorService<WebContext<'r, C>>>;
 
-#[derive(Debug)]
+/// type erased error object. can be used for dynamic access to error's debug/display info.
+/// it also support upcasting and downcasting.
+///
+/// # Examples:
+/// ```rust
+/// use std::{convert::Infallible, error, fmt};
+///
+/// use xitca_web::{dev::service::Service, error::Error, http::WebResponse, WebContext};
+///
+/// // concrete error type
+/// #[derive(Debug)]
+/// struct Foo;
+///
+/// // implement debug and display format.
+/// impl fmt::Display for Foo {
+///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+///         f.write_str("Foo")
+///     }
+/// }
+///
+/// // implement Error trait
+/// impl error::Error for Foo {}
+///
+/// // implement Service trait for http response generating.
+/// impl<'r, C> Service<WebContext<'r, C>> for Foo {
+///     type Response = WebResponse;
+///     type Error = Infallible;
+///
+///     async fn call(&self, _: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
+///         Ok(WebResponse::default())
+///     }
+/// }
+///
+/// async fn handle_error<C>(ctx: WebContext<'_, C>) {
+///     // construct error object.
+///     let e = Error::<C>::from_service(Foo);
+///
+///     // format and display error
+///     println!("{e:?}");
+///     println!("{e}");
+///
+///     // generate http response.
+///     let res = Service::call(&e, ctx).await.unwrap();
+///     assert_eq!(res.status().as_u16(), 200);
+///
+///     // upcast and downcast to concrete error type again.
+///     // *. trait upcast is a feature stabled in Rust 1.76
+///     // let e = &**e as &dyn error::Error;
+///     // assert!(e.downcast_ref::<Foo>().is_some());
+/// }
+/// ```
 pub struct Error<C>(BoxErrService<C>);
+
+impl<C> Error<C> {
+    pub fn from_service<S>(s: S) -> Self
+    where
+        S: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>
+            + error::Error
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self(Box::new(s))
+    }
+}
+
+impl<C> fmt::Debug for Error<C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
 
 impl<C> fmt::Display for Error<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -49,16 +118,9 @@ impl<C> DerefMut for Error<C> {
     }
 }
 
-impl<C, S> From<S> for Error<C>
-where
-    S: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>
-        + error::Error
-        + Send
-        + Sync
-        + 'static,
-{
-    fn from(s: S) -> Self {
-        Self(Box::new(s))
+impl<C> From<Infallible> for Error<C> {
+    fn from(e: Infallible) -> Self {
+        match e {}
     }
 }
 
@@ -117,7 +179,7 @@ mod test {
             }
         }
 
-        let foo = Error::<()>::from(Foo);
+        let foo = Error::<()>::from_service(Foo);
 
         println!("{foo:?}");
         println!("{foo}");

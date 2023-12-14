@@ -24,7 +24,7 @@ where
         let mut vec = Vec::new();
 
         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(|e| ExtractError::Boxed(Box::new(e)))?;
+            let chunk = chunk.map_err(|e| Error::from_service(ExtractError::Boxed(Box::new(e))))?;
 
             vec.extend_from_slice(chunk.as_ref());
         }

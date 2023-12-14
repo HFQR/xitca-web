@@ -23,8 +23,9 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let params = ctx.req().body().params();
-        let params = T::deserialize(Params2::new(params))?;
-        Ok(Params(params))
+        T::deserialize(Params2::new(params))
+            .map(Params)
+            .map_err(Error::from_service)
     }
 }
 

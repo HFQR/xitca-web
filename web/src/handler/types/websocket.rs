@@ -160,7 +160,7 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        let ws = http_ws::ws(ctx.req(), body)?;
+        let ws = http_ws::ws(ctx.req(), body).map_err(Error::from_service)?;
         Ok(WebSocket::new(ws))
     }
 }

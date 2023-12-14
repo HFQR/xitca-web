@@ -87,14 +87,14 @@ where
         let mut buf = BytesMut::new();
 
         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(|e| ExtractError::Boxed(Box::new(e)))?;
+            let chunk = chunk.map_err(|e| Error::from_service(ExtractError::Boxed(Box::new(e))))?;
             buf.extend_from_slice(chunk.as_ref());
             if buf.len() > limit {
                 break;
             }
         }
 
-        let json = serde_json::from_slice(&buf)?;
+        let json = serde_json::from_slice(&buf).map_err(Error::from_service)?;
 
         Ok(Json(json))
     }
