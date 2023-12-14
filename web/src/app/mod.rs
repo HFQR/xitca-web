@@ -36,11 +36,6 @@ impl App {
         Self::with_state(())
     }
 
-    /// Construct a new scoped application instance.
-    pub fn scope<Obj, State>() -> App<impl Fn() -> Ready<Result<State, Infallible>>, AppRouter<Obj>> {
-        Self::with_async_state(|| unreachable!(""))
-    }
-
     /// Construct App with a thread safe state.
     ///
     /// State would be shared among all tasks and worker threads.
@@ -64,10 +59,8 @@ impl App {
 
 impl<CF, Obj> App<CF, AppRouter<Obj>> {
     /// insert routed service with given path to application.
-    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, AppRouter<Obj>>
+    pub fn at<C, F, B>(mut self, path: &'static str, factory: F) -> App<CF, AppRouter<Obj>>
     where
-        CF: Fn() -> Fut,
-        Fut: Future<Output = Result<C, E>>,
         F: RouterGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebContext<'r, C, B>>,
         for<'r> WebContext<'r, C, B>: IntoObject<F::Route<F>, (), Object = Obj>,
@@ -276,6 +269,7 @@ where
     type Response = Res;
     type Error = Error<C>;
 
+    #[inline]
     async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         self.0.call(req).await.map_err(|e| match e {
             RouterError::Match(e) => Error::from_service(e),
@@ -354,6 +348,13 @@ mod test {
     };
 
     use super::*;
+
+    async fn middleware<S, C, B, Res, Err>(s: &S, req: WebContext<'_, C, B>) -> Result<Res, Err>
+    where
+        S: for<'r> Service<WebContext<'r, C, B>, Response = Res, Error = Err>,
+    {
+        s.call(req).await
+    }
 
     async fn handler(
         StateRef(state): StateRef<'_, String>,
@@ -490,7 +491,12 @@ mod test {
         let state = String::from("state");
         let service = App::with_state(state)
             .at("/root", get(handler_service(handler)))
-            .at("/scope", App::scope().at("/nest", get(handler_service(handler))))
+            .at(
+                "/scope",
+                App::new()
+                    .at("/nest", get(handler_service(handler)))
+                    .enclosed_fn(middleware),
+            )
             .finish()
             .call(())
             .now_or_panic()
