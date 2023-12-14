@@ -6,7 +6,7 @@ use crate::{
     bytes::Bytes,
     context::WebContext,
     dev::service::Service,
-    http::{header::HeaderName, StatusCode, WebResponse},
+    http::{StatusCode, WebResponse},
 };
 
 type BoxedError = Box<dyn error::Error + Send + Sync + 'static>;
@@ -17,14 +17,32 @@ pub(crate) fn blank_bad_request<C, B>(req: WebContext<'_, C, B>) -> WebResponse 
     res
 }
 
+#[derive(Debug)]
+pub struct Internal;
+
+impl fmt::Display for Internal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Internal error")
+    }
+}
+
+impl error::Error for Internal {}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for Internal {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let mut res = ctx.into_response(Bytes::new());
+        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        Ok(res)
+    }
+}
+
 /// Collection of all default extract types's error.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ExtractError {
-    // unnamed internal error type.
-    Internal,
-    /// Absent header value.
-    HeaderNotFound(HeaderName),
     /// fallback boxed error type.
     Boxed(BoxedError),
 }
@@ -32,8 +50,6 @@ pub enum ExtractError {
 impl fmt::Display for ExtractError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Internal => f.write_str("Internal error"),
-            Self::HeaderNotFound(ref name) => write!(f, "HeaderName: {name} not found."),
             Self::Boxed(ref e) => fmt::Display::fmt(e, f),
         }
     }

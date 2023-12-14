@@ -1,13 +1,19 @@
 //! type extractor for header value
 
-use core::{fmt, ops::Deref};
+use core::{convert::Infallible, fmt, ops::Deref};
+
+use std::error;
 
 use crate::{
     body::BodyStream,
     context::WebContext,
+    dev::service::Service,
     error::Error,
-    handler::{error::ExtractError, FromRequest},
-    http::header::{self, HeaderValue},
+    handler::{error::blank_bad_request, FromRequest},
+    http::{
+        header::{self, HeaderValue},
+        WebResponse,
+    },
 };
 
 macro_rules! const_header_name {
@@ -73,7 +79,7 @@ where
             .headers()
             .get(&map_to_header_name::<HEADER_NAME>())
             .map(HeaderRef)
-            .ok_or_else(|| Error::from_service(ExtractError::HeaderNotFound(map_to_header_name::<HEADER_NAME>())))
+            .ok_or_else(|| Error::from_service(HeaderNotFound(map_to_header_name::<HEADER_NAME>())))
     }
 }
 
@@ -108,5 +114,25 @@ mod test {
                 .deref(),
             &header::HeaderValue::from_static("996")
         );
+    }
+}
+
+#[derive(Debug)]
+pub struct HeaderNotFound(pub(crate) header::HeaderName);
+
+impl fmt::Display for HeaderNotFound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HeaderName: {} not found", self.0.as_str())
+    }
+}
+
+impl error::Error for HeaderNotFound {}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for HeaderNotFound {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Ok(blank_bad_request(ctx))
     }
 }

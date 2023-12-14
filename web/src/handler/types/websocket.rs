@@ -22,12 +22,14 @@ use crate::{
     context::WebContext,
     dev::service::Service,
     error::Error,
-    handler::{error::ExtractError, FromRequest, Responder},
+    handler::{error::Internal, FromRequest, Responder},
     http::{
         header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
         WebResponse,
     },
 };
+
+use super::header::HeaderNotFound;
 
 /// simplified websocket message type.
 /// for more variant of message please reference [http_ws::Message] type.
@@ -138,11 +140,11 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for HandshakeError {
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let e = match self {
-            HandshakeError::NoConnectionUpgrade => ExtractError::HeaderNotFound(CONNECTION),
-            HandshakeError::NoVersionHeader => ExtractError::HeaderNotFound(SEC_WEBSOCKET_VERSION),
-            HandshakeError::NoWebsocketUpgrade => ExtractError::HeaderNotFound(UPGRADE),
+            HandshakeError::NoConnectionUpgrade => HeaderNotFound(CONNECTION),
+            HandshakeError::NoVersionHeader => HeaderNotFound(SEC_WEBSOCKET_VERSION),
+            HandshakeError::NoWebsocketUpgrade => HeaderNotFound(UPGRADE),
             // TODO: refine error mapping of the remaining branches.
-            _ => ExtractError::Internal,
+            _ => return Internal.call(ctx).await,
         };
 
         e.call(ctx).await
