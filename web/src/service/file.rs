@@ -1,3 +1,5 @@
+//! static file serving.
+
 use core::convert::Infallible;
 
 use std::{borrow::Cow, path::PathBuf};
@@ -14,11 +16,28 @@ use crate::{
     http::{Method, WebResponse},
 };
 
+/// builder type for serve dir service.
 pub struct ServeDir {
     inner: _ServeDir,
 }
 
 impl ServeDir {
+    /// construct a new static file service that serve given relative file path's file based on file name.
+    ///
+    /// # Example
+    /// ```rust
+    /// use xitca_web::{
+    ///     handler::{handler_service},
+    ///     service::file::ServeDir,
+    ///     App, WebContext
+    /// };
+    ///
+    /// App::new()
+    ///     // http request would be matched against files inside ./static file path.
+    ///     .at("/", ServeDir::new("static"))
+    ///     // other named routes have higher priority than serve dir service.
+    ///     .at("/foo", handler_service(|ctx: &WebContext<'_>| async { "foo!" }));
+    /// ```
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             inner: _ServeDir::new(path),
