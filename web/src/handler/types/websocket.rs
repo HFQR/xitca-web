@@ -21,8 +21,8 @@ use crate::{
     bytes::Bytes,
     context::WebContext,
     dev::service::Service,
-    error::Error,
-    handler::{error::Internal, FromRequest, Responder},
+    error::{Error, Internal},
+    handler::{FromRequest, Responder},
     http::{
         header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
         WebResponse,

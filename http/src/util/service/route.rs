@@ -169,7 +169,7 @@ impl<R, N, const M: usize> ReadyService for RouteService<R, N, M> {
 }
 
 /// Error type of Method not allow for route.
-pub struct MethodNotAllowed(Vec<Method>);
+pub struct MethodNotAllowed(pub Vec<Method>);
 
 impl MethodNotAllowed {
     /// slice of allowed methods of current route.
