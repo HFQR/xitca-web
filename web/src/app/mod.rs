@@ -7,12 +7,12 @@ use core::{
     future::{ready, Future, Ready},
 };
 
-use std::error;
+use std::{borrow::Cow, error};
 
 use futures_core::stream::Stream;
 use xitca_http::util::{
     middleware::context::{Context, ContextBuilder},
-    service::router::{IntoObject, Router, RouterGen},
+    service::router::{IntoObject, Router, RouterGen, RouterMapErr},
 };
 
 use crate::{
@@ -59,13 +59,11 @@ impl App {
 
 impl<CF, Obj> App<CF, AppRouter<Obj>> {
     /// insert routed service with given path to application.
-    pub fn at<Fut, C, E, F, B>(mut self, path: &'static str, factory: F) -> App<CF, AppRouter<Obj>>
+    pub fn at<C, F, B>(mut self, path: &'static str, factory: F) -> App<CF, AppRouter<Obj>>
     where
-        CF: Fn() -> Fut,
-        Fut: Future<Output = Result<C, E>>,
         F: RouterGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebContext<'r, C, B>>,
-        for<'r> WebContext<'r, C, B>: IntoObject<F::ErrGen<F>, (), Object = Obj>,
+        for<'r> WebContext<'r, C, B>: IntoObject<F::Route<F>, (), Object = Obj>,
     {
         self.router = AppRouter(self.router.0.insert(path, factory));
         self
@@ -207,8 +205,47 @@ where
     }
 }
 
+impl<CF, R> RouterGen for App<CF, R>
+where
+    R: RouterGen,
+{
+    type Route<R1> = R::Route<R1>;
+
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.router.path_gen(prefix)
+    }
+
+    fn route_gen<R1>(route: R1) -> Self::Route<R1> {
+        R::route_gen(route)
+    }
+}
+
+impl<CF, R, Arg> Service<Arg> for App<CF, R>
+where
+    R: Service<Arg>,
+{
+    type Response = R::Response;
+    type Error = R::Error;
+
+    async fn call(&self, req: Arg) -> Result<Self::Response, Self::Error> {
+        self.router.call(req).await
+    }
+}
+
 /// application wrap around [Router] and transform it's error type into [Error]
 pub struct AppRouter<Obj>(Router<Obj>);
+
+impl<Obj> RouterGen for AppRouter<Obj> {
+    type Route<R1> = RouterMapErr<<Router<Obj> as RouterGen>::Route<R1>>;
+
+    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+        self.0.path_gen(prefix)
+    }
+
+    fn route_gen<R1>(route: R1) -> Self::Route<R1> {
+        RouterMapErr(<Router<Obj> as RouterGen>::route_gen(route))
+    }
+}
 
 impl<Arg, Obj> Service<Arg> for AppRouter<Obj>
 where
@@ -232,6 +269,7 @@ where
     type Response = Res;
     type Error = Error<C>;
 
+    #[inline]
     async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         self.0.call(req).await.map_err(|e| match e {
             RouterError::Match(e) => Error::from_service(e),
@@ -310,6 +348,13 @@ mod test {
     };
 
     use super::*;
+
+    async fn middleware<S, C, B, Res, Err>(s: &S, req: WebContext<'_, C, B>) -> Result<Res, Err>
+    where
+        S: for<'r> Service<WebContext<'r, C, B>, Response = Res, Error = Err>,
+    {
+        s.call(req).await
+    }
 
     async fn handler(
         StateRef(state): StateRef<'_, String>,
@@ -446,7 +491,12 @@ mod test {
         let state = String::from("state");
         let service = App::with_state(state)
             .at("/root", get(handler_service(handler)))
-            .at("/scope", Router::new().insert("/nest", get(handler_service(handler))))
+            .at(
+                "/scope",
+                App::new()
+                    .at("/nest", get(handler_service(handler)))
+                    .enclosed_fn(middleware),
+            )
             .finish()
             .call(())
             .now_or_panic()
