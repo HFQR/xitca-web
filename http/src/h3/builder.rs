@@ -1,5 +1,3 @@
-use std::convert::Infallible;
-
 use xitca_service::Service;
 
 use super::service::H3Service;
@@ -21,11 +19,11 @@ impl H3ServiceBuilder {
     }
 }
 
-impl<S> Service<S> for H3ServiceBuilder {
+impl<S, E> Service<Result<S, E>> for H3ServiceBuilder {
     type Response = H3Service<S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        Ok(H3Service::new(service))
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(H3Service::new)
     }
 }

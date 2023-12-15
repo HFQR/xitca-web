@@ -1,14 +1,13 @@
-use std::marker::PhantomData;
+use core::{fmt, marker::PhantomData};
 
 use xitca_io::net;
-use xitca_service::{EnclosedFactory, Service, ServiceExt};
+use xitca_service::Service;
 
 use super::{
     body::RequestBody,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     service::HttpService,
     tls,
-    util::middleware::Logger,
 };
 
 // marker type for separate HttpServerBuilders' ServiceFactory implement with specialized trait
@@ -140,16 +139,6 @@ impl<V, St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WR
         }
     }
 
-    /// Finish builder with default logger.
-    ///
-    /// Would consume input.
-    pub fn with_logger(self) -> EnclosedFactory<Self, Logger>
-    where
-        Self: Service,
-    {
-        self.enclosed(Logger::new())
-    }
-
     #[cfg(feature = "openssl")]
     /// use openssl as tls service. tls service is used for Http/1 and Http/2 protocols.
     pub fn openssl(
@@ -190,19 +179,23 @@ impl<V, St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WR
     }
 }
 
-impl<S, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<S>
+type Error = Box<dyn fmt::Debug>;
+
+impl<FA, S, E, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<Result<S, E>>
     for HttpServiceBuilder<marker::Http, net::Stream, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     FA: Service,
+    FA::Error: fmt::Debug + 'static,
+    E: fmt::Debug + 'static,
 {
     type Response =
         HttpService<net::Stream, S, RequestBody, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
-    type Error = FA::Error;
+    type Error = Error;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        self.tls_factory
-            .call(())
-            .await
-            .map(|tls_acceptor| HttpService::new(self.config, service, tls_acceptor))
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        let service = res.map_err(|e| Box::new(e) as Error)?;
+        let tls_acceptor = self.tls_factory.call(()).await.map_err(|e| Box::new(e) as Error)?;
+        Ok(HttpService::new(self.config, service, tls_acceptor))
     }
 }

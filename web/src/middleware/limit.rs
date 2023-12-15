@@ -42,12 +42,12 @@ impl Limit {
     }
 }
 
-impl<S> Service<S> for Limit {
+impl<S, E> Service<Result<S, E>> for Limit {
     type Response = LimitService<S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        Ok(LimitService { service, limit: *self })
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(|service| LimitService { service, limit: *self })
     }
 }
 

@@ -33,8 +33,8 @@ impl<S> TestMiddlewareService<S>
 where
     S: ReadyService + Service<String, Error = Box<dyn std::error::Error>, Response = usize>,
 {
-    async fn new_service(_m: &TestMiddleware, service: S) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(TestMiddlewareService(service))
+    async fn new_service<E>(_m: &TestMiddleware, res: Result<S, E>) -> Result<Self, E> {
+        res.map(TestMiddlewareService)
     }
 
     async fn ready(&self) -> S::Ready {

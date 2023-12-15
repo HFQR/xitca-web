@@ -43,8 +43,8 @@ where
 ///
 /// [ServiceExt::enclosed]: super::ServiceExt::enclosed
 /// [ServiceExt::enclosed_fn]: super::ServiceExt::enclosed_fn
-pub fn fn_build_nop<Arg>() -> FnService<impl Fn(Arg) -> Ready<Result<Arg, Infallible>> + Clone> {
-    fn_build(|arg| ready(Ok(arg)))
+pub fn fn_build_nop<S, E>() -> FnService<impl Fn(Result<S, E>) -> Ready<Result<S, E>> + Clone> {
+    fn_build(ready)
 }
 
 /// Shortcut for transform a given Fn into type impl [Service] trait.

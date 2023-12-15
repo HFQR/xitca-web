@@ -1,17 +1,17 @@
-use crate::pipeline::{marker::BuildEnclosed, PipelineE, PipelineT};
+use crate::pipeline::{marker::BuildEnclosed, PipelineT};
 
 use super::Service;
 
-impl<F, Arg, T> Service<Arg> for PipelineT<F, T, BuildEnclosed>
+impl<F, T, Arg> Service<Arg> for PipelineT<F, T, BuildEnclosed>
 where
     F: Service<Arg>,
-    T: Service<F::Response>,
+    T: Service<Result<F::Response, F::Error>>,
 {
     type Response = T::Response;
-    type Error = PipelineE<F::Error, T::Error>;
+    type Error = T::Error;
 
     async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
-        let service = self.first.call(arg).await.map_err(PipelineE::First)?;
-        self.second.call(service).await.map_err(PipelineE::Second)
+        let res = self.first.call(arg).await;
+        self.second.call(res).await
     }
 }

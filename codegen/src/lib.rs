@@ -45,12 +45,120 @@ pub fn state_impl(item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    middleware_impl(_attr, item)
+pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::ItemImpl);
+
+    // Collect type path from impl.
+    let service_ty = match input.self_ty.as_ref() {
+        Type::Path(path) => path,
+        _ => panic!("impl macro must be used on a TypePath"),
+    };
+
+    // collect generics.
+    let generic_ty = &input.generics.params;
+    let where_clause = &input.generics.where_clause;
+
+    // find methods from impl.
+    let new_service_impl =
+        find_async_method(&input.items, "new_service").expect("new_service method can not be located");
+
+    let new_service_generic_err_ty = new_service_impl
+        .sig
+        .generics
+        .params
+        .first()
+        .expect("new_service must annotate generic E type");
+
+    let new_service_rt_err_ty =
+        find_new_service_rt_err_ty(new_service_impl).expect("new_service must return Result<Self, E> type.");
+
+    // collect ServiceFactory type
+    let mut inputs = new_service_impl.sig.inputs.iter();
+
+    let (factory_ident, factory_ty) = match inputs.next().unwrap() {
+        FnArg::Receiver(_) => panic!("new_service method does not accept Self as receiver"),
+        FnArg::Typed(ty) => match (ty.pat.as_ref(), ty.ty.as_ref()) {
+            (Pat::Wild(_), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
+                (default_pat_ident("_factory"), &ty_ref.elem)
+            }
+            (Pat::Ident(ident), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
+                (ident.to_owned(), &ty_ref.elem)
+            }
+            _ => panic!("new_service must receive ServiceFactory type as immutable reference"),
+        },
+    };
+    let (arg_ident, arg_ty) = match inputs.next().unwrap() {
+        FnArg::Receiver(_) => panic!("new_service method must not receive Self as receiver"),
+        FnArg::Typed(ty) => match ty.pat.as_ref() {
+            Pat::Wild(_) => (default_pat_ident("_service"), &*ty.ty),
+            Pat::Ident(ident) => (ident.to_owned(), &*ty.ty),
+            _ => panic!("new_service method must use <arg: Arg> as second function argument"),
+        },
+    };
+
+    let factory_stmts = &new_service_impl.block.stmts;
+
+    let ready_impl = ReadyImpl::try_from_items(&input.items);
+
+    let CallImpl {
+        req_ident,
+        req_ty,
+        res_ty,
+        err_ty,
+        call_stmts,
+    } = CallImpl::from_items(&input.items);
+
+    let base = quote! {
+        impl<#generic_ty, #new_service_generic_err_ty> ::xitca_service::Service<#arg_ty> for #factory_ty
+        #where_clause
+        {
+            type Response = #service_ty;
+            type Error = #new_service_rt_err_ty;
+
+            async fn call(&self, #arg_ident: #arg_ty) -> Result<Self::Response, Self::Error> {
+                let #factory_ident = &self;
+                #(#factory_stmts)*
+            }
+        }
+
+        impl<#generic_ty> ::xitca_service::Service<#req_ty> for #service_ty
+        #where_clause
+        {
+            type Response = #res_ty;
+            type Error = #err_ty;
+
+            #[inline]
+            async fn call(&self, #req_ident: #req_ty) -> Result<Self::Response, Self::Error> {
+                #(#call_stmts)*
+            }
+        }
+    };
+
+    match ready_impl {
+        Some(ReadyImpl {
+            ready_stmts,
+            ready_ret_ty: ready_res_ty,
+        }) => quote! {
+            #base
+
+            impl<#generic_ty> ::xitca_service::ready::ReadyService for #service_ty
+            #where_clause
+            {
+                type Ready = #ready_res_ty;
+
+                #[inline]
+                async fn ready(&self) -> Self::Ready {
+                    #(#ready_stmts)*
+                }
+            }
+        }
+        .into(),
+        None => base.into(),
+    }
 }
 
 #[proc_macro_attribute]
-pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemImpl);
 
     // Collect type path from impl.
@@ -162,6 +270,29 @@ fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &str) -> Option<&'a I
     })
 }
 
+fn find_new_service_rt_err_ty(func: &ImplItemFn) -> Option<&Type> {
+    let ReturnType::Type(_, ref new_service_rt_ty) = func.sig.output else {
+        return None;
+    };
+    let Type::Path(ref path) = **new_service_rt_ty else {
+        return None;
+    };
+    let path = path.path.segments.first()?;
+
+    if path.ident != "Result" {
+        return None;
+    }
+
+    let PathArguments::AngleBracketed(ref bracket) = path.arguments else {
+        return None;
+    };
+
+    match bracket.args.last().unwrap() {
+        GenericArgument::Type(ty) => Some(ty),
+        _ => None,
+    }
+}
+
 struct CallImpl<'a> {
     req_ident: PatIdent,
     req_ty: &'a Type,
@@ -225,7 +356,7 @@ fn extract_res_ty(ret: &ReturnType) -> (&Type, &Type) {
     if let ReturnType::Type(_, ty) = ret {
         if let Type::Path(path) = ty.as_ref() {
             let seg = path.path.segments.first().unwrap();
-            if seg.ident.to_string().as_str() == "Result" {
+            if seg.ident == "Result" {
                 if let PathArguments::AngleBracketed(ref arg) = seg.arguments {
                     if let (Some(GenericArgument::Type(ok_ty)), Some(GenericArgument::Type(err_ty))) =
                         (arg.args.first(), arg.args.last())

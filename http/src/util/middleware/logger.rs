@@ -1,5 +1,4 @@
 use std::{
-    convert::Infallible,
     fmt::Debug,
     future::Future,
     pin::Pin,
@@ -32,13 +31,15 @@ impl Logger {
     }
 }
 
-impl<S> Service<S> for Logger {
+impl<S, E> Service<Result<S, E>> for Logger {
     type Response = LoggerService<S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        let span = self.span.clone();
-        Ok(LoggerService { service, span })
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(|service| LoggerService {
+            service,
+            span: self.span.clone(),
+        })
     }
 }
 

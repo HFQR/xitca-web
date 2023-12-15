@@ -46,7 +46,9 @@ fn main() -> io::Result<()> {
         .bind(
             "http/2",
             "127.0.0.1:8081",
-            fn_service(handler_h2).enclosed(HttpServiceBuilder::h2().openssl(acceptor).with_logger()),
+            fn_service(handler_h2)
+                .enclosed(HttpServiceBuilder::h2().openssl(acceptor))
+                .enclosed(Logger::default()),
         )?
         // bind to a http/3 service.
         // *. note the service name must be unique.

@@ -4,6 +4,7 @@ use futures_core::stream::Stream;
 use xitca_http::{
     body::RequestBody,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
+    util::middleware::Logger,
     HttpServiceBuilder,
 };
 use xitca_server::{Builder, ServerFuture};
@@ -172,6 +173,7 @@ where
         A: std::net::ToSocketAddrs,
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -181,7 +183,8 @@ where
         let service = self
             .service
             .clone()
-            .enclosed(HttpServiceBuilder::with_config(config).with_logger());
+            .enclosed(HttpServiceBuilder::with_config(config))
+            .enclosed(Logger::new());
         self.builder = self.builder.bind("xitca-web", addr, service)?;
         Ok(self)
     }
@@ -190,6 +193,7 @@ where
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -199,7 +203,8 @@ where
         let service = self
             .service
             .clone()
-            .enclosed(HttpServiceBuilder::with_config(config).with_logger());
+            .enclosed(HttpServiceBuilder::with_config(config))
+            .enclosed(Logger::new());
         self.builder = self.builder.listen("xitca-web", listener, service);
         Ok(self)
     }
@@ -213,6 +218,7 @@ where
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -252,7 +258,8 @@ where
         let service = self
             .service
             .clone()
-            .enclosed(HttpServiceBuilder::with_config(config).openssl(acceptor).with_logger());
+            .enclosed(HttpServiceBuilder::with_config(config).openssl(acceptor))
+            .enclosed(Logger::new());
 
         self.builder = self.builder.bind("xitca-web-openssl", addr, service)?;
 
@@ -269,6 +276,7 @@ where
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -284,11 +292,11 @@ where
 
         let config = std::sync::Arc::new(config);
 
-        let service = self.service.clone().enclosed(
-            HttpServiceBuilder::with_config(service_config)
-                .rustls(config)
-                .with_logger(),
-        );
+        let service = self
+            .service
+            .clone()
+            .enclosed(HttpServiceBuilder::with_config(service_config).rustls(config))
+            .enclosed(Logger::new());
 
         self.builder = self.builder.bind("xitca-web-rustls", addr, service)?;
 
@@ -300,6 +308,7 @@ where
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -309,7 +318,8 @@ where
         let service = self
             .service
             .clone()
-            .enclosed(HttpServiceBuilder::with_config(config).with_logger());
+            .enclosed(HttpServiceBuilder::with_config(config))
+            .enclosed(Logger::new());
         self.builder = self.builder.bind_unix("xitca-web", path, service)?;
         Ok(self)
     }

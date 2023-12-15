@@ -1,5 +1,3 @@
-use core::convert::Infallible;
-
 use crate::{ready::ReadyService, service::Service};
 
 /// A middleware unconditionally treat inner service type as ready.
@@ -7,18 +5,16 @@ use crate::{ready::ReadyService, service::Service};
 #[derive(Clone, Copy)]
 pub struct UncheckedReady;
 
-impl<S> Service<S> for UncheckedReady {
+impl<S, E> Service<Result<S, E>> for UncheckedReady {
     type Response = UncheckedReadyService<S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        Ok(UncheckedReadyService { service })
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(UncheckedReadyService)
     }
 }
 
-pub struct UncheckedReadyService<S> {
-    service: S,
-}
+pub struct UncheckedReadyService<S>(S);
 
 impl<S, Req> Service<Req> for UncheckedReadyService<S>
 where
@@ -29,7 +25,7 @@ where
 
     #[inline]
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        self.service.call(req).await
+        self.0.call(req).await
     }
 }
 

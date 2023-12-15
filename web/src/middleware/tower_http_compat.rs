@@ -1,6 +1,5 @@
 use core::{
     cell::RefCell,
-    convert::Infallible,
     future::Future,
     marker::PhantomData,
     pin::Pin,
@@ -71,20 +70,22 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     }
 }
 
-impl<L, S, C, ReqB, ResB, Err> Service<S> for TowerHttpCompat<L, C, ReqB, ResB, Err>
+impl<L, S, E, C, ReqB, ResB, Err> Service<Result<S, E>> for TowerHttpCompat<L, C, ReqB, ResB, Err>
 where
     L: Layer<CompatLayer<S, C, ReqB, ResB, Err>>,
     S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
 {
     type Response = TowerCompatService<L::Service>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        let service = self.layer.layer(CompatLayer {
-            service: Rc::new(service),
-            _phantom: PhantomData,
-        });
-        Ok(TowerCompatService::new(service))
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(|service| {
+            let service = self.layer.layer(CompatLayer {
+                service: Rc::new(service),
+                _phantom: PhantomData,
+            });
+            TowerCompatService::new(service)
+        })
     }
 }
 
@@ -134,6 +135,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use core::convert::Infallible;
+
     use tower_http::set_status::SetStatusLayer;
     use xitca_unsafe_collection::futures::NowOrPanic;
 

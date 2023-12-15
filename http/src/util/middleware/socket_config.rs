@@ -1,4 +1,4 @@
-use core::{convert::Infallible, time::Duration};
+use core::time::Duration;
 
 use std::{io, net::SocketAddr};
 
@@ -66,13 +66,15 @@ impl SocketConfig {
     }
 }
 
-impl<S> Service<S> for SocketConfig {
+impl<S, E> Service<Result<S, E>> for SocketConfig {
     type Response = SocketConfigService<S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        let config = self.clone();
-        Ok(SocketConfigService { config, service })
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(|service| SocketConfigService {
+            config: self.clone(),
+            service,
+        })
     }
 }
 
