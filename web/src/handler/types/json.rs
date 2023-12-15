@@ -15,11 +15,8 @@ use crate::{
     bytes::{BufMutWriter, Bytes, BytesMut},
     context::WebContext,
     dev::service::Service,
-    error::Error,
-    handler::{
-        error::{blank_bad_request, ExtractError},
-        FromRequest, Responder,
-    },
+    error::{BadRequest, Error},
+    handler::{error::ExtractError, FromRequest, Responder},
     http::{const_header_value::JSON, header::CONTENT_TYPE, status::StatusCode, WebResponse},
 };
 
@@ -129,6 +126,6 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for serde_json::Error {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        Ok(blank_bad_request(ctx))
+        BadRequest.call(ctx).await
     }
 }

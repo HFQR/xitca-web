@@ -17,8 +17,10 @@ pub use xitca_http::{
 };
 
 use crate::{
+    bytes::Bytes,
     context::WebContext,
     dev::service::{object::ServiceObject, Service},
+    http::StatusCode,
     http::WebResponse,
 };
 
@@ -130,6 +132,50 @@ impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
         ServiceObject::call(&***self, ctx).await
+    }
+}
+
+#[derive(Debug)]
+pub struct Internal;
+
+impl fmt::Display for Internal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Internal error")
+    }
+}
+
+impl error::Error for Internal {}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for Internal {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let mut res = ctx.into_response(Bytes::new());
+        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        Ok(res)
+    }
+}
+
+#[derive(Debug)]
+pub struct BadRequest;
+
+impl fmt::Display for BadRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Bad request")
+    }
+}
+
+impl error::Error for BadRequest {}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for BadRequest {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let mut res = ctx.into_response(Bytes::new());
+        *res.status_mut() = StatusCode::BAD_REQUEST;
+        Ok(res)
     }
 }
 

@@ -4,8 +4,8 @@ use crate::{
     body::BodyStream,
     context::WebContext,
     dev::service::Service,
-    error::Error,
-    handler::{error::blank_bad_request, FromRequest},
+    error::{BadRequest, Error},
+    handler::FromRequest,
     http::WebResponse,
 };
 
@@ -28,6 +28,6 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for std::string::FromUtf8Error {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        Ok(blank_bad_request(ctx))
+        BadRequest.call(ctx).await
     }
 }

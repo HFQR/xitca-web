@@ -40,6 +40,9 @@ multipart = ["http-multipart"]
 # websocket type extractor/responder
 websocket = ["http-ws/stream", "tokio/time"]
 
+# static file serving
+file = ["http-file"]
+
 # proc macro code generation
 codegen = ["xitca-codegen"]
 
@@ -84,6 +87,9 @@ http-multipart = { version = "0.1", optional = true }
 
 # websocket
 http-ws = { version = "0.1", optional = true }
+
+# static file
+http-file = { version = "0.1", optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }
