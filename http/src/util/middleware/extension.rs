@@ -1,49 +1,33 @@
-use core::{
-    convert::Infallible,
-    future::{ready, Future, Ready},
-};
-
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::http::{BorrowReqMut, Extensions};
 
 #[derive(Clone)]
-pub struct Extension<F: Clone = ()> {
-    factory: F,
+pub struct Extension<S> {
+    state: S,
 }
 
-impl Extension {
-    pub fn new<S>(state: S) -> Extension<impl Fn() -> Ready<Result<S, Infallible>> + Send + Sync + Clone>
+impl<S> Extension<S> {
+    pub fn new(state: S) -> Self
     where
         S: Send + Sync + Clone + 'static,
     {
-        Extension {
-            factory: move || ready(Ok(state.clone())),
-        }
-    }
-
-    pub fn factory<F, Fut, Res, Err>(factory: F) -> Extension<F>
-    where
-        F: Fn() -> Fut + Send + Sync + Clone,
-        Fut: Future<Output = Result<Res, Err>>,
-        Res: Send + Sync + Clone + 'static,
-    {
-        Extension { factory }
+        Extension { state }
     }
 }
 
-impl<S, F, Fut, Res, Err> Service<S> for Extension<F>
+impl<T, S, E> Service<Result<S, E>> for Extension<T>
 where
-    F: Fn() -> Fut + Clone,
-    Fut: Future<Output = Result<Res, Err>>,
-    Res: Send + Sync + Clone + 'static,
+    T: Clone,
 {
-    type Response = ExtensionService<S, Res>;
-    type Error = Err;
+    type Response = ExtensionService<S, T>;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        let state = (self.factory)().await?;
-        Ok(ExtensionService { service, state })
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(|service| ExtensionService {
+            service,
+            state: self.state.clone(),
+        })
     }
 }
 
@@ -110,24 +94,6 @@ mod test {
             Ok::<_, ()>("996")
         })
         .enclosed(Extension::new(String::from("state")))
-        .call(())
-        .now_or_panic()
-        .unwrap();
-
-        let res = service.call(Request::new(())).now_or_panic().unwrap();
-
-        assert_eq!("996", res);
-    }
-
-    #[test]
-    fn state_factory_middleware() {
-        let service = fn_service(|req: Request<()>| async move {
-            assert_eq!("state", req.extensions().get::<String>().unwrap());
-            Ok::<_, ()>("996")
-        })
-        .enclosed(Extension::factory(|| async move {
-            Ok::<_, Infallible>(String::from("state"))
-        }))
         .call(())
         .now_or_panic()
         .unwrap();

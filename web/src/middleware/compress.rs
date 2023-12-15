@@ -1,5 +1,3 @@
-use core::convert::Infallible;
-
 use http_encoding::{encoder, Coder, ContentEncoding};
 
 use crate::{
@@ -14,18 +12,16 @@ use crate::{
 #[derive(Clone)]
 pub struct Compress;
 
-impl<S> Service<S> for Compress {
+impl<S, E> Service<Result<S, E>> for Compress {
     type Response = CompressService<S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        Ok(CompressService { service })
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(CompressService)
     }
 }
 
-pub struct CompressService<S> {
-    service: S,
-}
+pub struct CompressService<S>(S);
 
 impl<S, Req, ResB> Service<Req> for CompressService<S>
 where
@@ -38,7 +34,7 @@ where
 
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
         let mut encoding = ContentEncoding::from_headers(req.borrow());
-        let res = self.service.call(req).await?;
+        let res = self.0.call(req).await?;
 
         // TODO: expose encoding filter as public api.
         match res.body().size_hint() {
@@ -60,6 +56,6 @@ where
 
     #[inline]
     async fn ready(&self) -> Self::Ready {
-        self.service.ready().await
+        self.0.ready().await
     }
 }

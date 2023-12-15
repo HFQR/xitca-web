@@ -1,5 +1,3 @@
-use core::convert::Infallible;
-
 use std::sync::mpsc::{sync_channel, Receiver};
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -39,15 +37,15 @@ impl<E> Next<E> {
     }
 }
 
-impl<F, S> Service<S> for SyncMiddleware<F>
+impl<F, S, E> Service<Result<S, E>> for SyncMiddleware<F>
 where
     F: Clone,
 {
     type Response = SyncService<F, S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        Ok(SyncService {
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(|service| SyncService {
             func: self.0.clone(),
             service,
         })
@@ -119,6 +117,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use core::convert::Infallible;
+
     use crate::{bytes::Bytes, dev::service::fn_service, http::StatusCode, App};
 
     use super::*;

@@ -15,18 +15,16 @@ use crate::{
 #[derive(Clone)]
 pub struct Decompress;
 
-impl<S> Service<S> for Decompress {
+impl<S, E> Service<Result<S, E>> for Decompress {
     type Response = DecompressService<S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        Ok(DecompressService { service })
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(DecompressService)
     }
 }
 
-pub struct DecompressService<S> {
-    service: S,
-}
+pub struct DecompressService<S>(S);
 
 pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
 
@@ -50,7 +48,7 @@ where
 
         let ctx = WebContext::new(&mut req, &mut body, ctx);
 
-        self.service.call(ctx).await.map_err(DecompressServiceError::Second)
+        self.0.call(ctx).await.map_err(DecompressServiceError::Second)
     }
 }
 
@@ -62,7 +60,7 @@ where
 
     #[inline]
     async fn ready(&self) -> Self::Ready {
-        self.service.ready().await
+        self.0.ready().await
     }
 }
 

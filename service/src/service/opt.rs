@@ -4,20 +4,17 @@ use crate::pipeline::PipelineE;
 
 use super::Service;
 
-impl<T, Arg> Service<Arg> for Option<T>
+impl<T, S, E> Service<Result<S, E>> for Option<T>
 where
-    T: Service<Arg>,
+    T: Service<Result<S, E>, Error = E>,
 {
-    type Response = PipelineE<Arg, T::Response>;
+    type Response = PipelineE<S, T::Response>;
     type Error = T::Error;
 
-    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
         match self {
-            None => Ok(PipelineE::First(arg)),
-            Some(ref t) => {
-                let res = t.call(arg).await?;
-                Ok(PipelineE::Second(res))
-            }
+            None => res.map(PipelineE::First),
+            Some(ref t) => t.call(res).await.map(PipelineE::Second),
         }
     }
 }

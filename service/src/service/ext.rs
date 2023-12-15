@@ -11,7 +11,7 @@ pub trait ServiceExt<Arg>: Service<Arg> {
     /// would take Self's `Service::Response` type as it's generic argument of `Service<_>` impl.
     fn enclosed<T>(self, build: T) -> PipelineT<Self, T, marker::BuildEnclosed>
     where
-        T: Service<Self::Response>,
+        T: Service<Result<Self::Response, Self::Error>>,
         Self: Sized,
     {
         PipelineT::new(self, build)
@@ -60,32 +60,29 @@ impl<S, Arg> ServiceExt<Arg> for S where S: Service<Arg> {}
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
-    use core::convert::Infallible;
-
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::fn_service;
 
+    use super::*;
+
     #[derive(Clone)]
     struct DummyMiddleware;
 
-    #[derive(Clone)]
     struct DummyMiddlewareService<S>(S);
 
-    impl<S: Clone> Service<S> for DummyMiddleware {
+    impl<S, E> Service<Result<S, E>> for DummyMiddleware {
         type Response = DummyMiddlewareService<S>;
-        type Error = Infallible;
+        type Error = E;
 
-        async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-            Ok(DummyMiddlewareService(service))
+        async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+            res.map(DummyMiddlewareService)
         }
     }
 
     impl<S, Req> Service<Req> for DummyMiddlewareService<S>
     where
-        S: Service<Req> + Clone,
+        S: Service<Req>,
     {
         type Response = S::Response;
         type Error = S::Error;

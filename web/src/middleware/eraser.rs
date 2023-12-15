@@ -1,4 +1,4 @@
-use std::{convert::Infallible, error, marker::PhantomData};
+use std::{error, marker::PhantomData};
 
 use xitca_http::ResponseBody;
 
@@ -56,12 +56,12 @@ impl TypeEraser<EraseErr> {
     }
 }
 
-impl<M, S> Service<S> for TypeEraser<M> {
+impl<M, S, E> Service<Result<S, E>> for TypeEraser<M> {
     type Response = EraserService<M, S>;
-    type Error = Infallible;
+    type Error = E;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        Ok(EraserService {
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        res.map(|service| EraserService {
             service,
             _erase: PhantomData,
         })

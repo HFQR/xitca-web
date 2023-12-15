@@ -1,3 +1,5 @@
+use core::fmt;
+
 use xitca_service::Service;
 
 use crate::builder::{marker, HttpServiceBuilder};
@@ -45,31 +47,40 @@ impl<St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE
     }
 }
 
-impl<St, S, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<S>
-    for HttpServiceBuilder<marker::Http1, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+type Error = Box<dyn fmt::Debug>;
+
+impl<St, FA, S, E, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<Result<S, E>> for HttpServiceBuilder<marker::Http1, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     FA: Service,
+    FA::Error: fmt::Debug + 'static,
+    E: fmt::Debug + 'static,
 {
     type Response = H1Service<St, S, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
-    type Error = FA::Error;
+    type Error = Error;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        let tls_acceptor = self.tls_factory.call(()).await?;
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        let service = res.map_err(|e| Box::new(e) as Error)?;
+        let tls_acceptor = self.tls_factory.call(()).await.map_err(|e| Box::new(e) as Error)?;
         Ok(H1Service::new(self.config, service, tls_acceptor))
     }
 }
 
 #[cfg(feature = "io-uring")]
-impl<St, S, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<S>
+impl<St, FA, S, E, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<Result<S, E>>
     for HttpServiceBuilder<marker::Http1Uring, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     FA: Service,
+    FA::Error: fmt::Debug + 'static,
+    E: fmt::Debug + 'static,
 {
     type Response = super::service::H1UringService<S, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
-    type Error = FA::Error;
+    type Error = Error;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        let tls_acceptor = self.tls_factory.call(()).await?;
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        let service = res.map_err(|e| Box::new(e) as Error)?;
+        let tls_acceptor = self.tls_factory.call(()).await.map_err(|e| Box::new(e) as Error)?;
         Ok(super::service::H1UringService::new(self.config, service, tls_acceptor))
     }
 }

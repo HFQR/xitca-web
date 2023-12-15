@@ -70,19 +70,19 @@ impl<CF, Obj> App<CF, AppRouter<Obj>> {
     }
 }
 
-impl<CF, R, Fut, C, CErr> App<CF, R>
+impl<CF, Fut, C, CErr, R> App<CF, R>
 where
-    R: Service + Send + Sync,
-    R::Error: fmt::Debug,
     CF: Fn() -> Fut + Send + Sync,
     Fut: Future<Output = Result<C, CErr>>,
-    CErr: fmt::Debug,
+    CErr: fmt::Debug + 'static,
+    R: Service + Send + Sync,
+    R::Error: fmt::Debug + 'static,
 {
     /// Enclose App with middleware type.
     /// Middleware must impl [Service] trait.
     pub fn enclosed<T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
     where
-        T: Service<R::Response>,
+        T: Service<Result<R::Response, R::Error>>,
     {
         App {
             ctx_factory: self.ctx_factory,
@@ -134,11 +134,9 @@ where
         CF: 'static,
         Fut: 'static,
         C: 'static,
-        CErr: 'static,
         R: 'static,
         R::Response:
             ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE> + 'static,
-        R::Error: 'static,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
         ReqB: 'static,
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
@@ -192,7 +190,6 @@ where
         CF: 'static,
         Fut: 'static,
         C: 'static,
-        CErr: 'static,
         R: 'static,
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
@@ -379,12 +376,12 @@ mod test {
     #[derive(Clone)]
     struct Middleware;
 
-    impl<S> Service<S> for Middleware {
+    impl<S, E> Service<Result<S, E>> for Middleware {
         type Response = MiddlewareService<S>;
-        type Error = Infallible;
+        type Error = E;
 
-        async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-            Ok(MiddlewareService(service))
+        async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+            res.map(MiddlewareService)
         }
     }
 

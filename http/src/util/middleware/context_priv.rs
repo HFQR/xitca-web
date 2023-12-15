@@ -1,4 +1,4 @@
-use core::future::Future;
+use core::{fmt, future::Future};
 
 use xitca_service::{ready::ReadyService, Service};
 
@@ -97,17 +97,22 @@ where
     }
 }
 
-impl<CF, Fut, C, CErr, S> Service<S> for ContextBuilder<CF>
+type Error = Box<dyn fmt::Debug>;
+
+impl<CF, Fut, C, CErr, S, E> Service<Result<S, E>> for ContextBuilder<CF>
 where
     CF: Fn() -> Fut,
     Fut: Future<Output = Result<C, CErr>>,
     C: 'static,
+    CErr: fmt::Debug + 'static,
+    E: fmt::Debug + 'static,
 {
     type Response = ContextService<C, S>;
-    type Error = CErr;
+    type Error = Error;
 
-    async fn call(&self, service: S) -> Result<Self::Response, Self::Error> {
-        let state = (self.builder)().await?;
+    async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
+        let service = res.map_err(|e| Box::new(e) as Error)?;
+        let state = (self.builder)().await.map_err(|e| Box::new(e) as Error)?;
         Ok(ContextService { service, state })
     }
 }
