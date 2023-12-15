@@ -26,17 +26,17 @@ impl ServeDir {
     ///
     /// # Example
     /// ```rust
-    /// use xitca_web::{
-    ///     handler::{handler_service},
-    ///     service::file::ServeDir,
-    ///     App, WebContext
-    /// };
-    ///
+    /// # use xitca_web::{
+    /// #     handler::{handler_service},
+    /// #     service::file::ServeDir,
+    /// #     App, WebContext
+    /// # };
     /// App::new()
     ///     // http request would be matched against files inside ./static file path.
     ///     .at("/", ServeDir::new("static"))
     ///     // other named routes have higher priority than serve dir service.
-    ///     .at("/foo", handler_service(|ctx: &WebContext<'_>| async { "foo!" }));
+    ///     .at("/foo", handler_service(|| async { "foo!" }))
+    ///     # .at("/bar", handler_service(|_: &WebContext<'_>| async { "used for inferring types!" }));
     /// ```
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
@@ -73,6 +73,7 @@ impl<Arg> Service<Arg> for ServeDir {
     }
 }
 
+#[doc(hidden)]
 pub struct ServeDirService(_ServeDir);
 
 impl<'r, C, B> Service<WebContext<'r, C, B>> for ServeDirService {
