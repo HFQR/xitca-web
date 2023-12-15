@@ -279,7 +279,7 @@ fn find_new_service_rt_err_ty(func: &ImplItemFn) -> Option<&Type> {
     };
     let path = path.path.segments.first()?;
 
-    if path.ident.to_string() != "Result" {
+    if path.ident != "Result" {
         return None;
     }
 
@@ -356,7 +356,7 @@ fn extract_res_ty(ret: &ReturnType) -> (&Type, &Type) {
     if let ReturnType::Type(_, ty) = ret {
         if let Type::Path(path) = ty.as_ref() {
             let seg = path.path.segments.first().unwrap();
-            if seg.ident.to_string().as_str() == "Result" {
+            if seg.ident == "Result" {
                 if let PathArguments::AngleBracketed(ref arg) = seg.arguments {
                     if let (Some(GenericArgument::Type(ok_ty)), Some(GenericArgument::Type(err_ty))) =
                         (arg.args.first(), arg.args.last())
