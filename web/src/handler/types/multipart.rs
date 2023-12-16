@@ -1,5 +1,7 @@
 use core::convert::Infallible;
 
+use std::error;
+
 use crate::{
     body::{BodyStream, RequestBody},
     context::WebContext,
@@ -20,7 +22,16 @@ where
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        http_multipart::multipart(ctx.req(), body).map_err(Error::from_service)
+        http_multipart::multipart(ctx.req(), body).map_err(Into::into)
+    }
+}
+
+impl<E, C> From<http_multipart::MultipartError<E>> for Error<C>
+where
+    E: error::Error + Send + Sync + 'static,
+{
+    fn from(e: http_multipart::MultipartError<E>) -> Self {
+        Error::from_service(e)
     }
 }
 

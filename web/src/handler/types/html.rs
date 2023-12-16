@@ -1,6 +1,6 @@
 //! response generator for Html
 
-use core::fmt;
+use core::{convert::Infallible, fmt};
 
 use xitca_http::body::ResponseBody;
 
@@ -21,16 +21,17 @@ where
     }
 }
 
-impl<'r, S, T> Responder<WebContext<'r, S>> for Html<T>
+impl<'r, C, T> Responder<WebContext<'r, C>> for Html<T>
 where
     T: Into<ResponseBody>,
 {
-    type Output = WebResponse;
+    type Response = WebResponse;
+    type Error = Infallible;
 
     #[inline]
-    async fn respond_to(self, ctx: WebContext<'r, S>) -> Self::Output {
+    async fn respond_to(self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
         let mut res = ctx.into_response(self.0);
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
-        res
+        Ok(res)
     }
 }

@@ -1,27 +1,26 @@
 //! A Http server read multipart request and log it's field names.
 
-use std::{convert::Infallible, io, pin::pin};
+use std::{io, pin::pin};
 
 use tracing::info;
 use xitca_web::{
-    dev::service::Service,
+    error::Error,
     handler::{handler_service, multipart::Multipart},
     route::post,
-    App, WebContext,
+    App,
 };
 
 fn main() -> io::Result<()> {
     tracing_subscriber::fmt().with_env_filter("[xitca-logger]=info").init();
     App::new()
         .at("/", post(handler_service(root)))
-        .enclosed_fn(error_handler)
         .serve()
         .bind("127.0.0.1:8080")?
         .run()
         .wait()
 }
 
-async fn root(multipart: Multipart) -> Result<&'static str, Box<dyn std::error::Error + Send + Sync>> {
+async fn root(multipart: Multipart) -> Result<&'static str, Error<()>> {
     // pin multipart on stack for async stream handling.
     let mut multipart = pin!(multipart);
 
@@ -41,16 +40,4 @@ async fn root(multipart: Multipart) -> Result<&'static str, Box<dyn std::error::
 
     // return an empty string as response.
     Ok("")
-}
-
-// an error handler that would catch root function's result type and transform it to response.
-async fn error_handler<S, C, B, Res, SErr, Err>(service: &S, mut ctx: WebContext<'_, C, B>) -> Result<Res, Err>
-where
-    S: for<'r> Service<WebContext<'r, C, B>, Response = Result<Res, SErr>, Error = Err>,
-    SErr: for<'r> Service<WebContext<'r, C, B>, Response = Res, Error = Infallible>,
-{
-    match service.call(ctx.reborrow()).await? {
-        Ok(res) => Ok(res),
-        Err(err) => Ok(err.call(ctx).await.unwrap()),
-    }
 }

@@ -171,9 +171,10 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for WebSocket<B>
 where
     B: BodyStream + 'static,
 {
-    type Output = WebResponse;
+    type Response = WebResponse;
+    type Error = Infallible;
 
-    async fn respond_to(self, _: WebContext<'r, C, B>) -> Self::Output {
+    async fn respond_to(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let Self {
             ws,
             ping_interval,
@@ -195,7 +196,7 @@ where
             on_close,
         ));
 
-        res.map(ResponseBody::box_stream)
+        Ok(res.map(ResponseBody::box_stream))
     }
 }
 

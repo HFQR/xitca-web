@@ -73,24 +73,27 @@ where
     }
 }
 
-impl<'r, C, B, T, O, E> Responder<WebContext<'r, C, B>> for Result<T, E>
+impl<'r, C, B, T, Res, Err, E> Responder<WebContext<'r, C, B>> for Result<T, E>
 where
-    T: for<'r2> Responder<WebContext<'r2, C, B>, Output = O>,
+    T: for<'r2> Responder<WebContext<'r2, C, B>, Response = Res, Error = Err>,
+    Error<C>: From<E> + From<Err>,
 {
-    type Output = Result<O, E>;
+    type Response = Res;
+    type Error = Error<C>;
 
     #[inline]
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
-        Ok(self?.respond_to(ctx).await)
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self?.respond_to(ctx).await.map_err(Into::into)
     }
 }
 
 impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for WebResponse<ResB> {
-    type Output = WebResponse<ResB>;
+    type Response = WebResponse<ResB>;
+    type Error = Error<C>;
 
     #[inline]
-    async fn respond_to(self, _: WebContext<'r, C, B>) -> Self::Output {
-        self
+    async fn respond_to(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Ok(self)
     }
 }
 
@@ -106,12 +109,13 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
 macro_rules! text_utf8 {
     ($type: ty) => {
         impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
-            type Output = WebResponse;
+            type Response = WebResponse;
+            type Error = Infallible;
 
-            async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+            async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
                 let mut res = ctx.into_response(self);
                 res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-                res
+                Ok(res)
             }
         }
     };
