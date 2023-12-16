@@ -2,7 +2,7 @@
 //! example require nightly Rust to compile
 //! example assume you run the application from the path of /examples/file/
 
-use xitca_web::{middleware::compress::Compress, service::file::ServeDir, App};
+use xitca_web::{dev::service::ServiceExt, middleware::compress::Compress, service::file::ServeDir, App};
 
 fn main() -> std::io::Result<()> {
     println!("open http://localhost:8080/index.html in browser to visit the site");
