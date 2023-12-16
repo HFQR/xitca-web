@@ -2,10 +2,10 @@
 
 use xitca_web::{
     handler::handler_sync_service,
-    http::{WebRequest, WebResponse},
+    http::WebResponse,
     middleware::sync::{Next, SyncMiddleware},
     route::get,
-    App,
+    App, WebContext,
 };
 
 fn main() -> std::io::Result<()> {
@@ -18,12 +18,13 @@ fn main() -> std::io::Result<()> {
         .wait()
 }
 
-// a simple function forward request to the next service in service tree.
+// a simple function forward request to the next service in service tree:
 // in this case it's the app service and it's router and handlers.
-// generic E type is the potential error type produced by next service.
-fn middleware_fn<E>(req: WebRequest<()>, next: &mut Next<E>) -> Result<WebResponse<()>, E> {
-    // before calling the next service we can access and/or mutate the state of request.
-    let res = next.call(req);
+// generic E type is the potential error type produced by app service.
+// generic C type is the type state of App.
+fn middleware_fn<E, C>(next: &mut Next<E>, ctx: WebContext<'_, C>) -> Result<WebResponse<()>, E> {
+    // before calling the next service we can access and/or mutate the state of context.
+    let res = next.call(ctx); // call next service.
     // after the next service call return we can access and/or mutate the output.
     res
 }

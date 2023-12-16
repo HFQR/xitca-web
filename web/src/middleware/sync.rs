@@ -1,8 +1,11 @@
+use core::{cell::RefCell, mem};
+
 use std::sync::mpsc::{sync_channel, Receiver};
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 use crate::{
+    body::RequestBody,
     context::WebContext,
     dev::service::{ready::ReadyService, Service},
     http::{Request, RequestExt, Response, WebResponse},
@@ -12,13 +15,16 @@ use crate::{
 pub struct SyncMiddleware<F>(F);
 
 impl<F> SyncMiddleware<F> {
+    /// *. Sync middleware does not have access to request/response body.
+    ///
     /// construct a new middleware with given sync function.
     /// the function must be actively calling [Next::call] and finish it to drive inner services to completion.
     /// panic in sync function middleware would result in a panic at task level and it's client connection would
     /// be terminated immediately.
-    pub fn new<E>(func: F) -> Self
+    pub fn new<C, E>(func: F) -> Self
     where
-        F: Fn(Request<RequestExt<()>>, &mut Next<E>) -> Result<Response<()>, E> + Send + Sync + 'static,
+        F: Fn(&mut Next<E>, WebContext<'_, C>) -> Result<Response<()>, E> + Send + Sync + 'static,
+        C: Clone + Send + 'static,
         E: Send + 'static,
     {
         Self(func)
@@ -31,7 +37,8 @@ pub struct Next<E> {
 }
 
 impl<E> Next<E> {
-    pub fn call(&mut self, req: Request<RequestExt<()>>) -> Result<Response<()>, E> {
+    pub fn call<C>(&mut self, mut ctx: WebContext<'_, C>) -> Result<Response<()>, E> {
+        let req = mem::take(ctx.req_mut());
         self.tx.send(req).unwrap();
         self.rx.recv().unwrap()
     }
@@ -57,9 +64,10 @@ pub struct SyncService<F, S> {
     service: S,
 }
 
-impl<'r, F, S, C, B, ResB, Err> Service<WebContext<'r, C, B>> for SyncService<F, S>
+impl<'r, F, C, S, B, ResB, Err> Service<WebContext<'r, C, B>> for SyncService<F, S>
 where
-    F: Fn(Request<RequestExt<()>>, &mut Next<Err>) -> Result<Response<()>, Err> + Send + Clone + 'static,
+    F: Fn(&mut Next<Err>, WebContext<'_, C>) -> Result<Response<()>, Err> + Send + Clone + 'static,
+    C: Clone + Send + 'static,
     S: for<'r2> Service<WebContext<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
     Err: Send + 'static,
 {
@@ -68,13 +76,18 @@ where
 
     async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let func = self.func.clone();
-        let req = std::mem::take(ctx.req_mut());
+        let state = ctx.state().clone();
+        let mut req = mem::take(ctx.req_mut());
 
         let (tx, mut rx) = unbounded_channel();
         let (tx2, rx2) = sync_channel(1);
 
         let mut next = Next { tx, rx: rx2 };
-        let handle = tokio::task::spawn_blocking(move || func(req, &mut next));
+        let handle = tokio::task::spawn_blocking(move || {
+            let mut body = RefCell::new(RequestBody::None);
+            let ctx = WebContext::new(&mut req, &mut body, &state);
+            func(&mut next, ctx)
+        });
 
         *ctx.req_mut() = match rx.recv().await {
             Some(req) => req,
@@ -128,8 +141,8 @@ mod test {
         Ok(req.into_response(Bytes::new()))
     }
 
-    fn middleware<E>(req: Request<RequestExt<()>>, next: &mut Next<E>) -> Result<Response<()>, E> {
-        next.call(req)
+    fn middleware<E>(next: &mut Next<E>, ctx: WebContext<'_, &'static str>) -> Result<Response<()>, E> {
+        next.call(ctx)
     }
 
     #[tokio::test]
