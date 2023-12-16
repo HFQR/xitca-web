@@ -25,6 +25,6 @@ fn main() -> std::io::Result<()> {
 fn middleware_fn<E, C>(next: &mut Next<E>, ctx: WebContext<'_, C>) -> Result<WebResponse<()>, E> {
     // before calling the next service we can access and/or mutate the state of context.
     let res = next.call(ctx); // call next service.
-                              // after the next service call return we can access and/or mutate the output.
+    // after the next service call return we can access and/or mutate the output.
     res
 }
