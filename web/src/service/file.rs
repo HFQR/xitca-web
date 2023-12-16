@@ -64,11 +64,11 @@ impl RouterGen for ServeDir {
     }
 }
 
-impl<Arg> Service<Arg> for ServeDir {
+impl Service for ServeDir {
     type Response = ServeDirService;
     type Error = Infallible;
 
-    async fn call(&self, _: Arg) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
         Ok(ServeDirService(self.inner.clone()))
     }
 }
