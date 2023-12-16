@@ -1,18 +1,19 @@
-use std::{error, marker::PhantomData};
+use core::{cell::RefCell, convert::Infallible, marker::PhantomData};
 
-use xitca_http::ResponseBody;
+use std::error;
 
 use crate::{
-    body::BodyStream,
+    body::{BodyStream, BoxBody, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
     dev::service::{ready::ReadyService, Service},
+    error::Error,
     http::WebResponse,
 };
 
 #[doc(hidden)]
 mod marker {
-    // pub struct EraseReqBody;
+    pub struct EraseReqBody;
     pub struct EraseResBody;
 
     pub struct EraseErr;
@@ -34,23 +35,22 @@ impl<M> TypeEraser<M> {
     }
 }
 
-// impl TypeEraser<EraseReqBody> {
-//     // Erase generic B type param from WebRequest<'_, C, B>. making downstream middlewares observe WebRequest<'_, C> type.
-//     pub fn request_body() -> Self {
-//         TypeEraser::new()
-//     }
-// }
+impl TypeEraser<EraseReqBody> {
+    /// Erase generic request body type. making downstream middlewares observe [RequestBody].
+    pub fn request_body() -> Self {
+        TypeEraser::new()
+    }
+}
 
 impl TypeEraser<EraseResBody> {
-    // Erase generic B type param from WebResponse<B>. making downstream middlewares observe WebResponse type.
+    /// Erase generic response body type. making downstream middlewares observe [ResponseBody].
     pub fn response_body() -> Self {
         TypeEraser::new()
     }
 }
 
 impl TypeEraser<EraseErr> {
-    // Erase generic E type from Service::Error = E. making downstream middlewares observe Box<dyn std::error::Error + Send + Sync>
-    // as Service::Error type.
+    /// Erase generic E type from Service<Error = E>. making downstream middlewares observe [Error].
     pub fn error() -> Self {
         TypeEraser::new()
     }
@@ -73,6 +73,25 @@ pub struct EraserService<M, S> {
     _erase: PhantomData<M>,
 }
 
+impl<'r, S, C, ReqB, ResB, Err> Service<WebContext<'r, C, ReqB>> for EraserService<EraseReqBody, S>
+where
+    S: for<'rs> Service<WebContext<'rs, C>, Response = WebResponse<ResB>, Error = Err>,
+    ReqB: BodyStream<Chunk = Bytes> + Default + 'static,
+    ResB: BodyStream<Chunk = Bytes> + 'static,
+    <ResB as BodyStream>::Error: Send + Sync,
+{
+    type Response = WebResponse;
+    type Error = Err;
+
+    async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
+        let body = ctx.take_body_mut();
+        let mut body = RefCell::new(RequestBody::Unknown(BoxBody::new(body)));
+        let WebContext { req, ctx, .. } = ctx;
+        let res = self.service.call(WebContext::new(req, &mut body, ctx)).await?;
+        Ok(res.map(ResponseBody::box_stream))
+    }
+}
+
 impl<'r, S, C, B, ResB, Err> Service<WebContext<'r, C, B>> for EraserService<EraseResBody, S>
 where
     S: for<'rs> Service<WebContext<'rs, C, B>, Response = WebResponse<ResB>, Error = Err>,
@@ -89,17 +108,21 @@ where
     }
 }
 
-impl<S, Req> Service<Req> for EraserService<EraseErr, S>
+impl<'r, C, B, S> Service<WebContext<'r, C, B>> for EraserService<EraseErr, S>
 where
-    S: Service<Req>,
-    S::Error: error::Error + Send + Sync + 'static,
+    S: for<'r2> Service<WebContext<'r, C, B>>,
+    S::Error: for<'r2> Service<WebContext<'r2, C>, Response = WebResponse, Error = Infallible>
+        + error::Error
+        + Send
+        + Sync
+        + 'static,
 {
     type Response = S::Response;
-    type Error = Box<dyn error::Error + Send + Sync>;
+    type Error = Error<C>;
 
     #[inline]
-    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        self.service.call(req).await.map_err(|e| Box::new(e) as _)
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self.service.call(ctx).await.map_err(Error::from_service)
     }
 }
 
