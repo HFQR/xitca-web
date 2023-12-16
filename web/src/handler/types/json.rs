@@ -12,12 +12,12 @@ use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::{
     body::BodyStream,
-    bytes::{BufMutWriter, Bytes, BytesMut},
+    bytes::{BufMutWriter, BytesMut},
     context::WebContext,
     dev::service::Service,
     error::{BadRequest, Error},
     handler::{error::ExtractError, FromRequest, Responder},
-    http::{const_header_value::JSON, header::CONTENT_TYPE, status::StatusCode, WebResponse},
+    http::{const_header_value::JSON, header::CONTENT_TYPE, WebResponse},
 };
 
 use super::{
@@ -101,23 +101,19 @@ impl<'r, C, B, T> Responder<WebContext<'r, C, B>> for Json<T>
 where
     T: Serialize,
 {
-    type Output = WebResponse;
+    type Response = WebResponse;
+    type Error = Error<C>;
 
     #[inline]
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let mut bytes = BytesMut::new();
-        match serde_json::to_writer(BufMutWriter(&mut bytes), &self.0) {
-            Ok(_) => {
+        serde_json::to_writer(BufMutWriter(&mut bytes), &self.0)
+            .map(|_| {
                 let mut res = ctx.into_response(bytes.freeze());
                 res.headers_mut().insert(CONTENT_TYPE, JSON);
                 res
-            }
-            Err(_) => {
-                let mut res = ctx.into_response(Bytes::new());
-                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                res
-            }
-        }
+            })
+            .map_err(Error::from_service)
     }
 }
 

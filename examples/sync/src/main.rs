@@ -24,7 +24,10 @@ fn main() -> std::io::Result<()> {
 // generic C type is the type state of App.
 fn middleware_fn<E, C>(next: &mut Next<E>, ctx: WebContext<'_, C>) -> Result<WebResponse<()>, E> {
     // before calling the next service we can access and/or mutate the state of context.
-    let res = next.call(ctx); // call next service.
+
+    // call next service.
+    let res = next.call(ctx);
+
     // after the next service call return we can access and/or mutate the output.
     res
 }

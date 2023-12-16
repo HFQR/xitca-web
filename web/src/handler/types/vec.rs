@@ -1,4 +1,4 @@
-use core::{future::poll_fn, pin::pin};
+use core::{convert::Infallible, future::poll_fn, pin::pin};
 
 use crate::{
     body::BodyStream,
@@ -34,9 +34,10 @@ where
 }
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for Vec<u8> {
-    type Output = WebResponse;
+    type Response = WebResponse;
+    type Error = Infallible;
 
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Self::Output {
-        ctx.into_response(self)
+    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Ok(ctx.into_response(self))
     }
 }

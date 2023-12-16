@@ -53,15 +53,16 @@ where
     F: AsyncClosure<T>,
     F: for<'a> AsyncClosure<T::Type<'a>, Output = O>,
     O: Responder<Req>,
+    T::Error: From<O::Error>,
 {
-    type Response = O::Output;
+    type Response = O::Response;
     type Error = T::Error;
 
     #[inline]
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
         let extract = T::Type::<'_>::from_request(&req).await?;
         let res = self.func.call(extract).await;
-        Ok(res.respond_to(req).await)
+        res.respond_to(req).await.map_err(Into::into)
     }
 }
 
@@ -142,23 +143,26 @@ from_req_impl! { A, B, C, D, E, F, G, H, I, }
 /// Make Response with ownership of Req.
 /// The Output type is what returns from [handler_service] function.
 pub trait Responder<Req> {
-    type Output;
+    type Response;
+    type Error;
 
-    fn respond_to(self, req: Req) -> impl Future<Output = Self::Output>;
+    fn respond_to(self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>>;
 }
 
 impl<R, F, S> Responder<R> for PipelineE<F, S>
 where
     F: Responder<R>,
-    S: Responder<R, Output = F::Output>,
+    S: Responder<R, Response = F::Response>,
+    F::Error: From<S::Error>,
 {
-    type Output = F::Output;
+    type Response = F::Response;
+    type Error = F::Error;
 
     #[inline]
-    async fn respond_to(self, req: R) -> Self::Output {
+    async fn respond_to(self, req: R) -> Result<Self::Response, Self::Error> {
         match self {
             Self::First(f) => f.respond_to(req).await,
-            Self::Second(s) => s.respond_to(req).await,
+            Self::Second(s) => Ok(s.respond_to(req).await?),
         }
     }
 }
@@ -183,12 +187,13 @@ mod test {
     }
 
     impl Responder<Request<RequestExt<()>>> for StatusCode {
-        type Output = Response<()>;
+        type Response = Response<()>;
+        type Error = Infallible;
 
-        async fn respond_to(self, _: Request<RequestExt<()>>) -> Self::Output {
+        async fn respond_to(self, _: Request<RequestExt<()>>) -> Result<Self::Response, Self::Error> {
             let mut res = Response::new(());
             *res.status_mut() = self;
-            res
+            Ok(res)
         }
     }
 

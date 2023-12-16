@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "cloudflare-worker",
     "compression",
+    "error-handle",
     "file",
     "grpc",
     "hello-world",

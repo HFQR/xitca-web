@@ -66,15 +66,16 @@ where
     F: for<'a> Closure<T::Type<'a>, Output = O>,
     O: Responder<Req> + Send + 'static,
     for<'a> T::Type<'a>: Send + 'static,
+    T::Error: From<O::Error>,
 {
-    type Response = O::Output;
+    type Response = O::Response;
     type Error = T::Error;
 
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
         let extract = T::Type::<'_>::from_request(&req).await?;
         let func = self.func.clone();
         let res = tokio::task::spawn_blocking(move || func.call(extract)).await.unwrap();
-        Ok(res.respond_to(req).await)
+        res.respond_to(req).await.map_err(Into::into)
     }
 }
 
