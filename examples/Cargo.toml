@@ -8,6 +8,7 @@ members = [
     "grpc",
     "hello-world",
     "io-uring",
+    "macros",
     "multipart",
     "multi-http-services",
     "sync",

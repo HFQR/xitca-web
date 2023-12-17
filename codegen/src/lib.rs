@@ -1,4 +1,5 @@
 mod error;
+mod route;
 mod service;
 mod state;
 
@@ -9,6 +10,13 @@ use syn::{spanned::Spanned, Error, ImplItem, ImplItemFn};
 pub fn state_impl(item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item);
     state::state(item).unwrap_or_else(|e| e.to_compile_error().into())
+}
+
+#[proc_macro_attribute]
+pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = syn::parse_macro_input!(attr);
+    let item = syn::parse_macro_input!(item);
+    route::route(attr, item).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
 #[proc_macro_attribute]

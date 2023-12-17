@@ -1,6 +1,7 @@
 [package]
-name = "xitca-web-error-handle"
+name = "xitca-web-macros"
 version = "0.1.0"
+authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]

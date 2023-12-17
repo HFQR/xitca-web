@@ -16,7 +16,6 @@ use xitca_web::{
 fn main() -> std::io::Result<()> {
     App::new()
         .at("/", get(handler_service(index)))
-        .at("/v2", get(handler_service(index2)))
         .enclosed_fn(error_handler)
         .serve()
         .bind("127.0.0.1:8080")?
@@ -93,36 +92,8 @@ where
             }
         }
 
-        if let Some(e) = (&**e as &dyn error::Error).downcast_ref::<MyError2>() {
-            match e {
-                MyError2::Index2 => {}
-            }
-        }
-
         e
     })
 }
 
-// if you prefer proc macro below is a mirrored error type using macro shortcut:
-
-// another route always return blank 400 response.
-async fn index2() -> Result<&'static str, MyError2> {
-    Err(MyError2::Index2)
-}
-
-// derive error type with thiserror for Debug, Display and Error trait impl
-#[derive(thiserror::Error, Debug)]
-enum MyError2 {
-    #[error("error from /v2")]
-    Index2,
-}
-
-// error_impl is an attribute macro for http response generation
-#[xitca_web::codegen::error_impl]
-impl MyError2 {
-    async fn call<C>(&self, ctx: WebContext<'_, C>) -> WebResponse {
-        let mut res = ctx.into_response(Bytes::new());
-        *res.status_mut() = StatusCode::BAD_REQUEST;
-        res
-    }
-}
+// if you prefer proc macro please reference examples/macros

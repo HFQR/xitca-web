@@ -12,7 +12,7 @@ use std::{borrow::Cow, error};
 use futures_core::stream::Stream;
 use xitca_http::util::{
     middleware::context::{Context, ContextBuilder},
-    service::router::{IntoObject, Router, RouterGen, RouterMapErr},
+    service::router::{IntoObject, Router, RouterGen, RouterMapErr, TypedRoute},
 };
 
 use crate::{
@@ -66,6 +66,15 @@ impl<CF, Obj> App<CF, AppRouter<Obj>> {
         for<'r> WebContext<'r, C, B>: IntoObject<F::Route<F>, (), Object = Obj>,
     {
         self.router = AppRouter(self.router.0.insert(path, factory));
+        self
+    }
+
+    /// insert typed route service with given path to application.
+    pub fn at_typed<T, C, B>(mut self, typed: T) -> App<CF, AppRouter<Obj>>
+    where
+        T: TypedRoute<(C, B), Route = Obj>,
+    {
+        self.router = AppRouter(self.router.0.insert_typed(typed));
         self
     }
 }
