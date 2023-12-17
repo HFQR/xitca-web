@@ -1,9 +1,9 @@
-//! example of utilizing macro for routing service.
+//! example of utilizing macro for routing service and handling error.
 
 use xitca_web::{
     bytes::Bytes,
     codegen::{error_impl, route},
-    handler::state::StateRef,
+    handler::state::{StateOwn, StateRef},
     http::{StatusCode, WebResponse},
     App, WebContext,
 };
@@ -11,6 +11,7 @@ use xitca_web::{
 fn main() -> std::io::Result<()> {
     App::with_state(String::from("Hello,World!"))
         .at_typed(root)
+        .at_typed(sync)
         .at_typed(private)
         .serve()
         .bind("127.0.0.1:8080")?
@@ -18,9 +19,16 @@ fn main() -> std::io::Result<()> {
         .wait()
 }
 
+// routing function with given path and http method.
 #[route("/", method = get)]
 async fn root(StateRef(s): StateRef<'_, String>) -> String {
     s.to_owned()
+}
+
+// routing sync function with thread pooling.
+#[route("/sync", method = get)]
+fn sync(StateOwn(s): StateOwn<String>) -> String {
+    s
 }
 
 // a private endpoint always return an error.

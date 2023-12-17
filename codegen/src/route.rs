@@ -8,10 +8,6 @@ use syn::{
 };
 
 pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
-    if input.sig.asyncness.is_none() {
-        return Err(Error::new(input.sig.fn_token.span(), "expect async fn"));
-    }
-
     let attrs = attr.vars;
     const MSG: &str = "not enough attributes. try add #[route(<path>, method = <method>)]";
 
@@ -21,6 +17,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
         return Err(Error::new(method.span(), "expect 'method = <method>'"));
     };
 
+    let is_async = input.sig.asyncness.is_some();
     let method = &*method.right;
     let ident = &input.sig.ident;
     let vis = &input.vis;
@@ -56,6 +53,12 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
         }
     });
 
+    let handler = if is_async {
+        quote! { ::xitca_web::handler::handler_service }
+    } else {
+        quote! { ::xitca_web::handler::handler_sync_service }
+    };
+
     Ok(quote! {
         #[allow(non_camel_case_types)]
         #vis struct #ident;
@@ -86,7 +89,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                 use xitca_web::WebContext;
                 use xitca_web::route::#method;
                 use xitca_web::handler::handler_service;
-                WebContext::<'_, C, B>::into_object(#method(handler_service(#ident)))
+                WebContext::<'_, C, B>::into_object(#method(#handler(#ident)))
             }
         }
     }
