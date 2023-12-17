@@ -85,10 +85,9 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
             fn route() -> Self::Route {
                 #input
 
-                use xitca_web::codegen::__private::{IntoObject};
+                use xitca_web::codegen::__private::IntoObject;
                 use xitca_web::WebContext;
                 use xitca_web::route::#method;
-                use xitca_web::handler::handler_service;
                 WebContext::<'_, C, B>::into_object(#method(#handler(#ident)))
             }
         }
