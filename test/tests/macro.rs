@@ -19,7 +19,6 @@ impl Test {
 
     async fn call(&self, req: String) -> Result<usize, Box<dyn std::error::Error>> {
         assert_eq!(req.as_str(), "007");
-
         Ok(233)
     }
 }
@@ -43,7 +42,6 @@ where
 
     async fn call(&self, req: String) -> Result<usize, Box<dyn std::error::Error>> {
         assert_eq!(req.as_str(), "007");
-
         self.0.call(req).await
     }
 }
@@ -63,7 +61,6 @@ impl TestWithoutReady {
 
     async fn call(&self, req: String) -> Result<usize, Box<dyn std::error::Error>> {
         assert_eq!(req.as_str(), "007");
-
         Ok(7)
     }
 }
