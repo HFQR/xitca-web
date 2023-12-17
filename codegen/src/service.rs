@@ -1,14 +1,20 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    __private::Span, punctuated::Punctuated, spanned::Spanned, token::Comma, Error, FnArg, GenericArgument,
-    GenericParam, Ident, ImplItemFn, ItemImpl, Pat, PatIdent, PathArguments, ReturnType, Stmt, Type, TypePath,
-    WhereClause,
+    __private::{Span, TokenStream2},
+    punctuated::Punctuated,
+    spanned::Spanned,
+    token::Comma,
+    Error, FnArg, GenericArgument, GenericParam, Ident, ImplItemFn, ItemImpl, Pat, PatIdent, PathArguments, ReturnType,
+    Stmt, Type, TypePath, WhereClause,
 };
 
 use crate::find_async_method;
 
 pub(crate) fn middleware(_: TokenStream, input: ItemImpl) -> Result<TokenStream, Error> {
+    let builder_impl = BuilderImpl::try_from_item(&input)?;
+    let call_stream = CallImpl::try_from_item(&input)?.into_token_stream(&builder_impl);
+
     let BuilderImpl {
         service_ty,
         generics,
@@ -19,7 +25,7 @@ pub(crate) fn middleware(_: TokenStream, input: ItemImpl) -> Result<TokenStream,
         builder_stmts,
         arg_ident,
         arg_ty,
-    } = BuilderImpl::try_from_item(&input)?;
+    } = builder_impl;
 
     let new_service_generic_err_ty = impl_fn
         .sig
@@ -29,16 +35,6 @@ pub(crate) fn middleware(_: TokenStream, input: ItemImpl) -> Result<TokenStream,
         .ok_or_else(|| Error::new(impl_fn.sig.generics.span(), "expect generic E type"))?;
 
     let new_service_rt_err_ty = find_new_service_rt_err_ty(impl_fn)?;
-
-    let ready_impl = ReadyImpl::try_from_item(&input)?;
-
-    let CallImpl {
-        req_ident,
-        req_ty,
-        res_ty,
-        err_ty,
-        call_stmts,
-    } = CallImpl::try_from_item(&input)?;
 
     let base = quote! {
         impl<#generics, #new_service_generic_err_ty> ::xitca_service::Service<#arg_ty> for #builder_ty
@@ -53,43 +49,27 @@ pub(crate) fn middleware(_: TokenStream, input: ItemImpl) -> Result<TokenStream,
             }
         }
 
-        impl<#generics> ::xitca_service::Service<#req_ty> for #service_ty
-        #where_clause
-        {
-            type Response = #res_ty;
-            type Error = #err_ty;
-
-            #[inline]
-            async fn call(&self, #req_ident: #req_ty) -> Result<Self::Response, Self::Error> {
-                #(#call_stmts)*
-            }
-        }
+        #call_stream
     };
 
-    match ready_impl {
-        Some(ReadyImpl {
-            ready_stmts,
-            ready_ret_ty,
-        }) => Ok(quote! {
-            #base
-
-            impl<#generics> ::xitca_service::ready::ReadyService for #service_ty
-            #where_clause
-            {
-                type Ready = #ready_ret_ty;
-
-                #[inline]
-                async fn ready(&self) -> Self::Ready {
-                    #(#ready_stmts)*
-                }
-            }
-        }
-        .into()),
-        None => Ok(base.into()),
-    }
+    let ready_impl = ReadyImpl::try_from_item(&input)?;
+    Ok(try_extend_ready_impl(
+        base,
+        ready_impl,
+        service_ty,
+        generics,
+        where_clause,
+    ))
 }
 
 pub(crate) fn service(_: TokenStream, input: ItemImpl) -> Result<TokenStream, Error> {
+    let builder_impl = BuilderImpl::try_from_item(&input)?;
+    let call_impl = CallImpl::try_from_item(&input)?;
+
+    let err_ty = call_impl.err_ty;
+
+    let call_stream = call_impl.into_token_stream(&builder_impl);
+
     let BuilderImpl {
         service_ty,
         generics,
@@ -100,17 +80,7 @@ pub(crate) fn service(_: TokenStream, input: ItemImpl) -> Result<TokenStream, Er
         arg_ident,
         arg_ty,
         ..
-    } = BuilderImpl::try_from_item(&input)?;
-
-    let ready_impl = ReadyImpl::try_from_item(&input)?;
-
-    let CallImpl {
-        req_ident,
-        req_ty,
-        res_ty,
-        err_ty,
-        call_stmts,
-    } = CallImpl::try_from_item(&input)?;
+    } = builder_impl;
 
     let base = quote! {
         impl<#generics> ::xitca_service::Service<#arg_ty> for #builder_ty
@@ -125,24 +95,31 @@ pub(crate) fn service(_: TokenStream, input: ItemImpl) -> Result<TokenStream, Er
             }
         }
 
-        impl<#generics> ::xitca_service::Service<#req_ty> for #service_ty
-        #where_clause
-        {
-            type Response = #res_ty;
-            type Error = #err_ty;
-
-            #[inline]
-            async fn call(&self, #req_ident: #req_ty) -> Result<Self::Response, Self::Error> {
-                #(#call_stmts)*
-            }
-        }
+        #call_stream
     };
 
+    let ready_impl = ReadyImpl::try_from_item(&input)?;
+    Ok(try_extend_ready_impl(
+        base,
+        ready_impl,
+        service_ty,
+        generics,
+        where_clause,
+    ))
+}
+
+fn try_extend_ready_impl(
+    base: TokenStream2,
+    ready_impl: Option<ReadyImpl<'_>>,
+    service_ty: &TypePath,
+    generics: &Punctuated<GenericParam, Comma>,
+    where_clause: Option<&WhereClause>,
+) -> TokenStream {
     match ready_impl {
         Some(ReadyImpl {
             ready_stmts,
             ready_ret_ty,
-        }) => Ok(quote! {
+        }) => quote! {
             #base
 
             impl<#generics> ::xitca_service::ready::ReadyService for #service_ty
@@ -156,8 +133,8 @@ pub(crate) fn service(_: TokenStream, input: ItemImpl) -> Result<TokenStream, Er
                 }
             }
         }
-        .into()),
-        None => Ok(base.into()),
+        .into(),
+        None => base.into(),
     }
 }
 
@@ -313,6 +290,34 @@ impl<'a> CallImpl<'a> {
             err_ty,
             call_stmts,
         })
+    }
+
+    fn into_token_stream(self, builder_impl: &BuilderImpl<'_>) -> TokenStream2 {
+        let Self {
+            req_ident,
+            req_ty,
+            res_ty,
+            err_ty,
+            call_stmts,
+        } = self;
+
+        let service_ty = builder_impl.service_ty;
+        let generics = builder_impl.generics;
+        let where_clause = builder_impl.where_clause;
+
+        quote! {
+            impl<#generics> ::xitca_service::Service<#req_ty> for #service_ty
+            #where_clause
+            {
+                type Response = #res_ty;
+                type Error = #err_ty;
+
+                #[inline]
+                async fn call(&self, #req_ident: #req_ty) -> Result<Self::Response, Self::Error> {
+                    #(#call_stmts)*
+                }
+            }
+        }
     }
 }
 
