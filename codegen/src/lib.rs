@@ -1,47 +1,23 @@
+mod error;
+mod state;
+
 use proc_macro::TokenStream;
 use quote::{__private::Span, quote};
 use syn::{
-    Data, FnArg, GenericArgument, Ident, ImplItem, ImplItemFn, Pat, PatIdent, PathArguments, ReturnType, Stmt, Type,
+    spanned::Spanned, Error, FnArg, GenericArgument, Ident, ImplItem, ImplItemFn, Pat, PatIdent, PathArguments,
+    ReturnType, Stmt, Type,
 };
 
 #[proc_macro_derive(State, attributes(borrow))]
 pub fn state_impl(item: TokenStream) -> TokenStream {
-    let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    let item = syn::parse_macro_input!(item);
+    state::state(item).unwrap_or_else(|e| e.to_compile_error().into())
+}
 
-    let ty_ident = &input.ident;
-    let _generics = &input.generics;
-    let ty = match input.data {
-        Data::Struct(ref ty) => ty,
-        _ => todo!(),
-    };
-
-    let fields = ty
-        .fields
-        .iter()
-        .enumerate()
-        .filter(|(_, field)| {
-            field.attrs.iter().any(|attr| {
-                attr.path()
-                    .segments
-                    .first()
-                    .filter(|seg| seg.ident.to_string().as_str() == "borrow")
-                    .is_some()
-            })
-        })
-        .map(|(_, field)| {
-            let ident = field.ident.as_ref().unwrap();
-            let ty = &field.ty;
-
-            quote! {
-                impl ::core::borrow::Borrow<#ty> for #ty_ident {
-                    fn borrow(&self) -> &#ty {
-                        &self.#ident
-                    }
-                }
-            }
-        });
-
-    quote! { #(#fields)* }.into()
+#[proc_macro_attribute]
+pub fn error_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item);
+    error::error(attr, item).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
 #[proc_macro_attribute]
@@ -59,8 +35,7 @@ pub fn middleware_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let where_clause = &input.generics.where_clause;
 
     // find methods from impl.
-    let new_service_impl =
-        find_async_method(&input.items, "new_service").expect("new_service method can not be located");
+    let new_service_impl = find_async_method(&input.items, "new_service").unwrap().unwrap();
 
     let new_service_generic_err_ty = new_service_impl
         .sig
@@ -172,8 +147,7 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let where_clause = &input.generics.where_clause;
 
     // find methods from impl.
-    let new_service_impl =
-        find_async_method(&input.items, "new_service").expect("new_service method can not be located");
+    let new_service_impl = find_async_method(&input.items, "new_service").unwrap().unwrap();
 
     // collect ServiceFactory type
     let mut inputs = new_service_impl.sig.inputs.iter();
@@ -260,14 +234,23 @@ pub fn service_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &str) -> Option<&'a ImplItemFn> {
-    items.iter().find_map(|item| match item {
-        ImplItem::Fn(func) if func.sig.ident.to_string().as_str() == ident_str => {
-            assert!(func.sig.asyncness.is_some(), "{ident_str} method must be async fn");
-            Some(func)
+fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &str) -> Option<Result<&'a ImplItemFn, Error>> {
+    for item in items.iter() {
+        if let ImplItem::Fn(func) = item {
+            if func.sig.ident.to_string().as_str() == ident_str {
+                if func.sig.asyncness.is_none() {
+                    return Some(Err(Error::new(
+                        func.span(),
+                        format!("{ident_str} method must be async fn"),
+                    )));
+                }
+
+                return Some(Ok(func));
+            }
         }
-        _ => None,
-    })
+    }
+
+    None
 }
 
 fn find_new_service_rt_err_ty(func: &ImplItemFn) -> Option<&Type> {
@@ -304,7 +287,7 @@ struct CallImpl<'a> {
 impl<'a> CallImpl<'a> {
     fn from_items(items: &'a [ImplItem]) -> Self {
         // collect Request, Response and Error type.
-        let call_impl = find_async_method(items, "call").expect("call method can not be located");
+        let call_impl = find_async_method(items, "call").unwrap().unwrap();
 
         let mut inputs = call_impl.sig.inputs.iter();
         // ignore receiver and move on.
@@ -340,6 +323,7 @@ struct ReadyImpl<'a> {
 impl<'a> ReadyImpl<'a> {
     fn try_from_items(items: &'a [ImplItem]) -> Option<Self> {
         find_async_method(items, "ready").map(|ready_impl| {
+            let ready_impl = ready_impl.unwrap();
             let ready_ret_ty = ready_ret_ty(&ready_impl.sig.output);
             let ready_stmts = &ready_impl.block.stmts;
 

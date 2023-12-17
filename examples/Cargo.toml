@@ -18,6 +18,7 @@ members = [
 ]
 
 [patch.crates-io]
+xitca-codegen = { path = "../codegen" }
 xitca-http = { path = "../http" }
 xitca-io = { path = "../io" }
 xitca-router = { path = "../router" }

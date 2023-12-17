@@ -44,7 +44,7 @@ pub mod codegen {
     /// #   ""
     /// # }
     /// ```
-    pub use xitca_codegen::State;
+    pub use xitca_codegen::{error_impl, State};
 }
 
 pub mod http {
