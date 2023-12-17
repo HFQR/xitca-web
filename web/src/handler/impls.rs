@@ -102,7 +102,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
     type Error = Infallible;
 
     async fn call(&self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        match *self {}
+        unreachable!()
     }
 }
 
