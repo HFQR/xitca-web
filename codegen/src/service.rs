@@ -115,27 +115,31 @@ fn try_extend_ready_impl(
     generics: &Punctuated<GenericParam, Comma>,
     where_clause: Option<&WhereClause>,
 ) -> TokenStream {
-    match ready_impl {
-        Some(ReadyImpl {
-            ready_stmts,
-            ready_ret_ty,
-        }) => quote! {
-            #base
+    let ready = ready_impl.map(
+        |ReadyImpl {
+             ready_stmts,
+             ready_ret_ty,
+         }| {
+            quote! {
+                impl<#generics> ::xitca_service::ready::ReadyService for #service_ty
+                #where_clause
+                {
+                    type Ready = #ready_ret_ty;
 
-            impl<#generics> ::xitca_service::ready::ReadyService for #service_ty
-            #where_clause
-            {
-                type Ready = #ready_ret_ty;
-
-                #[inline]
-                async fn ready(&self) -> Self::Ready {
-                    #(#ready_stmts)*
+                    #[inline]
+                    async fn ready(&self) -> Self::Ready {
+                        #(#ready_stmts)*
+                    }
                 }
             }
-        }
-        .into(),
-        None => base.into(),
+        },
+    );
+
+    quote! {
+        #base
+        #ready
     }
+    .into()
 }
 
 struct BuilderImpl<'a> {
