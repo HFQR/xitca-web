@@ -96,6 +96,18 @@ impl<Obj> Router<Obj> {
             .is_none());
         self
     }
+
+    #[doc(hidden)]
+    /// See [TypedRoute] for detail.
+    pub fn insert_typed<T, M>(mut self, _: T) -> Router<Obj>
+    where
+        T: TypedRoute<M, Route = Obj>,
+    {
+        let path = T::path();
+        let route = T::route();
+        assert!(self.routes.insert(Cow::Borrowed(path), route).is_none());
+        self
+    }
 }
 
 /// trait for specialized route generation when utilizing [Router::insert].
@@ -339,6 +351,21 @@ where
     }
 }
 
+#[doc(hidden)]
+/// trait for concrete typed Router and Routes.
+/// all generic types must be known when implementing the trait and Router<Obj>
+/// would infer it's generic types from it.
+pub trait TypedRoute<M = ()> {
+    /// typed route. in form of Box<dyn ServiceObject<_>>
+    type Route;
+
+    /// method for providing matching path of Self::Route.
+    fn path() -> &'static str;
+
+    /// method for generating typed route.
+    fn route() -> Self::Route;
+}
+
 #[cfg(test)]
 mod test {
     use core::convert::Infallible;
@@ -470,5 +497,50 @@ mod test {
             "router service call size: {:?}",
             core::mem::size_of_val(&service.call(Request::default()))
         );
+    }
+
+    #[test]
+    fn router_typed() {
+        type Req = Request<RequestExt<()>>;
+        type Route = BoxedServiceObject<Req, Response<()>, RouterError<Infallible>>;
+        type RouteObject = BoxedSyncServiceObject<(), Route, Infallible>;
+
+        struct Index;
+
+        impl TypedRoute for Index {
+            type Route = RouteObject;
+
+            fn path() -> &'static str {
+                "/"
+            }
+
+            fn route() -> Self::Route {
+                Req::into_object(RouterMapErr(xitca_service::fn_service(func)))
+            }
+        }
+
+        struct V2;
+
+        impl TypedRoute for V2 {
+            type Route = RouteObject;
+
+            fn path() -> &'static str {
+                "/v2"
+            }
+
+            fn route() -> Self::Route {
+                Req::into_object(RouterMapErr(xitca_service::fn_service(func)))
+            }
+        }
+
+        Router::new()
+            .insert_typed(Index)
+            .insert_typed(V2)
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(Request::default())
+            .now_or_panic()
+            .unwrap();
     }
 }

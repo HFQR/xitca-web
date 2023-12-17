@@ -13,7 +13,7 @@ pub(crate) fn error(_: TokenStream, item: ItemImpl) -> Result<TokenStream, Error
     let call_stmts = &call_impl.block.stmts;
 
     Ok(quote! {
-        impl<'r, C> Service<WebContext<'r, C>> for #err_ty {
+        impl<'r, C> ::xitca_web::dev::service::Service<WebContext<'r, C>> for #err_ty {
             type Response = WebResponse;
             type Error = ::core::convert::Infallible;
 

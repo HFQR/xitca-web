@@ -44,7 +44,13 @@ pub mod codegen {
     /// #   ""
     /// # }
     /// ```
-    pub use xitca_codegen::{error_impl, State};
+    pub use xitca_codegen::{error_impl, route, State};
+
+    #[doc(hidden)]
+    /// a hidden module for macro to access public types that are not user facing.
+    pub mod __private {
+        pub use xitca_http::util::service::router::{IntoObject, RouterMapErr, TypedRoute};
+    }
 }
 
 pub mod http {
