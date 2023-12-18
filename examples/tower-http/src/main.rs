@@ -5,8 +5,8 @@
 
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 use xitca_web::{
-    dev::service::Service, http::Uri, middleware::tower_http_compat::TowerHttpCompat as CompatMiddleware,
-    service::tower_http_compat::TowerHttpCompat as CompatBuild, App, WebContext,
+    http::Uri, middleware::tower_http_compat::TowerHttpCompat as CompatMiddleware,
+    service::tower_http_compat::TowerHttpCompat as CompatBuild, service::Service, App, WebContext,
 };
 
 fn main() -> std::io::Result<()> {

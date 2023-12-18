@@ -5,10 +5,10 @@ use std::error;
 use crate::{
     body::{BodyStream, RequestBody},
     context::WebContext,
-    dev::service::Service,
     error::{BadRequest, Error},
     handler::FromRequest,
     http::WebResponse,
+    service::Service,
 };
 
 pub type Multipart<B = RequestBody> = http_multipart::Multipart<B>;
@@ -53,13 +53,13 @@ mod test {
 
     use crate::{
         bytes::Bytes,
-        dev::service::Service,
         handler::handler_service,
         http::{
             header::{HeaderValue, CONTENT_TYPE, TRANSFER_ENCODING},
             Method, Request, RequestExt,
         },
         route::post,
+        service::Service,
         test::collect_body,
         App,
     };

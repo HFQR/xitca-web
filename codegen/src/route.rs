@@ -104,9 +104,9 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
             C: #state 'static,
             B: ::xitca_web::body::BodyStream + 'static
         {
-            type Route = ::xitca_web::dev::service::object::BoxedSyncServiceObject<
+            type Route = ::xitca_web::service::object::BoxedSyncServiceObject<
                 (),
-                Box<dyn for<'r> ::xitca_web::dev::service::object::ServiceObject<
+                Box<dyn for<'r> ::xitca_web::service::object::ServiceObject<
                     ::xitca_web::WebContext<'r, C, B>,
                     Response = ::xitca_web::http::WebResponse,
                     Error = ::xitca_web::error::RouterError<::xitca_web::error::Error<C>>
@@ -124,7 +124,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                 use xitca_web::codegen::__private::IntoObject;
                 use xitca_web::WebContext;
                 use xitca_web::route::#method;
-                use xitca_web::dev::service::ServiceExt;
+                use xitca_web::service::ServiceExt;
 
                 WebContext::<'_, C, B>::into_object(#method(#handler(#ident)#middlewares))
             }

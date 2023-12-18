@@ -20,13 +20,13 @@ use crate::{
     body::{BodyStream, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
-    dev::service::Service,
     error::{Error, Internal},
     handler::{FromRequest, Responder},
     http::{
         header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
         WebResponse,
     },
+    service::Service,
 };
 
 use super::header::HeaderNotFound;

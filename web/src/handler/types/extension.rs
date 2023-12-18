@@ -7,10 +7,10 @@ use std::{convert::Infallible, error};
 use crate::{
     body::BodyStream,
     context::WebContext,
-    dev::service::Service,
     error::{BadRequest, Error},
     handler::FromRequest,
     http::{Extensions, WebResponse},
+    service::Service,
 };
 
 /// Extract immutable reference of element stored inside [Extensions]

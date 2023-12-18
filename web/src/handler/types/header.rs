@@ -7,13 +7,13 @@ use std::error;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    dev::service::Service,
     error::{BadRequest, Error},
     handler::FromRequest,
     http::{
         header::{self, HeaderValue},
         WebResponse,
     },
+    service::Service,
 };
 
 macro_rules! const_header_name {

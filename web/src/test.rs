@@ -4,7 +4,7 @@ use core::{future::poll_fn, pin::pin};
 
 use futures_core::stream::Stream;
 
-use crate::dev::service::pipeline::PipelineE;
+use crate::service::pipeline::PipelineE;
 
 /// Collect request or response body to Vec.
 pub async fn collect_body<B, T, E>(body: B) -> Result<Vec<u8>, E>

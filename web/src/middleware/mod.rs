@@ -20,9 +20,9 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::service::Service,
         handler::{extension::ExtensionRef, handler_service},
         http::{Request, RequestExt},
+        service::Service,
         test::collect_string_body,
         App,
     };

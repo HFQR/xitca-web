@@ -12,8 +12,8 @@ use xitca_service::ServiceExt;
 
 use crate::{
     bytes::Bytes,
-    dev::service::{ready::ReadyService, Service},
     http::{Request, RequestExt, Response},
+    service::{ready::ReadyService, Service},
 };
 
 /// multi protocol handling http server

@@ -3,9 +3,9 @@
 use xitca_web::{
     bytes::Bytes,
     codegen::{error_impl, route},
-    dev::service::Service,
     handler::state::{StateOwn, StateRef},
     http::{StatusCode, WebResponse},
+    service::Service,
     App, WebContext,
 };
 

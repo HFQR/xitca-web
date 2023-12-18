@@ -6,9 +6,9 @@ use crate::{
     body::{BodyStream, BoxBody, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
-    dev::service::{ready::ReadyService, Service},
     error::Error,
     http::WebResponse,
+    service::{ready::ReadyService, Service},
 };
 
 #[doc(hidden)]
@@ -143,7 +143,7 @@ mod test {
     use xitca_http::{body::Once, Request};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{dev::service::ServiceExt, handler::handler_service, App};
+    use crate::{handler::handler_service, service::ServiceExt, App};
 
     use super::*;
 
