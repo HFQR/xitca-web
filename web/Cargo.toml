@@ -43,7 +43,7 @@ websocket = ["http-ws/stream", "tokio/time"]
 # static file serving
 file = ["http-file"]
 
-# proc macro code generation
+# macro code generation
 codegen = ["xitca-codegen"]
 
 # experimental tower-http Layer compat

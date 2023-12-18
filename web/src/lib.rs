@@ -14,7 +14,10 @@ pub mod test;
 
 #[cfg(feature = "codegen")]
 pub mod codegen {
-    /// Derive macro for individual struct field extractable through [StateRef](crate::handler::state::StateRef)
+    //! macro code generation module.
+
+    /// Derive macro for individual struct field type extractable through [StateRef](crate::handler::state::StateRef)
+    /// and [StateOwn](crate::handler::state::StateOwn)
     ///
     /// # Example:
     /// ```rust
@@ -44,10 +47,37 @@ pub mod codegen {
     /// #   ""
     /// # }
     /// ```
-    pub use xitca_codegen::{error_impl, route, State};
+    pub use xitca_codegen::State;
+
+    /// Attribute macro for generating typed route service from function.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use xitca_web::{codegen::route, handler::handler_service, App, WebContext};
+    /// // route macro accept attributes for guiding the generation of route service.
+    /// // in this case the generated service would be matched against "/" route path,
+    /// // and http get method.
+    /// #[route("/", method = get)]
+    /// async fn index() -> &'static str {
+    ///     ""
+    /// }
+    ///
+    /// App::new()
+    ///     // add generated index typed route to application.
+    ///     .at_typed(index)
+    /// #   .at("/nah", handler_service(nah));
+    ///
+    /// # async fn nah(_: &WebContext<'_>) -> &'static str {
+    /// #   // needed to infer the body type of request
+    /// #   ""
+    /// # }
+    /// ```
+    pub use xitca_codegen::route;
+
+    pub use xitca_codegen::error_impl;
 
     #[doc(hidden)]
-    /// a hidden module for macro to access public types that are not user facing.
+    /// a hidden module for macro to access public types that are not framework user facing.
     pub mod __private {
         pub use xitca_http::util::service::router::{IntoObject, RouterMapErr, TypedRoute};
     }
