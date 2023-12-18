@@ -8,7 +8,6 @@ use crate::service::Service;
 /// ```rust
 /// # use core::convert::Infallible;
 /// # use xitca_service::{fn_service, middleware::Group, Service, ServiceExt};
-///
 /// // a simple passthrough middleware function.
 /// async fn mw<S, Req>(svc: &S, req: Req) -> Result<S::Response, S::Error>
 /// where
@@ -17,14 +16,13 @@ use crate::service::Service;
 ///     svc.call(req).await
 /// }
 ///
-/// # fn nest() {
 /// fn_service(|_: ()| async { Ok::<_, Infallible>(()) })
 ///     .enclosed(
-///         Group::new() // group multiple middlewares and apply it to other service.
+///         // group multiple middlewares and apply it to fn_service.
+///         Group::new()
 ///             .enclosed_fn(mw)
 ///             .enclosed_fn(mw)
 ///     );
-/// # }
 /// ```
 pub struct Group<S, E>(PhantomData<fn(S, E)>);
 
