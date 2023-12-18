@@ -8,17 +8,53 @@ use syn::{
 };
 
 pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
-    let attrs = attr.vars;
+    let mut attrs = attr.vars.into_iter();
     const MSG: &str = "not enough attributes. try add #[route(<path>, method = <method>)]";
 
-    let path = attrs.first().ok_or_else(|| Error::new(input.span(), MSG))?;
-    let method = attrs.get(1).ok_or_else(|| Error::new(input.sig.ident.span(), MSG))?;
+    let path = attrs.next().ok_or_else(|| Error::new(input.span(), MSG))?;
+
+    // TODO: add support for multiple method = x.
+    let method = attrs.next().ok_or_else(|| Error::new(input.sig.ident.span(), MSG))?;
     let Expr::Assign(method) = method else {
         return Err(Error::new(method.span(), "expect 'method = <method>'"));
     };
+    let method = &*method.right;
+
+    let mut middlewares = quote! {};
+
+    for attr in attrs {
+        let Expr::Assign(pair) = attr else {
+            return Err(Error::new(input.span(), "expect '<name> = <value>' expression"));
+        };
+
+        let Expr::Path(ref name) = *pair.left else {
+            return Err(Error::new(pair.left.span(), "expect <name> to be path expression"));
+        };
+
+        let Expr::Path(ref value) = *pair.right else {
+            return Err(Error::new(pair.left.span(), "expect <name> to be path expression"));
+        };
+
+        let name = name
+            .path
+            .get_ident()
+            .ok_or_else(|| Error::new(name.span(), "expect enclosed or enclosed_fn path"))?;
+        match name.to_string().as_str() {
+            "enclosed_fn" => {
+                let value = value
+                    .path
+                    .get_ident()
+                    .ok_or_else(|| Error::new(value.span(), "expect function name"))?;
+                middlewares = quote! {
+                    #middlewares.enclosed_fn(#value)
+                };
+            }
+            "enclosed" => return Err(Error::new(name.span(), "enclosed is not supported yet")),
+            _ => {}
+        }
+    }
 
     let is_async = input.sig.asyncness.is_some();
-    let method = &*method.right;
     let ident = &input.sig.ident;
     let vis = &input.vis;
 
@@ -88,7 +124,9 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                 use xitca_web::codegen::__private::IntoObject;
                 use xitca_web::WebContext;
                 use xitca_web::route::#method;
-                WebContext::<'_, C, B>::into_object(#method(#handler(#ident)))
+                use xitca_web::dev::service::ServiceExt;
+
+                WebContext::<'_, C, B>::into_object(#method(#handler(#ident)#middlewares))
             }
         }
     }

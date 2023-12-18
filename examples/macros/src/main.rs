@@ -3,6 +3,7 @@
 use xitca_web::{
     bytes::Bytes,
     codegen::{error_impl, route},
+    dev::service::Service,
     handler::state::{StateOwn, StateRef},
     http::{StatusCode, WebResponse},
     App, WebContext,
@@ -19,8 +20,20 @@ fn main() -> std::io::Result<()> {
         .wait()
 }
 
+// a simple middleware function forward request to other services and display response status code.
+async fn middleware_fn<S, C, B, Err>(s: &S, ctx: WebContext<'_, C, B>) -> Result<WebResponse, Err>
+where
+    S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Err>,
+{
+    s.call(ctx).await.map(|res| {
+        println!("response status: {}", res.status());
+        res
+    })
+}
+
 // routing function with given path and http method.
-#[route("/", method = get)]
+// after the route service is constructed it would be enclosed by given middleware_fn.
+#[route("/", method = get, enclosed_fn = middleware_fn)]
 async fn root(StateRef(s): StateRef<'_, String>) -> String {
     s.to_owned()
 }
