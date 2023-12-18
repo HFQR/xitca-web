@@ -13,9 +13,11 @@ use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 
 use crate::{
     context::WebContext,
-    dev::service::Service,
     http::{Request, RequestExt, Response, WebResponse},
-    service::tower_http_compat::{CompatBody, TowerCompatService},
+    service::{
+        tower_http_compat::{CompatBody, TowerCompatService},
+        Service,
+    },
 };
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.
@@ -47,8 +49,7 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     /// # Example:
     /// ```rust
     /// # use std::convert::Infallible;
-    /// # use xitca_web::{dev::service::fn_service, http::WebResponse, App, WebContext};
-    /// # use xitca_web::http::StatusCode;
+    /// # use xitca_web::{http::{StatusCode, WebResponse}, service::fn_service, App, WebContext};
     /// use xitca_web::middleware::tower_http_compat::TowerHttpCompat;
     /// use tower_http::set_status::SetStatusLayer;
     ///
@@ -140,7 +141,7 @@ mod test {
     use tower_http::set_status::SetStatusLayer;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{bytes::Bytes, dev::service::fn_service, http::StatusCode, App};
+    use crate::{bytes::Bytes, http::StatusCode, service::fn_service, App};
 
     use super::*;
 

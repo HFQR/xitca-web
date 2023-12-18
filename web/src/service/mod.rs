@@ -5,3 +5,5 @@ pub mod tower_http_compat;
 
 #[cfg(feature = "file")]
 pub mod file;
+
+pub use xitca_service::*;

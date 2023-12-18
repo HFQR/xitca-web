@@ -496,8 +496,8 @@ mod tests {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        dev::service::{fn_service, Service},
         http::{Request, RequestExt, Uri},
+        service::{fn_service, Service},
         test::collect_string_body,
         App,
     };

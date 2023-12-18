@@ -90,7 +90,7 @@ mod test {
     use xitca_http::Request;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{dev::service::Service, handler::handler_service, route::get, App};
+    use crate::{handler::handler_service, route::get, service::Service, App};
 
     #[derive(State, Clone, Debug, Eq, PartialEq)]
     struct State {

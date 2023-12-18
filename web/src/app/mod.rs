@@ -19,9 +19,9 @@ use crate::{
     body::{RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
-    dev::service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
     error::{Error, RouterError},
     http::{Request, RequestExt, WebResponse},
+    service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
 };
 
 /// composed application type with router, stateful context and default middlewares.
@@ -46,8 +46,8 @@ impl App {
     /// ```rust
     /// # use std::borrow::Borrow;
     /// # use xitca_web::{
-    /// #   dev::service::Service,
     /// #   handler::{handler_service, state::StateRef},
+    /// #   service::Service,
     /// #   App, WebContext
     /// # };
     /// // our typed state.
@@ -391,7 +391,6 @@ mod test {
 
     use crate::{
         body::RequestBody,
-        dev::service::Service,
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
             uri::UriRef,
@@ -399,6 +398,7 @@ mod test {
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Method, Uri},
         middleware::UncheckedReady,
         route::get,
+        service::Service,
     };
 
     use super::*;

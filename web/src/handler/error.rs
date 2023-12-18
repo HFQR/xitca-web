@@ -5,8 +5,8 @@ use std::error;
 use crate::{
     bytes::Bytes,
     context::WebContext,
-    dev::service::Service,
     http::{StatusCode, WebResponse},
+    service::Service,
 };
 
 type BoxedError = Box<dyn error::Error + Send + Sync + 'static>;

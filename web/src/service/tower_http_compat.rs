@@ -17,8 +17,8 @@ use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
 use crate::{
     bytes::Buf,
     context::WebContext,
-    dev::service::{ready::ReadyService, Service},
     http::{header::HeaderMap, Request, RequestExt, Response, WebResponse},
+    service::{ready::ReadyService, Service},
 };
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.

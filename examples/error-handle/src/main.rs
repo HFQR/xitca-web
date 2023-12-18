@@ -5,11 +5,11 @@ use std::{convert::Infallible, error, fmt};
 
 use xitca_web::{
     bytes::Bytes,
-    dev::service::Service,
     error::Error,
     handler::handler_service,
     http::{StatusCode, WebResponse},
     route::get,
+    service::Service,
     App, WebContext,
 };
 

@@ -13,8 +13,8 @@ use xitca_http::Request;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, status::StatusCode, WebResponse},
+    service::{pipeline::PipelineE, ready::ReadyService, Service},
 };
 
 #[derive(Copy, Clone)]

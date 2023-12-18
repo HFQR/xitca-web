@@ -102,10 +102,6 @@ pub mod route {
     pub use xitca_http::util::service::route::{connect, delete, get, head, options, patch, post, put, trace, Route};
 }
 
-pub mod dev {
-    pub use xitca_service as service;
-}
-
 pub use app::{App, AppObject};
 pub use body::BodyStream;
 pub use context::WebContext;

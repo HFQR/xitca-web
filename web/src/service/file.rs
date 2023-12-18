@@ -11,9 +11,9 @@ use crate::{
     body::ResponseBody,
     bytes::Bytes,
     context::WebContext,
-    dev::service::Service,
     error::{BadRequest, Error, Internal, MatchError, MethodNotAllowed, RouterError},
     http::{Method, WebResponse},
+    service::Service,
 };
 
 /// builder type for serve dir service.

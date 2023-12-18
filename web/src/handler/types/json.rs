@@ -14,10 +14,10 @@ use crate::{
     body::BodyStream,
     bytes::{BufMutWriter, BytesMut},
     context::WebContext,
-    dev::service::Service,
     error::{BadRequest, Error},
     handler::{error::ExtractError, FromRequest, Responder},
     http::{const_header_value::JSON, header::CONTENT_TYPE, WebResponse},
+    service::Service,
 };
 
 use super::{

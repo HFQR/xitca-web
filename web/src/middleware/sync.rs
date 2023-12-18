@@ -7,8 +7,8 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use crate::{
     body::RequestBody,
     context::WebContext,
-    dev::service::{ready::ReadyService, Service},
     http::{Request, RequestExt, Response, WebResponse},
+    service::{ready::ReadyService, Service},
 };
 
 /// experimental type for sync function as middleware.
@@ -103,12 +103,12 @@ where
         match self.service.call(ctx).await {
             Ok(res) => {
                 let (parts, body) = res.into_parts();
-                tx2.send(Ok(Response::from_parts(parts, ()))).unwrap();
+                let _ = tx2.send(Ok(Response::from_parts(parts, ())));
                 let res = handle.await.unwrap()?;
                 Ok(res.map(|_| body))
             }
             Err(e) => {
-                tx2.send(Err(e)).unwrap();
+                let _ = tx2.send(Err(e));
                 let res = handle.await.unwrap()?;
                 Ok(res.map(|_| todo!("there is no support for body type yet")))
             }
@@ -132,7 +132,7 @@ where
 mod test {
     use core::convert::Infallible;
 
-    use crate::{bytes::Bytes, dev::service::fn_service, http::StatusCode, App};
+    use crate::{bytes::Bytes, http::StatusCode, service::fn_service, App};
 
     use super::*;
 

@@ -19,9 +19,9 @@ pub use xitca_http::{
 use crate::{
     bytes::Bytes,
     context::WebContext,
-    dev::service::{object::ServiceObject, Service},
     http::StatusCode,
     http::WebResponse,
+    service::{object::ServiceObject, Service},
 };
 
 use self::service_impl::ErrorService;
@@ -35,7 +35,7 @@ type BoxErrService<C> = Box<dyn for<'r> ErrorService<WebContext<'r, C>>>;
 /// ```rust
 /// use std::{convert::Infallible, error, fmt};
 ///
-/// use xitca_web::{dev::service::Service, error::Error, http::WebResponse, WebContext};
+/// use xitca_web::{error::Error, http::WebResponse, service::Service, WebContext};
 ///
 /// // concrete error type
 /// #[derive(Debug)]

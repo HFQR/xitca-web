@@ -5,8 +5,8 @@ use http_encoding::{error::EncodingError, Coder};
 use crate::{
     body::BodyStream,
     context::WebContext,
-    dev::service::{pipeline::PipelineE, ready::ReadyService, Service},
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode, WebResponse},
+    service::{pipeline::PipelineE, ready::ReadyService, Service},
 };
 
 /// A decompress middleware look into [WebContext]'s `Content-Encoding` header and

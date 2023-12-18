@@ -6,7 +6,6 @@ use crate::{
     body::BodyStream,
     bytes::Bytes,
     context::WebContext,
-    dev::service::Service,
     error::Error,
     error::{MatchError, MethodNotAllowed, RouterError},
     http::{
@@ -14,6 +13,7 @@ use crate::{
         header::{ALLOW, CONTENT_TYPE},
         StatusCode, WebResponse,
     },
+    service::Service,
 };
 
 use super::{FromRequest, Responder};

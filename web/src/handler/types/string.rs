@@ -3,10 +3,10 @@ use std::convert::Infallible;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    dev::service::Service,
     error::{BadRequest, Error},
     handler::FromRequest,
     http::WebResponse,
+    service::Service,
 };
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for String
