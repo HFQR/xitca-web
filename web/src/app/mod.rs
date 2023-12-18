@@ -36,9 +36,57 @@ impl App {
         Self::with_state(())
     }
 
-    /// Construct App with a thread safe state.
+    /// Construct App with a thread safe state that will be shared among all tasks and worker threads.
     ///
-    /// State would be shared among all tasks and worker threads.
+    /// State accessing is based on generic type approach where the State type and it's typed fields are generally
+    /// opaque to middleware and routing services of the application. In order to cast concrete type from generic
+    /// state type [std::borrow::Borrow] trait is utilized. See example below for explanation.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use std::borrow::Borrow;
+    /// # use xitca_web::{
+    /// #   dev::service::Service,
+    /// #   handler::{handler_service, state::StateRef},
+    /// #   App, WebContext
+    /// # };
+    /// // our typed state.
+    /// #[derive(Clone, Default)]
+    /// struct State {
+    ///     string: String,
+    ///     usize: usize
+    /// }
+    ///
+    /// // implement Borrow trait to enable borrowing &String type from State.
+    /// impl Borrow<String> for State {
+    ///     fn borrow(&self) -> &String {
+    ///         &self.string
+    ///     }
+    /// }
+    ///
+    /// App::with_state(State::default()) // construct app with state type.
+    ///     .at("/", handler_service(index)) // a function service that have access to state.
+    ///     # .at("/nah", handler_service(|_: &WebContext<'_, State>| async { "used for infer type" }))
+    ///     .enclosed_fn(middleware_fn); // a function middleware that have access to state
+    ///
+    /// // the function service don't know what the real type of application state is.
+    /// // it only needs to know &String can be borrowed from it.
+    /// async fn index(_: StateRef<'_, String>) -> &'static str {
+    ///     ""
+    /// }
+    ///
+    /// // similar to function service. the middleware does not need to know the real type of C.
+    /// // it only needs to know it implement according trait.
+    /// async fn middleware_fn<S, C, Res, Err>(service: &S, ctx: WebContext<'_, C>) -> Result<Res, Err>
+    /// where
+    ///     S: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Err>,
+    ///     C: Borrow<String>
+    /// {
+    ///     // WebContext::state would return &C then we can call Borrow::borrow on it to get &String
+    ///     let _string = ctx.state().borrow();
+    ///     service.call(ctx).await
+    /// }
+    /// ```
     pub fn with_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, AppRouter<Obj>>
     where
         C: Send + Sync + Clone + 'static,
