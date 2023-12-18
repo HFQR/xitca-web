@@ -17,7 +17,7 @@ use xitca_http::{
     util::middleware::{Logger, SocketConfig},
     HttpServiceBuilder, ResponseBody,
 };
-use xitca_service::{fn_build_nop, fn_service, ServiceExt};
+use xitca_service::{fn_service, middleware::Group, ServiceExt};
 
 fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
@@ -61,7 +61,7 @@ fn main() -> io::Result<()> {
             config,
             fn_service(handler_h3).enclosed(
                 // a show case of nested enclosed middleware
-                fn_build_nop()
+                Group::new()
                     .enclosed(HttpServiceBuilder::h3())
                     .enclosed(Logger::default()),
             ),
