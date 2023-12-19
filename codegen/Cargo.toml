@@ -9,3 +9,6 @@ proc-macro = true
 [dependencies]
 syn = { version = "2", features = ["full"] }
 quote = "1.0"
+
+[dev-dependencies]
+xitca-web = { version = "0.1", features = ["codegen"] }
