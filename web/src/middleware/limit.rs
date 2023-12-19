@@ -179,7 +179,7 @@ mod test {
         bytes::Bytes,
         error::BodyError,
         handler::{body::Body, handler_service},
-        http::{Request, RequestExt},
+        http::WebRequest,
         test::collect_body,
         App,
     };
@@ -205,8 +205,7 @@ mod test {
         let item = || async { Ok::<_, BodyError>(Bytes::from_static(chunk)) };
 
         let body = stream::once(item()).chain(stream::once(item()));
-        let ext = RequestExt::default().map_body(|_: ()| BoxBody::new(body));
-        let req = Request::new(ext);
+        let req = WebRequest::default().map(|ext| ext.map_body(|_: ()| BoxBody::new(body).into()));
 
         let body = App::new()
             .at("/", handler_service(handler))

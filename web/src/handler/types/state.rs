@@ -87,10 +87,9 @@ mod test {
     use super::*;
 
     use xitca_codegen::State;
-    use xitca_http::Request;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{handler::handler_service, route::get, service::Service, App};
+    use crate::{handler::handler_service, http::WebRequest, route::get, service::Service, App};
 
     #[derive(State, Clone, Debug, Eq, PartialEq)]
     struct State {
@@ -127,7 +126,7 @@ mod test {
             .now_or_panic()
             .ok()
             .unwrap()
-            .call(Request::default())
+            .call(WebRequest::default())
             .now_or_panic()
             .unwrap();
     }

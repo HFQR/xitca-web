@@ -12,7 +12,7 @@ pub mod limit;
 pub mod sync;
 
 pub use xitca_http::util::middleware::{Extension, Logger};
-pub use xitca_service::middleware::UncheckedReady;
+pub use xitca_service::middleware::{Group, UncheckedReady};
 
 #[cfg(test)]
 mod test {
