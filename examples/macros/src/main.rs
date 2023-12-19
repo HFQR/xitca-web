@@ -5,7 +5,7 @@ use xitca_web::{
     codegen::{error_impl, route},
     handler::state::{StateOwn, StateRef},
     http::{StatusCode, WebResponse},
-    middleware::Logger,
+    middleware::{Logger, sync::{SyncMiddleware, Next}},
     service::Service,
     App, WebContext,
 };
@@ -51,9 +51,22 @@ async fn root(StateRef(s): StateRef<'_, String>) -> String {
 }
 
 // routing sync function with thread pooling.
-#[route("/sync", method = get)]
+#[route(
+    "/sync", 
+    method = get, 
+    // sync function handler has it's specialized function middleware type.
+    enclosed = SyncMiddleware::new(middleware_fn_sync)
+)]
 fn sync(StateOwn(s): StateOwn<String>) -> String {
     s
+}
+
+// sync version of simple middleware.
+fn middleware_fn_sync<E, C>(next: &mut Next<E>, ctx: WebContext<'_, C>) -> Result<WebResponse<()>, E> {
+    next.call(ctx).map(|res| {
+        println!("response status: {}", res.status());
+        res
+    })
 }
 
 // a private endpoint always return an error.

@@ -118,7 +118,8 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
 
         impl<C, B> ::xitca_web::codegen::__private::TypedRoute<(C, B)> for #ident
         where
-            C: #state 'static,
+            // TODO: not every state is bound to Send,Sync,Clone.
+            C: #state Send + Sync + Clone + 'static,
             B: ::xitca_web::body::BodyStream + 'static
         {
             type Route = ::xitca_web::service::object::BoxedSyncServiceObject<
