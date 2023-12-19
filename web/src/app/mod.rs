@@ -118,9 +118,9 @@ impl<CF, Obj> App<CF, AppRouter<Obj>> {
     }
 
     /// insert typed route service with given path to application.
-    pub fn at_typed<T, C, B>(mut self, typed: T) -> App<CF, AppRouter<Obj>>
+    pub fn at_typed<T, C>(mut self, typed: T) -> App<CF, AppRouter<Obj>>
     where
-        T: TypedRoute<(C, B), Route = Obj>,
+        T: TypedRoute<C, Route = Obj>,
     {
         self.router = AppRouter(self.router.0.insert_typed(typed));
         self

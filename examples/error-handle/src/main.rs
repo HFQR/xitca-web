@@ -69,9 +69,9 @@ impl<'r, C> Service<WebContext<'r, C>> for MyError {
 }
 
 // a middleware function used for intercept and interact with app handler outputs.
-async fn error_handler<S, C, B, Res>(s: &S, ctx: WebContext<'_, C, B>) -> Result<Res, Error<C>>
+async fn error_handler<S, C, Res>(s: &S, ctx: WebContext<'_, C>) -> Result<Res, Error<C>>
 where
-    S: for<'r> Service<WebContext<'r, C, B>, Response = Res, Error = Error<C>>,
+    S: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Error<C>>,
 {
     s.call(ctx).await.map_err(|e| {
         // debug format error info.
