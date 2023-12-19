@@ -28,8 +28,14 @@ where
     T: AsRef<[u8]>,
 {
     /// Construct a new coder.
-    pub fn new(body: S, coder: C) -> Self {
+    #[inline]
+    pub const fn new(body: S, coder: C) -> Self {
         Self { body, coder }
+    }
+
+    #[inline]
+    pub fn into_inner(self) -> S {
+        self.body
     }
 }
 

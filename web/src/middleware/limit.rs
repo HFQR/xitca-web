@@ -77,12 +77,19 @@ where
 
     async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let (parts, ext) = ctx.take_request().into_parts();
-        let ctx = ctx.ctx;
+        let state = ctx.ctx;
         let (ext, body) = ext.replace_body(());
         let mut body = RefCell::new(LimitBody::new(body, self.limit.request_body_size));
         let mut req = Request::from_parts(parts, ext);
 
-        self.service.call(WebContext::new(&mut req, &mut body, ctx)).await
+        self.service
+            .call(WebContext::new(&mut req, &mut body, state))
+            .await
+            .map_err(|e| {
+                let body = body.into_inner().into_inner();
+                *ctx.body_borrow_mut() = body;
+                e
+            })
     }
 }
 
@@ -118,8 +125,12 @@ impl<B: Default> Default for LimitBody<B> {
 }
 
 impl<B> LimitBody<B> {
-    fn new(body: B, limit: usize) -> Self {
+    const fn new(body: B, limit: usize) -> Self {
         Self { limit, record: 0, body }
+    }
+
+    fn into_inner(self) -> B {
+        self.body
     }
 }
 

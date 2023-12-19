@@ -44,7 +44,7 @@ where
 
     async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let (parts, ext) = ctx.take_request().into_parts();
-        let ctx = ctx.ctx;
+        let state = ctx.ctx;
         let (ext, body) = ext.replace_body(());
         let req = Request::from_parts(parts, ());
 
@@ -52,9 +52,15 @@ where
         let mut body = RefCell::new(decoder);
         let mut req = req.map(|_| ext);
 
-        let ctx = WebContext::new(&mut req, &mut body, ctx);
-
-        self.0.call(ctx).await.map_err(DecompressServiceError::Second)
+        self.0
+            .call(WebContext::new(&mut req, &mut body, state))
+            .await
+            .map_err(|e| {
+                // restore original body as error path of other services may have use of it.
+                let body = body.into_inner().into_inner();
+                *ctx.body_borrow_mut() = body;
+                DecompressServiceError::Second(e)
+            })
     }
 }
 
