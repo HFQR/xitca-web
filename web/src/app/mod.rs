@@ -70,7 +70,8 @@ impl App {
     /// ```rust
     /// # use std::borrow::Borrow;
     /// # use xitca_web::{
-    /// #   handler::{handler_service, state::StateRef},
+    /// #   error::Error,
+    /// #   handler::{handler_service, state::StateRef, FromRequest},
     /// #   service::Service,
     /// #   App, WebContext
     /// # };
@@ -101,13 +102,15 @@ impl App {
     ///
     /// // similar to function service. the middleware does not need to know the real type of C.
     /// // it only needs to know it implement according trait.
-    /// async fn middleware_fn<S, C, Res, Err>(service: &S, ctx: WebContext<'_, C>) -> Result<Res, Err>
+    /// async fn middleware_fn<S, C, Res>(service: &S, ctx: WebContext<'_, C>) -> Result<Res, Error<C>>
     /// where
-    ///     S: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Err>,
-    ///     C: Borrow<String>
+    ///     S: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Error<C>>,
+    ///     C: Borrow<String> // annotate we want to borrow &String from generic C state type.
     /// {
     ///     // WebContext::state would return &C then we can call Borrow::borrow on it to get &String
     ///     let _string = ctx.state().borrow();
+    ///     // or use extractor manually like in function service.
+    ///     let _string = StateRef::<'_, String>::from_request(&ctx).await?;
     ///     service.call(ctx).await
     /// }
     /// ```
