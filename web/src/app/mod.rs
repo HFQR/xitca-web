@@ -16,23 +16,47 @@ use xitca_http::util::{
 };
 
 use crate::{
-    body::ResponseBody,
+    body::{RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
     error::{Error, RouterError},
     http::{WebRequest, WebResponse},
-    service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
+    service::{
+        object::BoxedSyncServiceObject, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
+        ServiceExt,
+    },
 };
 
+use self::object::WebObject;
+
 /// composed application type with router, stateful context and default middlewares.
-pub struct App<CF = (), R = ()> {
+pub struct App<R = (), CF = DefaultCtxBuilder<()>> {
     ctx_factory: CF,
     router: R,
 }
 
+type DefaultCtxBuilder<C> = Box<dyn Fn() -> Ready<Result<C, Infallible>> + Send + Sync>;
+type DefaultWebObject<C> = WebObject<C, RequestBody, WebResponse, RouterError<Error<C>>>;
+type DefaultAppRouter<C> = AppRouter<BoxedSyncServiceObject<(), DefaultWebObject<C>, Infallible>>;
+
+/// type alias for concrete type of nested App.
+///
+/// # Example
+/// ```rust
+/// # use xitca_web::{handler::handler_service, App, NestApp, WebContext};
+/// // a function return an App instance.
+/// fn app() -> NestApp<usize> {
+///     App::new().at("/index", handler_service(|_: &WebContext<'_, usize>| async { "" }))
+/// }
+///
+/// // nest app would be registered with /v2 as prefix therefore "/v2/index" become accessible.
+/// App::with_state(996usize).at("/v2", app());
+/// ```
+pub type NestApp<C> = App<DefaultAppRouter<C>>;
+
 impl App {
     /// Construct a new application instance.
-    pub fn new<Obj>() -> App<impl Fn() -> Ready<Result<(), Infallible>>, AppRouter<Obj>> {
+    pub fn new<Obj>() -> App<AppRouter<Obj>> {
         Self::with_state(())
     }
 
@@ -87,17 +111,17 @@ impl App {
     ///     service.call(ctx).await
     /// }
     /// ```
-    pub fn with_state<C, Obj>(state: C) -> App<impl Fn() -> Ready<Result<C, Infallible>>, AppRouter<Obj>>
+    pub fn with_state<Obj, C>(state: C) -> App<AppRouter<Obj>, DefaultCtxBuilder<C>>
     where
         C: Send + Sync + Clone + 'static,
     {
-        Self::with_async_state(move || ready(Ok(state.clone())))
+        Self::with_async_state(Box::new(move || ready(Ok(state.clone()))))
     }
 
     /// Construct App with async closure which it's output would be used as state.
     /// async state is used to produce thread per core and/or non thread safe state copies.
     /// The output state is not bound to `Send` and `Sync` auto traits.
-    pub fn with_async_state<CF, Obj>(ctx_factory: CF) -> App<CF, AppRouter<Obj>> {
+    pub fn with_async_state<Obj, CF>(ctx_factory: CF) -> App<AppRouter<Obj>, CF> {
         App {
             ctx_factory,
             router: AppRouter(Router::new()),
@@ -105,9 +129,9 @@ impl App {
     }
 }
 
-impl<CF, Obj> App<CF, AppRouter<Obj>> {
+impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// insert routed service with given path to application.
-    pub fn at<C, F, B>(mut self, path: &'static str, factory: F) -> App<CF, AppRouter<Obj>>
+    pub fn at<C, F, B>(mut self, path: &'static str, factory: F) -> Self
     where
         F: RouterGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebContext<'r, C, B>>,
@@ -118,7 +142,7 @@ impl<CF, Obj> App<CF, AppRouter<Obj>> {
     }
 
     /// insert typed route service with given path to application.
-    pub fn at_typed<T, C>(mut self, typed: T) -> App<CF, AppRouter<Obj>>
+    pub fn at_typed<T, C>(mut self, typed: T) -> Self
     where
         T: TypedRoute<C, Route = Obj>,
     {
@@ -127,7 +151,7 @@ impl<CF, Obj> App<CF, AppRouter<Obj>> {
     }
 }
 
-impl<CF, Fut, C, CErr, R> App<CF, R>
+impl<R, CF, Fut, C, CErr> App<R, CF>
 where
     CF: Fn() -> Fut + Send + Sync,
     Fut: Future<Output = Result<C, CErr>>,
@@ -137,7 +161,7 @@ where
 {
     /// Enclose App with middleware type.
     /// Middleware must impl [Service] trait.
-    pub fn enclosed<T>(self, transform: T) -> App<CF, EnclosedFactory<R, T>>
+    pub fn enclosed<T>(self, transform: T) -> App<EnclosedFactory<R, T>, CF>
     where
         T: Service<Result<R::Response, R::Error>>,
     {
@@ -148,7 +172,7 @@ where
     }
 
     /// Enclose App with function as middleware type.
-    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<CF, EnclosedFnFactory<R, T>>
+    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<EnclosedFnFactory<R, T>, CF>
     where
         T: for<'s> AsyncClosure<(&'s R::Response, Req)> + Clone,
     {
@@ -247,7 +271,7 @@ where
     }
 }
 
-impl<CF, R> RouterGen for App<CF, R>
+impl<R, CF> RouterGen for App<R, CF>
 where
     R: RouterGen,
 {
@@ -262,7 +286,7 @@ where
     }
 }
 
-impl<CF, R, Arg> Service<Arg> for App<CF, R>
+impl<R, Arg, CF> Service<Arg> for App<R, CF>
 where
     R: Service<Arg>,
 {
@@ -495,15 +519,14 @@ mod test {
             state.to_string()
         }
 
+        fn app() -> NestApp<String> {
+            App::new().at("/nest", get(handler_service(handler)))
+        }
+
         let state = String::from("state");
         let service = App::with_state(state)
             .at("/root", get(handler_service(handler)))
-            .at(
-                "/scope",
-                App::new()
-                    .at("/nest", get(handler_service(handler)))
-                    .enclosed_fn(middleware),
-            )
+            .at("/scope", app())
             .finish()
             .call(())
             .now_or_panic()

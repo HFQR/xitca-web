@@ -79,7 +79,7 @@ pub mod route {
     pub use xitca_http::util::service::route::{connect, delete, get, head, options, patch, post, put, trace, Route};
 }
 
-pub use app::{App, AppObject};
+pub use app::{App, AppObject, NestApp};
 pub use body::BodyStream;
 pub use context::WebContext;
 #[cfg(feature = "__server")]
