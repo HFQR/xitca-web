@@ -8,3 +8,5 @@ edition = "2021"
 xitca-web = { version = "0.1", features = ["codegen"] }
 
 thiserror = "1"
+tracing = { version = "0.1.40", default-features = false }
+tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }
