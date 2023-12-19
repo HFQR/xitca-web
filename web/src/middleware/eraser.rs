@@ -1,3 +1,5 @@
+//! type eraser middleware.
+
 use core::{cell::RefCell, convert::Infallible, marker::PhantomData};
 
 use std::error;
@@ -21,6 +23,37 @@ mod marker {
 
 use marker::*;
 
+/// Type eraser middleware is for erasing "unwanted" complex types produced by service tree
+/// and expose well known concrete types `xitca-web` can handle.
+///
+/// # Example
+/// ```rust
+/// # use xitca_web::{
+/// #   handler::handler_service,
+/// #   middleware::{eraser::TypeEraser, limit::Limit},
+/// #   App, WebContext
+/// #   };
+/// // a handler function expect xitca_web::body::RequestBody as body type.
+/// async fn handler(_: &WebContext<'_>) -> &'static str {
+///     "hello,world!"
+/// }
+///
+/// // a limit middleware that limit request body to max size of 1MB.
+/// // this middleware would produce a new type of request body that
+/// // handler function don't know of.
+/// let limit = Limit::new().set_request_body_max_size(1024 * 1024);
+///
+/// // an eraser middleware that transform any request body to xitca_web::body::RequestBody.
+/// let eraser = TypeEraser::request_body();
+///
+/// App::new()
+///     .at("/", handler_service(handler))
+///     // introduce eraser middleware between handler and limit middleware
+///     // to bridge the type difference between them.
+///     // without it this piece of code would simply refuse to compile.
+///     .enclosed(eraser)
+///     .enclosed(limit);
+/// ```
 pub struct TypeEraser<M>(PhantomData<M>);
 
 impl<M> Clone for TypeEraser<M> {
@@ -37,6 +70,9 @@ impl<M> TypeEraser<M> {
 
 impl TypeEraser<EraseReqBody> {
     /// Erase generic request body type. making downstream middlewares observe [RequestBody].
+    ///
+    /// # Example
+    ///
     pub fn request_body() -> Self {
         TypeEraser::new()
     }
