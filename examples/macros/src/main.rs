@@ -5,15 +5,13 @@ use xitca_web::{
     codegen::{error_impl, route},
     handler::state::{StateOwn, StateRef},
     http::{StatusCode, WebResponse},
+    middleware::Logger,
     service::Service,
     App, WebContext,
-    middleware::Logger
 };
 
 fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("[xitca-logger]=trace")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("[xitca-logger]=trace").init();
     App::with_state(String::from("Hello,World!"))
         .at_typed(root)
         .at_typed(sync)
