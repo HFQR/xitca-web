@@ -16,11 +16,11 @@ use xitca_http::util::{
 };
 
 use crate::{
-    body::{RequestBody, ResponseBody},
+    body::ResponseBody,
     bytes::Bytes,
     context::WebContext,
     error::{Error, RouterError},
-    http::{Request, RequestExt, WebResponse},
+    http::{WebRequest, WebResponse},
     service::{ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service, ServiceExt},
 };
 
@@ -159,22 +159,16 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<ReqB, ResB, SE, B, BE>(
+    pub fn finish<ResB, SE, B, BE>(
         self,
     ) -> impl Service<
-        Response = impl ReadyService
-                       + Service<
-            Request<RequestExt<ReqB>>,
-            Response = WebResponse<ResponseBody<ResB>>,
-            Error = Infallible,
-        >,
+        Response = impl ReadyService + Service<WebRequest, Response = WebResponse<ResponseBody<ResB>>, Error = Infallible>,
         Error = impl fmt::Debug,
     >
     where
         C: 'static,
-        R::Response: ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
+        R::Response: ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>,
-        ReqB: 'static,
         ResB: Stream<Item = Result<B, BE>>,
     {
         let App { ctx_factory, router } = self;
@@ -184,18 +178,17 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish_boxed<ReqB, ResB, SE, BE>(
+    pub fn finish_boxed<ResB, SE, BE>(
         self,
-    ) -> AppObject<impl ReadyService + Service<Request<RequestExt<ReqB>>, Response = WebResponse, Error = Infallible>>
+    ) -> AppObject<impl ReadyService + Service<WebRequest, Response = WebResponse, Error = Infallible>>
     where
         CF: 'static,
         Fut: 'static,
         C: 'static,
         R: 'static,
         R::Response:
-            ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE> + 'static,
+            ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE> + 'static,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
-        ReqB: 'static,
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: error::Error + Send + Sync + 'static,
     {
@@ -230,16 +223,12 @@ where
     /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
     ///
     /// [HttpServer]: crate::server::HttpServer
-    pub fn serve<ReqB, ResB, SE, B, BE>(
+    pub fn serve<ResB, SE, B, BE>(
         self,
     ) -> crate::server::HttpServer<
         impl Service<
             Response = impl ReadyService
-                           + Service<
-                Request<RequestExt<ReqB>>,
-                Response = WebResponse<ResponseBody<ResB>>,
-                Error = Infallible,
-            >,
+                           + Service<WebRequest, Response = WebResponse<ResponseBody<ResB>>, Error = Infallible>,
             Error = impl fmt::Debug,
         >,
     >
@@ -248,9 +237,8 @@ where
         Fut: 'static,
         C: 'static,
         R: 'static,
-        R::Response: ReadyService + for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
+        R::Response: ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
-        ReqB: 'static,
         ResB: Stream<Item = Result<B, BE>> + 'static,
         B: 'static,
         BE: 'static,
@@ -351,28 +339,25 @@ pub type AppObject<S> =
 
 // middleware for converting xitca_http types to xitca_web types.
 // this is for enabling side effect see [WebContext::reborrow] for detail.
-async fn map_req_res<C, S, SE, ReqB, ResB, B, BE>(
+async fn map_req_res<C, S, SE, ResB>(
     service: &S,
-    ctx: Context<'_, Request<RequestExt<ReqB>>, C>,
+    ctx: Context<'_, WebRequest, C>,
 ) -> Result<WebResponse<ResponseBody<ResB>>, Infallible>
 where
     C: 'static,
-    S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = SE>,
+    S: for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
     SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>,
-    ReqB: 'static,
-    ResB: Stream<Item = Result<B, BE>>,
 {
     let (req, state) = ctx.into_parts();
     let (parts, ext) = req.into_parts();
     let (ext, body) = ext.replace_body(());
-    let mut req = Request::from_parts(parts, ext);
+    let mut req = WebRequest::from_parts(parts, ext);
     let mut body = RefCell::new(body);
 
     match service.call(WebContext::new(&mut req, &mut body, state)).await {
         Ok(res) => Ok(res.map(|body| ResponseBody::stream(body))),
         // TODO: mutate response header according to outcome of drop_stream_cast?
         Err(e) => {
-            let mut body = RefCell::new(RequestBody::None);
             let ctx = WebContext::new(&mut req, &mut body, state);
             let res = e.call(ctx).await?;
             Ok(res.map(|body| body.drop_stream_cast()))
@@ -382,20 +367,14 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::{
-        pin::Pin,
-        task::{self, Poll},
-    };
-
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        body::RequestBody,
         handler::{
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
             uri::UriRef,
         },
-        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Method, Uri},
+        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, request, Method},
         middleware::UncheckedReady,
         route::get,
         service::Service,
@@ -416,7 +395,7 @@ mod test {
         UriRef(_): UriRef<'_>,
         ExtensionRef(_): ExtensionRef<'_, Foo>,
         ExtensionsRef(_): ExtensionsRef<'_>,
-        req: &WebContext<'_, String, NewBody<RequestBody>>,
+        req: &WebContext<'_, String>,
     ) -> String {
         assert_eq!("state", state);
         assert_eq!(state, req.state());
@@ -458,39 +437,9 @@ mod test {
         }
     }
 
-    // arbitrary body type mutation
-    struct NewBody<B>(B);
-
-    impl<B> Stream for NewBody<B>
-    where
-        B: Stream + Unpin,
-    {
-        type Item = B::Item;
-
-        fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
-            Pin::new(&mut self.get_mut().0).poll_next(cx)
-        }
-    }
-
     #[allow(clippy::borrow_interior_mutable_const)]
     #[test]
     fn test_app() {
-        async fn middleware_fn<S, C, B, Res, Err>(service: &S, mut req: WebContext<'_, C, B>) -> Result<Res, Infallible>
-        where
-            S: for<'r> Service<WebContext<'r, C, NewBody<B>>, Response = Res, Error = Err>,
-            Err: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Infallible>,
-            B: Default,
-        {
-            let mut body = RefCell::new(NewBody(req.take_body_mut()));
-            match service.call(WebContext::new(req.req, &mut body, req.ctx)).await {
-                Ok(res) => Ok(res),
-                Err(e) => {
-                    let mut body = RefCell::new(RequestBody::None);
-                    e.call(WebContext::new(req.req, &mut body, req.ctx)).await
-                }
-            }
-        }
-
         let state = String::from("state");
 
         let service = App::with_state(state)
@@ -499,7 +448,7 @@ mod test {
                 "/stateless",
                 get(handler_service(stateless_handler)).head(handler_service(stateless_handler)),
             )
-            .enclosed_fn(middleware_fn)
+            .enclosed_fn(middleware)
             .enclosed(Middleware)
             .enclosed(UncheckedReady)
             .finish()
@@ -508,7 +457,7 @@ mod test {
             .ok()
             .unwrap();
 
-        let mut req = Request::default();
+        let mut req = WebRequest::default();
         req.extensions_mut().insert(Foo);
 
         let res = service.call(req).now_or_panic().unwrap();
@@ -517,15 +466,19 @@ mod test {
 
         assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
 
-        let mut req = Request::default();
-        *req.uri_mut() = Uri::from_static("/abc");
+        let req = request::Builder::default()
+            .uri("/abc")
+            .body(Default::default())
+            .unwrap();
 
         let res = service.call(req).now_or_panic().unwrap();
 
         assert_eq!(res.status().as_u16(), 404);
 
-        let mut req = Request::default();
-        *req.method_mut() = Method::POST;
+        let req = request::Builder::default()
+            .method(Method::POST)
+            .body(Default::default())
+            .unwrap();
 
         let res = service.call(req).now_or_panic().unwrap();
 
@@ -557,9 +510,9 @@ mod test {
             .ok()
             .unwrap();
 
-        let req = Request::builder()
+        let req = request::Builder::default()
             .uri("/scope/nest")
-            .body(RequestExt::<RequestBody>::default())
+            .body(Default::default())
             .unwrap();
 
         let res = service.call(req).now_or_panic().unwrap();

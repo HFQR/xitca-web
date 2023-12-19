@@ -71,6 +71,39 @@ impl Stream for RequestBody {
     }
 }
 
+impl From<Bytes> for RequestBody {
+    fn from(bytes: Bytes) -> Self {
+        Self::from(Once::new(bytes))
+    }
+}
+
+impl From<Once<Bytes>> for RequestBody {
+    fn from(once: Once<Bytes>) -> Self {
+        Self::from(BoxBody::new(once))
+    }
+}
+
+impl From<BoxBody> for RequestBody {
+    fn from(body: BoxBody) -> Self {
+        Self::Unknown(body)
+    }
+}
+
+macro_rules! req_bytes_impl {
+    ($ty: ty) => {
+        impl From<$ty> for RequestBody {
+            fn from(item: $ty) -> Self {
+                Self::from(Bytes::from(item))
+            }
+        }
+    };
+}
+
+req_bytes_impl!(&'static [u8]);
+req_bytes_impl!(Box<[u8]>);
+req_bytes_impl!(Vec<u8>);
+req_bytes_impl!(String);
+
 /// None body type.
 /// B type is used to infer other types of body's output type used together with NoneBody.
 pub struct NoneBody<B>(PhantomData<fn(B)>);
@@ -308,7 +341,7 @@ impl From<BoxBody> for ResponseBody {
     }
 }
 
-macro_rules! bytes_impl {
+macro_rules! res_bytes_impl {
     ($ty: ty) => {
         impl<B> From<$ty> for ResponseBody<B> {
             fn from(item: $ty) -> Self {
@@ -318,12 +351,12 @@ macro_rules! bytes_impl {
     };
 }
 
-bytes_impl!(Bytes);
-bytes_impl!(BytesMut);
-bytes_impl!(&'static [u8]);
-bytes_impl!(Box<[u8]>);
-bytes_impl!(Vec<u8>);
-bytes_impl!(String);
+res_bytes_impl!(Bytes);
+res_bytes_impl!(BytesMut);
+res_bytes_impl!(&'static [u8]);
+res_bytes_impl!(Box<[u8]>);
+res_bytes_impl!(Vec<u8>);
+res_bytes_impl!(String);
 
 impl<B> From<&str> for ResponseBody<B> {
     fn from(str: &str) -> Self {

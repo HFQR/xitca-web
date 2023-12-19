@@ -79,14 +79,12 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for EncodingError {
 #[cfg(test)]
 mod test {
     use http_encoding::{encoder, ContentEncoding};
-    use xitca_http::body::Once;
     use xitca_unsafe_collection::futures::NowOrPanic;
-
-    use crate::{bytes::Bytes, http::header::CONTENT_ENCODING};
 
     use crate::{
         body::ResponseBody,
         handler::handler_service,
+        http::header::CONTENT_ENCODING,
         http::{WebRequest, WebResponse},
         test::collect_body,
         App,
@@ -108,8 +106,6 @@ mod test {
             "noop"
         }
 
-        let req = <WebRequest as Default>::default();
-
         App::new()
             .at("/", handler_service(noop))
             .enclosed(Decompress)
@@ -117,7 +113,7 @@ mod test {
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(req)
+            .call(WebRequest::default())
             .now_or_panic()
             .ok()
             .unwrap();
@@ -125,7 +121,7 @@ mod test {
 
     #[test]
     fn plain() {
-        let req = <WebRequest as Default>::default().map(|ext| ext.map_body(|_| Once::new(Q)));
+        let req = WebRequest::default().map(|ext| ext.map_body(|_: ()| Q.into()));
         App::new()
             .at("/", handler_service(handler))
             .enclosed(Decompress)
@@ -143,7 +139,7 @@ mod test {
     #[test]
     fn compressed() {
         // a hack to generate a compressed client request from server response.
-        let res = WebResponse::<ResponseBody>::new(ResponseBody::bytes(Bytes::from_static(Q)));
+        let res = WebResponse::<ResponseBody>::new(Q.into());
 
         #[allow(unreachable_code)]
         let encoding = || {
@@ -171,7 +167,7 @@ mod test {
 
         let body = collect_body(body).now_or_panic().unwrap();
 
-        let mut req = <WebRequest as Default>::default().map(|ext| ext.map_body(|_| Once::new(Bytes::from(body))));
+        let mut req = WebRequest::default().map(|ext| ext.map_body(|_: ()| body.into()));
 
         req.headers_mut()
             .insert(CONTENT_ENCODING, parts.headers.remove(CONTENT_ENCODING).unwrap());

@@ -73,8 +73,9 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
 
 impl<L, S, E, C, ReqB, ResB, Err> Service<Result<S, E>> for TowerHttpCompat<L, C, ReqB, ResB, Err>
 where
-    L: Layer<CompatLayer<S, C, ReqB, ResB, Err>>,
+    L: Layer<CompatLayer<S, C, ResB, Err>>,
     S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
+    ReqB: 'static,
 {
     type Response = TowerCompatService<L::Service>;
     type Error = E;
@@ -90,13 +91,13 @@ where
     }
 }
 
-pub struct CompatLayer<S, C, ReqB, ResB, Err> {
+pub struct CompatLayer<S, C, ResB, Err> {
     service: Rc<S>,
-    _phantom: PhantomData<fn(C, ReqB, ResB, Err)>,
+    _phantom: PhantomData<fn(C, ResB, Err)>,
 }
 
 impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>>
-    for CompatLayer<S, C, ReqB, ResB, Err>
+    for CompatLayer<S, C, ResB, Err>
 where
     S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
     C: Clone + 'static,
@@ -141,7 +142,7 @@ mod test {
     use tower_http::set_status::SetStatusLayer;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{bytes::Bytes, http::StatusCode, service::fn_service, App};
+    use crate::{bytes::Bytes, http::StatusCode, http::WebRequest, service::fn_service, App};
 
     use super::*;
 
@@ -159,7 +160,7 @@ mod test {
             .call(())
             .now_or_panic()
             .unwrap()
-            .call(Request::default())
+            .call(WebRequest::default())
             .now_or_panic()
             .unwrap();
 

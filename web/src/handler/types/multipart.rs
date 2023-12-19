@@ -48,15 +48,13 @@ impl<'r, C, B, E> Service<WebContext<'r, C, B>> for http_multipart::MultipartErr
 mod test {
     use core::pin::pin;
 
-    use xitca_http::body::Once;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        bytes::Bytes,
         handler::handler_service,
         http::{
             header::{HeaderValue, CONTENT_TYPE, TRANSFER_ENCODING},
-            Method, Request, RequestExt,
+            request, Method, RequestExt,
         },
         route::post,
         service::Service,
@@ -66,7 +64,7 @@ mod test {
 
     use super::*;
 
-    async fn handler(multipart: Multipart<Once<Bytes>>) -> Vec<u8> {
+    async fn handler(multipart: Multipart) -> Vec<u8> {
         let mut multipart = pin!(multipart);
 
         let mut res = Vec::new();
@@ -98,7 +96,7 @@ mod test {
 
     #[test]
     fn simple() {
-        let body = b"\
+        let body: &'static [u8] = b"\
             --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
             Content-Disposition: form-data; name=\"file\"; filename=\"foo.txt\"\r\n\
             Content-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n\
@@ -109,14 +107,15 @@ mod test {
             testdata\r\n\
             --abbc761f78ff4d7cb7573b5a23f96ef0--\r\n";
 
-        let mut req = Request::new(RequestExt::<()>::default().map_body(|_| Once::new(Bytes::from_static(body))));
-        *req.method_mut() = Method::POST;
-        req.headers_mut().insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("multipart/mixed; boundary=abbc761f78ff4d7cb7573b5a23f96ef0"),
-        );
-        req.headers_mut()
-            .insert(TRANSFER_ENCODING, HeaderValue::from_static("chunked"));
+        let req = request::Builder::default()
+            .method(Method::POST)
+            .header(
+                CONTENT_TYPE,
+                HeaderValue::from_static("multipart/mixed; boundary=abbc761f78ff4d7cb7573b5a23f96ef0"),
+            )
+            .header(TRANSFER_ENCODING, HeaderValue::from_static("chunked"))
+            .body(RequestExt::default().map_body(|_: ()| body.into()))
+            .unwrap();
 
         let res = App::new()
             .at("/", post(handler_service(handler)))
