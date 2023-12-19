@@ -30,7 +30,8 @@ use marker::*;
 /// ```rust
 /// # use xitca_web::{
 /// #   handler::handler_service,
-/// #   middleware::{eraser::TypeEraser, limit::Limit},
+/// #   middleware::{eraser::TypeEraser, limit::Limit, Group},
+/// #   service::ServiceExt,
 /// #   App, WebContext
 /// #   };
 /// // a handler function expect xitca_web::body::RequestBody as body type.
@@ -49,10 +50,23 @@ use marker::*;
 /// App::new()
 ///     .at("/", handler_service(handler))
 ///     // introduce eraser middleware between handler and limit middleware
-///     // to bridge the type difference between them.
+///     // to resolve the type difference between them.
 ///     // without it this piece of code would simply refuse to compile.
+///     .enclosed(eraser.clone())
+///     .enclosed(limit.clone());
+///
+/// // group middleware is suggested way of handling of use case like this.
+/// let group = Group::new()
 ///     .enclosed(eraser)
 ///     .enclosed(limit);
+///
+/// // it's also suggested to group multiple type mutation middlewares together and apply
+/// // eraser on them once if possible. the reason being TypeErase has a cost and by
+/// // grouping you only pay the cost once.
+///
+/// App::new()
+///     .at("/", handler_service(handler))
+///     .enclosed(group);
 /// ```
 pub struct TypeEraser<M>(PhantomData<M>);
 
@@ -63,7 +77,7 @@ impl<M> Clone for TypeEraser<M> {
 }
 
 impl<M> TypeEraser<M> {
-    fn new() -> Self {
+    const fn new() -> Self {
         TypeEraser(PhantomData)
     }
 }
@@ -73,21 +87,21 @@ impl TypeEraser<EraseReqBody> {
     ///
     /// # Example
     ///
-    pub fn request_body() -> Self {
+    pub const fn request_body() -> Self {
         TypeEraser::new()
     }
 }
 
 impl TypeEraser<EraseResBody> {
     /// Erase generic response body type. making downstream middlewares observe [ResponseBody].
-    pub fn response_body() -> Self {
+    pub const fn response_body() -> Self {
         TypeEraser::new()
     }
 }
 
 impl TypeEraser<EraseErr> {
     /// Erase generic E type from Service<Error = E>. making downstream middlewares observe [Error].
-    pub fn error() -> Self {
+    pub const fn error() -> Self {
         TypeEraser::new()
     }
 }
