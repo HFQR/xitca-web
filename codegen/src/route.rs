@@ -116,16 +116,15 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
         #[allow(non_camel_case_types)]
         #vis struct #ident;
 
-        impl<C, B> ::xitca_web::codegen::__private::TypedRoute<(C, B)> for #ident
+        impl<C> ::xitca_web::codegen::__private::TypedRoute<C> for #ident
         where
             // TODO: not every state is bound to Send,Sync,Clone.
-            C: #state Send + Sync + Clone + 'static,
-            B: ::xitca_web::body::BodyStream + 'static
+            C: #state Send + Sync + Clone + 'static
         {
             type Route = ::xitca_web::service::object::BoxedSyncServiceObject<
                 (),
                 Box<dyn for<'r> ::xitca_web::service::object::ServiceObject<
-                    ::xitca_web::WebContext<'r, C, B>,
+                    ::xitca_web::WebContext<'r, C>,
                     Response = ::xitca_web::http::WebResponse,
                     Error = ::xitca_web::error::RouterError<::xitca_web::error::Error<C>>
                 >>,
@@ -144,7 +143,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                 use xitca_web::route::#method;
                 use xitca_web::service::ServiceExt;
 
-                WebContext::<'_, C, B>::into_object(#method(#handler(#ident)#middlewares))
+                WebContext::<'_, C>::into_object(#method(#handler(#ident)#middlewares))
             }
         }
     }

@@ -12,6 +12,12 @@ use crate::{
 /// A decompress middleware look into [WebContext]'s `Content-Encoding` header and
 /// apply according decompression to it according to enabled compress feature.
 /// `compress-x` feature must be enabled for this middleware to function correctly.
+///
+/// # Type mutation
+/// `Decompress` would mutate request body type from `B` to `Coder<B>`. Service enclosed
+/// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
+///
+/// [TypeEraser]: crate::middleware::eraser::TypeEraser
 #[derive(Clone)]
 pub struct Decompress;
 

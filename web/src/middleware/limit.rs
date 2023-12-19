@@ -1,3 +1,5 @@
+//! limitation middleware.
+
 use std::{
     cell::RefCell,
     convert::Infallible,
@@ -17,6 +19,13 @@ use crate::{
     service::{pipeline::PipelineE, ready::ReadyService, Service},
 };
 
+/// General purposed limitation middleware. Limiting request/response body size etc.
+///
+/// # Type mutation
+/// `Limit` would mutate request body type from `B` to `Limit<B>`. Service enclosed
+/// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
+///
+/// [TypeEraser]: crate::middleware::eraser::TypeEraser
 #[derive(Copy, Clone)]
 pub struct Limit {
     request_body_size: usize,
@@ -29,7 +38,7 @@ impl Default for Limit {
 }
 
 impl Limit {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             request_body_size: usize::MAX,
         }
