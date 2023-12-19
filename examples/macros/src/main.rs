@@ -31,9 +31,17 @@ where
     })
 }
 
-// routing function with given path and http method.
-// after the route service is constructed it would be enclosed by given middleware_fn.
-#[route("/", method = get, enclosed_fn = middleware_fn)]
+// decorate async function handler with route macro.
+#[route(
+    // string path of route that registered wit router. incoming http request would match it's uri against the path.
+    "/", 
+    // http method of route that registered with route.
+    method = get,
+    // enclosed async function handler with given middleware function.
+    enclosed_fn = middleware_fn,
+    // multiple middlewares can be applied.
+    enclosed_fn = middleware_fn
+)]
 async fn root(StateRef(s): StateRef<'_, String>) -> String {
     s.to_owned()
 }
