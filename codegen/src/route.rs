@@ -31,16 +31,16 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
             return Err(Error::new(pair.left.span(), "expect <name> to be path expression"));
         };
 
-        let Expr::Path(ref value) = *pair.right else {
-            return Err(Error::new(pair.left.span(), "expect <name> to be path expression"));
-        };
-
         let name = name
             .path
             .get_ident()
             .ok_or_else(|| Error::new(name.span(), "expect enclosed or enclosed_fn path"))?;
         match name.to_string().as_str() {
             "enclosed_fn" => {
+                let Expr::Path(ref value) = *pair.right else {
+                    return Err(Error::new(pair.right.span(), "expect <value> to be path expression"));
+                };
+
                 let value = value
                     .path
                     .get_ident()
@@ -49,7 +49,24 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                     #middlewares.enclosed_fn(#value)
                 };
             }
-            "enclosed" => return Err(Error::new(name.span(), "enclosed is not supported yet")),
+            "enclosed" => match *pair.right {
+                Expr::Call(ref call) => {
+                    middlewares = quote! {
+                        #middlewares.enclosed(#call)
+                    };
+                }
+                Expr::Path(ref path) => {
+                    let value = path
+                        .path
+                        .get_ident()
+                        .ok_or_else(|| Error::new(path.span(), "expect middleware type path"))?;
+
+                    middlewares = quote! {
+                        #middlewares.enclosed(#value)
+                    };
+                }
+                _ => return Err(Error::new(pair.right.span(), "expect type path or function")),
+            },
             _ => {}
         }
     }
@@ -101,7 +118,8 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
 
         impl<C, B> ::xitca_web::codegen::__private::TypedRoute<(C, B)> for #ident
         where
-            C: #state 'static,
+            // TODO: not every state is bound to Send,Sync,Clone.
+            C: #state Send + Sync + Clone + 'static,
             B: ::xitca_web::body::BodyStream + 'static
         {
             type Route = ::xitca_web::service::object::BoxedSyncServiceObject<
