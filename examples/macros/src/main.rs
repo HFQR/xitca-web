@@ -56,7 +56,7 @@ async fn root(StateRef(s): StateRef<'_, String>) -> String {
 // routing sync function with thread pooling.
 #[route(
     "/sync", 
-    method = get, 
+    method = get,
     // sync function handler has it's specialized function middleware type.
     enclosed = SyncMiddleware::new(middleware_fn_sync)
 )]
