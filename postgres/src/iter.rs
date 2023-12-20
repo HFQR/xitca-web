@@ -3,12 +3,13 @@ use core::future::Future;
 use super::ToSql;
 
 /// async streaming iterator with borrowed Item from Self.
-pub trait AsyncIterator {
-    type Item<'i>
+pub trait AsyncLendingIterator {
+    type Ok<'i>
     where
         Self: 'i;
+    type Err;
 
-    fn next(&mut self) -> impl Future<Output = Option<Self::Item<'_>>> + Send;
+    fn try_next(&mut self) -> impl Future<Output = Result<Option<Self::Ok<'_>>, Self::Err>> + Send;
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {

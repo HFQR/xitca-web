@@ -5,7 +5,7 @@ use crate::{
     column::Column,
     driver::Response,
     error::Error,
-    iter::{slice_iter, AsyncIterator},
+    iter::{slice_iter, AsyncLendingIterator},
     row::Row,
     statement::Statement,
     BorrowToSql, ToSql,
@@ -127,21 +127,19 @@ impl Response {
 /// A stream of table rows.
 pub type RowStream<'a> = GenericRowStream<&'a [Column]>;
 
-impl<'a> AsyncIterator for RowStream<'a> {
-    type Item<'i> = Result<Row<'i>, Error> where 'a: 'i;
+impl<'a> AsyncLendingIterator for RowStream<'a> {
+    type Ok<'i> = Row<'i> where Self: 'i;
+    type Err = Error;
 
-    async fn next(&mut self) -> Option<Self::Item<'_>> {
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
         loop {
-            match self.res.recv().await {
-                Ok(msg) => match msg {
-                    backend::Message::DataRow(body) => return Some(Row::try_new(self.col, body, &mut self.ranges)),
-                    backend::Message::EmptyQueryResponse
-                    | backend::Message::CommandComplete(_)
-                    | backend::Message::PortalSuspended => {}
-                    backend::Message::ReadyForQuery(_) => return None,
-                    _ => return Some(Err(Error::UnexpectedMessage)),
-                },
-                Err(e) => return Some(Err(e)),
+            match self.res.recv().await? {
+                backend::Message::DataRow(body) => return Row::try_new(self.col, body, &mut self.ranges).map(Some),
+                backend::Message::EmptyQueryResponse
+                | backend::Message::CommandComplete(_)
+                | backend::Message::PortalSuspended => {}
+                backend::Message::ReadyForQuery(_) => return Ok(None),
+                _ => return Err(Error::UnexpectedMessage),
             }
         }
     }

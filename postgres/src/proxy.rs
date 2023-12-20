@@ -9,13 +9,10 @@ use tracing::error;
 use xitca_io::{bytes::BytesMut, net::TcpStream};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use super::{
-    driver::{
-        codec::Request,
-        generic::{GenericDriver, GenericDriverTx},
-        Drive, QuicDriver, QUIC_ALPN,
-    },
-    iter::AsyncIterator,
+use super::driver::{
+    codec::Request,
+    generic::{GenericDriver, GenericDriverTx},
+    Drive, QuicDriver, QUIC_ALPN,
 };
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
@@ -143,11 +140,12 @@ async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     }
 
     tokio::spawn(async move {
-        while let Some(res) = drv.next().await {
-            match res {
-                Ok(_) => {
+        loop {
+            match drv.try_next().await {
+                Ok(Some(_)) => {
                     // TODO: encode the message? or make driver able to emit un parsed raw bytes?
                 }
+                Ok(None) => return,
                 Err(e) => return error!("Proxy upstream error: {e}"),
             }
         }

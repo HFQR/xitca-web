@@ -35,7 +35,7 @@ pub use self::{
     driver::Driver,
     error::Error,
     from_sql::FromSqlExt,
-    iter::AsyncIterator,
+    iter::AsyncLendingIterator,
     query::{RowSimpleStream, RowStream},
 };
 
@@ -119,7 +119,7 @@ mod test {
     use quinn::ServerConfig;
     use rustls::{Certificate, PrivateKey};
 
-    use crate::{proxy::Proxy, AsyncIterator, Postgres};
+    use crate::{proxy::Proxy, AsyncLendingIterator, Postgres};
 
     #[tokio::test]
     async fn proxy() {
