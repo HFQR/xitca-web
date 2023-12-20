@@ -1,4 +1,69 @@
 //! web error types.
+//!
+//! In xitca-web error is treated as high level type and handled lazily.
+//!
+//! - high level:
+//! An error type is represented firstly and mostly as a Rust type with useful trait bounds.It doesn't
+//! necessarily mapped and/or converted into http response immediately. User is encouraged to pass the
+//! error value around and convert it to http response on condition they prefer.
+//!
+//! - lazy:
+//! Since an error is passed as value mostly the error is handled lazily when the value is needed.
+//! Including but not limiting to: formatting, logging, generating http response.
+//!
+//! # Example
+//! ```rust
+//! # use xitca_web::{
+//! #   error::Error,
+//! #   handler::{handler_service, html::Html, Responder},
+//! #   http::WebResponse,
+//! #   service::Service,
+//! #   App, WebContext};
+//! // a handler function produce error.
+//! async fn handler() -> Error {
+//!     Error::from_service(xitca_web::error::BadRequest)
+//! }
+//!
+//! // construct application with handler function and middleware.
+//! App::new()
+//!     .at("/", handler_service(handler))
+//!     .enclosed_fn(error_handler);
+//!
+//! // a handler middleware observe route services output.
+//! async fn error_handler<S>(service: &S, mut ctx: WebContext<'_>) -> Result<WebResponse, Error>
+//! where
+//!     S: for<'r> Service<WebContext<'r>, Response = WebResponse, Error = Error>
+//! {
+//!     // unlike WebResponse which is already a valid http response type. the error is treated
+//!     // as it's onw type on the other branch of the Result type.  
+//!
+//!     // since the handler function at the start of example always produce error. our middleware
+//!     // will always observe the Error type value so let's unwrap it.
+//!     let err = service.call(ctx.reborrow()).await.err().unwrap();
+//!     
+//!     // now we have the error value we can start to interact with it and add our logic of
+//!     // handling it.
+//!
+//!     // we can print the error.
+//!     println!("{err}");
+//!
+//!     // we can log the error.
+//!     tracing::error!("{err}");
+//!
+//!     // we can render the error to html and convert it to http response.
+//!     let html = format!("<!DOCTYPE html>\
+//!         <html>\
+//!         <body>\
+//!         <h1>{err}</h1>\
+//!         </body>\
+//!         </html>");
+//!     return Ok(Html(html).respond_to(ctx).await?);
+//!
+//!     // or by default the error value is returned in Result::Err and passed to parent services
+//!     // of App or other middlewares where eventually it would be converted to WebResponse.
+//!     Err(err)
+//! }
+//! ```
 
 use core::{
     convert::Infallible,
@@ -76,7 +141,7 @@ use self::service_impl::ErrorService;
 ///     // assert!(e.downcast_ref::<Foo>().is_some());
 /// }
 /// ```
-pub struct Error<C>(Box<dyn for<'r> ErrorService<WebContext<'r, C>>>);
+pub struct Error<C = ()>(Box<dyn for<'r> ErrorService<WebContext<'r, C>>>);
 
 impl<C> Error<C> {
     pub fn from_service<S>(s: S) -> Self
@@ -191,6 +256,15 @@ blank_error_service!(BodyError, StatusCode::BAD_REQUEST);
 blank_error_service!(Box<dyn error::Error>, StatusCode::INTERNAL_SERVER_ERROR);
 blank_error_service!(Box<dyn error::Error + Send>, StatusCode::INTERNAL_SERVER_ERROR);
 blank_error_service!(Box<dyn error::Error + Send + Sync>, StatusCode::INTERNAL_SERVER_ERROR);
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        unreachable!()
+    }
+}
 
 impl<'r, C, B, E> Service<WebContext<'r, C, B>> for RouterError<E>
 where

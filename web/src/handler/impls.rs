@@ -5,7 +5,6 @@ use crate::{
     context::WebContext,
     error::Error,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, WebResponse},
-    service::Service,
 };
 
 use super::{FromRequest, Responder};
@@ -89,12 +88,13 @@ impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for WebResponse<ResB> {
     }
 }
 
-impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for Error<C> {
     type Response = WebResponse;
-    type Error = Infallible;
+    type Error = Error<C>;
 
-    async fn call(&self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        unreachable!()
+    #[inline]
+    async fn respond_to(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Err(self)
     }
 }
 
@@ -118,7 +118,7 @@ text_utf8!(&'static str);
 
 // shared error impl for serde enabled features: json, urlencoded, etc.
 #[cfg(feature = "serde")]
-impl<'r, C, B> Service<WebContext<'r, C, B>> for serde::de::value::Error {
+impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for serde::de::value::Error {
     type Response = WebResponse;
     type Error = Infallible;
 
