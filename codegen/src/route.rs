@@ -104,7 +104,6 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                         let PathArguments::AngleBracketed(ref arg) = path.arguments else {
                             return Err(Error::new(path.span(), format!("expect {ident}<_>")));
                         };
-
                         match arg.args.last() {
                             Some(GenericArgument::Type(ref ty)) => {
                                 state = State::Partial(ty);
@@ -114,7 +113,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                     }
                     "WebContext" => {
                         let PathArguments::AngleBracketed(ref arg) = path.arguments else {
-                            return Err(Error::new(path.span(), format!("expect {ident}<'_, _>")));
+                            return Err(Error::new(path.span(), format!("expect &{ident}<'_, _>")));
                         };
                         match arg.args.last() {
                             Some(GenericArgument::Type(ref ty)) => {
@@ -130,30 +129,29 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
         }
     }
 
-    let generic_arg = quote! { <C> };
+    let mut generic_arg = quote! { <C> };
     // TODO: not every state is bound to Send,Sync,Clone.
-    let where_clause = quote! {
-        Send + Sync + Clone + 'static
-    };
-    let state_ident = quote! { C };
+    let mut where_clause = quote! { Send + Sync + Clone + 'static };
+    let mut state_ident = quote! { C };
 
-    let (generic_arg, where_clause, state_ident) = match state {
+    match state {
         State::None => {
-            let where_clause = Some(quote! {
+            where_clause = quote! {
                 where
-                    C: #where_clause,
-            });
-            (Some(generic_arg), where_clause, state_ident)
+                    #state_ident: #where_clause,
+            };
         }
         State::Partial(ty) => {
-            let where_clause = Some(quote! {
+            where_clause = quote! {
                 where
-                    C: ::std::borrow::Borrow<#ty> + #where_clause,
-            });
-
-            (Some(generic_arg), where_clause, state_ident)
+                    #state_ident: ::std::borrow::Borrow<#ty> + #where_clause,
+            };
         }
-        State::Full(ty) => (None, None, quote! { #ty }),
+        State::Full(ty) => {
+            generic_arg = quote! {};
+            where_clause = quote! {};
+            state_ident = quote! { #ty };
+        }
     };
 
     let handler = if is_async {
