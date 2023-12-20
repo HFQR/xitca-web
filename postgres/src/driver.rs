@@ -28,7 +28,7 @@ use std::net::SocketAddr;
 use postgres_protocol::message::backend;
 use xitca_io::bytes::BytesMut;
 
-use super::{client::Client, config::Config, error::Error, iter::AsyncIterator};
+use super::{client::Client, config::Config, error::Error, iter::AsyncLendingIterator};
 
 #[cfg(not(feature = "quic"))]
 use {self::generic::GenericDriver, xitca_io::net::TcpStream};
@@ -61,12 +61,12 @@ pub(super) async fn connect(mut cfg: Config) -> Result<(Client, Driver), Error> 
 /// # Examples:
 /// ```rust
 /// use std::future::IntoFuture;
-/// use xitca_postgres::{Driver, AsyncIterator};
+/// use xitca_postgres::{AsyncLendingIterator, Driver};
 ///
 /// // drive the client and listen to server notify at the same time.
 /// fn drive_with_server_notify(mut drv: Driver) {
 ///     tokio::spawn(async move {
-///         while let Some(Ok(msg)) = drv.next().await {
+///         while let Ok(Some(msg)) = drv.try_next().await {
 ///             // *Note:
 ///             // handle message must be non-blocking to prevent starvation of driver.
 ///         }
@@ -138,25 +138,26 @@ enum _Driver {
     Quic(QuicDriver),
 }
 
-impl AsyncIterator for Driver {
-    type Item<'i> = Result<backend::Message, Error> where Self: 'i;
+impl AsyncLendingIterator for Driver {
+    type Ok<'i> = backend::Message where Self: 'i;
+    type Err = Error;
 
     #[inline]
-    async fn next(&mut self) -> Option<Self::Item<'_>> {
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
         #[cfg(not(feature = "quic"))]
         match self.inner {
-            _Driver::Tcp(ref mut drv) => drv.next().await,
+            _Driver::Tcp(ref mut drv) => drv.try_next().await,
             #[cfg(feature = "tls")]
-            _Driver::Tls(ref mut drv) => drv.next().await,
+            _Driver::Tls(ref mut drv) => drv.try_next().await,
             #[cfg(unix)]
-            _Driver::Unix(ref mut drv) => drv.next().await,
+            _Driver::Unix(ref mut drv) => drv.try_next().await,
             #[cfg(all(unix, feature = "tls"))]
-            _Driver::UnixTls(ref mut drv) => drv.next().await,
+            _Driver::UnixTls(ref mut drv) => drv.try_next().await,
         }
 
         #[cfg(feature = "quic")]
         match self.inner {
-            _Driver::Quic(ref mut drv) => drv.next().await,
+            _Driver::Quic(ref mut drv) => drv.try_next().await,
         }
     }
 }

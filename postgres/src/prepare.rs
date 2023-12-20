@@ -16,7 +16,7 @@ use crate::{
     client::Client,
     column::Column,
     error::Error,
-    iter::AsyncIterator,
+    iter::AsyncLendingIterator,
     statement::{Statement, StatementGuarded},
     Type,
 };
@@ -88,7 +88,7 @@ impl Client {
             let stmt = self.typeinfo_statement().await?;
 
             let mut rows = self.query_raw(&stmt, &[&oid]).await?;
-            let row = rows.next().await.ok_or(Error::UnexpectedMessage)??;
+            let row = rows.try_next().await?.ok_or(Error::UnexpectedMessage)?;
 
             let name = row.try_get::<String>(0)?;
             let type_ = row.try_get::<i8>(1)?;
@@ -154,8 +154,8 @@ impl Client {
 
         let mut res = Vec::new();
 
-        while let Some(row) = rows.next().await {
-            let variant = row?.try_get(0)?;
+        while let Some(row) = rows.try_next().await? {
+            let variant = row.try_get(0)?;
             res.push(variant);
         }
 
@@ -190,8 +190,7 @@ impl Client {
 
         let mut fields = Vec::new();
 
-        while let Some(row) = rows.next().await {
-            let row = row?;
+        while let Some(row) = rows.try_next().await? {
             let name = row.try_get(0)?;
             let oid = row.try_get(1)?;
             let type_ = self.get_type(oid).await?;

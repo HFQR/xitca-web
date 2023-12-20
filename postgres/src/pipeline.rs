@@ -12,7 +12,7 @@ use super::{
     driver::ClientTx,
     driver::Response,
     error::Error,
-    iter::{slice_iter, AsyncIterator},
+    iter::{slice_iter, AsyncLendingIterator},
     row::Row,
     statement::Statement,
     ToSql,
@@ -23,7 +23,7 @@ use super::{
 ///
 /// # Examples
 /// ```rust
-/// use xitca_postgres::{AsyncIterator, Client};
+/// use xitca_postgres::{AsyncLendingIterator, Client};
 /// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     let statement = client.prepare("SELECT * FROM public.users", &[]).await?;
 ///
@@ -33,8 +33,8 @@ use super::{
 ///
 ///     let mut res = pipe.run().await?;
 ///
-///     while let Some(mut item) = res.next().await.transpose()? {
-///         while let Some(row) = item.next().await.transpose()? {
+///     while let Some(mut item) = res.try_next().await? {
+///         while let Some(row) = item.try_next().await? {
 ///             let _: u32 = row.get("id");
 ///         }
 ///     }
@@ -158,32 +158,30 @@ pub struct PipelineStream<'a> {
     ranges: Vec<Option<Range<usize>>>,
 }
 
-impl<'a> AsyncIterator for PipelineStream<'a> {
-    type Item<'i> = Result<PipelineItem<'i, 'a>, Error> where Self: 'i;
+impl<'a> AsyncLendingIterator for PipelineStream<'a> {
+    type Ok<'i> = PipelineItem<'i, 'a> where Self: 'i;
+    type Err = Error;
 
-    async fn next(&mut self) -> Option<Self::Item<'_>> {
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
         while !self.columns.is_empty() {
-            match self.res.recv().await {
-                Ok(msg) => match msg {
-                    backend::Message::BindComplete => {
-                        return Some(Ok(PipelineItem {
-                            finished: false,
-                            stream: self,
-                            rows_affected: 0,
-                        }));
-                    }
-                    backend::Message::DataRow(_) | backend::Message::CommandComplete(_) => {
-                        // last PipelineItem dropped before finish. do some catch up until next
-                        // item arrives.
-                    }
-                    backend::Message::ReadyForQuery(_) => {}
-                    _ => return Some(Err(Error::UnexpectedMessage)),
-                },
-                Err(e) => return Some(Err(e)),
+            match self.res.recv().await? {
+                backend::Message::BindComplete => {
+                    return Ok(Some(PipelineItem {
+                        finished: false,
+                        stream: self,
+                        rows_affected: 0,
+                    }));
+                }
+                backend::Message::DataRow(_) | backend::Message::CommandComplete(_) => {
+                    // last PipelineItem dropped before finish. do some catch up until next
+                    // item arrives.
+                }
+                backend::Message::ReadyForQuery(_) => {}
+                _ => return Err(Error::UnexpectedMessage),
             }
         }
 
-        None
+        Ok(None)
     }
 
     #[inline]
@@ -208,42 +206,35 @@ impl PipelineItem<'_, '_> {
     }
 }
 
-impl Drop for PipelineItem<'_, '_> {
-    fn drop(&mut self) {
-        self.stream.columns.pop_front();
-    }
-}
+impl AsyncLendingIterator for PipelineItem<'_, '_> {
+    type Ok<'i> = Row<'i> where Self: 'i;
+    type Err = Error;
 
-impl AsyncIterator for PipelineItem<'_, '_> {
-    type Item<'i> = Result<Row<'i>, Error> where Self: 'i;
-
-    async fn next(&mut self) -> Option<Self::Item<'_>> {
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
         while !self.finished {
-            match self.stream.res.recv().await {
-                Ok(msg) => match msg {
-                    backend::Message::DataRow(body) => {
-                        return Some(Row::try_new(
-                            self.stream
-                                .columns
-                                .front()
-                                .expect("PipelineItem must not overflow PipelineStream's columns array"),
-                            body,
-                            &mut self.stream.ranges,
-                        ))
-                    }
-                    backend::Message::CommandComplete(body) => {
-                        self.finished = true;
-                        self.rows_affected = match crate::query::decode::body_to_affected_rows(&body) {
-                            Ok(rows) => rows,
-                            Err(e) => return Some(Err(e)),
-                        };
-                    }
-                    _ => return Some(Err(Error::UnexpectedMessage)),
-                },
-                Err(e) => return Some(Err(e)),
+            match self.stream.res.recv().await? {
+                backend::Message::DataRow(body) => {
+                    let columns = self
+                        .stream
+                        .columns
+                        .front()
+                        .expect("PipelineItem must not overflow PipelineStream's columns array");
+                    return Row::try_new(columns, body, &mut self.stream.ranges).map(Some);
+                }
+                backend::Message::CommandComplete(body) => {
+                    self.finished = true;
+                    self.rows_affected = crate::query::decode::body_to_affected_rows(&body)?;
+                }
+                _ => return Err(Error::UnexpectedMessage),
             }
         }
 
-        None
+        Ok(None)
+    }
+}
+
+impl Drop for PipelineItem<'_, '_> {
+    fn drop(&mut self) {
+        self.stream.columns.pop_front();
     }
 }

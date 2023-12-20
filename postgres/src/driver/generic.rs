@@ -17,7 +17,7 @@ use xitca_io::{
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
-use crate::{error::Error, iter::AsyncIterator};
+use crate::{error::Error, iter::AsyncLendingIterator};
 
 use super::{
     codec::{Request, ResponseMessage, ResponseSender},
@@ -180,15 +180,16 @@ where
     }
 }
 
-impl<Io> AsyncIterator for GenericDriver<Io>
+impl<Io> AsyncLendingIterator for GenericDriver<Io>
 where
     Io: AsyncIo + Send,
 {
-    type Item<'i> = Result<backend::Message, Error> where Self: 'i;
+    type Ok<'i> = backend::Message where Self: 'i;
+    type Err = Error;
 
     #[inline]
-    async fn next(&mut self) -> Option<Self::Item<'_>> {
-        self.try_next().await.transpose()
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
+        self.try_next().await
     }
 }
 

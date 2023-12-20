@@ -20,7 +20,7 @@ use crate::{
     client::Client,
     config::{Config, Host},
     error::{unexpected_eof_err, Error},
-    iter::AsyncIterator,
+    iter::AsyncLendingIterator,
 };
 
 use super::{tls::dangerous_config, Drive, Driver};
@@ -139,9 +139,7 @@ impl QuicDriver {
     }
 
     pub(crate) async fn run(mut self) -> Result<(), Error> {
-        while let Some(res) = self.next().await {
-            res?;
-        }
+        while self.try_next().await?.is_some() {}
         Ok(())
     }
 
@@ -175,12 +173,13 @@ impl QuicDriver {
     }
 }
 
-impl AsyncIterator for QuicDriver {
-    type Item<'i> = Result<backend::Message, Error> where Self: 'i;
+impl AsyncLendingIterator for QuicDriver {
+    type Ok<'i> = backend::Message where Self: 'i;
+    type Err = Error;
 
     #[inline]
-    async fn next(&mut self) -> Option<Self::Item<'_>> {
-        self.try_next().await.transpose()
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
+        self.try_next().await
     }
 }
 
