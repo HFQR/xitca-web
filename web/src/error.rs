@@ -63,10 +63,6 @@
 //!     // of App or other middlewares where eventually it would be converted to WebResponse.
 //!     Err(err)
 //! }
-//!
-//! App::new()
-//!     .at("/", handler_service(handler))
-//!     .enclosed_fn(error_handler);
 //! ```
 
 use core::{
