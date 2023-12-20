@@ -75,36 +75,84 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
     let ident = &input.sig.ident;
     let vis = &input.vis;
 
-    let mut state = None;
+    // handler argument may contain full or partial application state.
+    // and the branching needed to handle differently.
+    enum State<'a> {
+        None,
+        Partial(&'a Type),
+        Full(&'a Type),
+    }
+
+    let mut state = State::<'_>::None;
 
     for arg in input.sig.inputs.iter() {
         if let FnArg::Typed(ty) = arg {
-            if let Type::Path(ref ty) = *ty.ty {
-                if let Some(path) = ty.path.segments.last() {
-                    let ident = path.ident.to_string();
+            let ty = match *ty.ty {
+                Type::Path(ref ty) => ty,
+                Type::Reference(ref ty) => match *ty.elem {
+                    Type::Path(ref ty) => ty,
+                    _ => continue,
+                },
+                _ => continue,
+            };
 
-                    if ident == "StateOwn" || ident == "StateRef" {
+            if let Some(path) = ty.path.segments.last() {
+                let ident = path.ident.to_string();
+
+                match ident.as_str() {
+                    "StateOwn" | "StateRef" => {
                         let PathArguments::AngleBracketed(ref arg) = path.arguments else {
                             return Err(Error::new(path.span(), format!("expect {ident}<_>")));
                         };
-
                         match arg.args.last() {
                             Some(GenericArgument::Type(ref ty)) => {
-                                state = Some(ty);
+                                state = State::Partial(ty);
                             }
                             _ => return Err(Error::new(ty.span(), "expect state type.")),
                         }
                     }
+                    "WebContext" => {
+                        let PathArguments::AngleBracketed(ref arg) = path.arguments else {
+                            return Err(Error::new(path.span(), format!("expect &{ident}<'_, _>")));
+                        };
+                        match arg.args.last() {
+                            Some(GenericArgument::Type(ref ty)) => {
+                                state = State::Full(ty);
+                                break;
+                            }
+                            _ => return Err(Error::new(ty.span(), "expect state type.")),
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
     }
 
-    let state = state.map(|path| {
-        quote! {
-            ::core::borrow::Borrow<#path> +
+    let mut generic_arg = quote! { <C> };
+    // TODO: not every state is bound to Send,Sync,Clone.
+    let mut where_clause = quote! { Send + Sync + Clone + 'static };
+    let mut state_ident = quote! { C };
+
+    match state {
+        State::None => {
+            where_clause = quote! {
+                where
+                    #state_ident: #where_clause,
+            };
         }
-    });
+        State::Partial(ty) => {
+            where_clause = quote! {
+                where
+                    #state_ident: ::std::borrow::Borrow<#ty> + #where_clause,
+            };
+        }
+        State::Full(ty) => {
+            generic_arg = quote! {};
+            where_clause = quote! {};
+            state_ident = quote! { #ty };
+        }
+    };
 
     let handler = if is_async {
         quote! { ::xitca_web::handler::handler_service }
@@ -116,17 +164,15 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
         #[allow(non_camel_case_types)]
         #vis struct #ident;
 
-        impl<C> ::xitca_web::codegen::__private::TypedRoute<C> for #ident
-        where
-            // TODO: not every state is bound to Send,Sync,Clone.
-            C: #state Send + Sync + Clone + 'static
+        impl #generic_arg ::xitca_web::codegen::__private::TypedRoute<#state_ident> for #ident
+        #where_clause
         {
             type Route = ::xitca_web::service::object::BoxedSyncServiceObject<
                 (),
                 Box<dyn for<'r> ::xitca_web::service::object::ServiceObject<
-                    ::xitca_web::WebContext<'r, C>,
+                    ::xitca_web::WebContext<'r, #state_ident>,
                     Response = ::xitca_web::http::WebResponse,
-                    Error = ::xitca_web::error::RouterError<::xitca_web::error::Error<C>>
+                    Error = ::xitca_web::error::RouterError<::xitca_web::error::Error<#state_ident>>
                 >>,
                 ::core::convert::Infallible
             >;
@@ -143,7 +189,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                 use xitca_web::route::#method;
                 use xitca_web::service::ServiceExt;
 
-                WebContext::<'_, C>::into_object(#method(#handler(#ident)#middlewares))
+                WebContext::<'_, #state_ident>::into_object(#method(#handler(#ident)#middlewares))
             }
         }
     }
