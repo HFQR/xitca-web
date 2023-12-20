@@ -130,8 +130,11 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
     }
 
     let mut generic_arg = quote! { <C> };
-    // TODO: not every state is bound to Send,Sync,Clone.
-    let mut where_clause = quote! { Send + Sync + Clone + 'static };
+    let mut where_clause = quote! { 'static };
+    // sync middleware needs to clone the state and send it to another thread.
+    if !is_async {
+        where_clause = quote! { Send + Sync + Clone + #where_clause };
+    }
     let mut state_ident = quote! { C };
 
     match state {
