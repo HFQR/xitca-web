@@ -25,8 +25,6 @@ use crate::{
 
 use self::service_impl::ErrorService;
 
-type BoxErrService<C> = Box<dyn for<'r> ErrorService<WebContext<'r, C>>>;
-
 /// type erased error object. can be used for dynamic access to error's debug/display info.
 /// it also support upcasting and downcasting.
 ///
@@ -74,11 +72,11 @@ type BoxErrService<C> = Box<dyn for<'r> ErrorService<WebContext<'r, C>>>;
 ///
 ///     // upcast and downcast to concrete error type again.
 ///     // *. trait upcast is a feature stabled in Rust 1.76
-///     // let e = &**e as &dyn error::Error;
+///     // let e = &*e as &dyn error::Error;
 ///     // assert!(e.downcast_ref::<Foo>().is_some());
 /// }
 /// ```
-pub struct Error<C>(BoxErrService<C>);
+pub struct Error<C>(Box<dyn for<'r> ErrorService<WebContext<'r, C>>>);
 
 impl<C> Error<C> {
     pub fn from_service<S>(s: S) -> Self
@@ -106,16 +104,16 @@ impl<C> fmt::Display for Error<C> {
 }
 
 impl<C> Deref for Error<C> {
-    type Target = BoxErrService<C>;
+    type Target = dyn for<'r> ErrorService<WebContext<'r, C>>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &*self.0
     }
 }
 
 impl<C> DerefMut for Error<C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut *self.0
     }
 }
 
@@ -142,51 +140,7 @@ impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
-        crate::service::object::ServiceObject::call(&***self, ctx).await
-    }
-}
-
-#[derive(Debug)]
-pub struct Internal;
-
-impl fmt::Display for Internal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Internal error")
-    }
-}
-
-impl error::Error for Internal {}
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for Internal {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(Bytes::new());
-        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-        Ok(res)
-    }
-}
-
-#[derive(Debug)]
-pub struct BadRequest;
-
-impl fmt::Display for BadRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Bad request")
-    }
-}
-
-impl error::Error for BadRequest {}
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for BadRequest {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(Bytes::new());
-        *res.status_mut() = StatusCode::BAD_REQUEST;
-        Ok(res)
+        crate::service::object::ServiceObject::call(self.deref(), ctx).await
     }
 }
 
@@ -204,6 +158,32 @@ macro_rules! blank_error_service {
         }
     };
 }
+
+#[derive(Debug)]
+pub struct Internal;
+
+impl fmt::Display for Internal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Internal error")
+    }
+}
+
+impl error::Error for Internal {}
+
+blank_error_service!(Internal, StatusCode::INTERNAL_SERVER_ERROR);
+
+#[derive(Debug)]
+pub struct BadRequest;
+
+impl fmt::Display for BadRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Bad request")
+    }
+}
+
+impl error::Error for BadRequest {}
+
+blank_error_service!(BadRequest, StatusCode::BAD_REQUEST);
 
 blank_error_service!(MatchError, StatusCode::NOT_FOUND);
 blank_error_service!(io::Error, StatusCode::INTERNAL_SERVER_ERROR);

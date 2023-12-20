@@ -86,7 +86,7 @@ where
         // upcast trait and downcast to concrete type again.
         // this offers the ability to regain typed error specific error handling.
         // *. this is a runtime feature and not reinforced at compile time.
-        if let Some(e) = (&**e as &dyn error::Error).downcast_ref::<MyError>() {
+        if let Some(e) = (&*e as &dyn error::Error).downcast_ref::<MyError>() {
             match e {
                 MyError::Index => {}
             }
