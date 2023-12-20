@@ -142,18 +142,17 @@ where
     }
 }
 
-impl<'r, S, C, B, ResB, Err> Service<WebContext<'r, C, B>> for EraserService<EraseResBody, S>
+impl<S, Req, ResB> Service<Req> for EraserService<EraseResBody, S>
 where
-    S: for<'rs> Service<WebContext<'rs, C, B>, Response = WebResponse<ResB>, Error = Err>,
+    S: Service<Req, Response = WebResponse<ResB>>,
     ResB: BodyStream<Chunk = Bytes> + 'static,
-    <ResB as BodyStream>::Error: Send + Sync,
 {
     type Response = WebResponse;
-    type Error = Err;
+    type Error = S::Error;
 
     #[inline]
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = self.service.call(ctx).await?;
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        let res = self.service.call(req).await?;
         Ok(res.map(ResponseBody::box_stream))
     }
 }
@@ -220,7 +219,7 @@ mod test {
         let _ = App::new()
             // map WebResponse to WebResponse<Once<Bytes>> type.
             .at("/", handler_service(handler).enclosed_fn(map_body))
-            // earse the body type to make it WebResponse type again.
+            // erase the body type to make it WebResponse type again.
             .enclosed(TypeEraser::response_body())
             // observe erased body type.
             .enclosed_fn(middleware_fn)
