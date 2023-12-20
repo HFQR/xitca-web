@@ -14,8 +14,8 @@ use crate::{
     body::BodyStream,
     bytes::{BufMutWriter, BytesMut},
     context::WebContext,
-    error::{BadRequest, Error},
-    handler::{error::ExtractError, FromRequest, Responder},
+    error::{BadRequest, BodyError, Error},
+    handler::{FromRequest, Responder},
     http::{const_header_value::JSON, header::CONTENT_TYPE, WebResponse},
     service::Service,
 };
@@ -84,16 +84,14 @@ where
         let mut buf = BytesMut::new();
 
         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(|e| Error::from_service(ExtractError::Boxed(Box::new(e))))?;
+            let chunk = chunk.map_err(BodyError::from_error)?;
             buf.extend_from_slice(chunk.as_ref());
             if buf.len() > limit {
                 break;
             }
         }
 
-        let json = serde_json::from_slice(&buf).map_err(Error::from_service)?;
-
-        Ok(Json(json))
+        serde_json::from_slice(&buf).map(Json).map_err(Into::into)
     }
 }
 
@@ -107,13 +105,16 @@ where
     #[inline]
     async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let mut bytes = BytesMut::new();
-        serde_json::to_writer(BufMutWriter(&mut bytes), &self.0)
-            .map(|_| {
-                let mut res = ctx.into_response(bytes.freeze());
-                res.headers_mut().insert(CONTENT_TYPE, JSON);
-                res
-            })
-            .map_err(Error::from_service)
+        serde_json::to_writer(BufMutWriter(&mut bytes), &self.0)?;
+        let mut res = ctx.into_response(bytes.freeze());
+        res.headers_mut().insert(CONTENT_TYPE, JSON);
+        Ok(res)
+    }
+}
+
+impl<C> From<serde_json::Error> for Error<C> {
+    fn from(e: serde_json::Error) -> Self {
+        Self::from_service(e)
     }
 }
 

@@ -6,7 +6,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use std::error;
+use std::{error, io};
 
 pub use xitca_http::{
     error::BodyError,
@@ -125,6 +125,18 @@ impl<C> From<Infallible> for Error<C> {
     }
 }
 
+impl<C> From<io::Error> for Error<C> {
+    fn from(e: io::Error) -> Self {
+        Self::from_service(e)
+    }
+}
+
+impl<C> From<BodyError> for Error<C> {
+    fn from(e: BodyError) -> Self {
+        Self::from_service(e)
+    }
+}
+
 impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
     type Response = WebResponse;
     type Error = Infallible;
@@ -194,7 +206,8 @@ macro_rules! blank_error_service {
 }
 
 blank_error_service!(MatchError, StatusCode::NOT_FOUND);
-blank_error_service!(std::io::Error, StatusCode::INTERNAL_SERVER_ERROR);
+blank_error_service!(io::Error, StatusCode::INTERNAL_SERVER_ERROR);
+blank_error_service!(BodyError, StatusCode::BAD_REQUEST);
 blank_error_service!(Box<dyn error::Error>, StatusCode::INTERNAL_SERVER_ERROR);
 blank_error_service!(Box<dyn error::Error + Send>, StatusCode::INTERNAL_SERVER_ERROR);
 blank_error_service!(Box<dyn error::Error + Send + Sync>, StatusCode::INTERNAL_SERVER_ERROR);

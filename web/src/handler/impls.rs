@@ -116,6 +116,17 @@ macro_rules! text_utf8 {
 text_utf8!(String);
 text_utf8!(&'static str);
 
+// shared error impl for serde enabled features: json, urlencoded, etc.
+#[cfg(feature = "serde")]
+impl<'r, C, B> Service<WebContext<'r, C, B>> for serde::de::value::Error {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        crate::error::BadRequest.call(ctx).await
+    }
+}
+
 #[cfg(test)]
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;

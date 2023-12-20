@@ -1,6 +1,5 @@
 //! type based high level async function service.
 
-mod error;
 mod impls;
 mod types;
 
@@ -8,7 +7,6 @@ mod types;
 #[cfg(not(target_family = "wasm"))]
 mod sync;
 
-pub use error::ExtractError;
 pub use types::*;
 
 #[cfg(not(target_family = "wasm"))]
