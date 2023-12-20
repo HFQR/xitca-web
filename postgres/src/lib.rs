@@ -155,7 +155,7 @@ mod test {
 
         let handle = tokio::spawn(task.into_future());
 
-        let _ = cli.query_simple("").await.unwrap().next().await;
+        let _ = cli.query_simple("").await.unwrap().try_next().await;
 
         drop(cli);
 
