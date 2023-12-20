@@ -89,6 +89,15 @@ impl<S, B> From<Infallible> for HttpServiceError<S, B> {
 #[derive(Debug)]
 pub struct BodyError(Box<dyn Error + Send + Sync>);
 
+impl BodyError {
+    pub fn from_error<E>(e: E) -> Self
+    where
+        E: Error + Send + Sync + 'static,
+    {
+        Self(Box::new(e))
+    }
+}
+
 impl Display for BodyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.0, f)
