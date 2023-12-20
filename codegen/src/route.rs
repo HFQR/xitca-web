@@ -87,56 +87,45 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
 
     for arg in input.sig.inputs.iter() {
         if let FnArg::Typed(ty) = arg {
-            match *ty.ty {
-                Type::Path(ref ty) => {
-                    // full state is already known so skip sub state collecting.
-                    if matches!(&state, State::Full(_)) {
-                        continue;
-                    }
+            let ty = match *ty.ty {
+                Type::Path(ref ty) => ty,
+                Type::Reference(ref ty) => match *ty.elem {
+                    Type::Path(ref ty) => ty,
+                    _ => continue,
+                },
+                _ => continue,
+            };
 
-                    if let Some(path) = ty.path.segments.last() {
-                        let ident = path.ident.to_string();
+            if let Some(path) = ty.path.segments.last() {
+                let ident = path.ident.to_string();
 
-                        match ident.as_str() {
-                            "StateOwn" | "StateRef" => {
-                                let PathArguments::AngleBracketed(ref arg) = path.arguments else {
-                                    return Err(Error::new(path.span(), format!("expect {ident}<_>")));
-                                };
+                match ident.as_str() {
+                    "StateOwn" | "StateRef" => {
+                        let PathArguments::AngleBracketed(ref arg) = path.arguments else {
+                            return Err(Error::new(path.span(), format!("expect {ident}<_>")));
+                        };
 
-                                match arg.args.last() {
-                                    Some(GenericArgument::Type(ref ty)) => {
-                                        state = State::Partial(ty);
-                                    }
-                                    _ => return Err(Error::new(ty.span(), "expect state type.")),
-                                }
+                        match arg.args.last() {
+                            Some(GenericArgument::Type(ref ty)) => {
+                                state = State::Partial(ty);
                             }
-                            _ => {}
+                            _ => return Err(Error::new(ty.span(), "expect state type.")),
                         }
                     }
-                }
-                Type::Reference(ref ty) => {
-                    if let Type::Path(ref ty) = *ty.elem {
-                        if let Some(path) = ty.path.segments.last() {
-                            let ident = path.ident.to_string();
-
-                            match ident.as_str() {
-                                "WebContext" => {
-                                    let PathArguments::AngleBracketed(ref arg) = path.arguments else {
-                                        return Err(Error::new(path.span(), format!("expect {ident}<'_, _>")));
-                                    };
-                                    match arg.args.last() {
-                                        Some(GenericArgument::Type(ref ty)) => {
-                                            state = State::Full(ty);
-                                        }
-                                        _ => return Err(Error::new(ty.span(), "expect state type.")),
-                                    }
-                                }
-                                _ => {}
+                    "WebContext" => {
+                        let PathArguments::AngleBracketed(ref arg) = path.arguments else {
+                            return Err(Error::new(path.span(), format!("expect {ident}<'_, _>")));
+                        };
+                        match arg.args.last() {
+                            Some(GenericArgument::Type(ref ty)) => {
+                                state = State::Full(ty);
+                                break;
                             }
+                            _ => return Err(Error::new(ty.span(), "expect state type.")),
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
     }
