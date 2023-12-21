@@ -182,55 +182,12 @@ impl<C> DerefMut for Error<C> {
     }
 }
 
-impl<C> From<Infallible> for Error<C> {
-    fn from(e: Infallible) -> Self {
-        match e {}
-    }
-}
-
-impl<C> From<io::Error> for Error<C> {
-    fn from(e: io::Error) -> Self {
-        Self::from_service(e)
-    }
-}
-
-impl<C> From<Box<dyn error::Error + Send + Sync>> for Error<C> {
-    fn from(e: Box<dyn error::Error + Send + Sync>) -> Self {
-        Self(Box::new(StdError(e)))
-    }
-}
-
 impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
     type Response = WebResponse;
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
         crate::service::object::ServiceObject::call(self.deref(), ctx).await
-    }
-}
-
-pub struct StdError(pub Box<dyn error::Error + Send + Sync>);
-
-impl fmt::Debug for StdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, f)
-    }
-}
-
-impl fmt::Display for StdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl error::Error for StdError {}
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        self.0.call(ctx).await
     }
 }
 
@@ -249,35 +206,21 @@ macro_rules! blank_error_service {
     };
 }
 
-#[derive(Debug)]
-pub struct Internal;
-
-impl fmt::Display for Internal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Internal error")
-    }
+macro_rules! error_from_service {
+    ($tt: ty) => {
+        impl<C> From<$tt> for Error<C> {
+            fn from(e: $tt) -> Self {
+                Self::from_service(e)
+            }
+        }
+    };
 }
 
-impl error::Error for Internal {}
-
-blank_error_service!(Internal, StatusCode::INTERNAL_SERVER_ERROR);
-
-#[derive(Debug)]
-pub struct BadRequest;
-
-impl fmt::Display for BadRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Bad request")
+impl<C> From<Infallible> for Error<C> {
+    fn from(e: Infallible) -> Self {
+        match e {}
     }
 }
-
-impl error::Error for BadRequest {}
-
-blank_error_service!(BadRequest, StatusCode::BAD_REQUEST);
-
-blank_error_service!(MatchError, StatusCode::NOT_FOUND);
-blank_error_service!(io::Error, StatusCode::INTERNAL_SERVER_ERROR);
-blank_error_service!(Box<dyn error::Error + Send + Sync>, StatusCode::INTERNAL_SERVER_ERROR);
 
 impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
     type Response = WebResponse;
@@ -288,21 +231,13 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
     }
 }
 
-impl<'r, C, B, E> Service<WebContext<'r, C, B>> for RouterError<E>
-where
-    E: for<'r2> Service<WebContext<'r2, C, B>, Response = WebResponse, Error = Infallible>,
-{
-    type Response = WebResponse;
-    type Error = Infallible;
+error_from_service!(io::Error);
+blank_error_service!(io::Error, StatusCode::INTERNAL_SERVER_ERROR);
 
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        match *self {
-            Self::Match(ref e) => e.call(ctx).await,
-            Self::NotAllowed(ref e) => e.call(ctx).await,
-            Self::Service(ref e) => e.call(ctx).await,
-        }
-    }
-}
+error_from_service!(MatchError);
+blank_error_service!(MatchError, StatusCode::NOT_FOUND);
+
+error_from_service!(MethodNotAllowed);
 
 impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
     type Response = WebResponse;
@@ -329,6 +264,82 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
         Ok(res)
     }
 }
+
+impl<E, C> From<RouterError<E>> for Error<C>
+where
+    E: Into<Self>,
+{
+    fn from(e: RouterError<E>) -> Self {
+        match e {
+            RouterError::Match(e) => e.into(),
+            RouterError::NotAllowed(e) => e.into(),
+            RouterError::Service(e) => e.into(),
+        }
+    }
+}
+
+type StdErr = Box<dyn error::Error + Send + Sync>;
+
+impl<C> From<StdErr> for Error<C> {
+    fn from(e: StdErr) -> Self {
+        Self(Box::new(StdError(e)))
+    }
+}
+
+blank_error_service!(StdErr, StatusCode::INTERNAL_SERVER_ERROR);
+
+pub struct StdError(pub StdErr);
+
+impl fmt::Debug for StdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl fmt::Display for StdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl error::Error for StdError {}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self.0.call(ctx).await
+    }
+}
+
+#[derive(Debug)]
+pub struct Internal;
+
+impl fmt::Display for Internal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Internal error")
+    }
+}
+
+impl error::Error for Internal {}
+
+error_from_service!(Internal);
+blank_error_service!(Internal, StatusCode::INTERNAL_SERVER_ERROR);
+
+#[derive(Debug)]
+pub struct BadRequest;
+
+impl fmt::Display for BadRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Bad request")
+    }
+}
+
+impl error::Error for BadRequest {}
+
+error_from_service!(BadRequest);
+blank_error_service!(BadRequest, StatusCode::BAD_REQUEST);
 
 mod service_impl {
     use crate::service::object::ServiceObject;
