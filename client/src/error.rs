@@ -2,7 +2,7 @@
 
 use std::{convert::Infallible, error, fmt, io, str};
 
-use xitca_http::{error::BodyError, http::uri};
+use xitca_http::http::uri;
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -13,7 +13,6 @@ pub enum Error {
     Resolve,
     Timeout(TimeoutError),
     TlsNotEnabled,
-    Body(BodyError),
     #[cfg(feature = "http1")]
     H1(crate::h1::Error),
     #[cfg(feature = "http2")]
@@ -44,12 +43,6 @@ impl From<io::Error> for Error {
 impl From<Box<dyn error::Error + Send + Sync>> for Error {
     fn from(e: Box<dyn error::Error + Send + Sync>) -> Self {
         Self::Std(e)
-    }
-}
-
-impl From<BodyError> for Error {
-    fn from(e: BodyError) -> Self {
-        Self::Body(e)
     }
 }
 

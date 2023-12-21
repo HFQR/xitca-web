@@ -1,7 +1,5 @@
 use core::convert::Infallible;
 
-use std::error;
-
 use crate::{
     body::{BodyStream, RequestBody},
     context::WebContext,
@@ -26,16 +24,13 @@ where
     }
 }
 
-impl<E, C> From<http_multipart::MultipartError<E>> for Error<C>
-where
-    E: error::Error + Send + Sync + 'static,
-{
-    fn from(e: http_multipart::MultipartError<E>) -> Self {
+impl<C> From<http_multipart::MultipartError> for Error<C> {
+    fn from(e: http_multipart::MultipartError) -> Self {
         Error::from_service(e)
     }
 }
 
-impl<'r, C, B, E> Service<WebContext<'r, C, B>> for http_multipart::MultipartError<E> {
+impl<'r, C, B> Service<WebContext<'r, C, B>> for http_multipart::MultipartError {
     type Response = WebResponse;
     type Error = Infallible;
 

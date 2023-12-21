@@ -14,7 +14,7 @@ impl ContentDisposition {
     const NAME: &'static [u8; 5] = b"name=";
     const FILE_NAME: &'static [u8; 9] = b"filename=";
 
-    pub(super) fn try_from_header<E>(headers: &HeaderMap) -> Result<Self, MultipartError<E>> {
+    pub(super) fn try_from_header(headers: &HeaderMap) -> Result<Self, MultipartError> {
         let header = headers
             .get(&CONTENT_DISPOSITION)
             .ok_or(MultipartError::NoContentDisposition)?

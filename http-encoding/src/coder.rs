@@ -42,15 +42,16 @@ where
 impl<S, C, T, E> Stream for Coder<S, C>
 where
     S: Stream<Item = Result<T, E>>,
+    CoderError: From<E>,
     C: Code<T>,
 {
-    type Item = Result<C::Item, CoderError<E>>;
+    type Item = Result<C::Item, CoderError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
         while let Some(res) = ready!(this.body.as_mut().poll_next(cx)) {
-            let item = res.map_err(CoderError::Stream)?;
+            let item = res?;
             if let Some(item) = this.coder.code(item)? {
                 return Poll::Ready(Some(Ok(item)));
             }

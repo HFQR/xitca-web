@@ -194,9 +194,9 @@ impl<C> From<io::Error> for Error<C> {
     }
 }
 
-impl<C> From<BodyError> for Error<C> {
-    fn from(e: BodyError) -> Self {
-        Self::from_service(e)
+impl<C> From<Box<dyn error::Error + Send + Sync>> for Error<C> {
+    fn from(e: Box<dyn error::Error + Send + Sync>) -> Self {
+        Self(Box::new(StdError(e)))
     }
 }
 
@@ -206,6 +206,31 @@ impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
         crate::service::object::ServiceObject::call(self.deref(), ctx).await
+    }
+}
+
+pub struct StdError(pub Box<dyn error::Error + Send + Sync>);
+
+impl fmt::Debug for StdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl fmt::Display for StdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl error::Error for StdError {}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self.0.call(ctx).await
     }
 }
 
@@ -252,9 +277,6 @@ blank_error_service!(BadRequest, StatusCode::BAD_REQUEST);
 
 blank_error_service!(MatchError, StatusCode::NOT_FOUND);
 blank_error_service!(io::Error, StatusCode::INTERNAL_SERVER_ERROR);
-blank_error_service!(BodyError, StatusCode::BAD_REQUEST);
-blank_error_service!(Box<dyn error::Error>, StatusCode::INTERNAL_SERVER_ERROR);
-blank_error_service!(Box<dyn error::Error + Send>, StatusCode::INTERNAL_SERVER_ERROR);
 blank_error_service!(Box<dyn error::Error + Send + Sync>, StatusCode::INTERNAL_SERVER_ERROR);
 
 impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {

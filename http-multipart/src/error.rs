@@ -1,7 +1,7 @@
 use std::{error, fmt};
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum MultipartError<E> {
+#[derive(Debug)]
+pub enum MultipartError {
     /// Only POST method is allowed for multipart.
     NoPostMethod,
     /// Content-Disposition header is not found or is not equal to "form-data".
@@ -21,13 +21,12 @@ pub enum MultipartError<E> {
     /// Error during header parsing
     Header(httparse::Error),
     /// Payload error
-    Payload(E),
+    Payload(PayloadError),
 }
 
-impl<E> fmt::Display for MultipartError<E>
-where
-    E: fmt::Display,
-{
+pub type PayloadError = Box<dyn error::Error + Send + Sync>;
+
+impl fmt::Display for MultipartError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::NoPostMethod => f.write_str("Only POST method is allowed for multipart"),
@@ -44,10 +43,16 @@ where
     }
 }
 
-impl<E> error::Error for MultipartError<E> where E: fmt::Debug + fmt::Display {}
+impl error::Error for MultipartError {}
 
-impl<E> From<httparse::Error> for MultipartError<E> {
+impl From<httparse::Error> for MultipartError {
     fn from(e: httparse::Error) -> Self {
         Self::Header(e)
+    }
+}
+
+impl From<PayloadError> for MultipartError {
+    fn from(e: PayloadError) -> Self {
+        Self::Payload(e)
     }
 }

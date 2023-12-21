@@ -15,6 +15,7 @@ use xitca_http::Request;
 use crate::{
     body::BodyStream,
     context::WebContext,
+    error::BodyError,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, status::StatusCode, WebResponse},
     service::{pipeline::PipelineE, ready::ReadyService, Service},
 };
@@ -138,18 +139,18 @@ impl<B> Stream for LimitBody<B>
 where
     B: BodyStream,
 {
-    type Item = Result<B::Chunk, LimitBodyError<B::Error>>;
+    type Item = Result<B::Chunk, BodyError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
 
         if *this.record >= *this.limit {
-            return Poll::Ready(Some(Err(LimitBodyError::First(LimitError::BodyOverSize(*this.limit)))));
+            return Poll::Ready(Some(Err(BodyError::from(LimitError::BodyOverSize(*this.limit)))));
         }
 
         match ready!(this.body.poll_next(cx)) {
             Some(res) => {
-                let chunk = res.map_err(LimitBodyError::Second)?;
+                let chunk = res.map_err(Into::into)?;
                 *this.record += chunk.as_ref().len();
                 // TODO: for now there is no way to split a chunk if it goes beyond body limit.
                 Poll::Ready(Some(Ok(chunk)))
@@ -209,7 +210,7 @@ mod test {
     async fn handler<B: BodyStream>(Body(body): Body<B>) -> String {
         let mut body = pin!(body);
 
-        let chunk = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().unwrap();
+        let chunk = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().ok().unwrap();
 
         assert!(poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().is_err());
 

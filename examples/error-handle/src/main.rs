@@ -4,18 +4,13 @@
 use std::{convert::Infallible, error, fmt};
 
 use xitca_web::{
-    bytes::Bytes,
-    error::Error,
-    handler::handler_service,
-    http::{StatusCode, WebResponse},
-    route::get,
-    service::Service,
-    App, WebContext,
+    error::Error, handler::handler_service, http::WebResponse, route::get, service::Service, App, WebContext,
 };
 
 fn main() -> std::io::Result<()> {
     App::new()
-        .at("/", get(handler_service(index)))
+        .at("/", get(handler_service(typed)))
+        .at("/std", get(handler_service(std)))
         .enclosed_fn(error_handler)
         .serve()
         .bind("127.0.0.1:8080")?
@@ -23,9 +18,15 @@ fn main() -> std::io::Result<()> {
         .wait()
 }
 
+// a route that returns std::error::Error trait object.
+// useful for use case where you don't care about typing your error in handler function.
+async fn std() -> Result<&'static str, Box<dyn std::error::Error + Send + Sync>> {
+    Err("std error".into())
+}
+
 // a route always return an error type that would produce 400 bad-request http response.
 // see below MyError implements for more explanation
-async fn index() -> Result<&'static str, MyError> {
+async fn typed() -> Result<&'static str, MyError> {
     Err(MyError::Index)
 }
 
@@ -62,9 +63,7 @@ impl<'r, C> Service<WebContext<'r, C>> for MyError {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(Bytes::new());
-        *res.status_mut() = StatusCode::BAD_REQUEST;
-        Ok(res)
+        xitca_web::error::BadRequest.call(ctx).await
     }
 }
 

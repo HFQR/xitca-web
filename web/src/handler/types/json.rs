@@ -14,7 +14,7 @@ use crate::{
     body::BodyStream,
     bytes::{BufMutWriter, BytesMut},
     context::WebContext,
-    error::{BadRequest, BodyError, Error},
+    error::{BadRequest, Error},
     handler::{FromRequest, Responder},
     http::{const_header_value::JSON, header::CONTENT_TYPE, WebResponse},
     service::Service,
@@ -84,7 +84,7 @@ where
         let mut buf = BytesMut::new();
 
         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(BodyError::from_error)?;
+            let chunk = chunk.map_err(Into::into)?;
             buf.extend_from_slice(chunk.as_ref());
             if buf.len() > limit {
                 break;

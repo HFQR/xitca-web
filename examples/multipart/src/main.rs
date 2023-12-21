@@ -4,7 +4,6 @@ use std::{io, pin::pin};
 
 use tracing::info;
 use xitca_web::{
-    error::Error,
     handler::{handler_service, multipart::Multipart},
     route::post,
     App,
@@ -20,7 +19,9 @@ fn main() -> io::Result<()> {
         .wait()
 }
 
-async fn root(multipart: Multipart) -> Result<&'static str, Error<()>> {
+type Error = Box<dyn std::error::Error + Send + Sync>;
+
+async fn root(multipart: Multipart) -> Result<&'static str, Error> {
     // pin multipart on stack for async stream handling.
     let mut multipart = pin!(multipart);
 

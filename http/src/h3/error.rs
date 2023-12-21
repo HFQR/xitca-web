@@ -1,6 +1,6 @@
 use h3_quinn::quinn::ConnectionError;
 
-use crate::error::{BodyError, HttpServiceError};
+use crate::error::HttpServiceError;
 
 #[derive(Debug)]
 pub enum Error<S, B> {
@@ -29,11 +29,5 @@ impl<S, B> From<Error<S, B>> for HttpServiceError<S, B> {
             Error::Service(e) => Self::Service(e),
             e => Self::H3(e),
         }
-    }
-}
-
-impl From<::h3::Error> for BodyError {
-    fn from(e: ::h3::Error) -> Self {
-        BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 }

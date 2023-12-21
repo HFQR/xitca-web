@@ -128,7 +128,6 @@ where
     S: for<'rs> Service<WebContext<'rs, C>, Response = WebResponse<ResB>, Error = Err>,
     ReqB: BodyStream<Chunk = Bytes> + Default + 'static,
     ResB: BodyStream<Chunk = Bytes> + 'static,
-    <ResB as BodyStream>::Error: Send + Sync,
 {
     type Response = WebResponse;
     type Error = Err;
