@@ -64,18 +64,14 @@ pub struct RouterService<S>(S);
 impl<'r, S, C, B, Res, E> Service<WebContext<'r, C, B>> for RouterService<S>
 where
     S: for<'r2> Service<WebContext<'r2, C, B>, Response = Res, Error = RouterError<E>>,
-    Error<C>: From<E>,
+    E: Into<Error<C>>,
 {
     type Response = Res;
     type Error = Error<C>;
 
     #[inline]
     async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        self.0.call(req).await.map_err(|e| match e {
-            RouterError::Match(e) => Error::from_service(e),
-            RouterError::NotAllowed(e) => Error::from_service(e),
-            RouterError::Service(e) => Error::from(e),
-        })
+        self.0.call(req).await.map_err(Into::into)
     }
 }
 
