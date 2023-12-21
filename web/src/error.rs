@@ -209,7 +209,7 @@ impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
     }
 }
 
-pub struct StdError(Box<dyn error::Error + Send + Sync>);
+pub struct StdError(pub Box<dyn error::Error + Send + Sync>);
 
 impl fmt::Debug for StdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
