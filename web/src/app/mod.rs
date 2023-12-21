@@ -18,7 +18,7 @@ use xitca_http::util::{
 };
 
 use crate::{
-    body::{RequestBody, ResponseBody},
+    body::{Either, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
     error::{Error, RouterError},
@@ -198,16 +198,15 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<ResB, SE, B, BE>(
+    pub fn finish<ResB, SE>(
         self,
     ) -> impl Service<
-        Response = impl ReadyService + Service<WebRequest, Response = WebResponse<ResponseBody<ResB>>, Error = Infallible>,
+        Response = impl ReadyService + Service<WebRequest, Response = WebResponse<EitherResBody<ResB>>, Error = Infallible>,
         Error = impl fmt::Debug,
     >
     where
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>,
-        ResB: Stream<Item = Result<B, BE>>,
     {
         let App { builder, router } = self;
         router.enclosed_fn(map_req_res).enclosed(ContextBuilder::new(builder))
@@ -247,12 +246,12 @@ where
     /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
     ///
     /// [HttpServer]: crate::server::HttpServer
-    pub fn serve<ResB, SE, B, BE>(
+    pub fn serve<ResB, SE>(
         self,
     ) -> crate::server::HttpServer<
         impl Service<
             Response = impl ReadyService
-                           + Service<WebRequest, Response = WebResponse<ResponseBody<ResB>>, Error = Infallible>,
+                           + Service<WebRequest, Response = WebResponse<EitherResBody<ResB>>, Error = Infallible>,
             Error = impl fmt::Debug,
         >,
     >
@@ -260,9 +259,7 @@ where
         R: 'static,
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
-        ResB: Stream<Item = Result<B, BE>> + 'static,
-        B: 'static,
-        BE: 'static,
+        ResB: 'static,
     {
         crate::server::HttpServer::serve(self.finish())
     }
@@ -299,12 +296,14 @@ where
 pub type AppObject<S> =
     Box<dyn xitca_service::object::ServiceObject<(), Response = S, Error = Box<dyn fmt::Debug>> + Send + Sync>;
 
+type EitherResBody<B> = Either<B, ResponseBody>;
+
 // middleware for converting xitca_http types to xitca_web types.
 // this is for enabling side effect see [WebContext::reborrow] for detail.
 async fn map_req_res<C, S, SE, ResB>(
     service: &S,
     ctx: Context<'_, WebRequest, C>,
-) -> Result<WebResponse<ResponseBody<ResB>>, Infallible>
+) -> Result<WebResponse<EitherResBody<ResB>>, Infallible>
 where
     C: 'static,
     S: for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
@@ -315,15 +314,11 @@ where
     let (ext, body) = ext.replace_body(());
     let mut req = WebRequest::from_parts(parts, ext);
     let mut body = RefCell::new(body);
+    let mut ctx = WebContext::new(&mut req, &mut body, state);
 
-    match service.call(WebContext::new(&mut req, &mut body, state)).await {
-        Ok(res) => Ok(res.map(|body| ResponseBody::stream(body))),
-        // TODO: mutate response header according to outcome of drop_stream_cast?
-        Err(e) => {
-            let ctx = WebContext::new(&mut req, &mut body, state);
-            let res = e.call(ctx).await?;
-            Ok(res.map(|body| body.drop_stream_cast()))
-        }
+    match service.call(ctx.reborrow()).await {
+        Ok(res) => Ok(res.map(Either::left)),
+        Err(e) => e.call(ctx).await.map(|res| res.map(Either::right)),
     }
 }
 

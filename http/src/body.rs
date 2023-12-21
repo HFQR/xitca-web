@@ -169,6 +169,57 @@ where
     }
 }
 
+pin_project! {
+    #[project = EitherProj]
+    pub enum Either<L, R> {
+        L {
+            #[pin]
+            inner: L
+        },
+        R {
+            #[pin]
+            inner: R
+        }
+    }
+}
+
+impl<L, R> Either<L, R> {
+    #[inline]
+    pub const fn left(inner: L) -> Self {
+        Self::L { inner }
+    }
+
+    #[inline]
+    pub const fn right(inner: R) -> Self {
+        Self::R { inner }
+    }
+}
+
+impl<L, R, T, E, E2> Stream for Either<L, R>
+where
+    L: Stream<Item = Result<T, E>>,
+    R: Stream<Item = Result<T, E2>>,
+    E2: From<E>,
+{
+    type Item = Result<T, E2>;
+
+    #[inline]
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.project() {
+            EitherProj::L { inner } => inner.poll_next(cx).map(|res| res.map(|res| res.map_err(Into::into))),
+            EitherProj::R { inner } => inner.poll_next(cx),
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match *self {
+            Self::L { ref inner } => inner.size_hint(),
+            Self::R { ref inner } => inner.size_hint(),
+        }
+    }
+}
+
 /// type erased stream body.
 pub struct BoxBody(LocalBoxStream<'static, Result<Bytes, BodyError>>);
 
@@ -329,6 +380,21 @@ where
             Self::Bytes { ref bytes } => exact_body_hint(bytes.len()),
             Self::Stream { ref stream } => stream.size_hint(),
         }
+    }
+}
+
+impl<B> From<NoneBody<B>> for ResponseBody {
+    fn from(_: NoneBody<B>) -> Self {
+        ResponseBody::None
+    }
+}
+
+impl<B> From<Once<B>> for ResponseBody
+where
+    B: Into<Bytes>,
+{
+    fn from(once: Once<B>) -> Self {
+        ResponseBody::bytes(once.0.map(Into::into).unwrap_or_default())
     }
 }
 

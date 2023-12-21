@@ -9,6 +9,13 @@ use crate::{
 /// A compress middleware look into [WebRequest]'s `Accept-Encoding` header and
 /// apply according compression to [WebResponse]'s body according to enabled compress feature.
 /// `compress-x` feature must be enabled for this middleware to function correctly.
+///
+/// # Type mutation
+/// `Compress` would mutate response body type from `B` to `Coder<B>`. Service enclosed
+/// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
+///
+/// [WebRequest]: crate::http::WebRequest
+/// [TypeEraser]: crate::middleware::eraser::TypeEraser
 #[derive(Clone)]
 pub struct Compress;
 
@@ -57,5 +64,33 @@ where
     #[inline]
     async fn ready(&self) -> Self::Ready {
         self.0.ready().await
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use xitca_unsafe_collection::futures::NowOrPanic;
+
+    use crate::{handler::handler_service, http::WebRequest, App};
+
+    use super::*;
+
+    #[test]
+    fn build() {
+        async fn noop() -> &'static str {
+            "noop"
+        }
+
+        App::new()
+            .at("/", handler_service(noop))
+            .enclosed(Compress)
+            .finish()
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(WebRequest::default())
+            .now_or_panic()
+            .ok()
+            .unwrap();
     }
 }

@@ -22,7 +22,7 @@ use crate::{
 };
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.
-/// Any `tower-http` type that impl [tower::Service] trait can be passed to it and used as xitca-web's service type.
+/// Any `tower-http` type that impl [tower_service::Service] trait can be passed to it and used as xitca-web's service type.
 pub struct TowerHttpCompat<S> {
     service: S,
 }

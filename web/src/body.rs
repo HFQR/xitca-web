@@ -4,6 +4,8 @@ use futures_core::stream::Stream;
 
 pub use xitca_http::body::{none_body_hint, BoxBody, RequestBody, ResponseBody, NONE_BODY_HINT};
 
+pub(crate) use xitca_http::body::Either;
+
 use crate::error::BodyError;
 
 /// an extended trait for [Stream] that specify additional type info of the [Stream::Item] type.
