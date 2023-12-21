@@ -66,3 +66,31 @@ where
         self.0.ready().await
     }
 }
+
+#[cfg(test)]
+mod test {
+    use xitca_unsafe_collection::futures::NowOrPanic;
+
+    use crate::{handler::handler_service, http::WebRequest, App};
+
+    use super::*;
+
+    #[test]
+    fn build() {
+        async fn noop() -> &'static str {
+            "noop"
+        }
+
+        App::new()
+            .at("/", handler_service(noop))
+            .enclosed(Compress)
+            .finish()
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(WebRequest::default())
+            .now_or_panic()
+            .ok()
+            .unwrap();
+    }
+}
