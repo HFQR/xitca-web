@@ -5,7 +5,7 @@ use memchr::memmem;
 use super::error::MultipartError;
 
 /// Extract boundary info from headers.
-pub(super) fn boundary<E>(headers: &HeaderMap) -> Result<&[u8], MultipartError<E>> {
+pub(super) fn boundary(headers: &HeaderMap) -> Result<&[u8], MultipartError> {
     let header = headers
         .get(&CONTENT_TYPE)
         .ok_or(MultipartError::NoContentType)?
@@ -20,7 +20,7 @@ pub(super) fn boundary<E>(headers: &HeaderMap) -> Result<&[u8], MultipartError<E
     Ok(&header[start..end])
 }
 
-pub(super) fn parse_headers<E>(headers: &mut HeaderMap, slice: &[u8]) -> Result<(), MultipartError<E>> {
+pub(super) fn parse_headers(headers: &mut HeaderMap, slice: &[u8]) -> Result<(), MultipartError> {
     let mut hdrs = [EMPTY_HEADER; 16];
     match httparse::parse_headers(slice, &mut hdrs)? {
         httparse::Status::Complete((_, hdrs)) => {
@@ -39,7 +39,7 @@ pub(super) fn parse_headers<E>(headers: &mut HeaderMap, slice: &[u8]) -> Result<
     }
 }
 
-pub(super) fn check_headers<E>(headers: &HeaderMap) -> Result<(), MultipartError<E>> {
+pub(super) fn check_headers(headers: &HeaderMap) -> Result<(), MultipartError> {
     let ct = headers
         .get(&CONTENT_TYPE)
         .and_then(|ct| ct.to_str().ok())
@@ -54,7 +54,7 @@ pub(super) fn check_headers<E>(headers: &HeaderMap) -> Result<(), MultipartError
     Ok(())
 }
 
-pub(super) fn content_length_opt<E>(headers: &HeaderMap) -> Result<Option<u64>, MultipartError<E>> {
+pub(super) fn content_length_opt(headers: &HeaderMap) -> Result<Option<u64>, MultipartError> {
     match headers.get(&CONTENT_LENGTH) {
         Some(len) => {
             let len = len

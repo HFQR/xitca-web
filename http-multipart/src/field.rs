@@ -5,7 +5,11 @@ use futures_core::stream::Stream;
 use http::header::HeaderMap;
 use memchr::memmem;
 
-use super::{content_disposition::ContentDisposition, error::MultipartError, Multipart};
+use super::{
+    content_disposition::ContentDisposition,
+    error::{MultipartError, PayloadError},
+    Multipart,
+};
 
 pub struct Field<'a, S> {
     typ: FieldType,
@@ -40,6 +44,7 @@ impl<S, T, E> Field<'_, S>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]> + 'static,
+    E: Into<PayloadError>,
 {
     /// The field name found in the [http::header::CONTENT_DISPOSITION] header.
     pub fn name(&self) -> Option<&str> {
@@ -59,7 +64,7 @@ where
         &self.multipart.headers
     }
 
-    pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError<E>> {
+    pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError> {
         loop {
             let this = self.multipart.as_mut().project();
             let buf = this.buf;
@@ -116,7 +121,7 @@ where
     }
 }
 
-fn try_find_split_idx<T, E>(item: &T, boundary: &[u8], typ: &mut FieldType) -> Result<Option<usize>, MultipartError<E>>
+fn try_find_split_idx<T>(item: &T, boundary: &[u8], typ: &mut FieldType) -> Result<Option<usize>, MultipartError>
 where
     T: AsRef<[u8]>,
 {

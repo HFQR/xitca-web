@@ -1,4 +1,4 @@
-use std::{error, fmt, io};
+use std::{error, fmt};
 
 /// Error occur when trying to construct decode/encode request/response.
 #[derive(Debug)]
@@ -53,49 +53,4 @@ impl From<FeatureError> for EncodingError {
 }
 
 /// Error occur when decode/encode request/response body stream.
-pub enum CoderError<E> {
-    Io(io::Error),
-    Stream(E),
-}
-
-impl<E> fmt::Debug for CoderError<E>
-where
-    E: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Io(ref e) => fmt::Debug::fmt(e, f),
-            Self::Stream(ref e) => fmt::Debug::fmt(e, f),
-        }
-    }
-}
-
-impl<E> fmt::Display for CoderError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Io(ref e) => fmt::Display::fmt(e, f),
-            Self::Stream(ref e) => fmt::Display::fmt(e, f),
-        }
-    }
-}
-
-impl<E> error::Error for CoderError<E>
-where
-    E: error::Error,
-{
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match *self {
-            Self::Io(ref e) => e.source(),
-            Self::Stream(ref e) => e.source(),
-        }
-    }
-}
-
-impl<E> From<io::Error> for CoderError<E> {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
-    }
-}
+pub type CoderError = Box<dyn error::Error + Send + Sync>;

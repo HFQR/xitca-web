@@ -41,7 +41,7 @@ async fn grpc(mut req: Request<RequestExt<RequestBody>>) -> Result<Response<Once
 
     let mut buf = BytesMut::new();
 
-    while let Some(bytes) = body.try_next().await? {
+    while let Some(bytes) = body.try_next().await.map_err(|e| anyhow::anyhow! {e})? {
         buf.extend_from_slice(bytes.as_ref());
     }
 

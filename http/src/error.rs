@@ -3,8 +3,7 @@
 use std::{
     convert::Infallible,
     error::Error,
-    fmt::{self, Debug, Display, Formatter},
-    io,
+    fmt::{self, Debug, Formatter},
 };
 
 use tracing::error;
@@ -86,40 +85,4 @@ impl<S, B> From<Infallible> for HttpServiceError<S, B> {
 }
 
 /// Default Request/Response body error.
-#[derive(Debug)]
-pub struct BodyError(Box<dyn Error + Send + Sync>);
-
-impl BodyError {
-    pub fn from_error<E>(e: E) -> Self
-    where
-        E: Error + Send + Sync + 'static,
-    {
-        Self(Box::new(e))
-    }
-}
-
-impl Display for BodyError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-impl Error for BodyError {}
-
-impl From<io::Error> for BodyError {
-    fn from(e: io::Error) -> Self {
-        Self(Box::new(e))
-    }
-}
-
-impl From<Box<dyn Error + Send + Sync>> for BodyError {
-    fn from(e: Box<dyn Error + Send + Sync>) -> Self {
-        Self(e)
-    }
-}
-
-impl From<Infallible> for BodyError {
-    fn from(e: Infallible) -> BodyError {
-        match e {}
-    }
-}
+pub type BodyError = Box<dyn Error + Send + Sync>;

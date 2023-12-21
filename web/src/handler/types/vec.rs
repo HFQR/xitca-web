@@ -3,7 +3,7 @@ use core::{convert::Infallible, future::poll_fn, pin::pin};
 use crate::{
     body::BodyStream,
     context::WebContext,
-    error::{BodyError, Error},
+    error::Error,
     handler::{FromRequest, Responder},
     http::WebResponse,
 };
@@ -24,7 +24,7 @@ where
         let mut vec = Vec::new();
 
         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(BodyError::from_error)?;
+            let chunk = chunk.map_err(Into::into)?;
             vec.extend_from_slice(chunk.as_ref());
         }
 

@@ -183,7 +183,7 @@ impl BoxBody {
     pub fn new<B, E>(body: B) -> Self
     where
         B: Stream<Item = Result<Bytes, E>> + 'static,
-        E: error::Error + Send + Sync + 'static,
+        E: Into<BodyError>,
     {
         Self(Box::pin(BoxStreamMapErr { body }))
     }
@@ -213,15 +213,12 @@ pin_project! {
 impl<B, T, E> Stream for BoxStreamMapErr<B>
 where
     B: Stream<Item = Result<T, E>>,
-    E: error::Error + Send + Sync + 'static,
+    E: Into<BodyError>,
 {
     type Item = Result<T, BodyError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project()
-            .body
-            .poll_next(cx)
-            .map_err(|e| BodyError::from(Box::new(e) as Box<dyn error::Error + Send + Sync>))
+        self.project().body.poll_next(cx).map_err(Into::into)
     }
 
     #[inline]
@@ -259,7 +256,7 @@ impl ResponseBody {
     pub fn box_stream<B, E>(stream: B) -> Self
     where
         B: Stream<Item = Result<Bytes, E>> + 'static,
-        E: error::Error + Send + Sync + 'static,
+        E: Into<BodyError>,
     {
         Self::stream(BoxBody::new(stream))
     }

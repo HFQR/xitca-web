@@ -1,4 +1,4 @@
-use crate::error::{BodyError, HttpServiceError};
+use crate::error::HttpServiceError;
 
 #[derive(Debug)]
 pub enum Error<S, B> {
@@ -26,11 +26,5 @@ impl<S, B> From<Error<S, B>> for HttpServiceError<S, B> {
 impl<S, B> From<::h2::Error> for HttpServiceError<S, B> {
     fn from(e: ::h2::Error) -> Self {
         Self::H2(Error::H2(e))
-    }
-}
-
-impl From<::h2::Error> for BodyError {
-    fn from(e: ::h2::Error) -> Self {
-        BodyError::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 }

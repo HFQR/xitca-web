@@ -15,7 +15,7 @@ use http::{header::HeaderMap, Method, Request};
 use memchr::memmem;
 use pin_project_lite::pin_project;
 
-use self::content_disposition::ContentDisposition;
+use self::{content_disposition::ContentDisposition, error::PayloadError};
 
 /// Multipart protocol using high level API that operate over [Stream] trait.
 ///
@@ -54,10 +54,11 @@ use self::content_disposition::ContentDisposition;
 ///     Ok(())
 /// }
 /// ```
-pub fn multipart<Ext, B, T, E>(req: &Request<Ext>, body: B) -> Result<Multipart<B>, MultipartError<E>>
+pub fn multipart<Ext, B, T, E>(req: &Request<Ext>, body: B) -> Result<Multipart<B>, MultipartError>
 where
     B: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
+    E: Into<PayloadError>,
 {
     multipart_with_config(req, body, Config::default())
 }
@@ -67,10 +68,11 @@ pub fn multipart_with_config<Ext, B, T, E>(
     req: &Request<Ext>,
     body: B,
     config: Config,
-) -> Result<Multipart<B>, MultipartError<E>>
+) -> Result<Multipart<B>, MultipartError>
 where
     B: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
+    E: Into<PayloadError>,
 {
     if req.method() != Method::POST {
         return Err(MultipartError::NoPostMethod);
@@ -121,10 +123,11 @@ impl<S, T, E> Multipart<S>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
+    E: Into<PayloadError>,
 {
     // take in &mut Pin<&mut Self> so Field can borrow it as Pin<&mut Multipart>.
     // this avoid another explicit stack pin when operating on Field type.
-    pub async fn try_next<'s>(self: &'s mut Pin<&mut Self>) -> Result<Option<Field<'s, S>>, MultipartError<E>> {
+    pub async fn try_next<'s>(self: &'s mut Pin<&mut Self>) -> Result<Option<Field<'s, S>>, MultipartError> {
         let boundary_len = self.boundary.len();
         loop {
             let this = self.as_mut().project();
@@ -176,7 +179,7 @@ where
         }
     }
 
-    async fn parse_field(mut self: Pin<&mut Self>) -> Result<Field<'_, S>, MultipartError<E>> {
+    async fn parse_field(mut self: Pin<&mut Self>) -> Result<Field<'_, S>, MultipartError> {
         loop {
             let this = self.as_mut().project();
 
@@ -203,16 +206,16 @@ where
         }
     }
 
-    async fn try_read_stream_to_buf(mut self: Pin<&mut Self>) -> Result<(), MultipartError<E>> {
+    async fn try_read_stream_to_buf(mut self: Pin<&mut Self>) -> Result<(), MultipartError> {
         let bytes = self.as_mut().try_read_stream().await?;
         self.project().buf.extend_from_slice(bytes.as_ref());
         Ok(())
     }
 
-    async fn try_read_stream(mut self: Pin<&mut Self>) -> Result<T, MultipartError<E>> {
+    async fn try_read_stream(mut self: Pin<&mut Self>) -> Result<T, MultipartError> {
         match poll_fn(move |cx| self.as_mut().project().stream.poll_next(cx)).await {
             Some(Ok(bytes)) => Ok(bytes),
-            Some(Err(e)) => Err(MultipartError::Payload(e)),
+            Some(Err(e)) => Err(MultipartError::Payload(e.into())),
             None => Err(MultipartError::UnexpectedEof),
         }
     }
@@ -224,7 +227,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::pin::pin;
+    use std::{convert::Infallible, pin::pin};
 
     use bytes::Bytes;
     use futures_util::FutureExt;
@@ -232,8 +235,8 @@ mod test {
 
     use super::*;
 
-    fn once_body(b: impl Into<Bytes>) -> impl Stream<Item = Result<Bytes, ()>> {
-        futures_util::stream::once(async { Ok::<_, ()>(b.into()) })
+    fn once_body(b: impl Into<Bytes>) -> impl Stream<Item = Result<Bytes, Infallible>> {
+        futures_util::stream::once(async { Ok(b.into()) })
     }
 
     #[test]
@@ -241,7 +244,7 @@ mod test {
         let req = Request::new(());
         let body = once_body(Bytes::new());
         let err = multipart(&req, body).err();
-        assert_eq!(err, Some(MultipartError::NoPostMethod));
+        assert!(matches!(err, Some(MultipartError::NoPostMethod)));
     }
 
     #[test]
@@ -369,10 +372,10 @@ mod test {
 
         let mut multipart = pin!(multipart);
 
-        assert_eq!(
+        assert!(matches!(
             multipart.try_next().now_or_never().unwrap().err().unwrap(),
             MultipartError::Header(httparse::Error::TooManyHeaders)
-        );
+        ));
     }
 
     #[test]
@@ -393,9 +396,9 @@ mod test {
 
         let mut multipart = pin!(multipart);
 
-        assert_eq!(
+        assert!(matches!(
             multipart.try_next().now_or_never().unwrap().err().unwrap(),
             MultipartError::BufferOverflow
-        );
+        ));
     }
 }
