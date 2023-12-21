@@ -22,6 +22,12 @@ use crate::{
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.
 /// Any `tower-http` type that impl [Layer] trait can be passed to it and used as xitca-web's middleware.
+///
+/// # Type mutation
+/// `TowerHttpCompat` would mutate response body type from `B` to `CompatBody<ResB>`. Service enclosed
+/// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
+///
+/// [TypeEraser]: crate::middleware::eraser::TypeEraser
 pub struct TowerHttpCompat<L, C, ReqB, ResB, Err> {
     layer: L,
     _phantom: PhantomData<fn(C, ReqB, ResB, Err)>,
@@ -142,7 +148,9 @@ mod test {
     use tower_http::set_status::SetStatusLayer;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{bytes::Bytes, http::StatusCode, http::WebRequest, service::fn_service, App};
+    use crate::{
+        bytes::Bytes, http::StatusCode, http::WebRequest, middleware::eraser::TypeEraser, service::fn_service, App,
+    };
 
     use super::*;
 
@@ -156,6 +164,7 @@ mod test {
         let res = App::with_state("996")
             .at("/", fn_service(handler))
             .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)))
+            .enclosed(TypeEraser::response_body())
             .finish()
             .call(())
             .now_or_panic()
