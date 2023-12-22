@@ -25,8 +25,8 @@ use crate::{
     http::{WebRequest, WebResponse},
     middleware::eraser::TypeEraser,
     service::{
-        object::BoxedSyncServiceObject, ready::ReadyService, AsyncClosure, EnclosedBuilder, EnclosedFnBuilder, Service,
-        ServiceExt,
+        object::BoxedSyncServiceObject, ready::ReadyService, AsyncClosure, EnclosedBuilder, EnclosedFnBuilder,
+        MapBuilder, Service, ServiceExt,
     },
 };
 
@@ -194,6 +194,19 @@ where
         App {
             builder: self.builder,
             router: self.router.enclosed_fn(transform),
+        }
+    }
+
+    /// Mutate `<<Self::Response as Service<Req>>::Future as Future>::Output` type with given
+    /// closure.
+    pub fn map<T, Res, ResMap>(self, mapper: T) -> App<MapBuilder<R, T>, CtxBuilder<C>>
+    where
+        T: Fn(Res) -> ResMap + Clone,
+        Self: Sized,
+    {
+        App {
+            builder: self.builder,
+            router: self.router.map(mapper),
         }
     }
 
