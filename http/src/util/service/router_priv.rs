@@ -6,8 +6,9 @@ use std::{borrow::Cow, collections::HashMap, error};
 
 use xitca_service::{
     object::{BoxedServiceObject, BoxedSyncServiceObject},
+    pipeline::PipelineT,
     ready::ReadyService,
-    EnclosedFactory, EnclosedFnFactory, FnService, MapErrorServiceFactory, Service,
+    FnService, Service,
 };
 
 use crate::http::{BorrowReq, BorrowReqMut, Request, Uri};
@@ -182,37 +183,7 @@ impl<F> RouterGen for FnService<F> {
     }
 }
 
-impl<F, S> RouterGen for MapErrorServiceFactory<F, S>
-where
-    F: RouterGen,
-{
-    type Route<R> = F::Route<R>;
-
-    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        self.first.path_gen(prefix)
-    }
-
-    fn route_gen<R>(route: R) -> Self::Route<R> {
-        F::route_gen(route)
-    }
-}
-
-impl<F, S> RouterGen for EnclosedFactory<F, S>
-where
-    F: RouterGen,
-{
-    type Route<R> = F::Route<R>;
-
-    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        self.first.path_gen(prefix)
-    }
-
-    fn route_gen<R>(route: R) -> Self::Route<R> {
-        F::route_gen(route)
-    }
-}
-
-impl<F, S> RouterGen for EnclosedFnFactory<F, S>
+impl<F, S, M> RouterGen for PipelineT<F, S, M>
 where
     F: RouterGen,
 {

@@ -25,8 +25,8 @@ use crate::{
     http::{WebRequest, WebResponse},
     middleware::eraser::TypeEraser,
     service::{
-        object::BoxedSyncServiceObject, ready::ReadyService, AsyncClosure, EnclosedFactory, EnclosedFnFactory, Service,
-        ServiceExt,
+        object::BoxedSyncServiceObject, ready::ReadyService, AsyncClosure, EnclosedBuilder, EnclosedFnBuilder,
+        MapBuilder, Service, ServiceExt,
     },
 };
 
@@ -176,7 +176,7 @@ where
 {
     /// Enclose App with middleware type.
     /// Middleware must impl [Service] trait.
-    pub fn enclosed<T>(self, transform: T) -> App<EnclosedFactory<R, T>, CtxBuilder<C>>
+    pub fn enclosed<T>(self, transform: T) -> App<EnclosedBuilder<R, T>, CtxBuilder<C>>
     where
         T: Service<Result<R::Response, R::Error>>,
     {
@@ -187,13 +187,26 @@ where
     }
 
     /// Enclose App with function as middleware type.
-    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<EnclosedFnFactory<R, T>, CtxBuilder<C>>
+    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<EnclosedFnBuilder<R, T>, CtxBuilder<C>>
     where
         T: for<'s> AsyncClosure<(&'s R::Response, Req)> + Clone,
     {
         App {
             builder: self.builder,
             router: self.router.enclosed_fn(transform),
+        }
+    }
+
+    /// Mutate `<<Self::Response as Service<Req>>::Future as Future>::Output` type with given
+    /// closure.
+    pub fn map<T, Res, ResMap>(self, mapper: T) -> App<MapBuilder<R, T>, CtxBuilder<C>>
+    where
+        T: Fn(Res) -> ResMap + Clone,
+        Self: Sized,
+    {
+        App {
+            builder: self.builder,
+            router: self.router.map(mapper),
         }
     }
 
