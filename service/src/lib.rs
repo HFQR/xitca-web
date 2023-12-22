@@ -46,7 +46,7 @@ pub mod ready;
 
 pub use self::{
     async_closure::AsyncClosure,
-    pipeline::{EnclosedFactory, EnclosedFnFactory, MapErrorServiceFactory},
+    pipeline::{EnclosedBuilder, EnclosedFnBuilder, MapBuilder, MapErrorBuilder},
     service::{fn_build, fn_service, FnService, Service, ServiceExt},
 };
 
