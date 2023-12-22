@@ -12,7 +12,7 @@ use super::{
 };
 
 pub struct Field<'a, S> {
-    typ: FieldType,
+    decoder: FieldDecoder,
     cp: ContentDisposition,
     multipart: Pin<&'a mut Multipart<S>>,
 }
@@ -26,15 +26,21 @@ impl<S> Drop for Field<'_, S> {
 impl<'a, S> Field<'a, S> {
     pub(super) fn new(length: Option<u64>, cp: ContentDisposition, multipart: Pin<&'a mut Multipart<S>>) -> Self {
         let typ = match length {
-            Some(len) => FieldType::Fixed(len),
-            None => FieldType::StreamBegin,
+            Some(len) => FieldDecoder::Fixed(len),
+            None => FieldDecoder::StreamBegin,
         };
-        Self { typ, cp, multipart }
+        Self {
+            decoder: typ,
+            cp,
+            multipart,
+        }
     }
 }
 
-enum FieldType {
+#[derive(Default)]
+pub(super) enum FieldDecoder {
     Fixed(u64),
+    #[default]
     StreamBegin,
     StreamPossibleEnd,
     StreamEnd,
@@ -66,21 +72,24 @@ where
 
     pub async fn try_next(&mut self) -> Result<Option<Bytes>, MultipartError> {
         loop {
-            let this = self.multipart.as_mut().project();
-            let buf = this.buf;
+            let multipart = self.multipart.as_mut().project();
+            let buf = multipart.buf;
 
             // check multipart buffer first and drain it if possible.
             if !buf.is_empty() {
-                match self.typ {
-                    FieldType::Fixed(0) | FieldType::StreamEnd => return Ok(None),
-                    FieldType::Fixed(ref mut len) => {
+                match self.decoder {
+                    FieldDecoder::Fixed(0) | FieldDecoder::StreamEnd => {
+                        *multipart.pending_field = false;
+                        return Ok(None);
+                    }
+                    FieldDecoder::Fixed(ref mut len) => {
                         let at = cmp::min(*len, buf.len() as u64);
                         *len -= at;
                         let chunk = buf.split_to(at as usize).freeze();
                         return Ok(Some(chunk));
                     }
-                    FieldType::StreamBegin | FieldType::StreamPossibleEnd => {
-                        if let Some(at) = try_find_split_idx(buf, this.boundary, &mut self.typ)? {
+                    FieldDecoder::StreamBegin | FieldDecoder::StreamPossibleEnd => {
+                        if let Some(at) = self.decoder.try_find_split_idx(buf, multipart.boundary)? {
                             return Ok(Some(buf.split_to(at).freeze()));
                         }
                     }
@@ -90,23 +99,24 @@ where
             // multipart buffer is empty. read more from stream.
             let item = self.multipart.as_mut().try_read_stream().await?;
 
-            let this = self.multipart.as_mut().project();
-            let buf = this.buf;
+            let multipart = self.multipart.as_mut().project();
+            let buf = multipart.buf;
 
             // try to deal with the read bytes in place before extend to multipart buffer.
-            match self.typ {
-                FieldType::Fixed(0) => {
+            match self.decoder {
+                FieldDecoder::Fixed(0) => {
                     buf.extend_from_slice(item.as_ref());
+                    *multipart.pending_field = false;
                     return Ok(None);
                 }
-                FieldType::Fixed(ref mut len) => {
+                FieldDecoder::Fixed(ref mut len) => {
                     let chunk = item.as_ref();
                     let at = cmp::min(*len, chunk.len() as u64);
                     *len -= at;
                     let bytes = split_bytes(item, at as usize, buf);
                     return Ok(Some(bytes));
                 }
-                FieldType::StreamBegin => match try_find_split_idx(&item, this.boundary, &mut self.typ)? {
+                FieldDecoder::StreamBegin => match self.decoder.try_find_split_idx(&item, multipart.boundary)? {
                     Some(at) => {
                         let bytes = split_bytes(item, at, buf);
                         return Ok(Some(bytes));
@@ -114,43 +124,48 @@ where
                     None => buf.extend_from_slice(item.as_ref()),
                 },
                 // possible boundary where partial boundary is already in the the buffer. so extend to it and check again.
-                FieldType::StreamPossibleEnd => buf.extend_from_slice(item.as_ref()),
-                FieldType::StreamEnd => return Ok(None),
+                FieldDecoder::StreamPossibleEnd => buf.extend_from_slice(item.as_ref()),
+                FieldDecoder::StreamEnd => {
+                    *multipart.pending_field = false;
+                    return Ok(None);
+                }
             }
         }
     }
 }
 
-fn try_find_split_idx<T>(item: &T, boundary: &[u8], typ: &mut FieldType) -> Result<Option<usize>, MultipartError>
-where
-    T: AsRef<[u8]>,
-{
-    let item = item.as_ref();
-    match memmem::find(item, super::DOUBLE_HYPHEN) {
-        Some(idx) => {
-            let start = idx + super::DOUBLE_HYPHEN.len();
-            let length = cmp::min(item.len() - start, boundary.len());
-            let end = start + length;
+impl FieldDecoder {
+    pub(super) fn try_find_split_idx<T>(&mut self, item: &T, boundary: &[u8]) -> Result<Option<usize>, MultipartError>
+    where
+        T: AsRef<[u8]>,
+    {
+        let item = item.as_ref();
+        match memmem::find(item, super::DOUBLE_HYPHEN) {
+            Some(idx) => {
+                let start = idx + super::DOUBLE_HYPHEN.len();
+                let length = cmp::min(item.len() - start, boundary.len());
+                let end = start + length;
 
-            let slice = &item[start..end];
+                let slice = &item[start..end];
 
-            // not boundary so split till end offset.
-            if !boundary.starts_with(slice) {
-                return Ok(Some(end));
+                // not boundary so split till end offset.
+                if !boundary.starts_with(slice) {
+                    return Ok(Some(end));
+                }
+
+                // possible boundary but no full view yet.
+                if boundary.len() > slice.len() {
+                    *self = FieldDecoder::StreamPossibleEnd;
+                    return Ok(None);
+                }
+
+                *self = FieldDecoder::StreamEnd;
+
+                let idx = idx.checked_sub(2).ok_or(MultipartError::Boundary)?;
+                Ok(Some(idx))
             }
-
-            // possible boundary but no full view yet.
-            if boundary.len() > slice.len() {
-                *typ = FieldType::StreamPossibleEnd;
-                return Ok(None);
-            }
-
-            *typ = FieldType::StreamEnd;
-
-            let idx = idx.checked_sub(2).ok_or(MultipartError::Boundary)?;
-            Ok(Some(idx))
+            None => Ok(Some(item.len())),
         }
-        None => Ok(Some(item.len())),
     }
 }
 
@@ -163,7 +178,6 @@ where
             if item.len() == at {
                 return item;
             }
-
             let bytes = item.split_to(at);
             buf.extend_from_slice(item.as_ref());
             bytes

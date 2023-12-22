@@ -10,6 +10,7 @@ pub use self::{error::MultipartError, field::Field};
 use core::{future::poll_fn, pin::Pin};
 
 use bytes::{Buf, BytesMut};
+use field::FieldDecoder;
 use futures_core::stream::Stream;
 use http::{header::HeaderMap, Method, Request};
 use memchr::memmem;
@@ -85,6 +86,7 @@ where
         buf: BytesMut::new(),
         boundary: boundary.into(),
         headers: HeaderMap::new(),
+        pending_field: false,
         config,
     })
 }
@@ -111,6 +113,7 @@ pin_project! {
         buf: BytesMut,
         boundary: Box<[u8]>,
         headers: HeaderMap,
+        pending_field: bool,
         config: Config
     }
 }
@@ -129,9 +132,13 @@ where
     // this avoid another explicit stack pin when operating on Field type.
     pub async fn try_next<'s>(self: &'s mut Pin<&mut Self>) -> Result<Option<Field<'s, S>>, MultipartError> {
         let boundary_len = self.boundary.len();
+
+        if self.pending_field {
+            self.as_mut().consume_pending_field().await?;
+        }
+
         loop {
             let this = self.as_mut().project();
-
             if let Some(idx) = memmem::find(this.buf, LF) {
                 // backtrack one byte to exclude CR
                 let slice = match idx.checked_sub(1) {
@@ -195,6 +202,8 @@ where
 
                 let length = header::content_length_opt(this.headers)?;
 
+                *this.pending_field = true;
+
                 return Ok(Field::new(length, cp, self));
             }
 
@@ -202,6 +211,24 @@ where
                 return Err(MultipartError::Header(httparse::Error::TooManyHeaders));
             }
 
+            self.as_mut().try_read_stream_to_buf().await?;
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    async fn consume_pending_field(mut self: Pin<&mut Self>) -> Result<(), MultipartError> {
+        let mut field_ty = FieldDecoder::default();
+
+        loop {
+            let this = self.as_mut().project();
+            if let Some(idx) = field_ty.try_find_split_idx(this.buf, this.boundary)? {
+                this.buf.advance(idx);
+            }
+            if matches!(field_ty, FieldDecoder::StreamEnd) {
+                *this.pending_field = false;
+                return Ok(());
+            }
             self.as_mut().try_read_stream_to_buf().await?;
         }
     }
@@ -254,6 +281,10 @@ mod test {
             Content-Disposition: form-data; name=\"file\"; filename=\"foo.txt\"\r\n\
             Content-Type: text/plain; charset=utf-8\r\nContent-Length: 4\r\n\r\n\
             test\r\n\
+            --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
+            Content-Disposition: form-data; name=\"file\"; filename=\"bar.txt\"\r\n\
+            Content-Type: text/plain\r\n\r\n\
+            testdata\r\n\
             --abbc761f78ff4d7cb7573b5a23f96ef0\r\n\
             Content-Disposition: form-data; name=\"file\"; filename=\"bar.txt\"\r\n\
             Content-Type: text/plain\r\n\r\n\
@@ -322,6 +353,9 @@ mod test {
             );
             assert!(field.try_next().now_or_never().unwrap().unwrap().is_none());
         }
+
+        // test drop field without consuming.
+        multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
 
         {
             let mut field = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
