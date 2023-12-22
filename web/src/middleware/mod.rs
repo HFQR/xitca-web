@@ -9,6 +9,8 @@ pub mod tower_http_compat;
 
 pub mod eraser;
 pub mod limit;
+
+#[cfg(not(target_family = "wasm"))]
 pub mod sync;
 
 pub use xitca_http::util::middleware::{Extension, Logger};
