@@ -166,10 +166,9 @@ impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for serde::de::valu
 
 #[cfg(test)]
 mod test {
-    use xitca_http::http::HeaderValue;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::http::header::COOKIE;
+    use crate::http::header::{HeaderValue, COOKIE};
 
     use super::*;
 
@@ -201,7 +200,10 @@ mod test {
         let check_res = |res: WebResponse| {
             assert_eq!(res.status(), StatusCode::ACCEPTED);
             assert_eq!(res.headers().get(COOKIE).unwrap().to_str().unwrap(), "none");
-            assert_eq!(res.headers().get(CONTENT_TYPE).unwrap(), TEXT_UTF8);
+            assert_eq!(
+                res.headers().get(CONTENT_TYPE).unwrap().to_str().unwrap(),
+                "text/plain; charset=utf-8"
+            );
         };
 
         let res = (StatusCode::ACCEPTED, headers.clone(), "hello,world!")
