@@ -2,7 +2,7 @@
 
 use xitca_web::{
     handler::handler_sync_service,
-    http::WebResponse,
+    http::{WebRequest, WebResponse},
     middleware::sync::{Next, SyncMiddleware},
     route::get,
     App, WebContext,
@@ -10,7 +10,7 @@ use xitca_web::{
 
 fn main() -> std::io::Result<()> {
     App::new()
-        .at("/", get(handler_sync_service(|| "Hello,World!")))
+        .at("/", get(handler_sync_service(|_: WebRequest<()>| "Hello,World!")))
         .enclosed(SyncMiddleware::new(middleware_fn))
         .serve()
         .bind("127.0.0.1:8080")?
