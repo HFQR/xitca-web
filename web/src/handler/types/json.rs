@@ -103,7 +103,7 @@ where
     type Error = Error<C>;
 
     #[inline]
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let mut bytes = BytesMut::new();
         serde_json::to_writer(BufMutWriter(&mut bytes), &self.0)?;
         let mut res = ctx.into_response(bytes.freeze());

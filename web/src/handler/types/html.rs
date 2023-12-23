@@ -29,7 +29,7 @@ where
     type Error = Infallible;
 
     #[inline]
-    async fn respond_to(self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
+    async fn respond(self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
         let mut res = ctx.into_response(self.0);
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
         Ok(res)

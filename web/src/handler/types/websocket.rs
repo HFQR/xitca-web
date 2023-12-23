@@ -174,7 +174,7 @@ where
     type Response = WebResponse;
     type Error = Infallible;
 
-    async fn respond_to(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+    async fn respond(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let Self {
             ws,
             ping_interval,

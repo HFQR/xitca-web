@@ -36,7 +36,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Vec<u8> {
     type Response = WebResponse;
     type Error = Infallible;
 
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         Ok(ctx.into_response(self))
     }
 }

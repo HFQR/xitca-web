@@ -62,7 +62,7 @@ where
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
         let extract = T::Type::<'_>::from_request(&req).await?;
         let res = self.func.call(extract).await;
-        res.respond_to(req).await.map_err(Into::into)
+        res.respond(req).await.map_err(Into::into)
     }
 }
 
@@ -146,8 +146,52 @@ pub trait Responder<Req> {
     type Response;
     type Error;
 
-    fn respond_to(self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>>;
+    /// generate response from given request.
+    fn respond(self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>>;
+
+    /// map response type and mutate it's state.
+    /// default to pass through without any modification.
+    fn map(self, res: Self::Response) -> impl Future<Output = Self::Response>
+    where
+        Self: Sized,
+    {
+        async { res }
+    }
 }
+
+macro_rules! responder_impl {
+    ($res0: ident, $($res: ident,)*) => {
+        #[allow(non_snake_case)]
+        impl<Req, $res0, $($res,)*> Responder<Req> for ($res0, $($res,)*)
+        where
+            $res0: Responder<Req>,
+            $(
+                $res: Responder<Req, Response = $res0::Response>,
+            )*
+        {
+            type Response = $res0::Response;
+            type Error = $res0::Error;
+
+            async fn respond(self, req: Req) -> Result<Self::Response, Self::Error> {
+                let ($res0, $($res,)*) = self;
+
+                let res = $res0.respond(req).await?;
+                $(
+                    let res = $res.map(res).await;
+                )*
+
+                Ok(res)
+            }
+        }
+    }
+}
+
+responder_impl! { A, }
+responder_impl! { A, B, }
+responder_impl! { A, B, C, }
+responder_impl! { A, B, C, D, }
+responder_impl! { A, B, C, D, E, }
+responder_impl! { A, B, C, D, E, F, }
 
 impl<R, F, S> Responder<R> for PipelineE<F, S>
 where
@@ -159,10 +203,10 @@ where
     type Error = F::Error;
 
     #[inline]
-    async fn respond_to(self, req: R) -> Result<Self::Response, Self::Error> {
+    async fn respond(self, req: R) -> Result<Self::Response, Self::Error> {
         match self {
-            Self::First(f) => f.respond_to(req).await,
-            Self::Second(s) => Ok(s.respond_to(req).await?),
+            Self::First(f) => f.respond(req).await,
+            Self::Second(s) => Ok(s.respond(req).await?),
         }
     }
 }
@@ -190,7 +234,7 @@ mod test {
         type Response = Response<()>;
         type Error = Infallible;
 
-        async fn respond_to(self, _: Request<RequestExt<()>>) -> Result<Self::Response, Self::Error> {
+        async fn respond(self, _: Request<RequestExt<()>>) -> Result<Self::Response, Self::Error> {
             let mut res = Response::new(());
             *res.status_mut() = self;
             Ok(res)
