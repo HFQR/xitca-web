@@ -5,7 +5,9 @@ use crate::{
     bytes::Bytes,
     context::WebContext,
     error::Error,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, HeaderMap, StatusCode, WebResponse},
+    http::{
+        const_header_value::TEXT_UTF8, header::CONTENT_TYPE, HeaderMap, RequestExt, StatusCode, WebRequest, WebResponse,
+    },
 };
 
 use super::{FromRequest, Responder};
@@ -49,6 +51,58 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(ctx)
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a WebRequest<()>
+where
+    B: BodyStream,
+{
+    type Type<'b> = &'b WebRequest<()>;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a RequestExt<()>
+where
+    B: BodyStream,
+{
+    type Type<'b> = &'b RequestExt<()>;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().body())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for WebRequest<()>
+where
+    B: BodyStream,
+{
+    type Type<'b> = WebRequest<()>;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().clone())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for RequestExt<()>
+where
+    B: BodyStream,
+{
+    type Type<'b> = RequestExt<()>;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().body().clone())
     }
 }
 

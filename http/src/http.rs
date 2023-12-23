@@ -101,6 +101,18 @@ pin_project! {
     }
 }
 
+impl<B> Clone for RequestExt<B>
+where
+    B: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            body: self.body.clone(),
+            ext: Extension(Box::new(_Extension::clone(&*self.ext.0))),
+        }
+    }
+}
+
 // a separate extension type contain information can not be carried by http::Request. the goal is
 // to keep extended info strongly typed and not depend on runtime type map of http::Extensions.
 #[derive(Debug)]
@@ -116,7 +128,7 @@ impl Extension {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct _Extension {
     addr: SocketAddr,
     #[cfg(feature = "router")]

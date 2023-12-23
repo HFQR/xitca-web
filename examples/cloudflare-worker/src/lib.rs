@@ -21,7 +21,7 @@ use xitca_http::{
 };
 use xitca_service::{fn_service, object, Service, ServiceExt};
 use xitca_unsafe_collection::{
-    fake_send_sync::{FakeSend, FakeSync},
+    fake::{FakeClone, FakeSend, FakeSync},
     futures::NowOrPanic,
 };
 
@@ -92,8 +92,12 @@ fn worker_to_http(req: Request, env: Env) -> HttpRequest {
     // potential body conversion if include middleware wants body type.
 
     // store Env and Request in type map to use later.
-    http_req.extensions_mut().insert(FakeSync::new(FakeSend::new(env)));
-    http_req.extensions_mut().insert(FakeSync::new(FakeSend::new(req)));
+    http_req
+        .extensions_mut()
+        .insert(FakeClone::new(FakeSync::new(FakeSend::new(env))));
+    http_req
+        .extensions_mut()
+        .insert(FakeClone::new(FakeSync::new(FakeSend::new(req))));
 
     http_req
 }
@@ -103,8 +107,9 @@ async fn form(mut http: HttpRequest) -> Result<Response> {
     // extract worker::Request from http::Request.
     let mut req = http
         .extensions_mut()
-        .remove::<FakeSync<FakeSend<Request>>>()
+        .remove::<FakeClone<FakeSync<FakeSend<Request>>>>()
         .unwrap()
+        .into_inner()
         .into_inner()
         .into_inner();
 
@@ -125,8 +130,9 @@ async fn version(mut req: HttpRequest) -> Result<Response> {
     // extract worker::Env from http::Request.
     let version = req
         .extensions_mut()
-        .remove::<FakeSync<FakeSend<Env>>>()
+        .remove::<FakeClone<FakeSync<FakeSend<Env>>>>()
         .unwrap()
+        .into_inner()
         .into_inner()
         .into_inner()
         .var("WORKERS_RS_VERSION")?

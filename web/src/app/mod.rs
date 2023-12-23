@@ -455,6 +455,7 @@ mod test {
         assert_eq!(res.status().as_u16(), 405);
     }
 
+    #[derive(Clone)]
     struct Foo;
 
     #[test]

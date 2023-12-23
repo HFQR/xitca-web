@@ -97,7 +97,7 @@ xitca-codegen = { version = "0.1", optional = true }
 # tower-http-compat
 tower-service = { version = "0.3", optional = true }
 tower-layer = { version = "0.3", optional = true }
-http-body = { version = "0.4", optional = true }
+http-body = { version = "1", optional = true }
 
 [dev-dependencies]
 xitca-codegen = { version = "0.1" }
@@ -105,5 +105,5 @@ xitca-codegen = { version = "0.1" }
 futures-util = { version = "0.3", features = ["alloc"] }
 serde = { version = "1.0.137", features = ["derive"] }
 tokio = { version = "1", features = ["macros"] }
-tower-http = { version = "0.4.0", features = ["set-status"] }
+tower-http = { version = "0.5", features = ["set-status"] }
 tracing = "0.1"

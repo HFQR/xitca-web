@@ -28,7 +28,7 @@ pub fn state_impl(item: TokenStream) -> TokenStream {
 /// - `enclosed_fn = <async function>`: async function as middleware applied to route
 ///
 /// # Example
-/// ```rust
+/// ```rust(no_run)
 /// # use xitca_web::{codegen::route, handler::handler_service, service::Service, App, WebContext};
 /// #[route("/", method = get, enclosed_fn = middleware_fn)]
 /// async fn index() -> &'static str {

@@ -11,7 +11,7 @@ http1 = ["httparse", "itoa", "runtime"]
 # http2 specific feature.
 http2 = ["h2", "fnv", "futures-util/alloc", "runtime"]
 # http3 specific feature.
-http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
+http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime", "http_0_dot_2"]
 # openssl as server side tls.
 openssl = ["dep:openssl", "runtime"]
 # rustls as server side tls.
@@ -33,7 +33,7 @@ xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 
 futures-core = "0.3.17"
-http = "0.2.8"
+http = "1"
 httpdate = "1.0"
 pin-project-lite = "0.2.10"
 tracing = { version = "0.1.40", default-features = false }
@@ -55,13 +55,14 @@ httparse = { version = "1.8", optional = true }
 itoa = { version = "1", optional = true }
 
 # http/2 support
-h2 = { version = "0.3.17", optional = true }
+h2 = { version = "0.4", optional = true }
 fnv = { version = "1.0.7", optional = true }
 futures-util = { version = "0.3.17", default-features = false, optional = true }
 
 # http/3 support
 h3 = { version = "0.0.3", optional = true }
 h3-quinn = { version = "0.0.4", optional = true }
+http_0_dot_2 = { package = "http", version = "0.2", optional = true }
 
 # async runtime support.
 tokio = { version = "1.30", features = ["rt", "time"], optional = true }
