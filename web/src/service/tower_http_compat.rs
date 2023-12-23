@@ -2,22 +2,22 @@ use std::{
     cell::RefCell,
     convert::Infallible,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use futures_core::stream::Stream;
-use http_body::{Body, SizeHint};
+use http_body::{Body, Frame, SizeHint};
 use pin_project_lite::pin_project;
 use xitca_http::{
     body::{none_body_hint, BodySize},
     util::service::router::{RouterGen, RouterMapErr},
 };
-use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
+use xitca_unsafe_collection::fake::{FakeClone, FakeSend, FakeSync};
 
 use crate::{
     bytes::Buf,
     context::WebContext,
-    http::{header::HeaderMap, Request, RequestExt, Response, WebResponse},
+    http::{Request, RequestExt, Response, WebResponse},
     service::{ready::ReadyService, Service},
 };
 
@@ -85,7 +85,9 @@ where
     async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
         let state = ctx.state().clone();
         let (mut parts, ext) = ctx.take_request().into_parts();
-        parts.extensions.insert(FakeSync::new(FakeSend::new(state)));
+        parts
+            .extensions
+            .insert(FakeClone::new(FakeSync::new(FakeSend::new(state))));
         let req = Request::from_parts(parts, CompatBody::new(FakeSend::new(ext)));
         let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
         fut.await.map(|res| res.map(CompatBody::new))
@@ -125,13 +127,8 @@ where
     type Error = E;
 
     #[inline]
-    fn poll_data(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        self.project().body.poll_next(cx)
-    }
-
-    #[inline]
-    fn poll_trailers(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
-        Poll::Ready(Ok(None))
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        self.project().body.poll_next(cx).map_ok(Frame::data)
     }
 
     fn size_hint(&self) -> SizeHint {
@@ -158,7 +155,10 @@ where
 
     #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().body.poll_data(cx)
+        match ready!(self.project().body.poll_frame(cx)) {
+            Some(res) => Poll::Ready(res.map(|frame| frame.into_data().ok()).transpose()),
+            None => Poll::Ready(None),
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

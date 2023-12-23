@@ -76,6 +76,8 @@ where
                         Ok(res.map(|bytes| (Bytes::copy_from_slice(bytes.chunk()), stream)))
                     }));
 
+                    let req = http_0dot2_to_1(req.into_parts().0);
+
                     // Reconstruct Request to attach crate body type.
                     let req = req.map(|_| {
                         let body = ReqB::from(RequestBody(body));
@@ -113,7 +115,8 @@ where
     ResB: Stream<Item = Result<Bytes, BE>>,
 {
     let (res, body) = fut.await.map_err(Error::Service)?.into_parts();
-    let res = Response::from_parts(res, ());
+
+    let res = http_1_to_0dot2(res);
 
     stream.send_response(res).await?;
 
@@ -127,6 +130,44 @@ where
     stream.finish().await?;
 
     Ok(())
+}
+
+fn http_1_to_0dot2(mut res: crate::http::response::Parts) -> http_0_dot_2::Response<()> {
+    use http_0_dot_2::{Response, StatusCode, Version};
+
+    let mut builder = Response::builder()
+        .status(StatusCode::from_u16(res.status.as_u16()).unwrap())
+        .version(Version::HTTP_3);
+
+    let mut last = None;
+    for (k, v) in res.headers.drain() {
+        if k.is_some() {
+            last = k;
+        }
+        let name = last.as_ref().unwrap();
+        builder = builder.header(name.as_str(), v.as_bytes());
+    }
+
+    builder.body(()).unwrap()
+}
+
+fn http_0dot2_to_1(mut parts: http_0_dot_2::request::Parts) -> Request<()> {
+    use crate::http::{Method, Uri};
+
+    let mut builder = Request::builder()
+        .method(Method::from_bytes(parts.method.as_str().as_bytes()).unwrap())
+        .uri(Uri::try_from(parts.uri.to_string().as_str()).unwrap());
+
+    let mut last = None;
+    for (k, v) in parts.headers.drain() {
+        if k.is_some() {
+            last = k;
+        }
+        let name = last.as_ref().unwrap();
+        builder = builder.header(name.as_str(), v.as_bytes());
+    }
+
+    builder.body(()).unwrap()
 }
 
 pin_project! {

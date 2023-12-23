@@ -13,7 +13,7 @@ de = ["flate2"]
 [dependencies]
 bytes = "1.4"
 futures-core = "0.3"
-http = "0.2.8"
+http = "1"
 pin-project-lite = "0.2.6"
 
 brotli2 = { version = "0.3.2", optional = true }

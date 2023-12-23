@@ -9,7 +9,7 @@ use core::{
 use std::rc::Rc;
 
 use tower_layer::Layer;
-use xitca_unsafe_collection::fake_send_sync::{FakeSend, FakeSync};
+use xitca_unsafe_collection::fake::{FakeClone, FakeSend, FakeSync};
 
 use crate::{
     context::WebContext,
@@ -125,8 +125,9 @@ where
 
             let ctx = parts
                 .extensions
-                .remove::<FakeSync<FakeSend<C>>>()
+                .remove::<FakeClone<FakeSync<FakeSend<C>>>>()
                 .unwrap()
+                .into_inner()
                 .into_inner()
                 .into_inner();
 

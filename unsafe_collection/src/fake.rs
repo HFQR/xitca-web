@@ -25,7 +25,7 @@ impl<B> FakeSend<B> {
     ///
     /// # Examples:
     /// ```no_run
-    /// # use xitca_unsafe_collection::fake_send_sync::FakeSend;
+    /// # use xitca_unsafe_collection::fake::FakeSend;
     ///
     /// // make a "Send" Rc.
     /// let inner = std::rc::Rc::new(123);
@@ -113,7 +113,29 @@ unsafe impl<B> Sync for FakeSync<B> {}
 impl<B> FakeSync<B> {
     /// Construct a new Sync type from B. preferably B is bound to `!Sync`.
     #[inline]
-    pub fn new(inner: B) -> Self {
+    pub const fn new(inner: B) -> Self {
+        Self(inner)
+    }
+
+    /// Obtain ownership of inner value.
+    #[inline]
+    pub fn into_inner(self) -> B {
+        self.0
+    }
+}
+
+pub struct FakeClone<B>(B);
+
+impl<B> Clone for FakeClone<B> {
+    fn clone(&self) -> Self {
+        panic!("Fake Clone can not be cloned")
+    }
+}
+
+impl<B> FakeClone<B> {
+    /// Construct a new Clone type from B. preferably B is bound to `!Clone`.
+    #[inline]
+    pub const fn new(inner: B) -> Self {
         Self(inner)
     }
 
