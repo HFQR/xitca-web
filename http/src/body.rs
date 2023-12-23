@@ -417,21 +417,22 @@ macro_rules! res_bytes_impl {
 res_bytes_impl!(Bytes);
 res_bytes_impl!(BytesMut);
 res_bytes_impl!(&'static [u8]);
+res_bytes_impl!(&'static str);
 res_bytes_impl!(Box<[u8]>);
 res_bytes_impl!(Vec<u8>);
 res_bytes_impl!(String);
 
-impl<B> From<&str> for ResponseBody<B> {
-    fn from(str: &str) -> Self {
-        Self::bytes(Bytes::copy_from_slice(str.as_bytes()))
+impl<B> From<Box<str>> for ResponseBody<B> {
+    fn from(str: Box<str>) -> Self {
+        Self::from(String::from(str))
     }
 }
 
-impl<B> From<Cow<'_, str>> for ResponseBody<B> {
-    fn from(str: Cow<'_, str>) -> Self {
+impl<B> From<Cow<'static, str>> for ResponseBody<B> {
+    fn from(str: Cow<'static, str>) -> Self {
         match str {
-            Cow::Owned(str) => str.into(),
-            Cow::Borrowed(str) => str.into(),
+            Cow::Owned(str) => Self::from(str),
+            Cow::Borrowed(str) => Self::from(str),
         }
     }
 }
