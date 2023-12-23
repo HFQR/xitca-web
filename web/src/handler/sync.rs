@@ -75,7 +75,7 @@ where
         let extract = T::Type::<'_>::from_request(&req).await?;
         let func = self.func.clone();
         let res = tokio::task::spawn_blocking(move || func.call(extract)).await.unwrap();
-        res.respond_to(req).await.map_err(Into::into)
+        res.respond(req).await.map_err(Into::into)
     }
 }
 

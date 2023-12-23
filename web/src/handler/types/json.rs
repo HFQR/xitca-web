@@ -12,7 +12,7 @@ use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::{
     body::BodyStream,
-    bytes::{BufMutWriter, BytesMut},
+    bytes::{BufMutWriter, Bytes, BytesMut},
     context::WebContext,
     error::{BadRequest, Error},
     handler::{FromRequest, Responder},
@@ -103,10 +103,25 @@ where
     type Error = Error<C>;
 
     #[inline]
-    async fn respond_to(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self._respond(|bytes| ctx.into_response(bytes))
+    }
+
+    #[inline]
+    fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
+        self._respond(|bytes| res.map(|_| bytes.into()))
+    }
+}
+
+impl<T> Json<T> {
+    fn _respond<F, C>(self, func: F) -> Result<WebResponse, Error<C>>
+    where
+        T: Serialize,
+        F: FnOnce(Bytes) -> WebResponse,
+    {
         let mut bytes = BytesMut::new();
         serde_json::to_writer(BufMutWriter(&mut bytes), &self.0)?;
-        let mut res = ctx.into_response(bytes.freeze());
+        let mut res = func(bytes.freeze());
         res.headers_mut().insert(CONTENT_TYPE, JSON);
         Ok(res)
     }

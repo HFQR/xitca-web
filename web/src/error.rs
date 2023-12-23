@@ -57,7 +57,7 @@
 //!         <h1>{err}</h1>\
 //!         </body>\
 //!         </html>");
-//!     return Ok(Html(html).respond_to(ctx).await?);
+//!     return Ok(Html(html).respond(ctx).await?);
 //!
 //!     // or by default the error value is returned in Result::Err and passed to parent services
 //!     // of App or other middlewares where eventually it would be converted to WebResponse.
