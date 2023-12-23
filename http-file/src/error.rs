@@ -41,6 +41,7 @@ impl ServeError {
     /// ```rust
     /// # use http::Request;
     /// # use http_file::ServeError;
+    /// #[derive(Clone)]
     /// struct User;
     ///
     /// let mut req = Request::new(());
