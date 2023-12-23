@@ -150,8 +150,10 @@ macro_rules! text_utf8 {
     };
 }
 
-text_utf8!(String);
 text_utf8!(&'static str);
+text_utf8!(String);
+text_utf8!(Box<str>);
+text_utf8!(std::borrow::Cow<'static, str>);
 
 // shared error impl for serde enabled features: json, urlencoded, etc.
 #[cfg(feature = "serde")]
