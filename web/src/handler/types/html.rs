@@ -34,4 +34,9 @@ where
         res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
         Ok(res)
     }
+
+    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
+        res.headers_mut().insert(CONTENT_TYPE, TEXT_HTML_UTF8);
+        Ok(res.map(|_| self.0.into()))
+    }
 }

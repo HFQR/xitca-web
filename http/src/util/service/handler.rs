@@ -151,11 +151,11 @@ pub trait Responder<Req> {
 
     /// map response type and mutate it's state.
     /// default to pass through without any modification.
-    fn map(self, res: Self::Response) -> impl Future<Output = Self::Response>
+    fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error>
     where
         Self: Sized,
     {
-        async { res }
+        Ok(res)
     }
 }
 
@@ -167,6 +167,7 @@ macro_rules! responder_impl {
             $res0: Responder<Req>,
             $(
                 $res: Responder<Req, Response = $res0::Response>,
+                $res0::Error: From<$res::Error>,
             )*
         {
             type Response = $res0::Response;
@@ -177,7 +178,7 @@ macro_rules! responder_impl {
 
                 let res = $res0.respond(req).await?;
                 $(
-                    let res = $res.map(res).await;
+                    let res = $res.map(res)?;
                 )*
 
                 Ok(res)

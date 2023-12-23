@@ -105,12 +105,12 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(Bytes::new());
-        Ok(<Self as Responder<WebContext<'r, C, B>>>::map(self, res).await)
+        <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
     }
 
-    async fn map(self, mut res: Self::Response) -> Self::Response {
+    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
         *res.status_mut() = self;
-        res
+        Ok(res)
     }
 }
 
@@ -120,12 +120,12 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for HeaderMap {
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(Bytes::new());
-        Ok(<Self as Responder<WebContext<'r, C, B>>>::map(self, res).await)
+        <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
     }
 
-    async fn map(self, mut res: Self::Response) -> Self::Response {
+    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
         res.headers_mut().extend(self);
-        res
+        Ok(res)
     }
 }
 
@@ -141,10 +141,10 @@ macro_rules! text_utf8 {
                 Ok(res)
             }
 
-            async fn map(self, res: Self::Response) -> Self::Response {
+            fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
                 let mut res = res.map(|_| self.into());
                 res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-                res
+                Ok(res)
             }
         }
     };

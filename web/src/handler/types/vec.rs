@@ -36,7 +36,12 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Vec<u8> {
     type Response = WebResponse;
     type Error = Infallible;
 
+    #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         Ok(ctx.into_response(self))
+    }
+
+    fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
+        Ok(res.map(|_| self.into()))
     }
 }
