@@ -191,6 +191,18 @@ impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
     }
 }
 
+macro_rules! error_from_service {
+    ($tt: ty) => {
+        impl<C> From<$tt> for Error<C> {
+            fn from(e: $tt) -> Self {
+                Self::from_service(e)
+            }
+        }
+    };
+}
+
+pub(crate) use error_from_service;
+
 macro_rules! blank_error_service {
     ($type: ty, $status: path) => {
         impl<'r, C, B> Service<WebContext<'r, C, B>> for $type {
@@ -206,15 +218,35 @@ macro_rules! blank_error_service {
     };
 }
 
-macro_rules! error_from_service {
-    ($tt: ty) => {
-        impl<C> From<$tt> for Error<C> {
-            fn from(e: $tt) -> Self {
-                Self::from_service(e)
+macro_rules! forward_blank_internal {
+    ($type: ty) => {
+        impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for $type {
+            type Response = WebResponse;
+            type Error = Infallible;
+
+            async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+                crate::error::Internal.call(ctx).await
             }
         }
     };
 }
+
+pub(crate) use forward_blank_internal;
+
+macro_rules! forward_blank_bad_request {
+    ($type: ty) => {
+        impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for $type {
+            type Response = WebResponse;
+            type Error = Infallible;
+
+            async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+                crate::error::BadRequest.call(ctx).await
+            }
+        }
+    };
+}
+
+pub(crate) use forward_blank_bad_request;
 
 impl<C> From<Infallible> for Error<C> {
     fn from(e: Infallible) -> Self {
@@ -232,7 +264,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
 }
 
 error_from_service!(io::Error);
-blank_error_service!(io::Error, StatusCode::INTERNAL_SERVER_ERROR);
+forward_blank_internal!(io::Error);
 
 error_from_service!(MatchError);
 blank_error_service!(MatchError, StatusCode::NOT_FOUND);
@@ -286,7 +318,7 @@ impl<C> From<StdErr> for Error<C> {
     }
 }
 
-blank_error_service!(StdErr, StatusCode::INTERNAL_SERVER_ERROR);
+forward_blank_internal!(StdErr);
 
 pub struct StdError(pub StdErr);
 

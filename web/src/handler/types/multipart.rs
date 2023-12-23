@@ -3,10 +3,9 @@ use core::convert::Infallible;
 use crate::{
     body::{BodyStream, RequestBody},
     context::WebContext,
-    error::{BadRequest, Error},
+    error::{forward_blank_bad_request, Error},
     handler::FromRequest,
     http::WebResponse,
-    service::Service,
 };
 
 pub type Multipart<B = RequestBody> = http_multipart::Multipart<B>;
@@ -20,24 +19,11 @@ where
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        http_multipart::multipart(ctx.req(), body).map_err(Into::into)
+        http_multipart::multipart(ctx.req(), body).map_err(Error::from_service)
     }
 }
 
-impl<C> From<http_multipart::MultipartError> for Error<C> {
-    fn from(e: http_multipart::MultipartError) -> Self {
-        Error::from_service(e)
-    }
-}
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for http_multipart::MultipartError {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        BadRequest.call(ctx).await
-    }
-}
+forward_blank_bad_request!(http_multipart::MultipartError);
 
 #[cfg(test)]
 mod test {
