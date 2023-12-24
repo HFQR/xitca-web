@@ -61,6 +61,11 @@
 //!
 //!     // or by default the error value is returned in Result::Err and passed to parent services
 //!     // of App or other middlewares where eventually it would be converted to WebResponse.
+//!     
+//!     // "eventually" can either mean a downstream user provided error handler middleware/service
+//!     // or the implicit catch all error middleware xitca-web offers. In the latter case a default
+//!     // WebResponse is generated with minimal information describing the reason of error.
+//!
 //!     Err(err)
 //! }
 //! ```
