@@ -29,7 +29,10 @@ async fn h1_get() -> Result<(), Error> {
     for _ in 0..3 {
         let mut res = c.get(&server_url)?.send().await?;
         assert_eq!(res.status().as_u16(), 200);
-        assert!(!res.can_close_connection());
+        assert!(
+            res.can_close_connection(),
+            "server returns None body hinting connection closing"
+        );
         let body = res.string().await?;
         assert_eq!("GET Response", body);
     }
