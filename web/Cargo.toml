@@ -86,7 +86,7 @@ serde_urlencoded = { version = "0.7.1", optional = true }
 http-encoding = { version = "0.1", optional = true }
 
 # cookie
-cookie = { version = "0.18", features = ["percent-encode"], optional = true }
+cookie = { version = "0.18", features = ["percent-encode", "secure"], optional = true }
 
 # multipart
 http-multipart = { version = "0.1", optional = true }
