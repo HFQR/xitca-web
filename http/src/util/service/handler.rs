@@ -183,6 +183,17 @@ macro_rules! responder_impl {
 
                 Ok(res)
             }
+
+            fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
+                let ($res0, $($res,)*) = self;
+
+                res = $res0.map(res)?;
+                $(
+                    res = $res.map(res)?;
+                )*
+
+                Ok(res)
+            }
         }
     }
 }

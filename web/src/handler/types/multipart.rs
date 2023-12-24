@@ -1,5 +1,3 @@
-use core::convert::Infallible;
-
 use crate::{
     body::{BodyStream, RequestBody},
     context::WebContext,

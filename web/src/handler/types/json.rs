@@ -1,7 +1,6 @@
 //! type extractor and response generator for json
 
 use core::{
-    convert::Infallible,
     fmt,
     future::poll_fn,
     ops::{Deref, DerefMut},

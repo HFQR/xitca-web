@@ -1,4 +1,4 @@
-use core::{convert::Infallible, marker::PhantomData, ops::Deref};
+use core::{marker::PhantomData, ops::Deref};
 
 pub use cookie::{Cookie, Key, ParseError};
 
@@ -10,19 +10,26 @@ use crate::{
     error::{error_from_service, forward_blank_bad_request, Error},
     handler::{FromRequest, Responder},
     http::{
+        header::ToStrError,
         header::{HeaderValue, COOKIE, SET_COOKIE},
-        header::{InvalidHeaderValue, ToStrError},
         WebResponse,
     },
     WebContext,
 };
 
-pub struct CookieJar<K = NoKey> {
+pub struct CookieJar<K = Plain> {
     jar: _CookieJar,
     key: K,
 }
 
-impl CookieJar<NoKey> {
+impl CookieJar {
+    pub fn plain() -> Self {
+        Self {
+            jar: _CookieJar::new(),
+            key: Plain,
+        }
+    }
+
     #[inline]
     pub fn get(&self, name: &str) -> Option<&Cookie> {
         self.jar.get(name)
@@ -46,9 +53,9 @@ impl CookieJar<NoKey> {
 }
 
 #[doc(hidden)]
-pub struct NoKey;
+pub struct Plain;
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for NoKey
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Plain
 where
     B: BodyStream,
 {
@@ -73,6 +80,21 @@ macro_rules! cookie_variant {
 
             fn deref(&self) -> &Self::Target {
                 &self.key
+            }
+        }
+
+        impl CookieJar {
+            pub fn $method<K>(key: K) -> CookieJar<$variant<K>>
+            where
+                K: Into<Key>,
+            {
+                CookieJar {
+                    jar: _CookieJar::new(),
+                    key: $variant {
+                        key: key.into(),
+                        _key: PhantomData,
+                    },
+                }
             }
         }
 
@@ -170,9 +192,6 @@ impl<'r, C, B, K> Responder<WebContext<'r, C, B>> for CookieJar<K> {
     }
 }
 
-error_from_service!(InvalidHeaderValue);
-forward_blank_bad_request!(InvalidHeaderValue);
-
 #[cfg(test)]
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
@@ -181,6 +200,10 @@ mod test {
 
     #[test]
     fn cookie() {
+        let _jar = CookieJar::plain();
+        let _jar = CookieJar::private(Key::generate());
+        let _jar = CookieJar::signed(Key::generate());
+
         let mut ctx = WebContext::new_test(&());
         let mut ctx = ctx.as_web_ctx();
         ctx.req_mut().headers_mut().insert("cookie", "foo=bar".parse().unwrap());

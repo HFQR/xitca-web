@@ -1,5 +1,3 @@
-use std::convert::Infallible;
-
 use crate::{
     body::BodyStream,
     context::WebContext,

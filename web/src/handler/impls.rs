@@ -1,12 +1,12 @@
-use core::convert::Infallible;
-
 use crate::{
     body::BodyStream,
     bytes::Bytes,
     context::WebContext,
     error::Error,
     http::{
-        const_header_value::TEXT_UTF8, header::CONTENT_TYPE, HeaderMap, RequestExt, StatusCode, WebRequest, WebResponse,
+        const_header_value::TEXT_UTF8,
+        header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
+        RequestExt, StatusCode, WebRequest, WebResponse,
     },
 };
 
@@ -155,7 +155,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Error<C> {
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
     type Response = WebResponse;
-    type Error = Infallible;
+    type Error = Error<C>;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(Bytes::new());
@@ -168,9 +168,24 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
     }
 }
 
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let res = ctx.into_response(Bytes::new());
+        <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
+    }
+
+    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
+        res.headers_mut().append(self.0, self.1);
+        Ok(res)
+    }
+}
+
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for HeaderMap {
     type Response = WebResponse;
-    type Error = Infallible;
+    type Error = Error<C>;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(Bytes::new());
@@ -187,7 +202,7 @@ macro_rules! text_utf8 {
     ($type: ty) => {
         impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
             type Response = WebResponse;
-            type Error = Infallible;
+            type Error = Error<C>;
 
             async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
                 let mut res = ctx.into_response(self);

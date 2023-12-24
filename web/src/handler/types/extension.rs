@@ -2,7 +2,7 @@
 
 use core::{fmt, ops::Deref};
 
-use std::{convert::Infallible, error};
+use std::error;
 
 use crate::{
     body::BodyStream,

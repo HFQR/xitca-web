@@ -3,6 +3,7 @@ pub mod extension;
 pub mod header;
 pub mod html;
 pub mod path;
+pub mod redirect;
 pub mod state;
 pub mod string;
 pub mod uri;

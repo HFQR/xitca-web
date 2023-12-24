@@ -89,7 +89,10 @@ pub use xitca_http::{
 use crate::{
     bytes::Bytes,
     context::WebContext,
-    http::{header::ALLOW, StatusCode, WebResponse},
+    http::{
+        header::{InvalidHeaderValue, ALLOW},
+        StatusCode, WebResponse,
+    },
     service::Service,
 };
 
@@ -242,7 +245,7 @@ macro_rules! forward_blank_bad_request {
     ($type: ty) => {
         impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for $type {
             type Response = WebResponse;
-            type Error = Infallible;
+            type Error = ::core::convert::Infallible;
 
             async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
                 crate::error::BadRequest.call(ctx).await
@@ -275,6 +278,9 @@ error_from_service!(MatchError);
 blank_error_service!(MatchError, StatusCode::NOT_FOUND);
 
 error_from_service!(MethodNotAllowed);
+
+error_from_service!(InvalidHeaderValue);
+forward_blank_bad_request!(InvalidHeaderValue);
 
 impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
     type Response = WebResponse;
