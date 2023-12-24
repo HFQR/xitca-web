@@ -151,7 +151,7 @@ forward_blank_bad_request!(ToStrError);
 error_from_service!(ParseError);
 forward_blank_bad_request!(ParseError);
 
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for CookieJar<NoKey> {
+impl<'r, C, B, K> Responder<WebContext<'r, C, B>> for CookieJar<K> {
     type Response = WebResponse;
     type Error = Error<C>;
 
