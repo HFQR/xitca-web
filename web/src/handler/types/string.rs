@@ -3,10 +3,9 @@ use std::convert::Infallible;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    error::{BadRequest, Error},
+    error::{forward_blank_bad_request, Error},
     handler::FromRequest,
     http::WebResponse,
-    service::Service,
 };
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for String
@@ -23,11 +22,4 @@ where
     }
 }
 
-impl<'r, C, B> Service<WebContext<'r, C, B>> for std::string::FromUtf8Error {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        BadRequest.call(ctx).await
-    }
-}
+forward_blank_bad_request!(std::string::FromUtf8Error);

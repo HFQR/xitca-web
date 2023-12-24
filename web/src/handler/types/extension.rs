@@ -7,10 +7,9 @@ use std::{convert::Infallible, error};
 use crate::{
     body::BodyStream,
     context::WebContext,
-    error::{BadRequest, Error},
+    error::{forward_blank_bad_request, Error},
     handler::FromRequest,
     http::{Extensions, WebResponse},
-    service::Service,
 };
 
 /// Extract immutable reference of element stored inside [Extensions]
@@ -114,11 +113,4 @@ impl fmt::Display for ExtensionNotFound {
 
 impl error::Error for ExtensionNotFound {}
 
-impl<'r, C, B> Service<WebContext<'r, C, B>> for ExtensionNotFound {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        BadRequest.call(ctx).await
-    }
-}
+forward_blank_bad_request!(ExtensionNotFound);

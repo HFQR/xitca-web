@@ -43,7 +43,6 @@ use crate::http::{BorrowReq, BorrowReqMut};
 ///
 /// # }
 ///```
-///
 pub struct ContextBuilder<CF> {
     builder: CF,
 }

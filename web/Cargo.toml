@@ -34,6 +34,9 @@ compress-br = ["http-encoding/br"]
 compress-gz = ["http-encoding/gz"]
 compress-de = ["http-encoding/de"]
 
+# cookie handler type
+cookie = ["dep:cookie"]
+
 # multipart type extractor
 multipart = ["http-multipart"]
 
@@ -81,6 +84,9 @@ serde_urlencoded = { version = "0.7.1", optional = true }
 
 # compress-x
 http-encoding = { version = "0.1", optional = true }
+
+# cookie
+cookie = { version = "0.18", features = ["percent-encode", "secure"], optional = true }
 
 # multipart
 http-multipart = { version = "0.1", optional = true }

@@ -17,6 +17,9 @@ pub mod query;
 #[cfg(feature = "json")]
 pub mod json;
 
+#[cfg(feature = "cookie")]
+pub mod cookie;
+
 #[cfg(feature = "multipart")]
 pub mod multipart;
 

@@ -211,14 +211,7 @@ text_utf8!(std::borrow::Cow<'static, str>);
 
 // shared error impl for serde enabled features: json, urlencoded, etc.
 #[cfg(feature = "serde")]
-impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for serde::de::value::Error {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        crate::error::BadRequest.call(ctx).await
-    }
-}
+crate::error::forward_blank_bad_request!(serde::de::value::Error);
 
 #[cfg(test)]
 mod test {

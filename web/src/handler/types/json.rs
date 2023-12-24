@@ -14,10 +14,9 @@ use crate::{
     body::BodyStream,
     bytes::{BufMutWriter, Bytes, BytesMut},
     context::WebContext,
-    error::{BadRequest, Error},
+    error::{error_from_service, forward_blank_bad_request, Error},
     handler::{FromRequest, Responder},
     http::{const_header_value::JSON, header::CONTENT_TYPE, WebResponse},
-    service::Service,
 };
 
 use super::{
@@ -127,17 +126,5 @@ impl<T> Json<T> {
     }
 }
 
-impl<C> From<serde_json::Error> for Error<C> {
-    fn from(e: serde_json::Error) -> Self {
-        Self::from_service(e)
-    }
-}
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for serde_json::Error {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        BadRequest.call(ctx).await
-    }
-}
+error_from_service!(serde_json::Error);
+forward_blank_bad_request!(serde_json::Error);
