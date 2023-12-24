@@ -108,8 +108,8 @@ pub(crate) async fn connect(client: &Endpoint, addr: &SocketAddr, hostname: &str
     Ok(conn)
 }
 
-fn http_1_to_0dot2(mut parts: crate::http::request::Parts) -> http_0_dot_2::Request<()> {
-    use http_0_dot_2::{Method, Request, Uri};
+fn http_1_to_0dot2(mut parts: crate::http::request::Parts) -> http_0dot2::Request<()> {
+    use http_0dot2::{Method, Request, Uri};
 
     let mut builder = Request::builder()
         .method(Method::from_bytes(parts.method.as_str().as_bytes()).unwrap())
@@ -127,7 +127,7 @@ fn http_1_to_0dot2(mut parts: crate::http::request::Parts) -> http_0_dot_2::Requ
     builder.body(()).unwrap()
 }
 
-fn http_0dot2_to_1(mut parts: http_0_dot_2::response::Parts) -> Response<()> {
+fn http_0dot2_to_1(mut parts: http_0dot2::response::Parts) -> Response<()> {
     use crate::http::StatusCode;
 
     let mut builder = Response::builder()

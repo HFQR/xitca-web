@@ -2,10 +2,12 @@ use core::convert::Infallible;
 
 use std::{io, net::Shutdown, sync::Arc};
 
-use rustls::{ServerConfig, ServerConnection};
 use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut};
 use xitca_service::Service;
-use xitca_tls::rustls_uring::TlsStream as _TlsStream;
+use xitca_tls::{
+    rustls::{ServerConfig, ServerConnection},
+    rustls_uring::TlsStream as _TlsStream,
+};
 
 use crate::{http::Version, version::AsVersion};
 

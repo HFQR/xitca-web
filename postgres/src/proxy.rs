@@ -3,7 +3,7 @@ use alloc::sync::Arc;
 use std::{collections::HashSet, error, fs, net::SocketAddr, path::Path};
 
 use quinn::{Connecting, Endpoint, RecvStream, SendStream, ServerConfig};
-use rustls::{Certificate, PrivateKey};
+use rustls_0dot21::{Certificate, PrivateKey};
 use tokio::sync::mpsc::unbounded_channel;
 use tracing::error;
 use xitca_io::{bytes::BytesMut, net::TcpStream};
@@ -102,7 +102,7 @@ fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<Server
         .map(Certificate)
         .collect();
 
-    let mut config = rustls::ServerConfig::builder()
+    let mut config = rustls_0dot21::ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert, key)?;
