@@ -61,11 +61,11 @@ where
     /// ```rust
     /// use std::sync::Arc;
     ///
-    /// use rustls::{ClientConfig, ClientConnection, ServerName};
+    /// use rustls_pki_types::ServerName;
     /// use xitca_io::net::TcpStream;
-    /// use xitca_tls::rustls::TlsStream;
+    /// use xitca_tls::rustls::{ClientConfig, ClientConnection, TlsStream};
     ///
-    /// async fn client_connect(io: TcpStream, cfg: Arc<ClientConfig>, server_name: ServerName) {
+    /// async fn client_connect(io: TcpStream, cfg: Arc<ClientConfig>, server_name: ServerName<'static>) {
     ///     let conn = ClientConnection::new(cfg, server_name).unwrap();
     ///     let _stream = TlsStream::handshake(io, conn).await.unwrap();
     /// }

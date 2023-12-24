@@ -8,10 +8,9 @@ use core::{
 
 use std::{error, io, sync::Arc};
 
-use rustls::{Error, ServerConfig, ServerConnection};
 use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use xitca_service::Service;
-use xitca_tls::rustls::TlsStream as _TlsStream;
+use xitca_tls::rustls::{Error, ServerConfig, ServerConnection, TlsStream as _TlsStream};
 
 use crate::{http::Version, version::AsVersion};
 

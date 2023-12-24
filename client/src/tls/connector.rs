@@ -69,15 +69,18 @@ impl Connector {
     pub(crate) fn rustls(protocols: &[&[u8]]) -> Self {
         use std::sync::Arc;
 
+        use rustls_pki_types::ServerName;
         use tokio_rustls::{
-            rustls::{client::ServerName, ClientConfig, OwnedTrustAnchor, RootCertStore},
+            rustls::{ClientConfig, RootCertStore},
             TlsConnector,
         };
         use webpki_roots::TLS_SERVER_ROOTS;
 
         impl TlsConnect for TlsConnector {
             async fn connect(&self, domain: &str, io: Box<dyn Io>) -> ConnectResult {
-                let name = ServerName::try_from(domain).map_err(|_| crate::error::RustlsError::InvalidDnsName)?;
+                let name = ServerName::try_from(domain)
+                    .map_err(|_| crate::error::RustlsError::InvalidDnsName)?
+                    .to_owned();
                 let stream = self.connect(name, io).await.map_err(crate::error::RustlsError::Io)?;
 
                 let version = stream.get_ref().1.alpn_protocol().map_or(Version::HTTP_11, |version| {
@@ -94,14 +97,9 @@ impl Connector {
 
         let mut root_certs = RootCertStore::empty();
 
-        for cert in TLS_SERVER_ROOTS {
-            let cert =
-                OwnedTrustAnchor::from_subject_spki_name_constraints(cert.subject, cert.spki, cert.name_constraints);
-            root_certs.add_trust_anchors([cert].into_iter());
-        }
+        root_certs.extend(TLS_SERVER_ROOTS.iter().cloned());
 
         let mut config = ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(root_certs)
             .with_no_client_auth();
 

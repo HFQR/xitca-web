@@ -23,7 +23,7 @@ use crate::{
     iter::AsyncLendingIterator,
 };
 
-use super::{tls::dangerous_config, Drive, Driver};
+use super::{Drive, Driver};
 
 pub(crate) const QUIC_ALPN: &[u8] = b"quic";
 
@@ -97,13 +97,52 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
     }
 }
 
+fn dangerous_config_rustls_0dot21(alpn: Vec<Vec<u8>>) -> Arc<rustls_0dot21::ClientConfig> {
+    use std::time::SystemTime;
+
+    use rustls_0dot21::{
+        client::{ServerCertVerified, ServerCertVerifier},
+        Certificate, ClientConfig, ServerName,
+    };
+
+    #[derive(Debug)]
+    struct SkipServerVerification;
+
+    impl SkipServerVerification {
+        fn new() -> Arc<Self> {
+            Arc::new(Self)
+        }
+    }
+
+    impl ServerCertVerifier for SkipServerVerification {
+        fn verify_server_cert(
+            &self,
+            _end_entity: &Certificate,
+            _intermediates: &[Certificate],
+            _server_name: &ServerName,
+            _scts: &mut dyn Iterator<Item = &[u8]>,
+            _ocsp_response: &[u8],
+            _now: SystemTime,
+        ) -> Result<ServerCertVerified, rustls_0dot21::Error> {
+            Ok(ServerCertVerified::assertion())
+        }
+    }
+
+    let mut cfg = ClientConfig::builder()
+        .with_safe_defaults()
+        .with_custom_certificate_verifier(SkipServerVerification::new())
+        .with_no_client_auth();
+    cfg.alpn_protocols = alpn;
+    Arc::new(cfg)
+}
+
 #[cold]
 #[inline(never)]
 async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     let addrs = super::resolve(host, ports).await?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
 
-    let cfg = dangerous_config(vec![QUIC_ALPN.to_vec()]);
+    let cfg = dangerous_config_rustls_0dot21(vec![QUIC_ALPN.to_vec()]);
     endpoint.set_default_client_config(ClientConfig::new(cfg));
 
     let mut err = None;

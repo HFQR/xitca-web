@@ -132,8 +132,8 @@ where
     Ok(())
 }
 
-fn http_1_to_0dot2(mut res: crate::http::response::Parts) -> http_0_dot_2::Response<()> {
-    use http_0_dot_2::{Response, StatusCode, Version};
+fn http_1_to_0dot2(mut res: crate::http::response::Parts) -> http_0dot2::Response<()> {
+    use http_0dot2::{Response, StatusCode, Version};
 
     let mut builder = Response::builder()
         .status(StatusCode::from_u16(res.status.as_u16()).unwrap())
@@ -151,7 +151,7 @@ fn http_1_to_0dot2(mut res: crate::http::response::Parts) -> http_0_dot_2::Respo
     builder.body(()).unwrap()
 }
 
-fn http_0dot2_to_1(mut parts: http_0_dot_2::request::Parts) -> Request<()> {
+fn http_0dot2_to_1(mut parts: http_0dot2::request::Parts) -> Request<()> {
     use crate::http::{Method, Uri};
 
     let mut builder = Request::builder()

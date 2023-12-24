@@ -117,7 +117,7 @@ mod test {
     use std::{future::IntoFuture, sync::Arc};
 
     use quinn::ServerConfig;
-    use rustls::{Certificate, PrivateKey};
+    use rustls_0dot21::{Certificate, PrivateKey};
 
     use crate::{proxy::Proxy, AsyncLendingIterator, Postgres};
 
@@ -129,7 +129,7 @@ mod test {
         let key = PrivateKey(cert.serialize_private_key_der());
         let cert = vec![Certificate(cert.serialize_der().unwrap())];
 
-        let mut config = rustls::ServerConfig::builder()
+        let mut config = rustls_0dot21::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(cert, key)

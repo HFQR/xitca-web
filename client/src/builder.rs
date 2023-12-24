@@ -162,12 +162,12 @@ impl ClientBuilder {
             use std::sync::Arc;
 
             use h3_quinn::quinn::{ClientConfig, Endpoint};
-            use tokio_rustls::rustls;
+            use rustls_0dot21 as rustls;
 
             #[cfg(not(feature = "dangerous"))]
             let h3_client = {
                 use rustls::{OwnedTrustAnchor, RootCertStore};
-                use webpki_roots::TLS_SERVER_ROOTS;
+                use webpki_roots_0dot25::TLS_SERVER_ROOTS;
 
                 let mut root_certs = RootCertStore::empty();
                 for cert in TLS_SERVER_ROOTS {
