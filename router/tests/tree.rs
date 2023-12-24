@@ -8,12 +8,31 @@ fn issue_22() {
     let mut x = Router::new();
     x.insert("/foo_bar", "Welcome!").unwrap();
     x.insert("/foo/bar", "Welcome!").unwrap();
-    assert_eq!(x.at("/foo/").unwrap_err(), MatchError::NotFound);
+    assert_eq!(x.at("/foo/").unwrap_err(), MatchError);
 
     let mut x = Router::new();
     x.insert("/foo", "Welcome!").unwrap();
     x.insert("/foo/bar", "Welcome!").unwrap();
-    assert_eq!(x.at("/foo/").unwrap_err(), MatchError::ExtraTrailingSlash);
+    assert_eq!(x.at("/foo/").unwrap_err(), MatchError);
+}
+
+#[test]
+fn issue_31() {
+    let mut router = Router::new();
+    router.insert("/path/foo", "foo").unwrap();
+    router.insert("/path/*rest", "wildcard").unwrap();
+
+    assert_eq!(router.at("/path/foo").map(|m| *m.value), Ok("foo"));
+    assert_eq!(router.at("/path/bar").map(|m| *m.value), Ok("wildcard"));
+    assert_eq!(router.at("/path/foo/").map(|m| *m.value), Ok("wildcard"));
+
+    let mut router = Router::new();
+    router.insert("/path/foo/:arg", "foo").unwrap();
+    router.insert("/path/*rest", "wildcard").unwrap();
+
+    assert_eq!(router.at("/path/foo/myarg").map(|m| *m.value), Ok("foo"));
+    assert_eq!(router.at("/path/foo/myarg/").map(|m| *m.value), Ok("wildcard"));
+    assert_eq!(router.at("/path/foo/myarg/bar/baz").map(|m| *m.value), Ok("wildcard"));
 }
 
 match_tests! {
@@ -128,7 +147,7 @@ match_tests! {
         "/cmd/who"                              :: "/cmd/:tool/"                           => None,
         "/cmd/who/"                             :: "/cmd/:tool/"                           => { "tool" => "who" },
         "/cmd/whoami"                           :: "/cmd/whoami"                           => {},
-        "/cmd/whoami/"                          :: "/cmd/whoami"                           => None,
+        "/cmd/whoami/"                          :: "/cmd/:tool/"                           => { "tool" => "whoami" },
         "/cmd/whoami/r"                         :: "/cmd/:tool2/:sub"                       => { "tool2" => "whoami", "sub" => "r" },
         "/cmd/whoami/r/"                        :: "/cmd/:tool/:sub"                       => None,
         "/cmd/whoami/root"                      :: "/cmd/whoami/root"                      => {},
@@ -343,8 +362,161 @@ match_tests! {
         ""        :: ""        => None,
         "/xxx/y"  :: "/xxx/*x" => { "x" => "y" },
         "/xxx/"   :: "/xxx/"   => {},
-        "/xxx"    :: ""        => None
-    }
+        "/xxx"    :: "/*bar"   => { "bar" => "xxx" }
+    },
+    missing_trailing_slash_param {
+        routes = [
+            "/foo/:object/:id",
+            "/foo/bar/baz",
+            "/foo/secret/978/",
+        ],
+        "/foo/secret/978/"  :: "/foo/secret/978/" => {},
+        "/foo/secret/978"   :: "/foo/:object/:id" => { "object" => "secret", "id" => "978" },
+    },
+    extra_trailing_slash_param {
+        routes = [
+            "/foo/:object/:id",
+            "/foo/bar/baz",
+            "/foo/secret/978",
+        ],
+        "/foo/secret/978/"  :: "" => None,
+        "/foo/secret/978"  :: "/foo/secret/978" => {},
+    },
+    missing_trailing_slash_catch_all {
+        routes = [
+            "/foo/*bar",
+            "/foo/bar/baz",
+            "/foo/secret/978/",
+        ],
+        "/foo/secret/978"   :: "/foo/*bar" => { "bar" => "secret/978" },
+        "/foo/secret/978/"  :: "/foo/secret/978/" => {},
+    },
+    extra_trailing_slash_catch_all {
+        routes = [
+            "/foo/*bar",
+            "/foo/bar/baz",
+            "/foo/secret/978",
+        ],
+        "/foo/secret/978/" :: "/foo/*bar" => { "bar" => "secret/978/" },
+        "/foo/secret/978"  :: "/foo/secret/978" => {},
+    },
+    double_overlap_trailing_slash {
+        routes = [
+            "/:object/:id",
+            "/secret/:id/path",
+            "/secret/978/",
+            "/other/:object/:id/",
+            "/other/an_object/:id",
+            "/other/static/path",
+            "/other/long/static/path/"
+        ],
+        "/secret/978/path/"          :: ""                    => None,
+        "/object/id/"                :: ""                    => None,
+        "/object/id/path"            :: ""                    => None,
+        "/other/object/1"            :: ""                    => None,
+        "/other/object/1/2"          :: ""                    => None,
+        "/other/an_object/1/"        :: "/other/:object/:id/" => { "object" => "an_object", "id" => "1" },
+        "/other/static/path/"        :: "/other/:object/:id/" => { "object" => "static", "id" => "path" },
+        "/other/long/static/path"    :: ""                    => None,
+        "/other/object/static/path"  :: ""                    => None,
+    },
+    trailing_slash {
+        routes = [
+            "/hi",
+            "/b/",
+            "/search/:query",
+            "/cmd/:tool/",
+            "/src/*filepath",
+            "/x",
+            "/x/y",
+            "/y/",
+            "/y/z",
+            "/0/:id",
+            "/0/:id/1",
+            "/1/:id/",
+            "/1/:id/2",
+            "/aa",
+            "/a/",
+            "/admin",
+            "/admin/static",
+            "/admin/:category",
+            "/admin/:category/:page",
+            "/doc",
+            "/doc/rust_faq.html",
+            "/doc/rust1.26.html",
+            "/no/a",
+            "/no/b",
+            "/no/a/b/*other",
+            "/api/:page/:name",
+            "/api/hello/:name/bar/",
+            "/api/bar/:name",
+            "/api/baz/foo",
+            "/api/baz/foo/bar",
+            "/foo/:p",
+        ],
+        "/hi/"               :: "" => None,
+        "/b"                 :: "" => None,
+        "/search/rustacean/" :: "" => None,
+        "/cmd/vet"           :: "" => None,
+        "/src"               :: "" => None,
+        "/src/"              :: "" => None,
+        "/x/"                :: "" => None,
+        "/y"                 :: "" => None,
+        "/0/rust/"           :: "" => None,
+        "/1/rust"            :: "" => None,
+        "/a"                 :: "" => None,
+        "/admin/"            :: "" => None,
+        "/doc/"              :: "" => None,
+        "/admin/static/"     :: "" => None,
+        "/admin/cfg/"        :: "" => None,
+        "/admin/cfg/users/"  :: "" => None,
+        "/api/hello/x/bar"   :: "" => None,
+        "/api/baz/foo/"      :: "" => None,
+        "/api/baz/bax/"      :: "" => None,
+        "/api/bar/huh/"      :: "" => None,
+        "/api/baz/foo/bar/"  :: "" => None,
+        "/api/world/abc/"    :: "" => None,
+        "/foo/pp/"           :: "" => None,
+        "/"                  :: "" => None,
+        "/no"                :: "" => None,
+        "/no/"               :: "" => None,
+        "/no/a/b"            :: "" => None,
+        "/no/a/b/"           :: "" => None,
+        "/_"                 :: "" => None,
+        "/_/"                :: "" => None,
+        "/api"               :: "" => None,
+        "/api/"              :: "" => None,
+        "/api/hello/x/foo"   :: "" => None,
+        "/api/baz/foo/bad"   :: "" => None,
+        "/foo/p/p"           :: "" => None,
+    },
+    backtracking_trailing_slash {
+        routes = [
+            "/a/:b/:c",
+            "/a/b/:c/d/",
+        ],
+        "/a/b/c/d" :: "" => None,
+    },
+    same_len {
+        routes = ["/foo", "/bar/"],
+        "/baz" :: "" => None,
+    },
+    root_trailing_slash_wildcard {
+        routes = ["/:foo"],
+        "/" :: "" => None,
+    },
+    root_trailing_slash_static {
+        routes = ["/foo"],
+        "/" :: "" => None,
+    },
+    root_trailing_slash {
+        routes = [
+            "/foo",
+            "/bar",
+            "/:baz"
+        ],
+        "/" :: "" => None,
+    },
 }
 
 // https://github.com/ibraheemdev/matchit/issues/12
@@ -495,127 +667,6 @@ insert_tests! {
     },
 }
 
-tsr_tests! {
-    tsr {
-        routes = [
-            "/hi",
-            "/b/",
-            "/search/:query",
-            "/cmd/:tool/",
-            "/src/*filepath",
-            "/x",
-            "/x/y",
-            "/y/",
-            "/y/z",
-            "/0/:id",
-            "/0/:id/1",
-            "/1/:id/",
-            "/1/:id/2",
-            "/aa",
-            "/a/",
-            "/admin",
-            "/admin/static",
-            "/admin/:category",
-            "/admin/:category/:page",
-            "/doc",
-            "/doc/rust_faq.html",
-            "/doc/rust1.26.html",
-            "/no/a",
-            "/no/b",
-            "/no/a/b/*other",
-            "/api/:page/:name",
-            "/api/hello/:name/bar/",
-            "/api/bar/:name",
-            "/api/baz/foo",
-            "/api/baz/foo/bar",
-            "/foo/:p",
-        ],
-        "/hi/"               => ExtraTrailingSlash,
-        "/b"                 => MissingTrailingSlash,
-        "/search/rustacean/" => ExtraTrailingSlash,
-        "/cmd/vet"           => MissingTrailingSlash,
-        "/src"               => NotFound,
-        "/src/"              => NotFound,
-        "/x/"                => ExtraTrailingSlash,
-        "/y"                 => MissingTrailingSlash,
-        "/0/rust/"           => ExtraTrailingSlash,
-        "/1/rust"            => MissingTrailingSlash,
-        "/a"                 => MissingTrailingSlash,
-        "/admin/"            => ExtraTrailingSlash,
-        "/doc/"              => ExtraTrailingSlash,
-        "/admin/static/"     => ExtraTrailingSlash,
-        "/admin/cfg/"        => ExtraTrailingSlash,
-        "/admin/cfg/users/"  => ExtraTrailingSlash,
-        "/api/hello/x/bar"   => MissingTrailingSlash,
-        "/api/baz/foo/"      => ExtraTrailingSlash,
-        "/api/baz/bax/"      => ExtraTrailingSlash,
-        "/api/bar/huh/"      => ExtraTrailingSlash,
-        "/api/baz/foo/bar/"  => ExtraTrailingSlash,
-        "/api/world/abc/"    => ExtraTrailingSlash,
-        "/foo/pp/"           => ExtraTrailingSlash,
-        "/"                  => NotFound,
-        "/no"                => NotFound,
-        "/no/"               => NotFound,
-        "/no/a/b"            => NotFound,
-        "/no/a/b/"           => NotFound,
-        "/_"                 => NotFound,
-        "/_/"                => NotFound,
-        "/api"               => NotFound,
-        "/api/"              => NotFound,
-        "/api/hello/x/foo"   => NotFound,
-        "/api/baz/foo/bad"   => NotFound,
-        "/foo/p/p"           => NotFound,
-    },
-    backtracking_tsr {
-        routes = [
-            "/a/:b/:c",
-            "/a/b/:c/d/",
-        ],
-        "/a/b/c/d"   => MissingTrailingSlash,
-    },
-    same_len {
-        routes = ["/foo", "/bar/"],
-        "/baz" => NotFound,
-    },
-    root_tsr_wildcard {
-        routes = ["/:foo"],
-        "/" => NotFound,
-    },
-    root_tsr_static {
-        routes = ["/foo"],
-        "/" => NotFound,
-    },
-    root_tsr {
-        routes = [
-            "/foo",
-            "/bar",
-            "/:baz"
-        ],
-        "/" => NotFound,
-    },
-    double_overlap_tsr {
-        routes = [
-            "/:object/:id",
-            "/secret/:id/path",
-            "/secret/978/",
-            "/other/:object/:id/",
-            "/other/an_object/:id",
-            "/other/static/path",
-            "/other/long/static/path/"
-        ],
-        "/secret/978/path/"          => ExtraTrailingSlash,
-        "/object/id/"                => ExtraTrailingSlash,
-        "/object/id/path"            => NotFound,
-        "/secret/978"                => MissingTrailingSlash,
-        "/other/object/1"            => MissingTrailingSlash,
-        "/other/object/1/2"          => NotFound,
-        "/other/an_object/1/"        => ExtraTrailingSlash,
-        "/other/static/path/"        => ExtraTrailingSlash,
-        "/other/long/static/path"    => MissingTrailingSlash,
-        "/other/object/static/path"  => NotFound,
-    },
-}
-
 macro_rules! match_tests {
     ($($name:ident {
         routes = $routes:expr,
@@ -700,29 +751,4 @@ macro_rules! insert_tests {
    )* };
 }
 
-macro_rules! tsr_tests {
-    ($($name:ident {
-        routes = $routes:expr,
-        $($path:literal => $tsr:ident),* $(,)?
-    }),* $(,)?) => { $(
-        #[test]
-        fn $name() {
-            let mut router = Router::new();
-
-            for route in $routes {
-                router.insert(route, route.to_owned())
-                    .unwrap_or_else(|e| panic!("error when inserting route '{}': {:?}", route, e));
-            }
-
-            $(
-                match router.at($path) {
-                    Err(MatchError::$tsr) => {},
-                    Err(e) => panic!("wrong tsr value for '{}', expected {}, found {}", $path, MatchError::$tsr, e),
-                    res => panic!("unexpected result for '{}': {:?}", $path, res)
-                }
-            )*
-        }
-   )* };
-}
-
-use {insert_tests, match_tests, tsr_tests};
+use {insert_tests, match_tests};

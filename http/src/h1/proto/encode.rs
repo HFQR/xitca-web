@@ -127,6 +127,16 @@ where
             };
 
             match name {
+                CONNECTION => {
+                    if self.is_connection_closed() {
+                        // skip write header on close condition.
+                        // the header is checked again and written properly afterwards.
+                        continue;
+                    }
+                    self.try_set_close_from_header(&value)?;
+                }
+                UPGRADE => encoding = TransferCoding::upgrade(),
+                DATE => skip_date = true,
                 CONTENT_LENGTH => {
                     debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
                     let value = header::parse_content_length(&value)?;
@@ -138,16 +148,6 @@ where
                     encoding = TransferCoding::encode_chunked();
                     skip_len = true;
                 }
-                CONNECTION => {
-                    if self.is_connection_closed() {
-                        // skip write header on close condition.
-                        // the header is checked again and written properly afterwards.
-                        continue;
-                    }
-                    self.try_set_close_from_header(&value)?;
-                }
-                UPGRADE => encoding = TransferCoding::upgrade(),
-                DATE => skip_date = true,
                 _ => {}
             }
 
@@ -167,14 +167,11 @@ where
             }
         }
 
-        if self.is_connection_closed() {
-            buf.extend_from_slice(b"\r\nconnection: close");
-        }
-
         // encode transfer-encoding or content-length
         if !skip_len {
             match size {
                 BodySize::None => {
+                    self.set_close();
                     encoding = TransferCoding::eof();
                 }
                 BodySize::Stream => {
@@ -192,6 +189,10 @@ where
                     encoding = TransferCoding::length(size as u64);
                 }
             }
+        }
+
+        if self.is_connection_closed() {
+            buf.extend_from_slice(b"\r\nconnection: close");
         }
 
         if self.is_head_method() {
