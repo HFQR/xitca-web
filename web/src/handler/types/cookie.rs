@@ -200,13 +200,21 @@ mod test {
 
     #[test]
     fn cookie() {
-        let _jar = CookieJar::plain();
-        let _jar = CookieJar::private(Key::generate());
-        let _jar = CookieJar::signed(Key::generate());
-
         let mut ctx = WebContext::new_test(&());
         let mut ctx = ctx.as_web_ctx();
-        ctx.req_mut().headers_mut().insert("cookie", "foo=bar".parse().unwrap());
+
+        let mut jar = CookieJar::plain();
+        jar.add(("foo", "bar"));
+
+        let cookie = jar
+            .respond(ctx.reborrow())
+            .now_or_panic()
+            .unwrap()
+            .headers_mut()
+            .remove(SET_COOKIE)
+            .unwrap();
+
+        ctx.req_mut().headers_mut().insert(COOKIE, cookie);
 
         let mut jar: CookieJar = CookieJar::from_request(&ctx).now_or_panic().unwrap();
 
@@ -247,14 +255,21 @@ mod test {
 
         let key = Key::generate();
 
-        let mut jar = _CookieJar::new();
-        jar.private_mut(&key).add(Cookie::new("foo", "bar"));
-        let cookie = jar.delta().next().unwrap().to_string().try_into().unwrap();
+        let mut jar = CookieJar::private(key.clone());
+        jar.add(("foo", "bar"));
+
+        let cookie = jar
+            .respond(ctx.reborrow())
+            .now_or_panic()
+            .unwrap()
+            .headers_mut()
+            .remove(SET_COOKIE)
+            .unwrap();
 
         ctx.req_mut().headers_mut().insert(COOKIE, cookie);
         ctx.req_mut().extensions_mut().insert(MyKey(key));
 
-        let jar: CookieJar<Private<MyKey>> = CookieJar::<Private<MyKey>>::from_request(&ctx).now_or_panic().unwrap();
+        let jar = CookieJar::<Private<MyKey>>::from_request(&ctx).now_or_panic().unwrap();
 
         let val = jar.get("foo").unwrap();
         assert_eq!(val.name(), "foo");
@@ -268,15 +283,21 @@ mod test {
 
         let key = Key::generate();
 
-        let mut jar = _CookieJar::new();
-        jar.signed_mut(&key).add(Cookie::new("foo", "bar"));
+        let mut jar = CookieJar::signed(key.clone());
+        jar.add(("foo", "bar"));
 
-        let cookie = jar.delta().next().unwrap().to_string().try_into().unwrap();
+        let cookie = jar
+            .respond(ctx.reborrow())
+            .now_or_panic()
+            .unwrap()
+            .headers_mut()
+            .remove(SET_COOKIE)
+            .unwrap();
 
         ctx.req_mut().headers_mut().insert(COOKIE, cookie);
         ctx.req_mut().extensions_mut().insert(MyKey(key));
 
-        let jar: CookieJar<Signed<MyKey>> = CookieJar::<Signed<MyKey>>::from_request(&ctx).now_or_panic().unwrap();
+        let jar = CookieJar::<Signed<MyKey>>::from_request(&ctx).now_or_panic().unwrap();
 
         let val = jar.get("foo").unwrap();
         assert_eq!(val.name(), "foo");

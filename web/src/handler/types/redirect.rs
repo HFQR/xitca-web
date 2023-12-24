@@ -24,6 +24,7 @@ macro_rules! variants {
 }
 
 impl Redirect {
+    variants!(found, FOUND);
     variants!(see_other, SEE_OTHER);
     variants!(temporary, TEMPORARY_REDIRECT);
     variants!(permanent, PERMANENT_REDIRECT);

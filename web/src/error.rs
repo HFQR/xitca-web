@@ -271,6 +271,39 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
     }
 }
 
+pub struct ErrorStatus(StatusCode);
+
+impl fmt::Debug for ErrorStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl fmt::Display for ErrorStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl error::Error for ErrorStatus {}
+
+impl<C> From<StatusCode> for Error<C> {
+    fn from(e: StatusCode) -> Self {
+        Error::from_service(ErrorStatus(e))
+    }
+}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for ErrorStatus {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let mut res = ctx.into_response(Bytes::new());
+        *res.status_mut() = self.0;
+        Ok(res)
+    }
+}
+
 error_from_service!(io::Error);
 forward_blank_internal!(io::Error);
 
