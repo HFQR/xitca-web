@@ -7,7 +7,7 @@ use std::error;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    error::{forward_blank_bad_request, Error},
+    error::{error_from_service, forward_blank_bad_request, Error},
     handler::FromRequest,
     http::{Extensions, WebResponse},
 };
@@ -113,4 +113,5 @@ impl fmt::Display for ExtensionNotFound {
 
 impl error::Error for ExtensionNotFound {}
 
+error_from_service!(ExtensionNotFound);
 forward_blank_bad_request!(ExtensionNotFound);
