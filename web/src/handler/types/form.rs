@@ -168,7 +168,7 @@ mod test {
                 APPLICATION_WWW_FORM_URLENCODED
             );
         }
-        
+
         let body2 = collect_body(res.into_body()).now_or_panic().unwrap();
         assert_eq!(body2.as_slice(), body);
     }
