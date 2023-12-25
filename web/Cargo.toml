@@ -27,8 +27,6 @@ json = ["serde", "serde_json"]
 # urlencoded type extractor
 urlencoded = ["serde", "serde_urlencoded" ]
 
-serde = ["dep:serde"]
-
 # (de)compression middlewares
 compress-br = ["http-encoding/br"]
 compress-gz = ["http-encoding/gz"]
@@ -52,6 +50,9 @@ codegen = ["xitca-codegen"]
 # experimental tower-http Layer compat
 tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 
+# (de)serialization shared feature.
+serde = ["dep:serde"]
+
 # private http server feature
 __server = ["xitca-http/runtime", "xitca-server"]
 
@@ -73,7 +74,7 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 # rustls
 rustls-crate = { package = "rustls", version = "0.22", optional = true }
 
-# params, json and urlencoded shared
+# (de)serialization shared.
 serde = { version = "1", optional = true }
 
 # json

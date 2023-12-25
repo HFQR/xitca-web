@@ -7,7 +7,9 @@ pub mod redirect;
 pub mod state;
 pub mod string;
 pub mod uri;
-pub mod vec;
+
+#[cfg(feature = "serde")]
+pub mod lazy;
 
 #[cfg(feature = "params")]
 pub mod params;

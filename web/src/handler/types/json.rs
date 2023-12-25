@@ -2,12 +2,10 @@
 
 use core::{
     fmt,
-    future::poll_fn,
     ops::{Deref, DerefMut},
-    pin::pin,
 };
 
-use serde::{de::DeserializeOwned, ser::Serialize};
+use serde::{de::Deserialize, ser::Serialize};
 
 use crate::{
     body::BodyStream,
@@ -19,8 +17,9 @@ use crate::{
 };
 
 use super::{
-    body::Body,
+    body::Limit,
     header::{self, HeaderRef},
+    lazy::Lazy,
 };
 
 pub const DEFAULT_LIMIT: usize = 1024 * 1024;
@@ -60,36 +59,39 @@ impl<T, const LIMIT: usize> DerefMut for Json<T, LIMIT> {
 impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Json<T, LIMIT>
 where
     B: BodyStream + Default,
-    T: DeserializeOwned,
+    T: for<'de> Deserialize<'de>,
 {
     type Type<'b> = Json<T, LIMIT>;
     type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
+        let (bytes, _) = <(BytesMut, Limit<LIMIT>)>::from_request(ctx).await?;
+        serde_json::from_slice(&bytes).map(Json).map_err(Into::into)
+    }
+}
 
-        let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(ctx)
-            .await
-            .ok()
-            .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
-            .map(|len| std::cmp::min(len, LIMIT))
-            .unwrap_or_else(|| LIMIT);
+impl<T, const LIMIT: usize> Lazy<Json<T, LIMIT>> {
+    pub fn deserialize<'de, C>(&'de self) -> Result<Json<T, LIMIT>, Error<C>>
+    where
+        T: Deserialize<'de>,
+    {
+        serde_json::from_slice(&self.buf).map(Json).map_err(Into::into)
+    }
+}
 
-        let Body(body) = Body::from_request(ctx).await?;
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Lazy<Json<T, LIMIT>>
+where
+    B: BodyStream + Default,
+    T: Deserialize<'static>,
+{
+    type Type<'b> = Lazy<Json<T, LIMIT>>;
+    type Error = Error<C>;
 
-        let mut body = pin!(body);
-
-        let mut buf = BytesMut::new();
-
-        while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(Into::into)?;
-            buf.extend_from_slice(chunk.as_ref());
-            if buf.len() > limit {
-                break;
-            }
-        }
-
-        serde_json::from_slice(&buf).map(Json).map_err(Into::into)
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
+        let (bytes, _) = <(Vec<u8>, Limit<LIMIT>)>::from_request(ctx).await?;
+        Ok(Lazy::new(bytes))
     }
 }
 
@@ -127,3 +129,36 @@ impl<T> Json<T> {
 
 error_from_service!(serde_json::Error);
 forward_blank_bad_request!(serde_json::Error);
+
+#[cfg(test)]
+mod test {
+    use xitca_unsafe_collection::futures::NowOrPanic;
+
+    use crate::http::header::CONTENT_LENGTH;
+
+    use super::*;
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct Gacha<'a> {
+        name: &'a str,
+    }
+
+    #[test]
+    fn extract_lazy() {
+        let mut ctx = WebContext::new_test(&());
+        let mut ctx = ctx.as_web_ctx();
+
+        let body = serde_json::to_string(&Gacha { name: "arisu" }).unwrap();
+
+        ctx.req_mut().headers_mut().insert(CONTENT_TYPE, JSON);
+        ctx.req_mut().headers_mut().insert(CONTENT_LENGTH, body.len().into());
+
+        *ctx.body_borrow_mut() = body.into();
+
+        let lazy = Lazy::<Json<Gacha<'_>>>::from_request(&ctx).now_or_panic().unwrap();
+
+        let Json(user) = lazy.deserialize::<()>().unwrap();
+
+        assert_eq!(user.name, "arisu");
+    }
+}
