@@ -14,19 +14,18 @@
 use xitca_web::{
     error::Error,
     handler::{
-        cookie::{CookieJar, Key, Private},
+        cookie::{CookieJar, Private, StateKey},
         handler_service,
         redirect::Redirect,
-        FromRequest,
     },
     http::StatusCode,
     route::{get, post},
-    App, WebContext,
+    App,
 };
 
 fn main() -> std::io::Result<()> {
-    // a random generated private key.
-    let key = StateKey(Key::generate());
+    // a random generated private key that supposed to be added into application state.
+    let key = StateKey::generate();
     App::with_state(key)
         .at("/", get(handler_service(index)))
         .at("/auth", post(handler_service(auth)))
@@ -36,54 +35,27 @@ fn main() -> std::io::Result<()> {
         .wait()
 }
 
-// storage location of key can be customized:
-// normally it's either in application state or extension middleware and can be extended
-// to any key storage location(database, remote peer, cloud, etc) as long as the key
-// retrieving logic can be implemented inside FromRequest::from_request trait method.
-
-// a cookie jar key stored in application state.
-#[derive(Clone)]
-struct StateKey(Key);
-
-// necessary boilerplate for CookieJar to convert our key type to the key
-// it knows.
-impl From<StateKey> for Key {
-    fn from(key: StateKey) -> Key {
-        key.0
-    }
-}
-
-// logic of retrieving state key.
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for StateKey
-where
-    // please reference xitca_web::App::with_state API document for explanation.
-    C: std::borrow::Borrow<Self>,
-{
-    type Type<'b> = Self;
-    type Error = Error<C>;
-
-    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(ctx.state().borrow().clone())
-    }
-}
-
 // type alias of cookie jar.
 // The Private type indicate the cookie jar is private and encrypted with a key which is
 // the StateKey type we setup earlier.
 type PrivateJar = CookieJar<Private<StateKey>>;
 
-// extract extension key and construct a new private cookie jar.
+// a dummy authenticate route.
 async fn auth(key: StateKey) -> (Redirect, PrivateJar) {
+    // extract state key and generate a new cookie jar.
     let mut jar = CookieJar::private(key);
+    // insert cookie key=value pair to the jar.
     jar.add(("user", "foo"));
-    // send cookie to client and redirect him to /
+    // send cookie jar to client and redirect him to "/" route.
     (Redirect::see_other("/"), jar)
 }
 
 // extract cookie and generate http response.
 async fn index<C>(jar: PrivateJar) -> Result<String, Error<C>> {
     match jar.get("user") {
+        // authenticated user can observe the cookie key=value pair acquired from "/auth" route
         Some(user) => Ok(format!("hello: {user}")),
+        // otherwise it's an unauthorized request.
         None => Err(StatusCode::UNAUTHORIZED.into()),
     }
 }

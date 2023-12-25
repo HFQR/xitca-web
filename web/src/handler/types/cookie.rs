@@ -1,4 +1,4 @@
-use core::{marker::PhantomData, ops::Deref};
+use core::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
 pub use cookie::{Cookie, Key, ParseError};
 
@@ -16,6 +16,78 @@ use crate::{
     },
     WebContext,
 };
+
+use super::extension::ExtensionNotFound;
+
+macro_rules! key_impl {
+    ($key: tt) => {
+        impl $key {
+            /// generates signing/encryption keys from a secure, random source.
+            /// see [Key] for further detail.
+            #[inline]
+            pub fn generate() -> Self {
+                Self(Key::generate())
+            }
+
+            /// convert an existing [Key] type to Self.
+            #[inline]
+            pub fn from_key(key: impl Into<Key>) -> Self {
+                Self(key.into())
+            }
+        }
+
+        impl From<$key> for Key {
+            fn from(key: $key) -> Key {
+                key.0
+            }
+        }
+    };
+}
+
+/// an extractor type wrapping around [Key] hinting itself can be extracted from
+/// application state. See [App::with_state] for compile time state management.
+///
+/// [App::with_state]: crate::App::with_state
+#[derive(Clone, Debug)]
+pub struct StateKey(Key);
+
+key_impl!(StateKey);
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for StateKey
+where
+    C: Borrow<Self>,
+{
+    type Type<'b> = Self;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.state().borrow().clone())
+    }
+}
+
+/// an extractor type wrapping around [Key] hinting itself can be extracted from
+/// request extensions. See [WebRequest::extensions] for run time state management.
+///
+/// [WebRequest::extensions]: crate::http::WebRequest::extensions
+#[derive(Clone, Debug)]
+pub struct ExtensionKey(Key);
+
+key_impl!(ExtensionKey);
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionKey {
+    type Type<'b> = Self;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        ctx.req()
+            .extensions()
+            .get::<Self>()
+            .cloned()
+            .ok_or_else(|| Error::from(ExtensionNotFound))
+    }
+}
 
 pub struct CookieJar<K = Plain> {
     jar: _CookieJar,
