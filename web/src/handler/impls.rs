@@ -1,6 +1,5 @@
 use crate::{
-    body::BodyStream,
-    bytes::Bytes,
+    body::{BodyStream, ResponseBody},
     context::WebContext,
     error::Error,
     http::{
@@ -158,7 +157,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
     type Error = Error<C>;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(Bytes::new());
+        let res = ctx.into_response(ResponseBody::empty());
         <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
     }
 
@@ -173,7 +172,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
     type Error = Error<C>;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(Bytes::new());
+        let res = ctx.into_response(ResponseBody::empty());
         <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
     }
 
@@ -188,7 +187,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for HeaderMap {
     type Error = Error<C>;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(Bytes::new());
+        let res = ctx.into_response(ResponseBody::empty());
         <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
     }
 

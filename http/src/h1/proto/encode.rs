@@ -171,7 +171,6 @@ where
         if !skip_len {
             match size {
                 BodySize::None => {
-                    self.set_close();
                     encoding = TransferCoding::eof();
                 }
                 BodySize::Stream => {

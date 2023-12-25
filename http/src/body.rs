@@ -302,6 +302,22 @@ impl<B> Default for ResponseBody<B> {
 }
 
 impl ResponseBody {
+    /// indicate no body is attached to response.
+    /// `content-length` and `transfer-encoding` headers would not be added to
+    /// response when [BodySize] is used for inferring response body type.
+    #[inline]
+    pub const fn none() -> Self {
+        Self::None
+    }
+
+    /// indicate empty body is attached to response.
+    /// `content-length: 0` header would be added to response when [BodySize] is
+    /// used for inferring response body type.
+    #[inline]
+    pub const fn empty() -> Self {
+        Self::Bytes { bytes: Bytes::new() }
+    }
+
     /// Construct a new Stream variant of ResponseBody with default type as [BoxBody]
     #[inline]
     pub fn box_stream<B, E>(stream: B) -> Self

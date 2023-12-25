@@ -87,7 +87,7 @@ pub use xitca_http::{
 };
 
 use crate::{
-    bytes::Bytes,
+    body::ResponseBody,
     context::WebContext,
     http::{
         header::{InvalidHeaderValue, ALLOW},
@@ -218,7 +218,7 @@ macro_rules! blank_error_service {
             type Error = Infallible;
 
             async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-                let mut res = ctx.into_response(Bytes::new());
+                let mut res = ctx.into_response(ResponseBody::empty());
                 *res.status_mut() = $status;
                 Ok(res)
             }
@@ -298,7 +298,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for ErrorStatus {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(Bytes::new());
+        let mut res = ctx.into_response(ResponseBody::empty());
         *res.status_mut() = self.0;
         Ok(res)
     }
@@ -320,7 +320,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(Bytes::new());
+        let mut res = ctx.into_response(ResponseBody::empty());
 
         let allowed = self.allowed_methods();
 

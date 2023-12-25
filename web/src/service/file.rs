@@ -9,7 +9,6 @@ use xitca_http::{http::StatusCode, util::service::router::RouterGen};
 
 use crate::{
     body::ResponseBody,
-    bytes::Bytes,
     context::WebContext,
     error::{BadRequest, Error, Internal, MatchError, MethodNotAllowed, RouterError},
     http::{Method, WebResponse},
@@ -84,7 +83,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for ServeDirService {
         match self.0.serve(ctx.req()).await {
             Ok(res) => Ok(res.map(ResponseBody::box_stream)),
             Err(ServeError::NotModified) => {
-                let mut res = ctx.into_response(Bytes::new());
+                let mut res = ctx.into_response(ResponseBody::none());
                 *res.status_mut() = StatusCode::NOT_MODIFIED;
                 Ok(res)
             }
