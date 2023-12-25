@@ -59,7 +59,7 @@ where
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let query = ctx.req().uri().query().ok_or_else(|| BadRequest)?;
+        let query = ctx.req().uri().query().ok_or(BadRequest)?;
         Ok(Lazy::from(query.as_bytes()))
     }
 }

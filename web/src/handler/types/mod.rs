@@ -8,7 +8,7 @@ pub mod state;
 pub mod string;
 pub mod uri;
 
-#[cfg(feature = "serde")]
+#[cfg(any(feature = "urlencoded", feature = "json"))]
 pub mod lazy;
 
 #[cfg(feature = "params")]
