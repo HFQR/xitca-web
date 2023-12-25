@@ -74,12 +74,12 @@ impl<S> TowerCompatService<S> {
 
 impl<'r, C, ReqB, S, ResB> Service<WebContext<'r, C, ReqB>> for TowerCompatService<S>
 where
-    S: tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>, Response = Response<ResB>>,
+    S: tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>>>, Response = Response<ResB>>,
     ResB: Body,
     C: Clone + 'static,
     ReqB: Default,
 {
-    type Response = WebResponse<CompatBody<ResB>>;
+    type Response = WebResponse<CompatResBody<ResB>>;
     type Error = S::Error;
 
     async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
@@ -88,9 +88,9 @@ where
         parts
             .extensions
             .insert(FakeClone::new(FakeSync::new(FakeSend::new(state))));
-        let req = Request::from_parts(parts, CompatBody::new(FakeSend::new(ext)));
+        let req = Request::from_parts(parts, CompatReqBody::new(ext));
         let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
-        fut.await.map(|res| res.map(CompatBody::new))
+        fut.await.map(|res| res.map(CompatResBody::new))
     }
 }
 
@@ -101,14 +101,49 @@ impl<S> ReadyService for TowerCompatService<S> {
     async fn ready(&self) -> Self::Ready {}
 }
 
+pub struct CompatReqBody<B> {
+    body: FakeSend<B>,
+}
+
+impl<B> CompatReqBody<B> {
+    pub fn new(body: B) -> Self {
+        Self {
+            body: FakeSend::new(body),
+        }
+    }
+
+    pub fn into_inner(self) -> B {
+        self.body.into_inner()
+    }
+}
+
+impl<B, T, E> Body for CompatReqBody<B>
+where
+    B: Stream<Item = Result<T, E>> + Unpin,
+    T: Buf,
+{
+    type Data = T;
+    type Error = E;
+
+    #[inline]
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        Pin::new(&mut *self.get_mut().body).poll_next(cx).map_ok(Frame::data)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
+        size_hint(BodySize::from_stream(&*self.body))
+    }
+}
+
 pin_project! {
-    pub struct CompatBody<B> {
+    pub struct CompatResBody<B> {
         #[pin]
         body: B
     }
 }
 
-impl<B> CompatBody<B> {
+impl<B> CompatResBody<B> {
     pub fn new(body: B) -> Self {
         Self { body }
     }
@@ -118,7 +153,7 @@ impl<B> CompatBody<B> {
     }
 }
 
-impl<B, T, E> Body for CompatBody<B>
+impl<B, T, E> Body for CompatResBody<B>
 where
     B: Stream<Item = Result<T, E>>,
     T: Buf,
@@ -131,23 +166,13 @@ where
         self.project().body.poll_next(cx).map_ok(Frame::data)
     }
 
+    #[inline]
     fn size_hint(&self) -> SizeHint {
-        let mut hint = SizeHint::new();
-        match BodySize::from_stream(&self.body) {
-            BodySize::None => {
-                let (low, upper) = none_body_hint();
-                hint.set_lower(low as u64);
-                hint.set_upper(upper.unwrap() as u64);
-            }
-            BodySize::Sized(size) => hint.set_exact(size as u64),
-            BodySize::Stream => {}
-        }
-
-        hint
+        size_hint(BodySize::from_stream(&self.body))
     }
 }
 
-impl<B> Stream for CompatBody<B>
+impl<B> Stream for CompatResBody<B>
 where
     B: Body,
 {
@@ -167,6 +192,21 @@ where
     }
 }
 
+fn size_hint(size: BodySize) -> SizeHint {
+    let mut hint = SizeHint::new();
+    match size {
+        BodySize::None => {
+            let (low, upper) = none_body_hint();
+            hint.set_lower(low as u64);
+            hint.set_upper(upper.unwrap() as u64);
+        }
+        BodySize::Sized(size) => hint.set_exact(size as u64),
+        BodySize::Stream => {}
+    }
+
+    hint
+}
+
 #[cfg(test)]
 mod test {
     use xitca_http::body::{exact_body_hint, Once};
@@ -179,7 +219,7 @@ mod test {
     fn body_compat() {
         let buf = Bytes::from_static(b"996");
         let len = buf.len();
-        let body = CompatBody::new(Once::new(buf));
+        let body = CompatResBody::new(Once::new(buf));
 
         let size = Body::size_hint(&body);
 
@@ -188,7 +228,7 @@ mod test {
             exact_body_hint(len)
         );
 
-        let body = CompatBody::new(body);
+        let body = CompatResBody::new(body);
 
         let size = Stream::size_hint(&body);
 
