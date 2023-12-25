@@ -68,27 +68,27 @@ where
     }
 }
 
-impl<T, const LIMIT: usize> Lazy<Form<T, LIMIT>> {
-    pub fn deserialize<'de, C>(&'de self) -> Result<Form<T, LIMIT>, Error<C>>
+impl<T, const LIMIT: usize> Lazy<'static, Form<T, LIMIT>> {
+    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
     where
         T: Deserialize<'de>,
     {
-        serde_urlencoded::from_bytes(&self.buf).map(Form).map_err(Into::into)
+        serde_urlencoded::from_bytes(self.as_slice()).map_err(Into::into)
     }
 }
 
-impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Lazy<Form<T, LIMIT>>
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Lazy<'static, Form<T, LIMIT>>
 where
     B: BodyStream + Default,
     T: Deserialize<'static>,
 {
-    type Type<'b> = Lazy<Form<T, LIMIT>>;
+    type Type<'b> = Lazy<'static, Form<T, LIMIT>>;
     type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
         let (bytes, _) = <(Vec<u8>, Limit<LIMIT>)>::from_request(ctx).await?;
-        Ok(Lazy::new(bytes))
+        Ok(Lazy::from(bytes))
     }
 }
 

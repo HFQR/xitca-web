@@ -71,27 +71,27 @@ where
     }
 }
 
-impl<T, const LIMIT: usize> Lazy<Json<T, LIMIT>> {
-    pub fn deserialize<'de, C>(&'de self) -> Result<Json<T, LIMIT>, Error<C>>
+impl<T, const LIMIT: usize> Lazy<'static, Json<T, LIMIT>> {
+    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
     where
         T: Deserialize<'de>,
     {
-        serde_json::from_slice(&self.buf).map(Json).map_err(Into::into)
+        serde_json::from_slice(self.as_slice()).map_err(Into::into)
     }
 }
 
-impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Lazy<Json<T, LIMIT>>
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Lazy<'static, Json<T, LIMIT>>
 where
     B: BodyStream + Default,
     T: Deserialize<'static>,
 {
-    type Type<'b> = Lazy<Json<T, LIMIT>>;
+    type Type<'b> = Lazy<'static, Json<T, LIMIT>>;
     type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
         let (bytes, _) = <(Vec<u8>, Limit<LIMIT>)>::from_request(ctx).await?;
-        Ok(Lazy::new(bytes))
+        Ok(Lazy::from(bytes))
     }
 }
 
@@ -134,13 +134,13 @@ forward_blank_bad_request!(serde_json::Error);
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::http::header::CONTENT_LENGTH;
+    use crate::{handler::handler_service, http::header::CONTENT_LENGTH, service::Service, test::collect_string_body};
 
     use super::*;
 
     #[derive(serde::Deserialize, serde::Serialize)]
     struct Gacha<'a> {
-        name: &'a str,
+        credit_card: &'a str,
     }
 
     #[test]
@@ -148,17 +148,27 @@ mod test {
         let mut ctx = WebContext::new_test(&());
         let mut ctx = ctx.as_web_ctx();
 
-        let body = serde_json::to_string(&Gacha { name: "arisu" }).unwrap();
+        let body = serde_json::to_string(&Gacha {
+            credit_card: "declined",
+        })
+        .unwrap();
 
         ctx.req_mut().headers_mut().insert(CONTENT_TYPE, JSON);
         ctx.req_mut().headers_mut().insert(CONTENT_LENGTH, body.len().into());
 
         *ctx.body_borrow_mut() = body.into();
 
-        let lazy = Lazy::<Json<Gacha<'_>>>::from_request(&ctx).now_or_panic().unwrap();
+        async fn handler(lazy: Lazy<'static, Json<Gacha<'_>>>) -> &'static str {
+            let ga = lazy.deserialize::<()>().unwrap();
+            assert_eq!(ga.credit_card, "declined");
+            "bankruptcy"
+        }
 
-        let Json(user) = lazy.deserialize::<()>().unwrap();
+        let service = handler_service(handler).call(()).now_or_panic().unwrap();
 
-        assert_eq!(user.name, "arisu");
+        let body = service.call(ctx).now_or_panic().unwrap().into_body();
+        let res = collect_string_body(body).now_or_panic().unwrap();
+
+        assert_eq!(res, "bankruptcy");
     }
 }
