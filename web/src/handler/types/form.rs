@@ -149,9 +149,7 @@ mod test {
             .headers_mut()
             .insert(CONTENT_TYPE, APPLICATION_WWW_FORM_URLENCODED);
 
-        ctx.req_mut()
-            .headers_mut()
-            .insert(CONTENT_LENGTH, body.len().try_into().unwrap());
+        ctx.req_mut().headers_mut().insert(CONTENT_LENGTH, body.len().into());
 
         *ctx.body_borrow_mut() = body.into();
 
@@ -162,10 +160,15 @@ mod test {
 
         let res = Form(s).respond(ctx).now_or_panic().unwrap();
         assert_eq!(res.status().as_u16(), 200);
-        assert_eq!(
-            res.headers().get(CONTENT_TYPE).unwrap(),
-            APPLICATION_WWW_FORM_URLENCODED
-        );
+
+        #[allow(clippy::borrow_interior_mutable_const)]
+        {
+            assert_eq!(
+                res.headers().get(CONTENT_TYPE).unwrap(),
+                APPLICATION_WWW_FORM_URLENCODED
+            );
+        }
+        
         let body2 = collect_body(res.into_body()).now_or_panic().unwrap();
         assert_eq!(body2.as_slice(), body);
     }
