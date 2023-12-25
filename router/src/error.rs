@@ -73,6 +73,7 @@ impl InsertError {
     }
 }
 
+/// error type indicate Router can not find a matching route.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct MatchError;
 

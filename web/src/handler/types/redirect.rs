@@ -1,3 +1,5 @@
+//! type responder for http redirecting response.
+
 use crate::{
     body::ResponseBody,
     error::{Error, Internal},

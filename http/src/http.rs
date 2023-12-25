@@ -30,6 +30,7 @@ pub mod const_header_value {
         (TEXT, "text/plain"),
         (TEXT_UTF8, "text/plain; charset=utf-8"),
         (JSON, "application/json"),
+        (APPLICATION_WWW_FORM_URLENCODED, "application/x-www-form-urlencoded"),
         (TEXT_HTML_UTF8, "text/html; charset=utf-8"),
         (GRPC, "application/grpc"),
         (WEBSOCKET, "websocket")

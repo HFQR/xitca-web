@@ -271,6 +271,8 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
     }
 }
 
+/// error type derive from http status code.
+/// produce minimal "StatusCode Reason" response.
 pub struct ErrorStatus(StatusCode);
 
 impl fmt::Debug for ErrorStatus {
@@ -364,6 +366,13 @@ impl<C> From<StdErr> for Error<C> {
 
 forward_blank_internal!(StdErr);
 
+/// new type for `Box<dyn std::error::Error + Send + Sync>`. produce minimal
+/// "500 InternalServerError" response and forward formatting, error handling
+/// to inner type.
+///
+/// In other word it's an error type keep it's original formatting and error
+/// handling methods without a specific `Service` impl for generating complex
+/// http response.
 pub struct StdError(pub StdErr);
 
 impl fmt::Debug for StdError {
@@ -389,6 +398,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
     }
 }
 
+/// error type that produce minimal "500 InternalServerError" response.
 #[derive(Debug)]
 pub struct Internal;
 
@@ -403,6 +413,7 @@ impl error::Error for Internal {}
 error_from_service!(Internal);
 blank_error_service!(Internal, StatusCode::INTERNAL_SERVER_ERROR);
 
+/// error type that produce minimal "400 BadRequest" response.
 #[derive(Debug)]
 pub struct BadRequest;
 

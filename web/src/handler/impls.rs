@@ -225,7 +225,10 @@ text_utf8!(std::borrow::Cow<'static, str>);
 
 // shared error impl for serde enabled features: json, urlencoded, etc.
 #[cfg(feature = "serde")]
-crate::error::forward_blank_bad_request!(serde::de::value::Error);
+const _: () = {
+    crate::error::error_from_service!(serde::de::value::Error);
+    crate::error::forward_blank_bad_request!(serde::de::value::Error);
+};
 
 #[cfg(test)]
 mod test {

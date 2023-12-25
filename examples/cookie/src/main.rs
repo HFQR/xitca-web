@@ -12,7 +12,6 @@
 //! curl -v -b "<set_cookie_header_value>" http://localhost:8080/
 
 use xitca_web::{
-    error::Error,
     handler::{
         cookie::{CookieJar, Private, StateKey},
         handler_service,
@@ -51,11 +50,11 @@ async fn auth(key: StateKey) -> (Redirect, PrivateJar) {
 }
 
 // extract cookie and generate http response.
-async fn index<C>(jar: PrivateJar) -> Result<String, Error<C>> {
+async fn index(jar: PrivateJar) -> Result<String, StatusCode> {
     match jar.get("user") {
-        // authenticated user can observe the cookie key=value pair acquired from "/auth" route
+        // authenticated user provided cookie key=value pair acquired from "/auth" route
         Some(user) => Ok(format!("hello: {user}")),
         // otherwise it's an unauthorized request.
-        None => Err(StatusCode::UNAUTHORIZED.into()),
+        None => Err(StatusCode::UNAUTHORIZED),
     }
 }
