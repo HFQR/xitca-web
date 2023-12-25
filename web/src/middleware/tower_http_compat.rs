@@ -15,7 +15,7 @@ use crate::{
     context::WebContext,
     http::{Request, RequestExt, Response, WebResponse},
     service::{
-        tower_http_compat::{CompatBody, TowerCompatService},
+        tower_http_compat::{CompatReqBody, CompatResBody, TowerCompatService},
         Service,
     },
 };
@@ -102,14 +102,14 @@ pub struct CompatLayer<S, C, ResB, Err> {
     _phantom: PhantomData<fn(C, ResB, Err)>,
 }
 
-impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatBody<FakeSend<RequestExt<ReqB>>>>>
+impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>>>>
     for CompatLayer<S, C, ResB, Err>
 where
     S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
     C: Clone + 'static,
     ReqB: 'static,
 {
-    type Response = Response<CompatBody<ResB>>;
+    type Response = Response<CompatResBody<ResB>>;
     type Error = Err;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -118,7 +118,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: Request<CompatBody<FakeSend<RequestExt<ReqB>>>>) -> Self::Future {
+    fn call(&mut self, req: Request<CompatReqBody<RequestExt<ReqB>>>) -> Self::Future {
         let service = self.service.clone();
         Box::pin(async move {
             let (mut parts, body) = req.into_parts();
@@ -131,13 +131,13 @@ where
                 .into_inner()
                 .into_inner();
 
-            let (ext, body) = body.into_inner().into_inner().replace_body(());
+            let (ext, body) = body.into_inner().replace_body(());
 
             let mut req = Request::from_parts(parts, ext);
             let mut body = RefCell::new(body);
             let req = WebContext::new(&mut req, &mut body, &ctx);
 
-            service.call(req).await.map(|res| res.map(CompatBody::new))
+            service.call(req).await.map(|res| res.map(CompatResBody::new))
         })
     }
 }
