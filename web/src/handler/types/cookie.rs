@@ -1,3 +1,5 @@
+//! type extractor and responder for cookies.
+
 use core::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
 pub use cookie::{Cookie, Key, ParseError};
@@ -27,17 +29,17 @@ macro_rules! key_impl {
             pub fn generate() -> Self {
                 Self(Key::generate())
             }
-
-            /// convert an existing [Key] type to Self.
-            #[inline]
-            pub fn from_key(key: impl Into<Key>) -> Self {
-                Self(key.into())
-            }
         }
 
         impl From<$key> for Key {
-            fn from(key: $key) -> Key {
+            fn from(key: $key) -> Self {
                 key.0
+            }
+        }
+
+        impl From<Key> for $key {
+            fn from(key: Key) -> Self {
+                Self(key)
             }
         }
     };
@@ -88,12 +90,14 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionKey {
     }
 }
 
+/// container of cookies extracted from request.
 pub struct CookieJar<K = Plain> {
     jar: _CookieJar,
     key: K,
 }
 
 impl CookieJar {
+    /// construct a new cookie container with no encryption.
     pub fn plain() -> Self {
         Self {
             jar: _CookieJar::new(),
@@ -101,11 +105,13 @@ impl CookieJar {
         }
     }
 
+    /// get cookie with given key name
     #[inline]
     pub fn get(&self, name: &str) -> Option<&Cookie> {
         self.jar.get(name)
     }
 
+    /// add cookie to container.
     #[inline]
     pub fn add<C>(&mut self, cookie: C)
     where
@@ -114,6 +120,7 @@ impl CookieJar {
         self.jar.add(cookie)
     }
 
+    /// remove cookie from container.
     #[inline]
     pub fn remove<C>(&mut self, cookie: C)
     where
@@ -141,6 +148,9 @@ where
 
 macro_rules! cookie_variant {
     ($variant: tt, $method: tt, $method_mut: tt) => {
+        /// encrypted cookie container type.
+        /// must annotate the generic type param with types that can provide the key
+        /// for encryption. See [StateKey] and [ExtensionKey] for detail.
         pub struct $variant<K> {
             key: Key,
             _key: PhantomData<fn(K)>,
@@ -233,7 +243,7 @@ where
             return Err(Error::from(HeaderNotFound(COOKIE)));
         }
 
-        for val in ctx.req().headers().get_all(COOKIE).into_iter() {
+        for val in headers.get_all(COOKIE) {
             for val in val.to_str()?.split(';') {
                 let cookie = Cookie::parse_encoded(val.to_owned())?;
                 jar.add_original(cookie);

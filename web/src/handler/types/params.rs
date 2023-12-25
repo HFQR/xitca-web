@@ -2,8 +2,10 @@
 
 use core::ops::Deref;
 
-use serde::de::{self, Deserializer, Error as DeError, Visitor};
-use serde::{forward_to_deserialize_any, Deserialize};
+use serde::{
+    de::{self, Deserializer, Error as DeError, Visitor},
+    forward_to_deserialize_any, Deserialize,
+};
 
 use xitca_http::util::service::router;
 

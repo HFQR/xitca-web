@@ -15,6 +15,9 @@ pub mod params;
 #[cfg(feature = "urlencoded")]
 pub mod query;
 
+#[cfg(feature = "urlencoded")]
+pub mod form;
+
 #[cfg(feature = "json")]
 pub mod json;
 
