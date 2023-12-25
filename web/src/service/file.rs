@@ -89,7 +89,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for ServeDirService {
                 Ok(res)
             }
             Err(e) => Err(match e {
-                ServeError::NotFound => RouterError::Match(MatchError::NotFound),
+                ServeError::NotFound => RouterError::Match(MatchError),
                 ServeError::MethodNotAllowed => {
                     RouterError::NotAllowed(MethodNotAllowed(vec![Method::GET, Method::HEAD]))
                 }

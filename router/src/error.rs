@@ -74,35 +74,11 @@ impl InsertError {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum MatchError {
-    /// The path was missing a trailing slash.
-    MissingTrailingSlash,
-    /// The path had an extra trailing slash.
-    ExtraTrailingSlash,
-    /// No matching route was found.
-    NotFound,
-}
-
-impl MatchError {
-    pub(crate) fn unsure(full_path: &str) -> Self {
-        let full_path = full_path.as_bytes();
-        if full_path[full_path.len() - 1] == b'/' {
-            MatchError::ExtraTrailingSlash
-        } else {
-            MatchError::MissingTrailingSlash
-        }
-    }
-}
+pub struct MatchError;
 
 impl fmt::Display for MatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let msg = match self {
-            MatchError::MissingTrailingSlash => "match error: expected trailing slash",
-            MatchError::ExtraTrailingSlash => "match error: found extra trailing slash",
-            MatchError::NotFound => "match error: route not found",
-        };
-
-        f.write_str(msg)
+        f.write_str("match error: route not found")
     }
 }
 
