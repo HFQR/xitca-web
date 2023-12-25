@@ -1,24 +1,23 @@
 use core::{
-    cmp, fmt,
-    future::poll_fn,
+    fmt,
     ops::{Deref, DerefMut},
-    pin::pin,
 };
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::Deserialize, Serialize};
 
 use crate::{
     body::BodyStream,
     bytes::{Bytes, BytesMut},
     error::{error_from_service, forward_blank_bad_request, Error},
     handler::{
-        body::Body,
         header::{self, HeaderRef},
         FromRequest, Responder,
     },
     http::{const_header_value::APPLICATION_WWW_FORM_URLENCODED, header::CONTENT_TYPE, WebResponse},
     WebContext,
 };
+
+use super::{body::Limit, lazy::Lazy};
 
 pub const DEFAULT_LIMIT: usize = 1024 * 1024;
 
@@ -57,36 +56,39 @@ impl<T, const LIMIT: usize> DerefMut for Form<T, LIMIT> {
 impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Form<T, LIMIT>
 where
     B: BodyStream + Default,
-    T: DeserializeOwned,
+    T: for<'de> Deserialize<'de>,
 {
     type Type<'b> = Form<T, LIMIT>;
     type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
+        let (bytes, _) = <(BytesMut, Limit<LIMIT>)>::from_request(ctx).await?;
+        serde_urlencoded::from_bytes(&bytes).map(Form).map_err(Into::into)
+    }
+}
 
-        let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(ctx)
-            .await
-            .ok()
-            .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
-            .map(|len| cmp::min(len, LIMIT))
-            .unwrap_or_else(|| LIMIT);
+impl<T, const LIMIT: usize> Lazy<'static, Form<T, LIMIT>> {
+    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
+    where
+        T: Deserialize<'de>,
+    {
+        serde_urlencoded::from_bytes(self.as_slice()).map_err(Into::into)
+    }
+}
 
-        let Body(body) = Body::from_request(ctx).await?;
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Lazy<'static, Form<T, LIMIT>>
+where
+    B: BodyStream + Default,
+    T: Deserialize<'static>,
+{
+    type Type<'b> = Lazy<'static, Form<T, LIMIT>>;
+    type Error = Error<C>;
 
-        let mut body = pin!(body);
-
-        let mut buf = BytesMut::new();
-
-        while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let chunk = chunk.map_err(Into::into)?;
-            buf.extend_from_slice(chunk.as_ref());
-            if buf.len() > limit {
-                break;
-            }
-        }
-
-        serde_urlencoded::from_bytes(&buf).map(Form).map_err(Into::into)
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
+        let (bytes, _) = <(Vec<u8>, Limit<LIMIT>)>::from_request(ctx).await?;
+        Ok(Lazy::from(bytes))
     }
 }
 

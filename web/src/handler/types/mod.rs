@@ -7,7 +7,9 @@ pub mod redirect;
 pub mod state;
 pub mod string;
 pub mod uri;
-pub mod vec;
+
+#[cfg(any(feature = "urlencoded", feature = "json"))]
+pub mod lazy;
 
 #[cfg(feature = "params")]
 pub mod params;
