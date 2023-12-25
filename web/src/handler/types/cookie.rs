@@ -5,8 +5,7 @@ pub use cookie::{Cookie, Key, ParseError};
 use cookie::CookieJar as _CookieJar;
 
 use crate::{
-    body::BodyStream,
-    bytes::Bytes,
+    body::{BodyStream, ResponseBody},
     error::{error_from_service, forward_blank_bad_request, Error},
     handler::{FromRequest, Responder},
     http::{
@@ -17,7 +16,7 @@ use crate::{
     WebContext,
 };
 
-use super::extension::ExtensionNotFound;
+use super::{extension::ExtensionNotFound, header::HeaderNotFound};
 
 macro_rules! key_impl {
     ($key: tt) => {
@@ -228,6 +227,12 @@ where
 
         let mut jar = _CookieJar::new();
 
+        let headers = ctx.req().headers();
+
+        if !headers.contains_key(COOKIE) {
+            return Err(Error::from(HeaderNotFound(COOKIE)));
+        }
+
         for val in ctx.req().headers().get_all(COOKIE).into_iter() {
             for val in val.to_str()?.split(';') {
                 let cookie = Cookie::parse_encoded(val.to_owned())?;
@@ -250,7 +255,7 @@ impl<'r, C, B, K> Responder<WebContext<'r, C, B>> for CookieJar<K> {
     type Error = Error<C>;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(Bytes::new());
+        let res = ctx.into_response(ResponseBody::empty());
         <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
     }
 

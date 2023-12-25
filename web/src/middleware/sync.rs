@@ -132,13 +132,13 @@ where
 mod test {
     use core::convert::Infallible;
 
-    use crate::{bytes::Bytes, http::StatusCode, service::fn_service, App};
+    use crate::{body::ResponseBody, http::StatusCode, service::fn_service, App};
 
     use super::*;
 
     async fn handler(req: WebContext<'_, &'static str>) -> Result<WebResponse, Infallible> {
         assert_eq!(*req.state(), "996");
-        Ok(req.into_response(Bytes::new()))
+        Ok(req.into_response(ResponseBody::empty()))
     }
 
     fn middleware<E>(next: &mut Next<E>, ctx: WebContext<'_, &'static str>) -> Result<Response<()>, E> {

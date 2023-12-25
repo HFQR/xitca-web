@@ -1,19 +1,18 @@
 //! type extractor for header value
 
-use core::{convert::Infallible, fmt, ops::Deref};
+use core::{fmt, ops::Deref};
 
 use std::error;
 
 use crate::{
     body::BodyStream,
     context::WebContext,
-    error::{BadRequest, Error},
+    error::{error_from_service, forward_blank_bad_request, Error},
     handler::FromRequest,
     http::{
         header::{self, HeaderValue},
         WebResponse,
     },
-    service::Service,
 };
 
 macro_rules! const_header_name {
@@ -128,11 +127,5 @@ impl fmt::Display for HeaderNotFound {
 
 impl error::Error for HeaderNotFound {}
 
-impl<'r, C, B> Service<WebContext<'r, C, B>> for HeaderNotFound {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        BadRequest.call(ctx).await
-    }
-}
+error_from_service!(HeaderNotFound);
+forward_blank_bad_request!(HeaderNotFound);

@@ -150,14 +150,15 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        bytes::Bytes, http::StatusCode, http::WebRequest, middleware::eraser::TypeEraser, service::fn_service, App,
+        body::ResponseBody, http::StatusCode, http::WebRequest, middleware::eraser::TypeEraser, service::fn_service,
+        App,
     };
 
     use super::*;
 
     async fn handler(ctx: WebContext<'_, &'static str>) -> Result<WebResponse, Infallible> {
         assert_eq!(*ctx.state(), "996");
-        Ok(ctx.into_response(Bytes::new()))
+        Ok(ctx.into_response(ResponseBody::empty()))
     }
 
     #[test]
