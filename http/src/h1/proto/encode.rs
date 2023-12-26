@@ -150,8 +150,13 @@ where
                 }
                 TRANSFER_ENCODING => {
                     debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
-                    encoding = TransferCoding::encode_chunked();
-                    skip_len = true;
+                    for val in value.to_str().map_err(|_| ProtoError::HeaderValue)?.split(',') {
+                        let val = val.trim();
+                        if val.eq_ignore_ascii_case("chunked") {
+                            encoding = TransferCoding::encode_chunked();
+                            skip_len = true;
+                        }
+                    }
                 }
                 _ => {}
             }
