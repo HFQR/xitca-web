@@ -1,6 +1,6 @@
 //! type extractor for request uri query
 
-use core::fmt;
+use core::{fmt, marker::PhantomData};
 
 use serde::de::Deserialize;
 
@@ -10,8 +10,6 @@ use crate::{
     error::{BadRequest, Error},
     handler::FromRequest,
 };
-
-use super::lazy::Lazy;
 
 pub struct Query<T>(pub T);
 
@@ -40,27 +38,37 @@ where
     }
 }
 
-impl<T> Lazy<'_, Query<T>> {
+/// lazy deserialize type.
+/// it lowers the deserialization to handler function where zero copy deserialize can happen.
+pub struct LazyQuery<'a, T> {
+    query: &'a [u8],
+    _query: PhantomData<T>,
+}
+
+impl<T> LazyQuery<'_, T> {
     pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
     where
         T: Deserialize<'de>,
     {
-        serde_urlencoded::from_bytes(self.as_slice()).map_err(Into::into)
+        serde_urlencoded::from_bytes(self.query).map_err(Into::into)
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for Lazy<'a, Query<T>>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for LazyQuery<'a, T>
 where
     B: BodyStream,
     T: Deserialize<'static>,
 {
-    type Type<'b> = Lazy<'b, Query<T>>;
+    type Type<'b> = LazyQuery<'b, T>;
     type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let query = ctx.req().uri().query().ok_or(BadRequest)?;
-        Ok(Lazy::from(query.as_bytes()))
+        Ok(LazyQuery {
+            query: query.as_bytes(),
+            _query: PhantomData,
+        })
     }
 }
 
@@ -100,7 +108,7 @@ mod test {
 
         *ctx.req_mut().uri_mut() = Uri::from_static("/996/251/?id=dagongren");
 
-        async fn handler(lazy: Lazy<'_, Query<Id2<'_>>>) -> &'static str {
+        async fn handler(lazy: LazyQuery<'_, Id2<'_>>) -> &'static str {
             let id = lazy.deserialize::<()>().unwrap();
             assert_eq!(id.id, "dagongren");
             "kubi"

@@ -1,5 +1,6 @@
 use core::{
     fmt,
+    marker::PhantomData,
     ops::{Deref, DerefMut},
 };
 
@@ -17,7 +18,7 @@ use crate::{
     WebContext,
 };
 
-use super::{body::Limit, lazy::Lazy};
+use super::body::Limit;
 
 pub const DEFAULT_LIMIT: usize = 1024 * 1024;
 
@@ -68,27 +69,37 @@ where
     }
 }
 
-impl<T, const LIMIT: usize> Lazy<'static, Form<T, LIMIT>> {
+/// lazy deserialize type.
+/// it lowers the deserialization to handler function where zero copy deserialize can happen.
+pub struct LazyForm<T, const LIMIT: usize = DEFAULT_LIMIT> {
+    bytes: Vec<u8>,
+    _form: PhantomData<T>,
+}
+
+impl<T, const LIMIT: usize> LazyForm<T, LIMIT> {
     pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
     where
         T: Deserialize<'de>,
     {
-        serde_urlencoded::from_bytes(self.as_slice()).map_err(Into::into)
+        serde_urlencoded::from_bytes(&self.bytes).map_err(Into::into)
     }
 }
 
-impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Lazy<'static, Form<T, LIMIT>>
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for LazyForm<T, LIMIT>
 where
     B: BodyStream + Default,
     T: Deserialize<'static>,
 {
-    type Type<'b> = Lazy<'static, Form<T, LIMIT>>;
+    type Type<'b> = LazyForm<T, LIMIT>;
     type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
         let (bytes, _) = <(Vec<u8>, Limit<LIMIT>)>::from_request(ctx).await?;
-        Ok(Lazy::from(bytes))
+        Ok(LazyForm {
+            bytes,
+            _form: PhantomData,
+        })
     }
 }
 

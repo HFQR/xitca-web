@@ -1,6 +1,6 @@
 //! type extractor for uri params.
 
-use core::ops::Deref;
+use core::{marker::PhantomData, ops::Deref};
 
 use serde::{
     de::{self, Deserializer, Error as DeError, Visitor},
@@ -10,8 +10,6 @@ use serde::{
 use xitca_http::util::service::router;
 
 use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
-
-use super::lazy::Lazy;
 
 #[derive(Debug)]
 pub struct Params<T>(pub T);
@@ -31,25 +29,35 @@ where
     }
 }
 
-impl<T> Lazy<'_, Params<T>> {
+/// lazy deserialize type.
+/// it lowers the deserialization to handler function where zero copy deserialize can happen.
+pub struct LazyParams<'a, T> {
+    params: Params2<'a>,
+    _params: PhantomData<T>,
+}
+
+impl<T> LazyParams<'_, T> {
     pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
     where
         T: Deserialize<'de>,
     {
-        T::deserialize(self.as_params()).map_err(Into::into)
+        T::deserialize(self.params).map_err(Into::into)
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for Lazy<'a, Params<T>>
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for LazyParams<'a, T>
 where
     B: BodyStream,
 {
-    type Type<'b> = Lazy<'b, Params<T>>;
+    type Type<'b> = LazyParams<'b, T>;
     type Error = Error<C>;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(Lazy::from(Params2::new(ctx.req().body().params())))
+        Ok(LazyParams {
+            params: Params2::new(ctx.req().body().params()),
+            _params: PhantomData,
+        })
     }
 }
 
@@ -777,7 +785,7 @@ mod tests {
         name: &'a str,
     }
 
-    async fn handler3(lazy: Lazy<'_, Params<Meme<'_>>>) -> &'static str {
+    async fn handler3(lazy: LazyParams<'_, Meme<'_>>) -> &'static str {
         let Meme { name } = lazy.deserialize::<()>().unwrap();
         assert_eq!(name, "doge");
         "such dead much unoriginal"

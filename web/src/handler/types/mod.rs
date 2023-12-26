@@ -8,9 +8,6 @@ pub mod state;
 pub mod string;
 pub mod uri;
 
-#[cfg(any(feature = "urlencoded", feature = "json", feature = "params"))]
-pub mod lazy;
-
 #[cfg(feature = "params")]
 pub mod params;
 

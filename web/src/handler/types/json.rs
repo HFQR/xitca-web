@@ -2,6 +2,7 @@
 
 use core::{
     fmt,
+    marker::PhantomData,
     ops::{Deref, DerefMut},
 };
 
@@ -19,7 +20,6 @@ use crate::{
 use super::{
     body::Limit,
     header::{self, HeaderRef},
-    lazy::Lazy,
 };
 
 pub const DEFAULT_LIMIT: usize = 1024 * 1024;
@@ -71,27 +71,68 @@ where
     }
 }
 
-impl<T, const LIMIT: usize> Lazy<'static, Json<T, LIMIT>> {
+/// lazy deserialize type that wrap around [Json]. It lowers the deserialization to handler
+/// function where zero copy deserialize can happen.
+///
+/// # Example
+/// ```rust
+/// use serde::Deserialize;
+/// use xitca_web::{
+///   error::Error,
+///   http::StatusCode,
+///   handler::{handler_service, json::LazyJson},
+///   App, WebContext
+/// };
+///
+/// // a json object with zero copy deserialization.
+/// #[derive(Deserialize)]
+/// struct Post<'a> {
+///     title: &'a str,
+///     content: &'a str    
+/// }
+///
+/// // handler function utilize Lazy type to lower the Json type into handler function.
+/// async fn handler(lazy: LazyJson<Post<'_>>) -> Result<String, Error> {
+///     // actual deserialize happens here.
+///     let Post { title, content } = lazy.deserialize()?;
+///     // the Post type and it's &str referencing lazy would live until the handler function
+///     // returns.
+///     Ok(format!("Post {{ title: {title}, content: {content} }}"))
+/// }
+///
+/// App::new()
+///     .at("/post", handler_service(handler))
+///     .at("/", handler_service(|_: &WebContext<'_>| async { "used for infer type" }));
+/// ```
+pub struct LazyJson<T, const LIMIT: usize = DEFAULT_LIMIT> {
+    bytes: Vec<u8>,
+    _json: PhantomData<T>,
+}
+
+impl<T, const LIMIT: usize> LazyJson<T, LIMIT> {
     pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
     where
         T: Deserialize<'de>,
     {
-        serde_json::from_slice(self.as_slice()).map_err(Into::into)
+        serde_json::from_slice(&self.bytes).map_err(Into::into)
     }
 }
 
-impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for Lazy<'static, Json<T, LIMIT>>
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for LazyJson<T, LIMIT>
 where
     B: BodyStream + Default,
     T: Deserialize<'static>,
 {
-    type Type<'b> = Lazy<'static, Json<T, LIMIT>>;
+    type Type<'b> = LazyJson<T, LIMIT>;
     type Error = Error<C>;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
         let (bytes, _) = <(Vec<u8>, Limit<LIMIT>)>::from_request(ctx).await?;
-        Ok(Lazy::from(bytes))
+        Ok(LazyJson {
+            bytes,
+            _json: PhantomData,
+        })
     }
 }
 
@@ -158,7 +199,7 @@ mod test {
 
         *ctx.body_borrow_mut() = body.into();
 
-        async fn handler(lazy: Lazy<'static, Json<Gacha<'_>>>) -> &'static str {
+        async fn handler(lazy: LazyJson<Gacha<'_>>) -> &'static str {
             let ga = lazy.deserialize::<()>().unwrap();
             assert_eq!(ga.credit_card, "declined");
             "bankruptcy"
