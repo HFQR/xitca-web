@@ -76,14 +76,13 @@ where
 ///
 /// # Example
 /// ```rust
-/// use serde::Deserialize;
-/// use xitca_web::{
-///   error::Error,
-///   http::StatusCode,
-///   handler::{handler_service, json::LazyJson},
-///   App, WebContext
-/// };
-///
+/// # use serde::Deserialize;
+/// # use xitca_web::{
+/// #   error::Error,
+/// #   http::StatusCode,
+/// #   handler::{handler_service, json::LazyJson},
+/// #   App, WebContext
+/// # };
 /// // a json object with zero copy deserialization.
 /// #[derive(Deserialize)]
 /// struct Post<'a> {
@@ -95,14 +94,14 @@ where
 /// async fn handler(lazy: LazyJson<Post<'_>>) -> Result<String, Error> {
 ///     // actual deserialize happens here.
 ///     let Post { title, content } = lazy.deserialize()?;
-///     // the Post type and it's &str referencing lazy would live until the handler function
-///     // returns.
+///     // the Post type and it's &str referencing LazyJson would live until the handler
+///     // function return.
 ///     Ok(format!("Post {{ title: {title}, content: {content} }}"))
 /// }
 ///
 /// App::new()
 ///     .at("/post", handler_service(handler))
-///     .at("/", handler_service(|_: &WebContext<'_>| async { "used for infer type" }));
+///     # .at("/", handler_service(|_: &WebContext<'_>| async { "used for infer type" }));
 /// ```
 pub struct LazyJson<T, const LIMIT: usize = DEFAULT_LIMIT> {
     bytes: Vec<u8>,

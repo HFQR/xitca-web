@@ -42,6 +42,29 @@ async fn h1_get() -> Result<(), Error> {
 }
 
 #[tokio::test]
+async fn h1_head() -> Result<(), Error> {
+    let mut handle = test_h1_server(fn_service(handle))?;
+
+    let server_url = format!("http://{}/", handle.ip_port_string());
+
+    let c = Client::new();
+
+    for _ in 0..3 {
+        let mut res = c.head(&server_url)?.send().await?;
+        assert_eq!(res.status().as_u16(), 200);
+        assert!(!res.can_close_connection());
+        let body = res.string().await?;
+        assert_eq!("", body);
+    }
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn h1_post() -> Result<(), Error> {
     let mut handle = test_h1_server(fn_service(handle))?;
 
@@ -222,7 +245,7 @@ async fn h1_keepalive() -> Result<(), Error> {
 
 async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
     match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => Ok(Response::new(Bytes::from("GET Response").into())),
+        (&Method::GET, "/") | (&Method::HEAD, "/") => Ok(Response::new(Bytes::from("GET Response").into())),
         (&Method::POST, "/") => {
             let length = req.headers().get(header::CONTENT_LENGTH).unwrap().clone();
             let ty = req.headers().get(header::CONTENT_TYPE).unwrap().clone();
