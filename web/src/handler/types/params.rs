@@ -11,6 +11,8 @@ use xitca_http::util::service::router;
 
 use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
 
+use super::lazy::Lazy;
+
 #[derive(Debug)]
 pub struct Params<T>(pub T);
 
@@ -25,9 +27,29 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let params = ctx.req().body().params();
-        T::deserialize(Params2::new(params))
-            .map(Params)
-            .map_err(Error::from_service)
+        T::deserialize(Params2::new(params)).map(Params).map_err(Into::into)
+    }
+}
+
+impl<T> Lazy<'_, Params<T>> {
+    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
+    where
+        T: Deserialize<'de>,
+    {
+        T::deserialize(self.as_params()).map_err(Into::into)
+    }
+}
+
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for Lazy<'a, Params<T>>
+where
+    B: BodyStream,
+{
+    type Type<'b> = Lazy<'b, Params<T>>;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(Lazy::from(Params2::new(ctx.req().body().params())))
     }
 }
 
@@ -51,7 +73,7 @@ where
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(ParamsRef(ctx.req().extensions().get::<router::Params>().unwrap()))
+        Ok(ParamsRef(ctx.req().body().params()))
     }
 }
 
@@ -88,6 +110,7 @@ macro_rules! parse_single_value {
     };
 }
 
+#[derive(Clone, Copy)]
 pub struct Params2<'de> {
     params: &'de router::Params,
 }
@@ -491,10 +514,7 @@ mod tests {
     use core::convert::Infallible;
 
     use serde::{de, Deserialize};
-    use xitca_http::{
-        util::service::{handler::handler_service, router::Router},
-        RequestBody,
-    };
+    use xitca_http::util::service::{handler::handler_service, router::Router};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
@@ -545,11 +565,8 @@ mod tests {
             .now_or_panic()
             .unwrap();
 
-        let req = Request::builder()
-            .uri("/name/user1/")
-            .body(())
-            .unwrap()
-            .map(|_| RequestExt::<()>::default());
+        let mut req = crate::http::WebRequest::default();
+        *req.uri_mut() = Uri::from_static("/name/user1/");
 
         let res = service.call(req).now_or_panic().unwrap();
 
@@ -568,11 +585,8 @@ mod tests {
         let s: &str = de::Deserialize::deserialize(Params2::new(params)).unwrap();
         assert_eq!(s, "name");
 
-        let req = Request::builder()
-            .uri("/name/32/")
-            .body(())
-            .unwrap()
-            .map(|_| RequestExt::<()>::default());
+        let mut req = crate::http::WebRequest::default();
+        *req.uri_mut() = Uri::from_static("/name/32/");
 
         let res = service.call(req).now_or_panic().unwrap();
         let params = res.body().params();
@@ -622,20 +636,17 @@ mod tests {
             .now_or_panic()
             .unwrap();
 
-        let req = Request::builder()
-            .uri("/name/32/")
-            .body(())
-            .unwrap()
-            .map(|_| RequestExt::<()>::default());
+        let mut req = crate::http::WebRequest::default();
+        *req.uri_mut() = Uri::from_static("/name/47/");
 
         let res = service.call(req).now_or_panic().unwrap();
         let params = res.body().params();
 
         let i: i8 = Deserialize::deserialize(Params2::new(params)).unwrap();
-        assert_eq!(i, 32);
+        assert_eq!(i, 47);
 
         let i: (i8,) = Deserialize::deserialize(Params2::new(params)).unwrap();
-        assert_eq!(i, (32,));
+        assert_eq!(i, (47,));
 
         let i: Result<(i8, i8), _> = Deserialize::deserialize(Params2::new(params));
         assert!(i.is_err());
@@ -643,7 +654,7 @@ mod tests {
         #[derive(Deserialize)]
         struct Test(i8);
         let i: Test = Deserialize::deserialize(Params2::new(params)).unwrap();
-        assert_eq!(i.0, 32);
+        assert_eq!(i.0, 47);
     }
 
     #[test]
@@ -654,11 +665,8 @@ mod tests {
             .now_or_panic()
             .unwrap();
 
-        let req = Request::builder()
-            .uri("/val1/")
-            .body(())
-            .unwrap()
-            .map(|_| RequestExt::<()>::default());
+        let mut req = crate::http::WebRequest::default();
+        *req.uri_mut() = Uri::from_static("/val1/");
 
         let res = service.call(req).now_or_panic().unwrap();
         let params = res.body().params();
@@ -694,11 +702,8 @@ mod tests {
             .now_or_panic()
             .unwrap();
 
-        let req = Request::builder()
-            .uri("/name/")
-            .body(())
-            .unwrap()
-            .map(|_| RequestExt::<()>::default());
+        let mut req = crate::http::WebRequest::default();
+        *req.uri_mut() = Uri::from_static("/name/");
 
         let res = service.call(req).now_or_panic().unwrap();
         let params = res.body().params();
@@ -727,11 +732,7 @@ mod tests {
         assert!(s.is_err());
         assert!(format!("{s:?}").contains("missing field `_inner`"));
 
-        let req = Request::builder()
-            .uri("/")
-            .body(RequestExt::<()>::default())
-            .unwrap()
-            .map(|_| RequestExt::<()>::default());
+        let req = crate::http::WebRequest::default();
 
         let res = service.call(req).now_or_panic().unwrap();
         let params = res.body().params();
@@ -753,7 +754,7 @@ mod tests {
 
     #[test]
     fn from_request_extract() {
-        let mut req = Request::new(RequestExt::<RequestBody>::default());
+        let mut req = crate::http::WebRequest::default();
         *req.uri_mut() = Uri::from_static("/qingling/dagongren/");
 
         let res = App::new()
@@ -769,5 +770,36 @@ mod tests {
         let s = collect_string_body(res.into_body()).now_or_panic().unwrap();
 
         assert_eq!(s, "996");
+    }
+
+    #[derive(Deserialize)]
+    struct Meme<'a> {
+        name: &'a str,
+    }
+
+    async fn handler3(lazy: Lazy<'_, Params<Meme<'_>>>) -> &'static str {
+        let Meme { name } = lazy.deserialize::<()>().unwrap();
+        assert_eq!(name, "doge");
+        "such dead much unoriginal"
+    }
+
+    #[test]
+    fn lazy_extract() {
+        let mut req = crate::http::WebRequest::default();
+        *req.uri_mut() = Uri::from_static("/meme/doge");
+
+        let res = App::new()
+            .at("/meme/:name", handler_service(handler3))
+            .finish()
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(req)
+            .now_or_panic()
+            .unwrap();
+
+        let s = collect_string_body(res.into_body()).now_or_panic().unwrap();
+
+        assert_eq!(s, "such dead much unoriginal");
     }
 }
