@@ -2,6 +2,12 @@
 name = "xitca-router"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "router for xitca"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["xitca", "xitca-web"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+readme= "README.md"
 
 [dependencies]
 xitca-unsafe-collection = "0.1"
