@@ -2,6 +2,12 @@
 name = "xitca-unsafe-collection"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "unsafe keyword enabled utilities for xitca"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["xitca", "xitca-web"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+readme= "README.md"
 
 [features]
 bytes = ["bytes_crate"]
