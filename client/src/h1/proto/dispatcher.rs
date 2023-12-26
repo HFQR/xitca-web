@@ -101,14 +101,9 @@ where
             // to not produce another connection type that override it to any variant
             // other than ConnectionType::Close in this case and only this case.
 
-            let mut is_close = ctx.is_connection_closed();
+            let is_close = ctx.is_connection_closed();
 
             if is_head_method {
-                if !decoder.is_eof() {
-                    // Server return a response body with head method.
-                    // close the connection to drop the potential garbage data on wire.
-                    is_close = true;
-                }
                 decoder = TransferCoding::eof();
             }
 

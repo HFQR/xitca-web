@@ -108,14 +108,19 @@ where
     where
         B: Stream,
     {
-        let size = BodySize::from_stream(body);
+        let mut size = BodySize::from_stream(body);
+
+        // strip body if response carry a body when responding to HEAD request.
+        if self.is_head_method() {
+            try_remove_body(buf, &headers, &mut size);
+        }
 
         let mut skip_date = false;
 
-        let mut encoding = TransferCoding::eof();
-
         // use the shortest header name as default
         let mut name = TE;
+
+        let mut encoding = TransferCoding::eof();
 
         for (next_name, value) in headers.drain() {
             let is_continue = match next_name {
@@ -174,33 +179,18 @@ where
                     encoding = TransferCoding::eof();
                 }
                 BodySize::Stream => {
-                    buf.extend_from_slice(b"\r\ntransfer-encoding: chunked");
+                    buf.extend_from_slice(CHUNKED_HEADER);
                     encoding = TransferCoding::encode_chunked();
                 }
                 BodySize::Sized(size) => {
-                    let mut buffer = itoa::Buffer::new();
-                    let buffer = buffer.format(size).as_bytes();
-
-                    buf.reserve(buffer.len() + 18);
-                    buf.extend_from_slice(b"\r\ncontent-length: ");
-                    buf.extend_from_slice(buffer);
-
+                    write_length_header(buf, size);
                     encoding = TransferCoding::length(size as u64);
                 }
             }
         }
 
         if self.is_connection_closed() {
-            buf.extend_from_slice(b"\r\nconnection: close");
-        }
-
-        if self.is_head_method() {
-            debug_assert_eq!(
-                size,
-                BodySize::None,
-                "Response to request with HEAD method must not have a body"
-            );
-            encoding = TransferCoding::eof();
+            buf.extend_from_slice(CLOSE_HEADER);
         }
 
         // set date header if there is not any.
@@ -221,6 +211,42 @@ where
 
         Ok(encoding)
     }
+}
+
+const CHUNKED_HEADER: &[u8; 28] = b"\r\ntransfer-encoding: chunked";
+const CLOSE_HEADER: &[u8; 19] = b"\r\nconnection: close";
+
+#[cold]
+#[inline(never)]
+fn try_remove_body(buf: &mut BytesMut, headers: &HeaderMap, size: &mut BodySize) {
+    match *size {
+        BodySize::None => return,
+        BodySize::Stream => {
+            if headers.contains_key(TRANSFER_ENCODING) {
+                return;
+            }
+            buf.extend_from_slice(CHUNKED_HEADER);
+        }
+        BodySize::Sized(size) => {
+            if headers.contains_key(CONTENT_LENGTH) {
+                return;
+            }
+            write_length_header(buf, size);
+        }
+    }
+
+    *size = BodySize::None;
+
+    warn!("Response to HEAD request should not bearing body. It will been dropped without polling.");
+}
+
+fn write_length_header(buf: &mut BytesMut, size: usize) {
+    let mut buffer = itoa::Buffer::new();
+    let buffer = buffer.format(size).as_bytes();
+
+    buf.reserve(buffer.len() + 18);
+    buf.extend_from_slice(b"\r\ncontent-length: ");
+    buf.extend_from_slice(buffer);
 }
 
 #[cfg(test)]
