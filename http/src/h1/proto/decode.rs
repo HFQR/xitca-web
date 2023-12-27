@@ -77,11 +77,6 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     self.try_write_header(&mut headers, &mut decoder, idx, &slice, version)?;
                 }
 
-                // decoder is supposed to be chunked but according value never showed up.
-                if decoder.is_maybe_decode_chunked() {
-                    return Err(ProtoError::HeaderName);
-                }
-
                 let ext = Extension::new(*self.socket_addr());
                 let mut req = Request::new(RequestExt::from_parts((), ext));
 
@@ -122,18 +117,11 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 if version != Version::HTTP_11 {
                     return Err(ProtoError::HeaderName);
                 }
-
-                let chunked = value
-                    .to_str()
-                    .ok()
-                    .and_then(|s| s.rsplit(',').next())
-                    .map(|v| v.trim().eq_ignore_ascii_case("chunked"))
-                    .unwrap_or(false);
-
-                if !chunked {
-                    decoder.try_set(TransferCoding::maybe_decode_chunked())?;
-                } else {
-                    decoder.try_set(TransferCoding::decode_chunked())?;
+                for val in value.to_str().map_err(|_| ProtoError::HeaderValue)?.split(',') {
+                    let val = val.trim();
+                    if val.eq_ignore_ascii_case("chunked") {
+                        decoder.try_set(TransferCoding::decode_chunked())?;
+                    }
                 }
             }
             CONTENT_LENGTH => {
@@ -300,8 +288,11 @@ mod test {
                 \r\n\
                 ";
         let mut buf = BytesMut::from(&head[..]);
-
-        assert!(ctx.decode_head::<128>(&mut buf).is_err());
+        let (_, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        assert!(
+            matches!(decoder, TransferCoding::Eof),
+            "transfer coding is not decoded to eof"
+        );
 
         let head = b"\
                 GET / HTTP/1.1\r\n\
@@ -309,7 +300,10 @@ mod test {
                 \r\n\
                 ";
         let mut buf = BytesMut::from(&head[..]);
-
-        assert!(ctx.decode_head::<128>(&mut buf).is_err());
+        let (_, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+        assert!(
+            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            "transfer coding is not decoded to chunked"
+        );
     }
 }
