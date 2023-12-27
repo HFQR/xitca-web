@@ -302,6 +302,18 @@ impl<B> Default for ResponseBody<B> {
 }
 
 impl ResponseBody {
+    /// Construct a new Stream variant of ResponseBody with default type as [BoxBody]
+    #[inline]
+    pub fn box_stream<B, E>(stream: B) -> Self
+    where
+        B: Stream<Item = Result<Bytes, E>> + 'static,
+        E: Into<BodyError>,
+    {
+        Self::stream(BoxBody::new(stream))
+    }
+}
+
+impl<B> ResponseBody<B> {
     /// indicate no body is attached to response.
     /// `content-length` and `transfer-encoding` headers would not be added to
     /// response when [BodySize] is used for inferring response body type.
@@ -318,18 +330,6 @@ impl ResponseBody {
         Self::Bytes { bytes: Bytes::new() }
     }
 
-    /// Construct a new Stream variant of ResponseBody with default type as [BoxBody]
-    #[inline]
-    pub fn box_stream<B, E>(stream: B) -> Self
-    where
-        B: Stream<Item = Result<Bytes, E>> + 'static,
-        E: Into<BodyError>,
-    {
-        Self::stream(BoxBody::new(stream))
-    }
-}
-
-impl<B> ResponseBody<B> {
     /// Construct a new Stream variant of ResponseBody
     #[inline]
     pub fn stream(stream: B) -> Self {
@@ -358,17 +358,6 @@ impl<B> ResponseBody<B> {
             Self::None => ResponseBody::None,
             Self::Bytes { bytes } => ResponseBody::bytes(bytes),
             Self::Stream { stream } => ResponseBody::box_stream(stream),
-        }
-    }
-
-    /// Drop [ResponseBody::Stream] variant to cast it to given generic B1 stream type.
-    ///
-    /// # Note:
-    /// Response's HeaderMap may need according change when Stream variant is droped.
-    pub fn drop_stream_cast<B1>(self) -> ResponseBody<B1> {
-        match self {
-            Self::None | Self::Stream { .. } => ResponseBody::None,
-            Self::Bytes { bytes } => ResponseBody::Bytes { bytes },
         }
     }
 }
