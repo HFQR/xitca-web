@@ -17,8 +17,6 @@ pub enum TransferCoding {
     Corrupted,
     /// Coder used when a Content-Length header is passed with a positive integer.
     Length(u64),
-    /// Decoder used when Transfer-Encoding should be `chunked` but the header value has not appeared yet.
-    MaybeDecodeChunked,
     /// Decoder used when Transfer-Encoding is `chunked`.
     DecodeChunked(ChunkedState, u64),
     /// Encoder for when Transfer-Encoding includes `chunked`.
@@ -36,11 +34,6 @@ impl TransferCoding {
     #[inline]
     pub const fn length(len: u64) -> Self {
         Self::Length(len)
-    }
-
-    #[inline]
-    pub const fn maybe_decode_chunked() -> Self {
-        Self::MaybeDecodeChunked
     }
 
     #[inline]
@@ -67,11 +60,6 @@ impl TransferCoding {
             Self::EncodeChunked => unreachable!("TransferCoding can't decide eof state when encoding chunked data"),
             _ => false,
         }
-    }
-
-    #[inline]
-    pub fn is_maybe_decode_chunked(&self) -> bool {
-        matches!(self, Self::MaybeDecodeChunked)
     }
 
     #[inline]
@@ -259,20 +247,20 @@ impl ChunkedState {
 impl TransferCoding {
     pub fn try_set(&mut self, other: Self) -> Result<(), ProtoError> {
         match (&self, &other) {
-            // skip set when the body is zero length.
-            (_, TransferCoding::Length(0)) => {}
-            // ignore multiple set of body if the length is exactly the same.
-            (TransferCoding::Length(n1), TransferCoding::Length(n2)) if n1 == n2 => {}
-            // ignore maybe chunked coding when already transformed to chunked coding.
-            (TransferCoding::DecodeChunked(..), TransferCoding::MaybeDecodeChunked) => {}
+            // multiple set to plain chunked is allowed. This can happen from Connect method
+            // and/or Connection header.
+            // skip set when the request body is zero length.
+            (TransferCoding::Upgrade, TransferCoding::Upgrade) | (_, TransferCoding::Length(0)) => Ok(()),
+            // multiple set to decoded chunked/content-length are forbidden.
             // mutation between decoded chunked/content-length/plain chunked is forbidden.
             (TransferCoding::Upgrade, _) | (TransferCoding::DecodeChunked(..), _) | (TransferCoding::Length(..), _) => {
-                return Err(ProtoError::HeaderName)
+                Err(ProtoError::HeaderName)
             }
-            _ => *self = other,
+            _ => {
+                *self = other;
+                Ok(())
+            }
         }
-
-        Ok(())
     }
 
     #[inline]
