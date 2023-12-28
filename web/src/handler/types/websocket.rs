@@ -8,7 +8,7 @@ use core::{
 use futures_core::stream::Stream;
 use http_ws::{
     stream::{RequestStream, ResponseSender, WsError},
-    HandshakeError, Item, Message as WsMessage, WsOutput,
+    HandshakeError, Item, Message as WsMessage, ProtocolError, WsOutput,
 };
 use tokio::time::{sleep, Instant};
 use xitca_unsafe_collection::{
@@ -235,8 +235,12 @@ async fn spawn_task<B>(
                             continue;
                         }
                         WsMessage::Close(reason) => {
-                            tx.send(WsMessage::Close(reason)).await?;
-                            break;
+                            match tx.send(WsMessage::Close(reason)).await {
+                                // ProtocolError::Closed error means someone already sent close message
+                                // so just ignore it and treat as success.
+                                Ok(_) | Err(ProtocolError::Closed) => return Ok(()),
+                                Err(e) => return Err(e.into()),
+                            }
                         }
                         WsMessage::Text(txt) => Message::Text(BytesStr::try_from(txt).unwrap()),
                         WsMessage::Binary(bin) => Message::Binary(bin),
@@ -247,11 +251,10 @@ async fn spawn_task<B>(
                     on_msg(&mut tx, msg).await
                 }
                 SelectOutput::A(Some(Err(e))) => on_err(e).await,
-                SelectOutput::A(None) => break,
+                SelectOutput::A(None) => return Ok(()),
                 SelectOutput::B(_) => {
                     if un_answered_ping > max_unanswered_ping {
-                        tx.send(WsMessage::Close(None)).await?;
-                        break;
+                        return tx.send(WsMessage::Close(None)).await.map_err(Into::into);
                     } else {
                         un_answered_ping += 1;
                         tx.send(WsMessage::Ping(Bytes::new())).await?;
@@ -260,8 +263,6 @@ async fn spawn_task<B>(
                 }
             }
         }
-
-        Ok(())
     };
 
     if let Err(e) = spawn_inner().await {
