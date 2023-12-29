@@ -19,20 +19,5 @@ members = [
     "websocket"
 ]
 
-[patch.crates-io]
-xitca-codegen = { path = "../codegen" }
-xitca-http = { path = "../http" }
-xitca-io = { path = "../io" }
-xitca-router = { path = "../router" }
-xitca-server = { path = "../server" }
-xitca-service = { path = "../service" }
-xitca-tls = { path = "../tls" }
-xitca-unsafe-collection = { path = "../unsafe_collection" }
-xitca-web = { path = "../web" }
-http-encoding = { path = "../http-encoding" }
-http-file = { path = "../http-file" }
-http-multipart = { path = "../http-multipart" }
-http-ws = { path = "../http-ws" }
-
 [profile.dev]
 debug-assertions = false
