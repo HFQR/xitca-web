@@ -2,6 +2,12 @@
 name = "http-multipart"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "multipart for http crate type"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["http", "multipart"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+readme= "README.md"
 
 [dependencies]
 bytes = "1.4"

@@ -2,6 +2,12 @@
 name = "http-ws"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "websocket for http crate type"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["http", "websocket"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+readme= "README.md"
 
 [features]
 default = []

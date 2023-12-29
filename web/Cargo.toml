@@ -42,7 +42,10 @@ multipart = ["http-multipart"]
 websocket = ["http-ws/stream", "tokio/time"]
 
 # static file serving
-file = ["http-file"]
+file = ["http-file", "nightly"]
+
+# nightly rust required feature
+nightly = []
 
 # macro code generation
 codegen = ["xitca-codegen"]
