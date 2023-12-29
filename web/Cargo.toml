@@ -2,6 +2,12 @@
 name = "xitca-web"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "an async web framework"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["xitca", "xitca-web"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+readme= "README.md"
 
 [features]
 default = ["http1"]
