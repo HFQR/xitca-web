@@ -45,13 +45,13 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Redirect {
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
-        <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
+        Responder::<WebContext<'r, C, B>>::map(self, res)
     }
 
     fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
         let location = self.location.map_err(|_| Internal)?;
         let map = (self.status, (LOCATION, location));
-        <_ as Responder<WebContext<'r, C, B>>>::map(map, res)
+        Responder::<WebContext<'r, C, B>>::map(map, res)
     }
 }
 

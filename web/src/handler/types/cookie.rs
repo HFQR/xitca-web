@@ -266,7 +266,7 @@ impl<'r, C, B, K> Responder<WebContext<'r, C, B>> for CookieJar<K> {
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
-        <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
+        Responder::<WebContext<'r, C, B>>::map(self, res)
     }
 
     fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
