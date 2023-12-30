@@ -167,6 +167,21 @@ impl<T> Json<T> {
     }
 }
 
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for serde_json::Value {
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Json(self).respond(ctx).await
+    }
+
+    #[inline]
+    fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
+        Responder::<WebContext<'r, C, B>>::map(Json(self), res)
+    }
+}
+
 error_from_service!(serde_json::Error);
 forward_blank_bad_request!(serde_json::Error);
 

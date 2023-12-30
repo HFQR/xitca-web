@@ -2,11 +2,7 @@ use crate::{
     body::{BodyStream, ResponseBody},
     context::WebContext,
     error::Error,
-    http::{
-        const_header_value::TEXT_UTF8,
-        header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
-        RequestExt, StatusCode, WebRequest, WebResponse,
-    },
+    http::{RequestExt, StatusCode, WebRequest, WebResponse},
 };
 
 use super::{FromRequest, Responder};
@@ -158,7 +154,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
-        <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
+        Responder::<WebContext<'r, C, B>>::map(self, res)
     }
 
     fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
@@ -166,62 +162,6 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
         Ok(res)
     }
 }
-
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
-    type Response = WebResponse;
-    type Error = Error<C>;
-
-    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(ResponseBody::empty());
-        <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
-    }
-
-    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
-        res.headers_mut().append(self.0, self.1);
-        Ok(res)
-    }
-}
-
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for HeaderMap {
-    type Response = WebResponse;
-    type Error = Error<C>;
-
-    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(ResponseBody::empty());
-        <Self as Responder<WebContext<'r, C, B>>>::map(self, res)
-    }
-
-    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
-        res.headers_mut().extend(self);
-        Ok(res)
-    }
-}
-
-macro_rules! text_utf8 {
-    ($type: ty) => {
-        impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
-            type Response = WebResponse;
-            type Error = Error<C>;
-
-            async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-                let mut res = ctx.into_response(self);
-                res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-                Ok(res)
-            }
-
-            fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
-                let mut res = res.map(|_| self.into());
-                res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-                Ok(res)
-            }
-        }
-    };
-}
-
-text_utf8!(&'static str);
-text_utf8!(String);
-text_utf8!(Box<str>);
-text_utf8!(std::borrow::Cow<'static, str>);
 
 // shared error impl for serde enabled features: json, urlencoded, etc.
 #[cfg(feature = "serde")]
@@ -234,7 +174,7 @@ const _: () = {
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::http::header::{HeaderValue, COOKIE};
+    use crate::http::header::{HeaderMap, HeaderValue, CONTENT_TYPE, COOKIE};
 
     use super::*;
 
