@@ -39,7 +39,7 @@ where
         let status = parts.status;
 
         // decide if content-length or transfer-encoding header would be skipped.
-        let skip_len = match status {
+        let skip_ct_te = match status {
             StatusCode::SWITCHING_PROTOCOLS => true,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
@@ -59,7 +59,7 @@ where
         // encode version, status code and reason
         encode_version_status_reason(buf, version, status);
 
-        self.encode_headers(parts.headers, parts.extensions, body, buf, skip_len)
+        self.encode_headers(parts.headers, parts.extensions, body, buf, skip_ct_te)
     }
 }
 
@@ -103,17 +103,12 @@ where
         mut extensions: Extensions,
         body: &B,
         buf: &mut BytesMut,
-        mut skip_len: bool,
+        mut skip_ct_te: bool,
     ) -> Result<TransferCoding, ProtoError>
     where
         B: Stream,
     {
-        let mut size = BodySize::from_stream(body);
-
-        // strip body if response carry a body when responding to HEAD request.
-        if self.is_head_method() {
-            try_remove_body(buf, &headers, &mut size);
-        }
+        let size = BodySize::from_stream(body);
 
         let mut skip_date = false;
 
@@ -143,18 +138,18 @@ where
                 UPGRADE => encoding = TransferCoding::upgrade(),
                 DATE => skip_date = true,
                 CONTENT_LENGTH => {
-                    debug_assert!(!skip_len, "CONTENT_LENGTH header can not be set");
+                    debug_assert!(!skip_ct_te, "CONTENT_LENGTH header can not be set");
                     let value = header::parse_content_length(&value)?;
                     encoding = TransferCoding::length(value);
-                    skip_len = true;
+                    skip_ct_te = true;
                 }
                 TRANSFER_ENCODING => {
-                    debug_assert!(!skip_len, "TRANSFER_ENCODING header can not be set");
+                    debug_assert!(!skip_ct_te, "TRANSFER_ENCODING header can not be set");
                     for val in value.to_str().map_err(|_| ProtoError::HeaderValue)?.split(',') {
                         let val = val.trim();
                         if val.eq_ignore_ascii_case("chunked") {
                             encoding = TransferCoding::encode_chunked();
-                            skip_len = true;
+                            skip_ct_te = true;
                         }
                     }
                 }
@@ -177,8 +172,11 @@ where
             }
         }
 
-        // encode transfer-encoding or content-length
-        if !skip_len {
+        // special handling for head method request by removing potential unwanted response body.
+        if self.is_head_method() {
+            try_remove_body(buf, skip_ct_te, size, &mut encoding);
+        // encode transfer-encoding or content-length if header map didn't provide them.
+        } else if !skip_ct_te {
             match size {
                 BodySize::None => {
                     encoding = TransferCoding::eof();
@@ -223,24 +221,19 @@ const CLOSE_HEADER: &[u8; 19] = b"\r\nconnection: close";
 
 #[cold]
 #[inline(never)]
-fn try_remove_body(buf: &mut BytesMut, headers: &HeaderMap, size: &mut BodySize) {
-    match *size {
+fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: BodySize, encoding: &mut TransferCoding) {
+    *encoding = TransferCoding::eof();
+
+    match size {
         BodySize::None => return,
-        BodySize::Stream => {
-            if headers.contains_key(TRANSFER_ENCODING) {
-                return;
-            }
+        BodySize::Stream if !skip_ct_te => {
             buf.extend_from_slice(CHUNKED_HEADER);
         }
-        BodySize::Sized(size) => {
-            if headers.contains_key(CONTENT_LENGTH) {
-                return;
-            }
+        BodySize::Sized(size) if !skip_ct_te => {
             write_length_header(buf, size);
         }
+        _ => {}
     }
-
-    *size = BodySize::None;
 
     warn!("Response to HEAD request should not bearing body. It will been dropped without polling.");
 }
