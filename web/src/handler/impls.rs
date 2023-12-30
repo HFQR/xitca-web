@@ -2,10 +2,7 @@ use crate::{
     body::{BodyStream, ResponseBody},
     context::WebContext,
     error::Error,
-    http::{
-        header::{HeaderMap, HeaderName, HeaderValue},
-        RequestExt, StatusCode, WebRequest, WebResponse,
-    },
+    http::{RequestExt, StatusCode, WebRequest, WebResponse},
 };
 
 use super::{FromRequest, Responder};
@@ -166,36 +163,6 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
     }
 }
 
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
-    type Response = WebResponse;
-    type Error = Error<C>;
-
-    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(ResponseBody::empty());
-        Responder::<WebContext<'r, C, B>>::map(self, res)
-    }
-
-    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
-        res.headers_mut().append(self.0, self.1);
-        Ok(res)
-    }
-}
-
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for HeaderMap {
-    type Response = WebResponse;
-    type Error = Error<C>;
-
-    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(ResponseBody::empty());
-        Responder::<WebContext<'r, C, B>>::map(self, res)
-    }
-
-    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
-        res.headers_mut().extend(self);
-        Ok(res)
-    }
-}
-
 // shared error impl for serde enabled features: json, urlencoded, etc.
 #[cfg(feature = "serde")]
 const _: () = {
@@ -207,7 +174,7 @@ const _: () = {
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::http::header::{HeaderValue, COOKIE};
+    use crate::http::header::{HeaderMap, HeaderValue, CONTENT_TYPE, COOKIE};
 
     use super::*;
 

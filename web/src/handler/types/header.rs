@@ -5,12 +5,12 @@ use core::{fmt, ops::Deref};
 use std::error;
 
 use crate::{
-    body::BodyStream,
+    body::{BodyStream, ResponseBody},
     context::WebContext,
     error::{error_from_service, forward_blank_bad_request, Error},
-    handler::FromRequest,
+    handler::{FromRequest, Responder},
     http::{
-        header::{self, HeaderValue},
+        header::{self, HeaderMap, HeaderName, HeaderValue},
         WebResponse,
     },
 };
@@ -46,6 +46,36 @@ macro_rules! const_header_name_impl {
 
 const_header_name_impl!(ACCEPT, ACCEPT_ENCODING, HOST, CONTENT_TYPE, CONTENT_LENGTH);
 
+/// typed header extractor.
+///
+/// on success HeaderRef will be received in handler function where it can be dereference to
+/// [HeaderValue] type.
+///
+/// on failure [HeaderNotFound] error would be returned which would generate a "400 BadRequest"
+/// http response.
+///
+/// # Example
+/// ```rust
+/// use xitca_web::{
+///     handler::{
+///         handler_service,
+///         header::{self, HeaderRef}
+///     },
+///     App
+/// };
+/// # use xitca_web::WebContext;
+///
+/// // a handle function expecting content_type header.
+/// async fn handle(header: HeaderRef<'_, { header::CONTENT_TYPE }>) -> &'static str {
+///     // dereference HeaderRef to operate on HeaderValue.
+///     println!("{:?}", header.to_str());
+///     ""
+/// }
+///
+/// App::new()
+///     .at("/", handler_service(handle))
+///     # .at("/nah", handler_service(|_: &WebContext<'_>| async { "for type infer" }));
+/// ```
 pub struct HeaderRef<'a, const HEADER_NAME: usize>(&'a HeaderValue);
 
 impl<const HEADER_NAME: usize> fmt::Debug for HeaderRef<'_, HEADER_NAME> {
@@ -79,6 +109,36 @@ where
             .get(&map_to_header_name::<HEADER_NAME>())
             .map(HeaderRef)
             .ok_or_else(|| Error::from_service(HeaderNotFound(map_to_header_name::<HEADER_NAME>())))
+    }
+}
+
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let res = ctx.into_response(ResponseBody::empty());
+        Responder::<WebContext<'r, C, B>>::map(self, res)
+    }
+
+    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
+        res.headers_mut().append(self.0, self.1);
+        Ok(res)
+    }
+}
+
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for HeaderMap {
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let res = ctx.into_response(ResponseBody::empty());
+        Responder::<WebContext<'r, C, B>>::map(self, res)
+    }
+
+    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
+        res.headers_mut().extend(self);
+        Ok(res)
     }
 }
 
