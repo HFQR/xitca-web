@@ -1,5 +1,5 @@
 use futures_core::stream::Stream;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
     body::BodySize,
@@ -45,16 +45,11 @@ where
             // to CONNECT is forbidden in RFC 7231.
             s if self.is_connect_method() && s.is_success() => true,
             s if s.is_informational() => {
-                warn!(target: "h1_encode", "response with 1xx status code not supported");
+                error!("response with 1xx status code not supported");
                 return Err(ProtoError::Status);
             }
             _ => false,
         };
-
-        // In some error cases, we don't know about the invalid message until already
-        // pushing some bytes onto the `buf`. In those cases, we don't want to send
-        // the half-pushed message, so rewind to before.
-        // let orig_len = buf.len();
 
         // encode version, status code and reason
         encode_version_status_reason(buf, version, status);
@@ -235,7 +230,7 @@ fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: BodySize, encodin
         _ => {}
     }
 
-    warn!("Response to HEAD request should not bearing body. It will been dropped without polling.");
+    warn!("response to HEAD request should not bearing body. It will been dropped without polling.");
 }
 
 fn write_length_header(buf: &mut BytesMut, size: usize) {
