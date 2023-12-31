@@ -255,7 +255,7 @@ fn ws_version_check(headers: &HeaderMap) -> Result<(), HandshakeError> {
 pub mod stream;
 
 #[cfg(feature = "stream")]
-pub use self::stream::{RequestStream, ResponseSender, ResponseStream, WsError};
+pub use self::stream::{RequestStream, ResponseSender, ResponseStream, ResponseWeakSender, WsError};
 
 #[cfg(feature = "stream")]
 pub type WsOutput<B, E> = (RequestStream<B, E>, Response<ResponseStream>, ResponseSender);

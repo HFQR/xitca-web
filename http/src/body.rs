@@ -460,6 +460,7 @@ pub enum BodySize {
 }
 
 impl BodySize {
+    #[inline]
     pub fn from_stream<S>(stream: &S) -> Self
     where
         S: Stream,

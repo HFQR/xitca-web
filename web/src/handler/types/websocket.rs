@@ -7,7 +7,7 @@ use core::{
 
 use futures_core::stream::Stream;
 use http_ws::{
-    stream::{RequestStream, ResponseSender, WsError},
+    stream::{RequestStream, WsError},
     HandshakeError, Item, Message as WsMessage, ProtocolError, WsOutput,
 };
 use tokio::time::{sleep, Instant};
@@ -30,6 +30,8 @@ use crate::{
 };
 
 use super::header::HeaderNotFound;
+
+pub use http_ws::{ResponseSender, ResponseWeakSender};
 
 /// simplified websocket message type.
 /// for more variant of message please reference [http_ws::Message] type.
