@@ -19,7 +19,7 @@ websocket = ["http-ws", "futures-sink"]
 dangerous = ["rustls_0dot21/dangerous_configuration"]
 
 [dependencies]
-xitca-http = { version = "0.1", default-features = false, features = ["runtime"] }
+xitca-http = { version = "0.2", default-features = false, features = ["runtime"] }
 xitca-unsafe-collection = "0.1"
 
 futures-core = { version = "0.3.17", default-features = false }

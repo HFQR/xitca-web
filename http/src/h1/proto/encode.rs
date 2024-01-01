@@ -8,7 +8,7 @@ use crate::{
     http::{
         header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TE, TRANSFER_ENCODING, UPGRADE},
         response::Parts,
-        Extensions, StatusCode, Version,
+        StatusCode, Version,
     },
 };
 
@@ -35,8 +35,13 @@ where
     where
         B: Stream,
     {
-        let version = parts.version;
-        let status = parts.status;
+        let Parts {
+            mut headers,
+            mut extensions,
+            version,
+            status,
+            ..
+        } = parts;
 
         // decide if content-length or transfer-encoding header would be skipped.
         let skip_ct_te = match status {
@@ -54,7 +59,18 @@ where
         // encode version, status code and reason
         encode_version_status_reason(buf, version, status);
 
-        self.encode_headers(parts.headers, parts.extensions, body, buf, skip_ct_te)
+        let size = BodySize::from_stream(body);
+
+        self.encode_headers(&mut headers, size, buf, skip_ct_te)
+            .map(|encoding| {
+                // put header map back to cache.
+                self.replace_headers(headers);
+
+                // put extension back to cache;
+                extensions.clear();
+                self.replace_extensions(extensions);
+                encoding
+            })
     }
 }
 
@@ -92,19 +108,13 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
 where
     D: DateTime,
 {
-    pub fn encode_headers<B>(
+    pub fn encode_headers(
         &mut self,
-        mut headers: HeaderMap,
-        mut extensions: Extensions,
-        body: &B,
+        headers: &mut HeaderMap,
+        size: BodySize,
         buf: &mut BytesMut,
         mut skip_ct_te: bool,
-    ) -> Result<TransferCoding, ProtoError>
-    where
-        B: Stream,
-    {
-        let size = BodySize::from_stream(body);
-
+    ) -> Result<TransferCoding, ProtoError> {
         let mut skip_date = false;
 
         // use the shortest header name as default
@@ -199,13 +209,6 @@ where
         }
 
         buf.extend_from_slice(b"\r\n\r\n");
-
-        // put header map back to cache.
-        self.replace_headers(headers);
-
-        // put extension back to cache;
-        extensions.clear();
-        self.replace_extensions(extensions);
 
         Ok(encoding)
     }
