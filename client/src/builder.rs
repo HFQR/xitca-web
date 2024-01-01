@@ -5,8 +5,12 @@ use xitca_http::http::version::Version;
 use crate::{
     client::Client,
     date::DateTimeService,
+    error::Error,
     pool::Pool,
     resolver::{Resolve, Resolver},
+    response::Response,
+    service::{base_service, HttpService},
+    service::{Service, ServiceRequest},
     timeout::TimeoutConfig,
     tls::connector::{Connector, TlsConnect},
 };
@@ -19,6 +23,7 @@ pub struct ClientBuilder {
     timeout_config: TimeoutConfig,
     local_addr: Option<SocketAddr>,
     max_http_version: Version,
+    service: HttpService,
 }
 
 impl Default for ClientBuilder {
@@ -36,7 +41,76 @@ impl ClientBuilder {
             timeout_config: TimeoutConfig::default(),
             local_addr: None,
             max_http_version: max_http_version(),
+            service: base_service(),
         }
+    }
+
+    /// add middleware service to client builder.
+    /// middleware is a type impl [Service] trait that take ownership of [HttpService] that
+    /// can pre-process [ServiceRequest] and post-process of output of [HttpService] as `Result<Response, Error>`
+    ///
+    /// # Examples
+    /// ```rust
+    /// use xitca_client::{
+    ///     error::Error,
+    ///     ClientBuilder, HttpService, Response, Service, ServiceRequest
+    /// };
+    ///
+    /// // a typed middleware that contains the http service xitca offer's.
+    /// struct MyMiddleware {
+    ///     // http service contains main logic of making http request and response.
+    ///     http_service: HttpService,
+    /// }
+    ///
+    /// // trait implement for the logic of middleware. most of the types are boilerplate
+    /// // that can be copy/pasted. the real logic goes into `async fn call`
+    /// impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for MyMiddleware {
+    ///     type Response = Response<'c>;
+    ///     type Error = Error;
+    ///
+    ///     async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
+    ///         // my middleware receive ServiceRequest and can do pre-process before handling it to
+    ///         // HttpService. in this case we just print out the HTTP method of request.
+    ///         println!("request method is: {}", req.req.method());
+    ///
+    ///         // after pre-processing of ServiceRequest we pass it to HttpService and execute the
+    ///         // processing of request/response logic.
+    ///         match self.http_service.call(req).await {
+    ///             // after the call method returns we observe the outcome as Result where we can do
+    ///             // post-processing.
+    ///             Ok(res) => {
+    ///                 // Ok branch contains the response we received from server. in this case we just
+    ///                 // print out it's status code.
+    ///                 println!("response status is: {}", res.status());   
+    ///
+    ///                 // after post-processing return the response
+    ///                 Ok(res)
+    ///             }
+    ///             Err(e) => {
+    ///                 // Err branch contains possible error happens during the HttpService executing.
+    ///                 // It can either be caused by local or remote. in this case we just print out the
+    ///                 // error.
+    ///                 println!("observed error: {}", e);
+    ///
+    ///                 // after post-processing return the error.
+    ///                 Err(e)
+    ///             }
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// // start a new client builder and apply our middleware to it:
+    /// let builder = ClientBuilder::new()
+    ///     // use a closure to receive HttpService and construct our middleware type.
+    ///     .middleware(|http_service| MyMiddleware { http_service });
+    /// ```
+    pub fn middleware<F, S>(mut self, func: F) -> Self
+    where
+        F: FnOnce(HttpService) -> S,
+        S: for<'r, 'c> Service<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error> + Send + Sync + 'static,
+    {
+        self.service = Box::new(func(self.service));
+        self
     }
 
     #[cfg(feature = "openssl")]
@@ -248,6 +322,7 @@ impl ClientBuilder {
                 max_http_version: self.max_http_version,
                 local_addr: self.local_addr,
                 date_service: DateTimeService::new(),
+                service: self.service,
                 h3_client,
             }
         }
@@ -261,6 +336,7 @@ impl ClientBuilder {
             max_http_version: self.max_http_version,
             local_addr: self.local_addr,
             date_service: DateTimeService::new(),
+            service: self.service,
         }
     }
 }
