@@ -268,6 +268,7 @@ where
 {
     type Item = Result<T, BodyError>;
 
+    #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().body.poll_next(cx).map_err(Into::into)
     }

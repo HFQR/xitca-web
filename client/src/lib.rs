@@ -10,6 +10,7 @@ mod pool;
 mod request;
 mod resolver;
 mod response;
+mod service;
 mod timeout;
 mod tls;
 mod uri;
@@ -30,9 +31,10 @@ pub mod error;
 
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
-pub use self::request::Request;
+pub use self::request::RequestBuilder;
 pub use self::resolver::Resolve;
 pub use self::response::Response;
+pub use self::service::{HttpService, Service, ServiceRequest};
 pub use self::tls::{connector::TlsConnect, stream::Io};
 
 // re-export http crate.

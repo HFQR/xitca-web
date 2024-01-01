@@ -14,34 +14,34 @@ use std::sync::Mutex;
 use futures_core::stream::Stream;
 use futures_sink::Sink;
 use http_ws::Codec;
-use xitca_http::bytes::{Buf, Bytes, BytesMut};
+use xitca_http::bytes::{Buf, BytesMut};
 
 use super::{
-    body::{BodyError, ResponseBody},
+    body::ResponseBody,
     error::Error,
     http::{Method, Version},
-    request::Request,
+    request::RequestBuilder,
 };
 
 /// new type of [Request] with extended functionality for websocket handling.
-pub struct WsRequest<'a, B>(Request<'a, B>);
+pub struct WsRequest<'a>(RequestBuilder<'a>);
 
-impl<'a, B> Deref for WsRequest<'a, B> {
-    type Target = Request<'a, B>;
+impl<'a> Deref for WsRequest<'a> {
+    type Target = RequestBuilder<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<'a, B> DerefMut for WsRequest<'a, B> {
+impl<'a> DerefMut for WsRequest<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<'a, B> WsRequest<'a, B> {
-    pub(super) fn new(req: Request<'a, B>) -> Self {
+impl<'a> WsRequest<'a> {
+    pub(super) fn new(req: RequestBuilder<'a>) -> Self {
         Self(req)
     }
 
@@ -71,11 +71,7 @@ impl<'a, B> WsRequest<'a, B> {
     }
 
     /// Send the request and wait for response asynchronously.
-    pub async fn send<E>(self) -> Result<WebSocket<'a>, Error>
-    where
-        B: Stream<Item = Result<Bytes, E>>,
-        BodyError: From<E>,
-    {
+    pub async fn send(self) -> Result<WebSocket<'a>, Error> {
         let res = self.0.send().await?;
         let body = res.res.into_body();
         WebSocket::try_from_body(body)
