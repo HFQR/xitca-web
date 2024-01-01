@@ -8,7 +8,7 @@ io-uring = ["xitca-http/io-uring", "xitca-server/io-uring"]
 
 [dependencies]
 xitca-client = { version = "0.1", features = ["http2", "http3", "websocket", "dangerous"] }
-xitca-http = { version = "0.1", features = ["http2", "http3"] }
+xitca-http = { version = "0.2", features = ["http2", "http3"] }
 xitca-codegen = "0.1"
 xitca-io = "0.1"
 xitca-server = { version = "0.1", features = ["http3"] }

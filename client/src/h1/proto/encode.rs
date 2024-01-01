@@ -2,8 +2,9 @@ use futures_core::stream::Stream;
 use xitca_http::h1::proto::{codec::TransferCoding, error::ProtoError};
 
 use crate::{
+    body::BodySize,
     bytes::{BufMut, BytesMut},
-    http::{request::Parts, version::Version},
+    http::{request::Request, version::Version},
 };
 
 use super::context::Context;
@@ -12,17 +13,14 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
     pub(super) fn encode_head<B>(
         &mut self,
         buf: &mut BytesMut,
-        parts: Parts,
-        body: &B,
+        req: &mut Request<B>,
     ) -> Result<TransferCoding, ProtoError>
     where
         B: Stream,
     {
-        let method = parts.method;
-        let uri = parts.uri;
-        let headers = parts.headers;
-        let extensions = parts.extensions;
-        let version = parts.version;
+        let method = req.method();
+        let uri = req.uri();
+        let version = req.version();
 
         // encode line of "Method PathQuery Version"
         let method = method.as_str().as_bytes();
@@ -43,6 +41,10 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         buf.put_slice(path_and_query);
         buf.put_slice(version);
 
-        self.encode_headers(headers, extensions, body, buf, false)
+        let size = BodySize::from_stream(req.body());
+
+        let headers = req.headers_mut();
+
+        self.encode_headers(headers, size, buf, false)
     }
 }

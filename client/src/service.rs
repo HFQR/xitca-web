@@ -65,9 +65,6 @@ pub struct ServiceRequest<'r, 'c> {
 pub type HttpService =
     Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error> + Send + Sync>;
 
-#[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
-use crate::{connection::Connection, error::TimeoutError, http::Version, timeout::Timeout};
-
 pub(crate) fn base_service() -> HttpService {
     struct _HttpService;
 
@@ -76,10 +73,10 @@ pub(crate) fn base_service() -> HttpService {
         type Error = Error;
 
         async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
-            let ServiceRequest { req, client, timeout } = req;
+            #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
+            use crate::{connection::Connection, error::TimeoutError, http::Version, timeout::Timeout};
 
-            #[allow(unused_mut)]
-            let mut req = std::mem::take(req);
+            let ServiceRequest { req, client, timeout } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
@@ -135,7 +132,10 @@ pub(crate) fn base_service() -> HttpService {
                 Connection::H2(ref mut stream) => {
                     *req.version_mut() = Version::HTTP_2;
 
-                    return match crate::h2::proto::send(stream, _date, req).timeout(timer.as_mut()).await {
+                    return match crate::h2::proto::send(stream, _date, core::mem::take(req))
+                        .timeout(timer.as_mut())
+                        .await
+                    {
                         Ok(Ok(res)) => {
                             let timeout = client.timeout_config.response_timeout;
                             Ok(Response::new(res, timer, timeout))
@@ -154,7 +154,10 @@ pub(crate) fn base_service() -> HttpService {
                 Connection::H3(ref mut c) => {
                     *req.version_mut() = Version::HTTP_3;
 
-                    return match crate::h3::proto::send(c, _date, req).timeout(timer.as_mut()).await {
+                    return match crate::h3::proto::send(c, _date, core::mem::take(req))
+                        .timeout(timer.as_mut())
+                        .await
+                    {
                         Ok(Ok(res)) => {
                             let timeout = client.timeout_config.response_timeout;
                             Ok(Response::new(res, timer, timeout))

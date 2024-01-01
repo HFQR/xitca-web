@@ -1,7 +1,4 @@
-use core::{
-    future::poll_fn,
-    pin::{pin, Pin},
-};
+use core::{future::poll_fn, pin::Pin};
 
 use std::io;
 
@@ -26,11 +23,11 @@ use super::context::Context;
 pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
-    mut req: http::Request<B>,
+    req: &mut http::Request<B>,
 ) -> Result<(http::Response<()>, BytesMut, Vec<u8>, TransferCoding, bool), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    B: Stream<Item = Result<Bytes, E>>,
+    B: Stream<Item = Result<Bytes, E>> + Unpin,
     BodyError: From<E>,
 {
     let mut stream = Pin::new(stream);
@@ -54,14 +51,12 @@ where
         }
     }
 
-    let (parts, body) = req.into_parts();
-
     // TODO: make const generic params configurable.
     let mut ctx = Context::<128>::new(&date);
     let mut buf = BytesMut::new();
 
     // encode request head and return transfer encoding for request body
-    let encoder = ctx.encode_head(&mut buf, parts, &body)?;
+    let encoder = ctx.encode_head(&mut buf, req)?;
 
     write_all_buf(stream.as_mut(), &mut buf).await?;
     poll_fn(|cx| stream.as_mut().poll_flush(cx)).await?;
@@ -72,7 +67,10 @@ where
 
     // try to send request body.
     // continue to read response no matter the outcome.
-    if send_inner(stream.as_mut(), encoder, body, &mut buf).await.is_err() {
+    if send_inner(stream.as_mut(), encoder, req.body_mut(), &mut buf)
+        .await
+        .is_err()
+    {
         // an error indicate connection should be closed.
         ctx.set_close();
         // clear the buffer as there could be unfinished request data inside.
@@ -115,16 +113,16 @@ where
 async fn send_inner<S, B, E>(
     mut stream: Pin<&mut S>,
     mut encoder: TransferCoding,
-    body: B,
+    body: &mut B,
     buf: &mut BytesMut,
 ) -> Result<(), Error>
 where
     S: AsyncWrite,
-    B: Stream<Item = Result<Bytes, E>>,
+    B: Stream<Item = Result<Bytes, E>> + Unpin,
     BodyError: From<E>,
 {
     if !encoder.is_eof() {
-        let mut body = pin!(body);
+        let mut body = Pin::new(body);
 
         // poll request body and encode.
         while let Some(bytes) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
