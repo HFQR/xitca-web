@@ -22,7 +22,7 @@ impl<S> FollowRedirect<S> {
 
 impl<'r, 'c, S> Service<ServiceRequest<'r, 'c>> for FollowRedirect<S>
 where
-    S: for<'r2, 'c2> Service<ServiceRequest<'r2, 'c2>, Response = Response<'c>, Error = Error> + Send + Sync,
+    S: for<'r2, 'c2> Service<ServiceRequest<'r2, 'c2>, Response = Response<'c2>, Error = Error> + Send + Sync,
 {
     type Response = Response<'c>;
     type Error = Error;

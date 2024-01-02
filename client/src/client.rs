@@ -373,6 +373,7 @@ impl Client {
     }
 }
 
+#[cfg(feature = "compress")]
 #[cfg(feature = "openssl")]
 #[cfg(test)]
 mod test {
@@ -381,6 +382,8 @@ mod test {
     #[tokio::test]
     async fn connect_google() {
         let res = Client::builder()
+            .middleware(crate::middleware::FollowRedirect::new)
+            .middleware(crate::middleware::Decompress::new)
             .openssl()
             .finish()
             .get("https://www.google.com/")
