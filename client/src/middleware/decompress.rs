@@ -11,12 +11,14 @@ use crate::{
     service::{Service, ServiceRequest},
 };
 
+/// middleware handling compressed http response body and emit decompressed data.
 pub struct Decompress<S> {
     service: S,
 }
 
 impl<S> Decompress<S> {
-    pub fn new(service: S) -> Self {
+    /// construct a new decompress middleware with given http service type.
+    pub const fn new(service: S) -> Self {
         Self { service }
     }
 }
@@ -36,11 +38,8 @@ where
         let mut res = self.service.call(req).await?;
 
         let (parts, body) = res.res.into_parts();
-
         let body = try_decoder(&parts.headers, body).map_err(|e| Error::Std(Box::new(e)))?;
-
         res.res = http::Response::from_parts(parts, ResponseBody::Unknown(Box::pin(body)));
-
         Ok(res)
     }
 }
