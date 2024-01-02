@@ -1,4 +1,4 @@
-use std::time::Duration;
+use core::time::Duration;
 
 use futures_core::Stream;
 
@@ -99,7 +99,6 @@ impl<'a> RequestBuilder<'a> {
         Bytes: From<B1>,
     {
         self.headers_mut().insert(CONTENT_TYPE, const_header_value::TEXT_UTF8);
-
         self.body(text)
     }
 
@@ -110,7 +109,6 @@ impl<'a> RequestBuilder<'a> {
         let body = serde_json::to_vec(&body).unwrap();
 
         self.headers_mut().insert(CONTENT_TYPE, const_header_value::JSON);
-
         Ok(self.body(body))
     }
 
@@ -122,8 +120,8 @@ impl<'a> RequestBuilder<'a> {
         Bytes: From<B>,
     {
         let bytes = Bytes::from(body);
-        self.headers_mut()
-            .insert(CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+        let val = HeaderValue::from(bytes.len());
+        self.headers_mut().insert(CONTENT_LENGTH, val);
         self.map_body(Once::new(bytes))
     }
 
@@ -132,32 +130,30 @@ impl<'a> RequestBuilder<'a> {
     pub fn stream<B, E>(self, body: B) -> RequestBuilder<'a>
     where
         B: Stream<Item = Result<Bytes, E>> + Send + 'static,
-        BodyError: From<E>,
+        E: Into<BodyError>,
     {
         self.map_body(body)
     }
 
-    fn map_body<B, E>(self, b: B) -> RequestBuilder<'a>
+    fn map_body<B, E>(mut self, b: B) -> RequestBuilder<'a>
     where
         B: Stream<Item = Result<Bytes, E>> + Send + 'static,
-        BodyError: From<E>,
+        E: Into<BodyError>,
     {
-        let Self { req, client, timeout } = self;
-        let (parts, _) = req.into_parts();
-        let body = BoxBody::new(b);
-        let req = http::Request::from_parts(parts, body);
-        RequestBuilder::new(req, client).timeout(timeout)
+        self.req = self.req.map(|_| BoxBody::new(b));
+        self
     }
 
+    /// Finish request builder and send it to server.
     pub async fn send(self) -> Result<Response<'a>, Error> {
-        let service = &*self.client.service;
         let Self {
             mut req,
             client,
             timeout,
         } = self;
 
-        service
+        client
+            .service
             .call(ServiceRequest {
                 req: &mut req,
                 client,

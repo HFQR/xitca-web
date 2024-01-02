@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use xitca_http::h1::proto::context;
 
@@ -11,9 +11,7 @@ type Ctx<'c, 'd, const HEADER_LIMIT: usize> = context::Context<'c, DateTimeHandl
 // xitca_http::date::DateTime is a foreign trait so it can not be implemented to a lifetimed foreign type inside xitca-client.
 // (RwLock<DateTimeState>) in this case.
 //
-// See xitca_client::date module for details.
-//
-// The double lifetime is to go around this limiation.
+// The double lifetime is to go around this limitation. See xitca_client::date module for details.
 pub(crate) struct Context<'c, 'd, const HEADER_LIMIT: usize>(Ctx<'c, 'd, HEADER_LIMIT>);
 
 impl<'c, 'd, const HEADER_LIMIT: usize> Deref for Context<'c, 'd, HEADER_LIMIT> {

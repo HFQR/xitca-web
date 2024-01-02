@@ -26,7 +26,7 @@ pub enum ResponseBody<'c> {
     H2(crate::h2::body::ResponseBody),
     #[cfg(feature = "http3")]
     H3(crate::h3::body::ResponseBody),
-    // TODO: add http1 eof resposne body variant.
+    // TODO: add http1 eof response body variant.
     #[allow(dead_code)]
     Eof(PhantomData<&'c ()>),
 }

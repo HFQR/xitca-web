@@ -31,29 +31,35 @@ where
     BodyError: From<E>,
 {
     let mut stream = Pin::new(stream);
-
-    let is_head_method = *req.method() == Method::HEAD;
+    let mut buf = BytesMut::new();
 
     if !req.headers().contains_key(HOST) {
         if let Some(host) = req.uri().host() {
-            let mut buf = BytesMut::with_capacity(host.len() + 5);
-
+            buf.reserve(host.len() + 5);
             buf.extend_from_slice(host.as_bytes());
-            match req.uri().port_u16() {
-                None | Some(80) | Some(443) => {}
-                Some(port) => {
-                    buf.extend_from_slice(b":");
-                    buf.extend_from_slice(port.to_string().as_bytes());
+
+            if let Some(port) = req.uri().port() {
+                let port = port.as_str();
+                match port {
+                    "80" | "443" => {}
+                    _ => {
+                        buf.extend_from_slice(b":");
+                        buf.extend_from_slice(port.as_bytes());
+                    }
                 }
-            };
-            req.headers_mut()
-                .insert(HOST, HeaderValue::from_maybe_shared(buf.freeze()).unwrap());
+            }
+
+            let val = HeaderValue::from_maybe_shared(buf.split().freeze()).unwrap();
+            req.headers_mut().insert(HOST, val);
         }
     }
 
     // TODO: make const generic params configurable.
     let mut ctx = Context::<128>::new(&date);
-    let mut buf = BytesMut::new();
+
+    if *req.method() == Method::HEAD {
+        ctx.set_head_method();
+    }
 
     // encode request head and return transfer encoding for request body
     let encoder = ctx.encode_head(&mut buf, req)?;
@@ -63,7 +69,7 @@ where
 
     // TODO: concurrent read write is needed in case server decide to do two way
     // streaming with very large body surpass socket buffer size.
-    // (In rare case the server could starting streaming back resposne without read all the request body)
+    // (In rare case the server could starting streaming back response without read all the request body)
 
     // try to send request body.
     // continue to read response no matter the outcome.
@@ -101,7 +107,7 @@ where
 
             let is_close = ctx.is_connection_closed();
 
-            if is_head_method {
+            if ctx.is_head_method() {
                 decoder = TransferCoding::eof();
             }
 
