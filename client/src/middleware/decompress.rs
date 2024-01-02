@@ -23,8 +23,6 @@ impl<S> Decompress<S> {
     }
 }
 
-const ACCEPT_ENCODINGS: HeaderValue = HeaderValue::from_static("gzip, deflate, br");
-
 impl<'r, 'c, S> Service<ServiceRequest<'r, 'c>> for Decompress<S>
 where
     S: for<'r2, 'c2> Service<ServiceRequest<'r2, 'c2>, Response = Response<'c2>, Error = Error> + Send + Sync,
@@ -33,7 +31,9 @@ where
     type Error = Error;
 
     async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
-        req.req.headers_mut().insert(ACCEPT_ENCODING, ACCEPT_ENCODINGS);
+        req.req
+            .headers_mut()
+            .insert(ACCEPT_ENCODING, HeaderValue::from_static("gzip, deflate, br"));
 
         let mut res = self.service.call(req).await?;
 
