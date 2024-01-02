@@ -10,6 +10,7 @@ http2 = ["h2", "itoa", "xitca-http/http2"]
 http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25", "http_0dot2"]
 openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["tokio-rustls", "webpki-roots"]
+compress = ["http-encoding"]
 json = ["serde", "serde_json"]
 websocket = ["http-ws", "futures-sink"]
 
@@ -55,6 +56,9 @@ rustls-pki-types = "1"
 http_0dot2 = { package = "http", version = "0.2", optional = true }
 rustls_0dot21 = { package = "rustls", version = "0.21", optional = true }
 webpki_roots_0dot25 = { package = "webpki-roots", version = "0.25", optional = true }
+
+# compression support
+http-encoding = { version = "0.2", features = ["br", "gz", "de"], optional = true }
 
 # serde support
 serde = { version = "1.0.130", default-features = false, optional = true }

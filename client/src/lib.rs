@@ -28,6 +28,7 @@ mod h3;
 pub mod ws;
 
 pub mod error;
+pub mod middleware;
 
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
