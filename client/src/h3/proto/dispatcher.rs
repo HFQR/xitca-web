@@ -1,4 +1,4 @@
-use core::{future::poll_fn, marker::PhantomData, pin::pin};
+use core::{future::poll_fn, pin::pin};
 
 use std::net::SocketAddr;
 
@@ -79,7 +79,7 @@ where
     let res = http_0dot2_to_1(res.into_parts().0);
 
     let res = if is_head_method {
-        res.map(|_| ResponseBody::Eof(PhantomData))
+        res.map(|_| ResponseBody::Eof)
     } else {
         let body = async_stream::stream! {
             while let Some(bytes) = stream.recv_data().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {

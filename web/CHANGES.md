@@ -6,3 +6,4 @@
 
 ## Change
 - update `xitca-http` to version `0.2.0`.
+- update `http-encoding` to version `0.2.0`.

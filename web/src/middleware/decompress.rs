@@ -48,7 +48,7 @@ where
         let (ext, body) = ext.replace_body(());
         let req = Request::from_parts(parts, ());
 
-        let decoder = http_encoding::try_decoder(&req, body).map_err(DecompressServiceError::First)?;
+        let decoder = http_encoding::try_decoder(req.headers(), body).map_err(DecompressServiceError::First)?;
         let mut body = RefCell::new(decoder);
         let mut req = req.map(|_| ext);
 

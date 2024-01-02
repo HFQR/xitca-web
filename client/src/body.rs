@@ -8,7 +8,6 @@ pub(crate) use xitca_http::body::BodySize;
 
 use core::{
     fmt,
-    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -26,9 +25,23 @@ pub enum ResponseBody<'c> {
     H2(crate::h2::body::ResponseBody),
     #[cfg(feature = "http3")]
     H3(crate::h3::body::ResponseBody),
-    // TODO: add http1 eof response body variant.
-    #[allow(dead_code)]
-    Eof(PhantomData<&'c ()>),
+    Eof,
+    Unknown(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + Send + 'c>>),
+}
+
+impl fmt::Debug for ResponseBody<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            #[cfg(feature = "http1")]
+            Self::H1(_) => f.write_str("ResponseBody::H1(..)"),
+            #[cfg(feature = "http2")]
+            Self::H2(_) => f.write_str("ResponseBody::H2(..)"),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => f.write_str("ResponseBody::H3(..)"),
+            Self::Eof => f.write_str("ResponseBody::Eof"),
+            Self::Unknown(_) => f.write_str("ResponseBody::Unknown"),
+        }
+    }
 }
 
 impl ResponseBody<'_> {
@@ -49,32 +62,19 @@ impl ResponseBody<'_> {
     }
 }
 
-impl fmt::Debug for ResponseBody<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            #[cfg(feature = "http1")]
-            Self::H1(_) => write!(f, "ResponseBody::H1(..)"),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => write!(f, "ResponseBody::H2(..)"),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => write!(f, "ResponseBody::H3(..)"),
-            Self::Eof(_) => write!(f, "ResponseBody::Eof"),
-        }
-    }
-}
-
 impl Stream for ResponseBody<'_> {
     type Item = Result<Bytes, BodyError>;
 
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             #[cfg(feature = "http1")]
-            Self::H1(body) => Pin::new(body).poll_next(_cx),
+            Self::H1(body) => Pin::new(body).poll_next(cx),
             #[cfg(feature = "http2")]
-            Self::H2(body) => Pin::new(body).poll_next(_cx),
+            Self::H2(body) => Pin::new(body).poll_next(cx),
             #[cfg(feature = "http3")]
-            Self::H3(body) => Pin::new(body).poll_next(_cx),
-            Self::Eof(_) => Poll::Ready(None),
+            Self::H3(body) => Pin::new(body).poll_next(cx),
+            Self::Eof => Poll::Ready(None),
+            Self::Unknown(stream) => stream.as_mut().poll_next(cx),
         }
     }
 }

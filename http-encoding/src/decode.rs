@@ -11,13 +11,12 @@ use super::{
 
 /// Construct from headers and stream body. Use for decoding.
 #[inline]
-pub fn try_decoder<Req, S, T, E>(req: Req, body: S) -> Result<Coder<S, FeaturedCode>, EncodingError>
+pub fn try_decoder<S, T, E>(headers: &HeaderMap, body: S) -> Result<Coder<S, FeaturedCode>, EncodingError>
 where
-    Req: std::borrow::Borrow<http::Request<()>>,
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]> + 'static,
 {
-    from_headers(req.borrow().headers()).map(|decoder| Coder::new(body, decoder))
+    from_headers(headers).map(|decoder| Coder::new(body, decoder))
 }
 
 fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {

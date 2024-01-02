@@ -1,4 +1,6 @@
-use std::{error, fmt};
+use core::fmt;
+
+use std::error;
 
 /// Error occur when trying to construct decode/encode request/response.
 #[derive(Debug)]
@@ -16,6 +18,8 @@ impl fmt::Display for EncodingError {
         }
     }
 }
+
+impl error::Error for EncodingError {}
 
 /// Error for missing required feature.
 #[derive(Debug)]
