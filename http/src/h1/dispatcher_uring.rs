@@ -218,15 +218,12 @@ where
                         .await;
 
                         match res {
-                            SelectOutput::A(Some(res)) => {
-                                let bytes = res.map_err(Error::Body)?;
+                            SelectOutput::A(Some(Ok(bytes))) => {
                                 encoder.encode(bytes, buf);
                                 continue;
                             }
-                            SelectOutput::A(None) => {
-                                encoder.encode_eof(buf);
-                                break;
-                            }
+                            SelectOutput::A(Some(Err(e))) => return self.on_body_error(e).await,
+                            SelectOutput::A(None) => break encoder.encode_eof(buf),
                             SelectOutput::B(_) => {}
                         }
                     }
@@ -247,6 +244,13 @@ where
         }
 
         Ok(())
+    }
+
+    #[cold]
+    #[inline(never)]
+    async fn on_body_error(&mut self, e: BE) -> Result<(), Error<S::Error, BE>> {
+        self.write_buf.write_io(&*self.io).await?;
+        Err(Error::Body(e))
     }
 
     #[cold]

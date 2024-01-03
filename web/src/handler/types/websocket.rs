@@ -5,6 +5,8 @@ use core::{
     time::Duration,
 };
 
+use std::io;
+
 use futures_core::stream::Stream;
 use http_ws::{
     stream::{RequestStream, WsError},
@@ -256,7 +258,8 @@ async fn spawn_task<B>(
                 SelectOutput::A(None) => return Ok(()),
                 SelectOutput::B(_) => {
                     if un_answered_ping > max_unanswered_ping {
-                        return tx.send(WsMessage::Close(None)).await.map_err(Into::into);
+                        let _ = tx.send_error(io::ErrorKind::UnexpectedEof.into()).await;
+                        return Ok(());
                     } else {
                         un_answered_ping += 1;
                         tx.send(WsMessage::Ping(Bytes::new())).await?;
