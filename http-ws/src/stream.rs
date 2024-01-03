@@ -1,5 +1,4 @@
 use core::{
-    convert::Infallible,
     fmt,
     future::Future,
     pin::Pin,
@@ -8,9 +7,7 @@ use core::{
 
 use alloc::sync::{Arc, Weak};
 
-use std::sync::Mutex;
-
-use std::error;
+use std::{error, io, sync::Mutex};
 
 use bytes::{Bytes, BytesMut};
 use futures_core::stream::Stream;
@@ -135,14 +132,16 @@ where
     }
 }
 
-pub struct ResponseStream(Receiver<Bytes>);
+pub struct ResponseStream(Receiver<Item>);
+
+type Item = io::Result<Bytes>;
 
 impl Stream for ResponseStream {
-    type Item = Result<Bytes, Infallible>;
+    type Item = Item;
 
     #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.get_mut().0.poll_recv(cx).map(|res| res.map(Ok))
+        self.get_mut().0.poll_recv(cx)
     }
 }
 
@@ -153,7 +152,7 @@ pub struct ResponseSender {
 }
 
 impl ResponseSender {
-    fn new(tx: Sender<Bytes>, codec: Codec) -> Self {
+    fn new(tx: Sender<Item>, codec: Codec) -> Self {
         Self {
             inner: Arc::new(_ResponseSender {
                 encoder: Mutex::new(Encoder {
@@ -176,6 +175,64 @@ impl ResponseSender {
     #[inline]
     pub fn send(&self, msg: Message) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
         self.inner.send(msg)
+    }
+
+    /// add [io::Error] to [ResponseStream].
+    ///
+    /// the error should be used as a signal to the TCP connection associated with `ResponseStream`
+    /// to close immediately.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use std::{future::poll_fn, pin::Pin, time::Duration};
+    ///
+    /// use futures_core::Stream;
+    /// use http_ws::{CloseCode, Message, RequestStream, ResponseSender, ResponseStream};
+    /// use tokio::{io::AsyncWriteExt, time::timeout, net::TcpStream};
+    ///
+    /// // thread1:
+    /// // read and write websocket message.
+    /// async fn sender<S, T, E>(tx: ResponseSender, mut rx: Pin<&mut RequestStream<S, E>>)
+    /// where
+    ///     S: Stream<Item = Result<T, E>>,
+    ///     T: AsRef<[u8]>,
+    /// {
+    ///     // send close message to client
+    ///     tx.send(Message::Close(Some(CloseCode::Away.into()))).await.unwrap();
+    ///
+    ///     // the client failed to respond to close message in 5 seconds time window.
+    ///     if let Err(_) = timeout(Duration::from_secs(5), poll_fn(|cx| rx.as_mut().poll_next(cx))).await {
+    ///         // send io error to thread2
+    ///         tx.send_error(std::io::ErrorKind::UnexpectedEof.into()).await.unwrap();
+    ///     }
+    /// }
+    ///
+    /// // thread2:
+    /// // receive websocket message from thread1 and transfer it on tcp connection.
+    /// async fn io_write(conn: &mut TcpStream, mut rx: Pin<&mut ResponseStream>) {
+    ///     // the first message is the "go away" close message in Ok branch.
+    ///     let msg = poll_fn(|cx| rx.as_mut().poll_next(cx)).await.unwrap().unwrap();
+    ///
+    ///     // send msg to client
+    ///     conn.write_all(&msg).await.unwrap();
+    ///
+    ///     // the second message is the io::Error in Err branch.
+    ///     let err = poll_fn(|cx| rx.as_mut().poll_next(cx)).await.unwrap().unwrap_err();
+    ///
+    ///     // at this point we should close the tcp connection by either graceful close or
+    ///     // just return immediately and drop the TcpStream.
+    ///     let _ = conn.shutdown().await;
+    /// }
+    ///
+    /// // thread3:
+    /// // receive message from tcp connection and send it to thread1:
+    /// async fn io_read(conn: &mut TcpStream) {
+    ///     // this part is ignored as it has no relation to the send_error api.
+    /// }
+    /// ```
+    #[inline]
+    pub fn send_error(&self, err: io::Error) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.inner.send_error(err)
     }
 
     /// encode [Message::Text] variant and add to [ResponseStream].
@@ -208,7 +265,7 @@ impl ResponseWeakSender {
 #[derive(Debug)]
 struct _ResponseSender {
     encoder: Mutex<Encoder>,
-    tx: Sender<Bytes>,
+    tx: Sender<Item>,
 }
 
 #[derive(Debug)]
@@ -227,8 +284,18 @@ impl _ResponseSender {
         codec.encode(msg, buf).map(|_| buf.split().freeze())
     }
 
+    // send message to response stream. it would produce Ok(bytes) when succeed where
+    // the bytes is encoded binary websocket message ready to be sent to client.
     async fn send(&self, msg: Message) -> Result<(), ProtocolError> {
         let buf = self.encode(msg)?;
-        self.tx.send(buf).await.map_err(|_| ProtocolError::Closed)
+        self.tx.send(Ok(buf)).await.map_err(|_| ProtocolError::Closed)
+    }
+
+    // send error to response stream. it would produce Err(io::Error) when succeed where
+    // the error is a representation of io error to the stream consumer. in most cases
+    // the consumer observing the error should close the stream and the tcp connection
+    // the stream belongs to.
+    async fn send_error(&self, err: io::Error) -> Result<(), ProtocolError> {
+        self.tx.send(Err(err)).await.map_err(|_| ProtocolError::Closed)
     }
 }
