@@ -102,7 +102,7 @@ cookie = { version = "0.18", features = ["percent-encode", "secure"], optional =
 http-multipart = { version = "0.1", optional = true }
 
 # websocket
-http-ws = { version = "0.1", optional = true }
+http-ws = { version = "0.2", optional = true }
 
 # static file
 http-file = { version = "0.1", optional = true }

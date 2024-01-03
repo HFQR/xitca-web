@@ -1,6 +1,6 @@
 [package]
 name = "http-ws"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "websocket for http crate type"
@@ -24,8 +24,8 @@ tracing = { version = "0.1.40", default-features = false }
 
 # stream feature
 pin-project-lite = { version = "0.2.9", optional = true }
-tokio = { version = "1.30", optional = true }
+tokio = { version = "1.35", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.30", features = ["rt"] }
+tokio = { version = "1.35", features = ["io-util", "net", "rt", "time"] }
 futures-util = { version = "0.3.25", default-features = false }
