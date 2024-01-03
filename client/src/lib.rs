@@ -32,8 +32,8 @@ pub mod middleware;
 
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
+pub use self::connect::Connect;
 pub use self::request::RequestBuilder;
-pub use self::resolver::Resolve;
 pub use self::response::Response;
 pub use self::service::{HttpService, Service, ServiceRequest};
 pub use self::tls::{connector::TlsConnect, stream::Io};

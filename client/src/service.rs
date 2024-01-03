@@ -56,6 +56,8 @@ where
 
 /// request type for middlewares.
 /// It's similar to [RequestBuilder] type but with additional side effect enabled.
+///
+/// [RequestBuilder]: crate::request::RequestBuilder
 pub struct ServiceRequest<'r, 'c> {
     pub req: &'r mut Request<BoxBody>,
     pub client: &'c Client,

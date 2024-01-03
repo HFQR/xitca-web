@@ -17,7 +17,7 @@ use crate::{
     http::{self, uri, Method, Version},
     pool::Pool,
     request::RequestBuilder,
-    resolver::Resolver,
+    resolver::ResolverService,
     service::HttpService,
     timeout::{Timeout, TimeoutConfig},
     tls::connector::Connector,
@@ -26,11 +26,12 @@ use crate::{
 
 /// http client type used for sending [Request] and receive [Response].
 ///
+/// [Request]: crate::request::RequestBuilder
 /// [Response]: crate::response::Response
 pub struct Client {
     pub(crate) pool: Pool<ConnectionKey, Connection>,
     pub(crate) connector: Connector,
-    pub(crate) resolver: Resolver,
+    pub(crate) resolver: ResolverService,
     pub(crate) timeout_config: TimeoutConfig,
     pub(crate) max_http_version: Version,
     pub(crate) local_addr: Option<SocketAddr>,
@@ -184,7 +185,7 @@ impl Client {
         match connect.uri {
             Uri::Tcp(_) => {
                 self.resolver
-                    .resolve(connect)
+                    .call(connect)
                     .timeout(timer.as_mut())
                     .await
                     .map_err(|_| TimeoutError::Resolve)??;
@@ -193,7 +194,7 @@ impl Client {
             }
             Uri::Tls(_) => {
                 self.resolver
-                    .resolve(connect)
+                    .call(connect)
                     .timeout(timer.as_mut())
                     .await
                     .map_err(|_| TimeoutError::Resolve)??;
