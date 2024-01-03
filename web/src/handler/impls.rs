@@ -2,7 +2,7 @@ use crate::{
     body::{BodyStream, ResponseBody},
     context::WebContext,
     error::Error,
-    http::{RequestExt, StatusCode, WebRequest, WebResponse},
+    http::{Method, RequestExt, StatusCode, WebRequest, WebResponse},
 };
 
 use super::{FromRequest, Responder};
@@ -98,6 +98,32 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(ctx.req().body().clone())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a Method
+where
+    B: BodyStream,
+{
+    type Type<'b> = &'b Method;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().method())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Method
+where
+    B: BodyStream,
+{
+    type Type<'b> = Method;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().method().clone())
     }
 }
 
