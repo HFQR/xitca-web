@@ -117,9 +117,13 @@ http-body = { version = "1", optional = true }
 
 [dev-dependencies]
 xitca-codegen = { version = "0.1" }
+xitca-web = { version = "0.1", features = ["codegen", "json", "tower-http-compat"] }
 
 futures-util = { version = "0.3", features = ["alloc"] }
 serde = { version = "1.0.137", features = ["derive"] }
 tokio = { version = "1", features = ["macros"] }
-tower-http = { version = "0.5", features = ["set-status"] }
+tower-http = { version = "0.5", features = ["fs", "set-status"] }
 tracing = "0.1"
+
+[package.metadata.docs.rs]
+all-features = true
