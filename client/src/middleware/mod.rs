@@ -1,3 +1,5 @@
+//! middleware offer extended functionality to http client.
+
 mod redirect;
 
 #[cfg(feature = "compress")]

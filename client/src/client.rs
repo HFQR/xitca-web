@@ -47,6 +47,19 @@ impl Default for Client {
     }
 }
 
+macro_rules! method {
+    ($method: tt, $method2: tt) => {
+        #[doc = concat!("Start a new [Method::", stringify!($method2) ,"] request with empty request body.")]
+        pub fn $method<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
+        where
+            uri::Uri: TryFrom<U>,
+            Error: From<<uri::Uri as TryFrom<U>>::Error>,
+        {
+            Ok(self.get(url)?.method(Method::$method2))
+        }
+    };
+}
+
 impl Client {
     /// Construct a new Client with default setting.
     pub fn new() -> Self {
@@ -70,7 +83,7 @@ impl Client {
         RequestBuilder::new(req, self)
     }
 
-    /// Start a new GET request with empty request body.
+    /// Start a new [Method::GET] request with empty request body.
     pub fn get<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
     where
         uri::Uri: TryFrom<U>,
@@ -85,75 +98,13 @@ impl Client {
         Ok(self.request(req))
     }
 
-    /// Start a new POST request with empty request body.
-    #[inline]
-    pub fn post<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
-    where
-        uri::Uri: TryFrom<U>,
-        Error: From<<uri::Uri as TryFrom<U>>::Error>,
-    {
-        Ok(self.get(url)?.method(Method::POST))
-    }
-
-    /// Start a new PUT request with empty request body.
-    #[inline]
-    pub fn put<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
-    where
-        uri::Uri: TryFrom<U>,
-        Error: From<<uri::Uri as TryFrom<U>>::Error>,
-    {
-        Ok(self.get(url)?.method(Method::PUT))
-    }
-
-    /// Start a new PATCH request with empty request body.
-    #[inline]
-    pub fn patch<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
-    where
-        uri::Uri: TryFrom<U>,
-        Error: From<<uri::Uri as TryFrom<U>>::Error>,
-    {
-        Ok(self.get(url)?.method(Method::PATCH))
-    }
-
-    /// Start a new DELETE request with empty request body.
-    #[inline]
-    pub fn delete<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
-    where
-        uri::Uri: TryFrom<U>,
-        Error: From<<uri::Uri as TryFrom<U>>::Error>,
-    {
-        Ok(self.get(url)?.method(Method::DELETE))
-    }
-
-    /// Start a new OPTIONS request with empty request body.
-    #[inline]
-    pub fn options<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
-    where
-        uri::Uri: TryFrom<U>,
-        Error: From<<uri::Uri as TryFrom<U>>::Error>,
-    {
-        Ok(self.get(url)?.method(Method::OPTIONS))
-    }
-
-    /// Start a new HEAD request with empty request body.
-    #[inline]
-    pub fn head<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
-    where
-        uri::Uri: TryFrom<U>,
-        Error: From<<uri::Uri as TryFrom<U>>::Error>,
-    {
-        Ok(self.get(url)?.method(Method::HEAD))
-    }
-
-    /// Start a new CONNECT request with empty request body.
-    #[inline]
-    pub fn connect<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
-    where
-        uri::Uri: TryFrom<U>,
-        Error: From<<uri::Uri as TryFrom<U>>::Error>,
-    {
-        Ok(self.get(url)?.method(Method::CONNECT))
-    }
+    method!(post, POST);
+    method!(put, PUT);
+    method!(patch, PATCH);
+    method!(delete, DELETE);
+    method!(options, OPTIONS);
+    method!(head, HEAD);
+    method!(connect, CONNECT);
 
     #[cfg(feature = "websocket")]
     /// Start a new websocket request.

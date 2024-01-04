@@ -1,3 +1,22 @@
+//! a composable http client
+//!
+//! # Quick Start
+//! ```rust
+//! use xitca_client::{error::Error, Client};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Error> {
+//!     // build client with tls enabled.
+//!     let client = Client::builder().rustls().finish();
+//!     // send get request to google and wait for response.
+//!     let res = client.get("https://www.google.com/")?.send().await?;
+//!     // parse streaming response body to bytes.
+//!     let body = res.body().await?;
+//!     // print the body as lossy string.
+//!     Ok(println!("{}", String::from_utf8_lossy(&body)))
+//! }
+//! ```
+
 #![forbid(unsafe_code)]
 
 mod body;
