@@ -1,88 +1,35 @@
-use core::future::Future;
+use std::net::ToSocketAddrs;
 
-use std::net::{SocketAddr, ToSocketAddrs};
+use crate::{
+    connect::Connect,
+    error::Error,
+    service::{Service, ServiceDyn},
+};
 
-use futures_core::future::BoxFuture;
+pub type ResolverService =
+    Box<dyn for<'r, 'c> ServiceDyn<&'r mut Connect<'c>, Response = (), Error = Error> + Send + Sync>;
 
-use crate::{connect::Connect, error::Error};
+pub(crate) fn base_resolver() -> ResolverService {
+    struct DefaultResolver;
 
-pub(crate) enum Resolver {
-    Std,
-    Custom(Box<dyn ResolveDyn>),
-}
+    impl<'r, 'c> Service<&'r mut Connect<'c>> for DefaultResolver {
+        type Response = ();
+        type Error = Error;
 
-impl Default for Resolver {
-    fn default() -> Self {
-        Self::Std
+        async fn call(&self, req: &'r mut Connect<'c>) -> Result<Self::Response, Self::Error> {
+            let host = req.hostname();
+            let port = req.port();
+
+            let host = host.to_string();
+            let addrs = tokio::task::spawn_blocking(move || (host, port).to_socket_addrs())
+                .await
+                .unwrap()?;
+
+            req.set_addrs(addrs);
+
+            Ok(())
+        }
     }
-}
 
-impl Resolver {
-    pub(crate) fn custom(resolver: impl Resolve + 'static) -> Self {
-        Self::Custom(Box::new(resolver))
-    }
-
-    pub(crate) async fn resolve(&self, connect: &mut Connect<'_>) -> Result<(), Error> {
-        let host = connect.hostname();
-        let port = connect.port();
-        let addrs = match *self {
-            Self::Std => {
-                let host = host.to_string();
-                tokio::task::spawn_blocking(move || (host, port).to_socket_addrs())
-                    .await
-                    .unwrap()?
-            }
-            Self::Custom(ref resolve) => resolve.resolve_dyn(host, port).await?.into_iter(),
-        };
-
-        connect.set_addrs(addrs);
-
-        Ok(())
-    }
-}
-
-/// Trait for custom DNS resolver.
-///
-/// # Examples
-/// ```rust
-/// use std::net::SocketAddr;
-///
-/// use xitca_client::{error::Error, ClientBuilder, Resolve};
-///
-/// struct MyResolver;
-///
-/// impl Resolve for MyResolver {
-///     // hostname is stripped of port number(if given).
-///     async fn resolve(&self, hostname: &str, port: u16) -> Result<Vec<SocketAddr>, Error> {
-///         // Your DNS resolve logic goes here.
-///         Ok(vec![])
-///     }
-/// }
-///
-/// # fn resolve() {
-/// let client = ClientBuilder::new().resolver(MyResolver).finish();
-/// # }
-/// ```
-pub trait Resolve: Send + Sync {
-    /// *. hostname does not include port number.
-    fn resolve(&self, hostname: &str, port: u16) -> impl Future<Output = Result<Vec<SocketAddr>, Error>> + Send;
-}
-
-pub(crate) trait ResolveDyn: Send + Sync {
-    fn resolve_dyn<'s, 'h>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'h, Result<Vec<SocketAddr>, Error>>
-    where
-        's: 'h;
-}
-
-impl<R> ResolveDyn for R
-where
-    R: Resolve,
-{
-    #[inline]
-    fn resolve_dyn<'s, 'h>(&'s self, hostname: &'h str, port: u16) -> BoxFuture<'h, Result<Vec<SocketAddr>, Error>>
-    where
-        's: 'h,
-    {
-        Box::pin(self.resolve(hostname, port))
-    }
+    Box::new(DefaultResolver)
 }

@@ -4,10 +4,11 @@ use xitca_http::http::version::Version;
 
 use crate::{
     client::Client,
+    connect::Connect,
     date::DateTimeService,
     error::Error,
     pool::Pool,
-    resolver::{Resolve, Resolver},
+    resolver::{base_resolver, ResolverService},
     response::Response,
     service::{base_service, HttpService},
     service::{Service, ServiceRequest},
@@ -18,7 +19,7 @@ use crate::{
 /// Builder type for [Client]. Offer configurations before a client instance is created.
 pub struct ClientBuilder {
     connector: Connector,
-    resolver: Resolver,
+    resolver: ResolverService,
     pool_capacity: usize,
     timeout_config: TimeoutConfig,
     local_addr: Option<SocketAddr>,
@@ -36,7 +37,7 @@ impl ClientBuilder {
     pub fn new() -> Self {
         ClientBuilder {
             connector: Connector::Nop,
-            resolver: Resolver::default(),
+            resolver: base_resolver(),
             pool_capacity: 128,
             timeout_config: TimeoutConfig::default(),
             local_addr: None,
@@ -139,11 +140,45 @@ impl ClientBuilder {
         }
     }
 
-    /// Use custom DNS resolver for domain look up.
+    /// Use custom DNS resolver for domain look up. custom resolver must impl [Service] trait.
     ///
-    /// See [Resolve] for detail.
-    pub fn resolver(mut self, resolver: impl Resolve + 'static) -> Self {
-        self.resolver = Resolver::custom(resolver);
+    /// # Example
+    /// ```rust
+    /// use xitca_client::{error::Error, ClientBuilder, Connect, Service};
+    ///
+    /// // custom dns resolver type
+    /// struct MyResolver;
+    ///
+    /// // implement trait for dns resolver.
+    /// impl<'r, 'c> Service<&'r mut Connect<'c>> for MyResolver {
+    ///     type Response = ();
+    ///     // possible error type when resolving failed.
+    ///     type Error = Error;
+    ///
+    ///     async fn call(&self, connect: &'r mut Connect<'c>) -> Result<Self::Response, Self::Error> {
+    ///         let _host = connect.hostname(); // connect provides host name of domain needs to be resolved.
+    ///         let _port = connect.port(); // the same goes for optional port number of domain.
+    ///         
+    ///         // your dns resolving logic should produce one of multiple std::net::SocketAddr
+    ///         let addr = "127.0.0.1".parse().unwrap();
+    ///
+    ///         // add resolved socket addr(s) to connect which would be used for establishing connections.
+    ///         connect.set_addrs([addr]);
+    ///
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// # fn resolve() {
+    /// // apply resolver to client builder.
+    /// let client = ClientBuilder::new().resolver(MyResolver).finish();
+    /// # }
+    /// ```
+    pub fn resolver<R>(mut self, resolver: R) -> Self
+    where
+        R: for<'r, 'c> Service<&'r mut Connect<'c>, Response = (), Error = Error> + Send + Sync + 'static,
+    {
+        self.resolver = Box::new(resolver);
         self
     }
 
