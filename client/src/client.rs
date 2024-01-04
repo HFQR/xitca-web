@@ -286,7 +286,7 @@ impl Client {
 
         let (stream, version) = self
             .connector
-            .connect(stream, connect.hostname())
+            .call((connect.hostname(), Box::new(stream)))
             .timeout(timer.as_mut())
             .await
             .map_err(|_| TimeoutError::TlsHandshake)??;
