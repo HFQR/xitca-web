@@ -49,7 +49,7 @@ impl Default for Client {
 
 macro_rules! method {
     ($method: tt, $method2: tt) => {
-        #[doc = concat!("Start a new [Method::", stringify!($method2) ,"] request with empty request body.")]
+        #[doc = concat!("Start a new [Method::",stringify!($method2),"] request with empty request body.")]
         pub fn $method<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
         where
             uri::Uri: TryFrom<U>,
@@ -108,6 +108,44 @@ impl Client {
 
     #[cfg(feature = "websocket")]
     /// Start a new websocket request.
+    ///
+    /// # Example
+    /// ```rust
+    /// use xitca_client::{ws::Message, Client};
+    ///
+    /// # async fn _main() -> Result<(), xitca_client::error::Error> {
+    /// // construct a new client and initialize websocket request.
+    /// let client = Client::new();
+    /// let mut ws = client.ws("ws://localhost:8080")?.send().await?;
+    ///
+    /// // ws is websocket connection type exposing Stream and Sink trait
+    /// // interfaces for 2 way websocket message processing.
+    ///
+    /// // import Stream trait and call it's method on ws to receive message.
+    /// use futures::StreamExt;
+    /// if let Some(Ok(_)) = ws.next().await {
+    ///     // received message.
+    /// }
+    ///
+    /// // import Sink trait and call it's method on ws to send message.
+    /// use futures::SinkExt;
+    /// // send text message.
+    /// ws.send(Message::Text("996".into())).await?;
+    ///
+    /// // ws support split sending/receiving task into different parts to enable concurrent message handling.
+    /// let (mut write, mut read) = ws.split();
+    ///
+    /// // read part can operate with Stream trait implement.
+    /// if let Some(Ok(_)) = read.next().await {
+    ///     // received message.
+    /// }
+    ///
+    /// // write part can operate with Sink trait implement.
+    /// write.send(Message::Text("996".into())).await?;
+    ///
+    /// Ok(())
+    /// # }
+    /// ```
     pub fn ws(&self, url: &str) -> Result<crate::ws::WsRequest<'_>, Error> {
         self._ws(url, Version::HTTP_11)
     }

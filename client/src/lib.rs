@@ -16,6 +16,16 @@
 //!     Ok(println!("{}", String::from_utf8_lossy(&body)))
 //! }
 //! ```
+//!
+//! # Composable
+//! - extendable middlewares for pre/post processing
+//! - customizable core feature like DNS resolver and TLS transport layer
+//!
+//! ## Middleware
+//! Please reference [ClientBuilder::middleware]
+//!
+//! ## Customize core feature
+//! Please reference [ClientBuilder::resolver] and [ClientBuilder::tls_connector]
 
 #![forbid(unsafe_code)]
 
