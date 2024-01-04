@@ -71,4 +71,5 @@ futures-sink = { version = "0.3.17", default-features = false, optional = true }
 http-ws = { version = "0.1", default-features = false, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.30", features = ["macros"] }
+tokio = { version = "1.30", features = ["macros", "rt-multi-thread"] }
+xitca-client = { version = "0.1", features = ["rustls"] }

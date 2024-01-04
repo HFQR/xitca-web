@@ -23,7 +23,7 @@ use super::{
     request::RequestBuilder,
 };
 
-/// new type of [Request] with extended functionality for websocket handling.
+/// new type of [RequestBuilder] with extended functionality for websocket handling.
 pub struct WsRequest<'a>(RequestBuilder<'a>);
 
 impl<'a> Deref for WsRequest<'a> {

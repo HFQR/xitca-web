@@ -8,6 +8,7 @@ use crate::{
 
 type BoxFuture<'f, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'f>>;
 
+/// trait for composable http services. Used for middleware,resolver and tls connector.
 pub trait Service<Req> {
     type Response;
     type Error;
@@ -64,6 +65,7 @@ pub struct ServiceRequest<'r, 'c> {
     pub timeout: Duration,
 }
 
+/// type alias for object safe wrapper of type implement [Service] trait.
 pub type HttpService =
     Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error> + Send + Sync>;
 
