@@ -36,7 +36,7 @@ pub use self::connect::Connect;
 pub use self::request::RequestBuilder;
 pub use self::response::Response;
 pub use self::service::{HttpService, Service, ServiceRequest};
-pub use self::tls::{connector::TlsConnect, stream::Io};
+pub use self::tls::{connector::Connector, stream::Io};
 
 // re-export http crate.
 pub use xitca_http::http;

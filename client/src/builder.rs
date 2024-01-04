@@ -13,7 +13,10 @@ use crate::{
     service::{base_service, HttpService},
     service::{Service, ServiceRequest},
     timeout::TimeoutConfig,
-    tls::connector::{Connector, TlsConnect},
+    tls::{
+        connector::{self, Connector},
+        stream::Io,
+    },
 };
 
 /// Builder type for [Client]. Offer configurations before a client instance is created.
@@ -36,7 +39,7 @@ impl Default for ClientBuilder {
 impl ClientBuilder {
     pub fn new() -> Self {
         ClientBuilder {
-            connector: Connector::Nop,
+            connector: connector::nop(),
             resolver: base_resolver(),
             pool_capacity: 128,
             timeout_config: TimeoutConfig::default(),
@@ -117,14 +120,14 @@ impl ClientBuilder {
     #[cfg(feature = "openssl")]
     /// enable openssl as tls connector.
     pub fn openssl(mut self) -> Self {
-        self.connector = Connector::openssl(self.alpn_from_version());
+        self.connector = connector::openssl(self.alpn_from_version());
         self
     }
 
     #[cfg(feature = "rustls")]
     /// enable rustls as tls connector.
     pub fn rustls(mut self) -> Self {
-        self.connector = Connector::rustls(self.alpn_from_version());
+        self.connector = connector::rustls(self.alpn_from_version());
         self
     }
 
@@ -182,11 +185,44 @@ impl ClientBuilder {
         self
     }
 
-    /// Use custom tls connector for tls handling.
+    /// Use custom tls connector for tls handshaking. custom connector must impl [Service] trait.
     ///
-    /// See [TlsConnect] for detail.
-    pub fn tls_connector(mut self, connector: impl TlsConnect + 'static) -> Self {
-        self.connector = Connector::custom(connector);
+    /// # Examples
+    /// ```rust
+    /// use xitca_client::{error::Error, http::Version, ClientBuilder, Io, Service};
+    ///
+    /// // custom connector type
+    /// struct MyConnector;
+    ///     
+    /// // impl trait for connector.
+    /// impl<'n> Service<(&'n str, Box<dyn Io>)> for MyConnector {
+    ///     // expected output types.
+    ///     type Response = (Box<dyn Io>, Version);
+    ///     // potential error type.
+    ///     type Error = Error;
+    ///
+    ///     // name is string representation of server name.
+    ///     // box io is type erased generic io type. it can be TcpStream, UnixStream, etc.
+    ///     async fn call(&self, (name, io): (&'n str, Box<dyn Io>)) -> Result<Self::Response, Self::Error> {
+    ///         // tls handshake logic
+    ///         // after tls connected must return another type erase io type and according http version of this connection.
+    ///         Ok((Box::new(io), Version::HTTP_11))
+    ///     }
+    /// }
+    ///
+    /// # fn resolve() {
+    /// // apply connector to client builder.
+    /// let client = ClientBuilder::new().tls_connector(MyConnector).finish();
+    /// # }
+    /// ```
+    pub fn tls_connector<T>(mut self, connector: T) -> Self
+    where
+        T: for<'n> Service<(&'n str, Box<dyn Io>), Response = (Box<dyn Io>, Version), Error = Error>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.connector = Box::new(connector);
         self
     }
 
