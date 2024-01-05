@@ -12,23 +12,23 @@ use tokio::time::Sleep;
 pub struct TimeoutConfig {
     /// Timeout for resolve DNS look up for given address.
     /// Default to 5 seconds.
-    pub(crate) resolve_timeout: Duration,
+    pub resolve_timeout: Duration,
     /// Timeout for establishing http connection for the first time.
     /// Default to 5 seconds.
-    pub(crate) connect_timeout: Duration,
+    pub connect_timeout: Duration,
     /// Timeout for tls handshake when tls features enabled.
     /// Default to 5 seconds.
-    pub(crate) tls_connect_timeout: Duration,
+    pub tls_connect_timeout: Duration,
     /// Timeout for request reach server and response head(all lines before response body) returns.
     /// Default to 15 seconds.
-    pub(crate) request_timeout: Duration,
+    pub request_timeout: Duration,
     /// Timeout for collecting response body.
     /// Default to 15 seconds.
-    pub(crate) response_timeout: Duration,
+    pub response_timeout: Duration,
 }
 
-impl Default for TimeoutConfig {
-    fn default() -> Self {
+impl TimeoutConfig {
+    pub const fn new() -> Self {
         Self {
             resolve_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(5),
@@ -36,6 +36,12 @@ impl Default for TimeoutConfig {
             request_timeout: Duration::from_secs(15),
             response_timeout: Duration::from_secs(15),
         }
+    }
+}
+
+impl Default for TimeoutConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -70,9 +70,9 @@ pub type HttpService =
     Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error> + Send + Sync>;
 
 pub(crate) fn base_service() -> HttpService {
-    struct _HttpService;
+    struct HttpService;
 
-    impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for _HttpService {
+    impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for HttpService {
         type Response = Response<'c>;
         type Error = Error;
 
@@ -205,5 +205,5 @@ pub(crate) fn base_service() -> HttpService {
         }
     }
 
-    Box::new(_HttpService)
+    Box::new(HttpService)
 }
