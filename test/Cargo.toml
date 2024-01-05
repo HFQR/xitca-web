@@ -14,9 +14,9 @@ xitca-io = "0.1"
 xitca-server = { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
 xitca-unsafe-collection = "0.1"
-xitca-web = "0.1"
+xitca-web = "0.2"
 
-http-ws = { version = "0.1", features = ["stream"] }
+http-ws = { version = "0.2", features = ["stream"] }
 
 futures-util = "0.3.17"
 h3-quinn = "0.0.4"

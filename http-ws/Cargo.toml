@@ -29,3 +29,6 @@ tokio = { version = "1.35", optional = true }
 [dev-dependencies]
 tokio = { version = "1.35", features = ["io-util", "net", "rt", "time"] }
 futures-util = { version = "0.3.25", default-features = false }
+
+[package.metadata.docs.rs]
+all-features = true

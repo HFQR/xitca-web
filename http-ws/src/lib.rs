@@ -1,35 +1,20 @@
-//! WebSocket protocol using high level API that operate over `futures::Stream` trait.
+//! WebSocket protocol using high level API that operate over `futures_core::Stream` trait.
 //!
-//! `http` crate is used as both Http request input and response output.
-//!
-//! To setup a WebSocket, first perform the WebSocket handshake then on success convert request's
-//! body into a `DecodeStream` stream and then use `EncodeStream` to communicate with the peer.
-//!
-//! # Examples:
+//! # HTTP type
+//! - `http` crate types are used for input and output
+//! - support `http/1.1` and `http/2`
+//! ## Examples
 //! ```rust
-//! # use std::{pin::Pin, task::{Context, Poll}};
-//! # use http::{Request, Response, header, Method};
-//! # use http_ws::{handshake, RequestStream, Message};
-//! # use futures_util::stream::{Stream, StreamExt};
-//! #
-//! # fn ws() -> Response<http_ws::ResponseStream> {
-//! #
-//! # struct DummyRequestBody;
-//! #
-//! # impl Stream for DummyRequestBody {
-//! #   type Item = Result<Vec<u8>, ()>;
-//! #   fn poll_next(self:Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-//! #        Poll::Ready(Some(Ok(vec![1, 2, 3])))
-//! #    }
-//! # }
+//! use http::{header, Request, StatusCode};
+//! use http_ws::handshake;
 //!
 //! // an incoming http request.
-//! let request = http::Request::get("/")
+//! let request = Request::get("/")
 //!     .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
 //!     .header(header::CONNECTION, header::HeaderValue::from_static("upgrade"))
 //!     .header(header::SEC_WEBSOCKET_VERSION, header::HeaderValue::from_static("13"))
 //!     .header(header::SEC_WEBSOCKET_KEY, header::HeaderValue::from_static("some_key"))
-//!     .body(DummyRequestBody)
+//!     .body(())
 //!     .unwrap();
 //!
 //! let method = request.method();
@@ -38,38 +23,15 @@
 //! // handshake with request and return a response builder on success.
 //! let response_builder = handshake(method, headers).unwrap();
 //!
-//! // extract request body and construct decode stream.
-//! let body = request.into_body();
-//! let mut decode = RequestStream::new(body);
+//! // add body to builder and finalized it.
+//! let response = response_builder.body(()).unwrap();
 //!
-//! // generate an response stream and a sender that for adding message to it.
-//! let (res, tx) = decode.response_stream();
-//!
-//! // attach response stream to builder to construct a full response.
-//! let response = response_builder.body(res).unwrap();
-//!
-//! // spawn an async task that decode request streaming body and send message to encode stream
-//! // that would encode and sending response.
-//! tokio::spawn(async move {
-//!     while let Some(Ok(msg)) = decode.next().await {
-//!         match msg {
-//!             // echo back text and ping messages and ignore others.
-//!             Message::Text(txt) => tx
-//!                 .send(Message::Text(txt))
-//!                 .await
-//!                 .unwrap(),
-//!             Message::Ping(ping) => tx
-//!                 .send(Message::Pong(ping))
-//!                 .await
-//!                 .unwrap(),
-//!             _ => {}
-//!         }   
-//!     }
-//! });
-//!
-//! response
-//! # }
+//! // response is valid response to websocket request.
+//! assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
 //! ```
+//!
+//! # async HTTP body
+//! Please reference [ws] function
 
 extern crate alloc;
 
@@ -281,6 +243,9 @@ pub type WsOutput<B, E> = (RequestStream<B, E>, Response<ResponseStream>, Respon
 /// #        Poll::Ready(Some(Ok(vec![1, 2, 3])))
 /// #    }
 /// # }
+/// # async fn ws() {
+/// use http_ws::{ws, Message};
+///
 /// // an incoming http request.
 /// let mut req = Request::get("/")
 ///     .header(header::UPGRADE, header::HeaderValue::from_static("websocket"))
@@ -290,7 +255,20 @@ pub type WsOutput<B, E> = (RequestStream<B, E>, Response<ResponseStream>, Respon
 ///     .body(())
 ///     .unwrap();
 ///
-/// let (decoded_stream, http_response, encode_stream_sink) = http_ws::ws(&mut req, DummyRequestBody).unwrap();
+/// // http request body associated with http request.
+/// let body = DummyRequestBody;
+///
+/// // generate response from request and it's body.
+/// let (mut req_stream, response, res_stream) = ws(&mut req, DummyRequestBody).unwrap();
+///
+/// // req_stream must be polled with Stream interface to receive websocket message
+/// use futures_util::stream::StreamExt;
+/// if let Some(Ok(msg)) = req_stream.next().await {
+///     // res_stream can be used to send websocket message to client.
+///     res_stream.send(msg).await.unwrap();
+/// }
+///
+/// # }
 /// ```
 pub fn ws<ReqB, B, T, E>(req: &Request<ReqB>, body: B) -> Result<WsOutput<B, E>, HandshakeError>
 where
