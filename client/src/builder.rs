@@ -42,7 +42,7 @@ impl ClientBuilder {
             connector: connector::nop(),
             resolver: base_resolver(),
             pool_capacity: 128,
-            timeout_config: TimeoutConfig::default(),
+            timeout_config: TimeoutConfig::new(),
             local_addr: None,
             max_http_version: max_http_version(),
             service: base_service(),
@@ -60,7 +60,7 @@ impl ClientBuilder {
     ///     ClientBuilder, HttpService, Response, Service, ServiceRequest
     /// };
     ///
-    /// // a typed middleware that contains the http service xitca offer's.
+    /// // a typed middleware that contains the http service xitca-cleint provides.
     /// struct MyMiddleware {
     ///     // http service contains main logic of making http request and response.
     ///     http_service: HttpService,
@@ -105,7 +105,7 @@ impl ClientBuilder {
     ///
     /// // start a new client builder and apply our middleware to it:
     /// let builder = ClientBuilder::new()
-    ///     // use a closure to receive HttpService and construct our middleware type.
+    ///     // use a closure to receive HttpService and construct my middleware type.
     ///     .middleware(|http_service| MyMiddleware { http_service });
     /// ```
     pub fn middleware<F, S>(mut self, func: F) -> Self
@@ -263,6 +263,12 @@ impl ClientBuilder {
     /// Default to 15 seconds.
     pub fn set_response_timeout(mut self, dur: Duration) -> Self {
         self.timeout_config.response_timeout = dur;
+        self
+    }
+
+    /// Set [TimeoutConfig] for client.
+    pub fn set_timeout(mut self, timeout_config: TimeoutConfig) -> Self {
+        self.timeout_config = timeout_config;
         self
     }
 

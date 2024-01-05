@@ -65,6 +65,7 @@ pub use self::connect::Connect;
 pub use self::request::RequestBuilder;
 pub use self::response::Response;
 pub use self::service::{HttpService, Service, ServiceRequest};
+pub use self::timeout::TimeoutConfig;
 pub use self::tls::{connector::Connector, stream::Io};
 
 // re-export http crate.

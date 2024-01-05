@@ -129,7 +129,6 @@ impl<'a> WebSocket<'a> {
         Ok(Self {
             inner: Mutex::new(WebSocketInner {
                 codec: Codec::new().client_mode(),
-                eof: false,
                 send_buf: BytesMut::new(),
                 recv_buf: BytesMut::new(),
                 body,
@@ -147,24 +146,9 @@ impl<'a> WebSocket<'a> {
     /// Set max message size.
     ///
     /// By default max size is set to 64kB.
-    pub fn max_size(self, size: usize) -> Self {
-        let WebSocketInner {
-            codec,
-            eof,
-            send_buf,
-            recv_buf,
-            body,
-        } = self.inner.into_inner().unwrap();
-
-        Self {
-            inner: Mutex::new(WebSocketInner {
-                codec: codec.set_max_size(size),
-                eof,
-                send_buf,
-                recv_buf,
-                body,
-            }),
-        }
+    pub fn max_size(mut self, size: usize) -> Self {
+        self.inner.get_mut().unwrap().codec.set_max_size(size);
+        self
     }
 
     fn get_mut_pinned_inner(self: Pin<&mut Self>) -> Pin<&mut WebSocketInner<'a>> {
@@ -207,7 +191,6 @@ impl Stream for WebSocket<'_> {
 
 struct WebSocketInner<'b> {
     codec: Codec,
-    eof: bool,
     send_buf: BytesMut,
     recv_buf: BytesMut,
     body: ResponseBody<'b>,
@@ -288,16 +271,12 @@ impl Stream for WebSocketInner<'_> {
                 return Poll::Ready(Some(Ok(msg)));
             }
 
-            if this.eof {
-                return Poll::Ready(None);
-            }
-
             match ready!(Pin::new(&mut this.body).poll_next(cx)) {
                 Some(res) => {
                     let bytes = res?;
                     this.recv_buf.extend_from_slice(&bytes);
                 }
-                None => this.eof = true,
+                None => return Poll::Ready(None),
             }
         }
     }
