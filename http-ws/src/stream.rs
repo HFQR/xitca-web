@@ -2,7 +2,7 @@ use core::{
     fmt,
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use alloc::sync::{Arc, Weak};
@@ -25,7 +25,7 @@ pin_project! {
     /// where `T` type impl `AsRef<[u8]>` trait. (`&[u8]` is needed for parsing messages)
     pub struct RequestStream<S, E> {
         #[pin]
-        stream: Option<S>,
+        stream: S,
         buf: BytesMut,
         codec: Codec,
         err: Option<WsError<E>>
@@ -43,7 +43,7 @@ where
 
     pub fn with_codec(stream: S, codec: Codec) -> Self {
         Self {
-            stream: Some(stream),
+            stream,
             buf: BytesMut::new(),
             codec,
             err: None,
@@ -102,31 +102,16 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
-        while let Some(stream) = this.stream.as_mut().as_pin_mut() {
-            match stream.poll_next(cx) {
-                Poll::Ready(Some(Ok(item))) => {
-                    this.buf.extend_from_slice(item.as_ref());
-                    if this.buf.len() > this.codec.max_size() {
-                        break;
-                    }
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    *this.err = Some(WsError::Stream(e));
-                    this.stream.set(None);
-                }
-                Poll::Ready(None) => this.stream.set(None),
-                Poll::Pending => break,
+        loop {
+            if let Some(msg) = this.codec.decode(this.buf)? {
+                return Poll::Ready(Some(Ok(msg)));
             }
-        }
-
-        match this.codec.decode(this.buf)? {
-            Some(msg) => Poll::Ready(Some(Ok(msg))),
-            None => {
-                if this.stream.is_none() {
-                    Poll::Ready(this.err.take().map(Err))
-                } else {
-                    Poll::Pending
+            match ready!(this.stream.as_mut().poll_next(cx)) {
+                Some(res) => {
+                    let item = res.map_err(WsError::Stream)?;
+                    this.buf.extend_from_slice(item.as_ref())
                 }
+                None => return Poll::Ready(None),
             }
         }
     }
@@ -275,20 +260,18 @@ struct Encoder {
 }
 
 impl _ResponseSender {
-    fn encode(&self, msg: Message) -> Result<Bytes, ProtocolError> {
-        let mut encoder = self.encoder.lock().unwrap();
-        let Encoder {
-            ref mut codec,
-            ref mut buf,
-        } = *encoder;
-        codec.encode(msg, buf).map(|_| buf.split().freeze())
-    }
-
     // send message to response stream. it would produce Ok(bytes) when succeed where
     // the bytes is encoded binary websocket message ready to be sent to client.
     async fn send(&self, msg: Message) -> Result<(), ProtocolError> {
-        let buf = self.encode(msg)?;
-        self.tx.send(Ok(buf)).await.map_err(|_| ProtocolError::Closed)
+        let permit = self.tx.reserve().await.map_err(|_| ProtocolError::Closed)?;
+        let buf = {
+            let mut encoder = self.encoder.lock().unwrap();
+            let Encoder { codec, buf } = &mut *encoder;
+            codec.encode(msg, buf)?;
+            buf.split().freeze()
+        };
+        permit.send(Ok(buf));
+        Ok(())
     }
 
     // send error to response stream. it would produce Err(io::Error) when succeed where
