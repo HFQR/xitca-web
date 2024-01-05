@@ -5,7 +5,7 @@
 //! for handling different protocols in one place.
 //!
 //! # Examples
-//! ```rust
+//! ```no_run
 //! use std::convert::Infallible;
 //!
 //! use xitca_http::{
