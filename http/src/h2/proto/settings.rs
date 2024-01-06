@@ -1,9 +1,10 @@
-use std::{convert::Infallible, fmt};
+use std::fmt;
 
 use tracing::trace;
 use xitca_io::bytes::{BufMut, BytesMut};
 
 use super::{
+    error::Error,
     head::{Head, Kind},
     stream_id::StreamId,
     unpack_octets_4,
@@ -135,10 +136,8 @@ impl Settings {
     }
     */
 
-    pub fn load(head: Head, payload: &[u8]) -> Result<Settings, Infallible> {
+    pub fn load(head: Head, payload: &[u8]) -> Result<Settings, Error> {
         use self::Setting::*;
-
-        // debug_assert_eq!(head.kind(), crate::frame::Kind::Settings);
 
         if !head.stream_id().is_zero() {
             todo!();

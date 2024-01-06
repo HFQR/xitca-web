@@ -1,14 +1,17 @@
 #![allow(dead_code, unused_variables)]
 
-use std::convert::Infallible;
-use std::{fmt, io::Cursor};
+use core::fmt;
 
-use xitca_io::bytes::{buf::Limit, BufMut, Bytes, BytesMut};
+use std::io::Cursor;
+
 use xitca_unsafe_collection::bytes::BytesStr;
 
-use crate::http::{
-    header::{self, HeaderName, HeaderValue},
-    uri, HeaderMap, Method, Request, StatusCode, Uri,
+use crate::{
+    bytes::{buf::Limit, BufMut, Bytes, BytesMut},
+    http::{
+        header::{self, HeaderName, HeaderValue},
+        uri, HeaderMap, Method, Request, StatusCode, Uri,
+    },
 };
 
 use super::{
@@ -150,7 +153,7 @@ impl Headers {
     /// Loads the header frame but doesn't actually do HPACK decoding.
     ///
     /// HPACK decoding is done in the `load_hpack` step.
-    pub fn load(head: Head, mut src: BytesMut) -> Result<(Self, BytesMut), Infallible> {
+    pub fn load(head: Head, mut src: BytesMut) -> Result<(Self, BytesMut), Error> {
         let flags = HeadersFlag(head.flag());
         let mut pad = 0;
 
@@ -390,7 +393,7 @@ impl PushPromise {
     /// Loads the push promise frame but doesn't actually do HPACK decoding.
     ///
     /// HPACK decoding is done in the `load_hpack` step.
-    pub fn load(head: Head, mut src: BytesMut) -> Result<(Self, BytesMut), Infallible> {
+    pub fn load(head: Head, mut src: BytesMut) -> Result<(Self, BytesMut), Error> {
         let flags = PushPromiseFlag(head.flag());
         let mut pad = 0;
 
