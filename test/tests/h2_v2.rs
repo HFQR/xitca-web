@@ -4,6 +4,8 @@ use {
     std::{convert::Infallible, net::SocketAddr},
     xitca_client::Client,
     xitca_http::{
+        body::Once,
+        bytes::Bytes,
         h2,
         http::{Request, RequestExt, Response, Version},
     },
@@ -15,24 +17,32 @@ use {
 #[cfg(feature = "io-uring")]
 #[tokio::test]
 async fn h2_v2_post() {
-    async fn handler(req: Request<RequestExt<h2::RequestBodyV2>>) -> Result<Response<()>, Infallible> {
+    async fn handler(req: Request<RequestExt<h2::RequestBodyV2>>) -> Result<Response<Once<Bytes>>, Infallible> {
         let (_, ext) = req.into_parts();
         let (_, mut body) = ext.replace_body(());
 
-        let mut s = String::new();
+        let mut s = Vec::new();
 
         while let Some(chunk) = body.next().await {
             let chunk = chunk.unwrap();
-            s.push_str(std::str::from_utf8(chunk.as_ref()).unwrap());
+            s.extend_from_slice(chunk.as_ref());
         }
 
-        Ok(Response::new(()))
+        Ok(Response::new(Once::new(Bytes::from(s))))
     }
 
+    let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
-        let service = fn_service(|(stream, _): (TcpStream, SocketAddr)| {
-            h2::run(stream, fn_service(handler).call(()).now_or_panic().unwrap())
+        let service = fn_service(move |(stream, _): (TcpStream, SocketAddr)| {
+            let tx2 = tx2.clone();
+            async move {
+                h2::run(stream, fn_service(handler).call(()).now_or_panic().unwrap())
+                    .await
+                    .map(|_| {
+                        let _ = tx2.send(());
+                    })
+            }
         });
         let server = xitca_server::Builder::new()
             .bind("qa", "localhost:8080", service)?
@@ -54,4 +64,12 @@ async fn h2_v2_post() {
     let res = req.version(Version::HTTP_2).body("hello,world!").send().await.unwrap();
 
     assert!(res.status().is_success());
+
+    let body = res.string().await.unwrap();
+
+    assert_eq!("hello,world!", body);
+
+    drop(c);
+
+    rx2.recv().await;
 }

@@ -3,12 +3,15 @@
 mod data;
 mod dispatcher;
 mod error;
+mod go_away;
 mod head;
 mod headers;
 mod hpack;
 mod priority;
+mod reason;
 mod settings;
 mod stream_id;
+mod window_update;
 
 pub(crate) use dispatcher::Dispatcher;
 
@@ -21,7 +24,7 @@ pub use io_uring::run;
 mod io_uring {
     use core::{
         fmt,
-        future::Future,
+        future::{poll_fn, Future},
         mem,
         pin::{pin, Pin},
         task::{Context, Poll},
@@ -29,7 +32,9 @@ mod io_uring {
 
     use std::{collections::HashMap, io};
 
+    use futures_core::stream::Stream;
     use pin_project_lite::pin_project;
+    use tokio::sync::mpsc;
     use tracing::error;
     use xitca_io::{
         bytes::{Buf, BufMut, BytesMut},
@@ -39,32 +44,35 @@ mod io_uring {
     use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
     use crate::{
-        h2::{RequestBodySender, RequestBodyV2},
-        http::{Request, RequestExt, Response, Version},
+        body::BodySize,
+        bytes::Bytes,
+        h2::{proto::reason::Reason, RequestBodySender, RequestBodyV2},
+        http::{header::CONTENT_LENGTH, HeaderMap, Request, RequestExt, Response, Version},
         util::futures::Queue,
     };
 
     use super::{
         data,
         error::Error,
+        go_away::GoAway,
         head, headers, hpack,
         settings::{self, Settings},
         stream_id::StreamId,
+        window_update::WindowUpdate,
     };
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-    struct H2Context {
+    struct DecodeContext {
         max_header_list_size: usize,
         decoder: hpack::Decoder,
-        encoder: hpack::Encoder,
         tx_map: HashMap<StreamId, RequestBodySender>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
         continuation: Option<(headers::Headers, BytesMut)>,
     }
 
-    impl H2Context {
+    impl DecodeContext {
         fn new(local_setting: Settings) -> Self {
             Self {
                 max_header_list_size: local_setting
@@ -72,7 +80,6 @@ mod io_uring {
                     .map(|val| val as _)
                     .unwrap_or(settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE),
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
-                encoder: hpack::Encoder::new(65535, 4096),
                 tx_map: HashMap::new(),
                 next_frame_len: 0,
                 continuation: None,
@@ -165,6 +172,17 @@ mod io_uring {
                             self.tx_map.remove(&id);
                         }
                     }
+                    head::Kind::WindowUpdate => {
+                        let window = WindowUpdate::load(head, frame.as_ref()).unwrap();
+
+                        if window.stream_id() == 0 {
+                            // connection window
+                        }
+                    }
+                    head::Kind::GoAway => {
+                        let go_away = GoAway::load(frame.as_ref()).unwrap();
+                        assert_eq!(go_away.reason(), Reason::NO_ERROR);
+                    }
                     _ => {}
                 }
             }
@@ -249,11 +267,13 @@ mod io_uring {
     }
 
     /// Experimental h2 http layer.
-    pub async fn run<Io, S>(io: Io, service: S) -> io::Result<()>
+    pub async fn run<Io, S, ResB, ResBE>(io: Io, service: S) -> io::Result<()>
     where
         Io: AsyncBufRead + AsyncBufWrite,
-        S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<()>>,
+        S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<ResB>>,
         S::Error: fmt::Debug,
+        ResB: Stream<Item = Result<Bytes, ResBE>>,
+        ResBE: fmt::Debug,
     {
         let mut read_buf = BytesMut::new();
         let mut write_buf = BytesMut::new();
@@ -268,14 +288,85 @@ mod io_uring {
         write_buf = buf;
         res?;
 
-        let mut ctx = H2Context::new(settings);
-        let mut queue = Queue::new();
-
         let mut read_task = pin!(read_io(read_buf, &io));
 
+        let (tx, mut rx) = mpsc::channel::<Message>(256);
+
+        let mut ctx = DecodeContext::new(settings);
+        let mut queue = Queue::new();
+
+        enum Message {
+            Head(StreamId, Response<()>),
+            Stream(StreamId, Bytes),
+            Trailer(StreamId, HeaderMap),
+        }
+
+        let mut write_task = pin!(async {
+            let mut encoder = hpack::Encoder::new(65535, 4096);
+
+            use core::ops::ControlFlow;
+
+            enum State {
+                Write,
+                WriteEof,
+            }
+
+            loop {
+                let state = poll_fn(|cx| match rx.poll_recv(cx) {
+                    Poll::Ready(Some(msg)) => {
+                        match msg {
+                            Message::Head(id, res) => {
+                                let (parts, _) = res.into_parts();
+                                let pseudo = headers::Pseudo::response(parts.status);
+                                let headers = headers::Headers::new(id, pseudo, parts.headers);
+                                let mut buf = (&mut write_buf).limit(4096);
+                                headers.encode(&mut encoder, &mut buf);
+                            }
+                            Message::Stream(id, bytes) => {
+                                let mut data = data::Data::new(id, bytes);
+                                data.encode_chunk(&mut write_buf);
+                            }
+                            Message::Trailer(stream_id, map) => {
+                                let trailer = headers::Headers::trailers(stream_id, map);
+                                let mut buf = (&mut write_buf).limit(4096);
+                                trailer.encode(&mut encoder, &mut buf);
+                            }
+                        };
+                        Poll::Ready(ControlFlow::Continue(()))
+                    }
+                    Poll::Pending if write_buf.is_empty() => Poll::Pending,
+                    Poll::Pending => Poll::Ready(ControlFlow::Break(State::Write)),
+                    Poll::Ready(None) => Poll::Ready(ControlFlow::Break(State::WriteEof)),
+                })
+                .await;
+
+                match state {
+                    ControlFlow::Continue(_) => continue,
+                    ControlFlow::Break(state) => {
+                        let (res, buf) = write_io(write_buf, &io).await;
+                        write_buf = buf;
+
+                        if let Err(e) = res {
+                            tracing::error!("{e:?}");
+                            return;
+                        }
+
+                        if matches!(state, State::WriteEof) {
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
         loop {
-            match read_task.as_mut().select(queue.next()).await {
-                SelectOutput::A((res, buf)) => {
+            match read_task
+                .as_mut()
+                .select(queue.next())
+                .select(write_task.as_mut())
+                .await
+            {
+                SelectOutput::A(SelectOutput::A((res, buf))) => {
                     read_buf = buf;
                     if res? == 0 {
                         break;
@@ -283,7 +374,32 @@ mod io_uring {
 
                     let res = ctx.try_decode(&mut read_buf, |req, stream_id| {
                         let s = &service;
-                        queue.push(async move { (s.call(req).await, stream_id) });
+                        let t = &tx;
+                        queue.push(async move {
+                            match s.call(req).await {
+                                Ok(res) => {
+                                    let (mut parts, body) = res.into_parts();
+
+                                    if let BodySize::Sized(size) = BodySize::from_stream(&body) {
+                                        parts.headers.insert(CONTENT_LENGTH, size.into());
+                                    }
+
+                                    t.send(Message::Head(stream_id, Response::from_parts(parts, ())))
+                                        .await
+                                        .unwrap();
+
+                                    let mut body = pin!(body);
+
+                                    while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+                                        let bytes = chunk.unwrap();
+                                        t.send(Message::Stream(stream_id, bytes)).await.unwrap();
+                                    }
+
+                                    t.send(Message::Trailer(stream_id, HeaderMap::new())).await.unwrap();
+                                }
+                                Err(e) => error!("service error: {:?}", e),
+                            };
+                        });
                     });
 
                     if let Err(e) = res {
@@ -292,25 +408,15 @@ mod io_uring {
 
                     read_task.set(read_io(read_buf, &io));
                 }
-                SelectOutput::B((res, id)) => {
-                    let (parts, _) = match res {
-                        Ok(res) => res.into_parts(),
-                        Err(e) => {
-                            error!("service error: {e:?}");
-                            continue;
-                        }
-                    };
-                    let pseudo = headers::Pseudo::response(parts.status);
-                    let headers = headers::Headers::new(id, pseudo, parts.headers);
-                    let mut buf = (&mut write_buf).limit(4096);
-                    headers.encode(&mut ctx.encoder, &mut buf);
-
-                    let (res, buf) = write_io(write_buf, &io).await;
-                    write_buf = buf;
-                    res?;
-                }
+                SelectOutput::A(SelectOutput::B(_)) => {}
+                SelectOutput::B(_) => break,
             }
         }
+
+        drop(queue);
+        drop(tx);
+
+        write_task.await;
 
         Ok(())
     }

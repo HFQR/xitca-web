@@ -73,7 +73,7 @@ impl ClientBuilder {
     ///     type Error = Error;
     ///
     ///     async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
-    ///         // my middleware receive ServiceRequest and can do pre-process before handling it to
+    ///         // my middleware receive ServiceRequest and can do pre-process before passing it to
     ///         // HttpService. in this case we just print out the HTTP method of request.
     ///         println!("request method is: {}", req.req.method());
     ///
@@ -162,7 +162,7 @@ impl ClientBuilder {
     ///         let _host = connect.hostname(); // connect provides host name of domain needs to be resolved.
     ///         let _port = connect.port(); // the same goes for optional port number of domain.
     ///         
-    ///         // your dns resolving logic should produce one of multiple std::net::SocketAddr
+    ///         // your dns resolving logic should produce one or multiple std::net::SocketAddr
     ///         let addr = "127.0.0.1".parse().unwrap();
     ///
     ///         // add resolved socket addr(s) to connect which would be used for establishing connections.
