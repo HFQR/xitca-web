@@ -204,6 +204,7 @@
 //!     service.call(ctx).await
 //! }
 //! ```
+//! For more detailed middleware documentation please reference [middleware]
 //!
 //! ## Cross crates integration
 //! ```rust
