@@ -9,6 +9,7 @@ mod headers;
 mod hpack;
 mod priority;
 mod reason;
+mod reset;
 mod settings;
 mod stream_id;
 mod window_update;
@@ -56,6 +57,7 @@ mod io_uring {
         error::Error,
         go_away::GoAway,
         head, headers, hpack,
+        reset::Reset,
         settings::{self, Settings},
         stream_id::StreamId,
         window_update::WindowUpdate,
@@ -77,7 +79,7 @@ mod io_uring {
         Head(StreamId, Response<()>),
         Stream(StreamId, Bytes),
         Trailer(StreamId, HeaderMap),
-        Reset(()),
+        Reset(StreamId, Reason),
     }
 
     impl<'a> DecodeContext<'a> {
@@ -174,7 +176,7 @@ mod io_uring {
                         let tx = self.tx_map.get_mut(&id).unwrap();
 
                         if tx.send(Ok(payload)).is_err() {
-                            self.writer_tx.send(Message::Reset(())).await.unwrap();
+                            self.writer_tx.send(Message::Reset(id, Reason::CANCEL)).await.unwrap();
                             is_end = true;
                         };
 
@@ -335,7 +337,10 @@ mod io_uring {
                                 let mut buf = (&mut write_buf).limit(4096);
                                 trailer.encode(&mut encoder, &mut buf);
                             }
-                            Message::Reset(_) => {}
+                            Message::Reset(id, reason) => {
+                                let rest = Reset::new(id, reason);
+                                rest.encode(&mut write_buf);
+                            }
                         };
                         Poll::Ready(ControlFlow::Continue(()))
                     }
