@@ -9,6 +9,7 @@ mod headers;
 mod hpack;
 mod priority;
 mod reason;
+mod reset;
 mod settings;
 mod stream_id;
 mod window_update;
@@ -34,7 +35,7 @@ mod io_uring {
 
     use futures_core::stream::Stream;
     use pin_project_lite::pin_project;
-    use tokio::sync::mpsc;
+    use tokio::sync::mpsc::{self, Sender};
     use tracing::error;
     use xitca_io::{
         bytes::{Buf, BufMut, BytesMut},
@@ -56,6 +57,7 @@ mod io_uring {
         error::Error,
         go_away::GoAway,
         head, headers, hpack,
+        reset::Reset,
         settings::{self, Settings},
         stream_id::StreamId,
         window_update::WindowUpdate,
@@ -63,17 +65,25 @@ mod io_uring {
 
     const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-    struct DecodeContext {
+    struct DecodeContext<'a> {
         max_header_list_size: usize,
         decoder: hpack::Decoder,
         tx_map: HashMap<StreamId, RequestBodySender>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
         continuation: Option<(headers::Headers, BytesMut)>,
+        writer_tx: &'a Sender<Message>,
     }
 
-    impl DecodeContext {
-        fn new(local_setting: Settings) -> Self {
+    enum Message {
+        Head(StreamId, Response<()>),
+        Stream(StreamId, Bytes),
+        Trailer(StreamId, HeaderMap),
+        Reset(StreamId, Reason),
+    }
+
+    impl<'a> DecodeContext<'a> {
+        fn new(local_setting: Settings, writer_tx: &'a Sender<Message>) -> Self {
             Self {
                 max_header_list_size: local_setting
                     .max_header_list_size()
@@ -83,10 +93,11 @@ mod io_uring {
                 tx_map: HashMap::new(),
                 next_frame_len: 0,
                 continuation: None,
+                writer_tx,
             }
         }
 
-        fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F) -> Result<(), Error>
+        async fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F) -> Result<(), Error>
         where
             F: FnMut(Request<RequestExt<RequestBodyV2>>, StreamId),
         {
@@ -111,16 +122,14 @@ mod io_uring {
 
                 match head.kind() {
                     head::Kind::Settings => {
-                        let _setting = settings::Settings::load(head, &frame).unwrap();
+                        let _setting = settings::Settings::load(head, &frame)?;
                     }
                     head::Kind::Headers => {
-                        let (mut headers, mut payload) = headers::Headers::load(head, frame).unwrap();
+                        let (mut headers, mut payload) = headers::Headers::load(head, frame)?;
 
                         let is_end_headers = headers.is_end_headers();
 
-                        headers
-                            .load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder)
-                            .unwrap();
+                        headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder)?;
 
                         if !is_end_headers {
                             self.continuation = Some((headers, payload));
@@ -159,28 +168,31 @@ mod io_uring {
                         self.handle_header_frame(id, headers, &mut on_msg);
                     }
                     head::Kind::Data => {
-                        let data = data::Data::load(head, frame.freeze()).unwrap();
-                        let is_end = data.is_end_stream();
+                        let data = data::Data::load(head, frame.freeze())?;
+                        let mut is_end = data.is_end_stream();
                         let id = data.stream_id();
                         let payload = data.into_payload();
 
                         let tx = self.tx_map.get_mut(&id).unwrap();
 
-                        tx.send(Ok(payload)).unwrap();
+                        if tx.send(Ok(payload)).is_err() {
+                            self.writer_tx.send(Message::Reset(id, Reason::CANCEL)).await.unwrap();
+                            is_end = true;
+                        };
 
                         if is_end {
                             self.tx_map.remove(&id);
                         }
                     }
                     head::Kind::WindowUpdate => {
-                        let window = WindowUpdate::load(head, frame.as_ref()).unwrap();
+                        let window = WindowUpdate::load(head, frame.as_ref())?;
 
                         if window.stream_id() == 0 {
                             // connection window
                         }
                     }
                     head::Kind::GoAway => {
-                        let go_away = GoAway::load(frame.as_ref()).unwrap();
+                        let go_away = GoAway::load(frame.as_ref())?;
                         assert_eq!(go_away.reason(), Reason::NO_ERROR);
                     }
                     _ => {}
@@ -292,14 +304,8 @@ mod io_uring {
 
         let (tx, mut rx) = mpsc::channel::<Message>(256);
 
-        let mut ctx = DecodeContext::new(settings);
+        let mut ctx = DecodeContext::new(settings, &tx);
         let mut queue = Queue::new();
-
-        enum Message {
-            Head(StreamId, Response<()>),
-            Stream(StreamId, Bytes),
-            Trailer(StreamId, HeaderMap),
-        }
 
         let mut write_task = pin!(async {
             let mut encoder = hpack::Encoder::new(65535, 4096);
@@ -330,6 +336,10 @@ mod io_uring {
                                 let trailer = headers::Headers::trailers(stream_id, map);
                                 let mut buf = (&mut write_buf).limit(4096);
                                 trailer.encode(&mut encoder, &mut buf);
+                            }
+                            Message::Reset(id, reason) => {
+                                let rest = Reset::new(id, reason);
+                                rest.encode(&mut write_buf);
                             }
                         };
                         Poll::Ready(ControlFlow::Continue(()))
@@ -372,35 +382,37 @@ mod io_uring {
                         break;
                     }
 
-                    let res = ctx.try_decode(&mut read_buf, |req, stream_id| {
-                        let s = &service;
-                        let t = &tx;
-                        queue.push(async move {
-                            match s.call(req).await {
-                                Ok(res) => {
-                                    let (mut parts, body) = res.into_parts();
+                    let res = ctx
+                        .try_decode(&mut read_buf, |req, stream_id| {
+                            let s = &service;
+                            let t = &tx;
+                            queue.push(async move {
+                                match s.call(req).await {
+                                    Ok(res) => {
+                                        let (mut parts, body) = res.into_parts();
 
-                                    if let BodySize::Sized(size) = BodySize::from_stream(&body) {
-                                        parts.headers.insert(CONTENT_LENGTH, size.into());
+                                        if let BodySize::Sized(size) = BodySize::from_stream(&body) {
+                                            parts.headers.insert(CONTENT_LENGTH, size.into());
+                                        }
+
+                                        t.send(Message::Head(stream_id, Response::from_parts(parts, ())))
+                                            .await
+                                            .unwrap();
+
+                                        let mut body = pin!(body);
+
+                                        while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
+                                            let bytes = chunk.unwrap();
+                                            t.send(Message::Stream(stream_id, bytes)).await.unwrap();
+                                        }
+
+                                        t.send(Message::Trailer(stream_id, HeaderMap::new())).await.unwrap();
                                     }
-
-                                    t.send(Message::Head(stream_id, Response::from_parts(parts, ())))
-                                        .await
-                                        .unwrap();
-
-                                    let mut body = pin!(body);
-
-                                    while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                                        let bytes = chunk.unwrap();
-                                        t.send(Message::Stream(stream_id, bytes)).await.unwrap();
-                                    }
-
-                                    t.send(Message::Trailer(stream_id, HeaderMap::new())).await.unwrap();
-                                }
-                                Err(e) => error!("service error: {:?}", e),
-                            };
-                        });
-                    });
+                                    Err(e) => error!("service error: {:?}", e),
+                                };
+                            });
+                        })
+                        .await;
 
                     if let Err(e) = res {
                         panic!("decode error: {e:?}")

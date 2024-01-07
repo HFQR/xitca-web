@@ -3,6 +3,7 @@ use core::fmt;
 use crate::bytes::{Buf, BufMut, Bytes};
 
 use super::{
+    error::Error,
     head::{Head, Kind},
     stream_id::StreamId,
 };
@@ -109,7 +110,7 @@ impl<T> Data<T> {
 }
 
 impl Data<Bytes> {
-    pub(crate) fn load(head: Head, payload: Bytes) -> Result<Self, core::convert::Infallible> {
+    pub(crate) fn load(head: Head, payload: Bytes) -> Result<Self, Error> {
         let flags = DataFlags::load(head.flag());
 
         // The stream identifier must not be zero

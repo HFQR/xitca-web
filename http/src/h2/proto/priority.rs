@@ -1,6 +1,4 @@
-use core::convert::Infallible;
-
-use super::{head::Head, stream_id::StreamId};
+use super::{error::Error, head::Head, stream_id::StreamId};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
@@ -21,7 +19,7 @@ pub struct StreamDependency {
 }
 
 impl Priority {
-    pub fn load(head: Head, payload: &[u8]) -> Result<Self, Infallible> {
+    pub fn load(head: Head, payload: &[u8]) -> Result<Self, Error> {
         let dependency = StreamDependency::load(payload)?;
 
         if dependency.dependency_id() == head.stream_id() {
@@ -47,7 +45,7 @@ impl StreamDependency {
         }
     }
 
-    pub fn load(src: &[u8]) -> Result<Self, Infallible> {
+    pub fn load(src: &[u8]) -> Result<Self, Error> {
         if src.len() != 5 {
             todo!()
             // return Err(Error::InvalidPayloadLength);
