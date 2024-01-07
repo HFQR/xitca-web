@@ -88,7 +88,7 @@
 //! {
 //!     next.call(ctx).await
 //! }
-//! 
+//!
 //! // a middleware expecting usize as application state.
 //! async fn middleware_3<S>(next: &S, ctx: WebContext<'_, usize>) -> Result<WebResponse, Error<usize>>
 //! where
@@ -102,7 +102,7 @@
 //!     .enclosed_fn(middleware_1)
 //!     // uncomment the line below would cause a compile error. because middleware_3 expecting usize
 //!     // type as application state but the App has a state type of String.
-//!     // .enclosed_fn(middleware_3) 
+//!     // .enclosed_fn(middleware_3)
 //!     .enclosed_fn(middleware_2); // both generic and concrete typed middleware would work.
 //!
 //! # async fn handler<C>(_: &WebContext<'_, C>) -> &'static str {
