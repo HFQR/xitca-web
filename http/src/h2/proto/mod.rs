@@ -356,13 +356,10 @@ mod io_uring {
                         let (res, buf) = write_io(write_buf, &io).await;
                         write_buf = buf;
 
-                        if let Err(e) = res {
-                            tracing::error!("{e:?}");
-                            return;
-                        }
+                        res?;
 
                         if matches!(state, State::WriteEof) {
-                            return;
+                            return Ok::<_, io::Error>(());
                         }
                     }
                 }
@@ -427,8 +424,6 @@ mod io_uring {
 
         drop(queue);
         drop(tx);
-
-        write_task.await;
 
         Ok(())
     }

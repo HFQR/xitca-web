@@ -143,7 +143,68 @@
 //! # }
 //! ```
 //! For http body type mutation please reference the `Type Mutation` part below.
+//!
 //! # Variants
+//! ## async function as middleware
+//! Please reference `Types in middleware` part above
+//! ## named type as middleware
+//! ```rust
+//! # use xitca_web::{error::Error, handler::handler_service, http::WebResponse, service::Service, App, WebContext};
+//! // in xitca-web a named type middleware is constructed with a two step process:
+//! // 1. a builder type and trait impl for constructing the middleware service.
+//! // 2. a runner type and trait impl for running the middleware service.
+//!
+//! // a named type for building the middleware service. it's a blueprint of constructing service
+//! // that can be repeatedly utilized to produce multiple running services.
+//! struct Middleware;
+//!
+//! // trait impl for Middleware type where the logic of building middleware lives.
+//! // generic S type represent the running service type Middleware enclosed upon and in this example's case it's
+//! // the application service type.
+//! // generic E type represent the possible error when building application. our builder logic can interact with the
+//! // error and mutate it. in this case we just forward the error in output as our middleware builder is infallible.
+//! impl<S, E> Service<Result<S, E>> for Middleware {
+//!     // response type represent the successful built running service type.
+//!     type Response = MiddlewareService<S>;
+//!     // error type represent the possible error in building process.
+//!     type Error = E;
+//!
+//!     async fn call(&self, arg: Result<S, E>) -> Result<Self::Response, Self::Error> {
+//!         // the building logic of middleware services lives here and in this case it's a simple new type around S
+//!         arg.map(MiddlewareService)       
+//!     }
+//! }
+//!
+//! // a named type for running middleware service. the Middleware type above would build this type when application
+//! // starts up and the running service is what interact with client http requests.
+//! // generic S type represent the running service type Middleware enclosed upon and in this example's case it's
+//! // the application service type.
+//! struct MiddlewareService<S>(S);
+//!
+//! // trait impl for MiddlewareService type where the logic of running middleware lives.
+//! // please reference `Types in middleware` session above for explanation of types used here.
+//! // function middleware and type middleware share the same types when interacting with http types.
+//! impl<'r, S, C, B> Service<WebContext<'r, C, B>> for MiddlewareService<S>
+//! where
+//!     S: for<'r2> Service<WebContext<'r2, C, B>, Response = WebResponse, Error = Error<C>>
+//! {
+//!     type Response = WebResponse;
+//!     type Error = Error<C>;
+//!
+//!     async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+//!         // logic for running middleware service lives here. in this case it just forward to application service
+//!         self.0.call(req).await
+//!     }
+//! }
+//!
+//! App::new()
+//!     # .at("/", handler_service(handler))
+//!     .enclosed(Middleware); // apply middleware to application
+//!
+//! # async fn handler(_: &WebContext<'_>) -> &'static str {
+//! #   todo!()
+//! # }
+//! ```
 //!
 //! # Ordering
 //! ```rust
