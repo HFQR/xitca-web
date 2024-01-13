@@ -33,15 +33,31 @@ use crate::{
 use self::{object::WebObject, router::AppRouter};
 
 /// composed application type with router, stateful context and default middlewares.
-pub struct App<R = (), F = CtxBuilder<()>> {
+pub struct App<R = (), CF = ()> {
     router: R,
-    builder: F,
+    ctx_builder: CF,
 }
 
 type CtxBuilder<C> = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Result<C, Box<dyn fmt::Debug>>>>> + Send + Sync>;
-
 type DefaultWebObject<C> = WebObject<C, RequestBody, WebResponse, RouterError<Error<C>>>;
 type DefaultAppRouter<C> = AppRouter<BoxedSyncServiceObject<(), DefaultWebObject<C>, Infallible>>;
+
+// helper trait to poly between () and Box<Fn()> as application state.
+pub trait IntoCtx<C> {
+    fn into_ctx(self) -> CtxBuilder<C>;
+}
+
+impl IntoCtx<()> for () {
+    fn into_ctx(self) -> CtxBuilder<()> {
+        Box::new(|| Box::pin(ready(Ok(()))))
+    }
+}
+
+impl<C> IntoCtx<C> for CtxBuilder<C> {
+    fn into_ctx(self) -> CtxBuilder<C> {
+        self
+    }
+}
 
 /// type alias for concrete type of nested App.
 ///
@@ -54,16 +70,43 @@ type DefaultAppRouter<C> = AppRouter<BoxedSyncServiceObject<(), DefaultWebObject
 /// }
 ///
 /// // nest app would be registered with /v2 as prefix therefore "/v2/index" become accessible.
-/// App::with_state(996usize).at("/v2", app());
+/// App::new().at("/v2", app()).with_state(996usize);
 /// ```
 pub type NestApp<C> = App<DefaultAppRouter<C>>;
 
 impl App {
     /// Construct a new application instance.
     pub fn new<Obj>() -> App<AppRouter<Obj>> {
-        Self::with_state(())
+        App {
+            router: AppRouter::new(),
+            ctx_builder: (),
+        }
+    }
+}
+
+impl<Obj, CF> App<AppRouter<Obj>, CF> {
+    /// insert routed service with given path to application.
+    pub fn at<F, C, B>(mut self, path: &'static str, builder: F) -> Self
+    where
+        F: RouterGen + Service + Send + Sync,
+        F::Response: for<'r> Service<WebContext<'r, C, B>>,
+        for<'r> WebContext<'r, C, B>: IntoObject<F::Route<F>, (), Object = Obj>,
+    {
+        self.router = self.router.insert(path, builder);
+        self
     }
 
+    /// insert typed route service with given path to application.
+    pub fn at_typed<T, C>(mut self, typed: T) -> Self
+    where
+        T: TypedRoute<C, Route = Obj>,
+    {
+        self.router = self.router.insert_typed(typed);
+        self
+    }
+}
+
+impl<R, CF> App<R, CF> {
     /// Construct App with a thread safe state that will be shared among all tasks and worker threads.
     ///
     /// State accessing is based on generic type approach where the State type and it's typed fields are generally
@@ -93,7 +136,8 @@ impl App {
     ///     }
     /// }
     ///
-    /// App::with_state(State::default()) // construct app with state type.
+    /// App::new()
+    ///     .with_state(State::default())// construct app with state type.
     ///     .at("/", handler_service(index)) // a function service that have access to state.
     ///     # .at("/nah", handler_service(|_: &WebContext<'_, State>| async { "used for infer type" }))
     ///     .enclosed_fn(middleware_fn); // a function middleware that have access to state
@@ -118,100 +162,83 @@ impl App {
     ///     service.call(ctx).await
     /// }
     /// ```
-    pub fn with_state<Obj, C>(state: C) -> App<AppRouter<Obj>, CtxBuilder<C>>
+    pub fn with_state<C>(self, state: C) -> App<R, CtxBuilder<C>>
     where
         C: Send + Sync + Clone + 'static,
     {
-        Self::with_async_state(move || ready(Ok::<_, Infallible>(state.clone())))
+        self.with_async_state(move || ready(Ok::<_, Infallible>(state.clone())))
     }
 
     /// Construct App with async closure which it's output would be used as state.
     /// async state is used to produce thread per core and/or non thread safe state copies.
     /// The output state is not bound to `Send` and `Sync` auto traits.
-    pub fn with_async_state<Obj, F, Fut, C, E>(builder: F) -> App<AppRouter<Obj>, CtxBuilder<C>>
+    pub fn with_async_state<CF1, Fut, C, E>(self, builder: CF1) -> App<R, CtxBuilder<C>>
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
+        CF1: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<C, E>> + 'static,
         E: fmt::Debug + 'static,
     {
-        let builder = Box::new(move || {
+        let ctx_builder = Box::new(move || {
             let fut = builder();
             Box::pin(async { fut.await.map_err(|e| Box::new(e) as Box<dyn fmt::Debug>) }) as _
         });
 
         App {
-            builder,
-            router: AppRouter::new(),
+            router: self.router,
+            ctx_builder,
         }
     }
 }
 
-impl<Obj, F> App<AppRouter<Obj>, F> {
-    /// insert routed service with given path to application.
-    pub fn at<F1, C, B>(mut self, path: &'static str, builder: F1) -> Self
-    where
-        F1: RouterGen + Service + Send + Sync,
-        F1::Response: for<'r> Service<WebContext<'r, C, B>>,
-        for<'r> WebContext<'r, C, B>: IntoObject<F1::Route<F1>, (), Object = Obj>,
-    {
-        self.router = self.router.insert(path, builder);
-        self
-    }
-
-    /// insert typed route service with given path to application.
-    pub fn at_typed<T, C>(mut self, typed: T) -> Self
-    where
-        T: TypedRoute<C, Route = Obj>,
-    {
-        self.router = self.router.insert_typed(typed);
-        self
-    }
-}
-
-impl<R, C> App<R, CtxBuilder<C>>
+impl<R, CF> App<R, CF>
 where
     R: Service + Send + Sync,
     R::Error: fmt::Debug + 'static,
-    C: 'static,
 {
     /// Enclose App with middleware type.
     /// Middleware must impl [Service] trait.
-    pub fn enclosed<T>(self, transform: T) -> App<EnclosedBuilder<R, T>, CtxBuilder<C>>
+    pub fn enclosed<T>(self, transform: T) -> App<EnclosedBuilder<R, T>, CF>
     where
         T: Service<Result<R::Response, R::Error>>,
     {
         App {
-            builder: self.builder,
             router: self.router.enclosed(transform),
+            ctx_builder: self.ctx_builder,
         }
     }
 
     /// Enclose App with function as middleware type.
-    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<EnclosedFnBuilder<R, T>, CtxBuilder<C>>
+    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<EnclosedFnBuilder<R, T>, CF>
     where
         T: for<'s> AsyncClosure<(&'s R::Response, Req)> + Clone,
     {
         App {
-            builder: self.builder,
             router: self.router.enclosed_fn(transform),
+            ctx_builder: self.ctx_builder,
         }
     }
 
     /// Mutate `<<Self::Response as Service<Req>>::Future as Future>::Output` type with given
     /// closure.
-    pub fn map<T, Res, ResMap>(self, mapper: T) -> App<MapBuilder<R, T>, CtxBuilder<C>>
+    pub fn map<T, Res, ResMap>(self, mapper: T) -> App<MapBuilder<R, T>, CF>
     where
         T: Fn(Res) -> ResMap + Clone,
         Self: Sized,
     {
         App {
-            builder: self.builder,
             router: self.router.map(mapper),
+            ctx_builder: self.ctx_builder,
         }
     }
+}
 
+impl<R, CF> App<R, CF>
+where
+    R: Service + Send + Sync,
+    R::Error: fmt::Debug + 'static,
+{
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish<ResB, SE>(
+    pub fn finish<C, ResB, SE>(
         self,
     ) -> impl Service<
         Response = impl ReadyService + Service<WebRequest, Response = WebResponse<EitherResBody<ResB>>, Error = Infallible>,
@@ -220,13 +247,17 @@ where
     where
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>,
+        CF: IntoCtx<C>,
+        C: 'static,
     {
-        let App { builder, router } = self;
-        router.enclosed_fn(map_req_res).enclosed(ContextBuilder::new(builder))
+        let App { ctx_builder, router } = self;
+        router
+            .enclosed_fn(map_req_res)
+            .enclosed(ContextBuilder::new(ctx_builder.into_ctx()))
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish_boxed<ResB, SE, BE>(
+    pub fn finish_boxed<C, ResB, SE, BE>(
         self,
     ) -> AppObject<impl ReadyService + Service<WebRequest, Response = WebResponse, Error = Infallible>>
     where
@@ -236,6 +267,8 @@ where
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: error::Error + Send + Sync + 'static,
+        CF: IntoCtx<C> + 'static,
+        C: 'static,
     {
         struct BoxApp<S>(S);
 
@@ -259,7 +292,7 @@ where
     /// Finish App build and serve is with [HttpServer]. No other App method can be called afterwards.
     ///
     /// [HttpServer]: crate::server::HttpServer
-    pub fn serve<ResB, SE>(
+    pub fn serve<C, ResB, SE>(
         self,
     ) -> crate::server::HttpServer<
         impl Service<
@@ -273,6 +306,8 @@ where
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
         ResB: 'static,
+        CF: IntoCtx<C> + 'static,
+        C: 'static,
     {
         crate::server::HttpServer::serve(self.finish())
     }
@@ -412,8 +447,9 @@ mod test {
     fn test_app() {
         let state = String::from("state");
 
-        let service = App::with_state(state)
+        let service = App::new()
             .at("/", get(handler_service(handler)))
+            .with_state(state)
             .at(
                 "/stateless",
                 get(handler_service(stateless_handler)).head(handler_service(stateless_handler)),
@@ -471,7 +507,8 @@ mod test {
         }
 
         let state = String::from("state");
-        let service = App::with_state(state)
+        let service = App::new()
+            .with_state(state)
             .at("/root", get(handler_service(handler)))
             .at("/scope", app())
             .finish()

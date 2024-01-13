@@ -147,7 +147,8 @@ mod test {
 
     #[tokio::test]
     async fn sync_middleware() {
-        let res = App::with_state("996")
+        let res = App::new()
+            .with_state("996")
             .at("/", fn_service(handler))
             .enclosed(SyncMiddleware::new(middleware))
             .finish()
