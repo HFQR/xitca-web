@@ -119,7 +119,8 @@ mod test {
             field2: 996,
         };
 
-        App::with_state(state)
+        App::new()
+            .with_state(state)
             .at("/", get(handler_service(handler)))
             .finish()
             .call(())

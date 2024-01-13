@@ -97,7 +97,8 @@
 //!     next.call(ctx).await
 //! }
 //!
-//! App::with_state(String::from("996")) // construct an application with String as typed state.
+//! App::new()
+//!     .with_state(String::from("996")) // construct an application with String as typed state.
 //!     # .at("/", handler_service(handler))
 //!     .enclosed_fn(middleware_1)
 //!     // uncomment the line below would cause a compile error. because middleware_3 expecting usize

@@ -163,7 +163,8 @@ mod test {
 
     #[test]
     fn tower_set_status() {
-        let res = App::with_state("996")
+        let res = App::new()
+            .with_state("996")
             .at("/", fn_service(handler))
             .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)))
             .enclosed(TypeEraser::response_body())
