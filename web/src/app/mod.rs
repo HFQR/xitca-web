@@ -395,6 +395,7 @@ mod test {
         s.call(req).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handler(
         _res: Result<UriRef<'_>, Error<String>>,
         _opt: Option<UriRef<'_>>,
