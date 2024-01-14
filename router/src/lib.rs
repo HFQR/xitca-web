@@ -1,5 +1,4 @@
-//! A fork of [matchit](https://github.com/ibraheemdev/matchit) using reference counting String
-//! type for lifetime elision.
+//! A fork of [matchit](https://github.com/ibraheemdev/matchit) using small string type for params lifetime elision.
 //!
 //! ```rust
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -10,6 +9,7 @@
 //! let matched = router.at("/users/978")?;
 //! assert_eq!(*matched.value, "A User");
 //!
+//! // params is owned value that can be sent between threads.
 //! let params = matched.params;
 //! std::thread::spawn(move || {
 //!     assert_eq!(params.get("id"), Some("978"));
@@ -43,7 +43,8 @@
 //!
 //! ### Catch-all Parameters
 //!
-//! Catch-all parameters start with `*` and match everything after the `/`. They must always be at the **end** of the route:
+//! Catch-all parameters start with `*` and match everything after the `/`.
+//! They must always be at the **end** of the route:
 //!
 //! ```rust
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,6 +53,24 @@
 //!
 //! assert_eq!(m.at("/foo.js")?.params.get("p"), Some("foo.js"));
 //! assert_eq!(m.at("/c/bar.css")?.params.get("p"), Some("c/bar.css"));
+//!
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Relaxed Catch-all Parameters
+//!
+//! Relaxed Catch-all parameters with a single `*` and match everything after the `/`(Including `/` itself).
+//! Since there is no identifier for Params key associated they are left empty.
+//! They must always be at the **end** of the route:
+//!
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut m = xitca_router::Router::new();
+//! m.insert("/*", true)?;
+//!
+//! assert!(m.at("/")?.value);
+//! assert!(m.at("/foo")?.value);
 //!
 //! # Ok(())
 //! # }
