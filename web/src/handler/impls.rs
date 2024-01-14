@@ -1,5 +1,5 @@
 use crate::{
-    body::{BodyStream, ResponseBody},
+    body::ResponseBody,
     context::WebContext,
     error::Error,
     http::{Method, RequestExt, StatusCode, WebRequest, WebResponse},
@@ -9,10 +9,9 @@ use super::{FromRequest, Responder};
 
 impl<'a, 'r, C, B, T, E> FromRequest<'a, WebContext<'r, C, B>> for Result<T, E>
 where
-    B: BodyStream,
-    T: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = E>,
+    T: FromRequest<'a, WebContext<'r, C, B>, Error = E>,
 {
-    type Type<'b> = Result<T, E>;
+    type Type<'b> = Result<T::Type<'b>, T::Error>;
     type Error = Error<C>;
 
     #[inline]
@@ -23,10 +22,9 @@ where
 
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for Option<T>
 where
-    B: BodyStream,
-    T: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>>,
+    T: FromRequest<'a, WebContext<'r, C, B>>,
 {
-    type Type<'b> = Option<T>;
+    type Type<'b> = Option<T::Type<'b>>;
     type Error = Error<C>;
 
     #[inline]
@@ -38,7 +36,7 @@ where
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a WebContext<'a, C, B>
 where
     C: 'static,
-    B: BodyStream + 'static,
+    B: 'static,
 {
     type Type<'b> = &'b WebContext<'b, C, B>;
     type Error = Error<C>;
@@ -49,10 +47,7 @@ where
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a WebRequest<()>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a WebRequest<()> {
     type Type<'b> = &'b WebRequest<()>;
     type Error = Error<C>;
 
@@ -62,10 +57,7 @@ where
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a RequestExt<()>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a RequestExt<()> {
     type Type<'b> = &'b RequestExt<()>;
     type Error = Error<C>;
 
@@ -75,10 +67,7 @@ where
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for WebRequest<()>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for WebRequest<()> {
     type Type<'b> = WebRequest<()>;
     type Error = Error<C>;
 
@@ -88,10 +77,7 @@ where
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for RequestExt<()>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for RequestExt<()> {
     type Type<'b> = RequestExt<()>;
     type Error = Error<C>;
 
@@ -101,10 +87,7 @@ where
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a Method
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a Method {
     type Type<'b> = &'b Method;
     type Error = Error<C>;
 
@@ -114,10 +97,7 @@ where
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Method
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Method {
     type Type<'b> = Method;
     type Error = Error<C>;
 
@@ -127,10 +107,7 @@ where
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ()
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for () {
     type Type<'b> = ();
     type Error = Error<C>;
 

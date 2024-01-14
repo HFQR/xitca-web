@@ -38,23 +38,24 @@ pub struct App<R = (), CF = ()> {
     ctx_builder: CF,
 }
 
-type CtxBuilder<C> = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Result<C, Box<dyn fmt::Debug>>>>> + Send + Sync>;
+type BoxFuture<C> = Pin<Box<dyn Future<Output = Result<C, Box<dyn fmt::Debug>>>>>;
+type CtxBuilder<C> = Box<dyn Fn() -> BoxFuture<C> + Send + Sync>;
 type DefaultWebObject<C> = WebObject<C, RequestBody, WebResponse, RouterError<Error<C>>>;
 type DefaultAppRouter<C> = AppRouter<BoxedSyncServiceObject<(), DefaultWebObject<C>, Infallible>>;
 
-// helper trait to poly between () and Box<Fn()> as application state.
+// helper trait to poly between () and Box<dyn Fn()> as application state.
 pub trait IntoCtx<C> {
-    fn into_ctx(self) -> CtxBuilder<C>;
+    fn into_ctx(self) -> impl Fn() -> BoxFuture<C> + Send + Sync;
 }
 
 impl IntoCtx<()> for () {
-    fn into_ctx(self) -> CtxBuilder<()> {
-        Box::new(|| Box::pin(ready(Ok(()))))
+    fn into_ctx(self) -> impl Fn() -> BoxFuture<()> + Send + Sync {
+        || Box::pin(ready(Ok(())))
     }
 }
 
 impl<C> IntoCtx<C> for CtxBuilder<C> {
-    fn into_ctx(self) -> CtxBuilder<C> {
+    fn into_ctx(self) -> impl Fn() -> BoxFuture<C> + Send + Sync {
         self
     }
 }
@@ -395,6 +396,9 @@ mod test {
     }
 
     async fn handler(
+        _res: Result<UriRef<'_>, Error<String>>,
+        _opt: Option<UriRef<'_>>,
+        _req: &WebRequest<()>,
         StateRef(state): StateRef<'_, String>,
         PathRef(path): PathRef<'_>,
         UriRef(_): UriRef<'_>,
