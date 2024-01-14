@@ -519,7 +519,7 @@ fn normalize_params(mut path: Vec<u8>) -> Result<(Vec<u8>, ParamRemapping), Inse
         };
 
         // makes sure the param has a valid name unless it's * catch all
-        if wildcard.len() < 2 && wildcard.get(0).filter(|w| **w == b'*').is_none() {
+        if wildcard.len() < 2 && wildcard.first().filter(|w| **w == b'*').is_none() {
             return Err(InsertError::UnnamedParam);
         }
 
