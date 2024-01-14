@@ -5,7 +5,6 @@ use core::{fmt, ops::Deref};
 use std::error;
 
 use crate::{
-    body::BodyStream,
     context::WebContext,
     error::{error_from_service, forward_blank_bad_request, Error},
     handler::FromRequest,
@@ -27,7 +26,6 @@ impl<T> Deref for ExtensionRef<'_, T> {
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for ExtensionRef<'a, T>
 where
     T: Send + Sync + 'static,
-    B: BodyStream,
 {
     type Type<'b> = ExtensionRef<'b, T>;
     type Error = Error<C>;
@@ -62,7 +60,6 @@ impl<T> Deref for ExtensionOwn<T> {
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for ExtensionOwn<T>
 where
     T: Send + Sync + Clone + 'static,
-    B: BodyStream,
 {
     type Type<'b> = ExtensionOwn<T>;
     type Error = Error<C>;
@@ -88,10 +85,7 @@ impl Deref for ExtensionsRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionsRef<'a>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionsRef<'a> {
     type Type<'b> = ExtensionsRef<'b>;
     type Error = Error<C>;
 
