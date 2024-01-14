@@ -467,6 +467,17 @@ impl<T> Node<T> {
             break;
         }
 
+        // a non aggressive way to handle single * wildcard
+        if current.prefix == path {
+            if let Some(val) = current.children.first() {
+                if val.prefix == "*" {
+                    if let Some(ref val) = val.value {
+                        return Ok((val, params));
+                    }
+                }
+            }
+        }
+
         Err(MatchError)
     }
 
@@ -507,8 +518,8 @@ fn normalize_params(mut path: Vec<u8>) -> Result<(Vec<u8>, ParamRemapping), Inse
             None => return Ok((path, original)),
         };
 
-        // makes sure the param has a valid name
-        if wildcard.len() < 2 {
+        // makes sure the param has a valid name unless it's * catch all
+        if wildcard.len() < 2 && wildcard.first().filter(|w| **w == b'*').is_none() {
             return Err(InsertError::UnnamedParam);
         }
 

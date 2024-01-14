@@ -149,7 +149,7 @@ impl<Obj> RouterGen for Router<Obj> {
             })
             .collect();
 
-        path.push_str("/:r");
+        path.push_str("/*");
 
         Cow::Owned(path)
     }
