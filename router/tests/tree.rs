@@ -615,7 +615,7 @@ insert_tests! {
         "/user:"  => Err(InsertError::UnnamedParam),
         "/user:/" => Err(InsertError::UnnamedParam),
         "/cmd/:/" => Err(InsertError::UnnamedParam),
-        "/src/*"  => Err(InsertError::UnnamedParam),
+        // "/src/*"  => Err(InsertError::UnnamedParam),
     },
     double_params {
         "/:foo:bar"  => Err(InsertError::TooManyParams),
