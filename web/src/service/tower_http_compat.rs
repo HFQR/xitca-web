@@ -137,6 +137,7 @@ where
 }
 
 pin_project! {
+    #[derive(Default)]
     pub struct CompatResBody<B> {
         #[pin]
         body: B
