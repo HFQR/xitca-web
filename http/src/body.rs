@@ -71,6 +71,12 @@ impl Stream for RequestBody {
     }
 }
 
+impl<B> From<NoneBody<B>> for RequestBody {
+    fn from(_: NoneBody<B>) -> Self {
+        Self::None
+    }
+}
+
 impl From<Bytes> for RequestBody {
     fn from(bytes: Bytes) -> Self {
         Self::from(Once::new(bytes))
@@ -430,7 +436,7 @@ res_bytes_impl!(String);
 
 impl<B> From<Box<str>> for ResponseBody<B> {
     fn from(str: Box<str>) -> Self {
-        Self::from(String::from(str))
+        Self::from(Box::<[u8]>::from(str))
     }
 }
 
