@@ -23,3 +23,8 @@
     ```
 - update `xitca-http` to version `0.2.0`.
 - update `http-encoding` to version `0.2.0`.
+
+## Fix
+- fix nested App routing. `App::new().at("/foo", App::new().at("/"))` would be successfully matching against `/foo/`
+- fix bug where certain tower-http layers causing compile issue.
+- fix bug where multiple tower-http layers can't be chained together with `ServiceExt::enclosed`.

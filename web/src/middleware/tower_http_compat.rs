@@ -1,7 +1,6 @@
 use core::{
     cell::RefCell,
     future::Future,
-    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -9,7 +8,6 @@ use core::{
 use std::rc::Rc;
 
 use tower_layer::Layer;
-use xitca_unsafe_collection::fake::{FakeClone, FakeSend, FakeSync};
 
 use crate::{
     context::WebContext,
@@ -28,24 +26,10 @@ use crate::{
 /// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
 ///
 /// [TypeEraser]: crate::middleware::eraser::TypeEraser
-pub struct TowerHttpCompat<L, C, ReqB, ResB, Err> {
-    layer: L,
-    _phantom: PhantomData<fn(C, ReqB, ResB, Err)>,
-}
+#[derive(Clone)]
+pub struct TowerHttpCompat<L>(L);
 
-impl<L, C, ReqB, ResB, Err> Clone for TowerHttpCompat<L, C, ReqB, ResB, Err>
-where
-    L: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            layer: self.layer.clone(),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
+impl<L> TowerHttpCompat<L> {
     /// Construct a new xitca-web middleware from tower-http layer type.
     ///
     /// # Limitation:
@@ -69,41 +53,29 @@ impl<L, C, ReqB, ResB, Err> TowerHttpCompat<L, C, ReqB, ResB, Err> {
     /// #   todo!()
     /// # }
     /// ```
-    pub fn new(layer: L) -> Self {
-        Self {
-            layer,
-            _phantom: PhantomData,
-        }
+    pub const fn new(layer: L) -> Self {
+        Self(layer)
     }
 }
 
-impl<L, S, E, C, ReqB, ResB, Err> Service<Result<S, E>> for TowerHttpCompat<L, C, ReqB, ResB, Err>
+impl<L, S, E> Service<Result<S, E>> for TowerHttpCompat<L>
 where
-    L: Layer<CompatLayer<S, C, ResB, Err>>,
-    S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err>,
-    ReqB: 'static,
+    L: Layer<CompatLayer<S>>,
 {
     type Response = TowerCompatService<L::Service>;
     type Error = E;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
         res.map(|service| {
-            let service = self.layer.layer(CompatLayer {
-                service: Rc::new(service),
-                _phantom: PhantomData,
-            });
+            let service = self.0.layer(CompatLayer(Rc::new(service)));
             TowerCompatService::new(service)
         })
     }
 }
 
-pub struct CompatLayer<S, C, ResB, Err> {
-    service: Rc<S>,
-    _phantom: PhantomData<fn(C, ResB, Err)>,
-}
+pub struct CompatLayer<S>(Rc<S>);
 
-impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>>>>
-    for CompatLayer<S, C, ResB, Err>
+impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>, C>>> for CompatLayer<S>
 where
     S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
     C: Clone + 'static,
@@ -118,20 +90,12 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: Request<CompatReqBody<RequestExt<ReqB>>>) -> Self::Future {
-        let service = self.service.clone();
+    fn call(&mut self, req: Request<CompatReqBody<RequestExt<ReqB>, C>>) -> Self::Future {
+        let service = self.0.clone();
         Box::pin(async move {
-            let (mut parts, body) = req.into_parts();
-
-            let ctx = parts
-                .extensions
-                .remove::<FakeClone<FakeSync<FakeSend<C>>>>()
-                .unwrap()
-                .into_inner()
-                .into_inner()
-                .into_inner();
-
-            let (ext, body) = body.into_inner().replace_body(());
+            let (parts, body) = req.into_parts();
+            let (body, ctx) = body.into_parts();
+            let (ext, body) = body.replace_body(());
 
             let mut req = Request::from_parts(parts, ext);
             let mut body = RefCell::new(body);
@@ -149,10 +113,7 @@ mod test {
     use tower_http::set_status::SetStatusLayer;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{
-        body::ResponseBody, http::StatusCode, http::WebRequest, middleware::eraser::TypeEraser, service::fn_service,
-        App,
-    };
+    use crate::{body::ResponseBody, http::StatusCode, http::WebRequest, service::fn_service, App};
 
     use super::*;
 
@@ -166,8 +127,8 @@ mod test {
         let res = App::new()
             .with_state("996")
             .at("/", fn_service(handler))
+            .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::OK)))
             .enclosed(TowerHttpCompat::new(SetStatusLayer::new(StatusCode::NOT_FOUND)))
-            .enclosed(TypeEraser::response_body())
             .finish()
             .call(())
             .now_or_panic()
