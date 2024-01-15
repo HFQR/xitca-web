@@ -176,6 +176,12 @@ impl<C> fmt::Display for Error<C> {
     }
 }
 
+impl<C> error::Error for Error<C> {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
 impl<C> Deref for Error<C> {
     type Target = dyn for<'r> ErrorService<WebContext<'r, C>>;
 
