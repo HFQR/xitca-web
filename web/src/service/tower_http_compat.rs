@@ -12,7 +12,7 @@ use xitca_http::{
     body::{none_body_hint, BodySize},
     util::service::router::{RouterGen, RouterMapErr},
 };
-use xitca_unsafe_collection::fake::{FakeClone, FakeSend, FakeSync};
+use xitca_unsafe_collection::fake::FakeSend;
 
 use crate::{
     bytes::Buf,
@@ -23,16 +23,14 @@ use crate::{
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.
 /// Any `tower-http` type that impl [tower_service::Service] trait can be passed to it and used as xitca-web's service type.
-pub struct TowerHttpCompat<S> {
-    service: S,
-}
+pub struct TowerHttpCompat<S>(S);
 
 impl<S> TowerHttpCompat<S> {
     pub const fn new(service: S) -> Self
     where
         S: Clone,
     {
-        Self { service }
+        Self(service)
     }
 }
 
@@ -44,11 +42,8 @@ where
     type Error = Infallible;
 
     async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
-        let service = self.service.clone();
-
-        Ok(TowerCompatService {
-            service: RefCell::new(service),
-        })
+        let service = self.0.clone();
+        Ok(TowerCompatService(RefCell::new(service)))
     }
 }
 
@@ -60,21 +55,17 @@ impl<S> RouterGen for TowerHttpCompat<S> {
     }
 }
 
-pub struct TowerCompatService<S> {
-    service: RefCell<S>,
-}
+pub struct TowerCompatService<S>(RefCell<S>);
 
 impl<S> TowerCompatService<S> {
-    pub fn new(service: S) -> Self {
-        Self {
-            service: RefCell::new(service),
-        }
+    pub const fn new(service: S) -> Self {
+        Self(RefCell::new(service))
     }
 }
 
 impl<'r, C, ReqB, S, ResB> Service<WebContext<'r, C, ReqB>> for TowerCompatService<S>
 where
-    S: tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>>>, Response = Response<ResB>>,
+    S: tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>, C>>, Response = Response<ResB>>,
     ResB: Body,
     C: Clone + 'static,
     ReqB: Default,
@@ -83,13 +74,10 @@ where
     type Error = S::Error;
 
     async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
-        let state = ctx.state().clone();
-        let (mut parts, ext) = ctx.take_request().into_parts();
-        parts
-            .extensions
-            .insert(FakeClone::new(FakeSync::new(FakeSend::new(state))));
-        let req = Request::from_parts(parts, CompatReqBody::new(ext));
-        let fut = tower_service::Service::call(&mut *self.service.borrow_mut(), req);
+        let (parts, ext) = ctx.take_request().into_parts();
+        let ctx = ctx.state().clone();
+        let req = Request::from_parts(parts, CompatReqBody::new(ext, ctx));
+        let fut = tower_service::Service::call(&mut *self.0.borrow_mut(), req);
         fut.await.map(|res| res.map(CompatResBody::new))
     }
 }
@@ -101,25 +89,30 @@ impl<S> ReadyService for TowerCompatService<S> {
     async fn ready(&self) -> Self::Ready {}
 }
 
-pub struct CompatReqBody<B> {
+pub struct CompatReqBody<B, C> {
     body: FakeSend<B>,
+    ctx: C,
 }
 
-impl<B> CompatReqBody<B> {
-    pub fn new(body: B) -> Self {
+impl<B, C> CompatReqBody<B, C> {
+    #[inline]
+    pub fn new(body: B, ctx: C) -> Self {
         Self {
             body: FakeSend::new(body),
+            ctx,
         }
     }
 
-    pub fn into_inner(self) -> B {
-        self.body.into_inner()
+    #[inline]
+    pub fn into_parts(self) -> (B, C) {
+        (self.body.into_inner(), self.ctx)
     }
 }
 
-impl<B, T, E> Body for CompatReqBody<B>
+impl<B, C, T, E> Body for CompatReqBody<B, C>
 where
     B: Stream<Item = Result<T, E>> + Unpin,
+    C: Unpin,
     T: Buf,
 {
     type Data = T;
