@@ -1,3 +1,5 @@
+use core::net::SocketAddr;
+
 use crate::{
     body::ResponseBody,
     context::WebContext,
@@ -84,6 +86,26 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for RequestExt<()> {
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(ctx.req().body().clone())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a SocketAddr {
+    type Type<'b> = &'b SocketAddr;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().body().socket_addr())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for SocketAddr {
+    type Type<'b> = SocketAddr;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(*ctx.req().body().socket_addr())
     }
 }
 
