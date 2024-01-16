@@ -1,9 +1,11 @@
-use std::{
+use core::{
     cell::RefCell,
     convert::Infallible,
     pin::Pin,
     task::{ready, Context, Poll},
 };
+
+use std::borrow::Cow;
 
 use futures_core::stream::Stream;
 use http_body::{Body, Frame, SizeHint};
@@ -15,7 +17,8 @@ use xitca_http::{
 use xitca_unsafe_collection::fake::FakeSend;
 
 use crate::{
-    bytes::Buf,
+    body::ResponseBody,
+    bytes::{Buf, Bytes, BytesMut},
     context::WebContext,
     http::{Request, RequestExt, Response, WebResponse},
     service::{ready::ReadyService, Service},
@@ -138,7 +141,7 @@ pin_project! {
 }
 
 impl<B> CompatResBody<B> {
-    pub fn new(body: B) -> Self {
+    pub const fn new(body: B) -> Self {
         Self { body }
     }
 
@@ -146,6 +149,31 @@ impl<B> CompatResBody<B> {
         self.body
     }
 }
+
+// useful shortcuts conversion for B type.
+macro_rules! impl_from {
+    ($ty: ty) => {
+        impl<B> From<$ty> for CompatResBody<B>
+        where
+            B: From<$ty>,
+        {
+            fn from(body: $ty) -> Self {
+                Self::new(B::from(body))
+            }
+        }
+    };
+}
+
+impl_from!(Bytes);
+impl_from!(BytesMut);
+impl_from!(&'static [u8]);
+impl_from!(&'static str);
+impl_from!(Box<[u8]>);
+impl_from!(Vec<u8>);
+impl_from!(String);
+impl_from!(Box<str>);
+impl_from!(Cow<'static, str>);
+impl_from!(ResponseBody);
 
 impl<B, T, E> Body for CompatResBody<B>
 where
