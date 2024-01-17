@@ -106,6 +106,10 @@ impl<B, C> CompatReqBody<B, C> {
         }
     }
 
+    /// destruct compat body into owned value of body and state context
+    ///
+    /// # Panics
+    /// - When called from a thread not where B is originally constructed.
     #[inline]
     pub fn into_parts(self) -> (B, C) {
         (self.body.into_inner(), self.ctx)
