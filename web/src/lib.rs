@@ -1,17 +1,17 @@
 //! a web framework focus on memory efficiency, composability, and fast compile time.
 //!
 //! # Quick start
-//! ```rust
+//! ```no_run
 //! use xitca_web::{handler::handler_service, route::get, App};
 //!
-//! # fn _main() -> std::io::Result<()> {
-//! App::new()
-//!     .at("/", get(handler_service(|| async { "Hello,World!" })))
-//!     .serve()
-//!     .bind("localhost:8080")?
-//!     .run()
-//!     .wait()
-//! # }
+//! fn main() -> std::io::Result<()> {
+//!     App::new()
+//!         .at("/", get(handler_service(|| async { "Hello,World!" })))
+//!         .serve()
+//!         .bind("localhost:8080")?
+//!         .run()
+//!         .wait()
+//! }
 //! ```
 //!
 //! # Memory efficient
@@ -20,26 +20,14 @@
 //!
 //! ## Zero copy
 //! ```rust
+//! # #[cfg(feature = "json")]
+//! # fn _main() -> std::io::Result<()> {
 //! use xitca_web::{
 //!     error::Error,
 //!     handler::{handler_service, json::LazyJson, path::PathRef},
 //!     route::{get, post},
 //!     App
 //! };
-//!
-//! # fn _main() -> std::io::Result<()> {
-//! // Almost all magic extract types in xitca-web utilize zero copy
-//! // to avoid unnecessary memory copy.
-//! App::new()
-//!     // a route handling incoming url query.
-//!     .at("/query", get(handler_service(url_query)))
-//!     // a route handling incoming json object.
-//!     .at("/json", post(handler_service(json)))
-//!     .serve()
-//!     .bind("localhost:8080")?
-//!     .run()
-//!     .wait()
-//! # }
 //!
 //! // PathRef is able to borrow http request's path string as reference
 //! // without copying it.
@@ -60,6 +48,19 @@
 //!     println!("{name}");
 //!     Ok("zero copy json")    
 //! }
+//!
+//! // Almost all magic extract types in xitca-web utilize zero copy
+//! // to avoid unnecessary memory copy.
+//! App::new()
+//!     // a route handling incoming url query.
+//!     .at("/query", get(handler_service(url_query)))
+//!     // a route handling incoming json object.
+//!     .at("/json", post(handler_service(json)))
+//!     .serve()
+//!     .bind("localhost:8080")?
+//!     .run()
+//!     .wait()
+//! # }
 //! ```
 //!
 //! ## Zero cost
@@ -113,6 +114,7 @@
 //!     service::fn_service,
 //!     App, WebContext
 //! };
+//!
 //! # fn _main() -> std::io::Result<()> {
 //! App::new()
 //!     // high level abstraction. see fn high for detail.
@@ -175,6 +177,7 @@
 //!     service::{Service, ServiceExt},
 //!     App, WebContext
 //! };
+//!
 //! # fn _main() -> std::io::Result<()> {
 //! // ServiceExt::enclosed_fn combinator enables async function as middleware.
 //! // in xitca_web almost all service can be enclosed by an middleware.
@@ -207,14 +210,16 @@
 //! For more detailed middleware documentation please reference [middleware]
 //!
 //! ## Cross crates integration
+//! use tower-http inside xitca-web application.
 //! ```rust
+//! # #[cfg(feature = "tower-http-compat")]
+//! # fn _main() -> std::io::Result<()> {
 //! use tower_http::services::ServeDir;
 //! use xitca_web::{
 //!     service::tower_http_compat::TowerHttpCompat,
 //!     App
 //! };
-//! # fn _main() -> std::io::Result<()> {
-//! // use tower-http inside xitca-web application.
+//!
 //! App::new()
 //!     .at("/", TowerHttpCompat::new(ServeDir::new("/some_folder")))
 //!     .serve()
@@ -229,12 +234,12 @@
 //! - light weight dependency tree
 //!
 //! ## opt-in proc macro
-//! ```no_run
-//! // in xitca-web proc macro is opt-in. This result in a fast compile time with zero
-//! // public proc macro. That said you still can enable macros for a higher level style
-//! // of API.
-//!
-//! // enable "codegen" cargo feature for xitca_web
+//! in xitca-web proc macro is opt-in. This result in a fast compile time with zero
+//! public proc macro. That said you still can enable macros for a higher level style
+//! of API.
+//! ```rust
+//! # #[cfg(feature = "codegen")]
+//! # fn _main() {
 //! use xitca_web::{codegen::route, App};
 //!
 //! #[tokio::main]
@@ -251,6 +256,7 @@
 //! async fn index() -> &'static str {
 //!     "Hello,World!"
 //! }
+//! # }
 //! ```
 
 #![forbid(unsafe_code)]
