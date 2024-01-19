@@ -13,9 +13,10 @@ pub use error::TooManyRequests;
 pub use quota::Quota;
 pub use snapshot::RateSnapshot;
 
-use core::net::{IpAddr, SocketAddr};
-
-use std::sync::Arc;
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 
 use http::header::{HeaderMap, HeaderName, FORWARDED};
 
