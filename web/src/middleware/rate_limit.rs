@@ -49,7 +49,7 @@ impl<S, E> Service<Result<S, E>> for RateLimit {
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
         res.map(|service| RateLimitService {
             service,
-            rate_limit: http_rate::RateLimit::new(self.0.clone()),
+            rate_limit: http_rate::RateLimit::new(self.0),
         })
     }
 }

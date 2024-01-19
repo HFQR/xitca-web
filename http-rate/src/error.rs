@@ -68,9 +68,9 @@ mod test {
     #[test]
     fn coverage() {
         let display_output = format!("{}", InsufficientCapacity(3));
-        assert!(display_output.contains("3"));
+        assert!(display_output.contains('3'));
         let debug_output = format!("{:?}", InsufficientCapacity(3));
-        assert!(debug_output.contains("3"));
+        assert!(debug_output.contains('3'));
         assert_eq!(InsufficientCapacity(3), InsufficientCapacity(3));
     }
 }

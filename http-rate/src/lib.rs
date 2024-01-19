@@ -1,4 +1,4 @@
-// #![allow(unused)]
+#![allow(clippy::declare_interior_mutable_const)]
 
 mod error;
 mod gcra;
@@ -72,8 +72,8 @@ fn maybe_forwarded(headers: &HeaderMap) -> Option<IpAddr> {
         .get_all(FORWARDED)
         .iter()
         .filter_map(|h| h.to_str().ok())
-        .map(|val| val.split(';').into_iter().map(|p| p.split(',')).flatten())
-        .flatten()
+        .flat_map(|val| val.split(';'))
+        .flat_map(|p| p.split(','))
         .map(|val| val.trim().splitn(2, '='))
     {
         if let (Some(name), Some(val)) = (val.next(), val.next()) {
