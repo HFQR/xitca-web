@@ -123,7 +123,6 @@ http-body = { version = "1", optional = true }
 
 [dev-dependencies]
 xitca-codegen = { version = "0.1" }
-xitca-web = { version = "0.2", features = ["codegen", "json", "tower-http-compat"] }
 
 futures-util = { version = "0.3", features = ["alloc"] }
 serde = { version = "1.0.137", features = ["derive"] }
