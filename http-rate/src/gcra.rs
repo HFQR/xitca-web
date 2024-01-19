@@ -1,6 +1,6 @@
 use core::{cmp, fmt, time::Duration};
 
-use crate::{nanos::Nanos, quota::Quota, snapshot::RateSnapshot, state::StateStore, timer};
+use crate::{nanos::Nanos, quota::Quota, snapshot::RateSnapshot, state::StateStore, timer::Reference};
 
 #[cfg(test)]
 use core::num::NonZeroU32;
@@ -13,12 +13,15 @@ use crate::error::InsufficientCapacity;
 /// `NotUntil`'s methods indicate when a caller can expect the next positive
 /// rate-limiting result.
 #[derive(Debug, PartialEq, Eq)]
-pub struct NotUntil<P: timer::Reference> {
+pub struct NotUntil<P: Reference> {
     state: RateSnapshot,
     start: P,
 }
 
-impl<P: timer::Reference> NotUntil<P> {
+impl<P> NotUntil<P>
+where
+    P: Reference,
+{
     /// Create a `NotUntil` as a negative rate-limiting result.
     #[inline]
     pub(crate) fn new(state: RateSnapshot, start: P) -> Self {
@@ -53,7 +56,10 @@ impl<P: timer::Reference> NotUntil<P> {
     }
 }
 
-impl<P: timer::Reference> fmt::Display for NotUntil<P> {
+impl<P> fmt::Display for NotUntil<P>
+where
+    P: Reference,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "rate-limited until {:?}", self.start + self.state.tat)
     }
@@ -81,13 +87,17 @@ impl Gcra {
     }
 
     /// Tests a single cell against the rate limiter state and updates it at the given key.
-    pub(crate) fn test_and_update<K, P: timer::Reference, S: StateStore<Key = K>>(
+    pub(crate) fn test_and_update<K, P, S>(
         &self,
         start: P,
         key: &K,
         state: &S,
         t0: P,
-    ) -> Result<RateSnapshot, NotUntil<P>> {
+    ) -> Result<RateSnapshot, NotUntil<P>>
+    where
+        P: Reference,
+        S: StateStore<Key = K>,
+    {
         let t0 = t0.duration_since(start);
         let tau = self.tau;
         let t = self.t;
@@ -106,14 +116,18 @@ impl Gcra {
 
     #[cfg(test)]
     /// Tests whether all `n` cells could be accommodated and updates the rate limiter state, if so.
-    pub(crate) fn test_n_all_and_update<K, P: timer::Reference, S: StateStore<Key = K>>(
+    pub(crate) fn test_n_all_and_update<K, P, S>(
         &self,
         start: P,
         key: &K,
         n: NonZeroU32,
         state: &S,
         t0: P,
-    ) -> Result<Result<RateSnapshot, NotUntil<P>>, InsufficientCapacity> {
+    ) -> Result<Result<RateSnapshot, NotUntil<P>>, InsufficientCapacity>
+    where
+        P: Reference,
+        S: StateStore<Key = K>,
+    {
         let t0 = t0.duration_since(start);
         let tau = self.tau;
         let t = self.t;
@@ -161,9 +175,9 @@ mod test {
     /// Exercise derives and convenience impls on NotUntil to make coverage happy
     #[test]
     fn notuntil_impls() {
-        use crate::state::RateLimiter;
         use all_asserts::assert_gt;
-        use timer::FakeRelativeClock;
+
+        use crate::{state::RateLimiter, timer::FakeRelativeClock};
 
         let clock = FakeRelativeClock::default();
         let quota = Quota::per_second(1);

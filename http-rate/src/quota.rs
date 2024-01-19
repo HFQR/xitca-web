@@ -43,10 +43,7 @@ impl Quota {
     {
         let max_burst = max_burst.try_into().unwrap();
         let replenish_interval_ns = Duration::from_secs(1).as_nanos() / (max_burst.get() as u128);
-        Self {
-            max_burst,
-            replenish_1_per: Duration::from_nanos(replenish_interval_ns as u64),
-        }
+        Self::new(max_burst, replenish_interval_ns)
     }
 
     /// Construct a quota for a number of cells per 60-second period. The given number of cells is
@@ -61,10 +58,7 @@ impl Quota {
     {
         let max_burst = max_burst.try_into().unwrap();
         let replenish_interval_ns = Duration::from_secs(60).as_nanos() / (max_burst.get() as u128);
-        Quota {
-            max_burst,
-            replenish_1_per: Duration::from_nanos(replenish_interval_ns as u64),
-        }
+        Self::new(max_burst, replenish_interval_ns)
     }
 
     /// Construct a quota for a number of cells per 60-minute (3600-second) period. The given number
@@ -79,10 +73,7 @@ impl Quota {
     {
         let max_burst = max_burst.try_into().unwrap();
         let replenish_interval_ns = Duration::from_secs(60 * 60).as_nanos() / (max_burst.get() as u128);
-        Self {
-            max_burst,
-            replenish_1_per: Duration::from_nanos(replenish_interval_ns as u64),
-        }
+        Self::new(max_burst, replenish_interval_ns)
     }
 
     /// Construct a quota that replenishes one cell in a given
@@ -109,17 +100,24 @@ impl Quota {
     ///
     /// # Panics
     /// - When max_burst is zero.
-    pub fn allow_burst<B>(self, max_burst: B) -> Self
+    pub fn allow_burst<B>(mut self, max_burst: B) -> Self
     where
         B: TryInto<NonZeroU32>,
         B::Error: fmt::Debug,
     {
-        let max_burst = max_burst.try_into().unwrap();
-        Self { max_burst, ..self }
+        self.max_burst = max_burst.try_into().unwrap();
+        self
     }
 }
 
 impl Quota {
+    fn new(max_burst: NonZeroU32, dur_ns: u128) -> Self {
+        Self {
+            max_burst,
+            replenish_1_per: Duration::from_nanos(dur_ns as u64),
+        }
+    }
+
     // The maximum number of cells that can be allowed in one burst.
     pub(crate) const fn burst_size(&self) -> NonZeroU32 {
         self.max_burst
