@@ -2,8 +2,12 @@
 name = "http-rate"
 version = "0.1.0"
 edition = "2021"
-authors = ["fakeshadow"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
 license = "MIT"
+description = "rate limit for http crate types"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["http", "rate-limit"]
+readme= "README.md"
 
 [dependencies]
 http = "1"
