@@ -1,8 +1,7 @@
 use core::hash::Hash;
 
 use crate::{
-    gcra::NotUntil, nanos::Nanos, quota::Quota, snapshot::RateSnapshot, state::RateLimiter,
-    state::StateStore, timer,
+    gcra::NotUntil, nanos::Nanos, quota::Quota, snapshot::RateSnapshot, state::RateLimiter, state::StateStore, timer,
 };
 
 #[cfg(test)]
@@ -59,12 +58,8 @@ where
     /// If the rate limit is reached, `check_key` returns information about the earliest
     /// time that a cell might be allowed through again under that key.
     pub fn check_key(&self, key: &K) -> Result<RateSnapshot, NotUntil<C::Instant>> {
-        self.gcra.test_and_update::<K, C::Instant, S>(
-            self.start,
-            key,
-            &self.state,
-            self.clock.now(),
-        )
+        self.gcra
+            .test_and_update::<K, C::Instant, S>(self.start, key, &self.state, self.clock.now())
     }
 
     #[cfg(test)]
@@ -87,13 +82,8 @@ where
         key: &K,
         n: NonZeroU32,
     ) -> Result<Result<RateSnapshot, NotUntil<C::Instant>>, InsufficientCapacity> {
-        self.gcra.test_n_all_and_update::<K, C::Instant, S>(
-            self.start,
-            key,
-            n,
-            &self.state,
-            self.clock.now(),
-        )
+        self.gcra
+            .test_n_all_and_update::<K, C::Instant, S>(self.start, key, n, &self.state, self.clock.now())
     }
 }
 

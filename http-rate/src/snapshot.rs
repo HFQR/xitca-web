@@ -51,10 +51,7 @@ impl RateSnapshot {
 
     fn remaining_burst_capacity(&self) -> u32 {
         let t0 = self.time_of_measurement + self.t;
-        (cmp::min(
-            (t0 + self.tau).saturating_sub(self.tat).as_u64(),
-            self.tau.as_u64(),
-        ) / self.t.as_u64()) as u32
+        (cmp::min((t0 + self.tau).saturating_sub(self.tat).as_u64(), self.tau.as_u64()) / self.t.as_u64()) as u32
     }
 }
 
@@ -68,26 +65,10 @@ mod test {
     fn state_information() {
         let clock = FakeRelativeClock::default();
         let lim = RateLimiter::direct_with_clock(Quota::per_second(4), &clock);
-        assert_eq!(
-            Ok(3),
-            lim.check()
-                .map(|outcome| outcome.remaining_burst_capacity())
-        );
-        assert_eq!(
-            Ok(2),
-            lim.check()
-                .map(|outcome| outcome.remaining_burst_capacity())
-        );
-        assert_eq!(
-            Ok(1),
-            lim.check()
-                .map(|outcome| outcome.remaining_burst_capacity())
-        );
-        assert_eq!(
-            Ok(0),
-            lim.check()
-                .map(|outcome| outcome.remaining_burst_capacity())
-        );
+        assert_eq!(Ok(3), lim.check().map(|outcome| outcome.remaining_burst_capacity()));
+        assert_eq!(Ok(2), lim.check().map(|outcome| outcome.remaining_burst_capacity()));
+        assert_eq!(Ok(1), lim.check().map(|outcome| outcome.remaining_burst_capacity()));
+        assert_eq!(Ok(0), lim.check().map(|outcome| outcome.remaining_burst_capacity()));
         assert!(lim.check().is_err());
     }
 

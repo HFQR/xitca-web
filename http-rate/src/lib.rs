@@ -39,11 +39,7 @@ impl RateLimit {
     /// all headers are absent or can't provide valid client address.
     ///
     /// [Request]: http::Request
-    pub fn rate_limit(
-        &self,
-        headers: &HeaderMap,
-        addr: &SocketAddr,
-    ) -> Result<RateSnapshot, TooManyRequests> {
+    pub fn rate_limit(&self, headers: &HeaderMap, addr: &SocketAddr) -> Result<RateSnapshot, TooManyRequests> {
         let addr = maybe_x_forwarded_for(headers)
             .or_else(|| maybe_x_real_ip(headers))
             .or_else(|| maybe_forwarded(headers))
@@ -221,18 +217,9 @@ mod test {
         let clock = FakeRelativeClock::default();
         let lb = RateLimiter::direct_with_clock(Quota::per_second(5), &clock);
 
-        assert_eq!(
-            Err(InsufficientCapacity(5)),
-            lb.check_n(NonZeroU32::new(15).unwrap())
-        );
-        assert_eq!(
-            Err(InsufficientCapacity(5)),
-            lb.check_n(NonZeroU32::new(6).unwrap())
-        );
-        assert_eq!(
-            Err(InsufficientCapacity(5)),
-            lb.check_n(NonZeroU32::new(7).unwrap())
-        );
+        assert_eq!(Err(InsufficientCapacity(5)), lb.check_n(NonZeroU32::new(15).unwrap()));
+        assert_eq!(Err(InsufficientCapacity(5)), lb.check_n(NonZeroU32::new(6).unwrap()));
+        assert_eq!(Err(InsufficientCapacity(5)), lb.check_n(NonZeroU32::new(7).unwrap()));
     }
 
     #[test]

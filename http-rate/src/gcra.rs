@@ -70,9 +70,7 @@ pub(crate) struct Gcra {
 
 impl Gcra {
     pub(crate) fn new(quota: Quota) -> Self {
-        let tau: Nanos = (cmp::max(quota.replenish_1_per, Duration::from_nanos(1))
-            * quota.max_burst.get())
-        .into();
+        let tau: Nanos = (cmp::max(quota.replenish_1_per, Duration::from_nanos(1)) * quota.max_burst.get()).into();
         let t: Nanos = quota.replenish_1_per.into();
         Gcra { t, tau }
     }
@@ -187,9 +185,7 @@ mod test {
     impl Arbitrary for Count {
         type Parameters = ();
         fn arbitrary_with(_args: ()) -> Self::Strategy {
-            (1..10000u32)
-                .prop_map(|x| Count(NonZeroU32::new(x).unwrap()))
-                .boxed()
+            (1..10000u32).prop_map(|x| Count(NonZeroU32::new(x).unwrap())).boxed()
         }
 
         type Strategy = BoxedStrategy<Count>;
@@ -197,10 +193,7 @@ mod test {
 
     #[test]
     fn cover_count_derives() {
-        assert_eq!(
-            format!("{:?}", Count(NonZeroU32::new(1).unwrap())),
-            "Count(1)"
-        );
+        assert_eq!(format!("{:?}", Count(NonZeroU32::new(1).unwrap())), "Count(1)");
     }
 
     #[test]

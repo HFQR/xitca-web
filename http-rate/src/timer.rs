@@ -36,9 +36,7 @@ pub trait Timer: Clone {
 
 impl Reference for Duration {
     fn duration_since(&self, earlier: Self) -> Nanos {
-        self.checked_sub(earlier)
-            .unwrap_or_else(|| Duration::new(0, 0))
-            .into()
+        self.checked_sub(earlier).unwrap_or_else(|| Duration::new(0, 0)).into()
     }
 
     fn saturating_sub(&self, duration: Nanos) -> Self {
@@ -78,9 +76,9 @@ impl FakeRelativeClock {
 
         let mut prev = self.now.load(Ordering::Acquire);
         let mut next = prev + by;
-        while let Err(next_prev) =
-            self.now
-                .compare_exchange_weak(prev, next, Ordering::Release, Ordering::Relaxed)
+        while let Err(next_prev) = self
+            .now
+            .compare_exchange_weak(prev, next, Ordering::Release, Ordering::Relaxed)
         {
             prev = next_prev;
             next = prev + by;
@@ -191,9 +189,6 @@ mod test {
         assert_ne!(now + ns_dur, now, "{:?} + {:?}", ns_dur, now);
         assert_eq!(one_ns, Reference::duration_since(&(now + one_ns), now));
         assert_eq!(Nanos::new(0), Reference::duration_since(&now, now + one_ns));
-        assert_eq!(
-            Reference::saturating_sub(&(now + Duration::from_nanos(1)), one_ns),
-            now
-        );
+        assert_eq!(Reference::saturating_sub(&(now + Duration::from_nanos(1)), one_ns), now);
     }
 }

@@ -28,12 +28,10 @@ impl InMemoryState {
         let mut prev = self.0.load(Ordering::Acquire);
         let mut decision = f(NonZeroU64::new(prev).map(|n| n.get().into()));
         while let Ok((result, new_data)) = decision {
-            match self.0.compare_exchange_weak(
-                prev,
-                new_data.into(),
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
+            match self
+                .0
+                .compare_exchange_weak(prev, new_data.into(), Ordering::Release, Ordering::Relaxed)
+            {
                 Ok(_) => return Ok(result),
                 Err(next_prev) => prev = next_prev,
             }
@@ -91,10 +89,7 @@ mod test {
                             assert!(state
                                 .measure_and_replace_one(|old| {
                                     hits += 1;
-                                    Ok::<((), Nanos), ()>((
-                                        (),
-                                        Nanos::from(old.map(Nanos::as_u64).unwrap_or(0) + 1),
-                                    ))
+                                    Ok::<((), Nanos), ()>(((), Nanos::from(old.map(Nanos::as_u64).unwrap_or(0) + 1)))
                                 })
                                 .is_ok());
                         }

@@ -78,8 +78,7 @@ impl Quota {
         B::Error: fmt::Debug,
     {
         let max_burst = max_burst.try_into().unwrap();
-        let replenish_interval_ns =
-            Duration::from_secs(60 * 60).as_nanos() / (max_burst.get() as u128);
+        let replenish_interval_ns = Duration::from_secs(60 * 60).as_nanos() / (max_burst.get() as u128);
         Self {
             max_burst,
             replenish_1_per: Duration::from_nanos(replenish_interval_ns as u64),
@@ -162,14 +161,8 @@ mod test {
         let minutely = Quota::per_minute(1);
         let secondly = Quota::per_second(1);
 
-        assert_eq!(
-            hourly.replenish_interval() / 60,
-            minutely.replenish_interval()
-        );
-        assert_eq!(
-            minutely.replenish_interval() / 60,
-            secondly.replenish_interval()
-        );
+        assert_eq!(hourly.replenish_interval() / 60, minutely.replenish_interval());
+        assert_eq!(minutely.replenish_interval() / 60, secondly.replenish_interval());
     }
 
     #[test]

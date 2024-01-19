@@ -3,8 +3,8 @@
 use core::num::NonZeroU32;
 
 use crate::{
-    error::InsufficientCapacity, gcra::NotUntil, quota::Quota, snapshot::RateSnapshot,
-    state::InMemoryState, timer, timer::DefaultTimer,
+    error::InsufficientCapacity, gcra::NotUntil, quota::Quota, snapshot::RateSnapshot, state::InMemoryState, timer,
+    timer::DefaultTimer,
 };
 
 /// The "this state store does not use keys" key type.

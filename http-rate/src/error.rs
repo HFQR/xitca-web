@@ -55,11 +55,7 @@ pub struct InsufficientCapacity(pub u32);
 
 impl fmt::Display for InsufficientCapacity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "required number of cells {} exceeds bucket's capacity",
-            self.0
-        )
+        write!(f, "required number of cells {} exceeds bucket's capacity", self.0)
     }
 }
 

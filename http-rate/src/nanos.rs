@@ -32,11 +32,7 @@ impl Nanos {
 impl From<Duration> for Nanos {
     fn from(d: Duration) -> Self {
         // This will panic:
-        Nanos(
-            d.as_nanos()
-                .try_into()
-                .expect("Duration is longer than 584 years"),
-        )
+        Nanos(d.as_nanos().try_into().expect("Duration is longer than 584 years"))
     }
 }
 
