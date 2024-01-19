@@ -1,6 +1,7 @@
 # unreleased version 0.2.0
 
 ## Add
+- `RateLimit` middleware with optional feature `rate-limit`.
 - implement `Responder` trait for `serde_json::Value`.
 - re-export `http_ws::{ResponseSender, ResponseWeakSender}` types in `xitca_web::handler::websocket` module.
 

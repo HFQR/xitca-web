@@ -50,6 +50,9 @@ websocket = ["http-ws/stream", "tokio/time"]
 # static file serving
 file = ["http-file", "nightly"]
 
+# rate-limit middleware
+rate-limit = ["http-rate"]
+
 # nightly rust required feature
 nightly = []
 
@@ -106,6 +109,9 @@ http-ws = { version = "0.2", optional = true }
 
 # static file
 http-file = { version = "0.1", optional = true }
+
+# rate limit
+http-rate = { version = "0.1", optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }

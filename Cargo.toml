@@ -16,6 +16,7 @@ members = [
     "http-encoding",
     "http-file",
     "http-multipart",
+    "http-rate",
     "http-ws",
 ]
 
@@ -34,6 +35,7 @@ xitca-web = { path = "./web" }
 http-encoding = { path = "./http-encoding" }
 http-file = { path = "http-file" }
 http-multipart = { path = "./http-multipart" }
+http-rate = { path = "./http-rate" }
 http-ws = { path = "./http-ws" }
 
 [profile.release]
