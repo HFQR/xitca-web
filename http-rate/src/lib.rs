@@ -1,3 +1,4 @@
+#![doc=include_str!( "../README.md")]
 #![allow(clippy::declare_interior_mutable_const)]
 
 mod error;
@@ -55,14 +56,14 @@ fn maybe_x_forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
     headers
         .get(X_FORWARDED_FOR)
         .and_then(|hv| hv.to_str().ok())
-        .and_then(|s| s.split(',').find_map(|s| s.trim().parse::<IpAddr>().ok()))
+        .and_then(|s| s.split(',').find_map(|s| s.trim().parse().ok()))
 }
 
 fn maybe_x_real_ip(headers: &HeaderMap) -> Option<IpAddr> {
     headers
         .get(X_REAL_IP)
         .and_then(|hv| hv.to_str().ok())
-        .and_then(|s| s.parse::<IpAddr>().ok())
+        .and_then(|s| s.parse().ok())
 }
 
 fn maybe_forwarded(headers: &HeaderMap) -> Option<IpAddr> {

@@ -3,8 +3,12 @@
 use core::num::NonZeroU32;
 
 use crate::{
-    error::InsufficientCapacity, gcra::NotUntil, quota::Quota, snapshot::RateSnapshot, state::InMemoryState, timer,
-    timer::DefaultTimer,
+    error::InsufficientCapacity,
+    gcra::NotUntil,
+    quota::Quota,
+    snapshot::RateSnapshot,
+    state::InMemoryState,
+    timer::{DefaultTimer, Timer},
 };
 
 /// The "this state store does not use keys" key type.
@@ -41,7 +45,7 @@ impl RateLimiter<NotKeyed, InMemoryState, DefaultTimer> {
 
 impl<C> RateLimiter<NotKeyed, InMemoryState, C>
 where
-    C: timer::Timer,
+    C: Timer,
 {
     /// Constructs a new direct rate limiter for a quota with a custom clock.
     pub(crate) fn direct_with_clock(quota: Quota, clock: &C) -> Self {
@@ -54,7 +58,7 @@ where
 impl<S, C> RateLimiter<NotKeyed, S, C>
 where
     S: DirectStateStore,
-    C: timer::Timer,
+    C: Timer,
 {
     /// Allow a single cell through the rate limiter.
     ///

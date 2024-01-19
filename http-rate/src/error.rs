@@ -26,7 +26,6 @@ impl error::Error for TooManyRequests {}
 impl From<NotUntil<Instant>> for TooManyRequests {
     fn from(e: NotUntil<Instant>) -> Self {
         let after_seconds = e.wait_time_from(DefaultTimer.now()).as_secs();
-
         Self { after_seconds }
     }
 }
@@ -59,7 +58,7 @@ impl fmt::Display for InsufficientCapacity {
     }
 }
 
-impl std::error::Error for InsufficientCapacity {}
+impl error::Error for InsufficientCapacity {}
 
 #[cfg(test)]
 mod test {

@@ -145,20 +145,15 @@ impl ReasonablyRealtime for DefaultTimer {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::nanos::Nanos;
-    use std::iter::repeat;
-    use std::sync::Arc;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn fake_clock_parallel_advances() {
         let clock = Arc::new(FakeRelativeClock::default());
-        let threads = repeat(())
+        let threads = core::iter::repeat(())
             .take(10)
             .map(move |_| {
                 let clock = Arc::clone(&clock);
-                thread::spawn(move || {
+                std::thread::spawn(move || {
                     for _ in 0..1000000 {
                         let now = clock.now();
                         clock.advance(Duration::from_nanos(1));

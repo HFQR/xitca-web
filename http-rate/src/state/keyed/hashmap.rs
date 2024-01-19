@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::{quota::Quota, state::RateLimiter, timer};
+use crate::{quota::Quota, state::RateLimiter, timer::Timer};
 
 /// A thread-safe (but not very performant) implementation of a keyed rate limiter state
 /// store using [`HashMap`].
@@ -17,7 +17,10 @@ use crate::{quota::Quota, state::RateLimiter, timer};
 /// features are enabled.
 pub(crate) type HashMapStateStore<K> = Mutex<HashMap<K, InMemoryState>>;
 
-impl<K: Hash + Eq + Clone> StateStore for HashMapStateStore<K> {
+impl<K> StateStore for HashMapStateStore<K>
+where
+    K: Hash + Eq + Clone,
+{
     type Key = K;
 
     fn measure_and_replace<T, F, E>(&self, key: &Self::Key, f: F) -> Result<T, E>
@@ -35,7 +38,10 @@ impl<K: Hash + Eq + Clone> StateStore for HashMapStateStore<K> {
     }
 }
 
-impl<K: Hash + Eq + Clone> ShrinkableKeyedStateStore<K> for HashMapStateStore<K> {
+impl<K> ShrinkableKeyedStateStore<K> for HashMapStateStore<K>
+where
+    K: Hash + Eq + Clone,
+{
     fn retain_recent(&self, drop_below: Nanos) {
         let mut map = self.lock().unwrap();
         map.retain(|_, v| !v.is_older_than(drop_below));
@@ -60,7 +66,7 @@ impl<K: Hash + Eq + Clone> ShrinkableKeyedStateStore<K> for HashMapStateStore<K>
 impl<K, C> RateLimiter<K, HashMapStateStore<K>, C>
 where
     K: Hash + Eq + Clone,
-    C: timer::Timer,
+    C: Timer,
 {
     /// Constructs a new rate limiter with a custom clock, backed by a [`HashMap`].
     pub(crate) fn hashmap_with_clock(quota: Quota, clock: &C) -> Self {
