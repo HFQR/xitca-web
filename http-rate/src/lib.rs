@@ -74,7 +74,7 @@ fn maybe_forwarded(headers: &HeaderMap) -> Option<IpAddr> {
         .flat_map(|p| p.split(','))
         .map(|val| val.trim().splitn(2, '='))
         .find_map(|mut val| match (val.next(), val.next()) {
-            (Some(name), Some(val)) if name.eq_ignore_ascii_case("for") => {
+            (Some(name), Some(val)) if name.trim().eq_ignore_ascii_case("for") => {
                 let val = val.trim();
                 val.parse::<IpAddr>()
                     .or_else(|_| val.parse::<SocketAddr>().map(|addr| addr.ip()))
@@ -111,7 +111,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.insert(
             FORWARDED,
-            HeaderValue::from_static("for=192.0.2.60;proto=http;by=203.0.113.43"),
+            HeaderValue::from_static("for =192.0.2.60;proto=http;by=203.0.113.43"),
         );
         assert_eq!(maybe_forwarded(&headers).unwrap().to_string(), "192.0.2.60");
     }
