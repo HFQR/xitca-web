@@ -24,6 +24,7 @@
     ```
 - update `xitca-http` to version `0.2.0`.
 - update `http-encoding` to version `0.2.0`.
+- update `http-ws` to version `0.2.0`.
 
 ## Fix
 - fix nested App routing. `App::new().at("/foo", App::new().at("/"))` would be successfully matching against `/foo/`
