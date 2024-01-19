@@ -1,5 +1,6 @@
-# unreleased version 0.2.0
+# unreleased version 0.2.2
 
+# 0.2.1
 ## Add
 - `RateLimit` middleware with optional feature `rate-limit`.
 - implement `Responder` trait for `serde_json::Value`.
