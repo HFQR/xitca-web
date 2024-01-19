@@ -1,0 +1,19 @@
+[package]
+name = "http-rate"
+version = "0.1.0"
+edition = "2021"
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+license = "MIT"
+description = "rate limit for http crate types"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["http", "rate-limit"]
+readme= "README.md"
+
+[dependencies]
+http = "1"
+
+[dev-dependencies]
+crossbeam = "0.8.0"
+libc = "0.2.70"
+proptest = "1.0.0"
+all_asserts = "2.2.0"
