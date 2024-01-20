@@ -28,7 +28,7 @@ async fn h2_v2_post() {
             s.extend_from_slice(chunk.as_ref());
         }
 
-        Ok(Response::new(Once::new(Bytes::from(s))))
+        Ok(Response::new(Bytes::from_static(b"hello,world!").into()))
     }
 
     let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
@@ -61,7 +61,18 @@ async fn h2_v2_post() {
 
     req.headers_mut().insert("foo", "bar".parse().unwrap());
 
-    let res = req.version(Version::HTTP_2).body("hello,world!").send().await.unwrap();
+    let mut req_body = String::new();
+
+    for _ in 0..1024 * 1024 {
+        req_body.push_str("hello,world!");
+    }
+
+    let res = req
+        .version(Version::HTTP_2)
+        .body(req_body.clone())
+        .send()
+        .await
+        .unwrap();
 
     assert!(res.status().is_success());
 

@@ -368,7 +368,10 @@ mod io_uring {
                             }
                             Message::WindowUpdate(id, size) => {
                                 debug_assert!(size > 0, "window update size not be 0");
+                                // TODO: batch window update
                                 let update = WindowUpdate::new(id, size as _);
+                                update.encode(&mut write_buf);
+                                let update = WindowUpdate::new(0.into(), size as _);
                                 update.encode(&mut write_buf);
                                 shared_state.borrow_mut().conn_window += size;
                             }
