@@ -1,10 +1,6 @@
-use http_encoding::{encoder, Coder, ContentEncoding};
+//! compression middleware
 
-use crate::{
-    body::{BodyStream, NONE_BODY_HINT},
-    http::{header::HeaderMap, BorrowReq, WebResponse},
-    service::{ready::ReadyService, Service},
-};
+use crate::service::Service;
 
 /// A compress middleware look into [WebRequest]'s `Accept-Encoding` header and
 /// apply according compression to [WebResponse]'s body according to enabled compress feature.
@@ -15,55 +11,65 @@ use crate::{
 /// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
 ///
 /// [WebRequest]: crate::http::WebRequest
+/// [WebResponse]: crate::http::WebResponse
 /// [TypeEraser]: crate::middleware::eraser::TypeEraser
 #[derive(Clone)]
 pub struct Compress;
 
 impl<S, E> Service<Result<S, E>> for Compress {
-    type Response = CompressService<S>;
+    type Response = service::CompressService<S>;
     type Error = E;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
-        res.map(CompressService)
+        res.map(service::CompressService)
     }
 }
+mod service {
+    use http_encoding::{encoder, Coder, ContentEncoding};
 
-pub struct CompressService<S>(S);
+    use crate::{
+        body::{BodyStream, NONE_BODY_HINT},
+        http::{header::HeaderMap, BorrowReq, WebResponse},
+        service::{ready::ReadyService, Service},
+    };
 
-impl<S, Req, ResB> Service<Req> for CompressService<S>
-where
-    Req: BorrowReq<HeaderMap>,
-    S: Service<Req, Response = WebResponse<ResB>>,
-    ResB: BodyStream,
-{
-    type Response = WebResponse<Coder<ResB>>;
-    type Error = S::Error;
+    pub struct CompressService<S>(pub(super) S);
 
-    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        let mut encoding = ContentEncoding::from_headers(req.borrow());
-        let res = self.0.call(req).await?;
+    impl<S, Req, ResB> Service<Req> for CompressService<S>
+    where
+        Req: BorrowReq<HeaderMap>,
+        S: Service<Req, Response = WebResponse<ResB>>,
+        ResB: BodyStream,
+    {
+        type Response = WebResponse<Coder<ResB>>;
+        type Error = S::Error;
 
-        // TODO: expose encoding filter as public api.
-        match res.body().size_hint() {
-            (low, Some(up)) if low == up && low < 64 => encoding = ContentEncoding::NoOp,
-            // this variant is a crate hack. see NONE_BODY_HINT for detail.
-            NONE_BODY_HINT => encoding = ContentEncoding::NoOp,
-            _ => {}
+        async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+            let mut encoding = ContentEncoding::from_headers(req.borrow());
+            let res = self.0.call(req).await?;
+
+            // TODO: expose encoding filter as public api.
+            match res.body().size_hint() {
+                (low, Some(up)) if low == up && low < 64 => encoding = ContentEncoding::NoOp,
+                // this variant is a crate hack. see NONE_BODY_HINT for detail.
+                NONE_BODY_HINT => encoding = ContentEncoding::NoOp,
+                _ => {}
+            }
+
+            Ok(encoder(res, encoding))
         }
-
-        Ok(encoder(res, encoding))
     }
-}
 
-impl<S> ReadyService for CompressService<S>
-where
-    S: ReadyService,
-{
-    type Ready = S::Ready;
+    impl<S> ReadyService for CompressService<S>
+    where
+        S: ReadyService,
+    {
+        type Ready = S::Ready;
 
-    #[inline]
-    async fn ready(&self) -> Self::Ready {
-        self.0.ready().await
+        #[inline]
+        async fn ready(&self) -> Self::Ready {
+            self.0.ready().await
+        }
     }
 }
 

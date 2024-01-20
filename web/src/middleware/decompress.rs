@@ -1,13 +1,6 @@
-use core::{cell::RefCell, convert::Infallible};
+//! decompression middleware
 
-use http_encoding::{error::EncodingError, Coder};
-
-use crate::{
-    body::BodyStream,
-    context::WebContext,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode, WebResponse},
-    service::{pipeline::PipelineE, ready::ReadyService, Service},
-};
+use crate::service::Service;
 
 /// A decompress middleware look into [WebContext]'s `Content-Encoding` header and
 /// apply according decompression to it according to enabled compress feature.
@@ -17,74 +10,88 @@ use crate::{
 /// `Decompress` would mutate request body type from `B` to `Coder<B>`. Service enclosed
 /// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
 ///
+/// [WebContext]: crate::WebContext
 /// [TypeEraser]: crate::middleware::eraser::TypeEraser
 #[derive(Clone)]
 pub struct Decompress;
 
 impl<S, E> Service<Result<S, E>> for Decompress {
-    type Response = DecompressService<S>;
+    type Response = service::DecompressService<S>;
     type Error = E;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
-        res.map(DecompressService)
+        res.map(service::DecompressService)
     }
 }
 
-pub struct DecompressService<S>(S);
+mod service {
+    use core::{cell::RefCell, convert::Infallible};
 
-pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
+    use http_encoding::{error::EncodingError, Coder};
 
-impl<'r, S, C, B, Res, Err> Service<WebContext<'r, C, B>> for DecompressService<S>
-where
-    B: BodyStream + Default,
-    S: for<'rs> Service<WebContext<'rs, C, Coder<B>>, Response = Res, Error = Err>,
-{
-    type Response = Res;
-    type Error = DecompressServiceError<Err>;
+    use crate::{
+        body::BodyStream,
+        context::WebContext,
+        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode, WebResponse},
+        service::{pipeline::PipelineE, ready::ReadyService, Service},
+    };
 
-    async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let (parts, ext) = ctx.take_request().into_parts();
-        let state = ctx.ctx;
-        let (ext, body) = ext.replace_body(());
-        let req = Request::from_parts(parts, ());
+    pub struct DecompressService<S>(pub(super) S);
 
-        let decoder = http_encoding::try_decoder(req.headers(), body).map_err(DecompressServiceError::First)?;
-        let mut body = RefCell::new(decoder);
-        let mut req = req.map(|_| ext);
+    pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
 
-        self.0
-            .call(WebContext::new(&mut req, &mut body, state))
-            .await
-            .map_err(|e| {
-                // restore original body as error path of other services may have use of it.
-                let body = body.into_inner().into_inner();
-                *ctx.body_borrow_mut() = body;
-                DecompressServiceError::Second(e)
-            })
+    impl<'r, S, C, B, Res, Err> Service<WebContext<'r, C, B>> for DecompressService<S>
+    where
+        B: BodyStream + Default,
+        S: for<'rs> Service<WebContext<'rs, C, Coder<B>>, Response = Res, Error = Err>,
+    {
+        type Response = Res;
+        type Error = DecompressServiceError<Err>;
+
+        async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+            let (parts, ext) = ctx.take_request().into_parts();
+            let state = ctx.ctx;
+            let (ext, body) = ext.replace_body(());
+            let req = Request::from_parts(parts, ());
+
+            let decoder = http_encoding::try_decoder(req.headers(), body).map_err(DecompressServiceError::First)?;
+            let mut body = RefCell::new(decoder);
+            let mut req = req.map(|_| ext);
+
+            self.0
+                .call(WebContext::new(&mut req, &mut body, state))
+                .await
+                .map_err(|e| {
+                    // restore original body as error path of other services may have use of it.
+                    let body = body.into_inner().into_inner();
+                    *ctx.body_borrow_mut() = body;
+                    DecompressServiceError::Second(e)
+                })
+        }
     }
-}
 
-impl<S> ReadyService for DecompressService<S>
-where
-    S: ReadyService,
-{
-    type Ready = S::Ready;
+    impl<S> ReadyService for DecompressService<S>
+    where
+        S: ReadyService,
+    {
+        type Ready = S::Ready;
 
-    #[inline]
-    async fn ready(&self) -> Self::Ready {
-        self.0.ready().await
+        #[inline]
+        async fn ready(&self) -> Self::Ready {
+            self.0.ready().await
+        }
     }
-}
 
-impl<'r, C, B> Service<WebContext<'r, C, B>> for EncodingError {
-    type Response = WebResponse;
-    type Error = Infallible;
+    impl<'r, C, B> Service<WebContext<'r, C, B>> for EncodingError {
+        type Response = WebResponse;
+        type Error = Infallible;
 
-    async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = req.into_response(format!("{self}"));
-        res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-        *res.status_mut() = StatusCode::UNSUPPORTED_MEDIA_TYPE;
-        Ok(res)
+        async fn call(&self, req: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+            let mut res = req.into_response(format!("{self}"));
+            res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
+            *res.status_mut() = StatusCode::UNSUPPORTED_MEDIA_TYPE;
+            Ok(res)
+        }
     }
 }
 

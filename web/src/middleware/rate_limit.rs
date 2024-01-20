@@ -1,16 +1,10 @@
 //! client ip address based rate limiting.
 
-use core::{convert::Infallible, time::Duration};
-
-use crate::{
-    body::ResponseBody,
-    error::Error,
-    http::WebResponse,
-    service::{ready::ReadyService, Service},
-    WebContext,
-};
+use core::time::Duration;
 
 use http_rate::Quota;
+
+use crate::service::Service;
 
 pub struct RateLimit(Quota);
 
@@ -43,59 +37,71 @@ impl RateLimit {
 }
 
 impl<S, E> Service<Result<S, E>> for RateLimit {
-    type Response = RateLimitService<S>;
+    type Response = service::RateLimitService<S>;
     type Error = E;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
-        res.map(|service| RateLimitService {
+        res.map(|service| service::RateLimitService {
             service,
             rate_limit: http_rate::RateLimit::new(self.0),
         })
     }
 }
 
-pub struct RateLimitService<S> {
-    service: S,
-    rate_limit: http_rate::RateLimit,
-}
+mod service {
+    use core::convert::Infallible;
 
-impl<'r, C, B, S, ResB> Service<WebContext<'r, C, B>> for RateLimitService<S>
-where
-    S: for<'r2> Service<WebContext<'r2, C, B>, Response = WebResponse<ResB>, Error = Error<C>>,
-{
-    type Response = WebResponse<ResB>;
-    type Error = Error<C>;
+    use crate::{
+        body::ResponseBody,
+        error::Error,
+        http::WebResponse,
+        service::{ready::ReadyService, Service},
+        WebContext,
+    };
 
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let headers = ctx.req().headers();
-        let addr = ctx.req().body().socket_addr();
-        let snap = self.rate_limit.rate_limit(headers, addr).map_err(Error::from_service)?;
-        self.service.call(ctx).await.map(|mut res| {
-            snap.extend_response(&mut res);
-            res
-        })
+    pub struct RateLimitService<S> {
+        pub(super) service: S,
+        pub(super) rate_limit: http_rate::RateLimit,
     }
-}
 
-impl<'r, C, B> Service<WebContext<'r, C, B>> for http_rate::TooManyRequests {
-    type Response = WebResponse;
-    type Error = Infallible;
+    impl<'r, C, B, S, ResB> Service<WebContext<'r, C, B>> for RateLimitService<S>
+    where
+        S: for<'r2> Service<WebContext<'r2, C, B>, Response = WebResponse<ResB>, Error = Error<C>>,
+    {
+        type Response = WebResponse<ResB>;
+        type Error = Error<C>;
 
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(ResponseBody::empty());
-        self.extend_response(&mut res);
-        Ok(res)
+        async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+            let headers = ctx.req().headers();
+            let addr = ctx.req().body().socket_addr();
+            let snap = self.rate_limit.rate_limit(headers, addr).map_err(Error::from_service)?;
+            self.service.call(ctx).await.map(|mut res| {
+                snap.extend_response(&mut res);
+                res
+            })
+        }
     }
-}
 
-impl<S> ReadyService for RateLimitService<S>
-where
-    S: ReadyService,
-{
-    type Ready = S::Ready;
+    impl<'r, C, B> Service<WebContext<'r, C, B>> for http_rate::TooManyRequests {
+        type Response = WebResponse;
+        type Error = Infallible;
 
-    #[inline]
-    async fn ready(&self) -> Self::Ready {
-        self.service.ready().await
+        async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+            let mut res = ctx.into_response(ResponseBody::empty());
+            self.extend_response(&mut res);
+            Ok(res)
+        }
+    }
+
+    impl<S> ReadyService for RateLimitService<S>
+    where
+        S: ReadyService,
+    {
+        type Ready = S::Ready;
+
+        #[inline]
+        async fn ready(&self) -> Self::Ready {
+            self.service.ready().await
+        }
     }
 }
