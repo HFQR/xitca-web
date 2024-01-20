@@ -5,7 +5,7 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.1", features = ["multipart"] }
+xitca-web = { version = "0.2", features = ["multipart"] }
 
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }

@@ -13,16 +13,18 @@ use xitca_web::{
     App, WebContext,
 };
 
-fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt().with_env_filter("[xitca-logger]=trace").init();
-    App::with_state(String::from("Hello,World!"))
+    App::new()
+        .with_state(String::from("Hello,World!"))
         .at_typed(root)
         .at_typed(sync)
         .at_typed(private)
         .serve()
         .bind("127.0.0.1:8080")?
         .run()
-        .wait()
+        .await
 }
 
 // a simple middleware function forward request to other services and display response status code.

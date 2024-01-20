@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.1", features = ["cookie"] }
+xitca-web = { version = "0.2", features = ["cookie"] }

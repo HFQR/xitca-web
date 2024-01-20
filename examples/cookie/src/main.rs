@@ -25,7 +25,8 @@ use xitca_web::{
 fn main() -> std::io::Result<()> {
     // a random generated private key that supposed to be added into application state.
     let key = StateKey::generate();
-    App::with_state(key)
+    App::new()
+        .with_state(key)
         .at("/", get(handler_service(index)))
         .at("/auth", post(handler_service(auth)))
         .serve()
