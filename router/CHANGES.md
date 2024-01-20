@@ -1,6 +1,7 @@
-unreleased version 0.2
+# unreleased
 
-# Add
+# 0.2.0
+## Add
 - add catch all matching for `/*`. It will match on `/*p` and `/`. This enables nesting `Router` types and other similar use case where the path matching is break up into separate segments between multiple scopes. 
 
     Example:
