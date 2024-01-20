@@ -19,11 +19,12 @@ pub(crate) use dispatcher::Dispatcher;
 const HEADER_LEN: usize = 9;
 
 #[cfg(feature = "io-uring")]
-pub use io_uring::run;
+pub use io_uring::{run, RequestBodySender, RequestBodyV2};
 
 #[cfg(feature = "io-uring")]
 mod io_uring {
     use core::{
+        cell::RefCell,
         fmt,
         future::{poll_fn, Future},
         mem,
@@ -35,7 +36,7 @@ mod io_uring {
 
     use futures_core::stream::Stream;
     use pin_project_lite::pin_project;
-    use tokio::sync::mpsc::{self, Sender};
+    use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
     use tracing::error;
     use xitca_io::{
         bytes::{Buf, BufMut, BytesMut},
@@ -47,7 +48,7 @@ mod io_uring {
     use crate::{
         body::BodySize,
         bytes::Bytes,
-        h2::{proto::reason::Reason, RequestBodySender, RequestBodyV2},
+        error::BodyError,
         http::{header::CONTENT_LENGTH, HeaderMap, Request, RequestExt, Response, Version},
         util::futures::Queue,
     };
@@ -57,6 +58,7 @@ mod io_uring {
         error::Error,
         go_away::GoAway,
         head, headers, hpack,
+        reason::Reason,
         reset::Reset,
         settings::{self, Settings},
         stream_id::StreamId,
@@ -72,7 +74,8 @@ mod io_uring {
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
         continuation: Option<(headers::Headers, BytesMut)>,
-        writer_tx: &'a Sender<Message>,
+        shared_state: &'a RefCell<SharedState>,
+        writer_tx: &'a UnboundedSender<Message>,
     }
 
     enum Message {
@@ -80,10 +83,21 @@ mod io_uring {
         Stream(StreamId, Bytes),
         Trailer(StreamId, HeaderMap),
         Reset(StreamId, Reason),
+        WindowUpdate(StreamId, usize),
+        Settings,
+    }
+
+    struct SharedState {
+        conn_window: usize,
+        stream_window: usize,
     }
 
     impl<'a> DecodeContext<'a> {
-        fn new(local_setting: Settings, writer_tx: &'a Sender<Message>) -> Self {
+        fn new(
+            local_setting: Settings,
+            shared_state: &'a RefCell<SharedState>,
+            writer_tx: &'a UnboundedSender<Message>,
+        ) -> Self {
             Self {
                 max_header_list_size: local_setting
                     .max_header_list_size()
@@ -93,6 +107,7 @@ mod io_uring {
                 tx_map: HashMap::new(),
                 next_frame_len: 0,
                 continuation: None,
+                shared_state,
                 writer_tx,
             }
         }
@@ -122,7 +137,10 @@ mod io_uring {
 
                 match head.kind() {
                     head::Kind::Settings => {
-                        let _setting = settings::Settings::load(head, &frame)?;
+                        let setting = Settings::load(head, &frame)?;
+                        if !setting.is_ack() {
+                            self.writer_tx.send(Message::Settings).unwrap();
+                        }
                     }
                     head::Kind::Headers => {
                         let (mut headers, mut payload) = headers::Headers::load(head, frame)?;
@@ -173,12 +191,14 @@ mod io_uring {
                         let id = data.stream_id();
                         let payload = data.into_payload();
 
-                        let tx = self.tx_map.get_mut(&id).unwrap();
+                        if !payload.is_empty() {
+                            let tx = self.tx_map.get_mut(&id).unwrap();
 
-                        if tx.send(Ok(payload)).is_err() {
-                            self.writer_tx.send(Message::Reset(id, Reason::CANCEL)).await.unwrap();
-                            is_end = true;
-                        };
+                            if tx.send(Ok(payload)).is_err() {
+                                self.writer_tx.send(Message::Reset(id, Reason::CANCEL)).unwrap();
+                                is_end = true;
+                            };
+                        }
 
                         if is_end {
                             self.tx_map.remove(&id);
@@ -222,7 +242,7 @@ mod io_uring {
                 }
             };
 
-            let (body, tx) = RequestBodyV2::new_pair();
+            let (body, tx) = RequestBodyV2::new_pair(id, self.writer_tx.clone());
 
             if is_end_stream {
                 drop(tx);
@@ -302,9 +322,14 @@ mod io_uring {
 
         let mut read_task = pin!(read_io(read_buf, &io));
 
-        let (tx, mut rx) = mpsc::channel::<Message>(256);
+        let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
-        let mut ctx = DecodeContext::new(settings, &tx);
+        let shared_state = RefCell::new(SharedState {
+            conn_window: settings.initial_window_size().unwrap_or(65535) as _,
+            stream_window: usize::MIN,
+        });
+
+        let mut ctx = DecodeContext::new(settings, &shared_state, &tx);
         let mut queue = Queue::new();
 
         let mut write_task = pin!(async {
@@ -338,8 +363,18 @@ mod io_uring {
                                 trailer.encode(&mut encoder, &mut buf);
                             }
                             Message::Reset(id, reason) => {
-                                let rest = Reset::new(id, reason);
-                                rest.encode(&mut write_buf);
+                                let reset = Reset::new(id, reason);
+                                reset.encode(&mut write_buf);
+                            }
+                            Message::WindowUpdate(id, size) => {
+                                debug_assert!(size > 0, "window update size not be 0");
+                                let update = WindowUpdate::new(id, size as _);
+                                update.encode(&mut write_buf);
+                                shared_state.borrow_mut().conn_window += size;
+                            }
+                            Message::Settings => {
+                                let setting = Settings::ack();
+                                setting.encode(&mut write_buf);
                             }
                         };
                         Poll::Ready(ControlFlow::Continue(()))
@@ -393,17 +428,16 @@ mod io_uring {
                                         }
 
                                         t.send(Message::Head(stream_id, Response::from_parts(parts, ())))
-                                            .await
                                             .unwrap();
 
                                         let mut body = pin!(body);
 
                                         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
                                             let bytes = chunk.unwrap();
-                                            t.send(Message::Stream(stream_id, bytes)).await.unwrap();
+                                            t.send(Message::Stream(stream_id, bytes)).unwrap();
                                         }
 
-                                        t.send(Message::Trailer(stream_id, HeaderMap::new())).await.unwrap();
+                                        t.send(Message::Trailer(stream_id, HeaderMap::new())).unwrap();
                                     }
                                     Err(e) => error!("service error: {:?}", e),
                                 };
@@ -444,6 +478,46 @@ mod io_uring {
         }
 
         Ok(buf)
+    }
+
+    /// Request body type for Http/2 specifically.
+    pub struct RequestBodyV2 {
+        stream_id: StreamId,
+        rx: UnboundedReceiver<Result<Bytes, BodyError>>,
+        writer_tx: UnboundedSender<Message>,
+    }
+
+    pub type RequestBodySender = UnboundedSender<Result<Bytes, BodyError>>;
+
+    impl RequestBodyV2 {
+        #[cfg(feature = "io-uring")]
+        fn new_pair(stream_id: StreamId, writer_tx: UnboundedSender<Message>) -> (Self, RequestBodySender) {
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+            (
+                Self {
+                    stream_id,
+                    rx,
+                    writer_tx,
+                },
+                tx,
+            )
+        }
+    }
+
+    impl Stream for RequestBodyV2 {
+        type Item = Result<Bytes, BodyError>;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let this = self.get_mut();
+
+            this.rx.poll_recv(cx).map(|opt| {
+                opt.map(|res| {
+                    let bytes = res?;
+                    let _ = this.writer_tx.send(Message::WindowUpdate(this.stream_id, bytes.len()));
+                    Ok(bytes)
+                })
+            })
+        }
     }
 }
 
