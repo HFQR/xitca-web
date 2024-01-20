@@ -14,7 +14,4 @@ pub use self::error::Error;
 pub use self::service::H2Service;
 
 #[cfg(feature = "io-uring")]
-pub use self::{body::RequestBodyV2, proto::run};
-
-#[cfg(feature = "io-uring")]
-pub(super) use self::body::RequestBodySender;
+pub use self::proto::{run, RequestBodySender, RequestBodyV2};
