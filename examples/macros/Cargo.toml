@@ -5,8 +5,9 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.1", features = ["codegen"] }
+xitca-web = { version = "0.2", features = ["codegen"] }
 
 thiserror = "1"
+tokio = { version = "1", features = ["macros", "rt"] }
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }
