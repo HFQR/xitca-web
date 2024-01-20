@@ -1,5 +1,6 @@
-# unreleased version 0.2.0
+# unreleased
 
+# 0.2.0
 ## Add
 - export `ResponseWeakSender` type when `stream` features is enabled.
 - add `ResponseSender::send_error`.
