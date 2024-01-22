@@ -29,7 +29,7 @@ mod io_uring {
         future::{poll_fn, Future},
         mem,
         pin::{pin, Pin},
-        task::{Context, Poll},
+        task::{Context, Poll, Waker},
     };
 
     use std::{collections::HashMap, io};
@@ -69,12 +69,14 @@ mod io_uring {
 
     struct DecodeContext<'a> {
         max_header_list_size: usize,
+        remote_setting: Settings,
         decoder: hpack::Decoder,
-        tx_map: HashMap<StreamId, RequestBodySender>,
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
         continuation: Option<(headers::Headers, BytesMut)>,
         shared_state: &'a RefCell<SharedState>,
+        stream_map: &'a StreamMap,
+        stream_map2: HashMap<StreamId, RequestBodySender>,
         writer_tx: &'a UnboundedSender<Message>,
     }
 
@@ -92,22 +94,23 @@ mod io_uring {
         stream_window: usize,
     }
 
+    type StreamMap = RefCell<HashMap<StreamId, StreamControlFlow>>;
+
     impl<'a> DecodeContext<'a> {
         fn new(
-            local_setting: Settings,
             shared_state: &'a RefCell<SharedState>,
+            stream_map: &'a StreamMap,
             writer_tx: &'a UnboundedSender<Message>,
         ) -> Self {
             Self {
-                max_header_list_size: local_setting
-                    .max_header_list_size()
-                    .map(|val| val as _)
-                    .unwrap_or(settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE),
+                remote_setting: Settings::default(),
+                max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
-                tx_map: HashMap::new(),
                 next_frame_len: 0,
                 continuation: None,
                 shared_state,
+                stream_map,
+                stream_map2: HashMap::new(),
                 writer_tx,
             }
         }
@@ -139,6 +142,7 @@ mod io_uring {
                     head::Kind::Settings => {
                         let setting = Settings::load(head, &frame)?;
                         if !setting.is_ack() {
+                            self.remote_setting = setting;
                             self.writer_tx.send(Message::Settings).unwrap();
                         }
                     }
@@ -192,7 +196,7 @@ mod io_uring {
                         let payload = data.into_payload();
 
                         if !payload.is_empty() {
-                            let tx = self.tx_map.get_mut(&id).unwrap();
+                            let tx = self.stream_map2.get(&id).unwrap();
 
                             if tx.send(Ok(payload)).is_err() {
                                 self.writer_tx.send(Message::Reset(id, Reason::CANCEL)).unwrap();
@@ -201,7 +205,7 @@ mod io_uring {
                         }
 
                         if is_end {
-                            self.tx_map.remove(&id);
+                            self.stream_map2.remove(&id);
                         }
                     }
                     head::Kind::WindowUpdate => {
@@ -209,6 +213,13 @@ mod io_uring {
 
                         if window.stream_id() == 0 {
                             // connection window
+                        } else {
+                            let mut map = self.stream_map.borrow_mut();
+                            let flow = &mut map.get_mut(&window.stream_id()).unwrap();
+                            flow.window += window.size_increment() as usize;
+                            if let Some(waker) = flow.waker.take() {
+                                waker.wake();
+                            }
                         }
                     }
                     head::Kind::GoAway => {
@@ -228,7 +239,7 @@ mod io_uring {
 
             let (pseudo, headers) = headers.into_parts();
 
-            let req = match self.tx_map.remove(&id) {
+            let req = match self.stream_map2.remove(&id) {
                 Some(_) => {
                     error!("trailer is not supported yet");
                     return;
@@ -247,7 +258,15 @@ mod io_uring {
             if is_end_stream {
                 drop(tx);
             } else {
-                self.tx_map.insert(id, tx);
+                self.stream_map2.insert(id, tx);
+                self.stream_map.borrow_mut().insert(
+                    id,
+                    StreamControlFlow {
+                        window: 65535,
+                        frame_size: self.remote_setting.max_frame_size().unwrap_or(16384) as usize,
+                        waker: None,
+                    },
+                );
             };
 
             let req = req.map(|ext| ext.map_body(|_| body));
@@ -282,6 +301,12 @@ mod io_uring {
             },
             Idle
         }
+    }
+
+    struct StreamControlFlow {
+        window: usize,
+        frame_size: usize,
+        waker: Option<Waker>,
     }
 
     impl<F> Future for CompleteTask<F>
@@ -329,7 +354,9 @@ mod io_uring {
             stream_window: usize::MIN,
         });
 
-        let mut ctx = DecodeContext::new(settings, &shared_state, &tx);
+        let stream_map = RefCell::new(HashMap::new());
+
+        let mut ctx = DecodeContext::new(&shared_state, &stream_map, &tx);
         let mut queue = Queue::new();
 
         let mut write_task = pin!(async {
@@ -421,6 +448,8 @@ mod io_uring {
                         .try_decode(&mut read_buf, |req, stream_id| {
                             let s = &service;
                             let t = &tx;
+                            let map = &stream_map;
+
                             queue.push(async move {
                                 match s.call(req).await {
                                     Ok(res) => {
@@ -436,8 +465,30 @@ mod io_uring {
                                         let mut body = pin!(body);
 
                                         while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                                            let bytes = chunk.unwrap();
-                                            t.send(Message::Stream(stream_id, bytes)).unwrap();
+                                            let mut bytes = chunk.unwrap();
+
+                                            while !bytes.is_empty() {
+                                                let len = bytes.len();
+
+                                                let aval = poll_fn(|cx| {
+                                                    let mut map = map.borrow_mut();
+                                                    let flow = map.get_mut(&stream_id).unwrap();
+
+                                                    if flow.window == 0 {
+                                                        flow.waker = Some(cx.waker().clone());
+                                                        return Poll::Pending;
+                                                    }
+
+                                                    let len = core::cmp::min(len, flow.frame_size);
+                                                    let aval = core::cmp::min(flow.window, len);
+                                                    flow.window -= aval;
+                                                    Poll::Ready(aval)
+                                                })
+                                                .await;
+
+                                                let chunk = bytes.split_to(aval);
+                                                t.send(Message::Stream(stream_id, chunk)).unwrap();
+                                            }
                                         }
 
                                         t.send(Message::Trailer(stream_id, HeaderMap::new())).unwrap();
