@@ -78,7 +78,7 @@ pub struct CompatLayer<S>(Rc<S>);
 impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>, C>>> for CompatLayer<S>
 where
     S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
-    C: Clone + 'static,
+    C: 'static,
     ReqB: 'static,
 {
     type Response = Response<CompatResBody<ResB>>;

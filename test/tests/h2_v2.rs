@@ -28,7 +28,7 @@ async fn h2_v2_post() {
             s.extend_from_slice(chunk.as_ref());
         }
 
-        Ok(Response::new(Bytes::from_static(b"hello,world!").into()))
+        Ok(Response::new(Bytes::from(s).into()))
     }
 
     let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
@@ -78,7 +78,7 @@ async fn h2_v2_post() {
 
     let body = res.string().await.unwrap();
 
-    assert_eq!("hello,world!", body);
+    assert_eq!(req_body, body);
 
     drop(c);
 
