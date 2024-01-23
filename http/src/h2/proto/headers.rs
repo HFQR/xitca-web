@@ -27,7 +27,7 @@ type EncodeBuf<'a> = Limit<&'a mut BytesMut>;
 ///
 /// This could be either a request or a response.
 #[derive(Eq, PartialEq)]
-pub struct Headers {
+pub struct Headers<P = Pseudo> {
     /// The ID of the stream with which this frame is associated.
     stream_id: StreamId,
 
@@ -35,7 +35,7 @@ pub struct Headers {
     stream_dep: Option<StreamDependency>,
 
     /// The header block fragment
-    header_block: HeaderBlock,
+    header_block: HeaderBlock<P>,
 
     /// The associated flags
     flags: HeadersFlag,
@@ -84,6 +84,12 @@ pub struct Pseudo {
     pub status: Option<StatusCode>,
 }
 
+// special pseudo header for response to reduce type size.
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct ResponsePseudo {
+    status: StatusCode,
+}
+
 #[derive(Debug)]
 pub struct Iter {
     /// Pseudo headers
@@ -94,7 +100,7 @@ pub struct Iter {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct HeaderBlock {
+struct HeaderBlock<P = Pseudo> {
     /// The decoded header fields
     fields: HeaderMap,
 
@@ -103,7 +109,7 @@ struct HeaderBlock {
 
     /// Pseudo headers, these are broken out as they must be sent as part of the
     /// headers frame.
-    pseudo: Pseudo,
+    pseudo: P,
 }
 
 #[derive(Debug)]
@@ -117,12 +123,10 @@ const PADDED: u8 = 0x8;
 const PRIORITY: u8 = 0x20;
 const ALL: u8 = END_STREAM | END_HEADERS | PADDED | PRIORITY;
 
-// ===== impl Headers =====
-
 impl Headers {
     /// Create a new HEADERS frame
-    pub fn new(stream_id: StreamId, pseudo: Pseudo, fields: HeaderMap) -> Self {
-        Headers {
+    pub fn request(stream_id: StreamId, pseudo: Pseudo, fields: HeaderMap) -> Self {
+        Self {
             stream_id,
             stream_dep: None,
             header_block: HeaderBlock {
@@ -134,22 +138,57 @@ impl Headers {
         }
     }
 
-    pub fn trailers(stream_id: StreamId, fields: HeaderMap) -> Self {
-        let mut flags = HeadersFlag::default();
-        flags.set_end_stream();
+    pub fn load_hpack(
+        &mut self,
+        src: &mut BytesMut,
+        max_header_list_size: usize,
+        decoder: &mut hpack::Decoder,
+    ) -> Result<(), Error> {
+        self.header_block.load(src, max_header_list_size, decoder)
+    }
+}
 
-        Headers {
+impl Headers<ResponsePseudo> {
+    pub fn response(stream_id: StreamId, pseudo: ResponsePseudo, fields: HeaderMap) -> Self {
+        Self {
             stream_id,
             stream_dep: None,
             header_block: HeaderBlock {
                 fields,
                 is_over_size: false,
-                pseudo: Pseudo::default(),
+                pseudo,
+            },
+            flags: HeadersFlag::default(),
+        }
+    }
+
+    /// Whether it has status 1xx
+    pub(crate) fn is_informational(&self) -> bool {
+        self.header_block.pseudo.is_informational()
+    }
+}
+
+impl Headers<()> {
+    pub fn trailers(stream_id: StreamId, fields: HeaderMap) -> Self {
+        let mut flags = HeadersFlag::default();
+        flags.set_end_stream();
+        Self {
+            stream_id,
+            stream_dep: None,
+            header_block: HeaderBlock {
+                fields,
+                is_over_size: false,
+                pseudo: (),
             },
             flags,
         }
     }
+}
 
+impl<P> Headers<P>
+where
+    P: IntoHeaderIter + Default,
+{
     /// Loads the header frame but doesn't actually do HPACK decoding.
     ///
     /// HPACK decoding is done in the `load_hpack` step.
@@ -213,7 +252,7 @@ impl Headers {
             header_block: HeaderBlock {
                 fields: HeaderMap::new(),
                 is_over_size: false,
-                pseudo: Pseudo::default(),
+                pseudo: P::default(),
             },
             flags,
         };
@@ -221,13 +260,14 @@ impl Headers {
         Ok((headers, src))
     }
 
-    pub fn load_hpack(
-        &mut self,
-        src: &mut BytesMut,
-        max_header_list_size: usize,
-        decoder: &mut hpack::Decoder,
-    ) -> Result<(), Error> {
-        self.header_block.load(src, max_header_list_size, decoder)
+    pub fn encode(self, encoder: &mut hpack::Encoder, dst: &mut EncodeBuf<'_>) -> Option<Continuation> {
+        // At this point, the `is_end_headers` flag should always be set
+        debug_assert!(self.flags.is_end_headers());
+
+        // Get the HEADERS frame head
+        let head = self.head();
+
+        self.header_block.into_encoding(encoder).encode(&head, dst, |_| {})
     }
 
     pub fn stream_id(&self) -> StreamId {
@@ -254,7 +294,7 @@ impl Headers {
         self.header_block.is_over_size
     }
 
-    pub fn into_parts(self) -> (Pseudo, HeaderMap) {
+    pub fn into_parts(self) -> (P, HeaderMap) {
         (self.header_block.pseudo, self.header_block.fields)
     }
 
@@ -263,27 +303,12 @@ impl Headers {
         &mut self.header_block.pseudo
     }
 
-    /// Whether it has status 1xx
-    pub(crate) fn is_informational(&self) -> bool {
-        self.header_block.pseudo.is_informational()
-    }
-
     pub fn fields(&self) -> &HeaderMap {
         &self.header_block.fields
     }
 
     pub fn into_fields(self) -> HeaderMap {
         self.header_block.fields
-    }
-
-    pub fn encode(self, encoder: &mut hpack::Encoder, dst: &mut EncodeBuf<'_>) -> Option<Continuation> {
-        // At this point, the `is_end_headers` flag should always be set
-        debug_assert!(self.flags.is_end_headers());
-
-        // Get the HEADERS frame head
-        let head = self.head();
-
-        self.header_block.into_encoding(encoder).encode(&head, dst, |_| {})
     }
 
     fn head(&self) -> Head {
@@ -569,15 +594,8 @@ impl Pseudo {
         pseudo
     }
 
-    pub fn response(status: StatusCode) -> Self {
-        Pseudo {
-            method: None,
-            scheme: None,
-            authority: None,
-            path: None,
-            // protocol: None,
-            status: Some(status),
-        }
+    pub fn response(status: StatusCode) -> ResponsePseudo {
+        ResponsePseudo { status }
     }
 
     #[cfg(feature = "unstable")]
@@ -597,10 +615,12 @@ impl Pseudo {
     pub fn set_authority(&mut self, authority: BytesStr) {
         self.authority = Some(authority);
     }
+}
 
+impl ResponsePseudo {
     /// Whether it has status 1xx
     pub(crate) fn is_informational(&self) -> bool {
-        self.status.map_or(false, |status| status.is_informational())
+        self.status.is_informational()
     }
 }
 
@@ -653,46 +673,6 @@ impl EncodingHeaderBlock {
         }
 
         continuation
-    }
-}
-
-// ===== impl Iter =====
-
-impl Iterator for Iter {
-    type Item = hpack::Header<Option<HeaderName>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use super::hpack::Header::*;
-
-        if let Some(ref mut pseudo) = self.pseudo {
-            if let Some(method) = pseudo.method.take() {
-                return Some(Method(method));
-            }
-
-            if let Some(scheme) = pseudo.scheme.take() {
-                return Some(Scheme(scheme));
-            }
-
-            if let Some(authority) = pseudo.authority.take() {
-                return Some(Authority(authority));
-            }
-
-            if let Some(path) = pseudo.path.take() {
-                return Some(Path(path));
-            }
-
-            // if let Some(protocol) = pseudo.protocol.take() {
-            //     return Some(Protocol(protocol));
-            // }
-
-            if let Some(status) = pseudo.status.take() {
-                return Some(Status(status));
-            }
-        }
-
-        self.pseudo = None;
-
-        self.fields.next().map(|(name, value)| Field { name, value })
     }
 }
 
@@ -900,18 +880,6 @@ impl HeaderBlock {
         Ok(())
     }
 
-    fn into_encoding(self, encoder: &mut hpack::Encoder) -> EncodingHeaderBlock {
-        let mut hpack = BytesMut::new();
-        let headers = Iter {
-            pseudo: Some(self.pseudo),
-            fields: self.fields.into_iter(),
-        };
-
-        encoder.encode(headers, &mut hpack);
-
-        EncodingHeaderBlock { hpack: hpack.freeze() }
-    }
-
     /// Calculates the size of the currently decoded header list.
     ///
     /// According to http://httpwg.org/specs/rfc7540.html#SETTINGS_MAX_HEADER_LIST_SIZE
@@ -940,6 +908,81 @@ impl HeaderBlock {
                 .iter()
                 .map(|(name, value)| decoded_header_size(name.as_str().len(), value.len()))
                 .sum::<usize>()
+    }
+}
+
+impl<P> HeaderBlock<P>
+where
+    P: IntoHeaderIter,
+{
+    fn into_encoding(self, encoder: &mut hpack::Encoder) -> EncodingHeaderBlock {
+        let mut hpack = BytesMut::new();
+        let headers = self.pseudo.into_iter().chain(
+            self.fields
+                .into_iter()
+                .map(|(name, value)| super::hpack::Header::Field { name, value }),
+        );
+        encoder.encode(headers, &mut hpack);
+
+        EncodingHeaderBlock { hpack: hpack.freeze() }
+    }
+}
+
+pub trait IntoHeaderIter {
+    fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> + Send;
+}
+
+impl IntoHeaderIter for Pseudo {
+    fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> {
+        struct Iter(Pseudo);
+
+        impl Iterator for Iter {
+            type Item = hpack::Header<Option<HeaderName>>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                use super::hpack::Header::*;
+
+                if let Some(method) = self.0.method.take() {
+                    return Some(Method(method));
+                }
+
+                if let Some(scheme) = self.0.scheme.take() {
+                    return Some(Scheme(scheme));
+                }
+
+                if let Some(authority) = self.0.authority.take() {
+                    return Some(Authority(authority));
+                }
+
+                if let Some(path) = self.0.path.take() {
+                    return Some(Path(path));
+                }
+
+                // if let Some(protocol) = self.protocol.take() {
+                //     return Some(Protocol(protocol));
+                // }
+
+                if let Some(status) = self.0.status.take() {
+                    return Some(Status(status));
+                }
+
+                None
+            }
+        }
+
+        Iter(self)
+    }
+}
+
+impl IntoHeaderIter for ResponsePseudo {
+    fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> {
+        core::iter::once_with(move || super::hpack::Header::Status(self.status))
+    }
+}
+
+impl IntoHeaderIter for () {
+    fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> {
+        core::iter::empty()
     }
 }
 

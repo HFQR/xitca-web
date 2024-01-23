@@ -19,7 +19,7 @@ pub(crate) use dispatcher::Dispatcher;
 const HEADER_LEN: usize = 9;
 
 #[cfg(feature = "io-uring")]
-pub use io_uring::{run, RequestBodySender, RequestBodyV2};
+pub use io_uring::{run, RequestBody, RequestBodySender};
 
 #[cfg(feature = "io-uring")]
 mod io_uring {
@@ -58,7 +58,9 @@ mod io_uring {
         data,
         error::Error,
         go_away::GoAway,
-        head, headers, hpack,
+        head,
+        headers::{self, ResponsePseudo},
+        hpack,
         reason::Reason,
         reset::Reset,
         settings::{self, Settings},
@@ -81,9 +83,9 @@ mod io_uring {
     }
 
     enum Message {
-        Head(headers::Headers),
-        Stream(StreamId, Bytes),
-        Trailer(StreamId, HeaderMap),
+        Head(headers::Headers<ResponsePseudo>),
+        Data(data::Data),
+        Trailer(headers::Headers<()>),
         Reset(StreamId, Reason),
         WindowUpdate(StreamId, usize),
         Settings,
@@ -119,7 +121,7 @@ mod io_uring {
 
         async fn try_decode<F>(&mut self, buf: &mut BytesMut, mut on_msg: F) -> Result<(), Error>
         where
-            F: FnMut(Request<RequestExt<RequestBodyV2>>, StreamId),
+            F: FnMut(Request<RequestExt<RequestBody>>, StreamId),
         {
             loop {
                 if self.next_frame_len == 0 {
@@ -262,7 +264,7 @@ mod io_uring {
 
         fn handle_header_frame<F>(&mut self, id: StreamId, headers: headers::Headers, on_msg: &mut F)
         where
-            F: FnMut(Request<RequestExt<RequestBodyV2>>, StreamId),
+            F: FnMut(Request<RequestExt<RequestBody>>, StreamId),
         {
             let is_end_stream = headers.is_end_stream();
 
@@ -282,7 +284,7 @@ mod io_uring {
                 }
             };
 
-            let (body, tx) = RequestBodyV2::new_pair(id, self.writer_tx.clone());
+            let (body, tx) = RequestBody::new_pair(id, self.writer_tx.clone());
 
             if is_end_stream {
                 drop(tx);
@@ -348,7 +350,7 @@ mod io_uring {
     pub async fn run<Io, S, ResB, ResBE>(io: Io, service: S) -> io::Result<()>
     where
         Io: AsyncBufRead + AsyncBufWrite,
-        S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<ResB>>,
+        S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
         S::Error: fmt::Debug,
         ResB: Stream<Item = Result<Bytes, ResBE>>,
         ResBE: fmt::Debug,
@@ -398,14 +400,12 @@ mod io_uring {
                                 let mut buf = (&mut write_buf).limit(4096);
                                 headers.encode(&mut encoder, &mut buf);
                             }
-                            Message::Stream(id, bytes) => {
-                                let mut data = data::Data::new(id, bytes);
+                            Message::Data(mut data) => {
                                 data.encode_chunk(&mut write_buf);
                             }
-                            Message::Trailer(stream_id, map) => {
-                                let trailer = headers::Headers::trailers(stream_id, map);
+                            Message::Trailer(headers) => {
                                 let mut buf = (&mut write_buf).limit(4096);
-                                trailer.encode(&mut encoder, &mut buf);
+                                headers.encode(&mut encoder, &mut buf);
                             }
                             Message::Reset(id, reason) => {
                                 let reset = Reset::new(id, reason);
@@ -479,7 +479,7 @@ mod io_uring {
                                         }
 
                                         let pseudo = headers::Pseudo::response(parts.status);
-                                        let mut headers = headers::Headers::new(stream_id, pseudo, parts.headers);
+                                        let mut headers = headers::Headers::response(stream_id, pseudo, parts.headers);
 
                                         match size {
                                             BodySize::None => {
@@ -555,11 +555,14 @@ mod io_uring {
                                                         .await;
 
                                                         let chunk = bytes.split_to(aval);
-                                                        t.send(Message::Stream(stream_id, chunk)).unwrap();
+                                                        let data = data::Data::new(stream_id, chunk);
+                                                        t.send(Message::Data(data)).unwrap();
                                                     }
                                                 }
 
-                                                t.send(Message::Trailer(stream_id, HeaderMap::new())).unwrap();
+                                                let trailer = headers::Headers::trailers(stream_id, HeaderMap::new());
+
+                                                t.send(Message::Trailer(trailer)).unwrap();
                                             }
                                         }
                                     }
@@ -605,7 +608,7 @@ mod io_uring {
     }
 
     /// Request body type for Http/2 specifically.
-    pub struct RequestBodyV2 {
+    pub struct RequestBody {
         stream_id: StreamId,
         rx: UnboundedReceiver<Result<Bytes, BodyError>>,
         writer_tx: UnboundedSender<Message>,
@@ -613,7 +616,7 @@ mod io_uring {
 
     pub type RequestBodySender = UnboundedSender<Result<Bytes, BodyError>>;
 
-    impl RequestBodyV2 {
+    impl RequestBody {
         #[cfg(feature = "io-uring")]
         fn new_pair(stream_id: StreamId, writer_tx: UnboundedSender<Message>) -> (Self, RequestBodySender) {
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -628,7 +631,7 @@ mod io_uring {
         }
     }
 
-    impl Stream for RequestBodyV2 {
+    impl Stream for RequestBody {
         type Item = Result<Bytes, BodyError>;
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
