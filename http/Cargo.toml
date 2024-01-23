@@ -15,7 +15,7 @@ default = ["http1"]
 # http1 specific feature.
 http1 = ["httparse", "itoa", "runtime"]
 # http2 specific feature.
-http2 = ["h2", "fnv", "futures-util/alloc", "runtime"]
+http2 = ["h2", "fnv", "futures-util/alloc", "runtime", "slab"]
 # http3 specific feature.
 http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime", "http_0dot2"]
 # openssl as server side tls.
@@ -61,6 +61,7 @@ itoa = { version = "1", optional = true }
 h2 = { version = "0.4", optional = true }
 fnv = { version = "1.0.7", optional = true }
 futures-util = { version = "0.3.17", default-features = false, optional = true }
+slab = { version = "0.4", optional = true }
 
 # http/3 support
 h3 = { version = "0.0.3", optional = true }

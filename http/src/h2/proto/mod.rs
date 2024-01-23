@@ -36,6 +36,7 @@ mod io_uring {
 
     use futures_core::stream::Stream;
     use pin_project_lite::pin_project;
+    use slab::Slab;
     use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
     use tracing::error;
     use xitca_io::{
@@ -74,14 +75,13 @@ mod io_uring {
         // next_frame_len == 0 is used as maker for waiting for new frame.
         next_frame_len: usize,
         continuation: Option<(headers::Headers, BytesMut)>,
-        shared_state: &'a RefCell<SharedState>,
-        stream_map: &'a StreamMap,
-        stream_map2: HashMap<StreamId, RequestBodySender>,
+        flow: &'a SharedFlowControl,
+        stream_map: HashMap<StreamId, RequestBodySender>,
         writer_tx: &'a UnboundedSender<Message>,
     }
 
     enum Message {
-        Head(StreamId, Response<()>),
+        Head(headers::Headers),
         Stream(StreamId, Bytes),
         Trailer(StreamId, HeaderMap),
         Reset(StreamId, Reason),
@@ -94,23 +94,25 @@ mod io_uring {
         stream_window: usize,
     }
 
-    type StreamMap = RefCell<HashMap<StreamId, StreamControlFlow>>;
+    struct FlowControl {
+        connection_window: usize,
+        stream_window: usize,
+        ordered_map: Slab<StreamControlFlow>,
+        map: HashMap<StreamId, usize>,
+    }
+
+    type SharedFlowControl = RefCell<FlowControl>;
 
     impl<'a> DecodeContext<'a> {
-        fn new(
-            shared_state: &'a RefCell<SharedState>,
-            stream_map: &'a StreamMap,
-            writer_tx: &'a UnboundedSender<Message>,
-        ) -> Self {
+        fn new(flow: &'a SharedFlowControl, writer_tx: &'a UnboundedSender<Message>) -> Self {
             Self {
                 remote_setting: Settings::default(),
                 max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
                 next_frame_len: 0,
                 continuation: None,
-                shared_state,
-                stream_map,
-                stream_map2: HashMap::new(),
+                flow,
+                stream_map: HashMap::new(),
                 writer_tx,
             }
         }
@@ -143,6 +145,13 @@ mod io_uring {
                         let setting = Settings::load(head, &frame)?;
                         if !setting.is_ack() {
                             self.remote_setting = setting;
+
+                            let mut flow = self.flow.borrow_mut();
+
+                            if let Some(window) = self.remote_setting.initial_window_size() {
+                                flow.stream_window = window as _;
+                            }
+
                             self.writer_tx.send(Message::Settings).unwrap();
                         }
                     }
@@ -196,7 +205,7 @@ mod io_uring {
                         let payload = data.into_payload();
 
                         if !payload.is_empty() {
-                            let tx = self.stream_map2.get(&id).unwrap();
+                            let tx = self.stream_map.get(&id).unwrap();
 
                             if tx.send(Ok(payload)).is_err() {
                                 self.writer_tx.send(Message::Reset(id, Reason::CANCEL)).unwrap();
@@ -205,21 +214,41 @@ mod io_uring {
                         }
 
                         if is_end {
-                            self.stream_map2.remove(&id);
+                            self.stream_map.remove(&id);
                         }
                     }
                     head::Kind::WindowUpdate => {
                         let window = WindowUpdate::load(head, frame.as_ref())?;
 
                         if window.stream_id() == 0 {
-                            // connection window
-                        } else {
-                            let mut map = self.stream_map.borrow_mut();
-                            let flow = &mut map.get_mut(&window.stream_id()).unwrap();
-                            flow.window += window.size_increment() as usize;
-                            if let Some(waker) = flow.waker.take() {
-                                waker.wake();
+                            let FlowControl {
+                                ref mut connection_window,
+                                ref mut ordered_map,
+                                ..
+                            } = *self.flow.borrow_mut();
+                            *connection_window += window.size_increment() as usize;
+
+                            for (_, stream) in ordered_map.iter_mut() {
+                                if stream.window > 0 {
+                                    if let Some(waker) = stream.waker.take() {
+                                        waker.wake();
+                                    }
+                                    break;
+                                }
                             }
+                        } else {
+                            let mut flow = self.flow.borrow_mut();
+                            if let Some(key) = flow.map.get_mut(&window.stream_id()) {
+                                let key = *key;
+                                let stream = &mut flow.ordered_map[key];
+                                stream.window += window.size_increment() as usize;
+                                let waker = stream.waker.take();
+                                if flow.connection_window > 0 {
+                                    if let Some(waker) = waker {
+                                        waker.wake();
+                                    }
+                                }
+                            };
                         }
                     }
                     head::Kind::GoAway => {
@@ -239,7 +268,7 @@ mod io_uring {
 
             let (pseudo, headers) = headers.into_parts();
 
-            let req = match self.stream_map2.remove(&id) {
+            let req = match self.stream_map.remove(&id) {
                 Some(_) => {
                     error!("trailer is not supported yet");
                     return;
@@ -258,15 +287,7 @@ mod io_uring {
             if is_end_stream {
                 drop(tx);
             } else {
-                self.stream_map2.insert(id, tx);
-                self.stream_map.borrow_mut().insert(
-                    id,
-                    StreamControlFlow {
-                        window: 65535,
-                        frame_size: self.remote_setting.max_frame_size().unwrap_or(16384) as usize,
-                        waker: None,
-                    },
-                );
+                self.stream_map.insert(id, tx);
             };
 
             let req = req.map(|ext| ext.map_body(|_| body));
@@ -349,14 +370,14 @@ mod io_uring {
 
         let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
-        let shared_state = RefCell::new(SharedState {
-            conn_window: settings.initial_window_size().unwrap_or(65535) as _,
-            stream_window: usize::MIN,
+        let flow = RefCell::new(FlowControl {
+            connection_window: 65535,
+            stream_window: 65535,
+            ordered_map: Slab::new(),
+            map: HashMap::new(),
         });
 
-        let stream_map = RefCell::new(HashMap::new());
-
-        let mut ctx = DecodeContext::new(&shared_state, &stream_map, &tx);
+        let mut ctx = DecodeContext::new(&flow, &tx);
         let mut queue = Queue::new();
 
         let mut write_task = pin!(async {
@@ -373,10 +394,7 @@ mod io_uring {
                 let state = poll_fn(|cx| match rx.poll_recv(cx) {
                     Poll::Ready(Some(msg)) => {
                         match msg {
-                            Message::Head(id, res) => {
-                                let (parts, _) = res.into_parts();
-                                let pseudo = headers::Pseudo::response(parts.status);
-                                let headers = headers::Headers::new(id, pseudo, parts.headers);
+                            Message::Head(headers) => {
                                 let mut buf = (&mut write_buf).limit(4096);
                                 headers.encode(&mut encoder, &mut buf);
                             }
@@ -396,11 +414,10 @@ mod io_uring {
                             Message::WindowUpdate(id, size) => {
                                 debug_assert!(size > 0, "window update size not be 0");
                                 // TODO: batch window update
-                                let update = WindowUpdate::new(id, size as _);
-                                update.encode(&mut write_buf);
                                 let update = WindowUpdate::new(0.into(), size as _);
                                 update.encode(&mut write_buf);
-                                shared_state.borrow_mut().conn_window += size;
+                                let update = WindowUpdate::new(id, size as _);
+                                update.encode(&mut write_buf);
                             }
                             Message::Settings => {
                                 let setting = Settings::ack();
@@ -448,50 +465,103 @@ mod io_uring {
                         .try_decode(&mut read_buf, |req, stream_id| {
                             let s = &service;
                             let t = &tx;
-                            let map = &stream_map;
+                            let flow = &flow;
 
                             queue.push(async move {
                                 match s.call(req).await {
                                     Ok(res) => {
                                         let (mut parts, body) = res.into_parts();
 
-                                        if let BodySize::Sized(size) = BodySize::from_stream(&body) {
+                                        let size = BodySize::from_stream(&body);
+
+                                        if let BodySize::Sized(size) = size {
                                             parts.headers.insert(CONTENT_LENGTH, size.into());
                                         }
 
-                                        t.send(Message::Head(stream_id, Response::from_parts(parts, ())))
-                                            .unwrap();
+                                        let pseudo = headers::Pseudo::response(parts.status);
+                                        let mut headers = headers::Headers::new(stream_id, pseudo, parts.headers);
 
-                                        let mut body = pin!(body);
+                                        match size {
+                                            BodySize::None => {
+                                                headers.set_end_stream();
+                                                t.send(Message::Head(headers)).unwrap();
+                                            }
+                                            _ => {
+                                                t.send(Message::Head(headers)).unwrap();
 
-                                        while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                                            let mut bytes = chunk.unwrap();
+                                                {
+                                                    let mut flow = flow.borrow_mut();
+                                                    let window = flow.stream_window;
+                                                    let key = flow.ordered_map.insert(StreamControlFlow {
+                                                        window,
+                                                        frame_size: 16384,
+                                                        waker: None,
+                                                    });
+                                                    flow.map.insert(stream_id, key);
+                                                }
 
-                                            while !bytes.is_empty() {
-                                                let len = bytes.len();
+                                                struct DropGuard<'a> {
+                                                    stream_id: StreamId,
+                                                    flow: &'a SharedFlowControl,
+                                                }
 
-                                                let aval = poll_fn(|cx| {
-                                                    let mut map = map.borrow_mut();
-                                                    let flow = map.get_mut(&stream_id).unwrap();
-
-                                                    if flow.window == 0 {
-                                                        flow.waker = Some(cx.waker().clone());
-                                                        return Poll::Pending;
+                                                impl Drop for DropGuard<'_> {
+                                                    fn drop(&mut self) {
+                                                        let stream_id = self.stream_id;
+                                                        let mut flow = self.flow.borrow_mut();
+                                                        if let Some(key) = flow.map.remove(&stream_id) {
+                                                            flow.ordered_map.remove(key);
+                                                        }
                                                     }
+                                                }
 
-                                                    let len = core::cmp::min(len, flow.frame_size);
-                                                    let aval = core::cmp::min(flow.window, len);
-                                                    flow.window -= aval;
-                                                    Poll::Ready(aval)
-                                                })
-                                                .await;
+                                                let _guard = DropGuard { stream_id, flow };
 
-                                                let chunk = bytes.split_to(aval);
-                                                t.send(Message::Stream(stream_id, chunk)).unwrap();
+                                                let mut body = pin!(body);
+
+                                                while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await
+                                                {
+                                                    let mut bytes = chunk.unwrap();
+
+                                                    while !bytes.is_empty() {
+                                                        let len = bytes.len();
+
+                                                        let aval = poll_fn(|cx| {
+                                                            let mut control_flow = flow.borrow_mut();
+
+                                                            let FlowControl {
+                                                                ref mut connection_window,
+                                                                ref mut map,
+                                                                ref mut ordered_map,
+                                                                ..
+                                                            } = *control_flow;
+
+                                                            let key = map.get_mut(&stream_id).unwrap();
+                                                            let stream = &mut ordered_map[*key];
+
+                                                            if *connection_window == 0 || stream.window == 0 {
+                                                                stream.waker = Some(cx.waker().clone());
+                                                                return Poll::Pending;
+                                                            }
+
+                                                            let len = core::cmp::min(len, stream.frame_size);
+                                                            let aval =
+                                                                core::cmp::min(stream.window, *connection_window);
+                                                            let aval = core::cmp::min(aval, len);
+                                                            stream.window -= aval;
+                                                            *connection_window -= aval;
+                                                            Poll::Ready(aval)
+                                                        })
+                                                        .await;
+
+                                                        let chunk = bytes.split_to(aval);
+                                                        t.send(Message::Stream(stream_id, chunk)).unwrap();
+                                                    }
+                                                }
+
+                                                t.send(Message::Trailer(stream_id, HeaderMap::new())).unwrap();
                                             }
                                         }
-
-                                        t.send(Message::Trailer(stream_id, HeaderMap::new())).unwrap();
                                     }
                                     Err(e) => error!("service error: {:?}", e),
                                 };
