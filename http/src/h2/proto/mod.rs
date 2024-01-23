@@ -479,7 +479,7 @@ mod io_uring {
                                         }
 
                                         let pseudo = headers::Pseudo::response(parts.status);
-                                        let mut headers = headers::Headers::response(stream_id, pseudo, parts.headers);
+                                        let mut headers = headers::Headers::new(stream_id, pseudo, parts.headers);
 
                                         match size {
                                             BodySize::None => {
