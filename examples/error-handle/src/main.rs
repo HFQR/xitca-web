@@ -1,3 +1,5 @@
+#![feature(trait_upcasting)]
+
 //! example of error handling in xitca-web.
 //! code must be compiled with nightly Rust.
 

@@ -144,7 +144,9 @@ use self::service_impl::ErrorService;
 ///     assert_eq!(res.status().as_u16(), 200);
 ///
 ///     // upcast and downcast to concrete error type again.
-///     // *. trait upcast is a feature stabled in Rust 1.76
+///     // *. trait upcast is a nightly feature.
+///     // see https://github.com/rust-lang/rust/issues/65991 for detail
+///     
 ///     // let e = &*e as &dyn error::Error;
 ///     // assert!(e.downcast_ref::<Foo>().is_some());
 /// }
