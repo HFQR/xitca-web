@@ -20,8 +20,22 @@ fn main() -> std::io::Result<()> {
         .wait()
 }
 
+// a simple trait for injecting dependent type and logic to application.
+trait DI {
+    fn name(&self) -> &'static str;
+}
+
 // thread safe trait object state constructor.
 fn object_state() -> Arc<dyn DI + Send + Sync> {
+    // a dummy type implementing DI trait.
+    struct Foo;
+
+    impl DI for Foo {
+        fn name(&self) -> &'static str {
+            "foo"
+        }
+    }
+
     // only this function knows the exact type implementing DI trait.
     // everywhere else in the application it's only known as dyn DI trait object.
     Arc::new(Foo)
@@ -31,18 +45,4 @@ fn object_state() -> Arc<dyn DI + Send + Sync> {
 async fn handler(StateRef(obj): StateRef<'_, dyn DI + Send + Sync>) -> String {
     // get request to "/" path should return "hello foo" string response.
     format!("hello {}", obj.name())
-}
-
-// a simple trait for injecting dependent type and logic to application.
-trait DI {
-    fn name(&self) -> &'static str;
-}
-
-// a dummy type implementing DI trait.
-struct Foo;
-
-impl DI for Foo {
-    fn name(&self) -> &'static str {
-        "foo"
-    }
 }
