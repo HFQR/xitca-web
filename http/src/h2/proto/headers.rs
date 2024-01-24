@@ -550,7 +550,7 @@ where
                         }
                     }
                 }
-                header => self.pseudo.from_header(
+                header => self.pseudo.parse(
                     header,
                     max_header_list_size,
                     &mut self.is_over_size,
@@ -606,7 +606,7 @@ where
 pub trait _Pseudo {
     fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> + Send;
 
-    fn from_header(
+    fn parse(
         &mut self,
         header: super::hpack::Header,
         max_header_list_size: usize,
@@ -660,7 +660,7 @@ impl _Pseudo for Pseudo {
         Iter(self)
     }
 
-    fn from_header(
+    fn parse(
         &mut self,
         header: super::hpack::Header,
         max_header_list_size: usize,
@@ -728,7 +728,7 @@ impl _Pseudo for ResponsePseudo {
         core::iter::once_with(move || super::hpack::Header::Status(self.status))
     }
 
-    fn from_header(
+    fn parse(
         &mut self,
         header: super::hpack::Header,
         max_header_list_size: usize,
@@ -767,7 +767,7 @@ impl _Pseudo for () {
         core::iter::empty()
     }
 
-    fn from_header(&mut self, _: super::hpack::Header, _: usize, _: &mut bool, _: bool, _: &mut bool, _: &mut usize) {}
+    fn parse(&mut self, _: super::hpack::Header, _: usize, _: &mut bool, _: bool, _: &mut bool, _: &mut usize) {}
 
     fn as_header_size(&self) -> usize {
         0
