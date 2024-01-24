@@ -1,4 +1,6 @@
 # unreleased
+## Add
+- `StateRef` can used for extracting `?Sized` type from application state.
 
 # 0.2.1
 ## Add
