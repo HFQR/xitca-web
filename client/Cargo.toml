@@ -7,7 +7,7 @@ edition = "2021"
 default = ["http1"]
 http1 = ["httparse", "xitca-http/http1"]
 http2 = ["h2", "itoa", "xitca-http/http2"]
-http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25", "http_0dot2"]
+http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25"]
 openssl = ["openssl-crate", "tokio-openssl"]
 rustls = ["tokio-rustls", "webpki-roots"]
 compress = ["http-encoding"]
@@ -35,8 +35,8 @@ httparse = { version = "1.8.0", optional = true }
 h2 = { version = "0.4", optional = true }
 
 # http/3 support
-h3 = { version = "0.0.3", optional = true }
-h3-quinn = { version = "0.0.4", optional = true }
+h3 = { version = "0.0.4", optional = true }
+h3-quinn = { version = "0.0.5", optional = true }
 quinn = { version = "0.10", optional = true }
 async-stream = { version = "0.3", optional = true }
 
@@ -53,7 +53,6 @@ webpki-roots = { version = "0.26", optional = true }
 rustls-pki-types = "1"
 
 # http3 temporary exclusive
-http_0dot2 = { package = "http", version = "0.2", optional = true }
 rustls_0dot21 = { package = "rustls", version = "0.21", optional = true }
 webpki_roots_0dot25 = { package = "webpki-roots", version = "0.25", optional = true }
 

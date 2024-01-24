@@ -60,8 +60,6 @@ where
 
     let is_head_method = *req.method() == Method::HEAD;
 
-    let req = http_1_to_0dot2(req.into_parts().0);
-
     let mut stream = stream.send_request(req).await?;
 
     if !is_eof {
@@ -75,8 +73,6 @@ where
     stream.finish().await?;
 
     let res = stream.recv_response().await?;
-
-    let res = http_0dot2_to_1(res.into_parts().0);
 
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
@@ -106,42 +102,4 @@ pub(crate) async fn connect(client: &Endpoint, addr: &SocketAddr, hostname: &str
     });
 
     Ok(conn)
-}
-
-fn http_1_to_0dot2(mut parts: crate::http::request::Parts) -> http_0dot2::Request<()> {
-    use http_0dot2::{Method, Request, Uri};
-
-    let mut builder = Request::builder()
-        .method(Method::from_bytes(parts.method.as_str().as_bytes()).unwrap())
-        .uri(Uri::try_from(parts.uri.to_string().as_str()).unwrap());
-
-    let mut last = None;
-    for (k, v) in parts.headers.drain() {
-        if k.is_some() {
-            last = k;
-        }
-        let name = last.as_ref().unwrap();
-        builder = builder.header(name.as_str(), v.as_bytes());
-    }
-
-    builder.body(()).unwrap()
-}
-
-fn http_0dot2_to_1(mut parts: http_0dot2::response::Parts) -> Response<()> {
-    use crate::http::StatusCode;
-
-    let mut builder = Response::builder()
-        .status(StatusCode::from_u16(parts.status.as_u16()).unwrap())
-        .version(Version::HTTP_3);
-
-    let mut last = None;
-    for (k, v) in parts.headers.drain() {
-        if k.is_some() {
-            last = k;
-        }
-        let name = last.as_ref().unwrap();
-        builder = builder.header(name.as_str(), v.as_bytes());
-    }
-
-    builder.body(()).unwrap()
 }

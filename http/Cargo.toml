@@ -1,6 +1,6 @@
 [package]
 name = "xitca-http"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "http library for xitca"
@@ -17,7 +17,7 @@ http1 = ["httparse", "itoa", "runtime"]
 # http2 specific feature.
 http2 = ["h2", "fnv", "futures-util/alloc", "runtime", "slab"]
 # http3 specific feature.
-http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime", "http_0dot2"]
+http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
 # openssl as server side tls.
 openssl = ["dep:openssl", "runtime"]
 # rustls as server side tls.
@@ -64,9 +64,8 @@ futures-util = { version = "0.3.17", default-features = false, optional = true }
 slab = { version = "0.4", optional = true }
 
 # http/3 support
-h3 = { version = "0.0.3", optional = true }
-h3-quinn = { version = "0.0.4", optional = true }
-http_0dot2 = { package = "http", version = "0.2", optional = true }
+h3 = { version = "0.0.4", optional = true }
+h3-quinn = { version = "0.0.5", optional = true }
 
 # async runtime support.
 tokio = { version = "1.30", features = ["rt", "time"], optional = true }
