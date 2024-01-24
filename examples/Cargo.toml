@@ -4,6 +4,7 @@ members = [
     "cloudflare-worker",
     "compression",
     "cookie",
+    "dependency-injection",
     "error-handle",
     "file",
     "grpc",
