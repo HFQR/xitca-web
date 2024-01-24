@@ -6,7 +6,9 @@ use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRe
 
 /// App state extractor.
 /// S type must be the same with the type passed to App::with_xxx_state(S).
-pub struct StateRef<'a, S>(pub &'a S);
+pub struct StateRef<'a, S>(pub &'a S)
+where
+    S: ?Sized;
 
 impl<S: fmt::Debug> fmt::Debug for StateRef<'_, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -32,7 +34,7 @@ impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for StateRef<'a, T>
 where
     C: Borrow<T>,
     B: BodyStream,
-    T: 'static,
+    T: ?Sized + 'static,
 {
     type Type<'b> = StateRef<'b, T>;
     type Error = Error<C>;
