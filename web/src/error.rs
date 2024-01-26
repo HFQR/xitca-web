@@ -407,7 +407,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
 }
 
 /// error type that produce minimal "500 InternalServerError" response.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Internal;
 
 impl fmt::Display for Internal {
