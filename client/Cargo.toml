@@ -67,7 +67,7 @@ serde_json = { version = "1", optional = true }
 
 # websocket support
 futures-sink = { version = "0.3.17", default-features = false, optional = true }
-http-ws = { version = "0.2", default-features = false, optional = true }
+http-ws = { version = "0.2", features = ["stream"], optional = true }
 
 [dev-dependencies]
 futures = "0.3"

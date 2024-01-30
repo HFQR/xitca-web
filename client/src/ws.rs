@@ -13,10 +13,11 @@ use std::sync::Mutex;
 
 use futures_core::stream::Stream;
 use futures_sink::Sink;
-use http_ws::Codec;
+use http_ws::{Codec, RequestStream, WsError};
 use xitca_http::bytes::{Buf, BytesMut};
 
 use super::{
+    body::BodyError,
     body::ResponseBody,
     error::Error,
     http::{Method, Version},
@@ -130,8 +131,7 @@ impl<'a> WebSocket<'a> {
             inner: Mutex::new(WebSocketInner {
                 codec: Codec::new().client_mode(),
                 send_buf: BytesMut::new(),
-                recv_buf: BytesMut::new(),
-                body,
+                recv_stream: RequestStream::with_codec(body, Codec::new().client_mode()),
             }),
         })
     }
@@ -147,7 +147,10 @@ impl<'a> WebSocket<'a> {
     ///
     /// By default max size is set to 64kB.
     pub fn max_size(mut self, size: usize) -> Self {
-        self.inner.get_mut().unwrap().codec.set_max_size(size);
+        let inner = self.inner.get_mut().unwrap();
+        inner.codec = inner.codec.set_max_size(size);
+        let recv_codec = inner.recv_stream.codec_mut();
+        *recv_codec = recv_codec.set_max_size(size);
         self
     }
 
@@ -192,8 +195,7 @@ impl Stream for WebSocket<'_> {
 struct WebSocketInner<'b> {
     codec: Codec,
     send_buf: BytesMut,
-    recv_buf: BytesMut,
-    body: ResponseBody<'b>,
+    recv_stream: RequestStream<ResponseBody<'b>, BodyError>,
 }
 
 impl Sink<Message> for WebSocketInner<'_> {
@@ -217,9 +219,9 @@ impl Sink<Message> for WebSocketInner<'_> {
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
 
-        match inner.body {
+        match inner.recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => {
+            ResponseBody::H1(body) => {
                 use std::io;
                 use tokio::io::AsyncWrite;
                 while !inner.send_buf.chunk().is_empty() {
@@ -232,7 +234,7 @@ impl Sink<Message> for WebSocketInner<'_> {
                 Pin::new(&mut **body.conn()).poll_flush(_cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
-            ResponseBody::H2(ref mut body) => {
+            ResponseBody::H2(body) => {
                 while !inner.send_buf.chunk().is_empty() {
                     ready!(body.poll_send_buf(&mut inner.send_buf, _cx))?;
                 }
@@ -245,13 +247,13 @@ impl Sink<Message> for WebSocketInner<'_> {
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         ready!(self.as_mut().poll_flush(cx))?;
-        match self.get_mut().body {
+        match self.get_mut().recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => {
+            ResponseBody::H1(body) => {
                 tokio::io::AsyncWrite::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
-            ResponseBody::H2(ref mut body) => {
+            ResponseBody::H2(body) => {
                 body.send_data(xitca_http::bytes::Bytes::new(), true)?;
                 Poll::Ready(Ok(()))
             }
@@ -263,21 +265,13 @@ impl Sink<Message> for WebSocketInner<'_> {
 impl Stream for WebSocketInner<'_> {
     type Item = Result<Message, Error>;
 
+    #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        loop {
-            if let Some(msg) = this.codec.decode(&mut this.recv_buf)? {
-                return Poll::Ready(Some(Ok(msg)));
-            }
-
-            match ready!(Pin::new(&mut this.body).poll_next(cx)) {
-                Some(res) => {
-                    let bytes = res?;
-                    this.recv_buf.extend_from_slice(&bytes);
-                }
-                None => return Poll::Ready(None),
-            }
-        }
+        Pin::new(&mut self.get_mut().recv_stream)
+            .poll_next(cx)
+            .map_err(|e| match e {
+                WsError::Protocol(e) => Error::from(e),
+                WsError::Stream(e) => Error::Std(e),
+            })
     }
 }

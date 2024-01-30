@@ -43,27 +43,30 @@ async fn message_h2() -> Result<(), Error> {
 
     let server_url = format!("wss://{}/", handle.ip_port_string());
 
-    let c = Client::new();
-    let (mut tx, mut rx) = c.ws2(&server_url)?.send().await?.split();
+    {
+        let c = Client::new();
+        let (mut tx, mut rx) = c.ws2(&server_url)?.send().await?.split();
 
-    for _ in 0..9 {
-        tx.send(Message::Text(Bytes::from("Hello,World!"))).await?;
-    }
+        for _ in 0..9 {
+            tx.send(Message::Text(Bytes::from("Hello,World!"))).await?;
+        }
 
-    for _ in 0..9 {
+        for _ in 0..9 {
+            let msg = rx.next().await.unwrap()?;
+            assert_eq!(msg, Message::Text(Bytes::from("Hello,World!")));
+        }
+
+        tx.send(Message::Ping(Bytes::from("pingpong"))).await?;
         let msg = rx.next().await.unwrap()?;
-        assert_eq!(msg, Message::Text(Bytes::from("Hello,World!")));
+        assert_eq!(msg, Message::Pong(Bytes::from("pingpong")));
+
+        tx.send(Message::Close(None)).await?;
+        let msg = rx.next().await.unwrap()?;
+        assert_eq!(msg, Message::Close(None));
     }
-
-    tx.send(Message::Ping(Bytes::from("pingpong"))).await?;
-    let msg = rx.next().await.unwrap()?;
-    assert_eq!(msg, Message::Pong(Bytes::from("pingpong")));
-
-    tx.send(Message::Close(None)).await?;
-    let msg = rx.next().await.unwrap()?;
-    assert_eq!(msg, Message::Close(None));
 
     handle.try_handle()?.stop(true);
+    tokio::task::yield_now().await;
     handle.await.map_err(Into::into)
 }
 
