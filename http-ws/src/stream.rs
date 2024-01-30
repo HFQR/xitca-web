@@ -50,6 +50,16 @@ where
         }
     }
 
+    #[inline]
+    pub fn inner_mut(&mut self) -> &mut S {
+        &mut self.stream
+    }
+
+    #[inline]
+    pub fn codec_mut(&mut self) -> &mut Codec {
+        &mut self.codec
+    }
+
     /// Make a [ResponseStream] from current DecodeStream.
     ///
     /// This API is to share the same codec for both decode and encode stream.
