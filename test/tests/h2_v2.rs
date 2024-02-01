@@ -37,7 +37,7 @@ async fn h2_v2_post() {
         let service = fn_service(move |(stream, _): (TcpStream, SocketAddr)| {
             let tx2 = tx2.clone();
             async move {
-                h2::run(stream, fn_service(handler).call(()).now_or_panic().unwrap())
+                h2::run(stream, &fn_service(handler).call(()).now_or_panic().unwrap())
                     .await
                     .map(|_| {
                         let _ = tx2.send(());
