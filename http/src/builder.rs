@@ -19,6 +19,8 @@ pub(crate) mod marker {
     pub struct Http1;
     #[cfg(all(feature = "io-uring", feature = "http1"))]
     pub struct Http1Uring;
+    #[cfg(all(feature = "io-uring", feature = "http2"))]
+    pub struct Http2Uring;
     #[cfg(feature = "http2")]
     pub struct Http2;
 }
