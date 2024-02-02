@@ -78,12 +78,11 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
     // handler argument may contain full or partial application state.
     // and the branching needed to handle differently.
     enum State<'a> {
-        None,
         Partial(&'a Type),
         Full(&'a Type),
     }
 
-    let mut state = State::<'_>::None;
+    let mut state = Vec::new();
 
     for arg in input.sig.inputs.iter() {
         if let FnArg::Typed(ty) = arg {
@@ -106,7 +105,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                         };
                         match arg.args.last() {
                             Some(GenericArgument::Type(ref ty)) => {
-                                state = State::Partial(ty);
+                                state.push(State::Partial(ty));
                             }
                             _ => return Err(Error::new(ty.span(), "expect state type.")),
                         }
@@ -117,7 +116,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                         };
                         match arg.args.last() {
                             Some(GenericArgument::Type(ref ty)) => {
-                                state = State::Full(ty);
+                                state.push(State::Full(ty));
                                 break;
                             }
                             _ => return Err(Error::new(ty.span(), "expect state type.")),
@@ -137,25 +136,25 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
     }
     let mut state_ident = quote! { C };
 
-    match state {
-        State::None => {
-            where_clause = quote! {
-                where
-                    #state_ident: #where_clause,
-            };
+    where_clause = quote! { where #state_ident: #where_clause };
+
+    if !state.is_empty() {
+        for state in state.into_iter() {
+            match state {
+                State::Partial(ty) => {
+                    where_clause = quote! {
+                        #where_clause + ::core::borrow::Borrow<#ty>
+                    };
+                }
+                State::Full(ty) => {
+                    generic_arg = quote! {};
+                    where_clause = quote! {};
+                    state_ident = quote! { #ty };
+                    break;
+                }
+            }
         }
-        State::Partial(ty) => {
-            where_clause = quote! {
-                where
-                    #state_ident: ::std::borrow::Borrow<#ty> + #where_clause,
-            };
-        }
-        State::Full(ty) => {
-            generic_arg = quote! {};
-            where_clause = quote! {};
-            state_ident = quote! { #ty };
-        }
-    };
+    }
 
     let handler = if is_async {
         quote! { ::xitca_web::handler::handler_service }
