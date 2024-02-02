@@ -123,13 +123,12 @@ where
         let mut encoding = TransferCoding::eof();
 
         for (next_name, value) in headers.drain() {
-            let mut is_continue = match next_name {
-                Some(next_name) => {
+            let mut is_multi_value = next_name
+                .map(|next_name| {
                     name = next_name;
                     false
-                }
-                None => true,
-            };
+                })
+                .unwrap_or(true);
 
             match name {
                 CONNECTION => {
@@ -158,13 +157,15 @@ where
                         }
                     }
                 }
-                SET_COOKIE => is_continue = false,
+                // multiple header lines for set-cookie header is allowed
+                // https://www.rfc-editor.org/rfc/rfc6265#section-3
+                SET_COOKIE => is_multi_value = false,
                 _ => {}
             }
 
             let value = value.as_bytes();
 
-            if is_continue {
+            if is_multi_value {
                 buf.reserve(value.len() + 2);
                 buf.extend_from_slice(b", ");
                 buf.extend_from_slice(value);
