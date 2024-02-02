@@ -6,7 +6,7 @@ use crate::{
     bytes::{Bytes, BytesMut},
     date::DateTime,
     http::{
-        header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, TE, TRANSFER_ENCODING, UPGRADE},
+        header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, SET_COOKIE, TE, TRANSFER_ENCODING, UPGRADE},
         response::Parts,
         StatusCode, Version,
     },
@@ -123,7 +123,7 @@ where
         let mut encoding = TransferCoding::eof();
 
         for (next_name, value) in headers.drain() {
-            let is_continue = match next_name {
+            let mut is_continue = match next_name {
                 Some(next_name) => {
                     name = next_name;
                     false
@@ -158,6 +158,7 @@ where
                         }
                     }
                 }
+                SET_COOKIE => is_continue = false,
                 _ => {}
             }
 
@@ -287,6 +288,40 @@ mod test {
                         assert_eq!(h.value, b"keep-alive, upgrade");
                     }
                 }
+            })
+            .await
+    }
+
+    #[tokio::test]
+    async fn multi_set_cookie() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let date = DateTimeService::new();
+                let mut ctx = Context::<_, 64>::new(date.get());
+
+                let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
+
+                res.headers_mut()
+                    .insert(SET_COOKIE, HeaderValue::from_static("foo=foo"));
+                res.headers_mut()
+                    .append(SET_COOKIE, HeaderValue::from_static("bar=bar"));
+
+                let (parts, body) = res.into_parts();
+
+                let mut buf = BytesMut::new();
+                ctx.encode_head(parts, &body, &mut buf).unwrap();
+
+                let mut header = [httparse::EMPTY_HEADER; 8];
+                let mut res = httparse::Response::new(&mut header);
+
+                let httparse::Status::Complete(_) = res.parse(buf.as_ref()).unwrap() else {
+                    panic!("failed to parse response")
+                };
+
+                assert_eq!(header[0].name, "set-cookie");
+                assert_eq!(header[0].value, b"foo=foo");
+                assert_eq!(header[1].name, "set-cookie");
+                assert_eq!(header[1].value, b"bar=bar");
             })
             .await
     }
