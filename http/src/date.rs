@@ -29,7 +29,7 @@ pub trait DateTime {
     fn now(&self) -> Instant;
 }
 
-/// Struct with Date update periodically at 500 milli seconds interval.
+/// Struct with Date update periodically at 500 milliseconds interval.
 pub struct DateTimeService {
     state: Rc<RefCell<DateTimeState>>,
     handle: JoinHandle<()>,
@@ -126,5 +126,26 @@ impl DateTime for DateTimeHandle {
     #[inline(always)]
     fn now(&self) -> Instant {
         self.borrow().now
+    }
+}
+
+/// Time handler powered by plain OS system time. useful for testing purpose.
+pub struct SystemTimeDateTimeHandler;
+
+impl DateTime for SystemTimeDateTimeHandler {
+    const DATE_VALUE_LENGTH: usize = DATE_VALUE_LENGTH;
+
+    // TODO: remove this allow
+    #[allow(dead_code)]
+    fn with_date<F, O>(&self, f: F) -> O
+    where
+        F: FnOnce(&[u8]) -> O,
+    {
+        let date = HttpDate::from(SystemTime::now()).to_string();
+        f(date.as_bytes())
+    }
+
+    fn now(&self) -> Instant {
+        Instant::now()
     }
 }

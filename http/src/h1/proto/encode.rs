@@ -123,13 +123,12 @@ where
         let mut encoding = TransferCoding::eof();
 
         for (next_name, value) in headers.drain() {
-            let mut is_continue = match next_name {
-                Some(next_name) => {
+            let mut is_multi_value = next_name
+                .map(|next_name| {
                     name = next_name;
                     false
-                }
-                None => true,
-            };
+                })
+                .unwrap_or(true);
 
             match name {
                 CONNECTION => {
@@ -158,13 +157,15 @@ where
                         }
                     }
                 }
-                SET_COOKIE => is_continue = false,
+                // multiple header lines for set-cookie header is allowed
+                // https://www.rfc-editor.org/rfc/rfc6265#section-3
+                SET_COOKIE => is_multi_value = false,
                 _ => {}
             }
 
             let value = value.as_bytes();
 
-            if is_continue {
+            if is_multi_value {
                 buf.reserve(value.len() + 2);
                 buf.extend_from_slice(b", ");
                 buf.extend_from_slice(value);
@@ -251,78 +252,68 @@ mod test {
     use crate::{
         body::{BoxBody, Once},
         bytes::Bytes,
-        date::DateTimeService,
+        date::SystemTimeDateTimeHandler,
         http::{HeaderValue, Response},
     };
 
     use super::*;
 
-    #[tokio::test]
-    async fn append_header() {
-        tokio::task::LocalSet::new()
-            .run_until(async {
-                let date = DateTimeService::new();
-                let mut ctx = Context::<_, 64>::new(date.get());
+    #[test]
+    fn append_header() {
+        let mut ctx = Context::<_, 64>::new(&SystemTimeDateTimeHandler);
 
-                let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
+        let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
 
-                res.headers_mut()
-                    .insert(CONNECTION, HeaderValue::from_static("keep-alive"));
-                res.headers_mut()
-                    .append(CONNECTION, HeaderValue::from_static("upgrade"));
+        res.headers_mut()
+            .insert(CONNECTION, HeaderValue::from_static("keep-alive"));
+        res.headers_mut()
+            .append(CONNECTION, HeaderValue::from_static("upgrade"));
 
-                let (parts, body) = res.into_parts();
+        let (parts, body) = res.into_parts();
 
-                let mut buf = BytesMut::new();
-                ctx.encode_head(parts, &body, &mut buf).unwrap();
+        let mut buf = BytesMut::new();
+        ctx.encode_head(parts, &body, &mut buf).unwrap();
 
-                let mut header = [httparse::EMPTY_HEADER; 8];
-                let mut res = httparse::Response::new(&mut header);
+        let mut header = [httparse::EMPTY_HEADER; 8];
+        let mut res = httparse::Response::new(&mut header);
 
-                let httparse::Status::Complete(_) = res.parse(buf.as_ref()).unwrap() else {
-                    panic!("failed to parse response")
-                };
+        let httparse::Status::Complete(_) = res.parse(buf.as_ref()).unwrap() else {
+            panic!("failed to parse response")
+        };
 
-                for h in header {
-                    if h.name == "connection" {
-                        assert_eq!(h.value, b"keep-alive, upgrade");
-                    }
-                }
-            })
-            .await
+        for h in header {
+            if h.name == "connection" {
+                assert_eq!(h.value, b"keep-alive, upgrade");
+            }
+        }
     }
 
-    #[tokio::test]
-    async fn multi_set_cookie() {
-        tokio::task::LocalSet::new()
-            .run_until(async {
-                let date = DateTimeService::new();
-                let mut ctx = Context::<_, 64>::new(date.get());
+    #[test]
+    fn multi_set_cookie() {
+        let mut ctx = Context::<_, 64>::new(&SystemTimeDateTimeHandler);
 
-                let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
+        let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
 
-                res.headers_mut()
-                    .insert(SET_COOKIE, HeaderValue::from_static("foo=foo"));
-                res.headers_mut()
-                    .append(SET_COOKIE, HeaderValue::from_static("bar=bar"));
+        res.headers_mut()
+            .insert(SET_COOKIE, HeaderValue::from_static("foo=foo"));
+        res.headers_mut()
+            .append(SET_COOKIE, HeaderValue::from_static("bar=bar"));
 
-                let (parts, body) = res.into_parts();
+        let (parts, body) = res.into_parts();
 
-                let mut buf = BytesMut::new();
-                ctx.encode_head(parts, &body, &mut buf).unwrap();
+        let mut buf = BytesMut::new();
+        ctx.encode_head(parts, &body, &mut buf).unwrap();
 
-                let mut header = [httparse::EMPTY_HEADER; 8];
-                let mut res = httparse::Response::new(&mut header);
+        let mut header = [httparse::EMPTY_HEADER; 8];
+        let mut res = httparse::Response::new(&mut header);
 
-                let httparse::Status::Complete(_) = res.parse(buf.as_ref()).unwrap() else {
-                    panic!("failed to parse response")
-                };
+        let httparse::Status::Complete(_) = res.parse(buf.as_ref()).unwrap() else {
+            panic!("failed to parse response")
+        };
 
-                assert_eq!(header[0].name, "set-cookie");
-                assert_eq!(header[0].value, b"foo=foo");
-                assert_eq!(header[1].name, "set-cookie");
-                assert_eq!(header[1].value, b"bar=bar");
-            })
-            .await
+        assert_eq!(header[0].name, "set-cookie");
+        assert_eq!(header[0].value, b"foo=foo");
+        assert_eq!(header[1].name, "set-cookie");
+        assert_eq!(header[1].value, b"bar=bar");
     }
 }
