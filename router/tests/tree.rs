@@ -420,6 +420,16 @@ match_tests! {
         "/other/long/static/path"    :: ""                    => None,
         "/other/object/static/path"  :: ""                    => None,
     },
+    trailing_slash_overlap {
+        routes = [
+            "/foo/:x/baz/",
+            "/foo/:x/baz",
+            "/foo/bar/bar",
+        ],
+        "/foo/x/baz/" :: "/foo/:x/baz/"    => { "x" => "x" },
+        "/foo/x/baz" :: "/foo/:x/baz"      => { "x" => "x" },
+        "/foo/bar/bar"  :: "/foo/bar/bar" => {},
+    },
     trailing_slash {
         routes = [
             "/hi",

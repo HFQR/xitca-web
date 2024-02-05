@@ -594,11 +594,10 @@ mod io_uring {
 
         if &buf[..PREFACE.len()] == PREFACE {
             buf.advance(PREFACE.len());
+            Ok(buf)
         } else {
-            todo!()
+            Err(io::Error::other("todo!"))
         }
-
-        Ok(buf)
     }
 
     /// Request body type for Http/2 specifically.
