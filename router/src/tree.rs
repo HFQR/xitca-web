@@ -456,10 +456,6 @@ impl<T> Node<T> {
                     params.for_each_key_mut(|(i, key)| *key = current.param_remapping[i][1..].into());
                     return Ok((value, params));
                 }
-
-                try_backtrack!();
-
-                break;
             }
 
             try_backtrack!();
