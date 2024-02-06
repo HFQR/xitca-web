@@ -7,7 +7,7 @@ use serde::de::Deserialize;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    error::{ErrorStatus, Error},
+    error::{Error, ErrorStatus},
     handler::FromRequest,
 };
 

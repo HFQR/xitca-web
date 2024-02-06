@@ -72,7 +72,7 @@ mod service {
     use crate::{
         body::ResponseBody,
         context::WebContext,
-        error::{ErrorStatus, Error, MatchError, MethodNotAllowed, RouterError},
+        error::{Error, ErrorStatus, MatchError, MethodNotAllowed, RouterError},
         http::{Method, StatusCode, WebResponse},
         service::Service,
     };
