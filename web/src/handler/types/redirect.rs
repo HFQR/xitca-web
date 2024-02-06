@@ -6,7 +6,7 @@ use xitca_http::util::service::router::{RouterGen, RouterMapErr};
 
 use crate::{
     body::ResponseBody,
-    error::{Error, Internal},
+    error::{Error, ErrorStatus},
     handler::Responder,
     http::{
         header::{HeaderValue, LOCATION},
@@ -19,7 +19,7 @@ use crate::{
 #[derive(Clone)]
 pub struct Redirect {
     status: StatusCode,
-    location: Result<HeaderValue, Internal>,
+    location: Result<HeaderValue, ErrorStatus>,
 }
 
 macro_rules! variants {
@@ -40,7 +40,7 @@ impl Redirect {
     fn new(status: StatusCode, uri: impl TryInto<HeaderValue>) -> Self {
         Self {
             status,
-            location: uri.try_into().map_err(|_| Internal),
+            location: uri.try_into().map_err(|_| ErrorStatus::internal()),
         }
     }
 }
@@ -55,7 +55,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Redirect {
     }
 
     fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
-        let location = self.location.map_err(|_| Internal)?;
+        let location = self.location.map_err(|_| ErrorStatus::internal())?;
         let map = (self.status, (LOCATION, location));
         Responder::<WebContext<'r, C, B>>::map(map, res)
     }

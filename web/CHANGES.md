@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.3.0
+## Remove
+- remove `xitca_web::error::{BadRequest, Internal}` types. `xitca_web::error::ErrorStatus` replace their roles where `ErrorStatus::bad_request` and `ErrorStatus::internal` would generate identical error information as `BadRequest` and `Internal` types. this change would simplify runtime error type casting a bit with two less possible error types.
 
 # 0.2.2
 ## Add

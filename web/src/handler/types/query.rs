@@ -7,7 +7,7 @@ use serde::de::Deserialize;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    error::{BadRequest, Error},
+    error::{ErrorStatus, Error},
     handler::FromRequest,
 };
 
@@ -64,7 +64,7 @@ where
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let query = ctx.req().uri().query().ok_or(BadRequest)?;
+        let query = ctx.req().uri().query().ok_or(ErrorStatus::bad_request())?;
         Ok(LazyQuery {
             query: query.as_bytes(),
             _query: PhantomData,
