@@ -72,7 +72,7 @@ mod service {
     use crate::{
         body::ResponseBody,
         context::WebContext,
-        error::{BadRequest, Error, Internal, MatchError, MethodNotAllowed, RouterError},
+        error::{Error, ErrorStatus, MatchError, MethodNotAllowed, RouterError},
         http::{Method, StatusCode, WebResponse},
         service::Service,
     };
@@ -96,8 +96,8 @@ mod service {
                     ServeError::MethodNotAllowed => {
                         RouterError::NotAllowed(MethodNotAllowed(vec![Method::GET, Method::HEAD]))
                     }
-                    ServeError::Io(_) => RouterError::Service(Error::from_service(Internal)),
-                    _ => RouterError::Service(Error::from_service(BadRequest)),
+                    ServeError::Io(_) => RouterError::Service(Error::from(ErrorStatus::internal())),
+                    _ => RouterError::Service(Error::from(ErrorStatus::bad_request())),
                 }),
             }
         }

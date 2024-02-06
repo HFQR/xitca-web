@@ -22,7 +22,7 @@ use crate::{
     body::{BodyStream, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
-    error::{Error, Internal},
+    error::{Error, ErrorStatus},
     handler::{FromRequest, Responder},
     http::{
         header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
@@ -148,7 +148,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for HandshakeError {
             HandshakeError::NoVersionHeader => HeaderNotFound(SEC_WEBSOCKET_VERSION),
             HandshakeError::NoWebsocketUpgrade => HeaderNotFound(UPGRADE),
             // TODO: refine error mapping of the remaining branches.
-            _ => return Internal.call(ctx).await,
+            _ => return ErrorStatus::internal().call(ctx).await,
         };
 
         e.call(ctx).await

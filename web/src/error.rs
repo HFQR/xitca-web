@@ -16,12 +16,12 @@
 //! # use xitca_web::{
 //! #   error::Error,
 //! #   handler::{handler_service, html::Html, Responder},
-//! #   http::WebResponse,
+//! #   http::{StatusCode, WebResponse},
 //! #   service::Service,
 //! #   App, WebContext};
-//! // a handler function produce error.
+//! // a handler function always produce error.
 //! async fn handler() -> Error {
-//!     Error::from_service(xitca_web::error::BadRequest)
+//!     Error::from(StatusCode::BAD_REQUEST)
 //! }
 //!
 //! // construct application with handler function and middleware.
@@ -34,8 +34,8 @@
 //! where
 //!     S: for<'r> Service<WebContext<'r>, Response = WebResponse, Error = Error>
 //! {
-//!     // unlike WebResponse which is already a valid http response type. the error is treated
-//!     // as it's onw type on the other branch of the Result type.  
+//!     // unlike WebResponse which is already a valid http response. the error is treated as it's
+//!     // onw type on the other branch of the Result enum.  
 //!
 //!     // since the handler function at the start of example always produce error. our middleware
 //!     // will always observe the Error type value so let's unwrap it.
@@ -241,7 +241,7 @@ macro_rules! forward_blank_internal {
             type Error = Infallible;
 
             async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-                crate::error::Internal.call(ctx).await
+                crate::error::ErrorStatus::internal().call(ctx).await
             }
         }
     };
@@ -256,7 +256,7 @@ macro_rules! forward_blank_bad_request {
             type Error = ::core::convert::Infallible;
 
             async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-                crate::error::BadRequest.call(ctx).await
+                crate::error::ErrorStatus::bad_request().call(ctx).await
             }
         }
     };
@@ -281,7 +281,20 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
 
 /// error type derive from http status code.
 /// produce minimal "StatusCode Reason" response.
+#[derive(Clone)]
 pub struct ErrorStatus(StatusCode);
+
+impl ErrorStatus {
+    #[inline]
+    pub const fn internal() -> Self {
+        Self(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+
+    #[inline]
+    pub const fn bad_request() -> Self {
+        Self(StatusCode::BAD_REQUEST)
+    }
+}
 
 impl fmt::Debug for ErrorStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -299,7 +312,13 @@ impl error::Error for ErrorStatus {}
 
 impl<C> From<StatusCode> for Error<C> {
     fn from(e: StatusCode) -> Self {
-        Error::from_service(ErrorStatus(e))
+        Error::from(ErrorStatus(e))
+    }
+}
+
+impl<C> From<ErrorStatus> for Error<C> {
+    fn from(e: ErrorStatus) -> Self {
+        Error::from_service(e)
     }
 }
 
@@ -405,36 +424,6 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
         self.0.call(ctx).await
     }
 }
-
-/// error type that produce minimal "500 InternalServerError" response.
-#[derive(Debug, Clone, Copy)]
-pub struct Internal;
-
-impl fmt::Display for Internal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Internal error")
-    }
-}
-
-impl error::Error for Internal {}
-
-error_from_service!(Internal);
-blank_error_service!(Internal, StatusCode::INTERNAL_SERVER_ERROR);
-
-/// error type that produce minimal "400 BadRequest" response.
-#[derive(Debug)]
-pub struct BadRequest;
-
-impl fmt::Display for BadRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Bad request")
-    }
-}
-
-impl error::Error for BadRequest {}
-
-error_from_service!(BadRequest);
-blank_error_service!(BadRequest, StatusCode::BAD_REQUEST);
 
 mod service_impl {
     use crate::service::object::ServiceObject;
