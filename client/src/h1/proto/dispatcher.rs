@@ -59,7 +59,10 @@ where
         match BodySize::from_stream(req.body()) {
             // remove expect header if there is no body.
             BodySize::None | BodySize::Sized(0) => {
-                req.headers_mut().remove(EXPECT);
+                let crate::http::header::Entry::Occupied(entry) = req.headers_mut().entry(EXPECT) else {
+                    unreachable!()
+                };
+                entry.remove_entry();
                 is_expect = false;
             }
             _ => {}

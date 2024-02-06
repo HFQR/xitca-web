@@ -86,31 +86,42 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::sync::Arc;
 
     use xitca_codegen::State;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{handler::handler_service, http::WebRequest, route::get, service::Service, App};
 
-    #[derive(State, Clone, Debug, Eq, PartialEq)]
+    use super::*;
+
+    #[derive(State, Clone, Debug)]
     struct State {
         #[borrow]
         field1: String,
         #[borrow]
         field2: u32,
+        field3: Arc<dyn std::any::Any + Send + Sync>,
+    }
+
+    impl Borrow<dyn std::any::Any + Send + Sync> for State {
+        fn borrow(&self) -> &(dyn std::any::Any + Send + Sync) {
+            &*self.field3
+        }
     }
 
     async fn handler(
         StateRef(state): StateRef<'_, String>,
         StateRef(state2): StateRef<'_, u32>,
         StateRef(state3): StateRef<'_, State>,
+        StateRef(state4): StateRef<'_, dyn std::any::Any + Send + Sync>,
         ctx: &WebContext<'_, State>,
     ) -> String {
         assert_eq!("state", state);
         assert_eq!(&996, state2);
         assert_eq!(state, ctx.state().field1.as_str());
-        assert_eq!(state3, ctx.state());
+        assert_eq!(state3.field1, ctx.state().field1);
+        assert!(state4.downcast_ref::<String>().is_some());
         state.to_string()
     }
 
@@ -119,6 +130,7 @@ mod test {
         let state = State {
             field1: String::from("state"),
             field2: 996,
+            field3: Arc::new(String::new()),
         };
 
         App::new()
