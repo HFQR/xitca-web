@@ -1,8 +1,8 @@
 //! middleware types.
 //!
-//! Middleware in xitca-web is powered by [Service] and [ServiceExt] trait.
-//! [Service] trait provides logic for building and execute middleware.
-//! [ServiceExt] trait provides combinator methods of applying middleware.
+//! Middleware in xitca-web is powered by [`Service`] and [`ServiceExt`] trait.
+//! [`Service`] trait provides logic for building and execute middleware.
+//! [`ServiceExt`] trait provides combinator methods of applying middleware.
 //!
 //! # Quick start
 //! ```rust
@@ -110,7 +110,7 @@
 //! #   todo!()
 //! # }
 //! ```
-//! For detailed explanation of application state please reference [App::with_state]
+//! For detailed explanation of application state please reference [`App::with_state`]
 //!
 //! ## Generic type for http body
 //! ```rust
@@ -143,7 +143,7 @@
 //! #   todo!()
 //! # }
 //! ```
-//! For http body type mutation please reference the `Type Mutation` part below.
+//! For http body type mutation please reference the [`Type Mutation`](#type-mutation) part below.
 //!
 //! # Variants
 //! ## async function as middleware
@@ -273,10 +273,25 @@
 //! - `enclosed` and `enclosed_fn` share the same ordering rule however they are mixed in usage
 //!
 //! # Type mutation
+//! - In [`WebContext<'_, C, B>`] type the last generic type param `B` is for http body type.
+//! middleware and service are free to transform it's type and constraint it's inner/next service
+//! to accept the new type as it's request http body type. [`DeCompress`] and [`Limit`] middleware are
+//! examples of this practice. [`TypeEraser`] middleware on the other hand can be used to reserve the
+//! type mutation and restore `B` type to it's default as [`RequestBody`] type. In this case web context
+//! can be written in short form as [`WebContext<'_, C>`].
+//! - [`WebResponse<B>`] type share the characteristic as web context type. The `B` type can be transform
+//! into new type by services and middleware while type eraser is able to reverse the process.
 //!
-//! [App::with_state]: crate::App::with_state
-//! [Service]: crate::service::Service
-//! [ServiceExt]: crate::service::ServiceExt
+//! [`App::with_state`]: crate::App::with_state
+//! [`Service`]: crate::service::Service
+//! [`ServiceExt`]: crate::service::ServiceExt
+//! [`WebContext<'_, C, B>`]: crate::WebContext
+//! [`WebContext<'_, C>`]: crate::WebContext
+//! [`Decompress`]: crate::middleware::decompress::Decompress
+//! [`Limit`]: crate::middleware::limit::Limit
+//! [`TypeEraser`]: crate::middleware::eraser::TypeEraser
+//! [`RequestBody`]: crate::body::RequestBody
+//! [`WebResponse<B>`]: crate::http::WebResponse
 
 #[cfg(any(feature = "compress-br", feature = "compress-gz", feature = "compress-de"))]
 pub mod compress;

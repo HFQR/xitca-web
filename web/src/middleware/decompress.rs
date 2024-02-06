@@ -9,6 +9,7 @@ use crate::service::Service;
 /// # Type mutation
 /// `Decompress` would mutate request body type from `B` to `Coder<B>`. Service enclosed
 /// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
+/// For more explanation please reference [type mutation](crate::middleware#type-mutation).
 ///
 /// [WebContext]: crate::WebContext
 /// [TypeEraser]: crate::middleware::eraser::TypeEraser
