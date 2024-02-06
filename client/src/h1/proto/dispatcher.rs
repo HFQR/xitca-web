@@ -2,9 +2,9 @@ use core::{future::poll_fn, pin::Pin};
 
 use std::io;
 
-use futures_core::Stream;
+use futures_core::stream::Stream;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use xitca_http::{bytes::Buf, h1::proto::codec::TransferCoding};
+use xitca_http::{body::BodySize, bytes::Buf, h1::proto::codec::TransferCoding};
 
 use crate::{
     body::BodyError,
@@ -12,9 +12,8 @@ use crate::{
     date::DateTimeHandle,
     h1::Error,
     http::{
-        self,
-        header::{HeaderValue, HOST},
-        Method,
+        header::{HeaderValue, EXPECT, HOST},
+        Method, Request, Response, StatusCode,
     },
 };
 
@@ -23,8 +22,8 @@ use super::context::Context;
 pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
-    req: &mut http::Request<B>,
-) -> Result<(http::Response<()>, BytesMut, Vec<u8>, TransferCoding, bool), Error>
+    req: &mut Request<B>,
+) -> Result<(Response<()>, BytesMut, Vec<u8>, TransferCoding, bool), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>> + Unpin,
@@ -54,18 +53,55 @@ where
         }
     }
 
+    let mut is_expect = req.headers().contains_key(EXPECT);
+
+    if is_expect {
+        match BodySize::from_stream(req.body()) {
+            // remove expect header if there is no body.
+            BodySize::None | BodySize::Sized(0) => {
+                req.headers_mut().remove(EXPECT);
+                is_expect = false;
+            }
+            _ => {}
+        }
+    }
+
     // TODO: make const generic params configurable.
     let mut ctx = Context::<128>::new(&date);
-
-    if *req.method() == Method::HEAD {
-        ctx.set_head_method();
-    }
 
     // encode request head and return transfer encoding for request body
     let encoder = ctx.encode_head(&mut buf, req)?;
 
+    // it's important to call set_head_method after encode_head. Context would remove http body it encodes/decodes
+    // for head http method.
+    if *req.method() == Method::HEAD {
+        ctx.set_head_method();
+    }
+
     write_all_buf(stream.as_mut(), &mut buf).await?;
-    poll_fn(|cx| stream.as_mut().poll_flush(cx)).await?;
+
+    let mut chunk = vec![0; 4096];
+
+    if is_expect {
+        poll_fn(|cx| stream.as_mut().poll_flush(cx)).await?;
+
+        loop {
+            if let Some((res, mut decoder)) = try_read_response(stream.as_mut(), &mut buf, &mut chunk, &mut ctx).await?
+            {
+                if res.status() == StatusCode::CONTINUE {
+                    break;
+                }
+
+                let is_close = ctx.is_connection_closed();
+
+                if ctx.is_head_method() {
+                    decoder = TransferCoding::eof();
+                }
+
+                return Ok((res, buf, chunk, decoder, is_close));
+            }
+        }
+    }
 
     // TODO: concurrent read write is needed in case server decide to do two way
     // streaming with very large body surpass socket buffer size.
@@ -73,7 +109,7 @@ where
 
     // try to send request body.
     // continue to read response no matter the outcome.
-    if send_inner(stream.as_mut(), encoder, req.body_mut(), &mut buf)
+    if send_body(stream.as_mut(), encoder, req.body_mut(), &mut buf)
         .await
         .is_err()
     {
@@ -83,24 +119,12 @@ where
         buf.clear();
     }
 
-    let mut chunk = vec![0; 4096];
-
     // read response head and get body decoder.
     loop {
-        let mut b = ReadBuf::new(&mut chunk);
-        poll_fn(|cx| stream.as_mut().poll_read(cx, &mut b)).await?;
-        let filled = b.filled();
-
-        if filled.is_empty() {
-            return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
-        }
-
-        buf.extend_from_slice(filled);
-
-        if let Some((res, mut decoder)) = ctx.decode_head(&mut buf)? {
+        if let Some((res, mut decoder)) = try_read_response(stream.as_mut(), &mut buf, &mut chunk, &mut ctx).await? {
             // check if server sent connection close header.
 
-            // *. If send_inner function produces error, Context has already set
+            // *. If send_body function produces error, Context has already set
             // connection type to ConnectionType::CloseForce. We trust the server response
             // to not produce another connection type that override it to any variant
             // other than ConnectionType::Close in this case and only this case.
@@ -116,7 +140,7 @@ where
     }
 }
 
-async fn send_inner<S, B, E>(
+async fn send_body<S, B, E>(
     mut stream: Pin<&mut S>,
     mut encoder: TransferCoding,
     body: &mut B,
@@ -159,4 +183,26 @@ where
         }
     }
     Ok(())
+}
+
+async fn try_read_response<S>(
+    mut stream: Pin<&mut S>,
+    buf: &mut BytesMut,
+    chunk: &mut [u8],
+    ctx: &mut Context<'_, '_, 128>,
+) -> Result<Option<(Response<()>, TransferCoding)>, Error>
+where
+    S: AsyncRead,
+{
+    let mut b = ReadBuf::new(chunk);
+    poll_fn(|cx| stream.as_mut().poll_read(cx, &mut b)).await?;
+    let filled = b.filled();
+
+    if filled.is_empty() {
+        return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
+    }
+
+    buf.extend_from_slice(filled);
+
+    ctx.decode_head(buf).map_err(Into::into)
 }
