@@ -23,10 +23,11 @@ use crate::{
 /// General purposed limitation middleware. Limiting request/response body size etc.
 ///
 /// # Type mutation
-/// `Limit` would mutate request body type from `B` to `Limit<B>`. Service enclosed
-/// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
+/// [`Limit`] would mutate request body type from `B` to [`Limit<B>`]. Service enclosed by it must be
+/// able to handle it's mutation or utilize [`TypeEraser`] to erase the mutation.
+/// For more explanation please reference [`type mutation`](crate::middleware#type-mutation).
 ///
-/// [TypeEraser]: crate::middleware::eraser::TypeEraser
+/// [`TypeEraser`]: crate::middleware::eraser::TypeEraser
 #[derive(Copy, Clone)]
 pub struct Limit {
     request_body_size: usize,

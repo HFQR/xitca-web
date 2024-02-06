@@ -9,6 +9,7 @@ use crate::service::Service;
 /// # Type mutation
 /// `Compress` would mutate response body type from `B` to `Coder<B>`. Service enclosed
 /// by it must be able to handle it's mutation or utilize [TypeEraser] to erase the mutation.
+/// For more explanation please reference [type mutation](crate::middleware#type-mutation).
 ///
 /// [WebRequest]: crate::http::WebRequest
 /// [WebResponse]: crate::http::WebResponse
