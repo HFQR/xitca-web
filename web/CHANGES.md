@@ -1,12 +1,14 @@
 # unreleased 0.3.0
 ## Add
-- enable Rust nightly feature `error_generic_member_access` when `xitca-web`'s `nightly` feature is enabled. this enables runtime context type interaction like `std::backtrace::BackTrace` for enhanced error handling.
+- enable Rust nightly feature `error_generic_member_access` when `xitca-web`'s `nightly` crate feature is enabled. this enables runtime context type interaction like `std::backtrace::Backtrace` for enhanced error handling.
+- `ErrorStatus` error type would try to capture `Backtrace` when `nightly` crate feature is enabled.
 
 ## Remove
 - remove `xitca_web::error::{BadRequest, Internal}` types. `xitca_web::error::ErrorStatus` replace their roles where `ErrorStatus::bad_request` and `ErrorStatus::internal` would generate identical error information as `BadRequest` and `Internal` types. this change would simplify runtime error type casting a bit with two less possible error types.
 
 ## Change
 - change `xitca_web::middleware::eraser::TypeEraser::error`'s trait bound. `From` trait is used for conversion between generic error type and `xitca_web::error::Error`. With this change `Error` does not double boxing itself therefore removing the need of nested type casting when handling typed error.
+- `ErrorStatus::{bad_request, internal}` can't be used in const context anymore as they are tasked with capture thread backtrace.
 
 # 0.2.2
 ## Add
