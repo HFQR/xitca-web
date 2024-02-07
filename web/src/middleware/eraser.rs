@@ -68,24 +68,27 @@ impl<M> Clone for TypeEraser<M> {
 }
 
 impl TypeEraser<EraseReqBody> {
-    /// Erase generic request body type. making downstream middlewares observe [RequestBody].
+    /// Erase generic request body type. making downstream middlewares observe [`RequestBody`].
     ///
-    /// # Example
-    ///
+    /// [`RequestBody`]: crate::body::RequestBody
     pub const fn request_body() -> Self {
         TypeEraser(PhantomData)
     }
 }
 
 impl TypeEraser<EraseResBody> {
-    /// Erase generic response body type. making downstream middlewares observe [ResponseBody].
+    /// Erase generic response body type. making downstream middlewares observe [`ResponseBody`].
+    ///
+    /// [`ResponseBody`]: crate::body::ResponseBody
     pub const fn response_body() -> Self {
         TypeEraser(PhantomData)
     }
 }
 
 impl TypeEraser<EraseErr> {
-    /// Erase generic E type from Service<Error = E>. making downstream middlewares observe [Error].
+    /// Erase generic E type from Service<Error = E>. making downstream middlewares observe [`Error`].
+    ///
+    /// [`Error`]: crate::error::Error
     pub const fn error() -> Self {
         TypeEraser(PhantomData)
     }
