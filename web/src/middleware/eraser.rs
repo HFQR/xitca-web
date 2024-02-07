@@ -1,17 +1,8 @@
 //! type eraser middleware.
 
-use core::{cell::RefCell, convert::Infallible, marker::PhantomData};
+use core::marker::PhantomData;
 
-use std::error;
-
-use crate::{
-    body::{BodyStream, BoxBody, RequestBody, ResponseBody},
-    bytes::Bytes,
-    context::WebContext,
-    error::Error,
-    http::WebResponse,
-    service::{ready::ReadyService, Service},
-};
+use crate::service::Service;
 
 #[doc(hidden)]
 mod marker {
@@ -76,122 +67,136 @@ impl<M> Clone for TypeEraser<M> {
     }
 }
 
-impl<M> TypeEraser<M> {
-    const fn new() -> Self {
-        TypeEraser(PhantomData)
-    }
-}
-
 impl TypeEraser<EraseReqBody> {
     /// Erase generic request body type. making downstream middlewares observe [RequestBody].
     ///
     /// # Example
     ///
     pub const fn request_body() -> Self {
-        TypeEraser::new()
+        TypeEraser(PhantomData)
     }
 }
 
 impl TypeEraser<EraseResBody> {
     /// Erase generic response body type. making downstream middlewares observe [ResponseBody].
     pub const fn response_body() -> Self {
-        TypeEraser::new()
+        TypeEraser(PhantomData)
     }
 }
 
 impl TypeEraser<EraseErr> {
     /// Erase generic E type from Service<Error = E>. making downstream middlewares observe [Error].
     pub const fn error() -> Self {
-        TypeEraser::new()
+        TypeEraser(PhantomData)
     }
 }
 
 impl<M, S, E> Service<Result<S, E>> for TypeEraser<M> {
-    type Response = EraserService<M, S>;
+    type Response = service::EraserService<M, S>;
     type Error = E;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
-        res.map(|service| EraserService {
+        res.map(|service| service::EraserService {
             service,
             _erase: PhantomData,
         })
     }
 }
 
-pub struct EraserService<M, S> {
-    service: S,
-    _erase: PhantomData<M>,
-}
+mod service {
+    use core::cell::RefCell;
 
-impl<'r, S, C, ReqB, ResB, Err> Service<WebContext<'r, C, ReqB>> for EraserService<EraseReqBody, S>
-where
-    S: for<'rs> Service<WebContext<'rs, C>, Response = WebResponse<ResB>, Error = Err>,
-    ReqB: BodyStream<Chunk = Bytes> + Default + 'static,
-    ResB: BodyStream<Chunk = Bytes> + 'static,
-{
-    type Response = WebResponse;
-    type Error = Err;
+    use crate::{
+        body::{BodyStream, BoxBody},
+        body::{RequestBody, ResponseBody},
+        bytes::Bytes,
+        error::Error,
+        http::WebResponse,
+        service::ready::ReadyService,
+        WebContext,
+    };
 
-    async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
-        let body = ctx.take_body_mut();
-        let mut body = RefCell::new(RequestBody::Unknown(BoxBody::new(body)));
-        let WebContext { req, ctx, .. } = ctx;
-        let res = self.service.call(WebContext::new(req, &mut body, ctx)).await?;
-        Ok(res.map(ResponseBody::box_stream))
+    use super::*;
+
+    pub struct EraserService<M, S> {
+        pub(super) service: S,
+        pub(super) _erase: PhantomData<M>,
     }
-}
 
-impl<S, Req, ResB> Service<Req> for EraserService<EraseResBody, S>
-where
-    S: Service<Req, Response = WebResponse<ResB>>,
-    ResB: BodyStream<Chunk = Bytes> + 'static,
-{
-    type Response = WebResponse;
-    type Error = S::Error;
+    impl<'r, S, C, ReqB, ResB, Err> Service<WebContext<'r, C, ReqB>> for EraserService<EraseReqBody, S>
+    where
+        S: for<'rs> Service<WebContext<'rs, C>, Response = WebResponse<ResB>, Error = Err>,
+        ReqB: BodyStream<Chunk = Bytes> + Default + 'static,
+        ResB: BodyStream<Chunk = Bytes> + 'static,
+    {
+        type Response = WebResponse;
+        type Error = Err;
 
-    #[inline]
-    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        let res = self.service.call(req).await?;
-        Ok(res.map(ResponseBody::box_stream))
+        async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
+            let body = ctx.take_body_mut();
+            let mut body = RefCell::new(RequestBody::Unknown(BoxBody::new(body)));
+            let WebContext { req, ctx, .. } = ctx;
+            let res = self.service.call(WebContext::new(req, &mut body, ctx)).await?;
+            Ok(res.map(ResponseBody::box_stream))
+        }
     }
-}
 
-impl<'r, C, B, S> Service<WebContext<'r, C, B>> for EraserService<EraseErr, S>
-where
-    S: for<'r2> Service<WebContext<'r, C, B>>,
-    S::Error: for<'r2> Service<WebContext<'r2, C>, Response = WebResponse, Error = Infallible>
-        + error::Error
-        + Send
-        + Sync
-        + 'static,
-{
-    type Response = S::Response;
-    type Error = Error<C>;
+    impl<S, Req, ResB> Service<Req> for EraserService<EraseResBody, S>
+    where
+        S: Service<Req, Response = WebResponse<ResB>>,
+        ResB: BodyStream<Chunk = Bytes> + 'static,
+    {
+        type Response = WebResponse;
+        type Error = S::Error;
 
-    #[inline]
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        self.service.call(ctx).await.map_err(Error::from_service)
+        #[inline]
+        async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+            let res = self.service.call(req).await?;
+            Ok(res.map(ResponseBody::box_stream))
+        }
     }
-}
 
-impl<M, S> ReadyService for EraserService<M, S>
-where
-    S: ReadyService,
-{
-    type Ready = S::Ready;
+    impl<'r, C, B, S> Service<WebContext<'r, C, B>> for EraserService<EraseErr, S>
+    where
+        S: for<'r2> Service<WebContext<'r, C, B>>,
+        S::Error: Into<Error<C>>,
+    {
+        type Response = S::Response;
+        type Error = Error<C>;
 
-    #[inline]
-    async fn ready(&self) -> Self::Ready {
-        self.service.ready().await
+        #[inline]
+        async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+            self.service.call(ctx).await.map_err(Into::into)
+        }
+    }
+
+    impl<M, S> ReadyService for EraserService<M, S>
+    where
+        S: ReadyService,
+    {
+        type Ready = S::Ready;
+
+        #[inline]
+        async fn ready(&self) -> Self::Ready {
+            self.service.ready().await
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use xitca_http::{body::Once, Request};
+    use xitca_http::body::Once;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{handler::handler_service, service::ServiceExt, App};
+    use crate::{
+        bytes::Bytes,
+        error::Error,
+        handler::handler_service,
+        http::{Request, StatusCode, WebResponse},
+        middleware::Group,
+        service::ServiceExt,
+        App, WebContext,
+    };
 
     use super::*;
 
@@ -222,6 +227,40 @@ mod test {
             .enclosed(TypeEraser::response_body())
             // observe erased body type.
             .enclosed_fn(middleware_fn)
+            .finish()
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(Request::default())
+            .now_or_panic()
+            .unwrap();
+    }
+
+    #[test]
+    fn erase_error() {
+        async fn middleware_fn<S, C, B, Err>(s: &S, ctx: WebContext<'_, C, B>) -> Result<WebResponse, StatusCode>
+        where
+            S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Err>,
+        {
+            s.call(ctx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
+
+        async fn middleware_fn2<S, C, B>(s: &S, ctx: WebContext<'_, C, B>) -> Result<WebResponse, Error<C>>
+        where
+            S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Error<C>>,
+        {
+            s.call(ctx).await
+        }
+
+        let _ = App::new()
+            // map WebResponse to WebResponse<Once<Bytes>> type.
+            .at("/", handler_service(handler).enclosed(TypeEraser::error()))
+            .enclosed(
+                Group::new()
+                    .enclosed_fn(middleware_fn)
+                    .enclosed(TypeEraser::error())
+                    .enclosed_fn(middleware_fn2),
+            )
             .finish()
             .call(())
             .now_or_panic()

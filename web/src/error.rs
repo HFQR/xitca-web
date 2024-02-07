@@ -414,7 +414,13 @@ impl fmt::Display for StdError {
     }
 }
 
-impl error::Error for StdError {}
+impl error::Error for StdError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
+error_from_service!(StdError);
 
 impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
     type Response = WebResponse;
