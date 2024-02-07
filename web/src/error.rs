@@ -246,7 +246,7 @@ macro_rules! forward_blank_internal {
             type Error = Infallible;
 
             async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-                crate::error::ErrorStatus::internal().call(ctx).await
+                crate::http::StatusCode::INTERNAL_SERVER_ERROR.call(ctx).await
             }
         }
     };
@@ -261,7 +261,7 @@ macro_rules! forward_blank_bad_request {
             type Error = ::core::convert::Infallible;
 
             async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-                crate::error::ErrorStatus::bad_request().call(ctx).await
+                crate::http::StatusCode::BAD_REQUEST.call(ctx).await
             }
         }
     };
@@ -284,40 +284,62 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
     }
 }
 
-/// error type derive from http status code.
-/// produce minimal "StatusCode Reason" response.
-#[derive(Clone)]
-pub struct ErrorStatus(StatusCode);
+/// error type derive from http status code. produce minimal "StatusCode Reason" response and stack backtrace
+/// of the location status code error occurs.
+/// *. stack backtrace is enabled with xitca-web's "nightly" crate feature and requires nightly Rust compiler.
+/// *. stack backtrace is generated at place when ErrorStatus type is constructed.
+pub struct ErrorStatus {
+    status: StatusCode,
+    #[cfg(feature = "nightly")]
+    back_trace: std::backtrace::Backtrace,
+}
 
 impl ErrorStatus {
+    /// construct an ErrorStatus type from [`StatusCode::INTERNAL_SERVER_ERROR`]
     #[inline]
-    pub const fn internal() -> Self {
-        Self(StatusCode::INTERNAL_SERVER_ERROR)
+    pub fn internal() -> Self {
+        Self::from(StatusCode::INTERNAL_SERVER_ERROR)
     }
 
+    /// construct an ErrorStatus type from [`StatusCode::BAD_REQUEST`]
     #[inline]
-    pub const fn bad_request() -> Self {
-        Self(StatusCode::BAD_REQUEST)
+    pub fn bad_request() -> Self {
+        Self::from(StatusCode::BAD_REQUEST)
     }
 }
 
 impl fmt::Debug for ErrorStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, f)
+        fmt::Debug::fmt(&self.status, f)
     }
 }
 
 impl fmt::Display for ErrorStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
+        fmt::Display::fmt(&self.status, f)
     }
 }
 
-impl error::Error for ErrorStatus {}
+impl error::Error for ErrorStatus {
+    #[cfg(feature = "nightly")]
+    fn provide<'a>(&'a self, request: &mut error::Request<'a>) {
+        request.provide_ref(&self.back_trace);
+    }
+}
+
+impl From<StatusCode> for ErrorStatus {
+    fn from(status: StatusCode) -> Self {
+        ErrorStatus {
+            status,
+            #[cfg(feature = "nightly")]
+            back_trace: std::backtrace::Backtrace::capture(),
+        }
+    }
+}
 
 impl<C> From<StatusCode> for Error<C> {
     fn from(e: StatusCode) -> Self {
-        Error::from(ErrorStatus(e))
+        Error::from(ErrorStatus::from(e))
     }
 }
 
@@ -332,8 +354,17 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for ErrorStatus {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self.status.call(ctx).await
+    }
+}
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for StatusCode {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let mut res = ctx.into_response(ResponseBody::empty());
-        *res.status_mut() = self.0;
+        *res.status_mut() = *self;
         Ok(res)
     }
 }
@@ -422,6 +453,11 @@ impl fmt::Display for StdError {
 impl error::Error for StdError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         self.0.source()
+    }
+
+    #[cfg(feature = "nightly")]
+    fn provide<'a>(&'a self, request: &mut error::Request<'a>) {
+        self.0.provide(request);
     }
 }
 
