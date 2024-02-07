@@ -182,6 +182,11 @@ impl<C> error::Error for Error<C> {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         self.0.source()
     }
+
+    #[cfg(feature = "nightly")]
+    fn provide<'a>(&'a self, request: &mut error::Request<'a>) {
+        self.0.provide(request)
+    }
 }
 
 impl<C> Deref for Error<C> {

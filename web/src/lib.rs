@@ -260,6 +260,7 @@
 //! ```
 
 #![forbid(unsafe_code)]
+#![cfg_attr(feature = "nightly", feature(error_generic_member_access))]
 
 mod app;
 mod context;
