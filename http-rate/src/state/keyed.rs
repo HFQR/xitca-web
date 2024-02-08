@@ -1,8 +1,6 @@
 use core::hash::Hash;
 
-use crate::{
-    gcra::NotUntil, nanos::Nanos, quota::Quota, snapshot::RateSnapshot, state::RateLimiter, state::StateStore, timer,
-};
+use crate::{gcra::NotUntil, quota::Quota, snapshot::RateSnapshot, state::RateLimiter, state::StateStore, timer};
 
 #[cfg(test)]
 use core::num::NonZeroU32;
@@ -87,6 +85,7 @@ where
     }
 }
 
+#[cfg(test)]
 /// Keyed rate limiters that can be "cleaned up".
 ///
 /// Any keyed state store implementing this trait allows users to evict elements that are
@@ -98,7 +97,7 @@ where
 /// shrinking.
 pub(crate) trait ShrinkableKeyedStateStore<K: Hash>: KeyedStateStore<K> {
     /// Remove those keys with state older than `drop_below`.
-    fn retain_recent(&self, drop_below: Nanos);
+    fn retain_recent(&self, drop_below: crate::nanos::Nanos);
 
     /// Shrinks the capacity of the state store, if possible.
     ///
@@ -179,7 +178,7 @@ pub(crate) type DefaultKeyedStateStore<K> = HashMapStateStore<K>;
 mod test {
     use core::{marker::PhantomData, num::NonZeroU32};
 
-    use crate::timer::FakeRelativeClock;
+    use crate::{nanos::Nanos, timer::FakeRelativeClock};
 
     use super::*;
 
