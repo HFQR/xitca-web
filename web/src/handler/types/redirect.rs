@@ -55,7 +55,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Redirect {
     }
 
     fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
-        let location = self.location.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let location = self.location?;
         let map = (self.status, (LOCATION, location));
         Responder::<WebContext<'r, C, B>>::map(map, res)
     }

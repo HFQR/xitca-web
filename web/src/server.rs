@@ -4,7 +4,6 @@ use futures_core::stream::Stream;
 use xitca_http::{
     body::RequestBody,
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
-    util::middleware::Logger,
     HttpServiceBuilder,
 };
 use xitca_server::{Builder, ServerFuture};
@@ -180,11 +179,7 @@ where
         BE: fmt::Debug + 'static,
     {
         let config = self.config;
-        let service = self
-            .service
-            .clone()
-            .enclosed(HttpServiceBuilder::with_config(config))
-            .enclosed(Logger::new());
+        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
         self.builder = self.builder.bind("xitca-web", addr, service)?;
         Ok(self)
     }
@@ -200,11 +195,7 @@ where
         BE: fmt::Debug + 'static,
     {
         let config = self.config;
-        let service = self
-            .service
-            .clone()
-            .enclosed(HttpServiceBuilder::with_config(config))
-            .enclosed(Logger::new());
+        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
         self.builder = self.builder.listen("xitca-web", listener, service);
         Ok(self)
     }
@@ -258,8 +249,7 @@ where
         let service = self
             .service
             .clone()
-            .enclosed(HttpServiceBuilder::with_config(config).openssl(acceptor))
-            .enclosed(Logger::new());
+            .enclosed(HttpServiceBuilder::with_config(config).openssl(acceptor));
 
         self.builder = self.builder.bind("xitca-web-openssl", addr, service)?;
 
@@ -295,8 +285,7 @@ where
         let service = self
             .service
             .clone()
-            .enclosed(HttpServiceBuilder::with_config(service_config).rustls(config))
-            .enclosed(Logger::new());
+            .enclosed(HttpServiceBuilder::with_config(service_config).rustls(config));
 
         self.builder = self.builder.bind("xitca-web-rustls", addr, service)?;
 
@@ -315,11 +304,7 @@ where
         BE: fmt::Debug + 'static,
     {
         let config = self.config;
-        let service = self
-            .service
-            .clone()
-            .enclosed(HttpServiceBuilder::with_config(config))
-            .enclosed(Logger::new());
+        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
         self.builder = self.builder.bind_unix("xitca-web", path, service)?;
         Ok(self)
     }
