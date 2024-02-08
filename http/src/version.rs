@@ -13,27 +13,22 @@ pub trait AsVersion {
     }
 }
 
-#[cfg(feature = "runtime")]
-mod io_impl {
-    use super::*;
-
-    impl AsVersion for xitca_io::net::Stream {
-        #[inline]
-        fn as_version(&self) -> Version {
-            match *self {
-                Self::Tcp(..) => Version::HTTP_11,
-                #[cfg(unix)]
-                Self::Unix(..) => Version::HTTP_11,
-                #[cfg(feature = "http3")]
-                Self::Udp(..) => Version::HTTP_3,
-            }
+impl AsVersion for xitca_io::net::Stream {
+    #[inline]
+    fn as_version(&self) -> Version {
+        match *self {
+            Self::Tcp(..) => Version::HTTP_11,
+            #[cfg(unix)]
+            Self::Unix(..) => Version::HTTP_11,
+            #[cfg(feature = "http3")]
+            Self::Udp(..) => Version::HTTP_3,
         }
     }
+}
 
-    impl AsVersion for xitca_io::net::TcpStream {
-        #[inline]
-        fn as_version(&self) -> Version {
-            Version::HTTP_11
-        }
+impl AsVersion for xitca_io::net::TcpStream {
+    #[inline]
+    fn as_version(&self) -> Version {
+        Version::HTTP_11
     }
 }

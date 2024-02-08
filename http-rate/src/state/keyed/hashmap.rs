@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use crate::{
     nanos::Nanos,
-    state::{keyed::ShrinkableKeyedStateStore, InMemoryState, StateStore},
+    state::{InMemoryState, StateStore},
 };
 
 #[cfg(test)]
@@ -38,7 +38,8 @@ where
     }
 }
 
-impl<K> ShrinkableKeyedStateStore<K> for HashMapStateStore<K>
+#[cfg(test)]
+impl<K> crate::state::keyed::ShrinkableKeyedStateStore<K> for HashMapStateStore<K>
 where
     K: Hash + Eq + Clone,
 {

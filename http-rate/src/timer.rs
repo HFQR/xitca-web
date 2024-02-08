@@ -134,14 +134,6 @@ impl Timer for DefaultTimer {
     }
 }
 
-pub trait ReasonablyRealtime: Timer {
-    fn reference_point(&self) -> Self::Instant {
-        self.now()
-    }
-}
-
-impl ReasonablyRealtime for DefaultTimer {}
-
 #[cfg(test)]
 mod test {
     use super::*;

@@ -41,6 +41,7 @@ mod builder;
 #[cfg(feature = "runtime")]
 mod service;
 mod tls;
+#[cfg(feature = "runtime")]
 mod version;
 
 pub mod body;

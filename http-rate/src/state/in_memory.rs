@@ -42,6 +42,7 @@ impl InMemoryState {
         decision.map(|(result, _)| result)
     }
 
+    #[cfg(test)]
     pub(crate) fn is_older_than(&self, nanos: Nanos) -> bool {
         self.0.load(Ordering::Relaxed) <= nanos.into()
     }

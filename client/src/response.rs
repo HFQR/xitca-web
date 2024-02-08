@@ -181,8 +181,6 @@ trait Collectable {
     fn with_capacity(cap: usize) -> Self;
 
     fn try_extend_from_slice(&mut self, slice: &[u8]) -> Result<(), Error>;
-
-    fn len(&self) -> usize;
 }
 
 impl Collectable for BytesMut {
@@ -195,11 +193,6 @@ impl Collectable for BytesMut {
     fn try_extend_from_slice(&mut self, slice: &[u8]) -> Result<(), Error> {
         self.extend_from_slice(slice);
         Ok(())
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        Self::len(self)
     }
 }
 
@@ -214,11 +207,6 @@ impl Collectable for Vec<u8> {
         self.extend_from_slice(slice);
         Ok(())
     }
-
-    #[inline]
-    fn len(&self) -> usize {
-        Self::len(self)
-    }
 }
 
 impl Collectable for String {
@@ -231,10 +219,5 @@ impl Collectable for String {
         let str = std::str::from_utf8(slice)?;
         self.push_str(str);
         Ok(())
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        Self::len(self)
     }
 }
