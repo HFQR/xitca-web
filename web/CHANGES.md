@@ -2,6 +2,12 @@
 ## Add
 - enable Rust nightly feature `error_generic_member_access` when `xitca-web`'s `nightly` crate feature is enabled. this enables runtime context type interaction like `std::backtrace::Backtrace` for enhanced error handling.
 - `ErrorStatus` error type would try to capture `Backtrace` when `nightly` crate feature is enabled.
+- `Redirect` and `Html` handler types can be used as standalone route service. Example:
+    ```rust
+    App::new()
+        .at("/", Redirect::see_other("/index.html"))
+        .at("/index.html", get(Html("<h1>Hello,World!</h1>")));
+    ```
 
 ## Remove
 - remove `xitca_web::error::{BadRequest, Internal}` types. `xitca_web::error::ErrorStatus` replace their roles where `ErrorStatus::bad_request` and `ErrorStatus::internal` would generate identical error information as `BadRequest` and `Internal` types. this change would simplify runtime error type casting a bit with two less possible error types.
