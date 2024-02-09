@@ -21,7 +21,7 @@ impl Logger {
 
     /// construct a logger with given [`Level`] verbosity.
     pub fn with_level(level: Level) -> Self {
-        Self { level } 
+        Self { level }
     }
 }
 
