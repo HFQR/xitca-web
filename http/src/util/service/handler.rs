@@ -9,16 +9,16 @@ use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
 ///
 /// Given async function's return type must impl [Responder] trait for transforming arbitrary return type to `Service::Future`'s
 /// output type.
-pub fn handler_service<F, T, O>(func: F) -> HandlerService<F, T, O, marker::BuilderMark>
+pub fn handler_service<F, T>(func: F) -> HandlerService<F, T, marker::BuilderMark>
 where
     F: AsyncClosure<T> + Clone,
 {
     HandlerService::new(func)
 }
 
-pub struct HandlerService<F, T, O, M> {
+pub struct HandlerService<F, T, M> {
     func: F,
-    _p: PhantomData<fn(T, O, M)>,
+    _p: PhantomData<fn(T, M)>,
 }
 
 // marker for specialized trait implement on HandlerService
@@ -27,17 +27,17 @@ mod marker {
     pub struct ServiceMark;
 }
 
-impl<F, T, O, M> HandlerService<F, T, O, M> {
+impl<F, T, M> HandlerService<F, T, M> {
     pub const fn new(func: F) -> Self {
         Self { func, _p: PhantomData }
     }
 }
 
-impl<F, T, O> Service for HandlerService<F, T, O, marker::BuilderMark>
+impl<F, T> Service for HandlerService<F, T, marker::BuilderMark>
 where
     F: Clone,
 {
-    type Response = HandlerService<F, T, O, marker::ServiceMark>;
+    type Response = HandlerService<F, T, marker::ServiceMark>;
     type Error = Infallible;
 
     async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
@@ -45,7 +45,7 @@ where
     }
 }
 
-impl<F, Req, T, O> Service<Req> for HandlerService<F, T, O, marker::ServiceMark>
+impl<F, Req, T, O> Service<Req> for HandlerService<F, T, marker::ServiceMark>
 where
     // for borrowed extractors, `T` is the `'static` version of the extractors
     T: FromRequest<'static, Req>,
