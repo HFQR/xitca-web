@@ -53,6 +53,9 @@ file = ["http-file", "nightly"]
 # rate-limit middleware
 rate-limit = ["http-rate"]
 
+# tracing logging middleware
+logger = ["tracing", "tracing-subscriber"]
+
 # nightly rust required feature.
 #
 # IMPORTANT note when utilizing nightly feature:
@@ -73,7 +76,7 @@ serde = ["dep:serde"]
 __server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
-xitca-http = { version = "0.2.1", features = ["router"], default-features = false }
+xitca-http = { version = "0.3.0", features = ["router"], default-features = false }
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = "0.1"
 
@@ -116,6 +119,10 @@ http-file = { version = "0.1", optional = true }
 
 # rate limit
 http-rate = { version = "0.1", optional = true }
+
+# logger
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
 
 # codegen
 xitca-codegen = { version = "0.1", optional = true }

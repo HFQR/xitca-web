@@ -308,7 +308,13 @@ pub mod limit;
 #[cfg(not(target_family = "wasm"))]
 pub mod sync;
 
-pub use xitca_http::util::middleware::{Extension, Logger};
+#[cfg(feature = "logger")]
+mod logger;
+
+#[cfg(feature = "logger")]
+pub use logger::Logger;
+
+pub use xitca_http::util::middleware::Extension;
 pub use xitca_service::middleware::{Group, UncheckedReady};
 
 #[cfg(test)]

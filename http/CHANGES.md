@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.3.0
+## Change
+- `util::middleware::Logger` does not expect `tracing::Span` anymore instead it wants `tracing::Level` for defining the verbosity of span. it would make new span per request with given `Level`. `Logger` middleware requires the service type it enclosed with it's `Service::Error` type bound to `std::error::Error` trait instead of only `std::fmt::Debug`. providing a better tracing output.
 
 # 0.2.2
 ## Change

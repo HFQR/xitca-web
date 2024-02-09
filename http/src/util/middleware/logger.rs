@@ -1,18 +1,10 @@
-use std::{
-    fmt::Debug,
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use tracing::Level;
+use xitca_service::Service;
 
-use pin_project_lite::pin_project;
-use tracing::{error, span, Level, Span};
-use xitca_service::{ready::ReadyService, Service};
-
-/// A factory for logger service.
+/// a builder for logger service.
 #[derive(Clone)]
 pub struct Logger {
-    span: Span,
+    level: Level,
 }
 
 impl Default for Logger {
@@ -22,87 +14,104 @@ impl Default for Logger {
 }
 
 impl Logger {
+    /// construct a default logger with [`Level::WARN`]
     pub fn new() -> Self {
-        Self::with_span(span!(Level::TRACE, "xitca-logger"))
+        Self::with_level(Level::WARN)
     }
 
-    pub fn with_span(span: Span) -> Self {
-        Self { span }
+    /// construct a logger with given [`Level`] verbosity.
+    pub fn with_level(level: Level) -> Self {
+        Self { level }
     }
 }
 
 impl<S, E> Service<Result<S, E>> for Logger {
-    type Response = LoggerService<S>;
+    type Response = service::LoggerService<S>;
     type Error = E;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
-        res.map(|service| LoggerService {
+        res.map(|service| service::LoggerService {
             service,
-            span: self.span.clone(),
+            level: self.level,
         })
     }
 }
 
-/// Logger service uses a tracking span called `xitca_http_logger` and would collect
-/// log from all levels(from trace to info)
-pub struct LoggerService<S> {
-    service: S,
-    span: Span,
-}
+mod service {
+    use std::error;
 
-impl<S, Req> Service<Req> for LoggerService<S>
-where
-    S: Service<Req>,
-    S::Error: Debug,
-{
-    type Response = S::Response;
-    type Error = S::Error;
+    use tracing::{event, span, Instrument};
+    use xitca_service::ready::ReadyService;
 
-    #[inline]
-    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        Instrumented {
-            task: async {
-                self.service.call(req).await.map_err(|e| {
-                    error!("{:?}", e);
-                    e
-                })
-            },
-            span: &self.span,
+    use crate::http::{header::HeaderMap, BorrowReq, Method, Uri};
+
+    use super::*;
+
+    pub struct LoggerService<S> {
+        pub(super) service: S,
+        pub(super) level: Level,
+    }
+
+    impl<S, Req> Service<Req> for LoggerService<S>
+    where
+        S: Service<Req>,
+        Req: BorrowReq<Method> + BorrowReq<Uri> + BorrowReq<HeaderMap>,
+        S::Error: error::Error,
+    {
+        type Response = S::Response;
+        type Error = S::Error;
+
+        #[inline]
+        async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+            let method: &Method = req.borrow();
+            let uri: &Uri = req.borrow();
+
+            macro_rules! span2 {
+                ($lvl:expr, $name:expr, $($fields:tt)*) => {
+                    match $lvl {
+                        Level::TRACE => span!(Level::TRACE, $name, $($fields)*),
+                        Level::DEBUG => span!(Level::DEBUG, $name, $($fields)*),
+                        Level::INFO => span!(Level::INFO, $name, $($fields)*),
+                        Level::WARN => span!(Level::WARN, $name, $($fields)*),
+                        Level::ERROR => span!(Level::ERROR, $name, $($fields)*),
+                    }
+                }
+            }
+
+            let span = span2!(
+                self.level,
+                "request",
+                method = %method,
+                uri = %uri
+            );
+
+            async {
+                event!(target: "on_request", Level::INFO, "serving request");
+                match self.service.call(req).await {
+                    Ok(res) => {
+                        event!(target: "on_response", Level::INFO, "sending response");
+                        Ok(res)
+                    }
+                    Err(e) => {
+                        event!(target: "on_error", Level::WARN, "{}", e);
+                        Err(e)
+                    }
+                }
+            }
+            .instrument(span)
+            .await
         }
-        .await
     }
-}
 
-pin_project! {
-    #[doc(hidden)]
-    /// a copy of `tracing::Instrumented` with borrowed Span.
-    pub struct Instrumented<'a, T> {
-        #[pin]
-        task: T,
-        span: &'a Span,
-    }
-}
+    impl<S> ReadyService for LoggerService<S>
+    where
+        S: ReadyService,
+    {
+        type Ready = S::Ready;
 
-// === impl Instrumented ===
-
-impl<T: Future> Future for Instrumented<'_, T> {
-    type Output = T::Output;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        let _enter = this.span.enter();
-        this.task.poll(cx)
-    }
-}
-
-impl<S> ReadyService for LoggerService<S>
-where
-    S: ReadyService,
-{
-    type Ready = S::Ready;
-
-    #[inline]
-    async fn ready(&self) -> Self::Ready {
-        self.service.ready().await
+        #[inline]
+        async fn ready(&self) -> Self::Ready {
+            self.service.ready().await
+        }
     }
 }
