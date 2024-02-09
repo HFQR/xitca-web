@@ -1,6 +1,6 @@
-# unreleased
+# unreleased 0.3.0
 ## Change
-- `util::middleware::Logger` does not expect `tracing::Span` anymore. it would make new span per request.
+- `util::middleware::Logger` does not expect `tracing::Span` anymore. it would make new span per request. `Logger` requires the service type it enclosed with it's `Service::Error` type bound to `std::error::Error` trait instead of `std::fmt::Debug`.
 
 # 0.2.2
 ## Change
