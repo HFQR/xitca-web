@@ -311,7 +311,9 @@ pub mod sync;
 #[cfg(feature = "logger")]
 mod logger;
 
+#[cfg(feature = "logger")]
 pub use logger::Logger;
+
 pub use xitca_http::util::middleware::Extension;
 pub use xitca_service::middleware::{Group, UncheckedReady};
 
