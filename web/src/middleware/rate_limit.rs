@@ -10,7 +10,7 @@ use crate::service::Service;
 ///
 /// # Examples
 /// ```rust
-/// # use xitca_web::{handler::handler_service, middleware::Logger, route::get, App, WebContext};
+/// # use xitca_web::{handler::handler_service, middleware::rate_limit::RateLimit, route::get, App, WebContext};
 /// App::new()
 ///     .at("/", get(handler_service(|| async { "hello,world!" })))
 ///     # .at("/infer", handler_service(|_: &WebContext<'_>| async{ "infer type" }))
