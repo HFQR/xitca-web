@@ -1,80 +1,56 @@
-use core::marker::PhantomData;
-
-use tracing::Level;
-use xitca_http::util::middleware::Logger;
+use tracing::{warn, Level};
+use xitca_http::util::middleware;
 
 use crate::service::Service;
 
-pub struct LoggerBuilder<S = state::InternalSub> {
-    logger: Logger,
-    _state: PhantomData<S>,
+/// builder for tracing log middleware.
+///
+/// # Examples
+/// ```rust
+/// # use xitca_web::{handler::handler_service, middleware::Logger, route::get, App, WebContext};
+/// App::new()
+///     .at("/", get(handler_service(|| async { "hello,world!" })))
+///     # .at("/infer", handler_service(|_: &WebContext<'_>| async{ "infer type" }))
+///     // log http request and error with default setting.
+///     .enclosed(Logger::new());
+/// ```
+pub struct Logger {
+    logger: middleware::Logger,
 }
 
-impl<S> LoggerBuilder<S> {
-    fn with_logger(logger: Logger) -> Self {
-        Self {
-            logger,
-            _state: PhantomData,
-        }
-    }
-}
-
-// type state for determine if internal tracing subscriber should be created.
-mod state {
-    pub struct InternalSub;
-    pub struct ExternalSub;
-    pub struct Finalized;
-}
-
-impl Default for LoggerBuilder {
+impl Default for Logger {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl LoggerBuilder {
+impl Logger {
+    /// construct a new logger middleware builder with [`Level::INFO`] of verbosity it generate and captures.
+    /// would try to initialize global trace dispatcher.
     pub fn new() -> Self {
+        Self::with_level(Level::INFO)
+    }
+
+    /// construct a new logger middleware builder with given [Level] of verbosity it generate and captures.
+    /// would try to initialize global trace dispatcher.
+    pub fn with_level(level: Level) -> Self {
+        if let Err(e) = tracing_subscriber::fmt().with_max_level(level).try_init() {
+            // the most likely case is trace dispatcher has already been set by user. log the warning and move on.
+            warn!("failed to initialize global trace dispatcher: {}", e);
+        }
+
         Self {
-            logger: Logger::new(),
-            _state: PhantomData,
+            logger: middleware::Logger::with_level(level),
         }
     }
-
-    pub fn set_level(mut self, level: Level) -> Self {
-        self.logger = self.logger.set_level(level);
-        self
-    }
 }
 
-impl<S> LoggerBuilder<S> {
-    pub fn external_sub(self) -> LoggerBuilder<state::ExternalSub> {
-        LoggerBuilder::with_logger(self.logger)
-    }
-}
-
-impl LoggerBuilder<state::InternalSub> {
-    /// finalize builder and ready to produce logger middleware service.
-    /// a default tracing subscriber is constructed at the same time.
-    pub fn init(self) -> LoggerBuilder<state::Finalized> {
-        tracing_subscriber::fmt().init();
-        LoggerBuilder::with_logger(self.logger)
-    }
-}
-
-impl LoggerBuilder<state::ExternalSub> {
-    /// finalize builder and ready to produce logger middleware service.
-    /// no default tracing subscriber would be constructed.
-    pub fn init(self) -> LoggerBuilder<state::Finalized> {
-        LoggerBuilder::with_logger(self.logger)
-    }
-}
-
-impl<Arg> Service<Arg> for LoggerBuilder<state::Finalized>
+impl<Arg> Service<Arg> for Logger
 where
-    Logger: Service<Arg>,
+    middleware::Logger: Service<Arg>,
 {
-    type Response = <Logger as Service<Arg>>::Response;
-    type Error = <Logger as Service<Arg>>::Error;
+    type Response = <middleware::Logger as Service<Arg>>::Response;
+    type Error = <middleware::Logger as Service<Arg>>::Error;
 
     async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
         self.logger.call(arg).await

@@ -297,8 +297,6 @@
 pub mod compress;
 #[cfg(any(feature = "compress-br", feature = "compress-gz", feature = "compress-de"))]
 pub mod decompress;
-#[cfg(feature = "logger")]
-pub mod logger;
 #[cfg(feature = "rate-limit")]
 pub mod rate_limit;
 #[cfg(feature = "tower-http-compat")]
@@ -310,6 +308,10 @@ pub mod limit;
 #[cfg(not(target_family = "wasm"))]
 pub mod sync;
 
+#[cfg(feature = "logger")]
+mod logger;
+
+pub use logger::Logger;
 pub use xitca_http::util::middleware::Extension;
 pub use xitca_service::middleware::{Group, UncheckedReady};
 

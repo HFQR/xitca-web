@@ -16,13 +16,12 @@ impl Default for Logger {
 impl Logger {
     /// construct a default logger with [`Level::WARN`]
     pub fn new() -> Self {
-        Self { level: Level::WARN }
+        Self::with_level(Level::WARN)
     }
 
-    /// set a logger to given [`Level`]
-    pub fn set_level(mut self, level: Level) -> Self {
-        self.level = level;
-        self
+    /// construct a logger with given [`Level`] verbosity.
+    pub fn with_level(level: Level) -> Self {
+        Self { level } 
     }
 }
 
