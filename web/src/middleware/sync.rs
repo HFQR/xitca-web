@@ -1,14 +1,15 @@
-use core::{cell::RefCell, mem};
+//! synchronous function as middleware.
 
-use std::sync::mpsc::{sync_channel, Receiver};
+use core::mem;
 
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use std::sync::mpsc::Receiver;
+
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
-    body::RequestBody,
     context::WebContext,
-    http::{Request, RequestExt, Response, WebResponse},
-    service::{ready::ReadyService, Service},
+    http::{Request, RequestExt, Response},
+    service::Service,
 };
 
 /// experimental type for sync function as middleware.
@@ -31,12 +32,15 @@ impl<F> SyncMiddleware<F> {
     }
 }
 
+/// next/inner services of a middleware function. [Next::call] must run to complete in order to drive
+/// services.
 pub struct Next<E> {
     tx: UnboundedSender<Request<RequestExt<()>>>,
     rx: Receiver<Result<Response<()>, E>>,
 }
 
 impl<E> Next<E> {
+    /// call next/inner services to complete where they would produce either a http response or an error.
     pub fn call<C>(&mut self, mut ctx: WebContext<'_, C>) -> Result<Response<()>, E> {
         let req = mem::take(ctx.req_mut());
         self.tx.send(req).unwrap();
@@ -48,83 +52,95 @@ impl<F, S, E> Service<Result<S, E>> for SyncMiddleware<F>
 where
     F: Clone,
 {
-    type Response = SyncService<F, S>;
+    type Response = service::SyncService<F, S>;
     type Error = E;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
-        res.map(|service| SyncService {
+        res.map(|service| service::SyncService {
             func: self.0.clone(),
             service,
         })
     }
 }
 
-pub struct SyncService<F, S> {
-    func: F,
-    service: S,
-}
+mod service {
+    use core::cell::RefCell;
 
-impl<'r, F, C, S, B, ResB, Err> Service<WebContext<'r, C, B>> for SyncService<F, S>
-where
-    F: Fn(&mut Next<Err>, WebContext<'_, C>) -> Result<Response<()>, Err> + Send + Clone + 'static,
-    C: Clone + Send + 'static,
-    S: for<'r2> Service<WebContext<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
-    Err: Send + 'static,
-{
-    type Response = WebResponse<ResB>;
-    type Error = Err;
+    use std::sync::mpsc::sync_channel;
 
-    async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let func = self.func.clone();
-        let state = ctx.state().clone();
-        let mut req = mem::take(ctx.req_mut());
+    use tokio::sync::mpsc::unbounded_channel;
 
-        let (tx, mut rx) = unbounded_channel();
-        let (tx2, rx2) = sync_channel(1);
+    use crate::{body::RequestBody, http::WebResponse, service::ready::ReadyService};
 
-        let mut next = Next { tx, rx: rx2 };
-        let handle = tokio::task::spawn_blocking(move || {
-            let mut body = RefCell::new(RequestBody::None);
-            let ctx = WebContext::new(&mut req, &mut body, &state);
-            func(&mut next, ctx)
-        });
+    use super::*;
 
-        *ctx.req_mut() = match rx.recv().await {
-            Some(req) => req,
-            None => {
-                // tx is dropped which means spawned thread exited already. join it and panic if necessary.
-                match handle.await.unwrap() {
-                    Ok(_) => todo!("there is no support for body type yet"),
-                    Err(e) => return Err(e),
+    pub struct SyncService<F, S> {
+        pub(super) func: F,
+        pub(super) service: S,
+    }
+
+    impl<'r, F, C, S, B, ResB, Err> Service<WebContext<'r, C, B>> for SyncService<F, S>
+    where
+        F: Fn(&mut Next<Err>, WebContext<'_, C>) -> Result<Response<()>, Err> + Send + Clone + 'static,
+        C: Clone + Send + 'static,
+        S: for<'r2> Service<WebContext<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
+        Err: Send + 'static,
+    {
+        type Response = WebResponse<ResB>;
+        type Error = Err;
+
+        async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+            let func = self.func.clone();
+            let state = ctx.state().clone();
+            let mut req = mem::take(ctx.req_mut());
+
+            let (tx, mut rx) = unbounded_channel();
+            let (tx2, rx2) = sync_channel(1);
+
+            let mut next = Next { tx, rx: rx2 };
+            let handle = tokio::task::spawn_blocking(move || {
+                let mut body = RefCell::new(RequestBody::None);
+                let ctx = WebContext::new(&mut req, &mut body, &state);
+                func(&mut next, ctx)
+            });
+
+            *ctx.req_mut() = match rx.recv().await {
+                Some(req) => req,
+                None => {
+                    // tx is dropped which means spawned thread exited already. join it and panic if necessary.
+                    match handle.await.unwrap() {
+                        Ok(_) => todo!("there is no support for body type yet"),
+                        Err(e) => return Err(e),
+                    }
                 }
-            }
-        };
+            };
 
-        match self.service.call(ctx).await {
-            Ok(res) => {
-                let (parts, body) = res.into_parts();
-                let _ = tx2.send(Ok(Response::from_parts(parts, ())));
-                let res = handle.await.unwrap()?;
-                Ok(res.map(|_| body))
-            }
-            Err(e) => {
-                let _ = tx2.send(Err(e));
-                let res = handle.await.unwrap()?;
-                Ok(res.map(|_| todo!("there is no support for body type yet")))
+            match self.service.call(ctx).await {
+                Ok(res) => {
+                    let (parts, body) = res.into_parts();
+                    let _ = tx2.send(Ok(Response::from_parts(parts, ())));
+                    let res = handle.await.unwrap()?;
+                    Ok(res.map(|_| body))
+                }
+                Err(e) => {
+                    let _ = tx2.send(Err(e));
+                    let res = handle.await.unwrap()?;
+                    Ok(res.map(|_| todo!("there is no support for body type yet")))
+                }
             }
         }
     }
-}
 
-impl<F, S> ReadyService for SyncService<F, S>
-where
-    S: ReadyService,
-{
-    type Ready = S::Ready;
+    impl<F, S> ReadyService for SyncService<F, S>
+    where
+        S: ReadyService,
+    {
+        type Ready = S::Ready;
 
-    #[inline]
-    async fn ready(&self) -> Self::Ready {
-        self.service.ready().await
+        #[inline]
+        async fn ready(&self) -> Self::Ready {
+            self.service.ready().await
+        }
     }
 }
 
@@ -132,7 +148,12 @@ where
 mod test {
     use core::convert::Infallible;
 
-    use crate::{body::ResponseBody, http::StatusCode, service::fn_service, App};
+    use crate::{
+        body::ResponseBody,
+        http::{StatusCode, WebResponse},
+        service::fn_service,
+        App,
+    };
 
     use super::*;
 

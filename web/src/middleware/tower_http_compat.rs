@@ -1,22 +1,8 @@
-use core::{
-    cell::RefCell,
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
-
-use std::rc::Rc;
+//! compatibility between tower-http layer and xitca-web middleware.
 
 use tower_layer::Layer;
 
-use crate::{
-    context::WebContext,
-    http::{Request, RequestExt, Response, WebResponse},
-    service::{
-        tower_http_compat::{CompatReqBody, CompatResBody, TowerCompatService},
-        Service,
-    },
-};
+use crate::service::{tower_http_compat::TowerCompatService, Service};
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.
 /// Any `tower-http` type that impl [Layer] trait can be passed to it and used as xitca-web's middleware.
@@ -60,49 +46,74 @@ impl<L> TowerHttpCompat<L> {
 
 impl<L, S, E> Service<Result<S, E>> for TowerHttpCompat<L>
 where
-    L: Layer<CompatLayer<S>>,
+    L: Layer<compat_layer::CompatLayer<S>>,
 {
     type Response = TowerCompatService<L::Service>;
     type Error = E;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
         res.map(|service| {
-            let service = self.0.layer(CompatLayer(Rc::new(service)));
+            let service = self.0.layer(compat_layer::CompatLayer::new(service));
             TowerCompatService::new(service)
         })
     }
 }
 
-pub struct CompatLayer<S>(Rc<S>);
+mod compat_layer {
+    use core::{
+        cell::RefCell,
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll},
+    };
 
-impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>, C>>> for CompatLayer<S>
-where
-    S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
-    C: 'static,
-    ReqB: 'static,
-{
-    type Response = Response<CompatResBody<ResB>>;
-    type Error = Err;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    use std::rc::Rc;
 
-    #[inline]
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    use crate::{
+        http::{Request, RequestExt, Response, WebResponse},
+        service::tower_http_compat::{CompatReqBody, CompatResBody},
+        WebContext,
+    };
+
+    use super::*;
+
+    pub struct CompatLayer<S>(Rc<S>);
+
+    impl<S> CompatLayer<S> {
+        pub(super) fn new(service: S) -> Self {
+            Self(Rc::new(service))
+        }
     }
 
-    fn call(&mut self, req: Request<CompatReqBody<RequestExt<ReqB>, C>>) -> Self::Future {
-        let service = self.0.clone();
-        Box::pin(async move {
-            let (parts, body) = req.into_parts();
-            let (body, ctx) = body.into_parts();
-            let (ext, body) = body.replace_body(());
+    impl<S, C, ReqB, ResB, Err> tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>, C>>> for CompatLayer<S>
+    where
+        S: for<'r> Service<WebContext<'r, C, ReqB>, Response = WebResponse<ResB>, Error = Err> + 'static,
+        C: 'static,
+        ReqB: 'static,
+    {
+        type Response = Response<CompatResBody<ResB>>;
+        type Error = Err;
+        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
-            let mut req = Request::from_parts(parts, ext);
-            let mut body = RefCell::new(body);
-            let req = WebContext::new(&mut req, &mut body, &ctx);
+        #[inline]
+        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
 
-            service.call(req).await.map(|res| res.map(CompatResBody::new))
-        })
+        fn call(&mut self, req: Request<CompatReqBody<RequestExt<ReqB>, C>>) -> Self::Future {
+            let service = self.0.clone();
+            Box::pin(async move {
+                let (parts, body) = req.into_parts();
+                let (body, ctx) = body.into_parts();
+                let (ext, body) = body.replace_body(());
+
+                let mut req = Request::from_parts(parts, ext);
+                let mut body = RefCell::new(body);
+                let req = WebContext::new(&mut req, &mut body, &ctx);
+
+                service.call(req).await.map(|res| res.map(CompatResBody::new))
+            })
+        }
     }
 }
 
@@ -113,7 +124,13 @@ mod test {
     use tower_http::set_status::SetStatusLayer;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{body::ResponseBody, http::StatusCode, http::WebRequest, service::fn_service, App};
+    use crate::{
+        body::ResponseBody,
+        http::WebRequest,
+        http::{StatusCode, WebResponse},
+        service::fn_service,
+        App, WebContext,
+    };
 
     use super::*;
 

@@ -6,6 +6,17 @@ use http_rate::Quota;
 
 use crate::service::Service;
 
+/// builder for client ip address based rate limiting middleware.
+///
+/// # Examples
+/// ```rust
+/// # use xitca_web::{handler::handler_service, middleware::Logger, route::get, App, WebContext};
+/// App::new()
+///     .at("/", get(handler_service(|| async { "hello,world!" })))
+///     # .at("/infer", handler_service(|_: &WebContext<'_>| async{ "infer type" }))
+///     // rate limit to 60 rps for one ip address.
+///     .enclosed(RateLimit::per_minute(60));
+/// ```
 pub struct RateLimit(Quota);
 
 macro_rules! constructor {
