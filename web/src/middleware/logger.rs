@@ -26,6 +26,12 @@ mod state {
     pub struct Finalized;
 }
 
+impl Default for LoggerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoggerBuilder {
     pub fn new() -> Self {
         Self {
