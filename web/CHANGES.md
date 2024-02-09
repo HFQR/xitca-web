@@ -16,6 +16,7 @@
 ## Change
 - change `xitca_web::middleware::eraser::TypeEraser::error`'s trait bound. `From` trait is used for conversion between generic error type and `xitca_web::error::Error`. With this change `Error` does not double boxing itself therefore removing the need of nested type casting when handling typed error.
 - `ErrorStatus::{bad_request, internal}` can't be used in const context anymore as they are tasked with capture thread backtrace.
+- make `xitca_web::middleware::logger` optional crate feature behind `logger` feature flag. extend it's construction with `LoggerBuilder` type which by default bypass manual `tracing-subscriber` import.
 
 # 0.2.2
 ## Add

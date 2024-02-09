@@ -2,6 +2,9 @@ use xitca_service::{ready::ReadyService, Service};
 
 use crate::http::{BorrowReqMut, Extensions};
 
+/// builder for middleware attaching typed data to [`Request`]'s [`Extensions`]
+///
+/// [`Request`]: crate::http::Request
 #[derive(Clone)]
 pub struct Extension<S> {
     state: S,

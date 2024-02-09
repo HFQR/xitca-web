@@ -1,4 +1,6 @@
 # unreleased
+## Change
+- `util::middleware::Logger` does not expect `tracing::Span` anymore. it would make new span per request.
 
 # 0.2.2
 ## Change
