@@ -93,7 +93,7 @@ use crate::{
         header::{InvalidHeaderValue, ALLOW},
         StatusCode, WebResponse,
     },
-    service::Service,
+    service::{pipeline::PipelineE, Service},
 };
 
 use self::service_impl::ErrorService;
@@ -214,7 +214,7 @@ impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
 
 macro_rules! error_from_service {
     ($tt: ty) => {
-        impl<C> From<$tt> for Error<C> {
+        impl<C> From<$tt> for crate::error::Error<C> {
             fn from(e: $tt) -> Self {
                 Self::from_service(e)
             }
@@ -469,6 +469,19 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         self.0.call(ctx).await
+    }
+}
+
+impl<F, S, C> From<PipelineE<F, S>> for Error<C>
+where
+    F: Into<Error<C>>,
+    S: Into<Error<C>>,
+{
+    fn from(pipe: PipelineE<F, S>) -> Self {
+        match pipe {
+            PipelineE::First(f) => f.into(),
+            PipelineE::Second(s) => s.into(),
+        }
     }
 }
 

@@ -167,7 +167,7 @@ impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
     }
 }
 
-impl<F, T, O, M> RouterGen for HandlerService<F, T, O, M> {
+impl<F, T, M> RouterGen for HandlerService<F, T, M> {
     type Route<R> = RouterMapErr<R>;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {

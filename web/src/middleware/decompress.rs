@@ -33,6 +33,7 @@ mod service {
     use crate::{
         body::BodyStream,
         context::WebContext,
+        error::error_from_service,
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode, WebResponse},
         service::{pipeline::PipelineE, ready::ReadyService, Service},
     };
@@ -83,6 +84,8 @@ mod service {
         }
     }
 
+    error_from_service!(EncodingError);
+
     impl<'r, C, B> Service<WebContext<'r, C, B>> for EncodingError {
         type Response = WebResponse;
         type Error = Infallible;
@@ -106,6 +109,7 @@ mod test {
         handler::handler_service,
         http::header::CONTENT_ENCODING,
         http::{WebRequest, WebResponse},
+        middleware::eraser::TypeEraser,
         test::collect_body,
         App,
     };
@@ -145,6 +149,7 @@ mod test {
         App::new()
             .at("/", handler_service(handler))
             .enclosed(Decompress)
+            .enclosed(TypeEraser::error())
             .finish()
             .call(())
             .now_or_panic()
