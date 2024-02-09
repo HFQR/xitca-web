@@ -299,14 +299,13 @@ pub mod compress;
 pub mod decompress;
 #[cfg(feature = "rate-limit")]
 pub mod rate_limit;
+#[cfg(not(target_family = "wasm"))]
+pub mod sync;
 #[cfg(feature = "tower-http-compat")]
 pub mod tower_http_compat;
 
 pub mod eraser;
 pub mod limit;
-
-#[cfg(not(target_family = "wasm"))]
-pub mod sync;
 
 #[cfg(feature = "logger")]
 mod logger;
