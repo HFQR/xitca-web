@@ -11,13 +11,14 @@
 - add `middleware::CatchUnwind` for catching panic and keep the service running. `error::ThreadJoinError` type is added for manual error handling of `CatchUnwind`.
 
 ## Remove
-- remove `xitca_web::error::{BadRequest, Internal}` types. `xitca_web::error::ErrorStatus` replace their roles where `ErrorStatus::bad_request` and `ErrorStatus::internal` would generate identical error information as `BadRequest` and `Internal` types. this change would simplify runtime error type casting a bit with two less possible error types.
-- remove default logger middleware from `xitca_web::HttpServer::{bind_xxx, listen_xxx}` APIs.
+- remove `middleware::decompress::DecompressServiceError` type. `error::Error` is used as decompress service error type for easier error handling.
+- remove `error::{BadRequest, Internal}` types. `error::ErrorStatus` replace their roles where `ErrorStatus::bad_request` and `ErrorStatus::internal` would generate identical error information as `BadRequest` and `Internal` types. this change would simplify runtime error type casting a bit with two less possible error types.
+- remove default logger middleware from `HttpServer::{bind_xxx, listen_xxx}` APIs.
 
 ## Change
-- change `xitca_web::middleware::eraser::TypeEraser::error`'s trait bound. `From` trait is used for conversion between generic error type and `xitca_web::error::Error`. With this change `Error` does not double boxing itself therefore removing the need of nested type casting when handling typed error.
+- change `middleware::eraser::TypeEraser::error`'s trait bound. `From` trait is used for conversion between generic error type and `error::Error`. With this change `Error` does not double boxing itself therefore removing the need of nested type casting when handling typed error.
 - `ErrorStatus::{bad_request, internal}` can't be used in const context anymore as they are tasked with capture thread backtrace.
-- make `xitca_web::middleware::logger` optional behind `logger` feature flag. extend it's construction which by default bypass manual `tracing-subscriber` import.
+- make `middleware::logger` optional behind `logger` feature flag. extend it's construction which by default bypass manual `tracing-subscriber` import.
 - update `xitca-http` to `0.3.0`.
 
 # 0.2.2

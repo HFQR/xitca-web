@@ -34,21 +34,23 @@ mod service {
         body::BodyStream,
         context::WebContext,
         error::error_from_service,
+        error::Error,
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode, WebResponse},
-        service::{pipeline::PipelineE, ready::ReadyService, Service},
+        service::ready::ReadyService,
     };
 
-    pub struct DecompressService<S>(pub(super) S);
+    use super::*;
 
-    pub type DecompressServiceError<E> = PipelineE<EncodingError, E>;
+    pub struct DecompressService<S>(pub(super) S);
 
     impl<'r, S, C, B, Res, Err> Service<WebContext<'r, C, B>> for DecompressService<S>
     where
         B: BodyStream + Default,
         S: for<'rs> Service<WebContext<'rs, C, Coder<B>>, Response = Res, Error = Err>,
+        Err: Into<Error<C>>,
     {
         type Response = Res;
-        type Error = DecompressServiceError<Err>;
+        type Error = Error<C>;
 
         async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
             let (parts, ext) = ctx.take_request().into_parts();
@@ -56,7 +58,7 @@ mod service {
             let (ext, body) = ext.replace_body(());
             let req = Request::from_parts(parts, ());
 
-            let decoder = http_encoding::try_decoder(req.headers(), body).map_err(DecompressServiceError::First)?;
+            let decoder = http_encoding::try_decoder(req.headers(), body)?;
             let mut body = RefCell::new(decoder);
             let mut req = req.map(|_| ext);
 
@@ -67,7 +69,7 @@ mod service {
                     // restore original body as error path of other services may have use of it.
                     let body = body.into_inner().into_inner();
                     *ctx.body_borrow_mut() = body;
-                    DecompressServiceError::Second(e)
+                    e.into()
                 })
         }
     }
@@ -109,7 +111,6 @@ mod test {
         handler::handler_service,
         http::header::CONTENT_ENCODING,
         http::{WebRequest, WebResponse},
-        middleware::eraser::TypeEraser,
         test::collect_body,
         App,
     };
@@ -149,7 +150,6 @@ mod test {
         App::new()
             .at("/", handler_service(handler))
             .enclosed(Decompress)
-            .enclosed(TypeEraser::error())
             .finish()
             .call(())
             .now_or_panic()
