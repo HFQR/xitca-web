@@ -71,12 +71,13 @@
 //! ```
 
 use core::{
+    any::Any,
     convert::Infallible,
     fmt,
     ops::{Deref, DerefMut},
 };
 
-use std::{error, io};
+use std::{error, io, sync::Mutex};
 
 pub use xitca_http::{
     error::BodyError,
@@ -285,9 +286,9 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
 }
 
 /// error type derive from http status code. produce minimal "StatusCode Reason" response and stack backtrace
-/// of the location status code error occurs.
-/// *. stack backtrace is enabled with xitca-web's "nightly" crate feature and requires nightly Rust compiler.
-/// *. stack backtrace is generated at place when ErrorStatus type is constructed.
+/// of the location status code error occurs. Note:
+/// - stack backtrace is enabled with xitca-web's `nightly` crate feature and requires nightly Rust compiler.
+/// - stack backtrace is generated at place when ErrorStatus type is constructed.
 pub struct ErrorStatus {
     status: StatusCode,
     #[cfg(feature = "nightly")]
@@ -471,6 +472,45 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for StdError {
         self.0.call(ctx).await
     }
 }
+
+/// error happens when joining a thread. typically caused by code panic inside thread.
+/// [`CatchUnwind`] middleware is able to produce this error type.
+///
+/// [`CatchUnwind`]: crate::middleware::CatchUnwind
+pub struct ThreadJoinError(pub Mutex<Box<dyn Any + Send>>);
+
+impl fmt::Debug for ThreadJoinError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ThreadJoinError").finish()
+    }
+}
+
+impl fmt::Display for ThreadJoinError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        {
+            let any = self.0.lock().unwrap();
+            if let Some(msg) = any.downcast_ref::<String>() {
+                return write!(f, "error joining thread: {msg}");
+            }
+            if let Some(msg) = any.downcast_ref::<&str>() {
+                return write!(f, "error joining thread: {msg}");
+            }
+        }
+
+        f.write_str("error joining thread: unknown reason. please consider downcast ThreadJoinError.0")
+    }
+}
+
+impl error::Error for ThreadJoinError {}
+
+impl ThreadJoinError {
+    pub(crate) fn new(e: Box<dyn Any + Send>) -> Self {
+        Self(Mutex::new(e))
+    }
+}
+
+error_from_service!(ThreadJoinError);
+forward_blank_internal!(ThreadJoinError);
 
 impl<F, S, C> From<PipelineE<F, S>> for Error<C>
 where

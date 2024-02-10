@@ -1,11 +1,14 @@
 use core::{
+    any::Any,
     fmt,
     future::{pending, Future},
     mem::{self, ManuallyDrop},
+    panic::{AssertUnwindSafe, UnwindSafe},
     pin::Pin,
     ptr,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
+
 /// Biased select always prioritize polling Self.
 pub trait Select: Sized {
     fn select<Fut>(self, other: Fut) -> SelectFuture<Self, Fut>
@@ -108,6 +111,37 @@ where
             Poll::Ready(ret) => ret,
             Poll::Pending => panic!("Future can not be polled to complete"),
         }
+    }
+}
+
+/// Future for the catch unwind async block.
+pub struct CatchUnwind<Fut> {
+    fut: Fut,
+}
+
+impl<Fut> CatchUnwind<Fut>
+where
+    Fut: Future + UnwindSafe,
+{
+    #[inline]
+    pub const fn new(fut: Fut) -> Self {
+        Self { fut }
+    }
+}
+
+impl<Fut> Future for CatchUnwind<Fut>
+where
+    Fut: Future + UnwindSafe,
+{
+    type Output = Result<Fut::Output, Box<dyn Any + Send>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        std::panic::catch_unwind(AssertUnwindSafe(|| {
+            // SAFETY:
+            // fut is not moved.
+            unsafe { self.map_unchecked_mut(|this| &mut this.fut) }.poll(cx)
+        }))?
+        .map(Ok)
     }
 }
 
