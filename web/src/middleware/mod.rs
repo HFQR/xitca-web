@@ -309,10 +309,12 @@ pub mod limit;
 
 #[cfg(feature = "logger")]
 mod logger;
-
 #[cfg(feature = "logger")]
 pub use logger::Logger;
 
+mod catch_unwind;
+
+pub use catch_unwind::CatchUnwind;
 pub use xitca_http::util::middleware::Extension;
 pub use xitca_service::middleware::{Group, UncheckedReady};
 

@@ -8,6 +8,7 @@
         .at("/", Redirect::see_other("/index.html"))
         .at("/index.html", get(Html("<h1>Hello,World!</h1>")));
     ```
+- add `middleware::CatchUnwind` for catching panic and keep the service running. `error::ThreadJoinError` type is added for manual error handling of `CatchUnwind`.
 
 ## Remove
 - remove `xitca_web::error::{BadRequest, Internal}` types. `xitca_web::error::ErrorStatus` replace their roles where `ErrorStatus::bad_request` and `ErrorStatus::internal` would generate identical error information as `BadRequest` and `Internal` types. this change would simplify runtime error type casting a bit with two less possible error types.

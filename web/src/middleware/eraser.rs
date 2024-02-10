@@ -161,7 +161,7 @@ mod service {
 
     impl<'r, C, B, S> Service<WebContext<'r, C, B>> for EraserService<EraseErr, S>
     where
-        S: for<'r2> Service<WebContext<'r, C, B>>,
+        S: Service<WebContext<'r, C, B>>,
         S::Error: Into<Error<C>>,
     {
         type Response = S::Response;

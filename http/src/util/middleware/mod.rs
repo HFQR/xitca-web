@@ -6,6 +6,8 @@ pub mod context {
     pub use super::context_priv::{Context, ContextBuilder};
 }
 
+pub mod catch_unwind;
+
 #[cfg(not(target_family = "wasm"))]
 #[cfg(feature = "runtime")]
 mod socket_config;
