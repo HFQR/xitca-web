@@ -12,7 +12,7 @@ let quota = Quota::per_second(1);
 // construct rate limiter with given quota.
 let limiter = RateLimit::new(quota);
 
-async fn request(lim: &RateLimit, req: &Request<()>, addr: SocketAddr) -> Response<()> {
+fn request(lim: &RateLimit, req: &Request<()>, addr: SocketAddr) -> Response<()> {
     // rate limiter needs request header map and client socket addr.
     match lim.rate_limit(req.headers(), &addr) {
         // client still have quota left.
