@@ -339,6 +339,27 @@ pub mod http {
 
 pub mod route {
     //! route services.
+    //! # Examples:
+    //! ```
+    //! # use xitca_web::{
+    //! #   handler::handler_service,
+    //! #   http::Method,
+    //! #   route::{get, post, put, Route}
+    //! # };
+    //! # fn _route() -> Result<(), Box<dyn std::error::Error>> {
+    //! // a simple async function service.
+    //! let service = handler_service(|_: ()| async { });
+    //!
+    //! let custom_method = Method::from_bytes(b"huh")?;
+    //!
+    //! // route get http method and a user custom method to handler_service
+    //! Route::new([Method::GET, custom_method]).route(service.clone());
+    //!
+    //! // shortcut for single http method route(s). they can chained multiple times.
+    //! get(service.clone()).post(service.clone()).put(service);
+    //! # Ok(())
+    //! # }
+    //! ```
     pub use xitca_http::util::service::route::{connect, delete, get, head, options, patch, post, put, trace, Route};
 }
 
