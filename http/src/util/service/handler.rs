@@ -33,6 +33,15 @@ impl<F, T, M> HandlerService<F, T, M> {
     }
 }
 
+impl<F, T, M> Clone for HandlerService<F, T, M>
+where
+    F: Clone,
+{
+    fn clone(&self) -> Self {
+        Self::new(self.func.clone())
+    }
+}
+
 impl<F, T> Service for HandlerService<F, T, marker::BuilderMark>
 where
     F: Clone,

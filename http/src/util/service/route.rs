@@ -1,6 +1,8 @@
-use core::fmt;
+//! routing [`Service`] with given [`Method`] that support a wide range of http method including custom ones.
 
-use std::{error, marker::PhantomData};
+use core::{fmt, marker::PhantomData};
+
+use std::error;
 
 use xitca_service::{ready::ReadyService, Service};
 
@@ -10,6 +12,8 @@ use super::router_priv::RouterError;
 
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {
+        #[doc = concat!("routing given [`Service`] type with [`Method::",stringify!($method),"`].")]
+        /// Act as shortcut of [`Route::new`] and [`Route::route`].
         pub const fn $method_fn<R>(route: R) -> Route<R, MethodNotAllowedBuilder<R>, 1> {
             Route::_new([Method::$method], route)
         }
@@ -26,6 +30,7 @@ method!(connect, CONNECT);
 method!(patch, PATCH);
 method!(trace, TRACE);
 
+/// a tree type able of routing multiple [Method] against multiple [Service] types in linear manner.
 pub struct Route<R, N, const M: usize> {
     methods: [Method; M],
     route: R,
@@ -35,7 +40,7 @@ pub struct Route<R, N, const M: usize> {
 type DefaultRoute<R, const M: usize> = Route<R, MethodNotAllowedBuilder<R>, M>;
 
 impl<const M: usize> DefaultRoute<(), M> {
-    /// construct a new Route given array of methods.
+    /// construct a new Route with given array of methods.
     ///
     /// # Panics
     /// panic when input array is zero length.
@@ -61,6 +66,8 @@ impl<const M: usize> DefaultRoute<(), M> {
 
 macro_rules! route_method {
     ($method_fn: ident, $method: ident) => {
+        #[doc = concat!("appending [Method::",stringify!($method),"] guarded route to current Route.")]
+        /// Act as a shortcut of [Route::next].
         pub fn $method_fn<R1>(self, $method_fn: R1) -> Route<R, Route<R1, N, 1>, M> {
             self.next(Route::_new([Method::$method], $method_fn))
         }
@@ -68,7 +75,7 @@ macro_rules! route_method {
 }
 
 impl<R, N, const M: usize> Route<R, N, M> {
-    /// chain another Route to existing Route type.
+    /// append another Route to existing Route type.
     ///
     /// # Panics
     ///
@@ -186,7 +193,7 @@ impl fmt::Debug for MethodNotAllowed {
 
 impl fmt::Display for MethodNotAllowed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Method is not allowed")
+        f.write_str("Method is not allowed")
     }
 }
 
