@@ -79,7 +79,7 @@ pub struct MatchError;
 
 impl fmt::Display for MatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("match error: route not found")
+        f.write_str("router error: route not found")
     }
 }
 

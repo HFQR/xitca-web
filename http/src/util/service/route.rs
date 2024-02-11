@@ -193,7 +193,7 @@ impl fmt::Debug for MethodNotAllowed {
 
 impl fmt::Display for MethodNotAllowed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Method is not allowed")
+        f.write_str("router error: method is not allowed")
     }
 }
 

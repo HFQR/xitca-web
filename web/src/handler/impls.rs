@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use crate::{
     body::ResponseBody,
     context::WebContext,
-    error::Error,
+    error::{Error, ErrorStatus},
     http::{Method, RequestExt, StatusCode, WebRequest, WebResponse},
 };
 
@@ -170,6 +170,16 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Error<C> {
     #[inline]
     async fn respond(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         Err(self)
+    }
+}
+
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for ErrorStatus {
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn respond(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Err(Error::from(self))
     }
 }
 

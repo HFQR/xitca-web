@@ -77,7 +77,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use std::{error, io, sync::Mutex};
+use std::{backtrace::Backtrace, error, io, sync::Mutex};
 
 pub use xitca_http::{
     error::BodyError,
@@ -286,26 +286,29 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
 }
 
 /// error type derive from http status code. produce minimal "StatusCode Reason" response and stack backtrace
-/// of the location status code error occurs. Note:
-/// - stack backtrace is enabled with xitca-web's `nightly` crate feature and requires nightly Rust compiler.
-/// - stack backtrace is generated at place when ErrorStatus type is constructed.
+/// of the location status code error occurs.
 pub struct ErrorStatus {
     status: StatusCode,
-    #[cfg(feature = "nightly")]
-    back_trace: std::backtrace::Backtrace,
+    _back_trace: Backtrace,
 }
 
 impl ErrorStatus {
     /// construct an ErrorStatus type from [`StatusCode::INTERNAL_SERVER_ERROR`]
-    #[inline]
     pub fn internal() -> Self {
-        Self::from(StatusCode::INTERNAL_SERVER_ERROR)
+        // verbosity of constructor is desired here so back trace capture
+        // can direct capture the call site.
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            _back_trace: Backtrace::capture(),
+        }
     }
 
     /// construct an ErrorStatus type from [`StatusCode::BAD_REQUEST`]
-    #[inline]
     pub fn bad_request() -> Self {
-        Self::from(StatusCode::BAD_REQUEST)
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            _back_trace: Backtrace::capture(),
+        }
     }
 }
 
@@ -324,16 +327,15 @@ impl fmt::Display for ErrorStatus {
 impl error::Error for ErrorStatus {
     #[cfg(feature = "nightly")]
     fn provide<'a>(&'a self, request: &mut error::Request<'a>) {
-        request.provide_ref(&self.back_trace);
+        request.provide_ref(&self._back_trace);
     }
 }
 
 impl From<StatusCode> for ErrorStatus {
     fn from(status: StatusCode) -> Self {
-        ErrorStatus {
+        Self {
             status,
-            #[cfg(feature = "nightly")]
-            back_trace: std::backtrace::Backtrace::capture(),
+            _back_trace: Backtrace::capture(),
         }
     }
 }
