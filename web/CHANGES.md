@@ -2,11 +2,12 @@
 ## Add
 - enable Rust nightly feature `error_generic_member_access` when `xitca-web`'s `nightly` crate feature is enabled. this enables runtime context type interaction like `std::backtrace::Backtrace` for enhanced error handling.
 - `ErrorStatus` error type would try to capture `Backtrace`.
-- `Redirect` and `Html` handler types can be used as standalone route service. Example:
+- `Redirect`, `Html`, `Json` handler types can be used as standalone route service. Example:
     ```rust
     App::new()
         .at("/", Redirect::see_other("/index.html"))
-        .at("/index.html", get(Html("<h1>Hello,World!</h1>")));
+        .at("/index.html", get(Html("<h1>Hello,World!</h1>")))
+        .at("/hello.json", Json("{\"hello\":\"world!\"}"));
     ```
 - add `middleware::CatchUnwind` for catching panic and keep the service running. `error::ThreadJoinError` type is added for manual error handling of `CatchUnwind`.
 
