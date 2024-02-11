@@ -1,12 +1,14 @@
 //! type extractor and response generator for json
 
 use core::{
+    convert::Infallible,
     fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
 
 use serde::{de::Deserialize, ser::Serialize};
+use xitca_http::util::service::router::{RouterGen, RouterMapErr};
 
 use crate::{
     body::BodyStream,
@@ -15,6 +17,7 @@ use crate::{
     error::{error_from_service, forward_blank_bad_request, Error},
     handler::{FromRequest, Responder},
     http::{const_header_value::JSON, header::CONTENT_TYPE, WebResponse},
+    service::Service,
 };
 
 use super::{
@@ -28,6 +31,7 @@ pub const DEFAULT_LIMIT: usize = 1024 * 1024;
 /// Object larger than limit would be treated as error.
 ///
 /// Default limit is [DEFAULT_LIMIT] in bytes.
+#[derive(Clone)]
 pub struct Json<T, const LIMIT: usize = DEFAULT_LIMIT>(pub T);
 
 impl<T, const LIMIT: usize> fmt::Debug for Json<T, LIMIT>
@@ -185,15 +189,54 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for serde_json::Value {
 error_from_service!(serde_json::Error);
 forward_blank_bad_request!(serde_json::Error);
 
+impl<T> RouterGen for Json<T> {
+    type Route<R> = RouterMapErr<R>;
+
+    fn route_gen<R>(route: R) -> Self::Route<R> {
+        RouterMapErr(route)
+    }
+}
+
+impl<T> Service for Json<T>
+where
+    T: Clone,
+{
+    type Response = Self;
+    type Error = Infallible;
+
+    async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
+        Ok(self.clone())
+    }
+}
+
+impl<'r, C, B, T> Service<WebContext<'r, C, B>> for Json<T>
+where
+    T: Serialize + Clone,
+{
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self.clone().respond(ctx).await
+    }
+}
+
 #[cfg(test)]
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{handler::handler_service, http::header::CONTENT_LENGTH, service::Service, test::collect_string_body};
+    use crate::{
+        handler::handler_service,
+        http::{header::CONTENT_LENGTH, WebRequest},
+        service::Service,
+        test::collect_string_body,
+        App,
+    };
 
     use super::*;
 
-    #[derive(serde::Deserialize, serde::Serialize)]
+    #[derive(serde::Deserialize, serde::Serialize, Clone)]
     struct Gacha<'a> {
         credit_card: &'a str,
     }
@@ -225,5 +268,19 @@ mod test {
         let res = collect_string_body(body).now_or_panic().unwrap();
 
         assert_eq!(res, "bankruptcy");
+    }
+
+    #[test]
+    fn service() {
+        let res = App::new()
+            .at("/", Json(Gacha { credit_card: "mom" }))
+            .finish()
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(WebRequest::default())
+            .now_or_panic()
+            .unwrap();
+        assert_eq!(res.status().as_u16(), 200);
     }
 }
