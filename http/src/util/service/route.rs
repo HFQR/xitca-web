@@ -248,7 +248,7 @@ mod test {
     use super::*;
 
     async fn index(_: Request<RequestBody>) -> Result<Response<ResponseBody>, Infallible> {
-        Ok(Response::new(ResponseBody::None))
+        Ok(Response::new(ResponseBody::none()))
     }
 
     #[test]

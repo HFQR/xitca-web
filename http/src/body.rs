@@ -288,9 +288,16 @@ where
 pin_project! {
     /// A unified response body type.
     /// Generic type is for custom pinned response body(type implement [Stream](futures_core::Stream)).
+    pub struct ResponseBody<B = BoxBody> {
+        #[pin]
+        inner: ResponseBodyInner<B>
+    }
+}
+
+pin_project! {
     #[project = ResponseBodyProj]
     #[project_replace = ResponseBodyProjReplace]
-    pub enum ResponseBody<B = BoxBody> {
+    enum ResponseBodyInner<B> {
         None,
         Bytes {
             bytes: Bytes,
@@ -304,7 +311,7 @@ pin_project! {
 
 impl<B> Default for ResponseBody<B> {
     fn default() -> Self {
-        Self::None
+        Self::none()
     }
 }
 
@@ -326,7 +333,9 @@ impl<B> ResponseBody<B> {
     /// response when [BodySize] is used for inferring response body type.
     #[inline]
     pub const fn none() -> Self {
-        Self::None
+        Self {
+            inner: ResponseBodyInner::None,
+        }
     }
 
     /// indicate empty body is attached to response.
@@ -334,13 +343,17 @@ impl<B> ResponseBody<B> {
     /// used for inferring response body type.
     #[inline]
     pub const fn empty() -> Self {
-        Self::Bytes { bytes: Bytes::new() }
+        Self {
+            inner: ResponseBodyInner::Bytes { bytes: Bytes::new() },
+        }
     }
 
     /// Construct a new Stream variant of ResponseBody
     #[inline]
     pub fn stream(stream: B) -> Self {
-        Self::Stream { stream }
+        Self {
+            inner: ResponseBodyInner::Stream { stream },
+        }
     }
 
     /// Construct a new Bytes variant of ResponseBody
@@ -349,8 +362,10 @@ impl<B> ResponseBody<B> {
     where
         Bytes: From<B2>,
     {
-        Self::Bytes {
-            bytes: Bytes::from(bytes),
+        Self {
+            inner: ResponseBodyInner::Bytes {
+                bytes: Bytes::from(bytes),
+            },
         }
     }
 
@@ -361,10 +376,10 @@ impl<B> ResponseBody<B> {
         B: Stream<Item = Result<Bytes, E>> + 'static,
         E: error::Error + Send + Sync + 'static,
     {
-        match self {
-            Self::None => ResponseBody::None,
-            Self::Bytes { bytes } => ResponseBody::bytes(bytes),
-            Self::Stream { stream } => ResponseBody::box_stream(stream),
+        match self.inner {
+            ResponseBodyInner::None => ResponseBody::none(),
+            ResponseBodyInner::Bytes { bytes } => ResponseBody::bytes(bytes),
+            ResponseBodyInner::Stream { stream } => ResponseBody::box_stream(stream),
         }
     }
 }
@@ -375,10 +390,11 @@ where
 {
     type Item = Result<Bytes, E>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.as_mut().project() {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut inner = self.project().inner;
+        match inner.as_mut().project() {
             ResponseBodyProj::None => Poll::Ready(None),
-            ResponseBodyProj::Bytes { .. } => match self.project_replace(ResponseBody::None) {
+            ResponseBodyProj::Bytes { .. } => match inner.project_replace(ResponseBodyInner::None) {
                 ResponseBodyProjReplace::Bytes { bytes } => Poll::Ready(Some(Ok(bytes))),
                 _ => unreachable!(),
             },
@@ -387,17 +403,17 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            Self::None => none_body_hint(),
-            Self::Bytes { ref bytes } => exact_body_hint(bytes.len()),
-            Self::Stream { ref stream } => stream.size_hint(),
+        match self.inner {
+            ResponseBodyInner::None => none_body_hint(),
+            ResponseBodyInner::Bytes { ref bytes } => exact_body_hint(bytes.len()),
+            ResponseBodyInner::Stream { ref stream } => stream.size_hint(),
         }
     }
 }
 
 impl<B> From<NoneBody<B>> for ResponseBody {
     fn from(_: NoneBody<B>) -> Self {
-        ResponseBody::None
+        ResponseBody::none()
     }
 }
 

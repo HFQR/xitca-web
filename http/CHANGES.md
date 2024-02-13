@@ -3,6 +3,7 @@
 - add `util::middleware::catch_unwind`. A middleware catches panic and output it as error.
 
 ## Change
+- `body::ResponseBody` doesn't expose it's enum variants in public API anymore.
 - `util::middleware::Logger` does not expect `tracing::Span` anymore instead it wants `tracing::Level` for defining the verbosity of span. it would make new span per request with given `Level`. `Logger` middleware requires the service type it enclosed with it's `Service::Error` type bound to `std::error::Error` trait instead of only `std::fmt::Debug`. providing a better tracing output.
 - update `xitca-unsafe-collection` to `0.1.1`.
 
