@@ -96,7 +96,7 @@ mod service {
                     ServeError::MethodNotAllowed => {
                         RouterError::NotAllowed(MethodNotAllowed(vec![Method::GET, Method::HEAD]))
                     }
-                    ServeError::Io(_) => RouterError::Service(Error::from(ErrorStatus::internal())),
+                    ServeError::Io(io) => RouterError::Service(Error::from(io)),
                     _ => RouterError::Service(Error::from(ErrorStatus::bad_request())),
                 }),
             }
