@@ -602,7 +602,7 @@ mod test {
             type Error = Infallible;
 
             async fn call(&self, _: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
-                Ok(WebResponse::new(ResponseBody::None))
+                Ok(WebResponse::new(ResponseBody::none()))
             }
         }
 
