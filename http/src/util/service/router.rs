@@ -7,11 +7,10 @@ use std::{borrow::Cow, collections::HashMap, error};
 use xitca_service::{
     object::{BoxedServiceObject, BoxedSyncServiceObject},
     pipeline::PipelineT,
-    ready::ReadyService,
     FnService, Service,
 };
 
-use crate::http::{BorrowReq, BorrowReqMut, Request, Uri};
+use crate::http::Request;
 
 use super::{
     handler::HandlerService,
@@ -25,44 +24,6 @@ use super::{
 pub struct Router<Obj> {
     routes: HashMap<Cow<'static, str>, Obj>,
 }
-
-/// Error type of Router service.
-pub enum RouterError<E> {
-    /// failed to match on a routed service.
-    Match(MatchError),
-    /// a match of service is found but it's not allowed for access.
-    NotAllowed(MethodNotAllowed),
-    /// error produced by routed service.
-    Service(E),
-}
-
-impl<E> fmt::Debug for RouterError<E>
-where
-    E: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Match(ref e) => fmt::Debug::fmt(e, f),
-            Self::NotAllowed(ref e) => fmt::Debug::fmt(e, f),
-            Self::Service(ref e) => fmt::Debug::fmt(e, f),
-        }
-    }
-}
-
-impl<E> fmt::Display for RouterError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Match(ref e) => fmt::Display::fmt(e, f),
-            Self::NotAllowed(ref e) => fmt::Display::fmt(e, f),
-            Self::Service(ref e) => fmt::Display::fmt(e, f),
-        }
-    }
-}
-
-impl<E> error::Error for RouterError<E> where E: error::Error {}
 
 impl<Obj> Default for Router<Obj> {
     fn default() -> Self {
@@ -110,6 +71,64 @@ impl<Obj> Router<Obj> {
         self
     }
 }
+
+impl<Obj, Arg> Service<Arg> for Router<Obj>
+where
+    Obj: Service<Arg>,
+    Arg: Clone,
+{
+    type Response = service::RouterService<Obj::Response>;
+    type Error = Obj::Error;
+
+    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+        let mut router = xitca_router::Router::new();
+
+        for (path, service) in self.routes.iter() {
+            let service = service.call(arg.clone()).await?;
+            router.insert(path.to_string(), service).unwrap();
+        }
+
+        Ok(service::RouterService(router))
+    }
+}
+
+/// Error type of Router service.
+pub enum RouterError<E> {
+    /// failed to match on a routed service.
+    Match(MatchError),
+    /// a match of service is found but it's not allowed for access.
+    NotAllowed(MethodNotAllowed),
+    /// error produced by routed service.
+    Service(E),
+}
+
+impl<E> fmt::Debug for RouterError<E>
+where
+    E: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Match(ref e) => fmt::Debug::fmt(e, f),
+            Self::NotAllowed(ref e) => fmt::Debug::fmt(e, f),
+            Self::Service(ref e) => fmt::Debug::fmt(e, f),
+        }
+    }
+}
+
+impl<E> fmt::Display for RouterError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Match(ref e) => fmt::Display::fmt(e, f),
+            Self::NotAllowed(ref e) => fmt::Display::fmt(e, f),
+            Self::Service(ref e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl<E> error::Error for RouterError<E> where E: error::Error {}
 
 /// trait for specialized route generation when utilizing [Router::insert].
 pub trait RouterGen {
@@ -205,80 +224,12 @@ impl<S, Arg> Service<Arg> for RouterMapErr<S>
 where
     S: Service<Arg>,
 {
-    type Response = MapErrService<S::Response>;
+    type Response = service::MapErrService<S::Response>;
     type Error = S::Error;
 
     async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
-        self.0.call(arg).await.map(MapErrService)
+        self.0.call(arg).await.map(service::MapErrService)
     }
-}
-
-pub struct MapErrService<S>(S);
-
-impl<S, Req> Service<Req> for MapErrService<S>
-where
-    S: Service<Req>,
-{
-    type Response = S::Response;
-    type Error = RouterError<S::Error>;
-
-    #[inline]
-    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        self.0.call(req).await.map_err(RouterError::Service)
-    }
-}
-
-impl<Obj, Arg> Service<Arg> for Router<Obj>
-where
-    Obj: Service<Arg>,
-    Arg: Clone,
-{
-    type Response = RouterService<Obj::Response>;
-    type Error = Obj::Error;
-
-    async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
-        let mut routes = xitca_router::Router::new();
-
-        for (path, service) in self.routes.iter() {
-            let service = service.call(arg.clone()).await?;
-            routes.insert(path.to_string(), service).unwrap();
-        }
-
-        Ok(RouterService { routes })
-    }
-}
-
-pub struct RouterService<S> {
-    routes: xitca_router::Router<S>,
-}
-
-impl<S, Req, E> Service<Req> for RouterService<S>
-where
-    S: Service<Req, Error = RouterError<E>>,
-    Req: BorrowReq<Uri> + BorrowReqMut<Params>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-
-    // as of the time of committing rust compiler have problem optimizing this piece of code.
-    // using async fn call directly would cause significant code bloating.
-    #[allow(clippy::manual_async_fn)]
-    #[inline]
-    fn call(&self, mut req: Req) -> impl core::future::Future<Output = Result<Self::Response, Self::Error>> {
-        async {
-            let xitca_router::Match { value, params } =
-                self.routes.at(req.borrow().path()).map_err(RouterError::Match)?;
-            *req.borrow_mut() = params;
-            Service::call(value, req).await
-        }
-    }
-}
-
-impl<S> ReadyService for RouterService<S> {
-    type Ready = ();
-
-    #[inline]
-    async fn ready(&self) -> Self::Ready {}
 }
 
 /// An object constructor represents a one of possibly many ways to create a trait object from `I`.
@@ -337,11 +288,65 @@ pub trait TypedRoute<M = ()> {
     fn route() -> Self::Route;
 }
 
+mod service {
+    use xitca_service::ready::ReadyService;
+
+    use crate::http::{BorrowReq, BorrowReqMut, Uri};
+
+    use super::{Params, RouterError, Service};
+
+    pub struct RouterService<S>(pub(super) xitca_router::Router<S>);
+
+    impl<S, Req, E> Service<Req> for RouterService<S>
+    where
+        S: Service<Req, Error = RouterError<E>>,
+        Req: BorrowReq<Uri> + BorrowReqMut<Params>,
+    {
+        type Response = S::Response;
+        type Error = S::Error;
+
+        // as of the time of committing rust compiler have problem optimizing this piece of code.
+        // using async fn call directly would cause significant code bloating.
+        #[allow(clippy::manual_async_fn)]
+        #[inline]
+        fn call(&self, mut req: Req) -> impl core::future::Future<Output = Result<Self::Response, Self::Error>> {
+            async {
+                let xitca_router::Match { value, params } =
+                    self.0.at(req.borrow().path()).map_err(RouterError::Match)?;
+                *req.borrow_mut() = params;
+                Service::call(value, req).await
+            }
+        }
+    }
+
+    impl<S> ReadyService for RouterService<S> {
+        type Ready = ();
+
+        #[inline]
+        async fn ready(&self) -> Self::Ready {}
+    }
+
+    pub struct MapErrService<S>(pub(super) S);
+
+    impl<S, Req> Service<Req> for MapErrService<S>
+    where
+        S: Service<Req>,
+    {
+        type Response = S::Response;
+        type Error = RouterError<S::Error>;
+
+        #[inline]
+        async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+            self.0.call(req).await.map_err(RouterError::Service)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use core::convert::Infallible;
 
-    use xitca_service::{fn_service, Service, ServiceExt};
+    use xitca_service::{fn_service, ready::ReadyService, Service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
