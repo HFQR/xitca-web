@@ -8,7 +8,7 @@ use xitca_service::{ready::ReadyService, Service};
 
 use crate::http::{BorrowReq, Method};
 
-use super::router_priv::RouterError;
+use super::router::RouterError;
 
 macro_rules! method {
     ($method_fn: ident, $method: ident) => {
