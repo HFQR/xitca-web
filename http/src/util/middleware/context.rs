@@ -1,6 +1,8 @@
+//! middleware for adding typed state to service request.
+
 use core::{fmt, future::Future};
 
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::Service;
 
 use crate::http::{BorrowReq, BorrowReqMut};
 
@@ -106,48 +108,54 @@ where
     CErr: fmt::Debug + 'static,
     E: fmt::Debug + 'static,
 {
-    type Response = ContextService<C, S>;
+    type Response = service::ContextService<C, S>;
     type Error = Error;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
         let service = res.map_err(|e| Box::new(e) as Error)?;
         let state = (self.builder)().await.map_err(|e| Box::new(e) as Error)?;
-        Ok(ContextService { service, state })
+        Ok(service::ContextService { service, state })
     }
 }
 
-pub struct ContextService<C, S> {
-    state: C,
-    service: S,
-}
+mod service {
+    use xitca_service::ready::ReadyService;
 
-impl<Req, C, S, Res, Err> Service<Req> for ContextService<C, S>
-where
-    S: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>,
-{
-    type Response = Res;
-    type Error = Err;
+    use super::*;
 
-    #[inline]
-    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        self.service
-            .call(Context {
-                req,
-                state: &self.state,
-            })
-            .await
+    pub struct ContextService<C, S> {
+        pub(super) state: C,
+        pub(super) service: S,
     }
-}
 
-impl<C, S> ReadyService for ContextService<C, S>
-where
-    S: ReadyService,
-{
-    type Ready = S::Ready;
+    impl<Req, C, S, Res, Err> Service<Req> for ContextService<C, S>
+    where
+        S: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>,
+    {
+        type Response = Res;
+        type Error = Err;
 
-    #[inline]
-    async fn ready(&self) -> Self::Ready {
-        self.service.ready().await
+        #[inline]
+        async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+            self.service
+                .call(Context {
+                    req,
+                    state: &self.state,
+                })
+                .await
+        }
+    }
+
+    impl<C, S> ReadyService for ContextService<C, S>
+    where
+        S: ReadyService,
+    {
+        type Ready = S::Ready;
+
+        #[inline]
+        async fn ready(&self) -> Self::Ready {
+            self.service.ready().await
+        }
     }
 }
 

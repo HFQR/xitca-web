@@ -36,17 +36,20 @@
 
 #![forbid(unsafe_code)]
 
+mod tls;
+
 #[cfg(feature = "runtime")]
 mod builder;
 #[cfg(feature = "runtime")]
 mod service;
-mod tls;
 #[cfg(feature = "runtime")]
 mod version;
 
 pub mod body;
+pub mod config;
 pub mod error;
 pub mod http;
+pub mod util;
 
 #[cfg(feature = "runtime")]
 pub mod date;
@@ -57,17 +60,17 @@ pub mod h2;
 #[cfg(feature = "http3")]
 pub mod h3;
 
-pub mod config;
-pub mod util;
-
 /// re-export bytes crate as module.
 pub use xitca_io::bytes;
 
-pub use self::body::{RequestBody, ResponseBody};
+pub use self::{
+    body::{RequestBody, ResponseBody},
+    error::{BodyError, HttpServiceError},
+    http::{Request, Response},
+};
+
 #[cfg(feature = "runtime")]
 pub use self::builder::HttpServiceBuilder;
-pub use self::error::{BodyError, HttpServiceError};
-pub use self::http::{Request, Response};
 
 // TODO: enable this conflict feature check.
 // temporary compile error for conflicted feature combination.
