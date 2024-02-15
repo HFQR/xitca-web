@@ -4,6 +4,7 @@ pub use ::http::*;
 
 use core::{
     borrow::{Borrow, BorrowMut},
+    mem,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -53,8 +54,31 @@ pub mod const_header_name {
     const_name!((PROTOCOL, "protocol"));
 }
 
-/// Helper trait for convert a [Request] to [Response].
-/// This is for re-use request's heap allocation and pass down the context data inside [Extensions]
+/// helper trait for converting a [Request] to [Response].
+/// This is a memory optimization for re-use heap allocation and pass down the context data
+/// inside [Extensions] from request to response.
+///
+/// # Example
+/// ```rust
+/// # use xitca_http::http::{Request, Response};
+/// // arbitrary typed state inserted into request type.
+/// #[derive(Clone)]
+/// struct Foo;
+///
+/// fn into_response(mut req: Request<()>) -> Response<()> {
+///     req.extensions_mut().insert(Foo); // insert Foo to request's extensions type map.
+///     
+///     // convert request into response in place with the same memory allocation.
+///     use xitca_http::http::IntoResponse;
+///     let res = req.into_response(());
+///     
+///     // the memory is re-used so Foo type is accessible from response's extensions type map.
+///     assert!(res.extensions().get::<Foo>().is_some());
+///
+///     res
+/// }
+///
+/// ```
 pub trait IntoResponse<B, ResB> {
     fn into_response(self, body: B) -> Response<ResB>;
 
@@ -62,7 +86,7 @@ pub trait IntoResponse<B, ResB> {
     where
         Self: Default,
     {
-        std::mem::take(self).into_response(body)
+        mem::take(self).into_response(body)
     }
 }
 
@@ -93,11 +117,14 @@ where
 use super::util::service::router::Params;
 
 pin_project! {
-    /// typed http extension
+    /// extension types for [Request]
     #[derive(Debug)]
     pub struct RequestExt<B> {
         #[pin]
         body: B,
+        // http::Extensions is often brought up as an alternative for extended states but in general
+        // xitca tries to be strongly typed when possible. runtime type casting is meant for library
+        // consumer but not library itself.
         ext: Extension,
     }
 }
@@ -141,16 +168,22 @@ impl<B> RequestExt<B> {
         Self { body, ext }
     }
 
+    /// retrieve remote peer's socket address.
+    ///
+    /// # Default
+    /// [std::net::Ipv4Addr::UNSPECIFIED] is used for representing peers that can't provide it's socket address.
     #[inline]
     pub fn socket_addr(&self) -> &SocketAddr {
         &self.ext.0.addr
     }
 
+    /// exclusive version of [RequestExt::socket_addr]
     #[inline]
     pub fn socket_addr_mut(&mut self) -> &mut SocketAddr {
         &mut self.ext.0.addr
     }
 
+    /// map body type of self to another type with given function closure.
     #[inline]
     pub fn map_body<F, B1>(self, func: F) -> RequestExt<B1>
     where
@@ -162,24 +195,13 @@ impl<B> RequestExt<B> {
         }
     }
 
+    /// replace body type of self with another type and return new type of Self and original body type
+    /// in tuple.
     #[inline]
     pub fn replace_body<B1>(self, body: B1) -> (RequestExt<B1>, B) {
         let body_org = self.body;
 
         (RequestExt { body, ext: self.ext }, body_org)
-    }
-}
-
-#[cfg(feature = "router")]
-impl<B> RequestExt<B> {
-    #[inline]
-    pub fn params(&self) -> &Params {
-        &self.ext.0.params
-    }
-
-    #[inline]
-    pub fn params_mut(&mut self) -> &mut Params {
-        &mut self.ext.0.params
     }
 }
 
@@ -217,18 +239,35 @@ impl<B> Borrow<SocketAddr> for RequestExt<B> {
 }
 
 #[cfg(feature = "router")]
-impl<B> Borrow<Params> for RequestExt<B> {
-    #[inline]
-    fn borrow(&self) -> &Params {
-        self.params()
-    }
-}
+mod router {
+    use super::*;
 
-#[cfg(feature = "router")]
-impl<B> BorrowMut<Params> for RequestExt<B> {
-    #[inline]
-    fn borrow_mut(&mut self) -> &mut Params {
-        self.params_mut()
+    impl<B> RequestExt<B> {
+        /// retrieve shared reference of route [Params].
+        #[inline]
+        pub fn params(&self) -> &Params {
+            &self.ext.0.params
+        }
+
+        /// retrieve exclusive reference of route [Params].
+        #[inline]
+        pub fn params_mut(&mut self) -> &mut Params {
+            &mut self.ext.0.params
+        }
+    }
+
+    impl<B> Borrow<Params> for RequestExt<B> {
+        #[inline]
+        fn borrow(&self) -> &Params {
+            self.params()
+        }
+    }
+
+    impl<B> BorrowMut<Params> for RequestExt<B> {
+        #[inline]
+        fn borrow_mut(&mut self) -> &mut Params {
+            self.params_mut()
+        }
     }
 }
 

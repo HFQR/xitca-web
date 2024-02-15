@@ -1,20 +1,15 @@
-mod context_priv;
 mod extension;
 mod logger;
-
-pub mod context {
-    pub use super::context_priv::{Context, ContextBuilder};
-}
-
-pub mod catch_unwind;
 
 #[cfg(not(target_family = "wasm"))]
 #[cfg(feature = "runtime")]
 mod socket_config;
 
-pub use extension::Extension;
-pub use logger::Logger;
+pub mod catch_unwind;
+pub mod context;
+
+pub use self::{extension::Extension, logger::Logger};
 
 #[cfg(not(target_family = "wasm"))]
 #[cfg(feature = "runtime")]
-pub use socket_config::SocketConfig;
+pub use self::socket_config::SocketConfig;
