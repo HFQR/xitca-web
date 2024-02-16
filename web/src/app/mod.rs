@@ -86,7 +86,124 @@ impl App {
 }
 
 impl<Obj, CF> App<AppRouter<Obj>, CF> {
-    /// insert routed service with given path to application.
+    /// insert routed service with given string literal as route path to application. services will be routed with following rules:
+    ///
+    /// # Parameters
+    ///
+    /// Along with static routes, the router also supports dynamic route segments. These can either be named or catch-all parameters:
+    ///
+    /// ## Named Parameters
+    /// Named parameters like `/:id` match anything until the next `/` or the end of the path:
+    /// ```rust
+    /// # fn main() {
+    /// #   #[cfg(feature = "params")]
+    /// #   _main();
+    /// # }
+    /// #
+    /// # #[cfg(feature = "params")]
+    /// # fn _main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use xitca_unsafe_collection::futures::NowOrPanic;
+    /// # use xitca_web::{
+    /// #   handler::{handler_service, params::Params},
+    /// #   http::{Request, StatusCode},
+    /// #   route::get,
+    /// #   service::Service,
+    /// #   App
+    /// # };
+    /// // register named param pattern to handler service.
+    /// let app = App::new().at("/users/:id", get(handler_service(handler)));
+    ///
+    /// // handler function try to extract a single key/value string pair from url params.
+    /// async fn handler(Params(val): Params<u32>) -> StatusCode {
+    ///     // the value matches the string literal and it's routing rule registered in App::at.
+    ///     assert_eq!(val, 996);
+    ///     StatusCode::OK
+    /// }
+    ///
+    /// // boilerplate for starting application service in test. in real world this should be achieved
+    /// // through App::serve API
+    /// let app_service = app.finish().call(()).now_or_panic().unwrap();
+    ///
+    /// // get request with uri can be matched against registered route.
+    /// let req = Request::builder().uri("/users/996").body(Default::default())?;
+    ///
+    /// // execute application service where the request would match handler function
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    ///
+    /// // :x pattern only match till next /. and in following request's case it will not find a matching route.
+    /// let req = Request::builder().uri("/users/996/fool").body(Default::default())?;
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Catch-all Parameters
+    /// Catch-all parameters start with `*` and match everything after the `/`.
+    /// They must always be at the **end** of the route:
+    /// ```rust
+    /// # fn main() {
+    /// #   #[cfg(feature = "params")]
+    /// #   _main();
+    /// # }
+    /// #
+    /// # #[cfg(feature = "params")]
+    /// # fn _main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use xitca_unsafe_collection::futures::NowOrPanic;
+    /// # use xitca_web::{
+    /// #   handler::{handler_service, params::Params},
+    /// #   http::{Request, StatusCode},
+    /// #   route::get,
+    /// #   service::Service,
+    /// #   App
+    /// # };
+    /// // register named param pattern to handler service.
+    /// let app = App::new().at("/*path", get(handler_service(handler)));
+    ///
+    /// // handler function try to extract a single key/value string pair from url params.
+    /// async fn handler(Params(path): Params<String>) -> StatusCode {
+    ///     assert!(path.ends_with(".css"));
+    ///     StatusCode::OK
+    /// }
+    ///
+    /// // boilerplate for starting application service in test. in real world this should be achieved
+    /// // through App::serve API
+    /// let app_service = app.finish().call(()).now_or_panic().unwrap();
+    ///
+    /// // get request with uri can be matched against registered route.
+    /// let req = Request::builder().uri("/foo/bar.css").body(Default::default())?;
+    ///
+    /// // execute application service where the request would match handler function
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    ///
+    /// // :x* pattern match till the end of uri path. in following request's case it will match against hander
+    /// let req = Request::builder().uri("/foo/bar/baz.css").body(Default::default())?;
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Routing Priority
+    /// Static and dynamic route segments are allowed to overlap. If they do, static segments will be given higher priority:
+    /// ```rust
+    /// # use xitca_web::{
+    /// #   handler::{html::Html, redirect::Redirect, handler_service},
+    /// #   route::get,
+    /// #   App
+    /// # };
+    /// let app = App::new()
+    ///     .at("/", Redirect::see_other("/index.html"))        // high priority
+    ///     .at("/index.html", Html("<h1>Hello,World!</h1>"))   // high priority
+    ///     .at("/*path", get(handler_service(handler)))        // low priority
+    ///     .serve();
+    ///
+    /// async fn handler() -> &'static str {
+    ///     "todo"
+    /// }
+    /// ```
     pub fn at<F, C, B>(mut self, path: &'static str, builder: F) -> Self
     where
         F: RouterGen + Service + Send + Sync,
@@ -196,8 +313,8 @@ where
     R: Service + Send + Sync,
     R::Error: fmt::Debug + 'static,
 {
-    /// Enclose App with middleware type.
-    /// Middleware must impl [Service] trait.
+    /// Enclose App with middleware type. Middleware must impl [Service] trait.
+    /// See [middleware](crate::middleware) for more.
     pub fn enclosed<T>(self, transform: T) -> App<EnclosedBuilder<R, T>, CF>
     where
         T: Service<Result<R::Response, R::Error>>,
@@ -209,6 +326,7 @@ where
     }
 
     /// Enclose App with function as middleware type.
+    /// See [middleware](crate::middleware) for more.
     pub fn enclosed_fn<Req, T>(self, transform: T) -> App<EnclosedFnBuilder<R, T>, CF>
     where
         T: for<'s> AsyncClosure<(&'s R::Response, Req)> + Clone,
