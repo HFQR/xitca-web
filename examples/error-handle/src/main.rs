@@ -6,7 +6,12 @@
 use std::{convert::Infallible, error, fmt};
 
 use xitca_web::{
-    error::Error, handler::handler_service, http::WebResponse, route::get, service::Service, App, WebContext,
+    error::Error,
+    handler::handler_service,
+    http::{StatusCode, WebResponse},
+    route::get,
+    service::Service,
+    App, WebContext,
 };
 
 fn main() -> std::io::Result<()> {
@@ -65,7 +70,7 @@ impl<'r, C> Service<WebContext<'r, C>> for MyError {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
-        xitca_web::error::BadRequest.call(ctx).await
+        StatusCode::BAD_REQUEST.call(ctx).await
     }
 }
 

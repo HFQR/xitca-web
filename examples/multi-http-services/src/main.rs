@@ -17,12 +17,10 @@ use xitca_http::{
     util::middleware::{Logger, SocketConfig},
     HttpServiceBuilder, ResponseBody,
 };
-use xitca_service::{fn_service, middleware::Group, ServiceExt};
+use xitca_service::{fn_service, ServiceExt};
 
 fn main() -> io::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("xitca=info,[xitca-logger]=trace")
-        .init();
+    tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).init();
 
     // construct http2 openssl config.
     let acceptor = h2_config()?;
@@ -37,18 +35,16 @@ fn main() -> io::Result<()> {
             "http/1",
             "127.0.0.1:8080",
             fn_service(handler_h1)
+                .enclosed(Logger::new())
                 .enclosed(HttpServiceBuilder::h1())
-                .enclosed(SocketConfig::new())
-                .enclosed(Logger::default()),
+                .enclosed(SocketConfig::new()),
         )?
         // bind to a http/2 service.
         // *. http/1 and http/2 both use tcp listener so it should be using a separate port.
         .bind(
             "http/2",
             "127.0.0.1:8081",
-            fn_service(handler_h2)
-                .enclosed(HttpServiceBuilder::h2().openssl(acceptor))
-                .enclosed(Logger::default()),
+            fn_service(handler_h2).enclosed(HttpServiceBuilder::h2().openssl(acceptor)),
         )?
         // bind to a http/3 service.
         // *. note the service name must be unique.
@@ -59,12 +55,7 @@ fn main() -> io::Result<()> {
             "http/3",
             "127.0.0.1:8081",
             config,
-            fn_service(handler_h3).enclosed(
-                // a show case of nested enclosed middleware
-                Group::new()
-                    .enclosed(HttpServiceBuilder::h3())
-                    .enclosed(Logger::default()),
-            ),
+            fn_service(handler_h3).enclosed(HttpServiceBuilder::h3()),
         )?
         .build()
         .wait()

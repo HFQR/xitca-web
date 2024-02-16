@@ -5,14 +5,15 @@ use std::{io, pin::pin};
 use tracing::info;
 use xitca_web::{
     handler::{handler_service, multipart::Multipart},
+    middleware::Logger,
     route::post,
     App,
 };
 
 fn main() -> io::Result<()> {
-    tracing_subscriber::fmt().with_env_filter("[xitca-logger]=info").init();
     App::new()
         .at("/", post(handler_service(root)))
+        .enclosed(Logger::new())
         .serve()
         .bind("127.0.0.1:8080")?
         .run()

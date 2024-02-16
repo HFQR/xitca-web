@@ -15,7 +15,7 @@ use xitca_web::{
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt().with_env_filter("[xitca-logger]=trace").init();
+    tracing_subscriber::fmt().init();
     App::new()
         .with_state(String::from("Hello,World!"))
         .at_typed(root)

@@ -1,4 +1,6 @@
-# unreleased 0.3.0
+# unreleased
+
+# 0.3.0
 ## Add
 - enable Rust nightly feature `error_generic_member_access` when `xitca-web`'s `nightly` crate feature is enabled. this enables runtime context type interaction like `std::backtrace::Backtrace` for enhanced error handling.
 - `ErrorStatus` error type would try to capture `Backtrace`.

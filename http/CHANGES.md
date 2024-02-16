@@ -1,4 +1,6 @@
-# unreleased 0.3.0
+# unreleased
+
+# 0.3.0
 ## Add
 - add `util::middleware::catch_unwind`. A middleware catches panic and output it as error.
 
