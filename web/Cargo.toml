@@ -1,6 +1,6 @@
 [package]
 name = "xitca-web"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "an async web framework"
@@ -76,7 +76,7 @@ serde = ["dep:serde"]
 __server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
-xitca-http = { version = "0.3.0", features = ["router"], default-features = false }
+xitca-http = { version = "0.4.0", features = ["router"], default-features = false }
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = "0.1"
 
