@@ -1,7 +1,6 @@
 //! example of utilizing macro for routing service and handling error.
 
 use xitca_web::{
-    bytes::Bytes,
     codegen::{error_impl, route},
     handler::state::{StateOwn, StateRef},
     http::{StatusCode, WebResponse},
@@ -47,7 +46,6 @@ where
     // enclosed async function handler with given middleware function.
     enclosed_fn = middleware_fn,
     // multiple middlewares can be applied.
-    enclosed_fn = middleware_fn,
     // typed middleware can be used though the constructor must be in place of the attribute.
     enclosed = Logger::new()
 )]
@@ -81,7 +79,7 @@ async fn private() -> Result<WebResponse, MyError> {
     Err(MyError::Private)
 }
 
-// derive error type with thiserror for Debug, Display and Error trait impl
+// derive error type with thiserror and Debug macro.
 #[derive(thiserror::Error, Debug)]
 enum MyError {
     #[error("error from /private")]
@@ -91,10 +89,8 @@ enum MyError {
 // error_impl is an attribute macro for http response generation
 #[error_impl]
 impl MyError {
-    // generate a blank 400 response.
+    // generate a blank 400 response by forwarding to StatusCode's default error impl.
     async fn call<C>(&self, ctx: WebContext<'_, C>) -> WebResponse {
-        let mut res = ctx.into_response(Bytes::new());
-        *res.status_mut() = StatusCode::BAD_REQUEST;
-        res
+        StatusCode::BAD_REQUEST.call(ctx).await.unwrap()
     }
 }
