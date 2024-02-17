@@ -104,7 +104,15 @@ impl Client {
     method!(delete, DELETE);
     method!(options, OPTIONS);
     method!(head, HEAD);
-    method!(connect, CONNECT);
+
+    pub fn connect<U>(&self, url: U) -> Result<crate::tunnel::TunnelRequest<'_>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        self.get(url)
+            .map(|req| crate::tunnel::TunnelRequest::new(req.method(Method::CONNECT)))
+    }
 
     #[cfg(feature = "websocket")]
     /// Start a new websocket request.

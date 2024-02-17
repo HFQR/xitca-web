@@ -3,10 +3,8 @@
 pub use http_ws::Message;
 
 use core::{
-    ops::{Deref, DerefMut},
     pin::Pin,
     task::{ready, Context, Poll},
-    time::Duration,
 };
 
 use std::sync::Mutex;
@@ -14,66 +12,39 @@ use std::sync::Mutex;
 use futures_core::stream::Stream;
 use futures_sink::Sink;
 use http_ws::{Codec, RequestStream, WsError};
-use xitca_http::bytes::{Buf, BytesMut};
 
 use super::{
     body::BodyError,
     body::ResponseBody,
+    bytes::{Buf, BytesMut},
     error::Error,
-    http::{Method, Version},
-    request::RequestBuilder,
+    http::{StatusCode, Version},
+    tunnel::TunnelRequest,
 };
 
 /// new type of [RequestBuilder] with extended functionality for websocket handling.
-pub struct WsRequest<'a>(RequestBuilder<'a>);
+pub type WsRequest<'a> = TunnelRequest<'a, marker::WebSocket>;
 
-impl<'a> Deref for WsRequest<'a> {
-    type Target = RequestBuilder<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a> DerefMut for WsRequest<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+mod marker {
+    pub struct WebSocket;
 }
 
 impl<'a> WsRequest<'a> {
-    pub(super) fn new(req: RequestBuilder<'a>) -> Self {
-        Self(req)
-    }
-
-    /// Set HTTP method of this request.
-    pub fn method(mut self, method: Method) -> Self {
-        self.0 = self.0.method(method);
-        self
-    }
-
-    #[doc(hidden)]
-    /// Set HTTP version of this request.
-    ///
-    /// By default request's HTTP version depends on network stream
-    pub fn version(mut self, version: Version) -> Self {
-        self.0 = self.0.version(version);
-        self
-    }
-
-    /// Set timeout of this request.
-    ///
-    /// The value passed would override global [ClientBuilder::set_request_timeout].
-    ///
-    /// [ClientBuilder::set_request_timeout]: crate::ClientBuilder::set_request_timeout
-    pub fn timeout(mut self, dur: Duration) -> Self {
-        self.0 = self.0.timeout(dur);
-        self
-    }
-
     /// Send the request and wait for response asynchronously.
     pub async fn send(self) -> Result<WebSocket<'a>, Error> {
-        let res = self.0.send().await?;
+        let res = self.req.send().await?;
+
+        let status = res.status();
+        let expect_status = match res.version() {
+            Version::HTTP_11 if status != StatusCode::SWITCHING_PROTOCOLS => Some(StatusCode::SWITCHING_PROTOCOLS),
+            Version::HTTP_2 if status != StatusCode::OK => Some(StatusCode::OK),
+            _ => None,
+        };
+
+        if let Some(expect_status) = expect_status {
+            return Err(Error::Std(format!("expecting {expect_status}, got {status}").into()));
+        }
+
         let body = res.res.into_body();
         WebSocket::try_from_body(body)
     }
@@ -125,8 +96,6 @@ pub struct WebSocket<'c> {
 
 impl<'a> WebSocket<'a> {
     pub(crate) fn try_from_body(body: ResponseBody<'a>) -> Result<Self, Error> {
-        // TODO: check body to make sure only H1 and H2 are accepted.
-
         Ok(Self {
             inner: Mutex::new(WebSocketInner {
                 codec: Codec::new().client_mode(),
