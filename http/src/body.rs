@@ -166,18 +166,25 @@ where
         Poll::Ready(mem::replace(self.get_mut(), Self(None)).0.map(Ok))
     }
 
-    // use the length of buffer as both lower bound and upperbound.
+    // use the length of buffer as both lower bound and upper bound.
     fn size_hint(&self) -> (usize, Option<usize>) {
-        match self.0 {
-            Some(ref b) => exact_body_hint(b.remaining()),
-            None => unreachable!("Once must check size_hint before it got polled"),
-        }
+        self.0
+            .as_ref()
+            .map(|b| exact_body_hint(b.remaining()))
+            .expect("Once must check size_hint before it got polled")
+    }
+}
+
+pin_project! {
+    pub struct Either<L, R> {
+        #[pin]
+        inner: EitherInner<L, R>
     }
 }
 
 pin_project! {
     #[project = EitherProj]
-    pub enum Either<L, R> {
+    enum EitherInner<L, R> {
         L {
             #[pin]
             inner: L
@@ -192,12 +199,16 @@ pin_project! {
 impl<L, R> Either<L, R> {
     #[inline]
     pub const fn left(inner: L) -> Self {
-        Self::L { inner }
+        Self {
+            inner: EitherInner::L { inner },
+        }
     }
 
     #[inline]
     pub const fn right(inner: R) -> Self {
-        Self::R { inner }
+        Self {
+            inner: EitherInner::R { inner },
+        }
     }
 }
 
@@ -211,7 +222,7 @@ where
 
     #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.project() {
+        match self.project().inner.project() {
             EitherProj::L { inner } => inner.poll_next(cx).map(|res| res.map(|res| res.map_err(Into::into))),
             EitherProj::R { inner } => inner.poll_next(cx),
         }
@@ -219,9 +230,9 @@ where
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        match *self {
-            Self::L { ref inner } => inner.size_hint(),
-            Self::R { ref inner } => inner.size_hint(),
+        match self.inner {
+            EitherInner::L { ref inner } => inner.size_hint(),
+            EitherInner::R { ref inner } => inner.size_hint(),
         }
     }
 }

@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.4.0
+## Change
+- `body::Either` doesn't expose it's enum variants in public API anymore.
 
 # 0.3.0
 ## Add
