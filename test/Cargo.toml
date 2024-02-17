@@ -8,18 +8,18 @@ io-uring = ["xitca-http/io-uring", "xitca-server/io-uring"]
 
 [dependencies]
 xitca-client = { version = "0.1", features = ["http2", "http3", "websocket", "dangerous"] }
-xitca-http = { version = "0.2.1", features = ["http2", "http3"] }
+xitca-http = { version = "0.3", features = ["http2", "http3"] }
 xitca-codegen = "0.1"
 xitca-io = "0.1"
 xitca-server = { version = "0.1", features = ["http3"] }
 xitca-service = "0.1"
 xitca-unsafe-collection = "0.1"
-xitca-web = "0.2.2"
+xitca-web = "0.3"
 
 http-ws = { version = "0.2", features = ["stream"] }
 
 futures-util = "0.3.17"
-h3-quinn = "0.0.4"
+h3-quinn = "0.0.5"
 rustls = "0.21"
 rustls-pemfile = "1"
 tokio = { version = "1.30", features = ["macros", "rt"] }
