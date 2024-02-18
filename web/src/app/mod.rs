@@ -88,8 +88,53 @@ impl App {
 impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// insert routed service with given string literal as route path to application. services will be routed with following rules:
     ///
-    /// # Parameters
+    /// # Static route
+    /// string literal matched against http request's uri path.
+    /// ```rust
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use xitca_unsafe_collection::futures::NowOrPanic;
+    /// # use xitca_web::{
+    /// #   handler::{handler_service, path::PathRef},
+    /// #   http::{Request, StatusCode},
+    /// #   route::get,
+    /// #   service::Service,
+    /// #   App
+    /// # };
+    /// // register string path to handler service.
+    /// let app = App::new().at("/users", get(handler_service(handler)));
     ///
+    /// // handler function extract request's uri path.
+    /// async fn handler(PathRef(path): PathRef<'_>) -> StatusCode {
+    ///     assert_eq!(path, "/users");
+    ///     StatusCode::OK
+    /// }
+    ///
+    /// // boilerplate for starting application service in test. in real world this should be achieved
+    /// // through App::serve API
+    /// let app_service = app.finish().call(()).now_or_panic().unwrap();
+    ///
+    /// // get request with uri can be matched against registered route.
+    /// let req = Request::builder().uri("/users").body(Default::default())?;
+    ///
+    /// // execute application service where the request would match handler function
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    ///
+    /// // http query is not included in the path matching.
+    /// let req = Request::builder().uri("/users?foo=bar").body(Default::default())?;
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    ///
+    /// // any change on uri path would result in no match of route.
+    /// let req = Request::builder().uri("/users/").body(Default::default())?;
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    ///
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Dynamic route
     /// Along with static routes, the router also supports dynamic route segments. These can either be named or catch-all parameters:
     ///
     /// ## Named Parameters
@@ -178,8 +223,49 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// let res = app_service.call(req).now_or_panic()?;
     /// assert_eq!(res.status(), StatusCode::OK);
     ///
-    /// // :x* pattern match till the end of uri path. in following request's case it will match against hander
+    /// // *x pattern match till the end of uri path. in following request's case it will match against handler
     /// let req = Request::builder().uri("/foo/bar/baz.css").body(Default::default())?;
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Implicit catch-all parameters
+    /// Built in http services require catch-all params would implicitly utilize them to reduce user input.
+    /// ```rust
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use xitca_unsafe_collection::futures::NowOrPanic;
+    /// # use xitca_web::{
+    /// #   handler::{handler_service, path::PathRef},
+    /// #   http::{Request, StatusCode},
+    /// #   route::get,
+    /// #   service::Service,
+    /// #   App
+    /// # };
+    /// // when nesting App is used as a route service it will silently register it as a catch-call param.
+    /// let app = App::new().at("/users", App::new()
+    ///     .at("/", get(handler_service(handler)))
+    ///     .at("/996", get(handler_service(handler)))
+    /// );
+    ///
+    /// // handler function.
+    /// async fn handler() -> StatusCode {
+    ///     StatusCode::OK
+    /// }
+    ///
+    /// // boilerplate for starting application service in test. in real world this should be achieved
+    /// // through App::serve API
+    /// let app_service = app.finish().call(()).now_or_panic().unwrap();
+    ///
+    /// // get request with uri can be matched against registered route.
+    /// let req = Request::builder().uri("/users/").body(Default::default())?;
+    ///
+    /// // execute application service where the request would match handler function
+    /// let res = app_service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    ///
+    /// let req = Request::builder().uri("/users/996").body(Default::default())?;
     /// let res = app_service.call(req).now_or_panic()?;
     /// assert_eq!(res.status(), StatusCode::OK);
     /// # Ok(())
