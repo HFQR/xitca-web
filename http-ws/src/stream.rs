@@ -185,7 +185,7 @@ impl ResponseSender {
     ///
     /// // thread1:
     /// // read and write websocket message.
-    /// async fn sender<S, T, E>(tx: ResponseSender, mut rx: Pin<&mut RequestStream<S, E>>)
+    /// async fn sender<S, T, E>(tx: ResponseSender, mut rx: Pin<&mut RequestStream<S>>)
     /// where
     ///     S: Stream<Item = Result<T, E>>,
     ///     T: AsRef<[u8]>,
