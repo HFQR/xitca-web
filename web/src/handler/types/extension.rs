@@ -2,13 +2,11 @@
 
 use core::{fmt, ops::Deref};
 
-use std::error;
-
 use crate::{
     context::WebContext,
-    error::{error_from_service, forward_blank_bad_request, Error},
+    error::{Error, ExtensionNotFound},
     handler::FromRequest,
-    http::{Extensions, WebResponse},
+    http::Extensions,
 };
 
 /// Extract immutable reference of element stored inside [Extensions]
@@ -36,7 +34,7 @@ where
             .extensions()
             .get::<T>()
             .map(ExtensionRef)
-            .ok_or_else(|| Error::from_service(ExtensionNotFound))
+            .ok_or_else(|| Error::from_service(ExtensionNotFound::from_type::<T>()))
     }
 }
 
@@ -70,7 +68,7 @@ where
             .extensions()
             .get::<T>()
             .map(|ext| ExtensionOwn(ext.clone()))
-            .ok_or_else(|| Error::from_service(ExtensionNotFound))
+            .ok_or_else(|| Error::from_service(ExtensionNotFound::from_type::<T>()))
     }
 }
 
@@ -94,18 +92,3 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionsRef<'a> {
         Ok(ExtensionsRef(ctx.req().extensions()))
     }
 }
-
-/// Absent type of request's (Extensions)[crate::http::Extensions] type map.
-#[derive(Debug)]
-pub struct ExtensionNotFound;
-
-impl fmt::Display for ExtensionNotFound {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Extension data type can not be found")
-    }
-}
-
-impl error::Error for ExtensionNotFound {}
-
-error_from_service!(ExtensionNotFound);
-forward_blank_bad_request!(ExtensionNotFound);

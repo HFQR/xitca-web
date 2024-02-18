@@ -3,7 +3,6 @@ use crate::{
     context::WebContext,
     error::{forward_blank_bad_request, Error},
     handler::FromRequest,
-    http::WebResponse,
 };
 
 pub type Multipart<B = RequestBody> = http_multipart::Multipart<B>;

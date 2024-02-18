@@ -22,7 +22,7 @@ use crate::{
     body::{BodyStream, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
-    error::Error,
+    error::{Error, HeaderNotFound},
     handler::{FromRequest, Responder},
     http::{
         header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
@@ -30,8 +30,6 @@ use crate::{
     },
     service::Service,
 };
-
-use super::header::HeaderNotFound;
 
 pub use http_ws::{ResponseSender, ResponseWeakSender};
 

@@ -70,6 +70,16 @@
 //! }
 //! ```
 
+mod extension;
+mod header;
+mod router;
+mod status;
+
+pub use extension::*;
+pub use header::*;
+pub use router::*;
+pub use status::*;
+
 use core::{
     any::Any,
     convert::Infallible,
@@ -77,23 +87,13 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use std::{backtrace::Backtrace, error, io, sync::Mutex};
+use std::{error, io, sync::Mutex};
 
-pub use xitca_http::{
-    error::BodyError,
-    util::service::{
-        route::MethodNotAllowed,
-        router::{MatchError, RouterError},
-    },
-};
+pub use xitca_http::error::BodyError;
 
 use crate::{
-    body::ResponseBody,
     context::WebContext,
-    http::{
-        header::{InvalidHeaderValue, ALLOW},
-        StatusCode, WebResponse,
-    },
+    http::WebResponse,
     service::{pipeline::PipelineE, Service},
 };
 
@@ -155,6 +155,7 @@ use self::service_impl::ErrorService;
 pub struct Error<C = ()>(Box<dyn for<'r> ErrorService<WebContext<'r, C>>>);
 
 impl<C> Error<C> {
+    // construct an error object from given service type.
     pub fn from_service<S>(s: S) -> Self
     where
         S: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>
@@ -227,12 +228,12 @@ pub(crate) use error_from_service;
 
 macro_rules! blank_error_service {
     ($type: ty, $status: path) => {
-        impl<'r, C, B> Service<WebContext<'r, C, B>> for $type {
-            type Response = WebResponse;
-            type Error = Infallible;
+        impl<'r, C, B> crate::service::Service<crate::WebContext<'r, C, B>> for $type {
+            type Response = crate::http::WebResponse;
+            type Error = ::core::convert::Infallible;
 
-            async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-                let mut res = ctx.into_response(ResponseBody::empty());
+            async fn call(&self, ctx: crate::WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+                let mut res = ctx.into_response(crate::body::ResponseBody::empty());
                 *res.status_mut() = $status;
                 Ok(res)
             }
@@ -240,11 +241,13 @@ macro_rules! blank_error_service {
     };
 }
 
+pub(crate) use blank_error_service;
+
 macro_rules! forward_blank_internal {
     ($type: ty) => {
         impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for $type {
-            type Response = WebResponse;
-            type Error = Infallible;
+            type Response = crate::http::WebResponse;
+            type Error = core::convert::Infallible;
 
             async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
                 crate::http::StatusCode::INTERNAL_SERVER_ERROR.call(ctx).await
@@ -257,11 +260,11 @@ pub(crate) use forward_blank_internal;
 
 macro_rules! forward_blank_bad_request {
     ($type: ty) => {
-        impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for $type {
-            type Response = WebResponse;
+        impl<'r, C, B> crate::service::Service<crate::WebContext<'r, C, B>> for $type {
+            type Response = crate::http::WebResponse;
             type Error = ::core::convert::Infallible;
 
-            async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+            async fn call(&self, ctx: crate::WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
                 crate::http::StatusCode::BAD_REQUEST.call(ctx).await
             }
         }
@@ -285,142 +288,8 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Infallible {
     }
 }
 
-/// error type derive from http status code. produce minimal "StatusCode Reason" response and stack backtrace
-/// of the location status code error occurs.
-pub struct ErrorStatus {
-    status: StatusCode,
-    _back_trace: Backtrace,
-}
-
-impl ErrorStatus {
-    /// construct an ErrorStatus type from [`StatusCode::INTERNAL_SERVER_ERROR`]
-    pub fn internal() -> Self {
-        // verbosity of constructor is desired here so back trace capture
-        // can direct capture the call site.
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            _back_trace: Backtrace::capture(),
-        }
-    }
-
-    /// construct an ErrorStatus type from [`StatusCode::BAD_REQUEST`]
-    pub fn bad_request() -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            _back_trace: Backtrace::capture(),
-        }
-    }
-}
-
-impl fmt::Debug for ErrorStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.status, f)
-    }
-}
-
-impl fmt::Display for ErrorStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.status, f)
-    }
-}
-
-impl error::Error for ErrorStatus {
-    #[cfg(feature = "nightly")]
-    fn provide<'a>(&'a self, request: &mut error::Request<'a>) {
-        request.provide_ref(&self._back_trace);
-    }
-}
-
-impl From<StatusCode> for ErrorStatus {
-    fn from(status: StatusCode) -> Self {
-        Self {
-            status,
-            _back_trace: Backtrace::capture(),
-        }
-    }
-}
-
-impl<C> From<StatusCode> for Error<C> {
-    fn from(e: StatusCode) -> Self {
-        Error::from(ErrorStatus::from(e))
-    }
-}
-
-impl<C> From<ErrorStatus> for Error<C> {
-    fn from(e: ErrorStatus) -> Self {
-        Error::from_service(e)
-    }
-}
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for ErrorStatus {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        self.status.call(ctx).await
-    }
-}
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for StatusCode {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(ResponseBody::empty());
-        *res.status_mut() = *self;
-        Ok(res)
-    }
-}
-
 error_from_service!(io::Error);
 forward_blank_internal!(io::Error);
-
-error_from_service!(MatchError);
-blank_error_service!(MatchError, StatusCode::NOT_FOUND);
-
-error_from_service!(MethodNotAllowed);
-
-error_from_service!(InvalidHeaderValue);
-forward_blank_bad_request!(InvalidHeaderValue);
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(ResponseBody::empty());
-
-        let allowed = self.allowed_methods();
-
-        let len = allowed.iter().fold(0, |a, m| a + m.as_str().len() + 1);
-
-        let mut methods = String::with_capacity(len);
-
-        for method in allowed {
-            methods.push_str(method.as_str());
-            methods.push(',');
-        }
-        methods.pop();
-
-        res.headers_mut().insert(ALLOW, methods.parse().unwrap());
-        *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
-
-        Ok(res)
-    }
-}
-
-impl<E, C> From<RouterError<E>> for Error<C>
-where
-    E: Into<Self>,
-{
-    fn from(e: RouterError<E>) -> Self {
-        match e {
-            RouterError::Match(e) => e.into(),
-            RouterError::NotAllowed(e) => e.into(),
-            RouterError::Service(e) => e.into(),
-        }
-    }
-}
 
 type StdErr = Box<dyn error::Error + Send + Sync>;
 
