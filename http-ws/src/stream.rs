@@ -23,16 +23,15 @@ pin_project! {
     /// Decode `S` type into Stream of websocket [Message].
     /// `S` type must impl `Stream` trait and output `Result<T, E>` as `Stream::Item`
     /// where `T` type impl `AsRef<[u8]>` trait. (`&[u8]` is needed for parsing messages)
-    pub struct RequestStream<S, E> {
+    pub struct RequestStream<S> {
         #[pin]
         stream: S,
         buf: BytesMut,
         codec: Codec,
-        err: Option<WsError<E>>
     }
 }
 
-impl<S, T, E> RequestStream<S, E>
+impl<S, T, E> RequestStream<S>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -46,7 +45,6 @@ where
             stream,
             buf: BytesMut::new(),
             codec,
-            err: None,
         }
     }
 
@@ -102,7 +100,7 @@ impl<E> From<ProtocolError> for WsError<E> {
     }
 }
 
-impl<S, T, E> Stream for RequestStream<S, E>
+impl<S, T, E> Stream for RequestStream<S>
 where
     S: Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,
@@ -187,7 +185,7 @@ impl ResponseSender {
     ///
     /// // thread1:
     /// // read and write websocket message.
-    /// async fn sender<S, T, E>(tx: ResponseSender, mut rx: Pin<&mut RequestStream<S, E>>)
+    /// async fn sender<S, T, E>(tx: ResponseSender, mut rx: Pin<&mut RequestStream<S>>)
     /// where
     ///     S: Stream<Item = Result<T, E>>,
     ///     T: AsRef<[u8]>,
