@@ -5,7 +5,7 @@ use core::{
     time::Duration,
 };
 
-use std::io;
+use std::{cmp::Ordering, io};
 
 use futures_core::stream::Stream;
 use http_ws::{
@@ -56,7 +56,7 @@ pub struct WebSocket<B = RequestBody>
 where
     B: BodyStream,
 {
-    ws: WsOutput<B, B::Error>,
+    ws: WsOutput<B>,
     ping_interval: Duration,
     max_unanswered_ping: u8,
     on_msg: OnMsgCB,
@@ -68,7 +68,7 @@ impl<B> WebSocket<B>
 where
     B: BodyStream,
 {
-    fn new(ws: WsOutput<B, B::Error>) -> Self {
+    fn new(ws: WsOutput<B>) -> Self {
         #[cold]
         #[inline(never)]
         fn boxed_future() -> BoxFuture<'static> {
@@ -207,7 +207,7 @@ where
 async fn spawn_task<B>(
     ping_interval: Duration,
     max_unanswered_ping: u8,
-    decode: RequestStream<B, B::Error>,
+    decode: RequestStream<B>,
     mut tx: ResponseSender,
     mut on_msg: OnMsgCB,
     mut on_err: OnErrCB<B::Error>,
@@ -228,6 +228,10 @@ async fn spawn_task<B>(
             match poll_fn(|cx| decode.as_mut().poll_next(cx)).select(sleep.as_mut()).await {
                 SelectOutput::A(Some(Ok(msg))) => {
                     let msg = match msg {
+                        WsMessage::Text(txt) => Message::Text(BytesStr::try_from(txt).unwrap()),
+                        WsMessage::Binary(bin) => Message::Binary(bin),
+                        WsMessage::Continuation(item) => Message::Continuation(item),
+                        WsMessage::Nop => continue,
                         WsMessage::Pong(_) => {
                             if let Some(num) = un_answered_ping.checked_sub(1) {
                                 un_answered_ping = num;
@@ -246,26 +250,34 @@ async fn spawn_task<B>(
                                 Err(e) => return Err(e.into()),
                             }
                         }
-                        WsMessage::Text(txt) => Message::Text(BytesStr::try_from(txt).unwrap()),
-                        WsMessage::Binary(bin) => Message::Binary(bin),
-                        WsMessage::Continuation(item) => Message::Continuation(item),
-                        WsMessage::Nop => continue,
                     };
 
                     on_msg(&mut tx, msg).await
                 }
                 SelectOutput::A(Some(Err(e))) => on_err(e).await,
                 SelectOutput::A(None) => return Ok(()),
-                SelectOutput::B(_) => {
-                    if un_answered_ping > max_unanswered_ping {
-                        let _ = tx.send_error(io::ErrorKind::UnexpectedEof.into()).await;
-                        return Ok(());
-                    } else {
-                        un_answered_ping += 1;
+                SelectOutput::B(_) => match un_answered_ping.cmp(&max_unanswered_ping) {
+                    Ordering::Less => {
                         tx.send(WsMessage::Ping(Bytes::new())).await?;
+                        un_answered_ping += 1;
                         sleep.as_mut().reset(Instant::now() + ping_interval);
                     }
-                }
+                    // on last interval try to send close message to client to inform it connection
+                    // is going away.
+                    Ordering::Equal => match tx.send(WsMessage::Close(None)).await {
+                        Ok(_) => un_answered_ping += 1,
+                        // ProtocolError::Closed error means someone already sent close message
+                        // so just ignore it and end connection right away.
+                        Err(ProtocolError::Closed) => return Ok(()),
+                        Err(e) => return Err(e.into()),
+                    },
+                    // this will only happen when client fail to respond to the close message on last
+                    // interval in time and at this point just closed the connection with an io error.
+                    Ordering::Greater => {
+                        let _ = tx.send_error(io::ErrorKind::UnexpectedEof.into()).await;
+                        return Ok(());
+                    }
+                },
             }
         }
     };

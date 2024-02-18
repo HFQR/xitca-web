@@ -220,7 +220,7 @@ pub mod stream;
 pub use self::stream::{RequestStream, ResponseSender, ResponseStream, ResponseWeakSender, WsError};
 
 #[cfg(feature = "stream")]
-pub type WsOutput<B, E> = (RequestStream<B, E>, Response<ResponseStream>, ResponseSender);
+pub type WsOutput<B> = (RequestStream<B>, Response<ResponseStream>, ResponseSender);
 
 #[cfg(feature = "stream")]
 /// A shortcut for generating a set of response types with given [Request] and `<Body>` type.
@@ -270,7 +270,7 @@ pub type WsOutput<B, E> = (RequestStream<B, E>, Response<ResponseStream>, Respon
 ///
 /// # }
 /// ```
-pub fn ws<ReqB, B, T, E>(req: &Request<ReqB>, body: B) -> Result<WsOutput<B, E>, HandshakeError>
+pub fn ws<ReqB, B, T, E>(req: &Request<ReqB>, body: B) -> Result<WsOutput<B>, HandshakeError>
 where
     B: futures_core::Stream<Item = Result<T, E>>,
     T: AsRef<[u8]>,

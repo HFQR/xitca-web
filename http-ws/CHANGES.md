@@ -1,7 +1,11 @@
-# unreleased
+# unreleased 0.3.0
 ## Add
 - add `RequestStream::inner_mut` method for accessing inner stream type.
 - add `RequestStream::codec_mut` method for accessing `Codec` type.
+
+## Change
+- reduce `stream::RequestStream`'s generic type params. 
+- `WsOutput` type does not bound to generic E type anymore.
 
 # 0.2.0
 ## Add

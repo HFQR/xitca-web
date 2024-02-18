@@ -14,7 +14,6 @@ use futures_sink::Sink;
 use http_ws::{Codec, RequestStream, WsError};
 
 use super::{
-    body::BodyError,
     body::ResponseBody,
     bytes::{Buf, BytesMut},
     error::Error,
@@ -164,7 +163,7 @@ impl Stream for WebSocket<'_> {
 struct WebSocketInner<'b> {
     codec: Codec,
     send_buf: BytesMut,
-    recv_stream: RequestStream<ResponseBody<'b>, BodyError>,
+    recv_stream: RequestStream<ResponseBody<'b>>,
 }
 
 impl Sink<Message> for WebSocketInner<'_> {
