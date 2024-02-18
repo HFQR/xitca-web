@@ -1,5 +1,11 @@
 # unreleased 0.4.0
+## Add
+- expose `error::HeaderNameNotFound` type for interacting with internal header name error.
+- expose `error::InvalidHeaderValue` type for interacting with internal header value error.
+- expose `error::ExtensionNotFound` type for interacting with extension typed map error.
+
 ## Change
+- `error::InvalidHeaderValue` displays it's associated header name in `Debug` and `Display` format.
 - update `xitca-http` to `0.4.0`
 
 # 0.3.0

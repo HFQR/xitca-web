@@ -8,7 +8,9 @@ use cookie::CookieJar as _CookieJar;
 
 use crate::{
     body::{BodyStream, ResponseBody},
-    error::{error_from_service, forward_blank_bad_request, Error},
+    error::{
+        error_from_service, forward_blank_bad_request, Error, ExtensionNotFound, HeaderNotFound, InvalidHeaderValue,
+    },
     handler::{FromRequest, Responder},
     http::{
         header::ToStrError,
@@ -17,8 +19,6 @@ use crate::{
     },
     WebContext,
 };
-
-use super::{extension::ExtensionNotFound, header::HeaderNotFound};
 
 macro_rules! key_impl {
     ($key: tt) => {
@@ -86,7 +86,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionKey {
             .extensions()
             .get::<Self>()
             .cloned()
-            .ok_or_else(|| Error::from(ExtensionNotFound))
+            .ok_or_else(|| Error::from(ExtensionNotFound::from_type::<Self>()))
     }
 }
 
@@ -272,7 +272,8 @@ impl<'r, C, B, K> Responder<WebContext<'r, C, B>> for CookieJar<K> {
     fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
         let headers = res.headers_mut();
         for cookie in self.jar.delta() {
-            let value = HeaderValue::try_from(cookie.encoded().to_string())?;
+            let value =
+                HeaderValue::try_from(cookie.encoded().to_string()).map_err(|_| InvalidHeaderValue(SET_COOKIE))?;
             headers.append(SET_COOKIE, value);
         }
         Ok(res)

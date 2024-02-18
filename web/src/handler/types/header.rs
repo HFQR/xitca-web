@@ -2,12 +2,10 @@
 
 use core::{fmt, ops::Deref};
 
-use std::error;
-
 use crate::{
     body::{BodyStream, ResponseBody},
     context::WebContext,
-    error::{error_from_service, forward_blank_bad_request, Error},
+    error::{Error, HeaderNotFound},
     handler::{FromRequest, Responder},
     http::{
         header::{self, HeaderMap, HeaderName, HeaderValue},
@@ -104,11 +102,12 @@ where
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        let name = map_to_header_name::<HEADER_NAME>();
         ctx.req()
             .headers()
-            .get(&map_to_header_name::<HEADER_NAME>())
+            .get(&name)
             .map(HeaderRef)
-            .ok_or_else(|| Error::from_service(HeaderNotFound(map_to_header_name::<HEADER_NAME>())))
+            .ok_or_else(|| Error::from_service(HeaderNotFound(name)))
     }
 }
 
@@ -175,17 +174,3 @@ mod test {
         );
     }
 }
-
-#[derive(Debug)]
-pub struct HeaderNotFound(pub(crate) header::HeaderName);
-
-impl fmt::Display for HeaderNotFound {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HeaderName: {} not found", self.0.as_str())
-    }
-}
-
-impl error::Error for HeaderNotFound {}
-
-error_from_service!(HeaderNotFound);
-forward_blank_bad_request!(HeaderNotFound);
