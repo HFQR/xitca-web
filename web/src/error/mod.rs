@@ -70,11 +70,13 @@
 //! }
 //! ```
 
+mod body;
 mod extension;
 mod header;
 mod router;
 mod status;
 
+pub use body::*;
 pub use extension::*;
 pub use header::*;
 pub use router::*;
@@ -88,8 +90,6 @@ use core::{
 };
 
 use std::{error, io, sync::Mutex};
-
-pub use xitca_http::error::BodyError;
 
 use crate::{
     context::WebContext,
@@ -245,11 +245,11 @@ pub(crate) use blank_error_service;
 
 macro_rules! forward_blank_internal {
     ($type: ty) => {
-        impl<'r, C, B> crate::service::Service<WebContext<'r, C, B>> for $type {
+        impl<'r, C, B> crate::service::Service<crate::WebContext<'r, C, B>> for $type {
             type Response = crate::http::WebResponse;
-            type Error = core::convert::Infallible;
+            type Error = ::core::convert::Infallible;
 
-            async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+            async fn call(&self, ctx: crate::WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
                 crate::http::StatusCode::INTERNAL_SERVER_ERROR.call(ctx).await
             }
         }
@@ -295,6 +295,23 @@ type StdErr = Box<dyn error::Error + Send + Sync>;
 
 impl<C> From<StdErr> for Error<C> {
     fn from(e: StdErr) -> Self {
+        // this is a hack for middleware::Limit where it wraps around request stream body
+        // and produce BodyOverFlow error and return it as BodyError. In the mean time
+        // BodyError is another type alias share the same real type of StdErr and both share
+        // the same conversion path when converting into Error<C>.
+        //
+        // currently the downcast and clone is to restore BodyOverFlow's original Service impl
+        // where it will produce 400 bad request http response while StdErr will be producing
+        // 500 internal server error http response. As well as restoring downstream Error<C>
+        // consumer's chance to downcast BodyOverFlow type.
+        //
+        // TODO: BodyError type should be replaced with Error<C> in streaming interface. Or better
+        // make Error<C> unbound to C type with the help of non_lifetime_binders feature.
+        // see https://github.com/rust-lang/rust/issues/108185 for detail.
+        if let Some(e) = e.downcast_ref::<BodyOverFlow>() {
+            return Self::from(e.clone());
+        }
+
         Self(Box::new(StdError(e)))
     }
 }
@@ -441,8 +458,6 @@ mod service_impl {
 
 #[cfg(test)]
 mod test {
-    use core::fmt;
-
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::body::ResponseBody;

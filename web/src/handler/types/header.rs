@@ -3,7 +3,7 @@
 use core::{fmt, ops::Deref};
 
 use crate::{
-    body::{BodyStream, ResponseBody},
+    body::ResponseBody,
     context::WebContext,
     error::{Error, HeaderNotFound},
     handler::{FromRequest, Responder},
@@ -93,10 +93,7 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
     }
 }
 
-impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebContext<'r, C, B>> for HeaderRef<'a, HEADER_NAME>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebContext<'r, C, B>> for HeaderRef<'a, HEADER_NAME> {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
     type Error = Error<C>;
 

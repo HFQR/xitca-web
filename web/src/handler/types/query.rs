@@ -5,7 +5,6 @@ use core::{fmt, marker::PhantomData};
 use serde::de::Deserialize;
 
 use crate::{
-    body::BodyStream,
     context::WebContext,
     error::{Error, ErrorStatus},
     handler::FromRequest,
@@ -25,7 +24,6 @@ where
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for Query<T>
 where
     T: for<'de> Deserialize<'de>,
-    B: BodyStream,
 {
     type Type<'b> = Query<T>;
     type Error = Error<C>;
@@ -56,7 +54,6 @@ impl<T> LazyQuery<'_, T> {
 
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for LazyQuery<'a, T>
 where
-    B: BodyStream,
     T: Deserialize<'static>,
 {
     type Type<'b> = LazyQuery<'b, T>;

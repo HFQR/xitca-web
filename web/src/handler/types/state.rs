@@ -2,7 +2,7 @@
 
 use core::{borrow::Borrow, fmt, ops::Deref};
 
-use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
+use crate::{context::WebContext, error::Error, handler::FromRequest};
 
 /// App state extractor.
 /// S type must be the same with the type passed to App::with_xxx_state(S).
@@ -33,7 +33,6 @@ impl<S> Deref for StateRef<'_, S> {
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for StateRef<'a, T>
 where
     C: Borrow<T>,
-    B: BodyStream,
     T: ?Sized + 'static,
 {
     type Type<'b> = StateRef<'b, T>;
@@ -72,7 +71,6 @@ impl<S> Deref for StateOwn<S> {
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for StateOwn<T>
 where
     C: Borrow<T>,
-    B: BodyStream,
     T: Clone,
 {
     type Type<'b> = StateOwn<T>;

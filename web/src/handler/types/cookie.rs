@@ -7,10 +7,8 @@ pub use cookie::{Cookie, Key, ParseError};
 use cookie::CookieJar as _CookieJar;
 
 use crate::{
-    body::{BodyStream, ResponseBody},
-    error::{
-        error_from_service, forward_blank_bad_request, Error, ExtensionNotFound, HeaderNotFound, InvalidHeaderValue,
-    },
+    body::ResponseBody,
+    error::{error_from_service, forward_blank_bad_request, Error, ErrorStatus, ExtensionNotFound, HeaderNotFound},
     handler::{FromRequest, Responder},
     http::{
         header::ToStrError,
@@ -133,10 +131,7 @@ impl CookieJar {
 #[doc(hidden)]
 pub struct Plain;
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Plain
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Plain {
     type Type<'b> = Self;
     type Error = Error<C>;
 
@@ -205,7 +200,6 @@ macro_rules! cookie_variant {
         impl<'a, 'r, C, B, K> FromRequest<'a, WebContext<'r, C, B>> for $variant<K>
         where
             K: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = Error<C>> + Into<Key>,
-            B: BodyStream,
         {
             type Type<'b> = Self;
             type Error = Error<C>;
@@ -227,7 +221,6 @@ cookie_variant!(Signed, signed, signed_mut);
 impl<'a, 'r, C, B, K> FromRequest<'a, WebContext<'r, C, B>> for CookieJar<K>
 where
     K: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = Error<C>>,
-    B: BodyStream,
 {
     type Type<'b> = CookieJar<K>;
     type Error = Error<C>;
@@ -272,8 +265,7 @@ impl<'r, C, B, K> Responder<WebContext<'r, C, B>> for CookieJar<K> {
     fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
         let headers = res.headers_mut();
         for cookie in self.jar.delta() {
-            let value =
-                HeaderValue::try_from(cookie.encoded().to_string()).map_err(|_| InvalidHeaderValue(SET_COOKIE))?;
+            let value = HeaderValue::try_from(cookie.encoded().to_string()).map_err(|_| ErrorStatus::internal())?;
             headers.append(SET_COOKIE, value);
         }
         Ok(res)
