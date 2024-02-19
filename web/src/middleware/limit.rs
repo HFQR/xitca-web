@@ -2,8 +2,6 @@
 
 use std::{
     cell::RefCell,
-    convert::Infallible,
-    error, fmt,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -15,9 +13,8 @@ use xitca_http::Request;
 use crate::{
     body::BodyStream,
     context::WebContext,
-    error::BodyError,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, status::StatusCode, WebResponse},
-    service::{pipeline::PipelineE, ready::ReadyService, Service},
+    error::{BodyError, BodyOverFlow},
+    service::{ready::ReadyService, Service},
 };
 
 /// General purposed limitation middleware. Limiting request/response body size etc.
@@ -66,8 +63,6 @@ pub struct LimitService<S> {
     service: S,
     limit: Limit,
 }
-
-pub type LimitServiceError<E> = PipelineE<LimitError, E>;
 
 impl<'r, S, C, B, Res, Err> Service<WebContext<'r, C, B>> for LimitService<S>
 where
@@ -146,7 +141,9 @@ where
         let this = self.project();
 
         if *this.record >= *this.limit {
-            return Poll::Ready(Some(Err(BodyError::from(LimitError::BodyOverSize(*this.limit)))));
+            // search error module for downcast_ref::<BodyOverFlow>() before considering change the
+            // error type.
+            return Poll::Ready(Some(Err(BodyError::from(BodyOverFlow { limit: *this.limit }))));
         }
 
         match ready!(this.body.poll_next(cx)) {
@@ -161,35 +158,6 @@ where
     }
 }
 
-pub type LimitBodyError<E> = PipelineE<LimitError, E>;
-
-#[derive(Debug)]
-pub enum LimitError {
-    BodyOverSize(usize),
-}
-
-impl fmt::Display for LimitError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::BodyOverSize(size) => write!(f, "Body size reached limit: {size} bytes."),
-        }
-    }
-}
-
-impl error::Error for LimitError {}
-
-impl<'r, C, B> Service<WebContext<'r, C, B>> for LimitError {
-    type Response = WebResponse;
-    type Error = Infallible;
-
-    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let mut res = ctx.into_response(format!("{self}"));
-        res.headers_mut().insert(CONTENT_TYPE, TEXT_UTF8);
-        *res.status_mut() = StatusCode::BAD_REQUEST;
-        Ok(res)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use core::{future::poll_fn, pin::pin};
@@ -201,19 +169,30 @@ mod test {
         bytes::Bytes,
         error::BodyError,
         handler::{body::Body, handler_service},
-        http::WebRequest,
+        http::{StatusCode, WebRequest},
         test::collect_body,
         App,
     };
 
     use super::*;
 
+    const CHUNK: &[u8] = b"hello,world!";
+
     async fn handler<B: BodyStream>(Body(body): Body<B>) -> String {
         let mut body = pin!(body);
 
         let chunk = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().ok().unwrap();
 
-        assert!(poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().is_err());
+        let err = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().err().unwrap();
+        let err = crate::error::Error::<()>::from(err.into());
+        assert_eq!(
+            err.to_string(),
+            format!("body size reached limit: {} bytes", CHUNK.len())
+        );
+
+        let mut ctx = WebContext::new_test(());
+        let res = err.call(ctx.as_web_ctx()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 
         std::str::from_utf8(chunk.as_ref()).unwrap().to_string()
     }
@@ -222,16 +201,14 @@ mod test {
     fn request_body_over_limit() {
         use futures_util::stream::{self, StreamExt};
 
-        let chunk = b"hello,world!";
-
-        let item = || async { Ok::<_, BodyError>(Bytes::from_static(chunk)) };
+        let item = || async { Ok::<_, BodyError>(Bytes::from_static(CHUNK)) };
 
         let body = stream::once(item()).chain(stream::once(item()));
         let req = WebRequest::default().map(|ext| ext.map_body(|_: ()| BoxBody::new(body).into()));
 
         let body = App::new()
             .at("/", handler_service(handler))
-            .enclosed(Limit::new().set_request_body_max_size(chunk.len()))
+            .enclosed(Limit::new().set_request_body_max_size(CHUNK.len()))
             .finish()
             .call(())
             .now_or_panic()
@@ -244,6 +221,6 @@ mod test {
 
         let body = collect_body(body).now_or_panic().unwrap();
 
-        assert_eq!(body, chunk);
+        assert_eq!(body, CHUNK);
     }
 }

@@ -3,6 +3,7 @@
 - expose `error::HeaderNameNotFound` type for interacting with internal header name error.
 - expose `error::InvalidHeaderValue` type for interacting with internal header value error.
 - expose `error::ExtensionNotFound` type for interacting with extension typed map error.
+- expose `error::BodyOverflow` type for interacting with request body over size error.
 
 ## Change
 - `error::InvalidHeaderValue` displays it's associated header name in `Debug` and `Display` format.

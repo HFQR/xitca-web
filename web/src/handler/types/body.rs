@@ -1,14 +1,12 @@
 //! type extractor for request body stream.
 
-use core::{cmp, convert::Infallible, fmt, future::poll_fn, pin::pin};
-
-use std::error;
+use core::{cmp, convert::Infallible, future::poll_fn, pin::pin};
 
 use crate::{
     body::BodyStream,
     bytes::{Bytes, BytesMut},
     context::WebContext,
-    error::{error_from_service, forward_blank_bad_request, Error},
+    error::{BodyOverFlow, Error},
     handler::{FromRequest, Responder},
     http::WebResponse,
 };
@@ -49,6 +47,8 @@ macro_rules! from_bytes_impl {
                     .await
                     .ok()
                     .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
+                    // when content length is 0 the http library should be producing an immediate
+                    // yielding streaming body which result in an empty body collection type.
                     .map(|len| cmp::min(len, LIMIT))
                     .unwrap_or_else(|| LIMIT);
 
@@ -62,10 +62,7 @@ macro_rules! from_bytes_impl {
                     let chunk = chunk.map_err(Into::into)?;
                     buf.extend_from_slice(chunk.as_ref());
                     if limit > 0 && buf.len() > limit {
-                        return Err(Error::from(BodyOverFlow {
-                            limit,
-                            len: buf.len(),
-                        }));
+                        return Err(Error::from(BodyOverFlow { limit }));
                     }
                 }
 
@@ -124,6 +121,7 @@ macro_rules! responder_impl {
                 Ok(ctx.into_response(self))
             }
 
+            #[inline]
             fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
                 Ok(res.map(|_| self.into()))
             }
@@ -134,24 +132,3 @@ macro_rules! responder_impl {
 responder_impl!(Bytes);
 responder_impl!(BytesMut);
 responder_impl!(Vec<u8>);
-
-#[derive(Debug)]
-pub struct BodyOverFlow {
-    limit: usize,
-    len: usize,
-}
-
-impl fmt::Display for BodyOverFlow {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "body size over flow. limit: {}, actual_len: {}",
-            self.limit, self.len
-        )
-    }
-}
-
-impl error::Error for BodyOverFlow {}
-
-error_from_service!(BodyOverFlow);
-forward_blank_bad_request!(BodyOverFlow);

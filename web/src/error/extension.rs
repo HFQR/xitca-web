@@ -2,7 +2,7 @@ use core::{any::type_name, fmt};
 
 use std::error;
 
-use super::{error_from_service, forward_blank_bad_request};
+use super::{error_from_service, forward_blank_internal};
 
 /// error type for typed instance can't be found from [`Extensions`]
 ///
@@ -25,4 +25,4 @@ impl fmt::Display for ExtensionNotFound {
 impl error::Error for ExtensionNotFound {}
 
 error_from_service!(ExtensionNotFound);
-forward_blank_bad_request!(ExtensionNotFound);
+forward_blank_internal!(ExtensionNotFound);

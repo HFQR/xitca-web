@@ -9,14 +9,13 @@ use serde::{
 
 use xitca_http::util::service::router;
 
-use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
+use crate::{context::WebContext, error::Error, handler::FromRequest};
 
 #[derive(Debug)]
 pub struct Params<T>(pub T);
 
 impl<'a, 'r, T, C, B> FromRequest<'a, WebContext<'r, C, B>> for Params<T>
 where
-    B: BodyStream,
     T: for<'de> Deserialize<'de>,
 {
     type Type<'b> = Params<T>;
@@ -45,10 +44,7 @@ impl<T> LazyParams<'_, T> {
     }
 }
 
-impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for LazyParams<'a, T>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for LazyParams<'a, T> {
     type Type<'b> = LazyParams<'b, T>;
     type Error = Error<C>;
 
@@ -72,10 +68,7 @@ impl Deref for ParamsRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ParamsRef<'a>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ParamsRef<'a> {
     type Type<'b> = ParamsRef<'b>;
     type Error = Error<C>;
 

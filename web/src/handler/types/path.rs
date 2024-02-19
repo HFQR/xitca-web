@@ -2,7 +2,7 @@
 
 use core::ops::Deref;
 
-use crate::{body::BodyStream, context::WebContext, error::Error, handler::FromRequest};
+use crate::{context::WebContext, error::Error, handler::FromRequest};
 
 #[derive(Debug)]
 pub struct PathRef<'a>(pub &'a str);
@@ -15,10 +15,7 @@ impl Deref for PathRef<'_> {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for PathRef<'a>
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for PathRef<'a> {
     type Type<'b> = PathRef<'b>;
     type Error = Error<C>;
 
@@ -39,10 +36,7 @@ impl Deref for PathOwn {
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for PathOwn
-where
-    B: BodyStream,
-{
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for PathOwn {
     type Type<'b> = PathOwn;
     type Error = Error<C>;
 

@@ -132,17 +132,6 @@ impl<'a, C, B> WebContext<'a, C, B> {
     }
 }
 
-#[cfg(test)]
-impl<C> WebContext<'_, C> {
-    pub(crate) fn new_test(ctx: C) -> TestWebContext<C> {
-        TestWebContext {
-            req: Request::new(RequestExt::default()),
-            body: RefCell::new(RequestBody::None),
-            ctx,
-        }
-    }
-}
-
 impl<C, B, T> BorrowReq<T> for WebContext<'_, C, B>
 where
     Request<RequestExt<()>>: BorrowReq<T>,
@@ -175,6 +164,17 @@ impl<C> TestWebContext<C> {
             req: &mut self.req,
             body: &mut self.body,
             ctx: &self.ctx,
+        }
+    }
+}
+
+#[cfg(test)]
+impl<C> WebContext<'_, C> {
+    pub(crate) fn new_test(ctx: C) -> TestWebContext<C> {
+        TestWebContext {
+            req: Request::new(RequestExt::default()),
+            body: RefCell::new(RequestBody::None),
+            ctx,
         }
     }
 }
