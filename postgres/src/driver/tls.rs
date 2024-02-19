@@ -1,7 +1,8 @@
 #[cfg(not(feature = "quic"))]
 #[cfg(feature = "tls")]
 pub(super) fn dangerous_config(alpn: Vec<Vec<u8>>) -> std::sync::Arc<xitca_tls::rustls::ClientConfig> {
-    use alloc::sync::Arc;
+    use std::sync::Arc;
+
     use xitca_tls::rustls::{
         self,
         client::danger::HandshakeSignatureValid,
