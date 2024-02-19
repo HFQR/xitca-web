@@ -1,7 +1,5 @@
 use core::fmt;
 
-use alloc::boxed::Box;
-
 use super::Type;
 
 /// Information about a column of a query.

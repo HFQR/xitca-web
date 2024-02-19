@@ -587,7 +587,6 @@ mod test {
         http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, request, Method},
         middleware::UncheckedReady,
         route::get,
-        service::Service,
     };
 
     use super::*;

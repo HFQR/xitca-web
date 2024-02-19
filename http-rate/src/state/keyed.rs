@@ -176,7 +176,7 @@ pub(crate) type DefaultKeyedStateStore<K> = HashMapStateStore<K>;
 
 #[cfg(test)]
 mod test {
-    use core::{marker::PhantomData, num::NonZeroU32};
+    use core::marker::PhantomData;
 
     use crate::{nanos::Nanos, timer::FakeRelativeClock};
 

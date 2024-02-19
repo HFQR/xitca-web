@@ -3,9 +3,7 @@ use core::{
     task::Poll,
 };
 
-use alloc::{collections::VecDeque, rc::Rc};
-
-use std::io;
+use std::{collections::VecDeque, io, rc::Rc};
 
 use postgres_protocol::message::backend;
 use xitca_io::bytes::Buf;

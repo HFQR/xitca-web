@@ -316,9 +316,8 @@ fn io_ref_mut_slice(buf: &mut impl IoBufMut) -> &mut [u8] {
 const POLL_TO_COMPLETE: &str = "previous call to future dropped before polling to completion";
 
 mod buf {
-    use xitca_io::bytes::{Buf, BytesMut};
-
     use super::*;
+
     pub(super) struct WriteBuf {
         buf: BytesMut,
     }

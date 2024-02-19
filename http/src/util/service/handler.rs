@@ -234,9 +234,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::convert::Infallible;
-
-    use xitca_service::{Service, ServiceExt};
+    use xitca_service::ServiceExt;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::http::{Request, RequestExt, Response, StatusCode};

@@ -346,11 +346,11 @@ mod service {
 mod test {
     use core::convert::Infallible;
 
-    use xitca_service::{fn_service, ready::ReadyService, Service, ServiceExt};
+    use xitca_service::{fn_service, ready::ReadyService, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        http::{Request, RequestExt, Response},
+        http::{RequestExt, Response},
         util::service::route::get,
     };
 

@@ -813,8 +813,6 @@ pub fn get_static(idx: usize) -> Header {
 
 #[cfg(test)]
 mod test {
-    use crate::h2::proto::hpack::header::Header;
-
     use super::*;
 
     #[test]

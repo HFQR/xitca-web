@@ -4,9 +4,7 @@ use core::{
     pin::Pin,
 };
 
-use alloc::collections::VecDeque;
-
-use std::io;
+use std::{collections::VecDeque, io};
 
 use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};

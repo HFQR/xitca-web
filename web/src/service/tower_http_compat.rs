@@ -237,8 +237,6 @@ fn size_hint(size: BodySize) -> SizeHint {
 mod test {
     use xitca_http::body::{exact_body_hint, Once};
 
-    use crate::bytes::Bytes;
-
     use super::*;
 
     #[test]

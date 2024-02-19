@@ -1,7 +1,5 @@
 use core::slice;
 
-use alloc::vec::{self, Vec};
-
 use xitca_unsafe_collection::small_str::SmallBoxedStr;
 
 /// A single URL parameter, consisting of a key and a value.
@@ -138,7 +136,7 @@ impl<'a> Iterator for Iter<'a> {
 }
 
 pub struct IntoIter {
-    inner: vec::IntoIter<Param>,
+    inner: std::vec::IntoIter<Param>,
 }
 
 impl Iterator for IntoIter {

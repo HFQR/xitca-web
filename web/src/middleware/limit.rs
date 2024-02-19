@@ -167,7 +167,6 @@ mod test {
     use crate::{
         body::BoxBody,
         bytes::Bytes,
-        error::BodyError,
         handler::{body::Body, handler_service},
         http::{StatusCode, WebRequest},
         test::collect_body,

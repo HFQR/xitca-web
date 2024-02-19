@@ -1,6 +1,4 @@
-use alloc::sync::Arc;
-
-use std::{collections::HashSet, error, fs, net::SocketAddr, path::Path};
+use std::{collections::HashSet, error, fs, net::SocketAddr, path::Path, sync::Arc};
 
 use quinn::{Connecting, Endpoint, RecvStream, SendStream, ServerConfig};
 use rustls_0dot21::{Certificate, PrivateKey};

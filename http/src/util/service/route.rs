@@ -237,7 +237,7 @@ where
 mod test {
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, Service, ServiceExt};
+    use xitca_service::{fn_service, ServiceExt};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
