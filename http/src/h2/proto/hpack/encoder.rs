@@ -290,11 +290,9 @@ fn position(buf: &BytesMut) -> usize {
 
 #[cfg(test)]
 mod test {
-    use crate::h2::proto::hpack::header::Header;
+    use http::*;
 
     use super::*;
-
-    use http::*;
 
     #[test]
     fn test_encode_method_get() {

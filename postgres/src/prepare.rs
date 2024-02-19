@@ -4,8 +4,6 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::{boxed::Box, string::String, vec::Vec};
-
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid};

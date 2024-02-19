@@ -251,7 +251,6 @@ fn write_length_header(buf: &mut BytesMut, size: usize) {
 mod test {
     use crate::{
         body::{BoxBody, Once},
-        bytes::Bytes,
         date::SystemTimeDateTimeHandler,
         http::{HeaderValue, Response},
     };

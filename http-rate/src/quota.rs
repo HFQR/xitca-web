@@ -1,4 +1,4 @@
-use core::{convert::TryInto, fmt, num::NonZeroU32, time::Duration};
+use core::{fmt, num::NonZeroU32, time::Duration};
 
 use crate::nanos::Nanos;
 

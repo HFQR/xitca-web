@@ -15,8 +15,6 @@ mod inner {
         slice,
     };
 
-    use alloc::boxed::Box;
-
     use crate::uninit::{slice_assume_init, uninit_array};
 
     const TAG: u8 = 0b1000_0000;

@@ -514,7 +514,7 @@ impl<'de> de::VariantAccess<'de> for UnitVariant {
 mod tests {
     use core::convert::Infallible;
 
-    use serde::{de, Deserialize};
+    use serde::Deserialize;
     use xitca_http::util::service::{handler::handler_service, router::Router};
     use xitca_unsafe_collection::futures::NowOrPanic;
 

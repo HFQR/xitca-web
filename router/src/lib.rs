@@ -93,8 +93,6 @@
 
 #![forbid(unsafe_code)]
 
-extern crate alloc;
-
 mod error;
 mod router;
 mod tree;

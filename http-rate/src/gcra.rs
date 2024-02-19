@@ -156,8 +156,6 @@ impl Gcra {
 mod test {
     use proptest::prelude::*;
 
-    use crate::quota::Quota;
-
     use super::*;
 
     /// Exercise derives and convenience impls on Gcra to make coverage happy

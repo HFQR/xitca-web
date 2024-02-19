@@ -229,7 +229,6 @@ mod test {
     use crate::{
         handler::handler_service,
         http::{header::CONTENT_LENGTH, WebRequest},
-        service::Service,
         test::collect_string_body,
         App,
     };

@@ -2,9 +2,8 @@
 
 use core::{fmt, iter, mem, str};
 
-use alloc::borrow::Cow;
-
 use std::{
+    borrow::Cow,
     error,
     path::{Path, PathBuf},
 };

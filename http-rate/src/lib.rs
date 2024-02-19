@@ -100,10 +100,7 @@ mod test {
 
     use crate::{
         error::InsufficientCapacity,
-        quota::Quota,
-        state::RateLimiter,
         timer::{DefaultTimer, FakeRelativeClock, Timer},
-        DefaultDirectRateLimiter,
     };
 
     use super::*;

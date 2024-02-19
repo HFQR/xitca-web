@@ -1,7 +1,5 @@
 use core::{convert::Infallible, fmt};
 
-use alloc::string::String;
-
 use std::{error, io};
 
 use tokio::sync::mpsc::error::SendError;

@@ -1,7 +1,6 @@
 //! A time-keeping abstraction (nanoseconds) that works for storing in an atomic integer.
 
 use core::{
-    convert::TryInto,
     fmt,
     ops::{Add, Div, Mul},
     time::Duration,
