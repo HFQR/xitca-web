@@ -458,8 +458,6 @@ mod service_impl {
 
 #[cfg(test)]
 mod test {
-    use core::fmt;
-
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::body::ResponseBody;
