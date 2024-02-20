@@ -49,9 +49,11 @@ mod nightly {
 
     }
 
-    impl<B> From<B> for AsyncBody<B>
+    impl<B, T, E> From<B> for AsyncBody<B>
     where
-        B: AsyncIterator,
+        B: AsyncIterator<Item = Result<T, E>> + 'static,
+        E: Into<BodyError>,
+        Bytes: From<T>,
     {
         fn from(inner: B) -> Self {
             Self { inner }
