@@ -3,12 +3,12 @@
 use core::{cmp, convert::Infallible, future::poll_fn, pin::pin};
 
 use crate::{
-    body::BodyStream,
+    body::{BodyStream, BoxBody, ResponseBody},
     bytes::{Bytes, BytesMut},
     context::WebContext,
     error::{BodyOverFlow, Error},
     handler::{FromRequest, Responder},
-    http::WebResponse,
+    http::{IntoResponse, WebResponse},
 };
 
 use super::header::{self, HeaderRef};
@@ -132,3 +132,33 @@ macro_rules! responder_impl {
 responder_impl!(Bytes);
 responder_impl!(BytesMut);
 responder_impl!(Vec<u8>);
+
+impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for ResponseBody<ResB> {
+    type Response = WebResponse<ResponseBody<ResB>>;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        Ok(ctx.req.as_response(self))
+    }
+
+    #[inline]
+    fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
+        Ok(res.map(|_| self))
+    }
+}
+
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for BoxBody {
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        ResponseBody::stream(self).respond(ctx).await
+    }
+
+    #[inline]
+    fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
+        <ResponseBody as Responder<WebContext<'r, C, B>>>::map(ResponseBody::stream(self), res)
+    }
+}

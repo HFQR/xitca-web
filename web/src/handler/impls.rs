@@ -4,7 +4,7 @@ use crate::{
     body::ResponseBody,
     context::WebContext,
     error::{Error, ErrorStatus},
-    http::{IntoResponse, Method, RequestExt, StatusCode, WebRequest, WebResponse},
+    http::{Method, RequestExt, StatusCode, WebRequest, WebResponse},
 };
 
 use super::{FromRequest, Responder};
@@ -160,21 +160,6 @@ impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for WebResponse<ResB> {
     #[inline]
     async fn respond(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         Ok(self)
-    }
-}
-
-impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for ResponseBody<ResB> {
-    type Response = WebResponse<ResponseBody<ResB>>;
-    type Error = Error<C>;
-
-    #[inline]
-    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        Ok(ctx.req.as_response(self))
-    }
-
-    #[inline]
-    fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
-        Ok(res.map(|_| self))
     }
 }
 
