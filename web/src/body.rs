@@ -23,3 +23,53 @@ where
     type Chunk = T;
     type Error = E;
 }
+
+#[cfg(feature = "nightly")]
+pub use nightly::AsyncBody;
+
+#[cfg(feature = "nightly")]
+mod nightly {
+    use core::{
+        async_iter::AsyncIterator,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use pin_project_lite::pin_project;
+
+    use crate::bytes::Bytes;
+
+    use super::*;
+
+    pin_project! {
+        pub struct AsyncBody<B> {
+            #[pin]
+            inner: B
+        }
+
+    }
+
+    impl<B, T, E> From<B> for AsyncBody<B>
+    where
+        B: AsyncIterator<Item = Result<T, E>> + 'static,
+        E: Into<BodyError>,
+        Bytes: From<T>,
+    {
+        fn from(inner: B) -> Self {
+            Self { inner }
+        }
+    }
+
+    impl<B, T, E> Stream for AsyncBody<B>
+    where
+        B: AsyncIterator<Item = Result<T, E>>,
+        Bytes: From<T>,
+    {
+        type Item = Result<Bytes, E>;
+
+        #[inline]
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            AsyncIterator::poll_next(self.project().inner, cx).map_ok(Bytes::from)
+        }
+    }
+}

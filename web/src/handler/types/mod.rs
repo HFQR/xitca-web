@@ -5,7 +5,7 @@ pub mod html;
 pub mod path;
 pub mod redirect;
 pub mod state;
-pub mod string;
+pub mod text;
 pub mod uri;
 
 #[cfg(feature = "params")]
