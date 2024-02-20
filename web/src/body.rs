@@ -37,7 +37,10 @@ mod nightly {
 
     use pin_project_lite::pin_project;
 
+    use crate::bytes::Bytes;
+
     use super::*;
+
     pin_project! {
         pub struct AsyncBody<B> {
             #[pin]
@@ -55,15 +58,16 @@ mod nightly {
         }
     }
 
-    impl<B> Stream for AsyncBody<B>
+    impl<B, T, E> Stream for AsyncBody<B>
     where
-        B: AsyncIterator,
+        B: AsyncIterator<Item = Result<T, E>>,
+        Bytes: From<T>,
     {
-        type Item = <B as AsyncIterator>::Item;
+        type Item = Result<Bytes, E>;
 
         #[inline]
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            AsyncIterator::poll_next(self.project().inner, cx)
+            AsyncIterator::poll_next(self.project().inner, cx).map_ok(Bytes::from)
         }
     }
 }

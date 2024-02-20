@@ -5,7 +5,7 @@
     // *. this is a rust 2024 edition feature.
     let body = AsyncBody::from(async gen {
         for _ in 0..1 {
-            yield Ok::<_, Infallible>(Bytes::from("async generator"));
+            yield Ok::<_, Infallible>("async generator");
         }
     })
     ```
