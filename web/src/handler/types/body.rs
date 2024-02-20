@@ -159,6 +159,6 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for BoxBody {
 
     #[inline]
     fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
-        <ResponseBody as Responder<WebContext<'r, C, B>>>::map(ResponseBody::stream(self), res)
+        Responder::<WebContext<'r, C, B>>::map(ResponseBody::stream(self), res)
     }
 }
