@@ -1,5 +1,14 @@
 # unreleased 0.4.0
 ## Add
+- enable nightly rust `async_iterator` feature when `nightly` crate feature is active. Add `body::AsyncBody` type to bridge `futures::Stream` and `std::async_iter::AsyncIterator` traits. This change enables async generator usage. Example:
+    ```rust
+    // *. this is a rust 2024 edition feature.
+    let body = AsyncBody::from(async gen {
+        for _ in 0..1 {
+            yield Ok::<_, Infallible>(Bytes::from("async generator"));
+        }
+    })
+    ```
 - expose `error::HeaderNameNotFound` type for interacting with internal header name error.
 - expose `error::InvalidHeaderValue` type for interacting with internal header value error.
 - expose `error::ExtensionNotFound` type for interacting with extension typed map error.
