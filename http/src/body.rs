@@ -242,18 +242,45 @@ pub struct BoxBody(LocalBoxStream<'static, Result<Bytes, BodyError>>);
 
 impl Default for BoxBody {
     fn default() -> Self {
-        Self::new(NoneBody::default())
+        Self::new(NoneBody::<Bytes>::default())
     }
 }
 
 impl BoxBody {
     #[inline]
-    pub fn new<B, E>(body: B) -> Self
+    pub fn new<B, T, E>(body: B) -> Self
     where
-        B: Stream<Item = Result<Bytes, E>> + 'static,
+        B: Stream<Item = Result<T, E>> + 'static,
+        T: Into<Bytes>,
         E: Into<BodyError>,
     {
-        Self(Box::pin(BoxStreamMapErr { body }))
+        pin_project! {
+            struct MapStream<B> {
+                #[pin]
+                body: B
+            }
+        }
+
+        impl<B, T, E> Stream for MapStream<B>
+        where
+            B: Stream<Item = Result<T, E>>,
+            T: Into<Bytes>,
+            E: Into<BodyError>,
+        {
+            type Item = Result<Bytes, BodyError>;
+
+            #[inline]
+            fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+                self.project().body.poll_next(cx).map_ok(Into::into).map_err(Into::into)
+            }
+
+            #[inline]
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.body.size_hint()
+            }
+        }
+
+        Self(Box::pin(MapStream { body }))
     }
 }
 
@@ -268,31 +295,6 @@ impl Stream for BoxBody {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
-    }
-}
-
-pin_project! {
-    struct BoxStreamMapErr<B> {
-        #[pin]
-        body: B
-    }
-}
-
-impl<B, T, E> Stream for BoxStreamMapErr<B>
-where
-    B: Stream<Item = Result<T, E>>,
-    E: Into<BodyError>,
-{
-    type Item = Result<T, BodyError>;
-
-    #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().body.poll_next(cx).map_err(Into::into)
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.body.size_hint()
     }
 }
 
@@ -329,9 +331,10 @@ impl<B> Default for ResponseBody<B> {
 impl ResponseBody {
     /// Construct a new Stream variant of ResponseBody with default type as [BoxBody]
     #[inline]
-    pub fn box_stream<B, E>(stream: B) -> Self
+    pub fn box_stream<B, T, E>(stream: B) -> Self
     where
-        B: Stream<Item = Result<Bytes, E>> + 'static,
+        B: Stream<Item = Result<T, E>> + 'static,
+        T: Into<Bytes>,
         E: Into<BodyError>,
     {
         Self::stream(BoxBody::new(stream))
@@ -361,7 +364,7 @@ impl<B> ResponseBody<B> {
 
     /// Construct a new Stream variant of ResponseBody
     #[inline]
-    pub fn stream(stream: B) -> Self {
+    pub const fn stream(stream: B) -> Self {
         Self {
             inner: ResponseBodyInner::Stream { stream },
         }
@@ -382,9 +385,10 @@ impl<B> ResponseBody<B> {
 
     /// erase generic body type by boxing the variant.
     #[inline]
-    pub fn into_boxed<E>(self) -> ResponseBody
+    pub fn into_boxed<T, E>(self) -> ResponseBody
     where
-        B: Stream<Item = Result<Bytes, E>> + 'static,
+        B: Stream<Item = Result<T, E>> + 'static,
+        T: Into<Bytes>,
         E: error::Error + Send + Sync + 'static,
     {
         match self.inner {

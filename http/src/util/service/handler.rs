@@ -227,7 +227,7 @@ where
     async fn respond(self, req: R) -> Result<Self::Response, Self::Error> {
         match self {
             Self::First(f) => f.respond(req).await,
-            Self::Second(s) => Ok(s.respond(req).await?),
+            Self::Second(s) => s.respond(req).await.map_err(From::from),
         }
     }
 }
