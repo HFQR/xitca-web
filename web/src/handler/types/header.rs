@@ -123,6 +123,40 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
     }
 }
 
+impl<'r, C, B, const N: usize> Responder<WebContext<'r, C, B>> for [(HeaderName, HeaderValue); N] {
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let res = ctx.into_response(ResponseBody::empty());
+        Responder::<WebContext<'r, C, B>>::map(self, res)
+    }
+
+    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
+        for (k, v) in self {
+            res.headers_mut().append(k, v);
+        }
+        Ok(res)
+    }
+}
+
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for Vec<(HeaderName, HeaderValue)> {
+    type Response = WebResponse;
+    type Error = Error<C>;
+
+    async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        let res = ctx.into_response(ResponseBody::empty());
+        Responder::<WebContext<'r, C, B>>::map(self, res)
+    }
+
+    fn map(self, mut res: Self::Response) -> Result<Self::Response, Self::Error> {
+        for (k, v) in self {
+            res.headers_mut().append(k, v);
+        }
+        Ok(res)
+    }
+}
+
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for HeaderMap {
     type Response = WebResponse;
     type Error = Error<C>;
