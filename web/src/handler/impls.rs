@@ -59,16 +59,6 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a WebRequest<()> 
     }
 }
 
-impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a RequestExt<()> {
-    type Type<'b> = &'b RequestExt<()>;
-    type Error = Error<C>;
-
-    #[inline]
-    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        Ok(ctx.req().body())
-    }
-}
-
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for WebRequest<()> {
     type Type<'b> = WebRequest<()>;
     type Error = Error<C>;
@@ -76,6 +66,16 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for WebRequest<()> {
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         Ok(ctx.req().clone())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a RequestExt<()> {
+    type Type<'b> = &'b RequestExt<()>;
+    type Error = Error<C>;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().body())
     }
 }
 

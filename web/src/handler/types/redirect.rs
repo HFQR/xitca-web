@@ -6,6 +6,7 @@ use xitca_http::util::service::router::{RouterGen, RouterMapErr};
 
 use crate::{
     body::ResponseBody,
+    context::WebContext,
     error::Error,
     handler::Responder,
     http::{
@@ -13,7 +14,6 @@ use crate::{
         StatusCode, WebResponse,
     },
     service::Service,
-    WebContext,
 };
 
 #[derive(Clone)]
