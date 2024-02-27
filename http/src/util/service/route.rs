@@ -229,7 +229,7 @@ where
     type Error = RouterError<R::Error>;
 
     async fn call(&self, _: Req) -> Result<Self::Response, Self::Error> {
-        Err(RouterError::NotAllowed(MethodNotAllowed(Box::new(Vec::new()))))
+        Err(RouterError::NotAllowed(MethodNotAllowed(Box::default())))
     }
 }
 

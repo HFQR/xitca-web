@@ -95,7 +95,7 @@ mod service {
                 Err(e) => Err(match e {
                     ServeError::NotFound => RouterError::Match(MatchError),
                     ServeError::MethodNotAllowed => {
-                        RouterError::NotAllowed(MethodNotAllowed(vec![Method::GET, Method::HEAD]))
+                        RouterError::NotAllowed(MethodNotAllowed(Box::new(vec![Method::GET, Method::HEAD])))
                     }
                     ServeError::Io(io) => RouterError::Service(Error::from(io)),
                     _ => RouterError::Service(Error::from(ErrorStatus::bad_request())),

@@ -120,14 +120,14 @@ impl ClientBuilder {
     #[cfg(feature = "openssl")]
     /// enable openssl as tls connector.
     pub fn openssl(mut self) -> Self {
-        self.connector = connector::openssl(self.alpn_from_version());
+        self.connector = connector::openssl::connect(self.alpn_from_version());
         self
     }
 
     #[cfg(feature = "rustls")]
     /// enable rustls as tls connector.
     pub fn rustls(mut self) -> Self {
-        self.connector = connector::rustls(self.alpn_from_version());
+        self.connector = connector::rustls::connect(self.alpn_from_version());
         self
     }
 
