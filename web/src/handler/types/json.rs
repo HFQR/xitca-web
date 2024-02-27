@@ -8,7 +8,7 @@ use core::{
 };
 
 use serde::{de::Deserialize, ser::Serialize};
-use xitca_http::util::service::router::{RouterGen, RouterMapErr};
+use xitca_http::util::service::router::{PathGen, RouteGen, RouterMapErr};
 
 use crate::{
     body::BodyStream,
@@ -189,7 +189,9 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for serde_json::Value {
 error_from_service!(serde_json::Error);
 forward_blank_bad_request!(serde_json::Error);
 
-impl<T> RouterGen for Json<T> {
+impl<T> PathGen for Json<T> {}
+
+impl<T> RouteGen for Json<T> {
     type Route<R> = RouterMapErr<R>;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {

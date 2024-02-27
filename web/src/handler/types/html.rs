@@ -2,7 +2,7 @@
 
 use core::{convert::Infallible, fmt};
 
-use xitca_http::util::service::router::{RouterGen, RouterMapErr};
+use xitca_http::util::service::router::{PathGen, RouteGen, RouterMapErr};
 
 use crate::{
     body::ResponseBody,
@@ -45,7 +45,9 @@ where
     }
 }
 
-impl<T> RouterGen for Html<T> {
+impl<T> PathGen for Html<T> {}
+
+impl<T> RouteGen for Html<T> {
     type Route<R> = RouterMapErr<R>;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {

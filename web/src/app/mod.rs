@@ -9,12 +9,12 @@ use core::{
     pin::Pin,
 };
 
-use std::{borrow::Cow, error};
+use std::error;
 
 use futures_core::stream::Stream;
 use xitca_http::util::{
     middleware::context::{Context, ContextBuilder},
-    service::router::{IntoObject, RouterGen, TypedRoute},
+    service::router::{IntoObject, PathGen, RouteGen, RouteObject, TypedRoute},
 };
 
 use crate::{
@@ -24,10 +24,7 @@ use crate::{
     error::{Error, RouterError},
     http::{WebRequest, WebResponse},
     middleware::eraser::TypeEraser,
-    service::{
-        object::BoxedSyncServiceObject, ready::ReadyService, AsyncClosure, EnclosedBuilder, EnclosedFnBuilder,
-        MapBuilder, Service, ServiceExt,
-    },
+    service::{ready::ReadyService, AsyncClosure, EnclosedBuilder, EnclosedFnBuilder, MapBuilder, Service, ServiceExt},
 };
 
 use self::{object::WebObject, router::AppRouter};
@@ -41,7 +38,7 @@ pub struct App<R = (), CF = ()> {
 type BoxFuture<C> = Pin<Box<dyn Future<Output = Result<C, Box<dyn fmt::Debug>>>>>;
 type CtxBuilder<C> = Box<dyn Fn() -> BoxFuture<C> + Send + Sync>;
 type DefaultWebObject<C> = WebObject<C, RequestBody, WebResponse, RouterError<Error<C>>>;
-type DefaultAppRouter<C> = AppRouter<BoxedSyncServiceObject<(), DefaultWebObject<C>, Infallible>>;
+type DefaultAppRouter<C> = AppRouter<RouteObject<(), DefaultWebObject<C>, Infallible>>;
 
 // helper trait to poly between () and Box<dyn Fn()> as application state.
 pub trait IntoCtx<C> {
@@ -292,7 +289,7 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// ```
     pub fn at<F, C, B>(mut self, path: &'static str, builder: F) -> Self
     where
-        F: RouterGen + Service + Send + Sync,
+        F: RouteGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebContext<'r, C, B>>,
         for<'r> WebContext<'r, C, B>: IntoObject<F::Route<F>, (), Object = Obj>,
     {
@@ -518,15 +515,20 @@ where
     }
 }
 
-impl<R, F> RouterGen for App<R, F>
+impl<R, F> PathGen for App<R, F>
 where
-    R: RouterGen,
+    R: PathGen,
 {
-    type Route<R1> = R::Route<R1>;
-
-    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+    fn path_gen(&mut self, prefix: String) -> String {
         self.router.path_gen(prefix)
     }
+}
+
+impl<R, F> RouteGen for App<R, F>
+where
+    R: RouteGen,
+{
+    type Route<R1> = R::Route<R1>;
 
     fn route_gen<R1>(route: R1) -> Self::Route<R1> {
         R::route_gen(route)

@@ -2,13 +2,9 @@ pub use xitca_router::{params::Params, MatchError};
 
 use core::{fmt, marker::PhantomData};
 
-use std::{borrow::Cow, collections::HashMap, error};
+use std::{collections::HashMap, error};
 
-use xitca_service::{
-    object::{BoxedServiceObject, BoxedSyncServiceObject},
-    pipeline::PipelineT,
-    FnService, Service,
-};
+use xitca_service::{object::BoxedServiceObject, pipeline::PipelineT, BoxFuture, FnService, Service};
 
 use crate::http::Request;
 
@@ -17,12 +13,16 @@ use super::{
     route::{MethodNotAllowed, Route},
 };
 
+pub use self::object::RouteObject;
+
 /// Simple router for matching path and call according service.
 ///
 /// An [ServiceObject](xitca_service::object::ServiceObject) must be specified as a type parameter
 /// in order to determine how the router type-erases node services.
 pub struct Router<Obj> {
-    routes: HashMap<Cow<'static, str>, Obj>,
+    // record for last time PathGen is called with certain route string prefix.
+    last_prefix: Option<String>,
+    routes: HashMap<String, Obj>,
 }
 
 impl<Obj> Default for Router<Obj> {
@@ -33,7 +33,10 @@ impl<Obj> Default for Router<Obj> {
 
 impl<Obj> Router<Obj> {
     pub fn new() -> Self {
-        Router { routes: HashMap::new() }
+        Router {
+            last_prefix: None,
+            routes: HashMap::new(),
+        }
     }
 }
 
@@ -47,11 +50,11 @@ impl<Obj> Router<Obj> {
     /// When multiple services inserted to the same path.
     pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut builder: F) -> Self
     where
-        F: Service<Arg> + RouterGen + Send + Sync,
+        F: Service<Arg> + RouteGen + Send + Sync,
         F::Response: Service<Req>,
         Req: IntoObject<F::Route<F>, Arg, Object = Obj>,
     {
-        let path = builder.path_gen(path);
+        let path = builder.path_gen(String::from(path));
         assert!(self
             .routes
             .insert(path, Req::into_object(F::route_gen(builder)))
@@ -67,7 +70,7 @@ impl<Obj> Router<Obj> {
     {
         let path = T::path();
         let route = T::route();
-        assert!(self.routes.insert(Cow::Borrowed(path), route).is_none());
+        assert!(self.routes.insert(String::from(path), route).is_none());
         self
     }
 }
@@ -131,16 +134,19 @@ where
 impl<E> error::Error for RouterError<E> where E: error::Error {}
 
 /// trait for specialized route generation when utilizing [Router::insert].
-pub trait RouterGen {
-    /// service builder type for generating the final route service.
-    type Route<R>;
-
+pub trait PathGen {
     /// path generator.
     ///
     /// default to passthrough of original prefix path.
-    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        Cow::Borrowed(prefix)
+    fn path_gen(&mut self, prefix: String) -> String {
+        prefix
     }
+}
+
+/// trait for specialized route generation when utilizing [Router::insert].
+pub trait RouteGen: PathGen {
+    /// service builder type for generating the final route service.
+    type Route<R>;
 
     /// route service generator.
     ///
@@ -149,36 +155,61 @@ pub trait RouterGen {
 }
 
 // nest router needs special handling for path generation.
-impl<Obj> RouterGen for Router<Obj> {
-    type Route<R> = R;
+impl<Obj> PathGen for Router<Obj>
+where
+    Obj: PathGen,
+{
+    fn path_gen(&mut self, mut path: String) -> String {
+        if path.ends_with("/*") {
+            path.pop();
+        }
 
-    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        let mut path = String::from(prefix);
         if path.ends_with('/') {
             path.pop();
         }
 
+        let last_prefix = self.last_prefix.replace(path.clone());
+
         self.routes = self
             .routes
             .drain()
-            .map(|(k, v)| {
-                let mut path = path.clone();
-                path.push_str(k.as_ref());
-                (Cow::Owned(path), v)
+            .map(|(k, mut v)| {
+                let mut base = k.as_str();
+
+                // back track previous prefix is the router is repeatedly called for
+                // generating route path. every time a router is nested in another
+                // instance would result in a back track and renew of prefix string.
+                if let Some(ref last_prefix) = last_prefix {
+                    let remain = k.strip_prefix(last_prefix).unwrap();
+                    base = remain;
+                }
+
+                let prefix = format!("{}{base}", path.as_str());
+
+                (v.path_gen(prefix), v)
             })
             .collect();
 
         path.push_str("/*");
 
-        Cow::Owned(path)
+        path
     }
+}
+
+impl<Obj> RouteGen for Router<Obj>
+where
+    Obj: RouteGen,
+{
+    type Route<R> = R;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {
         route
     }
 }
 
-impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
+impl<R, N, const M: usize> PathGen for Route<R, N, M> {}
+
+impl<R, N, const M: usize> RouteGen for Route<R, N, M> {
     type Route<R1> = R1;
 
     fn route_gen<R1>(route: R1) -> Self::Route<R1> {
@@ -186,7 +217,9 @@ impl<R, N, const M: usize> RouterGen for Route<R, N, M> {
     }
 }
 
-impl<F, T, M> RouterGen for HandlerService<F, T, M> {
+impl<F, T, M> PathGen for HandlerService<F, T, M> {}
+
+impl<F, T, M> RouteGen for HandlerService<F, T, M> {
     type Route<R> = RouterMapErr<R>;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {
@@ -194,7 +227,9 @@ impl<F, T, M> RouterGen for HandlerService<F, T, M> {
     }
 }
 
-impl<F> RouterGen for FnService<F> {
+impl<F> PathGen for FnService<F> {}
+
+impl<F> RouteGen for FnService<F> {
     type Route<R1> = RouterMapErr<R1>;
 
     fn route_gen<R1>(route: R1) -> Self::Route<R1> {
@@ -202,15 +237,20 @@ impl<F> RouterGen for FnService<F> {
     }
 }
 
-impl<F, S, M> RouterGen for PipelineT<F, S, M>
+impl<F, S, M> PathGen for PipelineT<F, S, M>
 where
-    F: RouterGen,
+    F: PathGen,
 {
-    type Route<R> = F::Route<R>;
-
-    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+    fn path_gen(&mut self, prefix: String) -> String {
         self.first.path_gen(prefix)
     }
+}
+
+impl<F, S, M> RouteGen for PipelineT<F, S, M>
+where
+    F: RouteGen,
+{
+    type Route<R> = F::Route<R>;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {
         F::route_gen(route)
@@ -219,6 +259,26 @@ where
 
 /// default error mapper service that map all service error type to `RouterError::Second`
 pub struct RouterMapErr<S>(pub S);
+
+impl<S> PathGen for RouterMapErr<S>
+where
+    S: PathGen,
+{
+    fn path_gen(&mut self, prefix: String) -> String {
+        self.0.path_gen(prefix)
+    }
+}
+
+impl<S> RouteGen for RouterMapErr<S>
+where
+    S: RouteGen,
+{
+    type Route<R> = S::Route<R>;
+
+    fn route_gen<R>(route: R) -> Self::Route<R> {
+        S::route_gen(route)
+    }
+}
 
 impl<S, Arg> Service<Arg> for RouterMapErr<S>
 where
@@ -245,20 +305,93 @@ pub trait IntoObject<I, Arg> {
     fn into_object(inner: I) -> Self::Object;
 }
 
+mod object {
+    use super::*;
+
+    pub trait RouteService<Arg>: PathGen {
+        type Response;
+        type Error;
+
+        fn call<'s>(&'s self, arg: Arg) -> BoxFuture<'s, Self::Response, Self::Error>
+        where
+            Arg: 's;
+    }
+
+    impl<Arg, S> RouteService<Arg> for S
+    where
+        S: Service<Arg> + PathGen,
+    {
+        type Response = S::Response;
+        type Error = S::Error;
+
+        fn call<'s>(&'s self, arg: Arg) -> BoxFuture<'s, Self::Response, Self::Error>
+        where
+            Arg: 's,
+        {
+            Box::pin(Service::call(self, arg))
+        }
+    }
+
+    pub struct RouteObject<Arg, S, E>(pub Box<dyn RouteService<Arg, Response = S, Error = E> + Send + Sync>);
+
+    impl<Arg, S, E> PathGen for RouteObject<Arg, S, E> {
+        fn path_gen(&mut self, prefix: String) -> String {
+            self.0.path_gen(prefix)
+        }
+    }
+
+    impl<Arg, S, E> RouteGen for RouteObject<Arg, S, E> {
+        type Route<R> = R;
+
+        fn route_gen<R>(route: R) -> Self::Route<R> {
+            route
+        }
+    }
+
+    impl<Arg, S, E> Service<Arg> for RouteObject<Arg, S, E> {
+        type Response = S;
+        type Error = E;
+
+        async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
+            self.0.call(arg).await
+        }
+    }
+}
+
 impl<T, Arg, Ext, Res, Err> IntoObject<T, Arg> for Request<Ext>
 where
     Ext: 'static,
-    T: Service<Arg> + Send + Sync + 'static,
+    T: Service<Arg> + RouteGen + Send + Sync + 'static,
     T::Response: Service<Request<Ext>, Response = Res, Error = Err> + 'static,
 {
-    type Object = BoxedSyncServiceObject<Arg, BoxedServiceObject<Request<Ext>, Res, Err>, T::Error>;
+    type Object = object::RouteObject<Arg, BoxedServiceObject<Request<Ext>, Res, Err>, T::Error>;
 
     fn into_object(inner: T) -> Self::Object {
         struct Builder<T, Req>(T, PhantomData<fn(Req)>);
 
+        impl<T, Req> PathGen for Builder<T, Req>
+        where
+            T: PathGen,
+        {
+            fn path_gen(&mut self, prefix: String) -> String {
+                self.0.path_gen(prefix)
+            }
+        }
+
+        impl<T, Req> RouteGen for Builder<T, Req>
+        where
+            T: RouteGen,
+        {
+            type Route<R> = T::Route<R>;
+
+            fn route_gen<R>(route: R) -> Self::Route<R> {
+                T::route_gen(route)
+            }
+        }
+
         impl<T, Req, Arg, Res, Err> Service<Arg> for Builder<T, Req>
         where
-            T: Service<Arg> + 'static,
+            T: Service<Arg> + RouteGen + 'static,
             T::Response: Service<Req, Response = Res, Error = Err> + 'static,
         {
             type Response = BoxedServiceObject<Req, Res, Err>;
@@ -269,7 +402,7 @@ where
             }
         }
 
-        Box::new(Builder(inner, PhantomData))
+        object::RouteObject(Box::new(Builder(inner, PhantomData)))
     }
 }
 
@@ -454,6 +587,40 @@ mod test {
             .call(req())
             .now_or_panic()
             .unwrap();
+
+        Router::new()
+            .insert(
+                "/1111/",
+                Router::new().insert(
+                    "/222222/3",
+                    Router::new().insert("/3333333", Router::new().insert("/4444", router())),
+                ),
+            )
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(
+                Request::builder()
+                    .uri("http://foo.bar/1111/222222/3/3333333/4444/nest")
+                    .body(Default::default())
+                    .unwrap(),
+            )
+            .now_or_panic()
+            .unwrap();
+
+        Router::new()
+            .insert("/api", Router::new().insert("/v2", router()))
+            .call(())
+            .now_or_panic()
+            .unwrap()
+            .call(
+                Request::builder()
+                    .uri("http://foo.bar/api/v2/nest")
+                    .body(Default::default())
+                    .unwrap(),
+            )
+            .now_or_panic()
+            .unwrap();
     }
 
     #[test]
@@ -479,12 +646,12 @@ mod test {
     fn router_typed() {
         type Req = Request<RequestExt<()>>;
         type Route = BoxedServiceObject<Req, Response<()>, RouterError<Infallible>>;
-        type RouteObject = BoxedSyncServiceObject<(), Route, Infallible>;
+        type Object = object::RouteObject<(), Route, Infallible>;
 
         struct Index;
 
         impl TypedRoute for Index {
-            type Route = RouteObject;
+            type Route = Object;
 
             fn path() -> &'static str {
                 "/"
@@ -498,7 +665,7 @@ mod test {
         struct V2;
 
         impl TypedRoute for V2 {
-            type Route = RouteObject;
+            type Route = Object;
 
             fn path() -> &'static str {
                 "/v2"
