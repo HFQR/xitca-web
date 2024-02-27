@@ -2,6 +2,7 @@
 ## Add
 - add `RequestStream::inner_mut` method for accessing inner stream type.
 - add `RequestStream::codec_mut` method for accessing `Codec` type.
+- add `ResponseSender::close` method for sending close message.
 
 ## Change
 - reduce `stream::RequestStream`'s generic type params. 

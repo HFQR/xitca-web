@@ -40,12 +40,14 @@ pub(crate) fn nop() -> Connector {
 }
 
 #[cfg(feature = "openssl")]
-pub(crate) fn openssl(protocols: &[&[u8]]) -> Connector {
+pub(crate) mod openssl {
     use core::pin::Pin;
 
     use openssl_crate::ssl::{SslConnector, SslMethod};
     use tokio_openssl::SslStream;
     use xitca_http::bytes::BufMut;
+
+    use super::*;
 
     impl<'n> Service<(&'n str, Box<dyn Io>)> for SslConnector {
         type Response = (Box<dyn Io>, Version);
@@ -72,22 +74,24 @@ pub(crate) fn openssl(protocols: &[&[u8]]) -> Connector {
         }
     }
 
-    let mut alpn = Vec::with_capacity(20);
-    for proto in protocols {
-        alpn.put_u8(proto.len() as u8);
-        alpn.put(*proto);
+    pub(crate) fn connect(protocols: &[&[u8]]) -> Connector {
+        let mut alpn = Vec::with_capacity(20);
+        for proto in protocols {
+            alpn.put_u8(proto.len() as u8);
+            alpn.put(*proto);
+        }
+
+        let mut ssl = SslConnector::builder(SslMethod::tls()).unwrap();
+
+        ssl.set_alpn_protos(&alpn)
+            .unwrap_or_else(|e| panic!("Can not set ALPN protocol: {e:?}"));
+
+        Box::new(ssl.build())
     }
-
-    let mut ssl = SslConnector::builder(SslMethod::tls()).unwrap();
-
-    ssl.set_alpn_protos(&alpn)
-        .unwrap_or_else(|e| panic!("Can not set ALPN protocol: {e:?}"));
-
-    Box::new(ssl.build())
 }
 
 #[cfg(feature = "rustls")]
-pub(crate) fn rustls(protocols: &[&[u8]]) -> Connector {
+pub(crate) mod rustls {
     use std::sync::Arc;
 
     use rustls_pki_types::ServerName;
@@ -96,6 +100,8 @@ pub(crate) fn rustls(protocols: &[&[u8]]) -> Connector {
         TlsConnector,
     };
     use webpki_roots::TLS_SERVER_ROOTS;
+
+    use super::*;
 
     impl<'n> Service<(&'n str, Box<dyn Io>)> for TlsConnector {
         type Response = (Box<dyn Io>, Version);
@@ -119,15 +125,17 @@ pub(crate) fn rustls(protocols: &[&[u8]]) -> Connector {
         }
     }
 
-    let mut root_certs = RootCertStore::empty();
+    pub(crate) fn connect(protocols: &[&[u8]]) -> Connector {
+        let mut root_certs = RootCertStore::empty();
 
-    root_certs.extend(TLS_SERVER_ROOTS.iter().cloned());
+        root_certs.extend(TLS_SERVER_ROOTS.iter().cloned());
 
-    let mut config = ClientConfig::builder()
-        .with_root_certificates(root_certs)
-        .with_no_client_auth();
+        let mut config = ClientConfig::builder()
+            .with_root_certificates(root_certs)
+            .with_no_client_auth();
 
-    config.alpn_protocols = protocols.iter().map(|p| p.to_vec()).collect();
+        config.alpn_protocols = protocols.iter().map(|p| p.to_vec()).collect();
 
-    Box::new(TlsConnector::from(Arc::new(config)))
+        Box::new(TlsConnector::from(Arc::new(config)))
+    }
 }

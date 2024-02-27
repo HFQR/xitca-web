@@ -17,6 +17,7 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use super::{
     codec::{Codec, Message},
     error::ProtocolError,
+    proto::CloseReason,
 };
 
 pin_project! {
@@ -238,6 +239,12 @@ impl ResponseSender {
     #[inline]
     pub fn binary(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
         self.send(Message::Binary(bin.into()))
+    }
+
+    /// encode [Message::Close] variant and add to [ResponseStream].
+    /// take ownership of Self as after close message no more message can be sent to client.
+    pub async fn close(self, reason: Option<impl Into<CloseReason>>) -> Result<(), ProtocolError> {
+        self.send(Message::Close(reason.map(Into::into))).await
     }
 }
 
