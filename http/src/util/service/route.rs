@@ -176,7 +176,7 @@ impl<R, N, const M: usize> ReadyService for RouteService<R, N, M> {
 }
 
 /// Error type of Method not allow for route.
-pub struct MethodNotAllowed(pub Vec<Method>);
+pub struct MethodNotAllowed(pub Box<Vec<Method>>);
 
 impl MethodNotAllowed {
     /// slice of allowed methods of current route.
@@ -229,7 +229,7 @@ where
     type Error = RouterError<R::Error>;
 
     async fn call(&self, _: Req) -> Result<Self::Response, Self::Error> {
-        Err(RouterError::NotAllowed(MethodNotAllowed(Vec::new())))
+        Err(RouterError::NotAllowed(MethodNotAllowed(Box::new(Vec::new()))))
     }
 }
 
