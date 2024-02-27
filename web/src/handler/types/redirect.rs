@@ -2,7 +2,7 @@
 
 use core::convert::Infallible;
 
-use xitca_http::util::service::router::{RouterGen, RouterMapErr};
+use xitca_http::util::service::router::{PathGen, RouteGen, RouterMapErr};
 
 use crate::{
     body::ResponseBody,
@@ -61,7 +61,9 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Redirect {
     }
 }
 
-impl RouterGen for Redirect {
+impl PathGen for Redirect {}
+
+impl RouteGen for Redirect {
     type Route<R> = RouterMapErr<R>;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {

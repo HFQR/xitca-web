@@ -319,7 +319,7 @@ pub mod codegen {
     #[doc(hidden)]
     /// a hidden module for macro to access public types that are not framework user facing.
     pub mod __private {
-        pub use xitca_http::util::service::router::{IntoObject, RouterMapErr, TypedRoute};
+        pub use xitca_http::util::service::router::{IntoObject, RouteObject, RouterMapErr, TypedRoute};
     }
 }
 

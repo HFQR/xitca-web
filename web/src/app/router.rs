@@ -1,6 +1,4 @@
-use std::borrow::Cow;
-
-use xitca_http::util::service::router::{IntoObject, Router, RouterError, RouterGen, RouterMapErr, TypedRoute};
+use xitca_http::util::service::router::{IntoObject, PathGen, RouteGen, Router, RouterError, RouterMapErr, TypedRoute};
 
 use crate::{
     error::Error,
@@ -18,7 +16,7 @@ impl<Obj> AppRouter<Obj> {
 
     pub(super) fn insert<F, Arg, Req>(mut self, path: &'static str, builder: F) -> Self
     where
-        F: Service<Arg> + RouterGen + Send + Sync,
+        F: Service<Arg> + RouteGen + Send + Sync,
         F::Response: Service<Req>,
         Req: IntoObject<F::Route<F>, Arg, Object = Obj>,
     {
@@ -35,15 +33,23 @@ impl<Obj> AppRouter<Obj> {
     }
 }
 
-impl<Obj> RouterGen for AppRouter<Obj> {
-    type Route<R1> = RouterMapErr<<Router<Obj> as RouterGen>::Route<R1>>;
-
-    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
+impl<Obj> PathGen for AppRouter<Obj>
+where
+    Router<Obj>: PathGen,
+{
+    fn path_gen(&mut self, prefix: String) -> String {
         self.0.path_gen(prefix)
     }
+}
+
+impl<Obj> RouteGen for AppRouter<Obj>
+where
+    Router<Obj>: RouteGen,
+{
+    type Route<R1> = RouterMapErr<<Router<Obj> as RouteGen>::Route<R1>>;
 
     fn route_gen<R1>(route: R1) -> Self::Route<R1> {
-        RouterMapErr(<Router<Obj> as RouterGen>::route_gen(route))
+        RouterMapErr(<Router<Obj> as RouteGen>::route_gen(route))
     }
 }
 

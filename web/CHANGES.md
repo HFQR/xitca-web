@@ -19,6 +19,7 @@
 - rename `handler::string` module to `handler::text`.
 - `error::InvalidHeaderValue` displays it's associated header name in `Debug` and `Display` format.
 - update `xitca-http` to `0.4.0`
+- update `xitca-codegen` to `0.2.0`
 
 # 0.3.0
 ## Add

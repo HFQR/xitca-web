@@ -161,9 +161,9 @@ mod service {
 
 #[cfg(feature = "router")]
 mod router_impl {
-    use xitca_service::object::{BoxedSyncServiceObject, ServiceObject};
+    use xitca_service::object::ServiceObject;
 
-    use crate::util::service::router::IntoObject;
+    use crate::util::service::router::{IntoObject, PathGen, RouteGen, RouteObject};
 
     use super::*;
 
@@ -174,17 +174,37 @@ mod router_impl {
     where
         C: 'static,
         Req: 'static,
-        I: Service<Arg> + Send + Sync + 'static,
+        I: Service<Arg> + RouteGen + Send + Sync + 'static,
         I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
     {
-        type Object = BoxedSyncServiceObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
+        type Object = RouteObject<Arg, ContextObject<Req, C, Res, Err>, I::Error>;
 
         fn into_object(inner: I) -> Self::Object {
             struct Builder<I, Req, C>(I, core::marker::PhantomData<fn(Req, C)>);
 
+            impl<I, Req, C> PathGen for Builder<I, Req, C>
+            where
+                I: PathGen,
+            {
+                fn path_gen(&mut self, prefix: String) -> String {
+                    self.0.path_gen(prefix)
+                }
+            }
+
+            impl<I, Req, C> RouteGen for Builder<I, Req, C>
+            where
+                I: RouteGen,
+            {
+                type Route<R> = I::Route<R>;
+
+                fn route_gen<R>(route: R) -> Self::Route<R> {
+                    I::route_gen(route)
+                }
+            }
+
             impl<C, I, Arg, Req, Res, Err> Service<Arg> for Builder<I, Req, C>
             where
-                I: Service<Arg>,
+                I: Service<Arg> + RouteGen,
                 I::Response: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err> + 'static,
             {
                 type Response = ContextObject<Req, C, Res, Err>;
@@ -195,7 +215,7 @@ mod router_impl {
                 }
             }
 
-            Box::new(Builder(inner, core::marker::PhantomData))
+            RouteObject(Box::new(Builder(inner, core::marker::PhantomData)))
         }
     }
 }

@@ -169,7 +169,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
         impl #generic_arg ::xitca_web::codegen::__private::TypedRoute<#state_ident> for #ident
         #where_clause
         {
-            type Route = ::xitca_web::service::object::BoxedSyncServiceObject<
+            type Route = ::xitca_web::codegen::__private::RouteObject<
                 (),
                 Box<dyn for<'r> ::xitca_web::service::object::ServiceObject<
                     ::xitca_web::WebContext<'r, #state_ident>,

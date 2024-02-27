@@ -2,10 +2,10 @@
 
 use core::convert::Infallible;
 
-use std::{borrow::Cow, path::PathBuf};
+use std::path::PathBuf;
 
 use http_file::ServeDir as _ServeDir;
-use xitca_http::util::service::router::RouterGen;
+use xitca_http::util::service::router::{PathGen, RouteGen};
 
 use crate::service::Service;
 
@@ -38,19 +38,20 @@ impl ServeDir {
     }
 }
 
-impl RouterGen for ServeDir {
-    type Route<R> = R;
-
-    fn path_gen(&mut self, prefix: &'static str) -> Cow<'static, str> {
-        let mut path = String::from(prefix);
-        if path.ends_with('/') {
-            path.pop();
+impl PathGen for ServeDir {
+    fn path_gen(&mut self, mut prefix: String) -> String {
+        if prefix.ends_with('/') {
+            prefix.pop();
         }
 
-        path.push_str("/*p");
+        prefix.push_str("/*p");
 
-        Cow::Owned(path)
+        prefix
     }
+}
+
+impl RouteGen for ServeDir {
+    type Route<R> = R;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {
         route
