@@ -243,11 +243,8 @@ impl ResponseSender {
 
     /// encode [Message::Close] variant and add to [ResponseStream].
     /// take ownership of Self as after close message no more message can be sent to client.
-    pub fn close(
-        self,
-        reason: Option<impl Into<CloseReason> + 'static>,
-    ) -> impl Future<Output = Result<(), ProtocolError>> + 'static {
-        async move { self.send(Message::Close(reason.map(Into::into))).await }
+    pub async fn close(self, reason: Option<impl Into<CloseReason>>) -> Result<(), ProtocolError> {
+        self.send(Message::Close(reason.map(Into::into))).await
     }
 }
 
