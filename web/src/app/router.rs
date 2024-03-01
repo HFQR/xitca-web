@@ -37,7 +37,7 @@ impl<Obj> PathGen for AppRouter<Obj>
 where
     Router<Obj>: PathGen,
 {
-    fn path_gen(&mut self, prefix: String) -> String {
+    fn path_gen(&mut self, prefix: &str) -> String {
         self.0.path_gen(prefix)
     }
 }
