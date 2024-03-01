@@ -16,6 +16,7 @@
 - `util::service::router::RouterGen` is renamed to `RouteGen`. It's API is shrunk to generating route service only. For route path generating please reference `util::service::router::PathGen`.
 - `body::Either` doesn't expose it's enum variants in public API anymore.
 - relax `Stream::Item` associated type when impl on `body::BoxBody::new` and `body::ResponseBody::boxed_stream` types. Instead of requiring the stream to yield `Ok<Bytes>` it now accepts types `Ok<impl Into<Bytes>>`.
+- update `xitca-tls` to `0.2.0`.
 
 # 0.3.0
 ## Add
