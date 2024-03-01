@@ -91,7 +91,7 @@ xitca-server = { version = "0.1", optional = true }
 openssl-crate = { package = "openssl", version = "0.10", optional = true }
 
 # rustls
-rustls-crate = { package = "rustls", version = "0.22", optional = true }
+rustls-crate = { package = "rustls", version = "0.23", optional = true }
 
 # (de)serialization shared.
 serde = { version = "1", optional = true }

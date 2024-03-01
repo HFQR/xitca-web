@@ -21,7 +21,7 @@ pub use self::object::RouteObject;
 /// in order to determine how the router type-erases node services.
 pub struct Router<Obj> {
     // record for last time PathGen is called with certain route string prefix.
-    last_prefix: Option<String>,
+    prefix: Option<usize>,
     routes: HashMap<String, Obj>,
 }
 
@@ -34,7 +34,7 @@ impl<Obj> Default for Router<Obj> {
 impl<Obj> Router<Obj> {
     pub fn new() -> Self {
         Router {
-            last_prefix: None,
+            prefix: None,
             routes: HashMap::new(),
         }
     }
@@ -91,7 +91,10 @@ where
             router.insert(path.to_string(), service).unwrap();
         }
 
-        Ok(service::RouterService(router))
+        Ok(service::RouterService {
+            prefix: self.prefix,
+            router,
+        })
     }
 }
 
@@ -168,27 +171,13 @@ where
             path.pop();
         }
 
-        let last_prefix = self.last_prefix.replace(path.clone());
+        if let Some(prefix) = self.prefix.replace(path.len()) {
+            self.prefix = Some(path.len() + prefix);
+        }
 
-        self.routes = self
-            .routes
-            .drain()
-            .map(|(k, mut v)| {
-                let mut base = k.as_str();
-
-                // back track previous prefix is the router is repeatedly called for
-                // generating route path. every time a router is nested in another
-                // instance would result in a back track and renew of prefix string.
-                if let Some(ref last_prefix) = last_prefix {
-                    let remain = k.strip_prefix(last_prefix).unwrap();
-                    base = remain;
-                }
-
-                let prefix = format!("{}{base}", path.as_str());
-
-                (v.path_gen(prefix), v)
-            })
-            .collect();
+        self.routes.iter_mut().for_each(|(_, v)| {
+            v.path_gen(path.clone());
+        });
 
         path.push_str("/*");
 
@@ -428,7 +417,12 @@ mod service {
 
     use super::{Params, RouterError, Service};
 
-    pub struct RouterService<S>(pub(super) xitca_router::Router<S>);
+    pub struct RouterService<S> {
+        // a length record of prefix of current router.
+        // when it's Some the request path has to be sliced to exclude the string path prefix.
+        pub(super) prefix: Option<usize>,
+        pub(super) router: xitca_router::Router<S>,
+    }
 
     impl<S, Req, E> Service<Req> for RouterService<S>
     where
@@ -444,8 +438,13 @@ mod service {
         #[inline]
         fn call(&self, mut req: Req) -> impl core::future::Future<Output = Result<Self::Response, Self::Error>> {
             async {
-                let xitca_router::Match { value, params } =
-                    self.0.at(req.borrow().path()).map_err(RouterError::Match)?;
+                let mut path = req.borrow().path();
+
+                if let Some(prefix) = self.prefix {
+                    path = &path[prefix..];
+                }
+
+                let xitca_router::Match { value, params } = self.router.at(path).map_err(RouterError::Match)?;
                 *req.borrow_mut() = params;
                 Service::call(value, req).await
             }

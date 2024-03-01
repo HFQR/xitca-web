@@ -1,6 +1,6 @@
 [package]
 name = "xitca-tls"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "tls utility for xitca"
@@ -16,7 +16,7 @@ rustls-uring = ["rustls", "xitca-io/runtime-uring"]
 [dependencies]
 xitca-io = { version = "0.1", features = ["runtime"] }
 
-rustls = { version = "0.22", optional = true }
+rustls = { version = "0.23", optional = true }
 
 [dev-dependencies]
 rustls-pki-types = "1"
