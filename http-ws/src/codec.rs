@@ -67,6 +67,12 @@ impl Flags {
     }
 }
 
+impl Default for Codec {
+    fn default() -> Self {
+        unimplemented!("please use Codec::new")
+    }
+}
+
 impl Codec {
     /// Create new WebSocket frames decoder.
     pub const fn new() -> Codec {
