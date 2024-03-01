@@ -217,6 +217,12 @@ pub struct SmallBoxedStr {
     inner: Inner,
 }
 
+impl Default for SmallBoxedStr {
+    fn default() -> Self {
+        unimplemented!("please use SmallBoxedStr::new")
+    }
+}
+
 impl SmallBoxedStr {
     #[inline]
     pub const fn new() -> Self {

@@ -519,7 +519,7 @@ impl<R, F> PathGen for App<R, F>
 where
     R: PathGen,
 {
-    fn path_gen(&mut self, prefix: String) -> String {
+    fn path_gen(&mut self, prefix: &str) -> String {
         self.router.path_gen(prefix)
     }
 }

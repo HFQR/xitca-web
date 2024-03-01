@@ -39,7 +39,8 @@ impl ServeDir {
 }
 
 impl PathGen for ServeDir {
-    fn path_gen(&mut self, mut prefix: String) -> String {
+    fn path_gen(&mut self, prefix: &str) -> String {
+        let mut prefix = String::from(prefix);
         if prefix.ends_with('/') {
             prefix.pop();
         }

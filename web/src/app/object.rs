@@ -23,7 +23,7 @@ where
         where
             I: PathGen,
         {
-            fn path_gen(&mut self, prefix: String) -> String {
+            fn path_gen(&mut self, prefix: &str) -> String {
                 self.0.path_gen(prefix)
             }
         }

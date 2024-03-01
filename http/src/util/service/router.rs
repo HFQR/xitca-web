@@ -54,7 +54,7 @@ impl<Obj> Router<Obj> {
         F::Response: Service<Req>,
         Req: IntoObject<F::Route<F>, Arg, Object = Obj>,
     {
-        let path = builder.path_gen(String::from(path));
+        let path = builder.path_gen(path);
         assert!(self
             .routes
             .insert(path, Req::into_object(F::route_gen(builder)))
@@ -141,8 +141,8 @@ pub trait PathGen {
     /// path generator.
     ///
     /// default to passthrough of original prefix path.
-    fn path_gen(&mut self, prefix: String) -> String {
-        prefix
+    fn path_gen(&mut self, prefix: &str) -> String {
+        String::from(prefix)
     }
 }
 
@@ -162,7 +162,8 @@ impl<Obj> PathGen for Router<Obj>
 where
     Obj: PathGen,
 {
-    fn path_gen(&mut self, mut path: String) -> String {
+    fn path_gen(&mut self, path: &str) -> String {
+        let mut path = String::from(path);
         if path.ends_with("/*") {
             path.pop();
         }
@@ -171,12 +172,11 @@ where
             path.pop();
         }
 
-        if let Some(prefix) = self.prefix.replace(path.len()) {
-            self.prefix = Some(path.len() + prefix);
-        }
+        let prefix = self.prefix.get_or_insert(0);
+        *prefix += path.len();
 
         self.routes.iter_mut().for_each(|(_, v)| {
-            v.path_gen(path.clone());
+            v.path_gen(path.as_str());
         });
 
         path.push_str("/*");
@@ -230,7 +230,7 @@ impl<F, S, M> PathGen for PipelineT<F, S, M>
 where
     F: PathGen,
 {
-    fn path_gen(&mut self, prefix: String) -> String {
+    fn path_gen(&mut self, prefix: &str) -> String {
         self.first.path_gen(prefix)
     }
 }
@@ -253,7 +253,7 @@ impl<S> PathGen for RouterMapErr<S>
 where
     S: PathGen,
 {
-    fn path_gen(&mut self, prefix: String) -> String {
+    fn path_gen(&mut self, prefix: &str) -> String {
         self.0.path_gen(prefix)
     }
 }
@@ -324,7 +324,7 @@ mod object {
     pub struct RouteObject<Arg, S, E>(pub Box<dyn RouteService<Arg, Response = S, Error = E> + Send + Sync>);
 
     impl<Arg, S, E> PathGen for RouteObject<Arg, S, E> {
-        fn path_gen(&mut self, prefix: String) -> String {
+        fn path_gen(&mut self, prefix: &str) -> String {
             self.0.path_gen(prefix)
         }
     }
@@ -362,7 +362,7 @@ where
         where
             T: PathGen,
         {
-            fn path_gen(&mut self, prefix: String) -> String {
+            fn path_gen(&mut self, prefix: &str) -> String {
                 self.0.path_gen(prefix)
             }
         }
