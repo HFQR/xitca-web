@@ -255,6 +255,19 @@ borrow_req_impl!(Uri);
 borrow_req_impl!(HeaderMap);
 borrow_req_impl!(Extensions);
 
+impl<'a, Ext> FromRequest<'a, Request<Ext>> for &'a Request<Ext>
+where
+    Ext: 'static,
+{
+    type Type<'b> = &'b Request<Ext>;
+    type Error = Infallible;
+
+    #[inline]
+    async fn from_request(req: &'a Request<Ext>) -> Result<Self, Self::Error> {
+        Ok(req)
+    }
+}
+
 impl<'a, B> FromRequest<'a, Request<RequestExt<B>>> for &'a SocketAddr {
     type Type<'b> = &'b SocketAddr;
     type Error = Infallible;
@@ -271,7 +284,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        http::{Request, Response, StatusCode},
+        http::{Response, StatusCode},
         unspecified_socket_addr,
     };
 
@@ -301,15 +314,6 @@ mod test {
             let mut res = Response::new(());
             *res.status_mut() = self;
             Ok(res)
-        }
-    }
-
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for &'a Request<RequestExt<()>> {
-        type Type<'f> = &'f Request<RequestExt<()>>;
-        type Error = Infallible;
-
-        async fn from_request(req: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
-            Ok(req)
         }
     }
 
