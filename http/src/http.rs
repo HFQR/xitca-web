@@ -304,6 +304,13 @@ impl<Ext> BorrowReq<HeaderMap> for Request<Ext> {
     }
 }
 
+impl<Ext> BorrowReq<Extensions> for Request<Ext> {
+    #[inline]
+    fn borrow(&self) -> &Extensions {
+        self.extensions()
+    }
+}
+
 impl<Ext> BorrowReqMut<Extensions> for Request<Ext> {
     #[inline]
     fn borrow_mut(&mut self) -> &mut Extensions {
