@@ -271,7 +271,7 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        http::{Request, RequestExt, Response, StatusCode},
+        http::{Request, Response, StatusCode},
         unspecified_socket_addr,
     };
 
