@@ -2,7 +2,11 @@
 
 use core::{convert::Infallible, future::Future, marker::PhantomData};
 
+use std::net::SocketAddr;
+
 use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
+
+use crate::http::{BorrowReq, Extensions, HeaderMap, Method, Request, RequestExt, Uri};
 
 /// A service factory shortcut offering given async function ability to use [FromRequest] to destruct and transform `Service<Req>`'s
 /// `Req` type and receive them as function argument.
@@ -232,19 +236,72 @@ where
     }
 }
 
+macro_rules! borrow_req_impl {
+    ($tt: tt) => {
+        impl<'a, Ext> FromRequest<'a, Request<Ext>> for &'a $tt {
+            type Type<'b> = &'b $tt;
+            type Error = Infallible;
+
+            #[inline]
+            async fn from_request(req: &'a Request<Ext>) -> Result<Self, Self::Error> {
+                Ok(req.borrow())
+            }
+        }
+    };
+}
+
+borrow_req_impl!(Method);
+borrow_req_impl!(Uri);
+borrow_req_impl!(HeaderMap);
+borrow_req_impl!(Extensions);
+
+impl<'a, Ext> FromRequest<'a, Request<Ext>> for &'a Request<Ext>
+where
+    Ext: 'static,
+{
+    type Type<'b> = &'b Request<Ext>;
+    type Error = Infallible;
+
+    #[inline]
+    async fn from_request(req: &'a Request<Ext>) -> Result<Self, Self::Error> {
+        Ok(req)
+    }
+}
+
+impl<'a, B> FromRequest<'a, Request<RequestExt<B>>> for &'a SocketAddr {
+    type Type<'b> = &'b SocketAddr;
+    type Error = Infallible;
+
+    #[inline]
+    async fn from_request(req: &'a Request<RequestExt<B>>) -> Result<Self, Self::Error> {
+        Ok(req.borrow())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use xitca_service::ServiceExt;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::http::{Request, RequestExt, Response, StatusCode};
+    use crate::{
+        http::{Response, StatusCode},
+        unspecified_socket_addr,
+    };
 
     use super::*;
 
-    async fn handler(e1: String, e2: u32, (_, e3): (&Request<RequestExt<()>>, u64)) -> StatusCode {
-        assert_eq!(e1, "996");
-        assert_eq!(e2, 996);
-        assert_eq!(e3, 996);
+    async fn handler(
+        method: &Method,
+        addr: &SocketAddr,
+        uri: &Uri,
+        headers: &HeaderMap,
+        (_, ext): (&Request<RequestExt<()>>, &Extensions),
+    ) -> StatusCode {
+        assert_eq!(method, Method::GET);
+        assert_eq!(*addr, unspecified_socket_addr());
+        assert_eq!(uri.path(), "/");
+        assert!(headers.is_empty());
+        assert!(ext.is_empty());
 
         StatusCode::MULTI_STATUS
     }
@@ -257,42 +314,6 @@ mod test {
             let mut res = Response::new(());
             *res.status_mut() = self;
             Ok(res)
-        }
-    }
-
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for String {
-        type Type<'f> = Self;
-        type Error = Infallible;
-
-        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
-            Ok(String::from("996"))
-        }
-    }
-
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u32 {
-        type Type<'f> = Self;
-        type Error = Infallible;
-
-        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
-            Ok(996)
-        }
-    }
-
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for u64 {
-        type Type<'f> = Self;
-        type Error = Infallible;
-
-        async fn from_request(_: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
-            Ok(996)
-        }
-    }
-
-    impl<'a> FromRequest<'a, Request<RequestExt<()>>> for &'a Request<RequestExt<()>> {
-        type Type<'f> = &'f Request<RequestExt<()>>;
-        type Error = Infallible;
-
-        async fn from_request(req: &'a Request<RequestExt<()>>) -> Result<Self, Self::Error> {
-            Ok(req)
         }
     }
 
