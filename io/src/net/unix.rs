@@ -53,4 +53,3 @@ impl AsFd for UnixStream {
 }
 
 super::default_aio_impl!(UnixStream);
-super::default_async_read_write_impl!(UnixStream);

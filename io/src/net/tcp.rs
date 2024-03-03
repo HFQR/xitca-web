@@ -50,7 +50,6 @@ impl TryFrom<Stream> for (TcpStream, SocketAddr) {
     }
 }
 
-super::default_async_read_write_impl!(TcpStream);
 super::default_aio_impl!(TcpStream);
 
 #[cfg(unix)]

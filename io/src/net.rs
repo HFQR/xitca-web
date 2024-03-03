@@ -105,66 +105,6 @@ macro_rules! default_aio_impl {
 
 use default_aio_impl;
 
-// TODO: remove this macro and implements when a homebrew h2 protocol is introduced.
-// temporary macro that forward AsyncRead/AsyncWrite trait.
-// This is only used for h2 crate.
-macro_rules! default_async_read_write_impl {
-    ($ty: ty) => {
-        impl crate::io::AsyncRead for $ty {
-            #[inline]
-            fn poll_read(
-                self: ::core::pin::Pin<&mut Self>,
-                cx: &mut ::core::task::Context<'_>,
-                buf: &mut crate::io::ReadBuf<'_>,
-            ) -> ::core::task::Poll<::std::io::Result<()>> {
-                ::core::pin::Pin::new(&mut self.get_mut().0).poll_read(cx, buf)
-            }
-        }
-
-        impl crate::io::AsyncWrite for $ty {
-            #[inline]
-            fn poll_write(
-                self: ::core::pin::Pin<&mut Self>,
-                cx: &mut ::core::task::Context<'_>,
-                buf: &[u8],
-            ) -> ::core::task::Poll<::std::io::Result<usize>> {
-                ::core::pin::Pin::new(&mut self.get_mut().0).poll_write(cx, buf)
-            }
-
-            #[inline]
-            fn poll_flush(
-                self: ::core::pin::Pin<&mut Self>,
-                cx: &mut ::core::task::Context<'_>,
-            ) -> ::core::task::Poll<::std::io::Result<()>> {
-                ::core::pin::Pin::new(&mut self.get_mut().0).poll_flush(cx)
-            }
-
-            #[inline]
-            fn poll_shutdown(
-                self: ::core::pin::Pin<&mut Self>,
-                cx: &mut ::core::task::Context<'_>,
-            ) -> ::core::task::Poll<::std::io::Result<()>> {
-                ::core::pin::Pin::new(&mut self.get_mut().0).poll_shutdown(cx)
-            }
-
-            #[inline]
-            fn poll_write_vectored(
-                self: ::core::pin::Pin<&mut Self>,
-                cx: &mut ::core::task::Context<'_>,
-                bufs: &[::std::io::IoSlice<'_>],
-            ) -> ::core::task::Poll<::std::io::Result<usize>> {
-                ::core::pin::Pin::new(&mut self.get_mut().0).poll_write_vectored(cx, bufs)
-            }
-
-            fn is_write_vectored(&self) -> bool {
-                self.0.is_write_vectored()
-            }
-        }
-    };
-}
-
-use default_async_read_write_impl;
-
 /// A collection of listener types of different protocol.
 #[derive(Debug)]
 pub enum Listener {
