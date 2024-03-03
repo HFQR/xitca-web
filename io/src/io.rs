@@ -46,25 +46,25 @@ pub trait AsyncIo: io::Read + io::Write + Unpin {
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
 }
 
-/// adaptor type for transforming a type impl [AsyncIo] trait to a type impl [AsyncRead] and [AsyncWrite] traits.
+/// adapter type for transforming a type impl [AsyncIo] trait to a type impl [AsyncRead] and [AsyncWrite] traits.
 /// # Example
 /// ```rust
 /// use std::{future::poll_fn, pin::Pin};
-/// use xitca_io::io::{AsyncIo, AsyncRead, AsyncReadWrite, AsyncWrite, ReadBuf};
+/// use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, PollIoAdapter, ReadBuf};
 ///
 /// async fn adapt(io: impl AsyncIo) {
-///     // wrap async io type to adaptor.
-///     let mut poll_io = AsyncReadWrite(io);
+///     // wrap async io type to adapter.
+///     let mut poll_io = PollIoAdapter(io);
 ///     // use adaptor for polling based io operations.
 ///     poll_fn(|cx| Pin::new(&mut poll_io).poll_read(cx, &mut ReadBuf::new(&mut [0u8; 1]))).await;
 ///     poll_fn(|cx| Pin::new(&mut poll_io).poll_write(cx, b"996")).await;    
 /// }
 /// ```
-pub struct AsyncReadWrite<T>(pub T)
+pub struct PollIoAdapter<T>(pub T)
 where
     T: AsyncIo;
 
-impl<T> AsyncRead for AsyncReadWrite<T>
+impl<T> AsyncRead for PollIoAdapter<T>
 where
     T: AsyncIo,
 {
@@ -86,7 +86,7 @@ where
     }
 }
 
-impl<T> AsyncWrite for AsyncReadWrite<T>
+impl<T> AsyncWrite for PollIoAdapter<T>
 where
     T: AsyncIo,
 {
@@ -142,7 +142,7 @@ where
     }
 }
 
-impl<Io> AsyncIo for AsyncReadWrite<Io>
+impl<Io> AsyncIo for PollIoAdapter<Io>
 where
     Io: AsyncIo,
 {
@@ -165,7 +165,7 @@ where
     }
 }
 
-impl<Io> io::Write for AsyncReadWrite<Io>
+impl<Io> io::Write for PollIoAdapter<Io>
 where
     Io: AsyncIo,
 {
@@ -185,7 +185,7 @@ where
     }
 }
 
-impl<Io> io::Read for AsyncReadWrite<Io>
+impl<Io> io::Read for PollIoAdapter<Io>
 where
     Io: AsyncIo,
 {

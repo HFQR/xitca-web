@@ -14,7 +14,7 @@ use openssl::{
     error::ErrorStack,
     ssl::{Error, ErrorCode, ShutdownResult, Ssl, SslStream},
 };
-use xitca_io::io::{AsyncIo, AsyncReadWrite, Interest, Ready};
+use xitca_io::io::{AsyncIo, Interest, PollIoAdapter, Ready};
 use xitca_service::Service;
 
 use crate::{http::Version, version::AsVersion};
@@ -28,7 +28,7 @@ pub struct TlsStream<Io> {
     io: SslStream<Io>,
 }
 
-impl<Io> AsVersion for AsyncReadWrite<TlsStream<Io>>
+impl<Io> AsVersion for PollIoAdapter<TlsStream<Io>>
 where
     Io: AsyncIo,
 {
@@ -72,7 +72,7 @@ pub struct TlsAcceptorService {
 
 impl TlsAcceptorService {
     #[inline(never)]
-    async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<AsyncReadWrite<TlsStream<Io>>, OpensslError> {
+    async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<PollIoAdapter<TlsStream<Io>>, OpensslError> {
         let ctx = self.acceptor.context();
         let ssl = Ssl::new(ctx)?;
         let mut io = SslStream::new(ssl, io)?;
@@ -80,7 +80,7 @@ impl TlsAcceptorService {
         loop {
             io.get_mut().ready(interest).await?;
             match io.accept() {
-                Ok(_) => return Ok(AsyncReadWrite(TlsStream { io })),
+                Ok(_) => return Ok(PollIoAdapter(TlsStream { io })),
                 Err(ref e) if e.code() == ErrorCode::WANT_READ => {
                     interest = Interest::READABLE;
                 }
@@ -94,7 +94,7 @@ impl TlsAcceptorService {
 }
 
 impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
-    type Response = AsyncReadWrite<TlsStream<Io>>;
+    type Response = PollIoAdapter<TlsStream<Io>>;
     type Error = OpensslError;
 
     async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
