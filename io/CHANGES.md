@@ -1,0 +1,3 @@
+# unreleased 0.1.1
+## Add
+- `io::AsyncReadWrite` as adaptor between `AsyncIo` and `AsyncRead`/`AsyncWrite` traits.

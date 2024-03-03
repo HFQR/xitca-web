@@ -1,14 +1,8 @@
-use core::{
-    convert::Infallible,
-    fmt,
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use core::{convert::Infallible, fmt};
 
 use std::{error, io, sync::Arc};
 
-use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
+use xitca_io::io::{AsyncIo, AsyncReadWrite};
 use xitca_service::Service;
 use xitca_tls::rustls::{Error, ServerConfig, ServerConnection, TlsStream as _TlsStream};
 
@@ -19,19 +13,14 @@ use super::error::TlsError;
 pub(crate) type RustlsConfig = Arc<ServerConfig>;
 
 /// A stream managed by rustls for tls read/write.
-pub struct TlsStream<Io>
-where
-    Io: AsyncIo,
-{
-    inner: _TlsStream<ServerConnection, Io>,
-}
+pub type TlsStream<Io> = _TlsStream<ServerConnection, Io>;
 
-impl<Io> AsVersion for TlsStream<Io>
+impl<Io> AsVersion for AsyncReadWrite<TlsStream<Io>>
 where
     Io: AsyncIo,
 {
     fn as_version(&self) -> Version {
-        self.inner
+        self.0
             .session()
             .alpn_protocol()
             .map(Self::from_alpn)
@@ -68,104 +57,13 @@ pub struct TlsAcceptorService {
 }
 
 impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
-    type Response = TlsStream<Io>;
+    type Response = AsyncReadWrite<TlsStream<Io>>;
     type Error = RustlsError;
 
     async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
         let conn = ServerConnection::new(self.acceptor.clone())?;
-        let inner = _TlsStream::handshake(io, conn).await?;
-        Ok(TlsStream { inner })
-    }
-}
-
-impl<Io> AsyncIo for TlsStream<Io>
-where
-    Io: AsyncIo,
-{
-    #[inline]
-    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
-        self.inner.ready(interest)
-    }
-
-    #[inline]
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
-        self.inner.poll_ready(interest, cx)
-    }
-
-    fn is_vectored_write(&self) -> bool {
-        self.inner.is_vectored_write()
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncIo::poll_shutdown(Pin::new(&mut self.get_mut().inner), cx)
-    }
-}
-
-impl<Io: AsyncIo> io::Read for TlsStream<Io> {
-    #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        io::Read::read(&mut self.inner, buf)
-    }
-}
-
-impl<Io: AsyncIo> io::Write for TlsStream<Io> {
-    #[inline]
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        io::Write::write(&mut self.inner, buf)
-    }
-
-    #[inline]
-    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        io::Write::write_vectored(&mut self.inner, bufs)
-    }
-
-    #[inline]
-    fn flush(&mut self) -> io::Result<()> {
-        io::Write::flush(&mut self.inner)
-    }
-}
-
-impl<Io> AsyncRead for TlsStream<Io>
-where
-    Io: AsyncIo,
-{
-    #[inline]
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_read(cx, buf)
-    }
-}
-
-impl<Io> AsyncWrite for TlsStream<Io>
-where
-    Io: AsyncIo,
-{
-    #[inline]
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
-    }
-
-    #[inline]
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
-    }
-
-    #[inline]
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncIo::poll_shutdown(self, cx)
-    }
-
-    #[inline]
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
-    }
-
-    #[inline]
-    fn is_write_vectored(&self) -> bool {
-        self.inner.is_vectored_write()
+        let io = _TlsStream::handshake(io, conn).await?;
+        Ok(AsyncReadWrite(io))
     }
 }
 

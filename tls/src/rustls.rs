@@ -2,14 +2,14 @@ use core::{
     future::Future,
     ops::DerefMut,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll},
 };
 
 use std::io;
 
 pub use rustls::*;
 
-use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
+use xitca_io::io::{AsyncIo, Interest, Ready};
 
 /// A stream managed by `rustls` crate for tls read/write.
 pub struct TlsStream<C, Io> {
@@ -173,74 +173,5 @@ where
             0 if stream.conn.wants_write() => io::Write::flush(stream)?,
             n => return Ok(n),
         }
-    }
-}
-
-impl<C, S, Io> AsyncRead for TlsStream<C, Io>
-where
-    C: DerefMut<Target = ConnectionCommon<S>> + Unpin,
-    S: SideData,
-    Io: AsyncIo,
-{
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        let this = self.get_mut();
-        ready!(this.io.poll_ready(Interest::READABLE, cx))?;
-        match io::Read::read(this, buf.initialize_unfilled()) {
-            Ok(n) => {
-                buf.advance(n);
-                Poll::Ready(Ok(()))
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
-    }
-}
-
-impl<C, S, Io> AsyncWrite for TlsStream<C, Io>
-where
-    C: DerefMut<Target = ConnectionCommon<S>> + Unpin,
-    S: SideData,
-    Io: AsyncIo,
-{
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        ready!(this.io.poll_ready(Interest::WRITABLE, cx))?;
-        match io::Write::write(this, buf) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let this = self.get_mut();
-        ready!(this.io.poll_ready(Interest::WRITABLE, cx))?;
-        match io::Write::flush(this) {
-            Ok(_) => Poll::Ready(Ok(())),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncIo::poll_shutdown(self, cx)
-    }
-
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        ready!(this.io.poll_ready(Interest::WRITABLE, cx))?;
-        match io::Write::write_vectored(this, bufs) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        self.io.is_vectored_write()
     }
 }

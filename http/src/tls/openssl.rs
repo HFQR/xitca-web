@@ -5,7 +5,7 @@ use core::{
     fmt::{self, Debug, Formatter},
     future::Future,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll},
 };
 
 use std::io;
@@ -14,7 +14,7 @@ use openssl::{
     error::ErrorStack,
     ssl::{Error, ErrorCode, ShutdownResult, Ssl, SslStream},
 };
-use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
+use xitca_io::io::{AsyncIo, AsyncReadWrite, Interest, Ready};
 use xitca_service::Service;
 
 use crate::{http::Version, version::AsVersion};
@@ -28,9 +28,13 @@ pub struct TlsStream<Io> {
     io: SslStream<Io>,
 }
 
-impl<Io> AsVersion for TlsStream<Io> {
+impl<Io> AsVersion for AsyncReadWrite<TlsStream<Io>>
+where
+    Io: AsyncIo,
+{
     fn as_version(&self) -> Version {
-        self.io
+        self.0
+            .io
             .ssl()
             .selected_alpn_protocol()
             .map(Self::from_alpn)
@@ -68,7 +72,7 @@ pub struct TlsAcceptorService {
 
 impl TlsAcceptorService {
     #[inline(never)]
-    async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<TlsStream<Io>, OpensslError> {
+    async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<AsyncReadWrite<TlsStream<Io>>, OpensslError> {
         let ctx = self.acceptor.context();
         let ssl = Ssl::new(ctx)?;
         let mut io = SslStream::new(ssl, io)?;
@@ -76,7 +80,7 @@ impl TlsAcceptorService {
         loop {
             io.get_mut().ready(interest).await?;
             match io.accept() {
-                Ok(_) => return Ok(TlsStream { io }),
+                Ok(_) => return Ok(AsyncReadWrite(TlsStream { io })),
                 Err(ref e) if e.code() == ErrorCode::WANT_READ => {
                     interest = Interest::READABLE;
                 }
@@ -90,7 +94,7 @@ impl TlsAcceptorService {
 }
 
 impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
-    type Response = TlsStream<Io>;
+    type Response = AsyncReadWrite<TlsStream<Io>>;
     type Error = OpensslError;
 
     async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
@@ -154,74 +158,6 @@ impl<Io: AsyncIo> io::Write for TlsStream<Io> {
     #[inline]
     fn flush(&mut self) -> io::Result<()> {
         io::Write::flush(&mut self.io)
-    }
-}
-
-impl<Io> AsyncRead for TlsStream<Io>
-where
-    Io: AsyncIo,
-{
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        let this = self.get_mut();
-        ready!(this.io.get_ref().poll_ready(Interest::READABLE, cx))?;
-        match io::Read::read(this, buf.initialize_unfilled()) {
-            Ok(n) => {
-                buf.advance(n);
-                Poll::Ready(Ok(()))
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
-    }
-}
-
-impl<Io> AsyncWrite for TlsStream<Io>
-where
-    Io: AsyncIo,
-{
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
-
-        match io::Write::write(this, buf) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let this = self.get_mut();
-        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
-
-        match io::Write::flush(this) {
-            Ok(_) => Poll::Ready(Ok(())),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncIo::poll_shutdown(self, cx)
-    }
-
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        ready!(this.io.get_ref().poll_ready(Interest::WRITABLE, cx))?;
-
-        match io::Write::write_vectored(this, bufs) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        self.io.get_ref().is_vectored_write()
     }
 }
 

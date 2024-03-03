@@ -7,7 +7,7 @@ pub use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use core::{
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use std::io;
@@ -44,4 +44,153 @@ pub trait AsyncIo: io::Read + io::Write + Unpin {
     /// # Why:
     /// tokio's network Stream types do not expose other api for shutdown besides [AsyncWrite::poll_shutdown].
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+}
+
+/// adaptor type for transforming a type impl [AsyncIo] trait to a type impl [AsyncRead] and [AsyncWrite] traits.
+/// # Example
+/// ```rust
+/// use std::{future::poll_fn, pin::Pin};
+/// use xitca_io::io::{AsyncIo, AsyncRead, AsyncReadWrite, AsyncWrite, ReadBuf};
+///
+/// async fn adapt(io: impl AsyncIo) {
+///     // wrap async io type to adaptor.
+///     let mut poll_io = AsyncReadWrite(io);
+///     // use adaptor for polling based io operations.
+///     poll_fn(|cx| Pin::new(&mut poll_io).poll_read(cx, &mut ReadBuf::new(&mut [0u8; 1]))).await;
+///     poll_fn(|cx| Pin::new(&mut poll_io).poll_write(cx, b"996")).await;    
+/// }
+/// ```
+pub struct AsyncReadWrite<T>(pub T)
+where
+    T: AsyncIo;
+
+impl<T> AsyncRead for AsyncReadWrite<T>
+where
+    T: AsyncIo,
+{
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+
+        loop {
+            match io::Read::read(&mut this.0, buf.initialize_unfilled()) {
+                Ok(n) => {
+                    buf.advance(n);
+                    return Poll::Ready(Ok(()));
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    ready!(this.0.poll_ready(Interest::READABLE, cx))?;
+                }
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+}
+
+impl<T> AsyncWrite for AsyncReadWrite<T>
+where
+    T: AsyncIo,
+{
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        loop {
+            match io::Write::write(&mut this.0, buf) {
+                Ok(n) => return Poll::Ready(Ok(n)),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
+                }
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        loop {
+            match io::Write::flush(&mut this.0) {
+                Ok(_) => return Poll::Ready(Ok(())),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
+                }
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        AsyncIo::poll_shutdown(Pin::new(&mut self.get_mut().0), cx)
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+
+        loop {
+            match io::Write::write_vectored(&mut this.0, bufs) {
+                Ok(n) => return Poll::Ready(Ok(n)),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
+                }
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+    fn is_write_vectored(&self) -> bool {
+        self.0.is_vectored_write()
+    }
+}
+
+impl<Io> AsyncIo for AsyncReadWrite<Io>
+where
+    Io: AsyncIo,
+{
+    #[inline(always)]
+    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
+        self.0.ready(interest)
+    }
+
+    #[inline(always)]
+    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        self.0.poll_ready(interest, cx)
+    }
+
+    fn is_vectored_write(&self) -> bool {
+        self.0.is_vectored_write()
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().0).poll_shutdown(cx)
+    }
+}
+
+impl<Io> io::Write for AsyncReadWrite<Io>
+where
+    Io: AsyncIo,
+{
+    #[inline(always)]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    #[inline(always)]
+    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+        self.0.write_vectored(bufs)
+    }
+
+    #[inline(always)]
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
+
+impl<Io> io::Read for AsyncReadWrite<Io>
+where
+    Io: AsyncIo,
+{
+    #[inline(always)]
+    fn read(&mut self, buf: &mut [u8]) -> ::std::io::Result<usize> {
+        self.0.read(buf)
+    }
 }
