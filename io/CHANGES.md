@@ -1,4 +1,6 @@
-# unreleased 0.2.0
+# unreleased
+
+# 0.2.0
 ## Add
 - `io::PollIoAdapter` as adaptor between `io::AsyncIo` and `io::{AsyncRead, AsyncWrite}` traits.
 

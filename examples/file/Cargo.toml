@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.3", features = ["compress-br", "file", "logger"] }
+xitca-web = { version = "0.4", features = ["compress-br", "file", "logger"] }
 
 tracing = "0.1"
