@@ -81,7 +81,7 @@ socket2 = { version = "0.5.1", features = ["all"] }
 
 [dev-dependencies]
 criterion = "0.5"
-xitca-server = "0.1"
+xitca-server = "0.2"
 
 [[bench]]
 name = "h1_decode"
