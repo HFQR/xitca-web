@@ -2,7 +2,7 @@ use core::{convert::Infallible, fmt};
 
 use std::{error, io, sync::Arc};
 
-use xitca_io::io::{AsyncIo, PollIoAdapter};
+use xitca_io::io::AsyncIo;
 use xitca_service::Service;
 use xitca_tls::rustls::{Error, ServerConfig, ServerConnection, TlsStream as _TlsStream};
 
@@ -15,13 +15,12 @@ pub(crate) type RustlsConfig = Arc<ServerConfig>;
 /// A stream managed by rustls for tls read/write.
 pub type TlsStream<Io> = _TlsStream<ServerConnection, Io>;
 
-impl<Io> AsVersion for PollIoAdapter<TlsStream<Io>>
+impl<Io> AsVersion for TlsStream<Io>
 where
     Io: AsyncIo,
 {
     fn as_version(&self) -> Version {
-        self.0
-            .session()
+        self.session()
             .alpn_protocol()
             .map(Self::from_alpn)
             .unwrap_or(Version::HTTP_11)
@@ -57,13 +56,12 @@ pub struct TlsAcceptorService {
 }
 
 impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
-    type Response = PollIoAdapter<TlsStream<Io>>;
+    type Response = TlsStream<Io>;
     type Error = RustlsError;
 
     async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
         let conn = ServerConnection::new(self.acceptor.clone())?;
-        let io = _TlsStream::handshake(io, conn).await?;
-        Ok(PollIoAdapter(io))
+        _TlsStream::handshake(io, conn).await.map_err(Into::into)
     }
 }
 

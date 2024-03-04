@@ -2,9 +2,8 @@ use core::{fmt, marker::PhantomData, pin::pin};
 
 use futures_core::Stream;
 use xitca_io::{
-    io::{AsyncIo, AsyncRead, AsyncWrite},
-    net::Stream as ServerStream,
-    net::TcpStream,
+    io::AsyncIo,
+    net::{Stream as ServerStream, TcpStream},
 };
 use xitca_service::{ready::ReadyService, Service};
 
@@ -75,7 +74,7 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     A: Service<TcpStream>,
-    A::Response: AsyncIo + AsVersion + AsyncRead + AsyncWrite + Unpin,
+    A::Response: AsyncIo + AsVersion,
     HttpServiceError<S::Error, BE>: From<A::Error>,
     S::Error: fmt::Debug,
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -131,7 +130,7 @@ where
 
                         let mut conn = ::h2::server::Builder::new()
                             .enable_connect_protocol()
-                            .handshake(_tls_stream)
+                            .handshake(xitca_io::io::PollIoAdapter(_tls_stream))
                             .timeout(timer.as_mut())
                             .await
                             .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;

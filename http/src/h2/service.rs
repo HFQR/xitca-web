@@ -3,7 +3,7 @@ use core::{fmt, pin::pin};
 use std::net::SocketAddr;
 
 use futures_core::Stream;
-use xitca_io::io::{AsyncIo, AsyncRead, AsyncWrite};
+use xitca_io::io::{AsyncIo, PollIoAdapter};
 use xitca_service::Service;
 
 use crate::{
@@ -36,7 +36,7 @@ where
 
     A: Service<St, Response = TlsSt>,
     St: AsyncIo,
-    TlsSt: AsyncRead + AsyncWrite + Unpin,
+    TlsSt: AsyncIo,
 
     HttpServiceError<S::Error, BE>: From<A::Error>,
 
@@ -63,7 +63,7 @@ where
 
         let mut conn = ::h2::server::Builder::new()
             .enable_connect_protocol()
-            .handshake(tls_stream)
+            .handshake(PollIoAdapter(tls_stream))
             .timeout(timer.as_mut())
             .await
             .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
