@@ -34,7 +34,7 @@ io-uring = ["xitca-io/runtime-uring", "tokio-uring"]
 router = ["xitca-router"]
 
 [dependencies]
-xitca-io = "0.1"
+xitca-io = "0.2"
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = { version = "0.1.1", features = ["bytes"] }
 

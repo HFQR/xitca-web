@@ -9,22 +9,24 @@
         }
     })
     ```
-- add `handler::text::Text` for responder and service producing plain text http response.     
-- expose `error::HeaderNameNotFound` type for interacting with internal header name error.
-- expose `error::InvalidHeaderValue` type for interacting with internal header value error.
-- expose `error::ExtensionNotFound` type for interacting with extension typed map error.
-- expose `error::BodyOverflow` type for interacting with request body over size error.
+- add `handler::text::Text` for responder and service producing plain text http response 
+- expose `error::HeaderNameNotFound` type for interacting with internal header name error
+- expose `error::InvalidHeaderValue` type for interacting with internal header value error
+- expose `error::ExtensionNotFound` type for interacting with extension typed map error
+- expose `error::BodyOverflow` type for interacting with request body over size error
 
 ## Change
-- rename `handler::string` module to `handler::text`.
-- `error::InvalidHeaderValue` displays it's associated header name in `Debug` and `Display` format.
+- rename `handler::string` module to `handler::text`
+- `error::InvalidHeaderValue` displays it's associated header name in `Debug` and `Display` format
 - update `xitca-http` to `0.4.0`
+- update `xitca-server` to `0.2.0`
+- update `xitca-io` to `0.2.0`
 - update `xitca-codegen` to `0.2.0`
 
 # 0.3.0
 ## Add
-- enable Rust nightly feature `error_generic_member_access` when `xitca-web`'s `nightly` crate feature is enabled. this enables runtime context type interaction like `std::backtrace::Backtrace` for enhanced error handling.
-- `ErrorStatus` error type would try to capture `Backtrace`.
+- enable Rust nightly feature `error_generic_member_access` when `xitca-web`'s `nightly` crate feature is enabled. this enables runtime context type interaction like `std::backtrace::Backtrace` for enhanced error handling
+- `ErrorStatus` error type would try to capture `Backtrace`
 - `Redirect`, `Html`, `Json` handler types can be used as standalone route service. Example:
     ```rust
     App::new()
@@ -32,18 +34,18 @@
         .at("/index.html", get(Html("<h1>Hello,World!</h1>")))
         .at("/hello.json", Json("{\"hello\":\"world!\"}"));
     ```
-- add `middleware::CatchUnwind` for catching panic and keep the service running. `error::ThreadJoinError` type is added for manual error handling of `CatchUnwind`.
+- add `middleware::CatchUnwind` for catching panic and keep the service running. `error::ThreadJoinError` type is added for manual error handling of `CatchUnwind`
 
 ## Remove
-- remove `middleware::decompress::DecompressServiceError` type. `error::Error` is used as decompress service error type for easier error handling.
-- remove `error::{BadRequest, Internal}` types. `error::ErrorStatus` replace their roles where `ErrorStatus::bad_request` and `ErrorStatus::internal` would generate identical error information as `BadRequest` and `Internal` types. this change would simplify runtime error type casting a bit with two less possible error types.
-- remove default logger middleware from `HttpServer::{bind_xxx, listen_xxx}` APIs.
+- remove `middleware::decompress::DecompressServiceError` type. `error::Error` is used as decompress service error type for easier error handling
+- remove `error::{BadRequest, Internal}` types. `error::ErrorStatus` replace their roles where `ErrorStatus::bad_request` and `ErrorStatus::internal` would generate identical error information as `BadRequest` and `Internal` types. this change would simplify runtime error type casting a bit with two less possible error types
+- remove default logger middleware from `HttpServer::{bind_xxx, listen_xxx}` APIs
 
 ## Change
-- change `middleware::eraser::TypeEraser::error`'s trait bound. `From` trait is used for conversion between generic error type and `error::Error`. With this change `Error` does not double boxing itself therefore removing the need of nested type casting when handling typed error.
+- change `middleware::eraser::TypeEraser::error`'s trait bound. `From` trait is used for conversion between generic error type and `error::Error`. With this change `Error` does not double boxing itself therefore removing the need of nested type casting when handling typed error
 - `ErrorStatus::{bad_request, internal}` can't be used in const context anymore as they are tasked with capture thread backtrace.
-- make `middleware::logger` optional behind `logger` feature flag. extend it's construction which by default bypass manual `tracing-subscriber` import.
-- update `xitca-http` to `0.3.0`.
+- make `middleware::logger` optional behind `logger` feature flag. extend it's construction which by default bypass manual `tracing-subscriber` import
+- update `xitca-http` to `0.3.0`
 
 # 0.2.2
 ## Add
