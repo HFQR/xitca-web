@@ -13,6 +13,7 @@ members = [
     "macros",
     "multipart",
     "multi-http-services",
+    "streaming",
     "sync",
     "tower-http",
     "unix",
