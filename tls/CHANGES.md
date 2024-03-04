@@ -1,4 +1,6 @@
-# unreleased 0.2.0
+# unreleased
+
+# 0.2.0
 ## Change
 - update `rustls` to `0.23.0`
 - update `xitca-io` to `0.2.0`

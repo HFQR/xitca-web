@@ -1,4 +1,6 @@
-# unreleased 0.3.0
+# unreleased
+
+# 0.3.0
 ## Add
 - add `RequestStream::inner_mut` method for accessing inner stream type.
 - add `RequestStream::codec_mut` method for accessing `Codec` type.

@@ -1,4 +1,6 @@
-# unreleased 0.4.0
+# unreleased
+
+# 0.4.0
 ## Add
 - enable nightly rust `async_iterator` feature when `nightly` crate feature is active. Add `body::AsyncBody` type to bridge `futures::Stream` and `std::async_iter::AsyncIterator` traits. This change enables async generator usage. Example:
     ```rust
