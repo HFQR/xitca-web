@@ -14,7 +14,7 @@ rustls = ["dep:rustls"]
 rustls-uring = ["rustls", "xitca-io/runtime-uring"]
 
 [dependencies]
-xitca-io = { version = "0.1", features = ["runtime"] }
+xitca-io = { version = "0.2", features = ["runtime"] }
 
 rustls = { version = "0.23", optional = true }
 

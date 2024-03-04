@@ -19,7 +19,7 @@ http2 = ["h2", "fnv", "futures-util/alloc", "runtime", "slab"]
 # http3 specific feature.
 http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
 # openssl as server side tls.
-openssl = ["dep:openssl", "runtime"]
+openssl = ["dep:openssl", "xitca-tls", "runtime"]
 # rustls as server side tls.
 rustls = ["xitca-tls/rustls", "runtime"]
 # rustls as server side tls.
@@ -34,7 +34,7 @@ io-uring = ["xitca-io/runtime-uring", "tokio-uring"]
 router = ["xitca-router"]
 
 [dependencies]
-xitca-io = "0.1"
+xitca-io = "0.2"
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = { version = "0.1.1", features = ["bytes"] }
 
@@ -81,7 +81,7 @@ socket2 = { version = "0.5.1", features = ["all"] }
 
 [dev-dependencies]
 criterion = "0.5"
-xitca-server = "0.1"
+xitca-server = "0.2"
 
 [[bench]]
 name = "h1_decode"

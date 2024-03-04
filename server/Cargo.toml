@@ -1,6 +1,6 @@
 [package]
 name = "xitca-server"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "http server for xitca"
@@ -16,7 +16,7 @@ http3 = ["xitca-io/http3"]
 io-uring = ["tokio-uring"]
 
 [dependencies]
-xitca-io = { version = "0.1", features = ["runtime"] }
+xitca-io = { version = "0.2", features = ["runtime"] }
 xitca-service = { version = "0.1", features = ["alloc"] }
 xitca-unsafe-collection = "0.1"
 
