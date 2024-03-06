@@ -28,11 +28,13 @@ pub(crate) type GenericDriverTx = UnboundedSender<Request>;
 pub(crate) type GenericDriverRx = UnboundedReceiver<Request>;
 
 pub(crate) struct GenericDriver<Io> {
-    pub(crate) io: Io,
-    pub(crate) write_buf: WriteBuf,
-    pub(crate) read_buf: PagedBytesMut,
-    pub(crate) rx: Option<GenericDriverRx>,
-    pub(crate) res: VecDeque<ResponseSender>,
+    io: Io,
+    write_buf: WriteBuf,
+    read_buf: PagedBytesMut,
+    rx: GenericDriverRx,
+    res: VecDeque<ResponseSender>,
+    closed: bool,
+    write_err: Option<io::Error>,
 }
 
 impl<Io> GenericDriver<Io>
@@ -46,14 +48,35 @@ where
                 io,
                 write_buf: WriteBuf::new(),
                 read_buf: PagedBytesMut::new(),
-                rx: Some(rx),
+                rx,
                 res: VecDeque::new(),
+                closed: false,
+                write_err: None,
             },
             tx,
         )
     }
 
-    pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
+    #[cfg(not(feature = "quic"))]
+    pub(crate) fn replace(&mut self, other: Self) {
+        let Self {
+            io,
+            write_buf,
+            read_buf,
+            res,
+            closed,
+            write_err,
+            ..
+        } = other;
+        self.io = io;
+        self.write_buf = write_buf;
+        self.read_buf = read_buf;
+        self.res = res;
+        self.closed = closed;
+        self.write_err = write_err;
+    }
+
+    async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(msg) = self.try_decode()? {
                 return Ok(Some(msg));
@@ -65,19 +88,19 @@ where
                 Interest::READABLE
             };
 
-            let select = match self.rx {
-                Some(ref mut rx) => {
+            let select = match self.closed {
+                false => {
                     let ready = self.io.ready(interest);
-                    rx.recv().select(ready).await
+                    self.rx.recv().select(ready).await
                 }
-                None => {
+                true => {
                     if !interest.is_writable() && self.res.is_empty() {
                         // no interest to write to io and all response have been finished so
                         // shutdown io and exit.
                         // if there is a better way to exhaust potential remaining backend message
                         // please file an issue.
                         poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
-                        return Ok(None);
+                        return self.write_err.take().map(|e| Err(e.into())).transpose();
                     }
                     let ready = self.io.ready(interest);
                     SelectOutput::B(ready.await)
@@ -95,25 +118,36 @@ where
                     if ready.is_readable() {
                         self.try_read()?;
                     }
-                    if ready.is_writable() && self.try_write().is_err() {
-                        // write failed as server stopped reading.
-                        // drop channel so all pending request in it can be notified.
-                        self.rx = None;
+                    if ready.is_writable() {
+                        if let Err(e) = self.try_write() {
+                            error!("server closed read half unexpectedly: {e}");
+
+                            self.write_err = Some(e);
+
+                            // when write error occur the driver would go into half close state(read only).
+                            // clearing write_buf would drop all pending requests in it and hint the driver
+                            // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
+                            self.write_buf.clear();
+
+                            // enter closed state and no more request would be received from channel.
+                            // requests inside it would eventually be dropped after shutdown completed.
+                            self.closed = true;
+                        }
                     }
                 }
-                SelectOutput::A(None) => self.rx = None,
+                SelectOutput::A(None) => self.closed = true,
             }
         }
     }
 
     // TODO: remove this feature gate.
     #[cfg(not(feature = "quic"))]
-    pub(crate) async fn run(mut self) -> Result<(), Error> {
-        while self.try_next().await?.is_some() {}
+    pub(crate) async fn run(&mut self) -> Result<(), Error> {
+        while self._try_next().await?.is_some() {}
         Ok(())
     }
 
-    pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
+    async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
         self.write_buf_extend(&msg);
         loop {
             self.try_write()?;
@@ -151,14 +185,7 @@ where
     }
 
     fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.do_io(&mut self.io).map_err(|e| {
-            // when write error occur the driver would go into half close state(read only).
-            // clearing write_buf would drop all pending requests in it and hint the driver no
-            // future Interest::READABLE should be passed to AsyncIo::ready method.
-            self.write_buf.clear();
-            error!("server closed read half unexpectedly: {e}");
-            e
-        })
+        self.write_buf.do_io(&mut self.io)
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
@@ -186,8 +213,8 @@ where
     type Err = Error;
 
     #[inline]
-    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
-        self.try_next().await
+    fn try_next(&mut self) -> impl Future<Output = Result<Option<Self::Ok<'_>>, Self::Err>> + Send {
+        self._try_next()
     }
 }
 

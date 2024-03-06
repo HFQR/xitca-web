@@ -27,7 +27,7 @@ impl Client {
     #[allow(clippy::needless_pass_by_ref_mut)] // dumb clippy
     #[cold]
     #[inline(never)]
-    pub(super) async fn prepare_session<D>(&mut self, drv: &mut D, cfg: &mut Config) -> Result<(), Error>
+    pub(super) async fn prepare_session<D>(&mut self, drv: &mut D, cfg: &Config) -> Result<(), Error>
     where
         D: Drive,
     {

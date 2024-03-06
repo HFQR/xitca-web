@@ -69,7 +69,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                     let (mut drv, tx) = GenericDriver::new(io);
                     let mut cli = Client::new(ClientTx(tx));
                     cli.prepare_session(&mut drv, cfg).await?;
-                    Ok((cli, Driver::tls(drv)))
+                    Ok((cli, Driver::tls(drv, cfg.clone())))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -79,7 +79,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                 let (mut drv, tx) = GenericDriver::new(io);
                 let mut cli = Client::new(ClientTx(tx));
                 cli.prepare_session(&mut drv, cfg).await?;
-                Ok((cli, Driver::tcp(drv)))
+                Ok((cli, Driver::tcp(drv, cfg.clone())))
             }
         }
         #[cfg(unix)]
@@ -93,7 +93,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                     let (mut drv, tx) = GenericDriver::new(io);
                     let mut cli = Client::new(ClientTx(tx));
                     cli.prepare_session(&mut drv, cfg).await?;
-                    Ok((cli, Driver::unix_tls(drv)))
+                    Ok((cli, Driver::unix_tls(drv, cfg.clone())))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -103,7 +103,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                 let (mut drv, tx) = GenericDriver::new(io);
                 let mut cli = Client::new(ClientTx(tx));
                 cli.prepare_session(&mut drv, cfg).await?;
-                Ok((cli, Driver::unix(drv)))
+                Ok((cli, Driver::unix(drv, cfg.clone())))
             }
         }
         _ => unreachable!(),

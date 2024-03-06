@@ -82,7 +82,7 @@ impl ClientTx {
 
 #[cold]
 #[inline(never)]
-pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Driver), Error> {
+pub(super) async fn _connect(host: Host, cfg: &Config) -> Result<(Client, Driver), Error> {
     match host {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;
@@ -91,7 +91,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
             let mut cli = Client::new(tx);
             cli.prepare_session(&mut drv, cfg).await?;
             drv.close_tx().await;
-            Ok((cli, Driver::quic(drv)))
+            Ok((cli, Driver::quic(drv, cfg.clone())))
         }
         _ => unreachable!(),
     }
