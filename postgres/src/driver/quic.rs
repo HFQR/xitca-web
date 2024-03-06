@@ -17,10 +17,10 @@ use quinn_proto::ConnectionError;
 use xitca_io::bytes::{Bytes, BytesMut};
 
 use crate::{
-    client::Client,
     config::{Config, Host},
     error::{unexpected_eof_err, Error},
     iter::AsyncLendingIterator,
+    session::prepare_session,
 };
 
 use super::{Drive, Driver};
@@ -82,16 +82,15 @@ impl ClientTx {
 
 #[cold]
 #[inline(never)]
-pub(super) async fn _connect(host: Host, cfg: &Config) -> Result<(Client, Driver), Error> {
+pub(super) async fn _connect(host: Host, cfg: &Config) -> Result<(ClientTx, Driver), Error> {
     match host {
         Host::Udp(ref host) => {
             let tx = connect_quic(host, cfg.get_ports()).await?;
             let streams = tx.inner.open_bi().await.unwrap();
             let mut drv = QuicDriver::new(streams);
-            let mut cli = Client::new(tx);
-            cli.prepare_session(&mut drv, cfg).await?;
+            prepare_session(&mut drv, cfg).await?;
             drv.close_tx().await;
-            Ok((cli, Driver::quic(drv, cfg.clone())))
+            Ok((tx, Driver::quic(drv, cfg.clone())))
         }
         _ => unreachable!(),
     }

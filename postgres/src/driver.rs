@@ -46,7 +46,7 @@ pub(super) async fn connect(cfg: &mut Config) -> Result<(Client, Driver), Error>
     let hosts = cfg.get_hosts().to_vec();
     for host in hosts {
         match _connect(host, cfg).await {
-            Ok(t) => return Ok(t),
+            Ok((tx, drv)) => return Ok((Client::new(tx), drv)),
             Err(e) => err = Some(e),
         }
     }
