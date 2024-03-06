@@ -28,11 +28,11 @@ pub(crate) type GenericDriverTx = UnboundedSender<Request>;
 pub(crate) type GenericDriverRx = UnboundedReceiver<Request>;
 
 pub(crate) struct GenericDriver<Io> {
-    io: Io,
-    write_buf: WriteBuf,
-    read_buf: PagedBytesMut,
-    rx: GenericDriverRx,
-    res: VecDeque<ResponseSender>,
+    pub(crate) io: Io,
+    pub(crate) write_buf: WriteBuf,
+    pub(crate) read_buf: PagedBytesMut,
+    pub(crate) rx: GenericDriverRx,
+    pub(crate) res: VecDeque<ResponseSender>,
     state: DriverState,
 }
 
