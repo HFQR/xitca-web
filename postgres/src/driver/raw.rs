@@ -19,9 +19,9 @@ use xitca_io::{
 };
 
 use crate::{
-    client::Client,
     config::{Config, Host, SslMode},
     error::{unexpected_eof_err, write_zero_err, Error},
+    session::prepare_session,
 };
 
 use super::{
@@ -56,7 +56,7 @@ impl ClientTx {
 
 #[cold]
 #[inline(never)]
-pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Driver), Error> {
+pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, Driver), Error> {
     // this block have repeated code due to HRTB limitation.
     // namely for <'_> AsyncIo::Future<'_>: Send bound can not be expressed correctly.
     match host {
@@ -67,9 +67,8 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                 {
                     let io = tls::connect(io, host, cfg).await?;
                     let (mut drv, tx) = GenericDriver::new(io);
-                    let mut cli = Client::new(ClientTx(tx));
-                    cli.prepare_session(&mut drv, cfg).await?;
-                    Ok((cli, Driver::tls(drv)))
+                    prepare_session(&mut drv, cfg).await?;
+                    Ok((ClientTx(tx), Driver::tls(drv, cfg.clone())))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -77,9 +76,8 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                 }
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
-                let mut cli = Client::new(ClientTx(tx));
-                cli.prepare_session(&mut drv, cfg).await?;
-                Ok((cli, Driver::tcp(drv)))
+                prepare_session(&mut drv, cfg).await?;
+                Ok((ClientTx(tx), Driver::tcp(drv, cfg.clone())))
             }
         }
         #[cfg(unix)]
@@ -91,9 +89,8 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                     let host = host.to_string_lossy();
                     let io = tls::connect(io, host.as_ref(), cfg).await?;
                     let (mut drv, tx) = GenericDriver::new(io);
-                    let mut cli = Client::new(ClientTx(tx));
-                    cli.prepare_session(&mut drv, cfg).await?;
-                    Ok((cli, Driver::unix_tls(drv)))
+                    prepare_session(&mut drv, cfg).await?;
+                    Ok((ClientTx(tx), Driver::unix_tls(drv, cfg.clone())))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -101,9 +98,8 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(Client, Dr
                 }
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
-                let mut cli = Client::new(ClientTx(tx));
-                cli.prepare_session(&mut drv, cfg).await?;
-                Ok((cli, Driver::unix(drv)))
+                prepare_session(&mut drv, cfg).await?;
+                Ok((ClientTx(tx), Driver::unix(drv, cfg.clone())))
             }
         }
         _ => unreachable!(),

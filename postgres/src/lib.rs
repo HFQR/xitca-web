@@ -92,8 +92,8 @@ where
     ///
     /// ```
     pub async fn connect(self) -> Result<(Client, Driver), Error> {
-        let cfg = Config::try_from(self.cfg)?;
-        driver::connect(cfg).await
+        let mut cfg = Config::try_from(self.cfg)?;
+        driver::connect(&mut cfg).await
     }
 }
 
@@ -157,6 +157,6 @@ mod test {
 
         drop(cli);
 
-        handle.await.unwrap().unwrap();
+        handle.await.unwrap();
     }
 }

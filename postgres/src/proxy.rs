@@ -7,6 +7,8 @@ use tracing::error;
 use xitca_io::{bytes::BytesMut, net::TcpStream};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
+use crate::iter::AsyncLendingIterator;
+
 use super::driver::{
     codec::Request,
     generic::{GenericDriver, GenericDriverTx},

@@ -18,7 +18,7 @@ where
     if let Some(sha256) = stream
         .session()
         .peer_certificates()
-        .and_then(|certs| certs.get(0))
+        .and_then(|certs| certs.first())
         .map(|cert| Sha256::digest(cert.as_ref()).to_vec())
     {
         cfg.tls_server_end_point(sha256);

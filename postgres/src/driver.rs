@@ -41,12 +41,12 @@ use xitca_tls::rustls::{ClientConnection, TlsStream};
 #[cfg(unix)]
 use xitca_io::net::UnixStream;
 
-pub(super) async fn connect(mut cfg: Config) -> Result<(Client, Driver), Error> {
+pub(super) async fn connect(cfg: &mut Config) -> Result<(Client, Driver), Error> {
     let mut err = None;
     let hosts = cfg.get_hosts().to_vec();
     for host in hosts {
-        match _connect(host, &mut cfg).await {
-            Ok(t) => return Ok(t),
+        match _connect(host, cfg).await {
+            Ok((tx, drv)) => return Ok((Client::new(tx), drv)),
             Err(e) => err = Some(e),
         }
     }
@@ -80,43 +80,100 @@ pub(super) async fn connect(mut cfg: Config) -> Result<(Client, Driver), Error> 
 /// ```
 pub struct Driver {
     inner: _Driver,
+    #[allow(dead_code)]
+    config: Config,
+}
+
+impl Driver {
+    // run till the connection is closed by Client.
+    async fn run_till_closed(self) {
+        #[cfg(not(feature = "quic"))]
+        {
+            let mut this = self;
+            while let Err(e) = match this.inner {
+                _Driver::Tcp(ref mut drv) => drv.run().await,
+                #[cfg(feature = "tls")]
+                _Driver::Tls(ref mut drv) => drv.run().await,
+                #[cfg(unix)]
+                _Driver::Unix(ref mut drv) => drv.run().await,
+                #[cfg(all(unix, feature = "tls"))]
+                _Driver::UnixTls(ref mut drv) => drv.run().await,
+            } {
+                while this.reconnect(&e).await.is_err() {}
+            }
+        }
+
+        #[cfg(feature = "quic")]
+        match self.inner {
+            _Driver::Quic(drv) => {
+                let _ = drv.run().await;
+            }
+        }
+    }
 }
 
 #[cfg(not(feature = "quic"))]
 impl Driver {
-    pub(super) fn tcp(drv: GenericDriver<TcpStream>) -> Self {
+    /// reconnect to server with a fresh connection and state. Driver's associated
+    /// [Client] is able to be re-used for the fresh connection.
+    ///
+    /// MUST be called when `<Self as AsyncLendingIterator>::try_next` emit [Error].
+    /// All in flight database query and response will be lost in the process.
+    pub async fn reconnect(&mut self, _: &Error) -> Result<(), Error> {
+        let (_, Driver { inner: inner_new, .. }) = connect(&mut self.config).await?;
+
+        match (&mut self.inner, inner_new) {
+            (_Driver::Tcp(drv), _Driver::Tcp(drv_new)) => drv.replace(drv_new),
+            #[cfg(feature = "tls")]
+            (_Driver::Tls(drv), _Driver::Tls(drv_new)) => drv.replace(drv_new),
+            #[cfg(unix)]
+            (_Driver::Unix(drv), _Driver::Unix(drv_new)) => drv.replace(drv_new),
+            #[cfg(all(unix, feature = "tls"))]
+            (_Driver::UnixTls(drv), _Driver::UnixTls(drv_new)) => drv.replace(drv_new),
+            _ => unreachable!("reconnect should always yield the same type of generic driver"),
+        };
+
+        Ok(())
+    }
+
+    pub(super) fn tcp(drv: GenericDriver<TcpStream>, config: Config) -> Self {
         Self {
             inner: _Driver::Tcp(drv),
+            config,
         }
     }
 
     #[cfg(feature = "tls")]
-    pub(super) fn tls(drv: GenericDriver<TlsStream<ClientConnection, TcpStream>>) -> Self {
+    pub(super) fn tls(drv: GenericDriver<TlsStream<ClientConnection, TcpStream>>, config: Config) -> Self {
         Self {
             inner: _Driver::Tls(drv),
+            config,
         }
     }
 
     #[cfg(unix)]
-    pub(super) fn unix(drv: GenericDriver<UnixStream>) -> Self {
+    pub(super) fn unix(drv: GenericDriver<UnixStream>, config: Config) -> Self {
         Self {
             inner: _Driver::Unix(drv),
+            config,
         }
     }
 
     #[cfg(all(unix, feature = "tls"))]
-    pub(super) fn unix_tls(drv: GenericDriver<TlsStream<ClientConnection, UnixStream>>) -> Self {
+    pub(super) fn unix_tls(drv: GenericDriver<TlsStream<ClientConnection, UnixStream>>, config: Config) -> Self {
         Self {
             inner: _Driver::UnixTls(drv),
+            config,
         }
     }
 }
 
 #[cfg(feature = "quic")]
 impl Driver {
-    pub(super) fn quic(drv: QuicDriver) -> Self {
+    pub(super) fn quic(drv: QuicDriver, config: Config) -> Self {
         Self {
             inner: _Driver::Quic(drv),
+            config,
         }
     }
 }
@@ -163,25 +220,11 @@ impl AsyncLendingIterator for Driver {
 }
 
 impl IntoFuture for Driver {
-    type Output = Result<(), Error>;
+    type Output = ();
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
-        #[cfg(not(feature = "quic"))]
-        match self.inner {
-            _Driver::Tcp(drv) => Box::pin(drv.run()),
-            #[cfg(feature = "tls")]
-            _Driver::Tls(drv) => Box::pin(drv.run()),
-            #[cfg(unix)]
-            _Driver::Unix(drv) => Box::pin(drv.run()),
-            #[cfg(all(unix, feature = "tls"))]
-            _Driver::UnixTls(drv) => Box::pin(drv.run()),
-        }
-
-        #[cfg(feature = "quic")]
-        match self.inner {
-            _Driver::Quic(drv) => Box::pin(drv.run()),
-        }
+        Box::pin(self.run_till_closed())
     }
 }
 
@@ -210,7 +253,7 @@ impl Driver {
                 let tcp = xitca_io::net::io_uring::TcpStream::from_std(std);
                 io_uring::IoUringDriver::new(
                     tcp,
-                    drv.rx.unwrap(),
+                    drv.rx,
                     drv.write_buf.into_inner(),
                     drv.read_buf.into_inner(),
                     drv.res,
