@@ -98,8 +98,7 @@ impl Driver {
                 _Driver::Unix(ref mut drv) => drv.run().await,
                 #[cfg(all(unix, feature = "tls"))]
                 _Driver::UnixTls(ref mut drv) => drv.run().await,
-            }
-            {
+            } {
                 while this.reconnect(&e).await.is_err() {}
             }
         }
