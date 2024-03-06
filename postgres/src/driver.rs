@@ -90,7 +90,7 @@ impl Driver {
         #[cfg(not(feature = "quic"))]
         {
             let mut this = self;
-            while let Err(_) = match this.inner {
+            while let Err(e) = match this.inner {
                 _Driver::Tcp(ref mut drv) => drv.run().await,
                 #[cfg(feature = "tls")]
                 _Driver::Tls(ref mut drv) => drv.run().await,
@@ -98,8 +98,9 @@ impl Driver {
                 _Driver::Unix(ref mut drv) => drv.run().await,
                 #[cfg(all(unix, feature = "tls"))]
                 _Driver::UnixTls(ref mut drv) => drv.run().await,
-            } {
-                while this.reconnect().await.is_err() {}
+            }
+            {
+                while this.reconnect(&e).await.is_err() {}
             }
         }
 
@@ -119,7 +120,7 @@ impl Driver {
     ///
     /// MUST be called when `<Self as AsyncLendingIterator>::try_next` emit [Error].
     /// All in flight database query and response will be lost in the process.
-    pub async fn reconnect(&mut self) -> Result<(), Error> {
+    pub async fn reconnect(&mut self, _: &Error) -> Result<(), Error> {
         let (_, Driver { inner: inner_new, .. }) = connect(&mut self.config).await?;
 
         match (&mut self.inner, inner_new) {

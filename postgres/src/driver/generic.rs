@@ -33,8 +33,12 @@ pub(crate) struct GenericDriver<Io> {
     read_buf: PagedBytesMut,
     rx: GenericDriverRx,
     res: VecDeque<ResponseSender>,
-    closed: bool,
-    write_err: Option<io::Error>,
+    state: DriverState,
+}
+
+enum DriverState {
+    Running,
+    Closing(Option<io::Error>),
 }
 
 impl<Io> GenericDriver<Io>
@@ -50,8 +54,7 @@ where
                 read_buf: PagedBytesMut::new(),
                 rx,
                 res: VecDeque::new(),
-                closed: false,
-                write_err: None,
+                state: DriverState::Running,
             },
             tx,
         )
@@ -64,16 +67,14 @@ where
             write_buf,
             read_buf,
             res,
-            closed,
-            write_err,
+            state,
             ..
         } = other;
         self.io = io;
         self.write_buf = write_buf;
         self.read_buf = read_buf;
         self.res = res;
-        self.closed = closed;
-        self.write_err = write_err;
+        self.state = state;
     }
 
     async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
@@ -88,19 +89,20 @@ where
                 Interest::READABLE
             };
 
-            let select = match self.closed {
-                false => {
+            let select = match self.state {
+                DriverState::Running => {
                     let ready = self.io.ready(interest);
                     self.rx.recv().select(ready).await
                 }
-                true => {
+                DriverState::Closing(ref mut e) => {
                     if !interest.is_writable() && self.res.is_empty() {
                         // no interest to write to io and all response have been finished so
                         // shutdown io and exit.
                         // if there is a better way to exhaust potential remaining backend message
                         // please file an issue.
                         poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
-                        return self.write_err.take().map(|e| Err(e.into())).transpose();
+
+                        return e.take().map(|e| Err(e.into())).transpose();
                     }
                     let ready = self.io.ready(interest);
                     SelectOutput::B(ready.await)
@@ -122,8 +124,6 @@ where
                         if let Err(e) = self.try_write() {
                             error!("server closed read half unexpectedly: {e}");
 
-                            self.write_err = Some(e);
-
                             // when write error occur the driver would go into half close state(read only).
                             // clearing write_buf would drop all pending requests in it and hint the driver
                             // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
@@ -131,11 +131,11 @@ where
 
                             // enter closed state and no more request would be received from channel.
                             // requests inside it would eventually be dropped after shutdown completed.
-                            self.closed = true;
+                            self.state = DriverState::Closing(Some(e));
                         }
                     }
                 }
-                SelectOutput::A(None) => self.closed = true,
+                SelectOutput::A(None) => self.state = DriverState::Closing(None),
             }
         }
     }
