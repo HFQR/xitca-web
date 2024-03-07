@@ -147,18 +147,6 @@ where
         Ok(())
     }
 
-    async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
-        self.write_buf_extend(&msg);
-        loop {
-            self.try_write()?;
-            if self.write_buf.is_empty() {
-                return Ok(());
-            }
-            let ready = self.io.ready(Interest::WRITABLE);
-            ready.await?;
-        }
-    }
-
     pub(crate) async fn recv_with<F, O>(&mut self, mut func: F) -> Result<O, Error>
     where
         F: FnMut(&mut BytesMut) -> Option<Result<O, Error>>,
@@ -222,11 +210,19 @@ impl<Io> Drive for GenericDriver<Io>
 where
     Io: AsyncIo + Send,
 {
-    fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
-        Box::pin(self.send(msg))
+    async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
+        self.write_buf_extend(&msg);
+        loop {
+            self.try_write()?;
+            if self.write_buf.is_empty() {
+                return Ok(());
+            }
+            let ready = self.io.ready(Interest::WRITABLE);
+            ready.await?;
+        }
     }
 
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>> {
-        Box::pin(self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose()))
+    fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send {
+        self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose())
     }
 }

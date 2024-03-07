@@ -268,7 +268,7 @@ impl Driver {
 }
 
 pub(crate) trait Drive: Send {
-    fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>>;
+    fn send(&mut self, msg: BytesMut) -> impl Future<Output = Result<(), Error>> + Send;
 
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>>;
+    fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send;
 }
