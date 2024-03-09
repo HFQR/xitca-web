@@ -115,18 +115,16 @@ impl SharedClient {
         query: &str,
         types: &[Type],
     ) -> Result<StatementGuarded<RwLockReadGuard<'_, Client>>, Error> {
-        let cli = self.inner.read().await;
-        match cli._prepare(query, types).await {
-            Ok(stmt) => Ok(stmt.into_guarded(cli)),
-            Err(Error::DriverDown(_)) => {
-                drop(cli);
-                Box::pin(async move {
-                    self.reconnect().await;
-                    self.prepare(query, types).await
-                })
-                .await
+        loop {
+            let cli = self.inner.read().await;
+            match cli._prepare(query, types).await {
+                Ok(stmt) => return Ok(stmt.into_guarded(cli)),
+                Err(Error::DriverDown(_)) => {
+                    drop(cli);
+                    Box::pin(self.reconnect()).await;
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) => Err(e),
         }
     }
 
