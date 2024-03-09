@@ -9,7 +9,6 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     column::Column,
-    driver::ClientTx,
     driver::Response,
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
@@ -23,15 +22,16 @@ use super::{
 ///
 /// # Examples
 /// ```rust
-/// use xitca_postgres::{AsyncLendingIterator, Client};
+/// use xitca_postgres::{AsyncLendingIterator, Client, pipeline::Pipeline};
+///
 /// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     let statement = client.prepare("SELECT * FROM public.users", &[]).await?;
 ///
-///     let mut pipe = client.pipeline();
+///     let mut pipe = Pipeline::new();
 ///     pipe.query(statement.as_ref(), &[])?;
 ///     pipe.query_raw::<[i32; 0]>(statement.as_ref(), [])?;
 ///
-///     let mut res = pipe.run().await?;
+///     let mut res = client.pipeline(pipe).await?;
 ///
 ///     while let Some(mut item) = res.try_next().await? {
 ///         while let Some(row) = item.try_next().await? {
@@ -43,30 +43,18 @@ use super::{
 /// }
 /// ```
 pub struct Pipeline<'a, const SYNC_MODE: bool = true> {
-    tx: &'a ClientTx,
-    columns: VecDeque<&'a [Column]>,
+    pub(crate) columns: VecDeque<&'a [Column]>,
     // how many SYNC message we are sending to database.
     // it determines when the driver would shutdown the pipeline.
-    sync_count: usize,
-    buf: BytesMut,
+    pub(crate) sync_count: usize,
+    pub(crate) buf: BytesMut,
 }
 
 fn _assert_pipe_send() {
     crate::_assert_send2::<Pipeline<'_>>();
 }
 
-impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
-    fn new(client: &'a Client) -> Self {
-        Self {
-            tx: &client.tx,
-            columns: VecDeque::new(),
-            sync_count: 0,
-            buf: BytesMut::new(),
-        }
-    }
-}
-
-impl Client {
+impl Pipeline<'_, true> {
     /// start a new pipeline.
     ///
     /// pipeline is sync by default. which means every query inside is considered separate binding
@@ -76,11 +64,16 @@ impl Client {
     /// for more relaxed [Pipeline Mode][libpq_link] see [Client::pipeline_unsync] api.
     ///
     /// [libpq_link]: https://www.postgresql.org/docs/current/libpq-pipeline-mode.html
-    #[inline]
-    pub fn pipeline(&self) -> Pipeline<'_> {
-        Pipeline::new(self)
+    pub fn new() -> Self {
+        Self {
+            columns: VecDeque::new(),
+            sync_count: 0,
+            buf: BytesMut::new(),
+        }
     }
+}
 
+impl Pipeline<'_, false> {
     /// start a new un-sync pipeline.
     ///
     /// in un-sync mode pipeline treat all queries inside as one single binding and database server
@@ -89,8 +82,12 @@ impl Client {
     /// it behaves the same on transportation level as [Client::pipeline] where minimal amount
     /// of socket syscall is needed.
     #[inline]
-    pub fn pipeline_unsync(&self) -> Pipeline<'_, false> {
-        Pipeline::new(self)
+    pub fn unsync() -> Self {
+        Self {
+            columns: VecDeque::new(),
+            sync_count: 0,
+            buf: BytesMut::new(),
+        }
     }
 }
 
@@ -124,10 +121,15 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
                 e
             })
     }
+}
 
+impl Client {
     /// execute the pipeline.
-    pub async fn run(mut self) -> Result<PipelineStream<'a>, Error> {
-        if self.buf.is_empty() {
+    pub async fn pipeline<'a, const SYNC_MODE: bool>(
+        &self,
+        mut pipe: Pipeline<'a, SYNC_MODE>,
+    ) -> Result<PipelineStream<'a>, Error> {
+        if pipe.buf.is_empty() {
             return Ok(PipelineStream {
                 res: Response::no_op(),
                 columns: VecDeque::new(),
@@ -136,15 +138,37 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
         }
 
         if !SYNC_MODE {
-            self.sync_count += 1;
-            frontend::sync(&mut self.buf);
+            pipe.sync_count += 1;
+            frontend::sync(&mut pipe.buf);
         }
 
-        let res = self.tx.send_multi(self.sync_count, self.buf).await?;
+        self.pipeline_buf(pipe.sync_count, pipe.buf, pipe.columns).await
+    }
 
-        Ok(PipelineStream {
+    pub(crate) async fn _pipeline<'a, const SYNC_MODE: bool>(
+        &self,
+        sync_count: &mut usize,
+        mut buf: BytesMut,
+    ) -> Result<Response, Error> {
+        assert!(!buf.is_empty());
+
+        if !SYNC_MODE {
+            *sync_count += 1;
+            frontend::sync(&mut buf);
+        }
+
+        self.tx.send_multi(*sync_count, buf).await
+    }
+
+    pub(crate) async fn pipeline_buf<'a>(
+        &self,
+        sync_count: usize,
+        buf: BytesMut,
+        columns: VecDeque<&'a [Column]>,
+    ) -> Result<PipelineStream<'a>, Error> {
+        self.tx.send_multi(sync_count, buf).await.map(|res| PipelineStream {
             res,
-            columns: self.columns,
+            columns: columns,
             ranges: Vec::new(),
         })
     }
@@ -153,9 +177,9 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
 /// streaming response of pipeline.
 /// impls [AsyncIterator] trait and can be collected asynchronously.
 pub struct PipelineStream<'a> {
-    res: Response,
-    columns: VecDeque<&'a [Column]>,
-    ranges: Vec<Option<Range<usize>>>,
+    pub(crate) res: Response,
+    pub(crate) columns: VecDeque<&'a [Column]>,
+    pub(crate) ranges: Vec<Option<Range<usize>>>,
 }
 
 impl<'a> AsyncLendingIterator for PipelineStream<'a> {

@@ -26,14 +26,19 @@ type BoxedFuture<'a> = Pin<Box<dyn Future<Output = Result<Type, Error>> + 'a>>;
 type BoxedFuture<'a> = Pin<Box<dyn Future<Output = Result<Type, Error>> + Send + 'a>>;
 
 impl Client {
-    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<'_>, Error> {
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<&'_ Self>, Error> {
         self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
     }
 }
 
 impl Client {
-    async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
-        let name = format!("s{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
+    pub(crate) async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        self.prepare_with_id(id, query, types).await
+    }
+
+    pub(crate) async fn prepare_with_id(&self, id: usize, query: &str, types: &[Type]) -> Result<Statement, Error> {
+        let name = format!("s{id}");
 
         let buf = self.prepare_buf(name.as_str(), query, types)?;
 
@@ -227,7 +232,7 @@ impl Client {
     }
 }
 
-static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 const TYPEINFO_QUERY: &str = "\
 SELECT t.typname, t.typtype, t.typelem, r.rngsubtype, t.typbasetype, n.nspname, t.typrelid

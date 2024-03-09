@@ -127,15 +127,15 @@ impl Drop for Client {
         };
 
         if let Some(stmt) = type_info {
-            drop(stmt.into_guarded(self));
+            drop(stmt.into_guarded(&*self));
         }
 
         if let Some(stmt) = typeinfo_composite {
-            drop(stmt.into_guarded(self));
+            drop(stmt.into_guarded(&*self));
         }
 
         if let Some(stmt) = typeinfo_enum {
-            drop(stmt.into_guarded(self));
+            drop(stmt.into_guarded(&*self));
         }
     }
 }

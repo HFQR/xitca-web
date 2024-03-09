@@ -1,5 +1,6 @@
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
+use xitca_io::bytes::BytesMut;
 
 use crate::{
     client::Client, column::Column, driver::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple, Type,
@@ -8,13 +9,9 @@ use crate::{
 use super::row_stream::GenericRowStream;
 
 impl Client {
-    #[inline]
     pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self.encode_send_simple(stmt).await.map(|res| RowSimpleStream {
-            res,
-            col: Vec::new(),
-            ranges: Vec::new(),
-        })
+        let buf = self.try_buf_and_split(|buf| frontend::query(stmt, buf))?;
+        self.query_buf_simple(buf).await
     }
 
     #[inline]
@@ -25,6 +22,14 @@ impl Client {
     pub(crate) async fn encode_send_simple(&self, stmt: &str) -> Result<Response, Error> {
         let buf = self.try_buf_and_split(|buf| frontend::query(stmt, buf))?;
         self.send(buf).await
+    }
+
+    pub(crate) async fn query_buf_simple(&self, buf: BytesMut) -> Result<RowSimpleStream, Error> {
+        self.send(buf).await.map(|res| RowSimpleStream {
+            res,
+            col: Vec::new(),
+            ranges: Vec::new(),
+        })
     }
 }
 
