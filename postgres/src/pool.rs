@@ -48,8 +48,13 @@ impl Spawner {
 }
 
 impl SharedClient {
-    pub async fn new(config: Config) -> Result<Self, Error> {
-        let (cli, drv) = connect(&mut config.clone()).await?;
+    pub async fn new<C>(config: C) -> Result<Self, Error>
+    where
+        Config: TryFrom<C>,
+        Error: From<<Config as TryFrom<C>>::Error>,
+    {
+        let mut config = Config::try_from(config)?;
+        let (cli, drv) = connect(&mut config).await?;
 
         tokio::task::spawn(drv.into_future());
 
