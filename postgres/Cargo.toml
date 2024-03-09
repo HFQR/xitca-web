@@ -23,7 +23,7 @@ fallible-iterator = "0.2"
 percent-encoding = "2"
 postgres-protocol = "0.6.5"
 postgres-types = "0.2"
-tokio = { version = "1.30", features = ["net", "sync"] }
+tokio = { version = "1.30", features = ["net", "rt", "sync", "time"] }
 tracing = { version = "0.1.40", default-features = false }
 
 # tls

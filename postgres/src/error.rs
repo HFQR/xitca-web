@@ -3,6 +3,9 @@ use core::{convert::Infallible, fmt};
 use std::{error, io};
 
 use tokio::sync::mpsc::error::SendError;
+use xitca_io::bytes::BytesMut;
+
+use crate::driver::codec::Request;
 
 use super::from_sql::FromSqlError;
 
@@ -15,6 +18,7 @@ pub enum Error {
     Io(io::Error),
     FromSql(FromSqlError),
     InvalidColumnIndex(String),
+    DriverDown(BytesMut),
     ToDo,
 }
 
@@ -27,6 +31,7 @@ impl fmt::Display for Error {
             Self::Io(ref e) => fmt::Display::fmt(e, f),
             Self::FromSql(ref e) => fmt::Display::fmt(e, f),
             Self::InvalidColumnIndex(ref name) => write!(f, "invalid column {name}"),
+            Self::DriverDown(_) => f.write_str("Driver is down. check Driver's async task output for reason"),
             Self::ToDo => f.write_str("error informant is yet implemented"),
         }
     }
@@ -52,9 +57,15 @@ impl From<FromSqlError> for Error {
     }
 }
 
-impl<T> From<SendError<T>> for Error {
-    fn from(_: SendError<T>) -> Self {
-        Error::from(write_zero_err())
+impl From<SendError<BytesMut>> for Error {
+    fn from(e: SendError<BytesMut>) -> Self {
+        Self::DriverDown(e.0)
+    }
+}
+
+impl From<SendError<Request>> for Error {
+    fn from(e: SendError<Request>) -> Self {
+        Self::DriverDown(e.0.msg)
     }
 }
 
@@ -112,14 +123,5 @@ pub(crate) fn unexpected_eof_err() -> io::Error {
     io::Error::new(
         io::ErrorKind::UnexpectedEof,
         "zero byte read. remote close connection unexpectedly",
-    )
-}
-
-#[cold]
-#[inline(never)]
-pub(crate) fn write_zero_err() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::WriteZero,
-        "zero byte written. remote close connection unexpectedly",
     )
 }

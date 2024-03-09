@@ -20,7 +20,7 @@ use xitca_io::{
 
 use crate::{
     config::{Config, Host, SslMode},
-    error::{unexpected_eof_err, write_zero_err, Error},
+    error::{unexpected_eof_err, Error},
     session::prepare_session,
 };
 
@@ -147,7 +147,7 @@ where
     while !buf.is_empty() {
         io.ready(Interest::WRITABLE).await?;
         match io.write(&buf) {
-            Ok(0) => return Err(write_zero_err()),
+            Ok(0) => return Err(unexpected_eof_err()),
             Ok(n) => buf.advance(n),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             Err(e) => return Err(e),

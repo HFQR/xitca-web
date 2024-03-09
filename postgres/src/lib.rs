@@ -8,6 +8,7 @@ mod config;
 mod driver;
 mod from_sql;
 mod iter;
+mod pool;
 mod prepare;
 mod query;
 mod session;
@@ -34,6 +35,7 @@ pub use self::{
     error::Error,
     from_sql::FromSqlExt,
     iter::AsyncLendingIterator,
+    pool::SharedClient,
     query::{RowSimpleStream, RowStream},
 };
 

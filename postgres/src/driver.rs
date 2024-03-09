@@ -89,18 +89,15 @@ impl Driver {
     async fn run_till_closed(self) {
         #[cfg(not(feature = "quic"))]
         {
-            let mut this = self;
-            while let Err(e) = match this.inner {
-                _Driver::Tcp(ref mut drv) => drv.run().await,
+            let _ = match self.inner {
+                _Driver::Tcp(drv) => drv.run().await,
                 #[cfg(feature = "tls")]
-                _Driver::Tls(ref mut drv) => drv.run().await,
+                _Driver::Tls(drv) => drv.run().await,
                 #[cfg(unix)]
-                _Driver::Unix(ref mut drv) => drv.run().await,
+                _Driver::Unix(drv) => drv.run().await,
                 #[cfg(all(unix, feature = "tls"))]
-                _Driver::UnixTls(ref mut drv) => drv.run().await,
-            } {
-                while this.reconnect(&e).await.is_err() {}
-            }
+                _Driver::UnixTls(drv) => drv.run().await,
+            };
         }
 
         #[cfg(feature = "quic")]
@@ -114,28 +111,6 @@ impl Driver {
 
 #[cfg(not(feature = "quic"))]
 impl Driver {
-    /// reconnect to server with a fresh connection and state. Driver's associated
-    /// [Client] is able to be re-used for the fresh connection.
-    ///
-    /// MUST be called when `<Self as AsyncLendingIterator>::try_next` emit [Error].
-    /// All in flight database query and response will be lost in the process.
-    pub async fn reconnect(&mut self, _: &Error) -> Result<(), Error> {
-        let (_, Driver { inner: inner_new, .. }) = connect(&mut self.config).await?;
-
-        match (&mut self.inner, inner_new) {
-            (_Driver::Tcp(drv), _Driver::Tcp(drv_new)) => drv.replace(drv_new),
-            #[cfg(feature = "tls")]
-            (_Driver::Tls(drv), _Driver::Tls(drv_new)) => drv.replace(drv_new),
-            #[cfg(unix)]
-            (_Driver::Unix(drv), _Driver::Unix(drv_new)) => drv.replace(drv_new),
-            #[cfg(all(unix, feature = "tls"))]
-            (_Driver::UnixTls(drv), _Driver::UnixTls(drv_new)) => drv.replace(drv_new),
-            _ => unreachable!("reconnect should always yield the same type of generic driver"),
-        };
-
-        Ok(())
-    }
-
     pub(super) fn tcp(drv: GenericDriver<TcpStream>, config: Config) -> Self {
         Self {
             inner: _Driver::Tcp(drv),

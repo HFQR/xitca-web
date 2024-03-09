@@ -60,23 +60,6 @@ where
         )
     }
 
-    #[cfg(not(feature = "quic"))]
-    pub(crate) fn replace(&mut self, other: Self) {
-        let Self {
-            io,
-            write_buf,
-            read_buf,
-            res,
-            state,
-            ..
-        } = other;
-        self.io = io;
-        self.write_buf = write_buf;
-        self.read_buf = read_buf;
-        self.res = res;
-        self.state = state;
-    }
-
     async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(msg) = self.try_decode()? {
@@ -142,7 +125,7 @@ where
 
     // TODO: remove this feature gate.
     #[cfg(not(feature = "quic"))]
-    pub(crate) async fn run(&mut self) -> Result<(), Error> {
+    pub(crate) async fn run(mut self) -> Result<(), Error> {
         while self._try_next().await?.is_some() {}
         Ok(())
     }
@@ -180,10 +163,11 @@ where
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    let front = self.res.front_mut().expect("out of bound must not happen");
-                    front.send(buf);
-                    if front.complete(complete) {
-                        self.res.pop_front();
+                    if let Some(front) = self.res.front_mut() {
+                        front.send(buf);
+                        if front.complete(complete) {
+                            self.res.pop_front();
+                        }
                     }
                 }
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),

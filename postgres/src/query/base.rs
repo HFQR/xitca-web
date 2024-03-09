@@ -1,5 +1,7 @@
 use postgres_protocol::message::backend;
 
+use xitca_io::bytes::BytesMut;
+
 use crate::{
     client::Client,
     column::Column,
@@ -39,11 +41,8 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        self.encode_send(stmt, params).await.map(|res| RowStream {
-            col: stmt.columns(),
-            res,
-            ranges: Vec::new(),
-        })
+        let buf = self.encode(stmt, params)?;
+        self.query_buf(stmt, buf).await
     }
 
     /// Executes a statement, returning the number of rows modified.
@@ -74,10 +73,27 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        self.encode_send(stmt, params).await?.try_into_row_affected().await
+        let buf = self.encode(stmt, params)?;
+        self.send_buf(buf).await?.try_into_row_affected().await
     }
 
-    async fn encode_send<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
+    pub(crate) async fn query_buf<'a>(&self, stmt: &'a Statement, buf: BytesMut) -> Result<RowStream<'a>, Error> {
+        self.send_buf(buf).await.map(|res| RowStream {
+            col: stmt.columns(),
+            res,
+            ranges: Vec::new(),
+        })
+    }
+
+    async fn send_buf(&self, buf: BytesMut) -> Result<Response, Error> {
+        let mut res = self.send(buf).await?;
+        match res.recv().await? {
+            backend::Message::BindComplete => Ok(res),
+            _ => Err(Error::UnexpectedMessage),
+        }
+    }
+
+    fn encode<I>(&self, stmt: &Statement, params: I) -> Result<BytesMut, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
@@ -85,12 +101,7 @@ impl Client {
     {
         let params = params.into_iter();
         stmt.params_assert(&params);
-        let buf = self.try_buf_and_split(|buf| super::encode::encode(buf, stmt, params))?;
-        let mut res = self.send(buf).await?;
-        match res.recv().await? {
-            backend::Message::BindComplete => Ok(res),
-            _ => Err(Error::UnexpectedMessage),
-        }
+        self.try_buf_and_split(|buf| super::encode::encode(buf, stmt, params))
     }
 }
 

@@ -7,10 +7,7 @@ use postgres_protocol::message::backend;
 use tokio::sync::mpsc::unbounded_channel;
 use xitca_io::bytes::BytesMut;
 
-use crate::{
-    driver::codec::ResponseReceiver,
-    error::{unexpected_eof_err, Error},
-};
+use crate::{driver::codec::ResponseReceiver, error::Error};
 
 pub struct Response {
     rx: ResponseReceiver,
@@ -35,7 +32,7 @@ impl Response {
     pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + '_ {
         poll_fn(|cx| {
             if self.buf.is_empty() {
-                self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(unexpected_eof_err)?;
+                self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| Error::DriverDown(BytesMut::new()))?;
             }
 
             let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.")

@@ -1,28 +1,42 @@
 //! Statement module is mostly copy/paste from `tokio_postgres::statement`
 
+use core::ops::Deref;
+
 use postgres_protocol::message::frontend;
 
 use super::{client::Client, column::Column, Type};
 
 /// Guarded statement that would cancel itself when dropped.
-pub struct StatementGuarded<'a> {
+pub struct StatementGuarded<C>
+where
+    C: Deref<Target = Client>,
+{
     statement: Option<Statement>,
-    client: &'a Client,
+    client: C,
 }
 
-impl AsRef<Statement> for StatementGuarded<'_> {
+impl<C> AsRef<Statement> for StatementGuarded<C>
+where
+    C: Deref<Target = Client>,
+{
     fn as_ref(&self) -> &Statement {
         self.statement.as_ref().unwrap()
     }
 }
 
-impl Drop for StatementGuarded<'_> {
+impl<C> Drop for StatementGuarded<C>
+where
+    C: Deref<Target = Client>,
+{
     fn drop(&mut self) {
         self.cancel();
     }
 }
 
-impl<'a> StatementGuarded<'a> {
+impl<C> StatementGuarded<C>
+where
+    C: Deref<Target = Client>,
+{
     /// Leak the statement and it would not be cancelled for current connection.
     pub fn leak(mut self) -> Statement {
         self.statement.take().unwrap()
@@ -86,7 +100,10 @@ impl Statement {
     }
 
     /// Convert self to a drop guarded statement which would cancel on drop.
-    pub fn into_guarded(self, client: &Client) -> StatementGuarded<'_> {
+    pub fn into_guarded<C>(self, client: C) -> StatementGuarded<C>
+    where
+        C: Deref<Target = Client>,
+    {
         StatementGuarded {
             statement: Some(self),
             client,
