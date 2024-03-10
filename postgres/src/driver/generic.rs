@@ -8,7 +8,6 @@ use std::{collections::VecDeque, io};
 
 use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tracing::error;
 use xitca_io::{
     bytes::{BufInterest, BufRead, BufWrite, BytesMut, WriteBuf},
     io::{AsyncIo, Interest},
@@ -105,8 +104,6 @@ where
                     }
                     if ready.is_writable() {
                         if let Err(e) = self.try_write() {
-                            error!("server closed read half unexpectedly: {e}");
-
                             // when write error occur the driver would go into half close state(read only).
                             // clearing write_buf would drop all pending requests in it and hint the driver
                             // no future Interest::WRITABLE should be passed to AsyncIo::ready method.

@@ -14,7 +14,7 @@ default = []
 stream = ["pin-project-lite", "tokio/sync"]
 
 [dependencies]
-base64 = { version = "0.21.0", default-features = false }
+base64 = { version = "0.22.0", default-features = false }
 bytes = "1.4"
 futures-core = { version = "0.3.25", default-features = false }
 http = "1"
