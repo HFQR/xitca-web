@@ -54,6 +54,12 @@ fn _assert_pipe_send() {
     crate::_assert_send2::<Pipeline<'_>>();
 }
 
+impl Default for Pipeline<'_, true> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Pipeline<'_, true> {
     /// start a new pipeline.
     ///
@@ -61,7 +67,7 @@ impl Pipeline<'_, true> {
     /// and the pipeline is transparent to database server. the pipeline only happen on socket
     /// transport where minimal amount of syscall is needed.
     ///
-    /// for more relaxed [Pipeline Mode][libpq_link] see [Client::pipeline_unsync] api.
+    /// for more relaxed [Pipeline Mode][libpq_link] see [Pipeline::unsync] api.
     ///
     /// [libpq_link]: https://www.postgresql.org/docs/current/libpq-pipeline-mode.html
     pub fn new() -> Self {
@@ -79,7 +85,7 @@ impl Pipeline<'_, false> {
     /// in un-sync mode pipeline treat all queries inside as one single binding and database server
     /// can see them as no sync point in between which can result in potential performance gain.
     ///
-    /// it behaves the same on transportation level as [Client::pipeline] where minimal amount
+    /// it behaves the same on transportation level as [Pipeline::new] where minimal amount
     /// of socket syscall is needed.
     #[inline]
     pub fn unsync() -> Self {
@@ -142,7 +148,14 @@ impl Client {
             frontend::sync(&mut pipe.buf);
         }
 
-        self.pipeline_buf(pipe.sync_count, pipe.buf, pipe.columns).await
+        self.tx
+            .send_multi(pipe.sync_count, pipe.buf)
+            .await
+            .map(|res| PipelineStream {
+                res,
+                columns: pipe.columns,
+                ranges: Vec::new(),
+            })
     }
 
     pub(crate) async fn _pipeline<'a, const SYNC_MODE: bool>(
@@ -158,19 +171,6 @@ impl Client {
         }
 
         self.tx.send_multi(*sync_count, buf).await
-    }
-
-    pub(crate) async fn pipeline_buf<'a>(
-        &self,
-        sync_count: usize,
-        buf: BytesMut,
-        columns: VecDeque<&'a [Column]>,
-    ) -> Result<PipelineStream<'a>, Error> {
-        self.tx.send_multi(sync_count, buf).await.map(|res| PipelineStream {
-            res,
-            columns: columns,
-            ranges: Vec::new(),
-        })
     }
 }
 
