@@ -45,6 +45,15 @@ impl Spawner {
             }
         }
     }
+
+    #[cold]
+    #[inline(never)]
+    async fn wait_for_spawn(&self) {
+        let notify = self.notify.lock().clone();
+        if let Some(notify) = notify {
+            notify.notified().await;
+        }
+    }
 }
 
 impl SharedClient {
@@ -81,7 +90,7 @@ impl SharedClient {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let cli = self.inner.read().await;
+        let cli = self.read().await;
         match cli.query_raw(stmt, params).await {
             Err(Error::DriverDown(msg)) => {
                 drop(cli);
@@ -96,7 +105,7 @@ impl SharedClient {
     }
 
     pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        let cli = self.inner.read().await;
+        let cli = self.read().await;
         match cli.query_simple(stmt).await {
             Err(Error::DriverDown(msg)) => {
                 drop(cli);
@@ -116,7 +125,7 @@ impl SharedClient {
         types: &[Type],
     ) -> Result<StatementGuarded<RwLockReadGuard<'_, Client>>, Error> {
         loop {
-            let cli = self.inner.read().await;
+            let cli = self.read().await;
             match cli._prepare(query, types).await {
                 Ok(stmt) => return Ok(stmt.into_guarded(cli)),
                 Err(Error::DriverDown(_)) => {
@@ -141,34 +150,6 @@ impl SharedClient {
         Ok(stmt)
     }
 
-    #[cfg(not(feature = "quic"))]
-    pub async fn pipeline<'a, const SYNC_MODE: bool>(
-        &self,
-        mut pipe: crate::pipeline::Pipeline<'a, SYNC_MODE>,
-    ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
-        let cli = self.inner.read().await;
-        match cli._pipeline::<SYNC_MODE>(&mut pipe.sync_count, pipe.buf).await {
-            Ok(res) => Ok(crate::pipeline::PipelineStream {
-                res,
-                columns: pipe.columns,
-                ranges: Vec::new(),
-            }),
-            Err(Error::DriverDown(buf)) => {
-                drop(cli);
-                Box::pin(async move {
-                    self.reconnect().await;
-                    self.inner
-                        .read()
-                        .await
-                        .pipeline_buf(pipe.sync_count, buf, pipe.columns)
-                        .await
-                })
-                .await
-            }
-            Err(e) => Err(e),
-        }
-    }
-
     #[cold]
     #[inline(never)]
     async fn reconnect(&self) {
@@ -187,9 +168,9 @@ impl SharedClient {
                     }
                 }
 
-                let mut cli = self.inner.write().await;
-
                 let _guard = SpawnGuard(&self.persist.spawner);
+
+                let mut cli = self.inner.write().await;
 
                 let (cli_new, drv) = {
                     loop {
@@ -207,6 +188,68 @@ impl SharedClient {
                 }
 
                 *cli = cli_new;
+
+                // release rwlock before spawn guard. when waiters are notified it's important that the lock
+                // is free for read lock.
+                drop(cli);
+                drop(_guard);
+            }
+        }
+    }
+
+    async fn read(&self) -> RwLockReadGuard<'_, Client> {
+        loop {
+            match self.inner.try_read() {
+                Ok(cli) => return cli,
+                // failing to acquire read lock means certain task is spawning new connection.
+                // if there is no notify existing in spawner it means the spawn process has finished(or cancelled).
+                // in that case just try read lock again.
+                Err(_) => self.persist.spawner.wait_for_spawn().await,
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "quic"))]
+impl SharedClient {
+    pub async fn pipeline<'a, const SYNC_MODE: bool>(
+        &self,
+        mut pipe: crate::pipeline::Pipeline<'a, SYNC_MODE>,
+    ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
+        let cli = self.read().await;
+        match cli._pipeline::<SYNC_MODE>(&mut pipe.sync_count, pipe.buf).await {
+            Ok(res) => Ok(crate::pipeline::PipelineStream {
+                res,
+                columns: pipe.columns,
+                ranges: Vec::new(),
+            }),
+            Err(Error::DriverDown(buf)) => {
+                drop(cli);
+                pipe.buf = buf;
+                Box::pin(self.pipeline_slow::<SYNC_MODE>(pipe)).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn pipeline_slow<'a, const SYNC_MODE: bool>(
+        &self,
+        mut pipe: crate::pipeline::Pipeline<'a, SYNC_MODE>,
+    ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
+        loop {
+            self.reconnect().await;
+            match self.read().await.tx.send_multi(pipe.sync_count, pipe.buf).await {
+                Ok(res) => {
+                    return Ok(crate::pipeline::PipelineStream {
+                        res,
+                        columns: pipe.columns,
+                        ranges: Vec::new(),
+                    })
+                }
+                Err(Error::DriverDown(buf)) => {
+                    pipe.buf = buf;
+                }
+                Err(e) => return Err(e),
             }
         }
     }
