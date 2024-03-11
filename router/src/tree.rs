@@ -59,7 +59,7 @@ impl<T> Node<T> {
 
         // the tree is empty
         if self.prefix.is_empty() && self.children.is_empty() {
-            let last = self.insert_child(prefix, &route, val)?;
+            let last = self.insert_child(prefix, val)?;
             last.param_remapping = param_remapping;
             self.node_type = NodeType::Root;
             return Ok(());
@@ -125,7 +125,7 @@ impl<T> Node<T> {
                     child = current.update_child_priority(child);
 
                     // insert into the new node
-                    let last = current.children[child].insert_child(prefix, &route, val)?;
+                    let last = current.children[child].insert_child(prefix, val)?;
                     last.param_remapping = param_remapping;
                     return Ok(());
                 }
@@ -152,7 +152,7 @@ impl<T> Node<T> {
                 }
 
                 // otherwise, create the wildcard node
-                let last = current.insert_child(prefix, &route, val)?;
+                let last = current.insert_child(prefix, val)?;
                 last.param_remapping = param_remapping;
                 return Ok(());
             }
@@ -198,22 +198,16 @@ impl<T> Node<T> {
             updated -= 1;
         }
 
-        // build new index list
+        // update the index position
         if updated != i {
-            self.indices = [
-                &self.indices[..updated],  // unchanged prefix, might be empty
-                &self.indices[i..=i],      // the index char we move
-                &self.indices[updated..i], // rest without char at 'pos'
-                &self.indices[i + 1..],
-            ]
-            .concat();
+            self.indices[updated..=i].rotate_right(1);
         }
 
         updated
     }
 
     // insert a child node at this node
-    fn insert_child(&mut self, mut prefix: &[u8], route: &[u8], val: T) -> Result<&mut Node<T>, InsertError> {
+    fn insert_child(&mut self, mut prefix: &[u8], val: T) -> Result<&mut Node<T>, InsertError> {
         let mut current = self;
 
         loop {
@@ -277,11 +271,6 @@ impl<T> Node<T> {
                     if prefix[i] != b'/' {
                         return Err(InsertError::InvalidCatchAll);
                     }
-                }
-
-                // "*x" without leading `/`
-                if prefix == route && route[0] != b'/' {
-                    return Err(InsertError::InvalidCatchAll);
                 }
 
                 // insert prefix before the current wildcard

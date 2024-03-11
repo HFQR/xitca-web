@@ -587,9 +587,6 @@ insert_tests! {
         "/src2/"                 => Ok(()),
         "/src2/*filepath/x"      => Err(InsertError::InvalidCatchAll),
     },
-    invalid_catchall2 {
-        "*x" => Err(InsertError::InvalidCatchAll)
-    },
     catchall_root_conflict {
         "/"          => Ok(()),
         "/*filepath" => Ok(()),
