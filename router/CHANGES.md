@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.2.1
+## Fix
+- allow catch all matching for route without leading slash. `foo/*` and `foo/*bar` become valid pattern.
 
 # 0.2.0
 ## Add
