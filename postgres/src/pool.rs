@@ -28,6 +28,12 @@ struct Persist {
     statements_cache: Vec<(usize, String, Vec<Type>)>,
 }
 
+impl Persist {
+    fn spawn_guard(&self) -> SpawnGuard<'_> {
+        SpawnGuard(&self)
+    }
+}
+
 struct Spawner {
     notify: Lock<Option<Arc<Notify>>>,
 }
@@ -53,6 +59,41 @@ impl Spawner {
         if let Some(notify) = notify {
             notify.notified().await;
         }
+    }
+}
+
+struct SpawnGuard<'a>(&'a Persist);
+
+impl Drop for SpawnGuard<'_> {
+    fn drop(&mut self) {
+        // if for any reason current task is cancelled by user the drop guard would
+        // restore the spawning state.
+        if let Some(notify) = self.0.spawner.notify.lock().take() {
+            notify.notify_waiters();
+        }
+    }
+}
+
+impl SpawnGuard<'_> {
+    #[cold]
+    #[inline(never)]
+    async fn spawn(&self) -> Client {
+        let (cli, drv) = {
+            loop {
+                match connect(&mut self.0.config.clone()).await {
+                    Ok(res) => break res,
+                    Err(_) => tokio::time::sleep(std::time::Duration::from_secs(1)).await,
+                }
+            }
+        };
+
+        tokio::task::spawn(drv.into_future());
+
+        for (id, query, types) in self.0.statements_cache.iter() {
+            let _ = cli.prepare_with_id(*id, query.as_str(), types.as_slice()).await;
+        }
+
+        cli
     }
 }
 
@@ -156,43 +197,16 @@ impl SharedClient {
         match self.persist.spawner.spawn_or_wait() {
             Some(wait) => wait.notified().await,
             None => {
-                // if for any reason current task is cancelled by user the drop guard would
-                // restore the spawning state.
-                struct SpawnGuard<'a>(&'a Spawner);
-
-                impl Drop for SpawnGuard<'_> {
-                    fn drop(&mut self) {
-                        if let Some(notify) = self.0.notify.lock().take() {
-                            notify.notify_waiters();
-                        }
-                    }
-                }
-
-                let _guard = SpawnGuard(&self.persist.spawner);
+                let guard = self.persist.spawn_guard();
 
                 let mut cli = self.inner.write().await;
 
-                let (cli_new, drv) = {
-                    loop {
-                        match connect(&mut self.persist.config.clone()).await {
-                            Ok(res) => break res,
-                            Err(_) => tokio::time::sleep(std::time::Duration::from_secs(1)).await,
-                        }
-                    }
-                };
-
-                tokio::task::spawn(drv.into_future());
-
-                for (id, query, types) in self.persist.statements_cache.iter() {
-                    let _ = cli_new.prepare_with_id(*id, query.as_str(), types.as_slice()).await;
-                }
-
-                *cli = cli_new;
+                *cli = guard.spawn().await;
 
                 // release rwlock before spawn guard. when waiters are notified it's important that the lock
                 // is free for read lock.
                 drop(cli);
-                drop(_guard);
+                drop(guard);
             }
         }
     }
