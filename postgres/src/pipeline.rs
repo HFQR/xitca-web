@@ -44,9 +44,6 @@ use super::{
 /// ```
 pub struct Pipeline<'a, const SYNC_MODE: bool = true> {
     pub(crate) columns: VecDeque<&'a [Column]>,
-    // how many SYNC message we are sending to database.
-    // it determines when the driver would shutdown the pipeline.
-    pub(crate) sync_count: usize,
     pub(crate) buf: BytesMut,
 }
 
@@ -73,7 +70,6 @@ impl Pipeline<'_, true> {
     pub fn new() -> Self {
         Self {
             columns: VecDeque::new(),
-            sync_count: 0,
             buf: BytesMut::new(),
         }
     }
@@ -91,7 +87,6 @@ impl Pipeline<'_, false> {
     pub fn unsync() -> Self {
         Self {
             columns: VecDeque::new(),
-            sync_count: 0,
             buf: BytesMut::new(),
         }
     }
@@ -115,12 +110,7 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
         stmt.params_assert(&params);
         let len = self.buf.len();
         crate::query::encode::encode_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params)
-            .map(|_| {
-                self.columns.push_back(stmt.columns());
-                if SYNC_MODE {
-                    self.sync_count += 1;
-                }
-            })
+            .map(|_| self.columns.push_back(stmt.columns()))
             .map_err(|e| {
                 // revert back to last pipelined query when encoding error occurred.
                 self.buf.truncate(len);
@@ -133,23 +123,9 @@ impl Client {
     /// execute the pipeline.
     pub async fn pipeline<'a, const SYNC_MODE: bool>(
         &self,
-        mut pipe: Pipeline<'a, SYNC_MODE>,
+        pipe: Pipeline<'a, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
-        if pipe.buf.is_empty() {
-            return Ok(PipelineStream {
-                res: Response::no_op(),
-                columns: VecDeque::new(),
-                ranges: Vec::new(),
-            });
-        }
-
-        if !SYNC_MODE {
-            pipe.sync_count += 1;
-            frontend::sync(&mut pipe.buf);
-        }
-
-        self.tx
-            .send_multi(pipe.sync_count, pipe.buf)
+        self._pipeline::<SYNC_MODE>(&pipe.columns, pipe.buf)
             .await
             .map(|res| PipelineStream {
                 res,
@@ -158,19 +134,30 @@ impl Client {
             })
     }
 
-    pub(crate) async fn _pipeline<'a, const SYNC_MODE: bool>(
+    pub(crate) async fn _pipeline<const SYNC_MODE: bool>(
         &self,
-        sync_count: &mut usize,
+        columns: &VecDeque<&[Column]>,
         mut buf: BytesMut,
     ) -> Result<Response, Error> {
         assert!(!buf.is_empty());
 
-        if !SYNC_MODE {
-            *sync_count += 1;
+        let sync_count = if SYNC_MODE {
+            columns.len()
+        } else {
             frontend::sync(&mut buf);
-        }
+            1
+        };
 
-        self.tx.send_multi(*sync_count, buf).await
+        self.tx.send_multi(sync_count, buf).await
+    }
+
+    pub(crate) async fn _pipeline_no_additive_sync<const SYNC_MODE: bool>(
+        &self,
+        columns: &VecDeque<&[Column]>,
+        buf: BytesMut,
+    ) -> Result<Response, Error> {
+        let sync_count = if SYNC_MODE { columns.len() } else { 1 };
+        self.tx.send_multi(sync_count, buf).await
     }
 }
 

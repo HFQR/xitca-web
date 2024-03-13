@@ -7,10 +7,9 @@ pub(super) fn dangerous_config(alpn: Vec<Vec<u8>>) -> std::sync::Arc<xitca_tls::
         self,
         client::danger::HandshakeSignatureValid,
         crypto::{verify_tls12_signature, verify_tls13_signature},
+        pki_types::{CertificateDer, ServerName, UnixTime},
         ClientConfig, DigitallySignedStruct, RootCertStore,
     };
-
-    use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 
     #[derive(Debug)]
     struct SkipServerVerification;
