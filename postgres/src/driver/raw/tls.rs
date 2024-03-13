@@ -1,7 +1,6 @@
-use rustls_pki_types::ServerName;
 use sha2::{Digest, Sha256};
 use xitca_io::io::AsyncIo;
-use xitca_tls::rustls::{ClientConnection, TlsStream};
+use xitca_tls::rustls::{pki_types::ServerName, ClientConnection, TlsStream};
 
 use crate::{config::Config, driver::tls::dangerous_config, error::Error};
 

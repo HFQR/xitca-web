@@ -30,7 +30,7 @@ struct Persist {
 
 impl Persist {
     fn spawn_guard(&self) -> SpawnGuard<'_> {
-        SpawnGuard(&self)
+        SpawnGuard(self)
     }
 }
 
@@ -231,7 +231,7 @@ impl SharedClient {
         mut pipe: crate::pipeline::Pipeline<'a, SYNC_MODE>,
     ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
         let cli = self.read().await;
-        match cli._pipeline::<SYNC_MODE>(&mut pipe.sync_count, pipe.buf).await {
+        match cli._pipeline::<SYNC_MODE>(&pipe.columns, pipe.buf).await {
             Ok(res) => Ok(crate::pipeline::PipelineStream {
                 res,
                 columns: pipe.columns,
@@ -252,7 +252,12 @@ impl SharedClient {
     ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
         loop {
             self.reconnect().await;
-            match self.read().await.tx.send_multi(pipe.sync_count, pipe.buf).await {
+            match self
+                .read()
+                .await
+                ._pipeline_no_additive_sync::<SYNC_MODE>(&pipe.columns, pipe.buf)
+                .await
+            {
                 Ok(res) => {
                     return Ok(crate::pipeline::PipelineStream {
                         res,

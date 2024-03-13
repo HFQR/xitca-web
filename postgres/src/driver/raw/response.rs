@@ -4,7 +4,6 @@ use core::{
 };
 
 use postgres_protocol::message::backend;
-use tokio::sync::mpsc::unbounded_channel;
 use xitca_io::bytes::BytesMut;
 
 use crate::{driver::codec::ResponseReceiver, error::Error};
@@ -15,13 +14,6 @@ pub struct Response {
 }
 
 impl Response {
-    // a no-op response for empty streaming response. this is a hack to avoid adding new error
-    // variant for case where user providing an empty query.
-    pub(crate) fn no_op() -> Self {
-        let (_, rx) = unbounded_channel();
-        Self::new(rx)
-    }
-
     pub(crate) fn new(rx: ResponseReceiver) -> Self {
         Self {
             rx,
