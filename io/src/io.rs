@@ -137,6 +137,7 @@ where
             }
         }
     }
+    
     fn is_write_vectored(&self) -> bool {
         self.0.is_vectored_write()
     }

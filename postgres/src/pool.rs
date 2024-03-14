@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use postgres_types::{BorrowToSql, ToSql, Type};
 use tokio::sync::{Notify, RwLock, RwLockReadGuard};
+use xitca_io::bytes::BytesMut;
 
 use crate::{
     client::Client,
@@ -133,30 +134,46 @@ impl SharedClient {
     {
         let cli = self.read().await;
         match cli.query_raw(stmt, params).await {
-            Err(Error::DriverDown(msg)) => {
+            Err(Error::DriverDown(buf)) => {
                 drop(cli);
-                Box::pin(async move {
-                    self.reconnect().await;
-                    self.inner.read().await.query_buf(stmt, msg).await
-                })
-                .await
+                Box::pin(self.query_raw_slow(stmt, buf)).await
             }
             res => res,
         }
     }
 
+    #[cold]
+    #[inline(never)]
+    async fn query_raw_slow<'a>(&self, stmt: &'a Statement, mut buf: BytesMut) -> Result<RowStream<'a>, Error> {
+        loop {
+            self.reconnect().await;
+            match self.read().await.query_buf(stmt, buf).await {
+                Err(Error::DriverDown(b)) => buf = b,
+                res => return res,
+            }
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
     pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         let cli = self.read().await;
         match cli.query_simple(stmt).await {
-            Err(Error::DriverDown(msg)) => {
+            Err(Error::DriverDown(buf)) => {
                 drop(cli);
-                Box::pin(async move {
-                    self.reconnect().await;
-                    self.inner.read().await.query_buf_simple(msg).await
-                })
-                .await
+                Box::pin(self.query_simple_slow(buf)).await
             }
             res => res,
+        }
+    }
+
+    async fn query_simple_slow(&self, mut buf: BytesMut) -> Result<RowSimpleStream, Error> {
+        loop {
+            self.reconnect().await;
+            match self.read().await.query_buf_simple(buf).await {
+                Err(Error::DriverDown(b)) => buf = b,
+                res => return res,
+            }
         }
     }
 
