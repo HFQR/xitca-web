@@ -4,7 +4,6 @@ use core::{fmt, iter, mem, str};
 
 use std::{
     borrow::Cow,
-    error,
     path::{Path, PathBuf},
 };
 
@@ -325,28 +324,6 @@ impl fmt::Debug for Config {
             .finish()
     }
 }
-
-#[derive(Debug)]
-struct UnknownOption(String);
-
-impl fmt::Display for UnknownOption {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "unknown option `{}`", self.0)
-    }
-}
-
-impl error::Error for UnknownOption {}
-
-#[derive(Debug)]
-struct InvalidValue(&'static str);
-
-impl fmt::Display for InvalidValue {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "invalid value for option `{}`", self.0)
-    }
-}
-
-impl error::Error for InvalidValue {}
 
 struct Parser<'a> {
     s: &'a str,
