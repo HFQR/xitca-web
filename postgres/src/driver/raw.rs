@@ -131,7 +131,7 @@ where
     match cfg.get_ssl_mode() {
         SslMode::Disable => Ok(false),
         mode => match (_should_connect_tls(io).await?, mode) {
-            (false, SslMode::Require) => Err(Error::ToDo),
+            (false, SslMode::Require) => Err(Error::todo()),
             (bool, _) => Ok(bool),
         },
     }

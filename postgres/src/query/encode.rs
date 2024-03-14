@@ -22,7 +22,7 @@ where
     I::Item: BorrowToSql,
 {
     encode_bind(stmt, params, "", buf)?;
-    frontend::execute("", 0, buf).map_err(|_| Error::ToDo)?;
+    frontend::execute("", 0, buf).map_err(|_| Error::todo())?;
     if SYNC_MODE {
         frontend::sync(buf);
     }
@@ -54,7 +54,7 @@ where
 
     match r {
         Ok(()) => Ok(()),
-        Err(frontend::BindError::Conversion(_)) => Err(Error::ToDo),
-        Err(frontend::BindError::Serialization(_)) => Err(Error::ToDo),
+        Err(frontend::BindError::Conversion(_)) => Err(Error::todo()),
+        Err(frontend::BindError::Serialization(_)) => Err(Error::todo()),
     }
 }

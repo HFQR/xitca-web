@@ -22,7 +22,7 @@ impl Response {
         loop {
             match backend::Message::parse(&mut self.buf)? {
                 // TODO: error response.
-                Some(backend::Message::ErrorResponse(_body)) => return Err(Error::ToDo),
+                Some(backend::Message::ErrorResponse(_body)) => return Err(Error::todo()),
                 Some(msg) => return Ok(msg),
                 None => {
                     let chunk = self

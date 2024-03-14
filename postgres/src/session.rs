@@ -57,15 +57,15 @@ where
         loop {
             match drv.recv().await? {
                 backend::Message::DataRow(body) => {
-                    let range = body.ranges().next()?.flatten().ok_or(Error::ToDo)?;
+                    let range = body.ranges().next()?.flatten().ok_or(Error::todo())?;
                     let slice = &body.buffer()[range.start..range.end];
                     if slice == b"on" {
-                        return Err(Error::ToDo);
+                        return Err(Error::todo());
                     }
                 }
                 backend::Message::RowDescription(_) | backend::Message::CommandComplete(_) => {}
                 backend::Message::EmptyQueryResponse | backend::Message::ReadyForQuery(_) => break,
-                _ => return Err(Error::UnexpectedMessage),
+                _ => return Err(Error::unexpected()),
             }
         }
     }
@@ -137,12 +137,12 @@ where
                         } else {
                             // server ask for channel binding but no tls_server_end_point can be
                             // found.
-                            return Err(Error::ToDo);
+                            return Err(Error::todo());
                         }
                     }
                     (false, true) => (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256),
                     // TODO: return "unsupported SASL mechanism" error.
-                    (false, false) => return Err(Error::ToDo),
+                    (false, false) => return Err(Error::todo()),
                 };
 
                 let mut scram = sasl::ScramSha256::new(pass, channel_binding);
@@ -158,12 +158,12 @@ where
                         let msg = buf.split();
                         drv.send(msg).await?;
                     }
-                    _ => return Err(Error::ToDo),
+                    _ => return Err(Error::todo()),
                 }
 
                 match drv.recv().await? {
                     backend::Message::AuthenticationSaslFinal(body) => scram.finish(body.data())?,
-                    _ => return Err(Error::ToDo),
+                    _ => return Err(Error::todo()),
                 }
             }
             backend::Message::ErrorResponse(_) => return Err(Error::from(AuthenticationError::WrongPassWord)),
