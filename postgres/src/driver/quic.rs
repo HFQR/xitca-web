@@ -90,7 +90,7 @@ pub(super) async fn _connect(host: Host, cfg: &Config) -> Result<(ClientTx, Driv
             let mut drv = QuicDriver::new(streams);
             prepare_session(&mut drv, cfg).await?;
             drv.close_tx().await;
-            Ok((tx, Driver::quic(drv, cfg.clone())))
+            Ok((tx, Driver::quic(drv)))
         }
         _ => unreachable!(),
     }
