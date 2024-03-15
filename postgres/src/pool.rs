@@ -135,27 +135,27 @@ impl SharedClient {
         let cli = self.read().await;
         match cli.query_raw(stmt, params).await {
             Ok(res) => Ok(res),
-            Err(mut e) => match e.if_driver_down() {
-                Some(DriverDown(buf)) => {
-                    drop(cli);
-                    Box::pin(self.query_raw_slow(stmt, buf)).await
-                }
-                None => Err(e),
-            },
+            Err(err) => {
+                drop(cli);
+                Box::pin(self.query_raw_slow(stmt, err)).await
+            }
         }
     }
 
-    #[cold]
-    #[inline(never)]
-    async fn query_raw_slow<'a>(&self, stmt: &'a Statement, mut buf: BytesMut) -> Result<RowStream<'a>, Error> {
+    async fn query_raw_slow<'a>(&self, stmt: &'a Statement, mut err: Error) -> Result<RowStream<'a>, Error> {
+        let mut buf;
+
         loop {
+            match err.if_driver_down() {
+                Some(DriverDown(b)) => buf = b,
+                None => return Err(err),
+            }
+
             self.reconnect().await;
+
             match self.read().await.query_buf(stmt, buf).await {
                 Ok(res) => return Ok(res),
-                Err(mut e) => match e.if_driver_down() {
-                    Some(DriverDown(b)) => buf = b,
-                    None => return Err(e),
-                },
+                Err(e) => err = e,
             }
         }
     }
@@ -256,53 +256,65 @@ impl SharedClient {
 }
 
 #[cfg(not(feature = "quic"))]
-impl SharedClient {
-    pub async fn pipeline<'a, const SYNC_MODE: bool>(
-        &self,
-        mut pipe: crate::pipeline::Pipeline<'a, SYNC_MODE>,
-    ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
-        let cli = self.read().await;
-        match cli._pipeline::<SYNC_MODE>(&pipe.columns, pipe.buf).await {
-            Ok(res) => Ok(crate::pipeline::PipelineStream {
-                res,
-                columns: pipe.columns,
-                ranges: Vec::new(),
-            }),
-            Err(mut e) => match e.if_driver_down() {
-                Some(DriverDown(b)) => {
-                    drop(cli);
-                    pipe.buf = b;
-                    Box::pin(self.pipeline_slow::<SYNC_MODE>(pipe)).await
-                }
-                None => Err(e),
-            },
-        }
-    }
+const _: () = {
+    use std::collections::VecDeque;
 
-    async fn pipeline_slow<'a, const SYNC_MODE: bool>(
-        &self,
-        mut pipe: crate::pipeline::Pipeline<'a, SYNC_MODE>,
-    ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
-        loop {
-            self.reconnect().await;
-            match self
-                .read()
-                .await
-                ._pipeline_no_additive_sync::<SYNC_MODE>(&pipe.columns, pipe.buf)
-                .await
-            {
-                Ok(res) => {
-                    return Ok(crate::pipeline::PipelineStream {
-                        res,
-                        columns: pipe.columns,
-                        ranges: Vec::new(),
-                    })
+    use crate::{
+        column::Column,
+        pipeline::{Pipeline, PipelineStream},
+    };
+
+    impl SharedClient {
+        pub async fn pipeline<'a, const SYNC_MODE: bool>(
+            &self,
+            pipe: Pipeline<'a, SYNC_MODE>,
+        ) -> Result<PipelineStream<'a>, Error> {
+            let Pipeline { columns, buf } = pipe;
+            let cli = self.read().await;
+            match cli._pipeline::<SYNC_MODE>(&columns, buf).await {
+                Ok(res) => Ok(PipelineStream {
+                    res,
+                    columns,
+                    ranges: Vec::new(),
+                }),
+                Err(err) => {
+                    drop(cli);
+                    Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, err)).await
                 }
-                Err(mut e) => match e.if_driver_down() {
-                    Some(DriverDown(b)) => pipe.buf = b,
-                    None => return Err(e),
-                },
+            }
+        }
+
+        async fn pipeline_slow<'a, const SYNC_MODE: bool>(
+            &self,
+            columns: VecDeque<&'a [Column]>,
+            mut err: Error,
+        ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
+            let mut buf;
+
+            loop {
+                match err.if_driver_down() {
+                    Some(DriverDown(b)) => buf = b,
+                    None => return Err(err),
+                }
+
+                self.reconnect().await;
+
+                match self
+                    .read()
+                    .await
+                    ._pipeline_no_additive_sync::<SYNC_MODE>(&columns, buf)
+                    .await
+                {
+                    Ok(res) => {
+                        return Ok(crate::pipeline::PipelineStream {
+                            res,
+                            columns,
+                            ranges: Vec::new(),
+                        })
+                    }
+                    Err(e) => err = e,
+                }
             }
         }
     }
-}
+};
