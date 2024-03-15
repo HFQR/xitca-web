@@ -13,6 +13,19 @@ use crate::driver::codec::Request;
 
 use super::from_sql::FromSqlError;
 
+/// public facing error type. providing basic format and display based error handling.
+/// for typed based error handling runtime type cast is needed with the help of other
+/// public error types offered by this module.
+///
+/// # Example
+/// ```rust
+/// use xitca_postgres::error::{DriverDown, Error};
+///
+/// fn is_driver_down(e: Error) -> bool {
+///     // downcast error to DriverDown error type to check if client driver is gone.
+///     e.downcast_ref::<DriverDown>().is_some()
+/// }
+/// ```
 pub struct Error(Box<dyn error::Error + Send + Sync>);
 
 impl Error {
@@ -63,6 +76,14 @@ impl error::Error for Error {
     }
 }
 
+/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore.
+///
+/// the field inside error contains the raw bytes buffer of query message that are ready to be
+/// sent to the [Driver] for transporting. It's possible to construct a new [Client] and [Driver]
+/// pair where the bytes buffer could be reused for graceful retry of previous failed queries.
+///
+/// [Client]: crate::client::Client
+/// [Driver]: crate::driver::Driver
 #[derive(Default)]
 pub struct DriverDown(pub BytesMut);
 
@@ -74,7 +95,7 @@ impl fmt::Debug for DriverDown {
 
 impl fmt::Display for DriverDown {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Driver is down")
+        f.write_str("Driver is dropped and unaccessible.")
     }
 }
 
@@ -138,6 +159,7 @@ impl From<SendError<Request>> for Error {
     }
 }
 
+/// error happens when library user failed to provide valid authentication info to database server.
 #[derive(Debug)]
 pub enum AuthenticationError {
     MissingUserName,

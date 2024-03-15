@@ -55,7 +55,7 @@ pub(super) async fn connect(cfg: &mut Config) -> Result<(Client, Driver), Error>
 }
 
 /// async driver of [Client](crate::Client).
-/// it handles IO and emit server sent message that do not belong to any query with [AsyncIterator]
+/// it handles IO and emit server sent message that do not belong to any query with [AsyncLendingIterator]
 /// trait impl.
 ///
 /// # Examples:
