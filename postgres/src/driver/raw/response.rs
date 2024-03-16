@@ -6,7 +6,10 @@ use core::{
 use postgres_protocol::message::backend;
 use xitca_io::bytes::BytesMut;
 
-use crate::{driver::codec::ResponseReceiver, error::Error};
+use crate::{
+    driver::codec::ResponseReceiver,
+    error::{DriverDown, Error},
+};
 
 pub struct Response {
     rx: ResponseReceiver,
@@ -24,13 +27,13 @@ impl Response {
     pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + '_ {
         poll_fn(|cx| {
             if self.buf.is_empty() {
-                self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| Error::DriverDown(BytesMut::new()))?;
+                self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| DriverDown(BytesMut::new()))?;
             }
 
             let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.")
             {
                 // TODO: error response.
-                backend::Message::ErrorResponse(_body) => Err(Error::ToDo),
+                backend::Message::ErrorResponse(_body) => Err(Error::todo()),
                 msg => Ok(msg),
             };
 

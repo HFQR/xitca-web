@@ -59,7 +59,7 @@ impl AsyncLendingIterator for RowSimpleStream {
                 backend::Message::CommandComplete(_)
                 | backend::Message::EmptyQueryResponse
                 | backend::Message::ReadyForQuery(_) => return Ok(None),
-                _ => return Err(Error::UnexpectedMessage),
+                _ => return Err(Error::unexpected()),
             }
         }
     }

@@ -194,7 +194,7 @@ impl<'a> AsyncLendingIterator for PipelineStream<'a> {
                     // item arrives.
                 }
                 backend::Message::ReadyForQuery(_) => {}
-                _ => return Err(Error::UnexpectedMessage),
+                _ => return Err(Error::unexpected()),
             }
         }
 
@@ -230,7 +230,7 @@ impl PipelineItem<'_, '_> {
                     self.finished = true;
                     return crate::query::decode::body_to_affected_rows(&body);
                 }
-                _ => return Err(Error::UnexpectedMessage),
+                _ => return Err(Error::unexpected()),
             }
         }
     }
@@ -252,7 +252,7 @@ impl AsyncLendingIterator for PipelineItem<'_, '_> {
                     return Row::try_new(columns, body, &mut self.stream.ranges).map(Some);
                 }
                 backend::Message::CommandComplete(_) => self.finished = true,
-                _ => return Err(Error::UnexpectedMessage),
+                _ => return Err(Error::unexpected()),
             }
         }
 

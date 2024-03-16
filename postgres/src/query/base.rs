@@ -89,7 +89,7 @@ impl Client {
         let mut res = self.send(buf).await?;
         match res.recv().await? {
             backend::Message::BindComplete => Ok(res),
-            _ => Err(Error::UnexpectedMessage),
+            _ => Err(Error::unexpected()),
         }
     }
 
@@ -116,7 +116,7 @@ impl Response {
                 }
                 backend::Message::EmptyQueryResponse => rows = 0,
                 backend::Message::ReadyForQuery(_) => return Ok(rows),
-                _ => return Err(Error::UnexpectedMessage),
+                _ => return Err(Error::unexpected()),
             }
         }
     }
@@ -129,7 +129,7 @@ impl Response {
                 | backend::Message::DataRow(_)
                 | backend::Message::EmptyQueryResponse => {}
                 backend::Message::ReadyForQuery(_) => return Ok(()),
-                _ => return Err(Error::UnexpectedMessage),
+                _ => return Err(Error::unexpected()),
             }
         }
     }
@@ -150,7 +150,7 @@ impl<'a> AsyncLendingIterator for RowStream<'a> {
                 | backend::Message::CommandComplete(_)
                 | backend::Message::PortalSuspended => {}
                 backend::Message::ReadyForQuery(_) => return Ok(None),
-                _ => return Err(Error::UnexpectedMessage),
+                _ => return Err(Error::unexpected()),
             }
         }
     }

@@ -245,7 +245,7 @@ impl Config {
                     "disable" => SslMode::Disable,
                     "prefer" => SslMode::Prefer,
                     "require" => SslMode::Require,
-                    _ => return Err(Error::ToDo),
+                    _ => return Err(Error::todo()),
                 };
                 self.ssl_mode(mode);
             }
@@ -259,7 +259,7 @@ impl Config {
                     let port = if port.is_empty() {
                         5432
                     } else {
-                        port.parse().map_err(|_| Error::ToDo)?
+                        port.parse().map_err(|_| Error::todo())?
                     };
                     self.port(port);
                 }
@@ -269,13 +269,13 @@ impl Config {
                     "any" => TargetSessionAttrs::Any,
                     "read-write" => TargetSessionAttrs::ReadWrite,
                     _ => {
-                        return Err(Error::ToDo);
+                        return Err(Error::todo());
                     }
                 };
                 self.target_session_attrs(target_session_attrs);
             }
             _ => {
-                return Err(Error::ToDo);
+                return Err(Error::todo());
             }
         }
 
@@ -375,9 +375,9 @@ impl<'a> Parser<'a> {
             Some((_, c)) if c == target => Ok(()),
             Some((i, c)) => {
                 let _m = format!("unexpected character at byte {i}: expected `{target}` but got `{c}`");
-                Err(Error::ToDo)
+                Err(Error::todo())
             }
-            None => Err(Error::ToDo),
+            None => Err(Error::todo()),
         }
     }
 
@@ -436,7 +436,7 @@ impl<'a> Parser<'a> {
         }
 
         if value.is_empty() {
-            return Err(Error::ToDo);
+            return Err(Error::todo());
         }
 
         Ok(value)
@@ -460,7 +460,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Err(Error::ToDo)
+        Err(Error::todo())
     }
 
     fn parameter(&mut self) -> Result<Option<(&'a str, String)>, Error> {
@@ -566,7 +566,7 @@ impl<'a> UrlParser<'a> {
             let (host, port) = if chunk.starts_with('[') {
                 let idx = match chunk.find(']') {
                     Some(idx) => idx,
-                    None => return Err(Error::ToDo),
+                    None => return Err(Error::todo()),
                 };
 
                 let host = &chunk[1..idx];
@@ -576,7 +576,7 @@ impl<'a> UrlParser<'a> {
                 } else if remaining.is_empty() {
                     None
                 } else {
-                    return Err(Error::ToDo);
+                    return Err(Error::todo());
                 };
 
                 (host, port)
@@ -620,7 +620,7 @@ impl<'a> UrlParser<'a> {
         while !self.s.is_empty() {
             let key = match self.take_until(&['=']) {
                 Some(key) => self.decode(key)?,
-                None => return Err(Error::ToDo),
+                None => return Err(Error::todo()),
             };
             self.eat_byte();
 
@@ -651,6 +651,6 @@ impl<'a> UrlParser<'a> {
     fn decode(&self, s: &'a str) -> Result<Cow<'a, str>, Error> {
         percent_encoding::percent_decode(s.as_bytes())
             .decode_utf8()
-            .map_err(|_| Error::ToDo)
+            .map_err(|_| Error::todo())
     }
 }

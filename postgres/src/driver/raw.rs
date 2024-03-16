@@ -68,7 +68,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, 
                     let io = tls::connect(io, host, cfg).await?;
                     let (mut drv, tx) = GenericDriver::new(io);
                     prepare_session(&mut drv, cfg).await?;
-                    Ok((ClientTx(tx), Driver::tls(drv, cfg.clone())))
+                    Ok((ClientTx(tx), Driver::tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -77,7 +77,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, 
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
                 prepare_session(&mut drv, cfg).await?;
-                Ok((ClientTx(tx), Driver::tcp(drv, cfg.clone())))
+                Ok((ClientTx(tx), Driver::tcp(drv)))
             }
         }
         #[cfg(unix)]
@@ -90,7 +90,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, 
                     let io = tls::connect(io, host.as_ref(), cfg).await?;
                     let (mut drv, tx) = GenericDriver::new(io);
                     prepare_session(&mut drv, cfg).await?;
-                    Ok((ClientTx(tx), Driver::unix_tls(drv, cfg.clone())))
+                    Ok((ClientTx(tx), Driver::unix_tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -99,7 +99,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, 
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
                 prepare_session(&mut drv, cfg).await?;
-                Ok((ClientTx(tx), Driver::unix(drv, cfg.clone())))
+                Ok((ClientTx(tx), Driver::unix(drv)))
             }
         }
         _ => unreachable!(),
@@ -131,7 +131,7 @@ where
     match cfg.get_ssl_mode() {
         SslMode::Disable => Ok(false),
         mode => match (_should_connect_tls(io).await?, mode) {
-            (false, SslMode::Require) => Err(Error::ToDo),
+            (false, SslMode::Require) => Err(Error::todo()),
             (bool, _) => Ok(bool),
         },
     }

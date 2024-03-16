@@ -5,7 +5,12 @@ use postgres_protocol::message::backend::DataRowBody;
 use postgres_types::FromSql;
 use xitca_io::bytes::Bytes;
 
-use crate::{column::Column, error::Error, from_sql::FromSqlExt, Type};
+use crate::{
+    column::Column,
+    error::{Error, InvalidColumnIndex},
+    from_sql::FromSqlExt,
+    Type,
+};
 
 use super::traits::RowIndexAndType;
 
@@ -84,10 +89,10 @@ impl<'a, C> GenericRow<'a, C> {
     ) -> Result<(usize, &Type), Error> {
         let (idx, ty) = idx
             ._from_columns(self.columns())
-            .ok_or_else(|| Error::InvalidColumnIndex(format!("{idx}")))?;
+            .ok_or_else(|| InvalidColumnIndex(idx.to_string()))?;
 
         if !ty_check(ty) {
-            return Err(Error::ToDo);
+            return Err(Error::todo());
             // return Err(Error::from_sql(Box::new(WrongType::new::<T>(ty.clone())), idx));
         }
 

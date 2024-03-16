@@ -1,4 +1,8 @@
-use core::{convert::Infallible, fmt};
+use core::{
+    convert::Infallible,
+    fmt, mem,
+    ops::{Deref, DerefMut},
+};
 
 use std::{error, io};
 
@@ -9,35 +13,121 @@ use crate::driver::codec::Request;
 
 use super::from_sql::FromSqlError;
 
-#[non_exhaustive]
-#[derive(Debug)]
-pub enum Error {
-    Feature(FeatureError),
-    Authentication(AuthenticationError),
-    UnexpectedMessage,
-    Io(io::Error),
-    FromSql(FromSqlError),
-    InvalidColumnIndex(String),
-    DriverDown(BytesMut),
-    ToDo,
+/// public facing error type. providing basic format and display based error handling.
+/// for typed based error handling runtime type cast is needed with the help of other
+/// public error types offered by this module.
+///
+/// # Example
+/// ```rust
+/// use xitca_postgres::error::{DriverDown, Error};
+///
+/// fn is_driver_down(e: Error) -> bool {
+///     // downcast error to DriverDown error type to check if client driver is gone.
+///     e.downcast_ref::<DriverDown>().is_some()
+/// }
+/// ```
+pub struct Error(Box<dyn error::Error + Send + Sync>);
+
+impl Error {
+    pub(crate) fn todo() -> Self {
+        Self("WIP error type placeholder".to_string().into())
+    }
+
+    pub(crate) fn unexpected() -> Self {
+        Self(Box::new(UnexpectedMessage))
+    }
+
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn if_driver_down(&mut self) -> Option<DriverDown> {
+        self.0.downcast_mut().map(mem::take)
+    }
+}
+
+impl Deref for Error {
+    type Target = dyn error::Error + Send + Sync;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl DerefMut for Error {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut *self.0
+    }
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Feature(ref e) => fmt::Display::fmt(e, f),
-            Self::Authentication(ref e) => fmt::Display::fmt(e, f),
-            Self::UnexpectedMessage => f.write_str("unexpected message from server"),
-            Self::Io(ref e) => fmt::Display::fmt(e, f),
-            Self::FromSql(ref e) => fmt::Display::fmt(e, f),
-            Self::InvalidColumnIndex(ref name) => write!(f, "invalid column {name}"),
-            Self::DriverDown(_) => f.write_str("Driver is down. check Driver's async task output for reason"),
-            Self::ToDo => f.write_str("error informant is yet implemented"),
-        }
+        fmt::Display::fmt(&self.0, f)
     }
 }
 
-impl error::Error for Error {}
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
+/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore.
+///
+/// the field inside error contains the raw bytes buffer of query message that are ready to be
+/// sent to the [Driver] for transporting. It's possible to construct a new [Client] and [Driver]
+/// pair where the bytes buffer could be reused for graceful retry of previous failed queries.
+///
+/// [Client]: crate::client::Client
+/// [Driver]: crate::driver::Driver
+#[derive(Default)]
+pub struct DriverDown(pub BytesMut);
+
+impl fmt::Debug for DriverDown {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DriverDown").finish()
+    }
+}
+
+impl fmt::Display for DriverDown {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Driver is dropped and unaccessible.")
+    }
+}
+
+impl error::Error for DriverDown {}
+
+impl From<DriverDown> for Error {
+    fn from(e: DriverDown) -> Self {
+        Self(Box::new(e))
+    }
+}
+
+pub struct InvalidColumnIndex(pub String);
+
+impl fmt::Debug for InvalidColumnIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InvalidColumnIndex").finish()
+    }
+}
+
+impl fmt::Display for InvalidColumnIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid column index: {}", self.0)
+    }
+}
+
+impl error::Error for InvalidColumnIndex {}
+
+impl From<InvalidColumnIndex> for Error {
+    fn from(e: InvalidColumnIndex) -> Self {
+        Self(Box::new(e))
+    }
+}
 
 impl From<Infallible> for Error {
     fn from(e: Infallible) -> Self {
@@ -47,28 +137,29 @@ impl From<Infallible> for Error {
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Self::Io(e)
+        Self(Box::new(e))
     }
 }
 
 impl From<FromSqlError> for Error {
     fn from(e: FromSqlError) -> Self {
-        Self::FromSql(e)
+        Self(e)
     }
 }
 
 impl From<SendError<BytesMut>> for Error {
     fn from(e: SendError<BytesMut>) -> Self {
-        Self::DriverDown(e.0)
+        Self(Box::new(DriverDown(e.0)))
     }
 }
 
 impl From<SendError<Request>> for Error {
     fn from(e: SendError<Request>) -> Self {
-        Self::DriverDown(e.0.msg)
+        Self(Box::new(DriverDown(e.0.msg)))
     }
 }
 
+/// error happens when library user failed to provide valid authentication info to database server.
 #[derive(Debug)]
 pub enum AuthenticationError {
     MissingUserName,
@@ -88,9 +179,11 @@ impl fmt::Display for AuthenticationError {
     }
 }
 
+impl error::Error for AuthenticationError {}
+
 impl From<AuthenticationError> for Error {
     fn from(e: AuthenticationError) -> Self {
-        Self::Authentication(e)
+        Self(Box::new(e))
     }
 }
 
@@ -111,11 +204,24 @@ impl fmt::Display for FeatureError {
     }
 }
 
+impl error::Error for FeatureError {}
+
 impl From<FeatureError> for Error {
     fn from(e: FeatureError) -> Self {
-        Self::Feature(e)
+        Self(Box::new(e))
     }
 }
+
+#[derive(Debug)]
+pub struct UnexpectedMessage;
+
+impl fmt::Display for UnexpectedMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("unexpected message from database")
+    }
+}
+
+impl error::Error for UnexpectedMessage {}
 
 #[cold]
 #[inline(never)]

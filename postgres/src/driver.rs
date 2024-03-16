@@ -55,7 +55,7 @@ pub(super) async fn connect(cfg: &mut Config) -> Result<(Client, Driver), Error>
 }
 
 /// async driver of [Client](crate::Client).
-/// it handles IO and emit server sent message that do not belong to any query with [AsyncIterator]
+/// it handles IO and emit server sent message that do not belong to any query with [AsyncLendingIterator]
 /// trait impl.
 ///
 /// # Examples:
@@ -80,8 +80,6 @@ pub(super) async fn connect(cfg: &mut Config) -> Result<(Client, Driver), Error>
 /// ```
 pub struct Driver {
     inner: _Driver,
-    #[allow(dead_code)]
-    config: Config,
 }
 
 impl Driver {
@@ -111,44 +109,39 @@ impl Driver {
 
 #[cfg(not(feature = "quic"))]
 impl Driver {
-    pub(super) fn tcp(drv: GenericDriver<TcpStream>, config: Config) -> Self {
+    pub(super) fn tcp(drv: GenericDriver<TcpStream>) -> Self {
         Self {
             inner: _Driver::Tcp(drv),
-            config,
         }
     }
 
     #[cfg(feature = "tls")]
-    pub(super) fn tls(drv: GenericDriver<TlsStream<ClientConnection, TcpStream>>, config: Config) -> Self {
+    pub(super) fn tls(drv: GenericDriver<TlsStream<ClientConnection, TcpStream>>) -> Self {
         Self {
             inner: _Driver::Tls(drv),
-            config,
         }
     }
 
     #[cfg(unix)]
-    pub(super) fn unix(drv: GenericDriver<UnixStream>, config: Config) -> Self {
+    pub(super) fn unix(drv: GenericDriver<UnixStream>) -> Self {
         Self {
             inner: _Driver::Unix(drv),
-            config,
         }
     }
 
     #[cfg(all(unix, feature = "tls"))]
-    pub(super) fn unix_tls(drv: GenericDriver<TlsStream<ClientConnection, UnixStream>>, config: Config) -> Self {
+    pub(super) fn unix_tls(drv: GenericDriver<TlsStream<ClientConnection, UnixStream>>) -> Self {
         Self {
             inner: _Driver::UnixTls(drv),
-            config,
         }
     }
 }
 
 #[cfg(feature = "quic")]
 impl Driver {
-    pub(super) fn quic(drv: QuicDriver, config: Config) -> Self {
+    pub(super) fn quic(drv: QuicDriver) -> Self {
         Self {
             inner: _Driver::Quic(drv),
-            config,
         }
     }
 }

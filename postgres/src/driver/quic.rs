@@ -90,7 +90,7 @@ pub(super) async fn _connect(host: Host, cfg: &Config) -> Result<(ClientTx, Driv
             let mut drv = QuicDriver::new(streams);
             prepare_session(&mut drv, cfg).await?;
             drv.close_tx().await;
-            Ok((tx, Driver::quic(drv, cfg.clone())))
+            Ok((tx, Driver::quic(drv)))
         }
         _ => unreachable!(),
     }
@@ -150,9 +150,9 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
         match endpoint.connect(addr, host) {
             Ok(conn) => match conn.await {
                 Ok(inner) => return Ok(ClientTx::new(inner)),
-                Err(_) => err = Some(Error::ToDo),
+                Err(_) => err = Some(Error::todo()),
             },
-            Err(_) => err = Some(Error::ToDo),
+            Err(_) => err = Some(Error::todo()),
         }
     }
 
@@ -186,7 +186,7 @@ impl QuicDriver {
             .read_chunk(4096, true)
             .await
             .map(|c| c.map(|c| c.bytes))
-            .map_err(|_| Error::ToDo)
+            .map_err(|_| Error::todo())
             .transpose()
     }
 
@@ -201,7 +201,7 @@ impl QuicDriver {
                 Ok(None)
                 | Err(ReadError::ConnectionLost(ConnectionError::ApplicationClosed(_)))
                 | Err(ReadError::ConnectionLost(ConnectionError::LocallyClosed)) => return Ok(None),
-                Err(_) => return Err(Error::ToDo),
+                Err(_) => return Err(Error::todo()),
             }
         }
     }

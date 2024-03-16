@@ -46,23 +46,23 @@ impl Client {
 
         match res.recv().await? {
             backend::Message::ParseComplete => {}
-            _ => return Err(Error::UnexpectedMessage),
+            _ => return Err(Error::unexpected()),
         }
 
         let parameter_description = match res.recv().await? {
             backend::Message::ParameterDescription(body) => body,
-            _ => return Err(Error::UnexpectedMessage),
+            _ => return Err(Error::unexpected()),
         };
 
         let row_description = match res.recv().await? {
             backend::Message::RowDescription(body) => Some(body),
             backend::Message::NoData => None,
-            _ => return Err(Error::UnexpectedMessage),
+            _ => return Err(Error::unexpected()),
         };
 
         let mut parameters = Vec::new();
         let mut it = parameter_description.parameters();
-        while let Some(oid) = it.next().map_err(|_| Error::ToDo)? {
+        while let Some(oid) = it.next().map_err(|_| Error::todo())? {
             let ty = self.get_type(oid).await?;
             parameters.push(ty);
         }
@@ -70,7 +70,7 @@ impl Client {
         let mut columns = Vec::new();
         if let Some(row_description) = row_description {
             let mut it = row_description.fields();
-            while let Some(field) = it.next().map_err(|_| Error::ToDo)? {
+            while let Some(field) = it.next().map_err(|_| Error::todo())? {
                 let type_ = self.get_type(field.type_oid()).await?;
                 let column = Column::new(field.name(), type_);
                 columns.push(column);
@@ -91,7 +91,7 @@ impl Client {
             let stmt = self.typeinfo_statement().await?;
 
             let mut rows = self.query_raw(&stmt, &[&oid]).await?;
-            let row = rows.try_next().await?.ok_or(Error::UnexpectedMessage)?;
+            let row = rows.try_next().await?.ok_or_else(Error::unexpected)?;
 
             let name = row.try_get::<String>(0)?;
             let type_ = row.try_get::<i8>(1)?;
