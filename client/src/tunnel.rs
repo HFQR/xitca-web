@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use futures_core::stream::Stream;
 use futures_sink::Sink;
 
-use crate::{
+use super::{
     http::{Method, Version},
     request::RequestBuilder,
 };

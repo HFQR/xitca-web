@@ -11,7 +11,7 @@ use futures_sink::Sink;
 use super::{
     body::ResponseBody,
     bytes::{Buf, Bytes, BytesMut},
-    error::Error,
+    error::{Error, ErrorResponse},
     http::StatusCode,
     tunnel::{Tunnel, TunnelRequest},
 };
@@ -30,7 +30,11 @@ impl<'a> HttpTunnelRequest<'a> {
         let status = res.status();
         let expect_status = StatusCode::OK;
         if status != expect_status {
-            return Err(Error::Std(format!("expecting {expect_status}, got {status}").into()));
+            return Err(Error::from(ErrorResponse {
+                expect_status,
+                status,
+                description: "connect tunnel can't be established",
+            }));
         }
 
         let body = res.res.into_body();

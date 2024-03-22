@@ -2,7 +2,7 @@
 
 use std::{convert::Infallible, error, fmt, io, str};
 
-use xitca_http::http::uri;
+use super::http::{uri, StatusCode};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -194,5 +194,33 @@ impl From<crate::h2::Error> for Error {
 impl From<crate::h3::Error> for Error {
     fn from(e: crate::h3::Error) -> Self {
         Self::H3(e)
+    }
+}
+
+/// error type for unexpected http response.
+/// high level crate types like http tunnel and websocket needs specific http response to function
+/// properly and an unexpected http response will be converted into this error type.
+#[derive(Debug)]
+pub struct ErrorResponse {
+    pub expect_status: StatusCode,
+    pub status: StatusCode,
+    pub description: &'static str,
+}
+
+impl fmt::Display for ErrorResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "expecting response with status code {}, got {} instead. {}",
+            self.expect_status, self.status, self.description
+        )
+    }
+}
+
+impl error::Error for ErrorResponse {}
+
+impl From<ErrorResponse> for Error {
+    fn from(e: ErrorResponse) -> Self {
+        Self::Std(Box::new(e))
     }
 }

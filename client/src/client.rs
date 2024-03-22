@@ -106,6 +106,45 @@ impl Client {
     method!(options, OPTIONS);
     method!(head, HEAD);
 
+    /// Start a new connect request for http tunnel.
+    ///
+    /// # Example
+    /// ```rust
+    /// use xitca_client::{Client, bytes::Bytes};
+    ///
+    /// # async fn _main() -> Result<(), xitca_client::error::Error> {
+    /// // construct a new client and initialize connect request.
+    /// let client = Client::new();
+    /// let mut http_tunnel = client.connect("http://localhost:8080")?.send().await?;
+    ///
+    /// // http_tunnel is tunnel connection type exposing Stream and Sink trait
+    /// // interfaces for 2 way bytes data communicating.
+    ///
+    /// // import Stream trait and call it's method on tunnel to receive bytes.
+    /// use futures::StreamExt;
+    /// if let Some(Ok(_)) = http_tunnel.next().await {
+    ///     // received bytes data.
+    /// }
+    ///
+    /// // import Sink trait and call it's method on tunnel to send bytes data.
+    /// use futures::SinkExt;
+    /// // send bytes data.
+    /// http_tunnel.send(b"996").await?;
+    ///
+    /// // tunnel support split sending/receiving task into different parts to enable concurrent bytes data handling.
+    /// let (mut write, mut read) = http_tunnel.split();
+    ///
+    /// // read part can operate with Stream trait implement.
+    /// if let Some(Ok(_)) = read.next().await {
+    ///     // received bytes data.
+    /// }
+    ///
+    /// // write part can operate with Sink trait implement.
+    /// write.send(b"996").await?;
+    ///
+    /// Ok(())
+    /// # }
+    /// ```
     pub fn connect<U>(&self, url: U) -> Result<HttpTunnelRequest<'_>, Error>
     where
         uri::Uri: TryFrom<U>,
@@ -128,7 +167,7 @@ impl Client {
     /// let mut ws = client.ws("ws://localhost:8080")?.send().await?;
     ///
     /// // ws is websocket connection type exposing Stream and Sink trait
-    /// // interfaces for 2 way websocket message processing.
+    /// // interfaces for 2 way websocket message communicating.
     ///
     /// // import Stream trait and call it's method on ws to receive message.
     /// use futures::StreamExt;

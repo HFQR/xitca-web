@@ -11,6 +11,8 @@ use futures_core::stream::Stream;
 use futures_sink::Sink;
 use http_ws::{Codec, RequestStream, WsError};
 
+use crate::error::ErrorResponse;
+
 use super::{
     body::ResponseBody,
     bytes::{Buf, BytesMut},
@@ -24,10 +26,11 @@ mod marker {
 }
 
 /// new type of [RequestBuilder] with extended functionality for websocket handling.
+///
+/// [RequestBuilder]: crate::RequestBuilder
 pub type WsRequest<'a> = TunnelRequest<'a, marker::WebSocket>;
 
-/// A unified websocket that can be used as both sender/receiver. It's is a variant of [Tunnel]
-/// where it's inner stream and sink is able to produce and consume [Message] type.
+/// A unified websocket that can be used as both sender/receiver.
 ///
 /// * This type can not handle concurrent message which means send always block receive and vice
 /// versa.
@@ -54,7 +57,11 @@ impl<'a> WsRequest<'a> {
         };
 
         if let Some(expect_status) = expect_status {
-            return Err(Error::Std(format!("expecting {expect_status}, got {status}").into()));
+            return Err(Error::from(ErrorResponse {
+                expect_status,
+                status,
+                description: "websocket connection can't be established",
+            }));
         }
 
         let body = res.res.into_body();
