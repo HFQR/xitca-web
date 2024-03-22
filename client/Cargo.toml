@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["http1"]
-http1 = ["httparse", "xitca-http/http1"]
+http1 = ["httparse", "tokio-util", "xitca-http/http1"]
 http2 = ["h2", "itoa", "xitca-http/http2"]
 http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25"]
 openssl = ["openssl-crate", "tokio-openssl"]
@@ -31,6 +31,7 @@ tracing = { version = "0.1.40", default-features = false }
 
 # http/1 support
 httparse = { version = "1.8.0", optional = true }
+tokio-util = { version = "0.7", features = ["io"], optional = true }
 
 # http/2 support
 h2 = { version = "0.4", optional = true }

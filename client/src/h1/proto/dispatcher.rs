@@ -3,7 +3,7 @@ use core::{future::poll_fn, pin::Pin};
 use std::io;
 
 use futures_core::stream::Stream;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite};
 use xitca_http::{body::BodySize, bytes::Buf, h1::proto::codec::TransferCoding};
 
 use crate::{
@@ -23,7 +23,7 @@ pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
     req: &mut Request<B>,
-) -> Result<(Response<()>, BytesMut, Vec<u8>, TransferCoding, bool), Error>
+) -> Result<(Response<()>, BytesMut, TransferCoding, bool), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     B: Stream<Item = Result<Bytes, E>> + Unpin,
@@ -83,14 +83,11 @@ where
 
     write_all_buf(stream.as_mut(), &mut buf).await?;
 
-    let mut chunk = vec![0; 4096];
-
     if is_expect {
         poll_fn(|cx| stream.as_mut().poll_flush(cx)).await?;
 
         loop {
-            if let Some((res, mut decoder)) = try_read_response(stream.as_mut(), &mut buf, &mut chunk, &mut ctx).await?
-            {
+            if let Some((res, mut decoder)) = try_read_response(stream.as_mut(), &mut buf, &mut ctx).await? {
                 if res.status() == StatusCode::CONTINUE {
                     break;
                 }
@@ -101,7 +98,7 @@ where
                     decoder = TransferCoding::eof();
                 }
 
-                return Ok((res, buf, chunk, decoder, is_close));
+                return Ok((res, buf, decoder, is_close));
             }
         }
     }
@@ -124,7 +121,7 @@ where
 
     // read response head and get body decoder.
     loop {
-        if let Some((res, mut decoder)) = try_read_response(stream.as_mut(), &mut buf, &mut chunk, &mut ctx).await? {
+        if let Some((res, mut decoder)) = try_read_response(stream.as_mut(), &mut buf, &mut ctx).await? {
             // check if server sent connection close header.
 
             // *. If send_body function produces error, Context has already set
@@ -138,7 +135,7 @@ where
                 decoder = TransferCoding::eof();
             }
 
-            return Ok((res, buf, chunk, decoder, is_close));
+            return Ok((res, buf, decoder, is_close));
         }
     }
 }
@@ -180,10 +177,10 @@ where
 {
     while buf.has_remaining() {
         let n = poll_fn(|cx| stream.as_mut().poll_write(cx, buf.chunk())).await?;
-        buf.advance(n);
         if n == 0 {
             return Err(io::Error::from(io::ErrorKind::WriteZero));
         }
+        buf.advance(n);
     }
     Ok(())
 }
@@ -191,21 +188,14 @@ where
 async fn try_read_response<S>(
     mut stream: Pin<&mut S>,
     buf: &mut BytesMut,
-    chunk: &mut [u8],
     ctx: &mut Context<'_, '_, 128>,
 ) -> Result<Option<(Response<()>, TransferCoding)>, Error>
 where
     S: AsyncRead,
 {
-    let mut b = ReadBuf::new(chunk);
-    poll_fn(|cx| stream.as_mut().poll_read(cx, &mut b)).await?;
-    let filled = b.filled();
-
-    if filled.is_empty() {
+    let n = poll_fn(|cx| tokio_util::io::poll_read_buf(stream.as_mut(), cx, buf)).await?;
+    if n == 0 {
         return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
     }
-
-    buf.extend_from_slice(filled);
-
     ctx.decode_head(buf).map_err(Into::into)
 }
