@@ -55,9 +55,10 @@ mod h2;
 mod h3;
 
 #[cfg(feature = "websocket")]
-pub mod ws;
+pub mod websocket;
 
 pub mod error;
+pub mod http_tunnel;
 pub mod middleware;
 
 pub use self::builder::ClientBuilder;
