@@ -55,7 +55,7 @@ mod h2;
 mod h3;
 
 #[cfg(feature = "websocket")]
-pub mod websocket;
+pub mod ws;
 
 pub mod error;
 pub mod http_tunnel;
