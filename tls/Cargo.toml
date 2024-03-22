@@ -17,6 +17,3 @@ rustls-uring = ["rustls", "xitca-io/runtime-uring"]
 xitca-io = { version = "0.2", features = ["runtime"] }
 
 rustls = { version = "0.23", optional = true }
-
-[dev-dependencies]
-rustls-pki-types = "1"
