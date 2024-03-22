@@ -58,6 +58,7 @@ mod h3;
 pub mod ws;
 
 pub mod error;
+pub mod http_tunnel;
 pub mod middleware;
 
 pub use self::builder::ClientBuilder;

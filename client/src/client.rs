@@ -15,6 +15,7 @@ use crate::{
     date::DateTimeService,
     error::{Error, TimeoutError},
     http::{self, uri, Method, Version},
+    http_tunnel::HttpTunnelRequest,
     pool::Pool,
     request::RequestBuilder,
     resolver::ResolverService,
@@ -105,13 +106,13 @@ impl Client {
     method!(options, OPTIONS);
     method!(head, HEAD);
 
-    pub fn connect<U>(&self, url: U) -> Result<crate::tunnel::TunnelRequest<'_>, Error>
+    pub fn connect<U>(&self, url: U) -> Result<HttpTunnelRequest<'_>, Error>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
         self.get(url)
-            .map(|req| crate::tunnel::TunnelRequest::new(req.method(Method::CONNECT)))
+            .map(|req| HttpTunnelRequest::new(req.method(Method::CONNECT)))
     }
 
     #[cfg(feature = "websocket")]
