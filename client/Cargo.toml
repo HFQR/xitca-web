@@ -50,9 +50,8 @@ openssl-crate = { package = "openssl", version = "0.10", optional = true }
 tokio-openssl = { version = "0.6.3", optional = true }
 
 # rustls, http3 and dangerous features shared support
-tokio-rustls = { version = "0.25", optional = true }
+tokio-rustls = { version = "0.26", optional = true }
 webpki-roots = { version = "0.26", optional = true }
-rustls-pki-types = "1"
 
 # http3 temporary exclusive
 rustls_0dot21 = { package = "rustls", version = "0.21", optional = true }

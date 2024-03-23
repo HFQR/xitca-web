@@ -94,9 +94,8 @@ pub(crate) mod openssl {
 pub(crate) mod rustls {
     use std::sync::Arc;
 
-    use rustls_pki_types::ServerName;
     use tokio_rustls::{
-        rustls::{ClientConfig, RootCertStore},
+        rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
         TlsConnector,
     };
     use webpki_roots::TLS_SERVER_ROOTS;
