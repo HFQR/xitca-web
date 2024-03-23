@@ -30,14 +30,23 @@ pub(crate) struct GenericDriver<Io> {
     pub(crate) io: Io,
     pub(crate) write_buf: WriteBuf,
     pub(crate) read_buf: PagedBytesMut,
-    pub(crate) rx: GenericDriverRx,
+    pub(crate) state: DriverState,
     pub(crate) res: VecDeque<ResponseSender>,
-    state: DriverState,
 }
 
-enum DriverState {
-    Running,
+pub(crate) enum DriverState {
+    Running(GenericDriverRx),
     Closing(Option<io::Error>),
+}
+
+impl DriverState {
+    #[cfg(feature = "io-uring")]
+    pub(crate) fn take_rx(self) -> GenericDriverRx {
+        match self {
+            Self::Running(rx) => rx,
+            _ => panic!("driver is closing. no rx can be handed out"),
+        }
+    }
 }
 
 impl<Io> GenericDriver<Io>
@@ -51,9 +60,8 @@ where
                 io,
                 write_buf: WriteBuf::new(),
                 read_buf: PagedBytesMut::new(),
-                rx,
                 res: VecDeque::new(),
-                state: DriverState::Running,
+                state: DriverState::Running(rx),
             },
             tx,
         )
@@ -72,9 +80,9 @@ where
             };
 
             let select = match self.state {
-                DriverState::Running => {
+                DriverState::Running(ref mut rx) => {
                     let ready = self.io.ready(interest);
-                    self.rx.recv().select(ready).await
+                    rx.recv().select(ready).await
                 }
                 DriverState::Closing(ref mut e) => {
                     if !interest.is_writable() && self.res.is_empty() {

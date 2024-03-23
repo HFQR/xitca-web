@@ -221,7 +221,7 @@ impl Driver {
                 let tcp = xitca_io::net::io_uring::TcpStream::from_std(std);
                 io_uring::IoUringDriver::new(
                     tcp,
-                    drv.rx,
+                    drv.state.take_rx(),
                     drv.write_buf.into_inner(),
                     drv.read_buf.into_inner(),
                     drv.res,
