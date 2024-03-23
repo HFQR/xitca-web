@@ -4,12 +4,12 @@ mod response;
 
 pub use self::response::Response;
 
-use core::{future::Future, pin::Pin};
-
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use core::{
+    future::Future,
+    sync::atomic::{AtomicUsize, Ordering},
 };
+
+use std::sync::Arc;
 
 use postgres_protocol::message::backend;
 use quinn::{ClientConfig, Connection, Endpoint, ReadError, RecvStream, SendStream};
@@ -222,14 +222,14 @@ impl AsyncLendingIterator for QuicDriver {
 }
 
 impl Drive for QuicDriver {
-    fn send(&mut self, msg: BytesMut) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
+    fn send(&mut self, msg: BytesMut) -> impl Future<Output = Result<(), Error>> + Send {
         Box::pin(async move {
             self.tx.write_all(&msg).await.unwrap();
             Ok(())
         })
     }
 
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<backend::Message, Error>> + Send + '_>> {
+    fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send {
         Box::pin(async move { self.try_next().await?.ok_or_else(|| Error::from(unexpected_eof_err())) })
     }
 }
