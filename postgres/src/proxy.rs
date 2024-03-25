@@ -168,9 +168,14 @@ async fn handler(mut stream_tx: SendStream, tx: GenericDriverTx, mut rx: RecvStr
         bytes.extend_from_slice(&c.bytes);
     }
 
+    // quic driver would send 8 bytes in u64 big endian as prefix for presenting sync message associated
+    // with the following bytes buffer.
+    let sync_count = bytes.split_to(8).as_ref().try_into().unwrap();
+    let sync_count = u64::from_be_bytes(sync_count);
+
     let (recv_tx, mut recv_rx) = unbounded_channel();
 
-    let msg = Request::single(recv_tx, bytes);
+    let msg = Request::new(recv_tx, sync_count as usize, bytes);
 
     tx.send(msg)?;
 

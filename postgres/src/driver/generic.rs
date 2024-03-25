@@ -39,8 +39,8 @@ pub(crate) enum DriverState {
     Closing(Option<io::Error>),
 }
 
+#[cfg(feature = "io-uring")]
 impl DriverState {
-    #[cfg(feature = "io-uring")]
     pub(crate) fn take_rx(self) -> GenericDriverRx {
         match self {
             Self::Running(rx) => rx,

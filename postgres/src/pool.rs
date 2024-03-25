@@ -255,7 +255,6 @@ impl SharedClient {
     }
 }
 
-#[cfg(not(feature = "quic"))]
 const _: () = {
     use std::collections::VecDeque;
 

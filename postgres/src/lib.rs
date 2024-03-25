@@ -15,11 +15,10 @@ mod session;
 mod util;
 
 pub mod error;
+pub mod pipeline;
 pub mod row;
 pub mod statement;
 
-#[cfg(not(feature = "quic"))]
-pub mod pipeline;
 #[cfg(not(feature = "quic"))]
 mod transaction;
 
