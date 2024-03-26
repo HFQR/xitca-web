@@ -46,6 +46,68 @@ pub trait AsyncIo: io::Read + io::Write + Unpin {
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
 }
 
+/// object safe version of [AsyncIo] trait.
+pub trait AsyncIoDyn: io::Read + io::Write + Unpin {
+    fn ready(&self, interest: Interest) -> Pin<Box<dyn Future<Output = io::Result<Ready>> + Send + '_>>;
+
+    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>>;
+
+    fn is_vectored_write(&self) -> bool;
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+}
+
+impl<Io> AsyncIoDyn for Io
+where
+    Io: AsyncIo,
+{
+    #[inline]
+    fn ready(&self, interest: Interest) -> Pin<Box<dyn Future<Output = io::Result<Ready>> + Send + '_>> {
+        Box::pin(AsyncIo::ready(self, interest))
+    }
+
+    #[inline]
+    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        AsyncIo::poll_ready(self, interest, cx)
+    }
+
+    fn is_vectored_write(&self) -> bool {
+        AsyncIo::is_vectored_write(self)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        AsyncIo::poll_shutdown(self, cx)
+    }
+}
+
+impl<IoDyn> AsyncIo for Box<IoDyn>
+where
+    IoDyn: AsyncIoDyn + Sync + ?Sized,
+{
+    #[inline]
+    async fn ready(&self, interest: Interest) -> io::Result<Ready> {
+        AsyncIoDyn::ready(&**self, interest).await
+    }
+
+    #[inline]
+    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        AsyncIoDyn::poll_ready(&**self, interest, cx)
+    }
+
+    fn is_vectored_write(&self) -> bool {
+        AsyncIoDyn::is_vectored_write(&**self)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        AsyncIoDyn::poll_shutdown(Pin::new(&mut *self.get_mut()), cx)
+    }
+}
+
+fn _assert_object_safe(mut io: Box<dyn AsyncIoDyn>) {
+    let _ = io.read(&mut []);
+    let _ = io.write(&[]);
+}
+
 /// adapter type for transforming a type impl [AsyncIo] trait to a type impl [AsyncRead] and [AsyncWrite] traits.
 /// # Example
 /// ```rust

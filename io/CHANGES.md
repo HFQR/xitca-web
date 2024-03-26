@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.2.1
+## Add
+- `io::AsyncIoDyn` for object safe version of `io::AsyncIo`.
 
 # 0.2.0
 ## Add
