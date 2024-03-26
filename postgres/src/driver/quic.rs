@@ -66,7 +66,15 @@ impl ClientTx {
     }
 
     pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
+        self.send_multi(1, msg).await
+    }
+
+    pub(crate) async fn send_multi(&self, sync_count: usize, msg: BytesMut) -> Result<Response, Error> {
         let (mut tx, rx) = self.inner.open_bi().await.unwrap();
+        // quic driver would send 8 bytes in u64 big endian as prefix for presenting sync message associated
+        // with the following bytes buffer.
+        let sync_count = (sync_count as u64).to_be_bytes();
+        tx.write_all(&sync_count).await.unwrap();
         tx.write_all(&msg).await.unwrap();
         tx.finish().await.unwrap();
         Ok(Response::new(rx))

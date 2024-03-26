@@ -41,14 +41,9 @@ pub struct Request {
 }
 
 impl Request {
-    // a request with a single response message from database.
-    pub(crate) fn single(tx: UnboundedSender<BytesMut>, msg: BytesMut) -> Self {
-        Self::multi(tx, 1, msg)
-    }
-
     // a request with multiple response messages from database with msg_count as the count of total
     // number of messages.
-    pub(crate) fn multi(tx: UnboundedSender<BytesMut>, msg_count: usize, msg: BytesMut) -> Self {
+    pub(crate) fn new(tx: UnboundedSender<BytesMut>, msg_count: usize, msg: BytesMut) -> Self {
         Self {
             tx: ResponseSender::new(tx, msg_count),
             msg,

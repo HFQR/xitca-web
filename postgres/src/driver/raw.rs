@@ -44,13 +44,13 @@ impl ClientTx {
 
     pub(crate) async fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
         let (tx, rx) = unbounded_channel();
-        self.0.send(Request::multi(tx, msg_count, msg))?;
+        self.0.send(Request::new(tx, msg_count, msg))?;
         Ok(Response::new(rx))
     }
 
     pub(crate) fn do_send(&self, msg: BytesMut) {
         let (tx, _) = unbounded_channel();
-        let _ = self.0.send(Request::single(tx, msg));
+        let _ = self.0.send(Request::new(tx, 1, msg));
     }
 }
 
