@@ -52,6 +52,10 @@ where
     S: SideData,
     Io: AsyncIo,
 {
+    /// acquire a reference to the session type. Typically either [ClientConnection] or [ServerConnection]
+    ///
+    /// [ClientConnection]: rustls::ClientConnection
+    /// [ServerConnection]: rustls::ServerConnection
     pub fn session(&self) -> &C {
         &self.conn
     }

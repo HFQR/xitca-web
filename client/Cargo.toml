@@ -5,11 +5,11 @@ edition = "2021"
 
 [features]
 default = ["http1"]
-http1 = ["httparse", "tokio-util", "xitca-http/http1"]
+http1 = ["httparse", "xitca-http/http1"]
 http2 = ["h2", "itoa", "xitca-http/http2"]
 http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25"]
-openssl = ["openssl-crate", "tokio-openssl"]
-rustls = ["tokio-rustls", "webpki-roots"]
+openssl = ["xitca-tls/openssl"]
+rustls = ["xitca-tls/rustls", "webpki-roots"]
 compress = ["http-encoding"]
 json = ["serde", "serde_json"]
 websocket = ["http-ws"]
@@ -21,6 +21,7 @@ dangerous = ["rustls_0dot21/dangerous_configuration"]
 
 [dependencies]
 xitca-http = { version = "0.4", default-features = false, features = ["runtime"] }
+xitca-io = { version = "0.2.1" }
 xitca-unsafe-collection = "0.1.1"
 
 futures-core = { version = "0.3.17", default-features = false }
@@ -31,7 +32,6 @@ tracing = { version = "0.1.40", default-features = false }
 
 # http/1 support
 httparse = { version = "1.8.0", optional = true }
-tokio-util = { version = "0.7", features = ["io"], optional = true }
 
 # http/2 support
 h2 = { version = "0.4", optional = true }
@@ -45,12 +45,10 @@ async-stream = { version = "0.3", optional = true }
 # http/2 and http/3 shared
 itoa = { version = "1", optional = true }
 
-# openssl support
-openssl-crate = { package = "openssl", version = "0.10", optional = true }
-tokio-openssl = { version = "0.6.3", optional = true }
+# tls support shared
+xitca-tls = { version = "0.2", optional = true }
 
 # rustls, http3 and dangerous features shared support
-tokio-rustls = { version = "0.26", optional = true }
 webpki-roots = { version = "0.26", optional = true }
 
 # http3 temporary exclusive

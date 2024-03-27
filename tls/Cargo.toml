@@ -1,6 +1,6 @@
 [package]
 name = "xitca-tls"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "tls utility for xitca"
@@ -10,10 +10,12 @@ authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
 
 [features]
+openssl = ["dep:openssl"]
 rustls = ["dep:rustls"]
 rustls-uring = ["rustls", "xitca-io/runtime-uring"]
 
 [dependencies]
-xitca-io = { version = "0.2", features = ["runtime"] }
+xitca-io = { version = "0.2.1", features = ["runtime"] }
 
 rustls = { version = "0.23", optional = true }
+openssl = { version = "0.10", optional = true }

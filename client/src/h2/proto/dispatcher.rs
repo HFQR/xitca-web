@@ -2,7 +2,6 @@ use core::{cmp, future::poll_fn, pin::pin};
 
 use ::h2::{client, Reason};
 use futures_core::stream::Stream;
-use tokio::io::{AsyncRead, AsyncWrite};
 use xitca_http::{
     date::DateTime,
     http::{
@@ -13,6 +12,7 @@ use xitca_http::{
         version::Version,
     },
 };
+use xitca_io::io::{AsyncIo, PollIoAdapter};
 
 use crate::{
     body::{BodyError, BodySize, ResponseBody},
@@ -125,9 +125,12 @@ where
 
 pub(crate) async fn handshake<S>(stream: S) -> Result<Connection, Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: AsyncIo + Send + 'static,
 {
-    let (conn, task) = client::Builder::new().enable_push(false).handshake(stream).await?;
+    let (conn, task) = client::Builder::new()
+        .enable_push(false)
+        .handshake(PollIoAdapter(stream))
+        .await?;
 
     tokio::spawn(async {
         task.await.expect("http2 connection failed");

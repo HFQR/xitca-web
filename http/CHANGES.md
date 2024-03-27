@@ -1,4 +1,9 @@
-# unreleased 0.4.0
+# unreleased 0.4.1
+## Change
+- update `xitca-io` to `0.2.1`.
+- update `xitca-tls` to `0.2.1`.
+
+# 0.4.0
 ## Add
 - `util::service::router::PathGen` and `util::service::router::RouteObject` for advanced routing behavior. enabling more complex routing like multiple layer of router nesting. Example:
     ```rust

@@ -15,7 +15,7 @@ use crate::{
     timeout::TimeoutConfig,
     tls::{
         connector::{self, Connector},
-        stream::Io,
+        stream::TlsStream,
     },
 };
 
@@ -189,24 +189,24 @@ impl ClientBuilder {
     ///
     /// # Examples
     /// ```rust
-    /// use xitca_client::{error::Error, http::Version, ClientBuilder, Io, Service};
+    /// use xitca_client::{error::Error, http::Version, ClientBuilder, TlsStream, Service};
     ///
     /// // custom connector type
     /// struct MyConnector;
     ///     
     /// // impl trait for connector.
-    /// impl<'n> Service<(&'n str, Box<dyn Io>)> for MyConnector {
+    /// impl<'n> Service<(&'n str, TlsStream)> for MyConnector {
     ///     // expected output types.
-    ///     type Response = (Box<dyn Io>, Version);
+    ///     type Response = (TlsStream, Version);
     ///     // potential error type.
     ///     type Error = Error;
     ///
     ///     // name is string representation of server name.
     ///     // box io is type erased generic io type. it can be TcpStream, UnixStream, etc.
-    ///     async fn call(&self, (name, io): (&'n str, Box<dyn Io>)) -> Result<Self::Response, Self::Error> {
+    ///     async fn call(&self, (name, io): (&'n str, TlsStream)) -> Result<Self::Response, Self::Error> {
     ///         // tls handshake logic
     ///         // after tls connected must return another type erase io type and according http version of this connection.
-    ///         Ok((Box::new(io), Version::HTTP_11))
+    ///         Ok((io, Version::HTTP_11))
     ///     }
     /// }
     ///
@@ -217,7 +217,7 @@ impl ClientBuilder {
     /// ```
     pub fn tls_connector<T>(mut self, connector: T) -> Self
     where
-        T: for<'n> Service<(&'n str, Box<dyn Io>), Response = (Box<dyn Io>, Version), Error = Error>
+        T: for<'n> Service<(&'n str, TlsStream), Response = (TlsStream, Version), Error = Error>
             + Send
             + Sync
             + 'static,

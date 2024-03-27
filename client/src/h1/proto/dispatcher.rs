@@ -3,8 +3,8 @@ use core::{future::poll_fn, pin::Pin};
 use std::io;
 
 use futures_core::stream::Stream;
-use tokio::io::{AsyncRead, AsyncWrite};
 use xitca_http::{body::BodySize, bytes::Buf, h1::proto::codec::TransferCoding};
+use xitca_io::io::{AsyncIo, Interest};
 
 use crate::{
     body::BodyError,
@@ -25,11 +25,10 @@ pub(crate) async fn send<S, B, E>(
     req: &mut Request<B>,
 ) -> Result<(Response<()>, BytesMut, TransferCoding, bool), Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncIo + Unpin,
     B: Stream<Item = Result<Bytes, E>> + Unpin,
     BodyError: From<E>,
 {
-    let mut stream = Pin::new(stream);
     let mut buf = BytesMut::new();
 
     if !req.headers().contains_key(HOST) {
@@ -81,13 +80,13 @@ where
         ctx.set_head_method();
     }
 
-    write_all_buf(stream.as_mut(), &mut buf).await?;
+    write_all_buf(stream, &mut buf).await?;
 
     if is_expect {
-        poll_fn(|cx| stream.as_mut().poll_flush(cx)).await?;
+        flush(stream).await?;
 
         loop {
-            if let Some((res, mut decoder)) = try_read_response(stream.as_mut(), &mut buf, &mut ctx).await? {
+            if let Some((res, mut decoder)) = try_read_response(stream, &mut buf, &mut ctx).await? {
                 if res.status() == StatusCode::CONTINUE {
                     break;
                 }
@@ -109,10 +108,7 @@ where
 
     // try to send request body.
     // continue to read response no matter the outcome.
-    if send_body(stream.as_mut(), encoder, req.body_mut(), &mut buf)
-        .await
-        .is_err()
-    {
+    if send_body(stream, encoder, req.body_mut(), &mut buf).await.is_err() {
         // an error indicate connection should be closed.
         ctx.set_close();
         // clear the buffer as there could be unfinished request data inside.
@@ -121,7 +117,7 @@ where
 
     // read response head and get body decoder.
     loop {
-        if let Some((res, mut decoder)) = try_read_response(stream.as_mut(), &mut buf, &mut ctx).await? {
+        if let Some((res, mut decoder)) = try_read_response(stream, &mut buf, &mut ctx).await? {
             // check if server sent connection close header.
 
             // *. If send_body function produces error, Context has already set
@@ -141,13 +137,13 @@ where
 }
 
 async fn send_body<S, B, E>(
-    mut stream: Pin<&mut S>,
+    stream: &mut S,
     mut encoder: TransferCoding,
     body: &mut B,
     buf: &mut BytesMut,
 ) -> Result<(), Error>
 where
-    S: AsyncWrite,
+    S: AsyncIo,
     B: Stream<Item = Result<Bytes, E>> + Unpin,
     BodyError: From<E>,
 {
@@ -159,43 +155,76 @@ where
             let bytes = bytes.map_err(BodyError::from)?;
             encoder.encode(bytes, buf);
             // we are not in a hurry here so write before handling next chunk.
-            write_all_buf(stream.as_mut(), buf).await?;
+            write_all_buf(stream, buf).await?;
         }
 
         // body is finished. encode eof and clean up.
         encoder.encode_eof(buf);
 
-        write_all_buf(stream.as_mut(), buf).await?;
+        write_all_buf(stream, buf).await?;
     }
 
-    poll_fn(|cx| stream.as_mut().poll_flush(cx)).await.map_err(Into::into)
+    flush(stream).await?;
+
+    Ok(())
 }
 
-async fn write_all_buf<S>(mut stream: Pin<&mut S>, buf: &mut BytesMut) -> io::Result<()>
+async fn write_all_buf<S>(stream: &mut S, buf: &mut BytesMut) -> io::Result<()>
 where
-    S: AsyncWrite,
+    S: AsyncIo,
 {
     while buf.has_remaining() {
-        let n = poll_fn(|cx| stream.as_mut().poll_write(cx, buf.chunk())).await?;
-        if n == 0 {
-            return Err(io::Error::from(io::ErrorKind::WriteZero));
+        match stream.write(buf.chunk()) {
+            Ok(n) => {
+                if n == 0 {
+                    return Err(io::Error::from(io::ErrorKind::WriteZero));
+                }
+
+                buf.advance(n);
+            }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                stream.ready(Interest::WRITABLE).await?;
+            }
+            Err(e) => return Err(e),
         }
-        buf.advance(n);
+    }
+    Ok(())
+}
+
+async fn flush<S>(stream: &mut S) -> io::Result<()>
+where
+    S: AsyncIo,
+{
+    while let Err(e) = stream.flush() {
+        if e.kind() != io::ErrorKind::WouldBlock {
+            return Err(e);
+        }
+        stream.ready(Interest::WRITABLE).await?;
     }
     Ok(())
 }
 
 async fn try_read_response<S>(
-    mut stream: Pin<&mut S>,
+    stream: &mut S,
     buf: &mut BytesMut,
     ctx: &mut Context<'_, '_, 128>,
 ) -> Result<Option<(Response<()>, TransferCoding)>, Error>
 where
-    S: AsyncRead,
+    S: AsyncIo,
 {
-    let n = poll_fn(|cx| tokio_util::io::poll_read_buf(stream.as_mut(), cx, buf)).await?;
-    if n == 0 {
-        return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
+    loop {
+        match xitca_unsafe_collection::bytes::read_buf(stream, buf) {
+            Ok(n) => {
+                return if n == 0 {
+                    Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)))
+                } else {
+                    ctx.decode_head(buf).map_err(Into::into)
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                stream.ready(Interest::READABLE).await?;
+            }
+            Err(e) => return Err(Error::from(e)),
+        }
     }
-    ctx.decode_head(buf).map_err(Into::into)
 }
