@@ -1,7 +1,7 @@
 //! a composable http client
 //!
 //! # Quick Start
-//! ```rust
+//! ```no_run
 //! use xitca_client::{error::Error, Client};
 //!
 //! #[tokio::main]

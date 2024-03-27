@@ -11,12 +11,12 @@ readme= "README.md"
 
 [features]
 openssl = ["dep:openssl"]
-rustls = ["rustls_crate/default"]
+rustls = ["rustls_crate/aws-lc-rs"]
 rustls-ring-crypto = ["rustls_crate/ring"]
 rustls-uring = ["rustls_crate/default", "xitca-io/runtime-uring"]
 
 [dependencies]
 xitca-io = { version = "0.2.1", features = ["runtime"] }
 
-rustls_crate = { package = "rustls", version = "0.23", default-features = false, optional = true }
+rustls_crate = { package = "rustls", version = "0.23", default-features = false, features = ["logging", "std", "tls12"], optional = true }
 openssl = { version = "0.10", optional = true }
