@@ -46,7 +46,7 @@ async-stream = { version = "0.3", optional = true }
 itoa = { version = "1", optional = true }
 
 # tls support shared
-xitca-tls = { version = "0.2", optional = true }
+xitca-tls = { version = "0.2.1", optional = true }
 
 # rustls, http3 and dangerous features shared support
 webpki-roots = { version = "0.26", optional = true }
