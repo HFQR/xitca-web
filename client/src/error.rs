@@ -21,7 +21,7 @@ pub enum Error {
     H3(crate::h3::Error),
     #[cfg(feature = "openssl")]
     Openssl(_openssl::OpensslError),
-    #[cfg(feature = "rustls")]
+    #[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
     Rustls(_rustls::RustlsError),
     Parse(ParseError),
 }
@@ -141,10 +141,10 @@ mod _openssl {
     }
 }
 
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
 pub(crate) use _rustls::*;
 
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
 mod _rustls {
     use super::{io, Error};
 

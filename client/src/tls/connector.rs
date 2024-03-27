@@ -88,7 +88,7 @@ pub(crate) mod openssl {
     }
 }
 
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
 pub(crate) mod rustls {
     use std::sync::Arc;
 

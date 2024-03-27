@@ -10,6 +10,7 @@ http2 = ["h2", "itoa", "xitca-http/http2"]
 http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25"]
 openssl = ["xitca-tls/openssl"]
 rustls = ["xitca-tls/rustls", "webpki-roots"]
+rustls-ring-crypto =  ["xitca-tls/rustls-ring-crypto", "webpki-roots"]
 compress = ["http-encoding"]
 json = ["serde", "serde_json"]
 websocket = ["http-ws"]
@@ -46,7 +47,7 @@ async-stream = { version = "0.3", optional = true }
 itoa = { version = "1", optional = true }
 
 # tls support shared
-xitca-tls = { version = "0.2.1", optional = true }
+xitca-tls = { version = "0.2.2", optional = true }
 
 # rustls, http3 and dangerous features shared support
 webpki-roots = { version = "0.26", optional = true }
@@ -70,4 +71,3 @@ http-ws = { version = "0.3", features = ["stream"], optional = true }
 [dev-dependencies]
 futures = "0.3"
 tokio = { version = "1.30", features = ["macros", "rt-multi-thread"] }
-xitca-client = { version = "0.1", features = ["rustls"] }

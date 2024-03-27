@@ -124,14 +124,14 @@ impl ClientBuilder {
         self
     }
 
-    #[cfg(feature = "rustls")]
+    #[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
     /// enable rustls as tls connector.
     pub fn rustls(mut self) -> Self {
         self.connector = connector::rustls::connect(self.alpn_from_version());
         self
     }
 
-    #[cfg(any(feature = "openssl", feature = "rustls"))]
+    #[cfg(any(feature = "openssl", feature = "rustls", feature = "rustls-ring-crypto"))]
     const fn alpn_from_version(&self) -> &[&[u8]] {
         match self.max_http_version {
             Version::HTTP_09 | Version::HTTP_10 => {
