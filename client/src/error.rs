@@ -121,30 +121,22 @@ impl From<http_ws::ProtocolError> for Error {
 mod _openssl {
     use super::Error;
 
-    use openssl_crate::{error, ssl};
+    use xitca_tls::openssl;
 
-    #[derive(Debug)]
-    pub enum OpensslError {
-        Single(error::Error),
-        Stack(error::ErrorStack),
-        Ssl(ssl::Error),
-    }
+    pub type OpensslError = openssl::ssl::Error;
 
-    impl From<error::Error> for Error {
-        fn from(e: error::Error) -> Self {
-            Self::Openssl(OpensslError::Single(e))
+    impl From<openssl::error::ErrorStack> for Error {
+        fn from(e: openssl::error::ErrorStack) -> Self {
+            Self::Openssl(e.into())
         }
     }
 
-    impl From<error::ErrorStack> for Error {
-        fn from(e: error::ErrorStack) -> Self {
-            Self::Openssl(OpensslError::Stack(e))
-        }
-    }
-
-    impl From<ssl::Error> for Error {
-        fn from(e: ssl::Error) -> Self {
-            Self::Openssl(OpensslError::Ssl(e))
+    impl From<openssl::Error> for Error {
+        fn from(e: openssl::Error) -> Self {
+            match e {
+                openssl::Error::Tls(e) => Self::Openssl(e),
+                openssl::Error::Io(e) => Self::Io(e),
+            }
         }
     }
 }

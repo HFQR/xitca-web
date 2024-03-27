@@ -77,16 +77,32 @@ where
         match inner.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => {
-                use std::io;
-                use tokio::io::AsyncWrite;
+                use std::io::{self, Write};
+                use xitca_io::io::{AsyncIo, Interest};
+
                 while !inner.buf.chunk().is_empty() {
-                    match ready!(Pin::new(&mut **body.conn()).poll_write(_cx, inner.buf.chunk()))? {
-                        0 => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
-                        n => inner.buf.advance(n),
+                    let io = &mut **body.conn();
+
+                    match io.write(inner.buf.chunk()) {
+                        Ok(0) => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
+                        Ok(n) => {
+                            inner.buf.advance(n);
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            ready!(Pin::new(io).poll_ready(Interest::WRITABLE, _cx))?;
+                        }
+                        Err(e) => return Poll::Ready(Err(e.into())),
                     }
                 }
 
-                Pin::new(&mut **body.conn()).poll_flush(_cx).map_err(Into::into)
+                while let Err(e) = (&mut **body.conn()).flush() {
+                    if e.kind() != io::ErrorKind::WouldBlock {
+                        return Poll::Ready(Err(e.into()));
+                    }
+                    ready!(Pin::new(&mut **body.conn()).poll_ready(Interest::WRITABLE, _cx))?;
+                }
+
+                Poll::Ready(Ok(()))
             }
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
@@ -105,7 +121,7 @@ where
         match self.get_mut().body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => {
-                tokio::io::AsyncWrite::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {

@@ -99,7 +99,7 @@ where
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncIoDyn::poll_shutdown(Pin::new(&mut *self.get_mut()), cx)
+        AsyncIoDyn::poll_shutdown(Pin::new(&mut **self.get_mut()), cx)
     }
 }
 
@@ -134,14 +134,14 @@ where
         let this = self.get_mut();
 
         loop {
+            ready!(this.0.poll_ready(Interest::READABLE, cx))?;
+
             match io::Read::read(&mut this.0, buf.initialize_unfilled()) {
                 Ok(n) => {
                     buf.advance(n);
                     return Poll::Ready(Ok(()));
                 }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    ready!(this.0.poll_ready(Interest::READABLE, cx))?;
-                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Poll::Ready(Err(e)),
             }
         }
@@ -155,11 +155,10 @@ where
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
         loop {
+            ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
             match io::Write::write(&mut this.0, buf) {
                 Ok(n) => return Poll::Ready(Ok(n)),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
-                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Poll::Ready(Err(e)),
             }
         }
@@ -168,11 +167,10 @@ where
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         loop {
+            ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
             match io::Write::flush(&mut this.0) {
                 Ok(_) => return Poll::Ready(Ok(())),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
-                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Poll::Ready(Err(e)),
             }
         }
@@ -190,11 +188,10 @@ where
         let this = self.get_mut();
 
         loop {
+            ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
             match io::Write::write_vectored(&mut this.0, bufs) {
                 Ok(n) => return Poll::Ready(Ok(n)),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
-                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Poll::Ready(Err(e)),
             }
         }

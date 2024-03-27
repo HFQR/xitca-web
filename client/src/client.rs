@@ -1,10 +1,8 @@
 use std::{net::SocketAddr, pin::Pin};
 
 use futures_core::stream::Stream;
-use tokio::{
-    net::{TcpSocket, TcpStream},
-    time::{Instant, Sleep},
-};
+use tokio::time::{Instant, Sleep};
+use xitca_io::net::{TcpSocket, TcpStream};
 
 use crate::{
     body::{BodyError, BoxBody},
@@ -302,8 +300,8 @@ impl Client {
                         socket
                     }
                 };
-
-                socket.connect(addr).await.map_err(Into::into)
+                let stream = socket.connect(addr).await?;
+                Ok(TcpStream::from(stream))
             }
             None => TcpStream::connect(addr).await.map_err(Into::into),
         }
@@ -402,7 +400,7 @@ impl Client {
             uri.path_and_query().unwrap().as_str()
         );
 
-        let stream = tokio::net::UnixStream::connect(path)
+        let stream = xitca_io::net::UnixStream::connect(path)
             .timeout(timer.as_mut())
             .await
             .map_err(|_| TimeoutError::Connect)??;

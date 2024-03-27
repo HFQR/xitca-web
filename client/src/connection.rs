@@ -1,19 +1,19 @@
-use std::{
+use core::{
     hash::{Hash, Hasher},
-    io::{self, IoSlice},
     pin::Pin,
     task::{Context, Poll},
 };
 
-use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
+use std::io;
+
+use xitca_http::http::uri::{Authority, PathAndQuery};
+use xitca_io::{
+    io::{AsyncIo, Interest, Ready},
     net::TcpStream,
 };
 
-use xitca_http::http::uri::{Authority, PathAndQuery};
-
 #[cfg(unix)]
-use tokio::net::UnixStream;
+use xitca_io::net::UnixStream;
 
 use crate::{tls::stream::TlsStream, uri::Uri};
 
@@ -35,88 +35,120 @@ pub enum Connection {
     H3(crate::h3::Connection),
 }
 
-impl AsyncRead for Connection {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
-        match self.get_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
-            Self::Tls(stream) => Pin::new(stream).poll_read(cx, buf),
+impl AsyncIo for Connection {
+    fn ready(&self, interest: Interest) -> impl std::future::Future<Output = io::Result<Ready>> + Send {
+        // AsyncIo::ready must be producing Send future and with reference as &Connection as self
+        // the Sync trait bound is needed. h2 and h3 Connections are not Sync therefore a type conversion
+        // is necessary.
+        // TODO: consider make the type public with background conversion when it's popped from/pushed back
+        // to connection pool.
+        enum ConnectionSync<'a> {
+            Tcp(&'a TcpStream),
+            Tls(&'a TlsStream),
             #[cfg(unix)]
-            Self::Unix(stream) => Pin::new(stream).poll_read(cx, buf),
+            Unix(&'a UnixStream),
+        }
+
+        let conn = match self {
+            Self::Tcp(ref io) => ConnectionSync::Tcp(io),
+            Self::Tls(ref io) => ConnectionSync::Tls(io),
+            #[cfg(unix)]
+            Self::Unix(ref io) => ConnectionSync::Unix(io),
             #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!("http2 connection can not use AsyncRead"),
+            Self::H2(_) => unimplemented!(),
             #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
+            Self::H3(_) => unimplemented!(),
+        };
+
+        async move {
+            match conn {
+                ConnectionSync::Tcp(io) => io.ready(interest).await,
+                ConnectionSync::Tls(io) => io.ready(interest).await,
+                #[cfg(unix)]
+                ConnectionSync::Unix(io) => io.ready(interest).await,
+            }
         }
     }
-}
 
-impl AsyncWrite for Connection {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        match self.get_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
-            Self::Tls(stream) => Pin::new(stream).poll_write(cx, buf),
+    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        match self {
+            Self::Tcp(ref io) => io.poll_ready(interest, cx),
+            Self::Tls(ref io) => io.poll_ready(interest, cx),
             #[cfg(unix)]
-            Self::Unix(stream) => Pin::new(stream).poll_write(cx, buf),
+            Self::Unix(ref io) => io.poll_ready(interest, cx),
             #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            Self::H2(_) => unimplemented!(),
             #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
+            Self::H3(_) => unimplemented!(),
         }
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match self.get_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
-            Self::Tls(stream) => Pin::new(stream).poll_flush(cx),
+    fn is_vectored_write(&self) -> bool {
+        match self {
+            Self::Tcp(ref io) => io.is_vectored_write(),
+            Self::Tls(ref io) => io.is_vectored_write(),
             #[cfg(unix)]
-            Self::Unix(stream) => Pin::new(stream).poll_flush(cx),
+            Self::Unix(ref io) => io.is_vectored_write(),
             #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            Self::H2(_) => unimplemented!(),
             #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
+            Self::H3(_) => unimplemented!(),
         }
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
-            Self::Tls(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Tcp(io) => Pin::new(io).poll_shutdown(cx),
+            Self::Tls(io) => Pin::new(io).poll_shutdown(cx),
             #[cfg(unix)]
-            Self::Unix(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Unix(io) => Pin::new(io).poll_shutdown(cx),
             #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            Self::H2(_) => unimplemented!(),
             #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
+            Self::H3(_) => unimplemented!(),
         }
     }
+}
 
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        match self.get_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_write_vectored(cx, bufs),
-            Self::Tls(stream) => Pin::new(stream).poll_write_vectored(cx, bufs),
-            #[cfg(unix)]
-            Self::Unix(stream) => Pin::new(stream).poll_write_vectored(cx, bufs),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
-        }
-    }
-
-    fn is_write_vectored(&self) -> bool {
+impl io::Read for Connection {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            Self::Tcp(stream) => stream.is_write_vectored(),
-            Self::Tls(stream) => stream.is_write_vectored(),
+            Self::Tcp(ref mut io) => io.read(buf),
+            Self::Tls(ref mut io) => io.read(buf),
             #[cfg(unix)]
-            Self::Unix(stream) => stream.is_write_vectored(),
+            Self::Unix(ref mut io) => io.read(buf),
             #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!("http2 connection can not use AsyncWrite"),
+            Self::H2(_) => unimplemented!(),
             #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!("http3 connection can not use AsyncRead"),
+            Self::H3(_) => unimplemented!(),
+        }
+    }
+}
+
+impl io::Write for Connection {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Tcp(ref mut io) => io.write(buf),
+            Self::Tls(ref mut io) => io.write(buf),
+            #[cfg(unix)]
+            Self::Unix(ref mut io) => io.write(buf),
+            #[cfg(feature = "http2")]
+            Self::H2(_) => unimplemented!(),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => unimplemented!(),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Tcp(ref mut io) => io.flush(),
+            Self::Tls(ref mut io) => io.flush(),
+            #[cfg(unix)]
+            Self::Unix(ref mut io) => io.flush(),
+            #[cfg(feature = "http2")]
+            Self::H2(_) => unimplemented!(),
+            #[cfg(feature = "http3")]
+            Self::H3(_) => unimplemented!(),
         }
     }
 }

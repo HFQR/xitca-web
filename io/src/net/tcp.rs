@@ -30,6 +30,12 @@ impl TcpStream {
     }
 }
 
+impl From<tokio::net::TcpStream> for TcpStream {
+    fn from(stream: tokio::net::TcpStream) -> Self {
+        Self(stream)
+    }
+}
+
 impl TryFrom<Stream> for TcpStream {
     type Error = io::Error;
 
