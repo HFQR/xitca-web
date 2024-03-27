@@ -119,26 +119,26 @@ impl Sink<Message> for WebSocketTunnel<'_> {
                 use std::io::{self, Write};
                 use xitca_io::io::{AsyncIo, Interest};
 
-                while !inner.send_buf.chunk().is_empty() {
-                    let io = &mut **body.conn();
+                let mut io = Pin::new(&mut **body.conn());
 
-                    match io.write(inner.send_buf.chunk()) {
+                while !inner.send_buf.chunk().is_empty() {
+                    match io.as_mut().get_mut().write(inner.send_buf.chunk()) {
                         Ok(0) => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
                         Ok(n) => {
                             inner.send_buf.advance(n);
                         }
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                            ready!(Pin::new(io).poll_ready(Interest::WRITABLE, _cx))?;
+                            ready!(io.as_mut().poll_ready(Interest::WRITABLE, _cx))?;
                         }
                         Err(e) => return Poll::Ready(Err(e.into())),
                     }
                 }
 
-                while let Err(e) = (&mut **body.conn()).flush() {
+                while let Err(e) = io.as_mut().get_mut().flush() {
                     if e.kind() != io::ErrorKind::WouldBlock {
                         return Poll::Ready(Err(e.into()));
                     }
-                    ready!(Pin::new(&mut **body.conn()).poll_ready(Interest::WRITABLE, _cx))?;
+                    ready!(io.as_mut().poll_ready(Interest::WRITABLE, _cx))?;
                 }
 
                 Poll::Ready(Ok(()))
