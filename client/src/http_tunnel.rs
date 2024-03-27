@@ -95,7 +95,7 @@ where
                     }
                 }
 
-                while let Err(e) = (&mut **body.conn()).flush() {
+                while let Err(e) = (**body.conn()).flush() {
                     if e.kind() != io::ErrorKind::WouldBlock {
                         return Poll::Ready(Err(e.into()));
                     }
