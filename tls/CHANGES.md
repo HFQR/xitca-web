@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.2.2
+## Add
+- `rustls-ring-crypto` feature
 
 # 0.2.1
 ## Add

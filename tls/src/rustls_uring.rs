@@ -8,7 +8,8 @@ use core::{
 
 use std::{io, net::Shutdown};
 
-use rustls::{ConnectionCommon, SideData};
+pub use rustls_crate::*;
+
 use xitca_io::{
     bytes::{Buf, BytesMut},
     io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut},

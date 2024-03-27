@@ -1,7 +1,7 @@
 # unreleased 0.4.1
 ## Change
 - update `xitca-io` to `0.2.1`.
-- update `xitca-tls` to `0.2.1`.
+- update `xitca-tls` to `0.2.2`.
 
 # 0.4.0
 ## Add
