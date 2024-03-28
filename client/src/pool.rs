@@ -170,9 +170,19 @@ where
     }
 }
 
-struct PooledConn<C> {
+pub struct PooledConn<C> {
     conn: C,
     state: ConnState,
+}
+
+impl<K, C> From<Conn<'_, K, C>> for PooledConn<C>
+where
+    K: Eq + Hash + Clone,
+    C: Multiplex,
+{
+    fn from(mut conn: Conn<'_, K, C>) -> Self {
+        conn.conn.take().expect("Conn does not contain any connection")
+    }
 }
 
 impl<C> Deref for PooledConn<C> {

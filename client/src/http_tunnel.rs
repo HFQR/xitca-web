@@ -13,7 +13,7 @@ use super::{
     bytes::{Buf, Bytes, BytesMut},
     error::{Error, ErrorResponse},
     http::StatusCode,
-    tunnel::{Tunnel, TunnelRequest},
+    tunnel::{Leak, Tunnel, TunnelRequest},
 };
 
 pub type HttpTunnelRequest<'a> = TunnelRequest<'a, marker::Connect>;
@@ -48,6 +48,17 @@ impl<'a> HttpTunnelRequest<'a> {
 pub struct HttpTunnel<'b> {
     buf: BytesMut,
     body: ResponseBody<'b>,
+}
+
+impl Leak for HttpTunnel<'_> {
+    type Target = HttpTunnel<'static>;
+
+    fn leak(self) -> Self::Target {
+        HttpTunnel {
+            buf: self.buf,
+            body: self.body.to_owned(),
+        }
+    }
 }
 
 impl<M> Sink<M> for HttpTunnel<'_>

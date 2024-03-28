@@ -133,6 +133,19 @@ where
         (TunnelSink(self), TunnelStream(self))
     }
 
+    // leak tunnel from connection reuse pool and underlying connection will not be pushed back to
+    // pool when tunnel is dropped.
+    //
+    // this API does not leak memory
+    pub fn leak(self) -> Tunnel<I::Target>
+    where
+        I: Leak,
+        I::Target: Unpin,
+    {
+        let owned = self.inner.into_inner().unwrap().leak();
+        Tunnel::new(owned)
+    }
+
     pub(crate) fn new(inner: I) -> Self {
         Self {
             inner: Mutex::new(inner),
@@ -142,6 +155,12 @@ where
     fn get_mut_pinned_inner(self: Pin<&mut Self>) -> Pin<&mut I> {
         Pin::new(self.get_mut().inner.get_mut().unwrap())
     }
+}
+
+pub trait Leak {
+    type Target;
+
+    fn leak(self) -> Self::Target;
 }
 
 impl<M, I> Sink<M> for Tunnel<I>
