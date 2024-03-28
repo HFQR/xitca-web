@@ -12,12 +12,11 @@ use futures_core::stream::Stream;
 use futures_sink::Sink;
 use http_ws::{Codec, RequestStream, WsError};
 
-use crate::error::ErrorResponse;
-
 use super::{
     body::ResponseBody,
     bytes::{Buf, BytesMut},
-    error::Error,
+    connection::Connection,
+    error::{Error, ErrorResponse},
     http::{StatusCode, Version},
     tunnel::{Leak, Tunnel, TunnelRequest, TunnelSink, TunnelStream},
 };
@@ -125,10 +124,11 @@ impl Sink<Message> for WebSocketTunnel<'_> {
         inner.codec.encode(item, &mut inner.send_buf).map_err(Into::into)
     }
 
+    #[allow(unreachable_code)]
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
 
-        let io = match inner.recv_stream.inner_mut() {
+        let _io: &mut Connection = match inner.recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
             ResponseBody::H1(body) => &mut **body.conn(),
             #[cfg(feature = "http1")]
@@ -140,13 +140,13 @@ impl Sink<Message> for WebSocketTunnel<'_> {
                 }
                 return Poll::Ready(Ok(()));
             }
-            _ => panic!("websocket can only be enabled when http1 or http2 feature is also enabled"),
+            _ => unimplemented!("websocket can only be enabled when http1 or http2 feature is also enabled"),
         };
 
         use std::io::{self, Write};
         use xitca_io::io::{AsyncIo, Interest};
 
-        let mut io = Pin::new(io);
+        let mut io = Pin::new(_io);
 
         while !inner.send_buf.chunk().is_empty() {
             match io.as_mut().get_mut().write(inner.send_buf.chunk()) {
@@ -178,12 +178,16 @@ impl Sink<Message> for WebSocketTunnel<'_> {
             ResponseBody::H1(body) => {
                 xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
             }
+            #[cfg(feature = "http1")]
+            ResponseBody::H1Owned(body) => {
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
+            }
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {
                 body.send_data(xitca_http::bytes::Bytes::new(), true)?;
                 Poll::Ready(Ok(()))
             }
-            _ => panic!("websocket can only be enabled when http1 or http2 feature is also enabled"),
+            _ => unimplemented!("websocket can only be enabled when http1 or http2 feature is also enabled"),
         }
     }
 }
