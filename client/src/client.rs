@@ -152,7 +152,7 @@ impl Client {
             .map(|req| HttpTunnelRequest::new(req.method(Method::CONNECT)))
     }
 
-    #[cfg(feature = "websocket")]
+    #[cfg(all(feature = "websocket", feature = "http1"))]
     /// Start a new websocket request.
     ///
     /// # Example
@@ -192,18 +192,30 @@ impl Client {
     /// Ok(())
     /// # }
     /// ```
-    pub fn ws(&self, url: &str) -> Result<crate::ws::WsRequest<'_>, Error> {
+    pub fn ws<U>(&self, url: U) -> Result<crate::ws::WsRequest<'_>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
         self._ws(url, Version::HTTP_11)
     }
 
     #[cfg(all(feature = "websocket", feature = "http2"))]
     /// Start a new websocket request with HTTP/2.
-    pub fn ws2(&self, url: &str) -> Result<crate::ws::WsRequest<'_>, Error> {
+    pub fn ws2<U>(&self, url: U) -> Result<crate::ws::WsRequest<'_>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
         self._ws(url, Version::HTTP_2)
     }
 
     #[cfg(feature = "websocket")]
-    fn _ws(&self, url: &str, version: Version) -> Result<crate::ws::WsRequest<'_>, Error> {
+    fn _ws<U>(&self, url: U, version: Version) -> Result<crate::ws::WsRequest<'_>, Error>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
         let req = http_ws::client_request_from_uri(url, version)?.map(|_| BoxBody::default());
         let req = RequestBuilder::new(req, self);
         Ok(crate::ws::WsRequest::new(req))

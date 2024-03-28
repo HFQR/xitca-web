@@ -21,6 +21,10 @@ use crate::{tls::stream::TlsStream, uri::Uri};
 /// A convince type alias for typing connection without interacting with pool.
 pub type ConnectionWithKey<'a> = crate::pool::Conn<'a, ConnectionKey, Connection>;
 
+#[cfg(feature = "http1")]
+/// A convince type alias for typing connection without interacting with pool.
+pub type ConnectionWithoutKey = crate::pool::PooledConn<Connection>;
+
 /// Connection type branched into different HTTP version/layer.
 #[allow(clippy::large_enum_variant)]
 #[non_exhaustive]

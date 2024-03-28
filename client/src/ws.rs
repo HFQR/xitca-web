@@ -3,6 +3,7 @@
 pub use http_ws::Message;
 
 use core::{
+    mem,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -18,7 +19,7 @@ use super::{
     bytes::{Buf, BytesMut},
     error::Error,
     http::{StatusCode, Version},
-    tunnel::{Tunnel, TunnelRequest, TunnelSink, TunnelStream},
+    tunnel::{Leak, Tunnel, TunnelRequest, TunnelSink, TunnelStream},
 };
 
 mod marker {
@@ -90,6 +91,20 @@ pub struct WebSocketTunnel<'b> {
     codec: Codec,
     send_buf: BytesMut,
     recv_stream: RequestStream<ResponseBody<'b>>,
+}
+
+impl Leak for WebSocketTunnel<'_> {
+    type Target = WebSocketTunnel<'static>;
+
+    fn leak(mut self) -> Self::Target {
+        let codec = mem::replace(self.recv_stream.codec_mut(), Codec::new());
+        let body = mem::replace(self.recv_stream.inner_mut(), ResponseBody::Eof).to_owned();
+        WebSocketTunnel {
+            codec: self.codec,
+            send_buf: self.send_buf,
+            recv_stream: RequestStream::with_codec(body, codec),
+        }
+    }
 }
 
 impl Sink<Message> for WebSocketTunnel<'_> {
