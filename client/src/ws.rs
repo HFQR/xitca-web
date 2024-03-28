@@ -128,45 +128,47 @@ impl Sink<Message> for WebSocketTunnel<'_> {
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
 
-        match inner.recv_stream.inner_mut() {
+        let io = match inner.recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(body) => {
-                use std::io::{self, Write};
-                use xitca_io::io::{AsyncIo, Interest};
-
-                let mut io = Pin::new(&mut **body.conn());
-
-                while !inner.send_buf.chunk().is_empty() {
-                    match io.as_mut().get_mut().write(inner.send_buf.chunk()) {
-                        Ok(0) => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
-                        Ok(n) => {
-                            inner.send_buf.advance(n);
-                        }
-                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                            ready!(io.as_mut().poll_ready(Interest::WRITABLE, _cx))?;
-                        }
-                        Err(e) => return Poll::Ready(Err(e.into())),
-                    }
-                }
-
-                while let Err(e) = io.as_mut().get_mut().flush() {
-                    if e.kind() != io::ErrorKind::WouldBlock {
-                        return Poll::Ready(Err(e.into()));
-                    }
-                    ready!(io.as_mut().poll_ready(Interest::WRITABLE, _cx))?;
-                }
-
-                Poll::Ready(Ok(()))
-            }
+            ResponseBody::H1(body) => &mut **body.conn(),
+            #[cfg(feature = "http1")]
+            ResponseBody::H1Owned(body) => &mut **body.conn(),
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {
                 while !inner.send_buf.chunk().is_empty() {
                     ready!(body.poll_send_buf(&mut inner.send_buf, _cx))?;
                 }
-                Poll::Ready(Ok(()))
+                return Poll::Ready(Ok(()));
             }
             _ => panic!("websocket can only be enabled when http1 or http2 feature is also enabled"),
+        };
+
+        use std::io::{self, Write};
+        use xitca_io::io::{AsyncIo, Interest};
+
+        let mut io = Pin::new(io);
+
+        while !inner.send_buf.chunk().is_empty() {
+            match io.as_mut().get_mut().write(inner.send_buf.chunk()) {
+                Ok(0) => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())),
+                Ok(n) => {
+                    inner.send_buf.advance(n);
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    ready!(io.as_mut().poll_ready(Interest::WRITABLE, _cx))?;
+                }
+                Err(e) => return Poll::Ready(Err(e.into())),
+            }
         }
+
+        while let Err(e) = io.as_mut().get_mut().flush() {
+            if e.kind() != io::ErrorKind::WouldBlock {
+                return Poll::Ready(Err(e.into()));
+            }
+            ready!(io.as_mut().poll_ready(Interest::WRITABLE, _cx))?;
+        }
+
+        Poll::Ready(Ok(()))
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
