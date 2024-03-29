@@ -140,6 +140,32 @@ impl Client {
     /// // write part can operate with Sink trait implement.
     /// write.send(b"996").await?;
     ///
+    /// let mut http_tunnel = client.connect("http://localhost:8080")?.send().await?;    
+    ///
+    /// // import AsyncIo trait and use http tunnel as io type directly.
+    /// use xitca_io::io::{Interest, AsyncIo};
+    /// let mut tunnel = http_tunnel.into_inner(); // acquire inner tunnel type that impl AsyncIo trait.
+    ///
+    /// // wait for tunnel ready to read
+    /// tunnel.ready(Interest::READABLE).await?;
+    ///
+    /// let mut buf = [0; 1024];
+    ///
+    /// // use std::io to read from tunnel.
+    /// let n = std::io::Read::read(&mut tunnel, &mut buf)?;
+    /// println!("read bytes: {:?}", &buf[..n]);
+    ///
+    /// // wait for tunnel ready to write
+    /// tunnel.ready(Interest::WRITABLE).await?;
+    ///
+    /// // use std::io to write to tunnel.
+    /// let _n = std::io::Write::write(&mut tunnel, &buf[..n])?;
+    ///
+    /// // import compat type if you want tunnel to be used with tokio 1.0.
+    /// let tunnel = xitca_io::io::PollIoAdapter(tunnel);
+    ///
+    /// // from this point on tunnel is able to used with tokio::io::{AsyncRead, AsyncWrite} traits.
+    ///
     /// Ok(())
     /// # }
     /// ```

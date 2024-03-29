@@ -24,7 +24,11 @@ impl<C> ResponseBody<C> {
         Self { conn, buf, decoder }
     }
 
-    pub(crate) fn conn(&mut self) -> &mut C {
+    pub(crate) fn conn(&self) -> &C {
+        &self.conn
+    }
+
+    pub(crate) fn conn_mut(&mut self) -> &mut C {
         &mut self.conn
     }
 
@@ -66,7 +70,7 @@ where
                                 return Poll::Ready(Some(Err(e.into())));
                             }
 
-                            ready!(Pin::new(&mut **this.conn()).poll_ready(Interest::READABLE, cx))?;
+                            ready!(Pin::new(&mut **this.conn_mut()).poll_ready(Interest::READABLE, cx))?;
                         }
                     }
                 },
