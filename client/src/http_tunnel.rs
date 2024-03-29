@@ -1,7 +1,6 @@
 //! http tunnel handling.
 
 use core::{
-    future::Future,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -10,7 +9,7 @@ use std::io;
 
 use futures_core::stream::Stream;
 use futures_sink::Sink;
-use xitca_io::io::{AsyncIo, Interest, Ready};
+use xitca_io::io::{AsyncIo, Interest};
 
 use super::{
     body::ResponseBody,
@@ -138,26 +137,19 @@ where
         match self.get_mut().body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => {
-                ready!(xitca_io::io::AsyncIo::poll_shutdown(
-                    Pin::new(&mut **body.conn_mut()),
-                    cx
-                ))?;
-            }
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
+            },
             #[cfg(feature = "http1")]
             ResponseBody::H1Owned(ref mut body) => {
-                ready!(xitca_io::io::AsyncIo::poll_shutdown(
-                    Pin::new(&mut **body.conn_mut()),
-                    cx
-                ))?;
-            }
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
+            },
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
                 body.send_data(xitca_http::bytes::Bytes::new(), true)?;
+                Poll::Ready(Ok(()))
             }
             _ => unimplemented!("websocket can only be enabled when http1 or http2 feature is also enabled"),
-        };
-
-        Poll::Ready(Ok(()))
+        }
     }
 }
 
@@ -170,80 +162,75 @@ impl Stream for HttpTunnel<'_> {
     }
 }
 
-impl AsyncIo for HttpTunnel<'_> {
-    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
-        let conn: &Connection = match self.body {
-            #[cfg(feature = "http1")]
-            ResponseBody::H1(ref body) => body.conn(),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref body) => body.conn(),
-            _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),
-        };
+#[cfg(feature = "http1")]
+const _: () = {
+    use core::future::Future;
 
-        conn.ready(interest)
-    }
+    use xitca_io::io::Ready;
 
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<tokio::io::Ready>> {
-        match self.body {
-            #[cfg(feature = "http1")]
-            ResponseBody::H1(ref body) => body.conn().poll_ready(interest, cx),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref body) => body.conn().poll_ready(interest, cx),
-            _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),
+    impl AsyncIo for HttpTunnel<'_> {
+        fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
+            let conn: &Connection = match self.body {
+                ResponseBody::H1(ref body) => body.conn(),
+                ResponseBody::H1Owned(ref body) => body.conn(),
+                _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),
+            };
+
+            conn.ready(interest)
+        }
+
+        fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<tokio::io::Ready>> {
+            match self.body {
+                ResponseBody::H1(ref body) => body.conn().poll_ready(interest, cx),
+                ResponseBody::H1Owned(ref body) => body.conn().poll_ready(interest, cx),
+                _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),
+            }
+        }
+
+        fn is_vectored_write(&self) -> bool {
+            match self.body {
+                ResponseBody::H1(ref body) => body.conn().is_vectored_write(),
+                ResponseBody::H1Owned(ref body) => body.conn().is_vectored_write(),
+                _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),
+            }
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            match self.get_mut().body {
+                ResponseBody::H1(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx),
+                ResponseBody::H1Owned(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx),
+                _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),
+            }
         }
     }
 
-    fn is_vectored_write(&self) -> bool {
-        match self.body {
-            #[cfg(feature = "http1")]
-            ResponseBody::H1(ref body) => body.conn().is_vectored_write(),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref body) => body.conn().is_vectored_write(),
-            _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),
+    impl io::Read for HttpTunnel<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match self.body {
+                ResponseBody::H1(ref mut body) => body.conn_mut().read(buf),
+                ResponseBody::H1Owned(ref mut body) => body.conn_mut().read(buf),
+                _ => unimplemented!("Read through HttpTunnel only supports http/1"),
+            }
         }
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match self.get_mut().body {
-            #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx),
-            _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),
-        }
-    }
-}
+    impl io::Write for HttpTunnel<'_> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            match self.body {
+                ResponseBody::H1(ref mut body) => body.conn_mut().write(buf),
 
-impl io::Read for HttpTunnel<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self.body {
-            #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => body.conn_mut().read(buf),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().read(buf),
-            _ => unimplemented!("Read through HttpTunnel only supports http/1"),
+                ResponseBody::H1Owned(ref mut body) => body.conn_mut().write(buf),
+                _ => unimplemented!("Write through HttpTunnel only supports http/1"),
+            }
         }
-    }
-}
 
-impl io::Write for HttpTunnel<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.body {
-            #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => body.conn_mut().write(buf),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().write(buf),
-            _ => unimplemented!("Write through HttpTunnel only supports http/1"),
-        }
-    }
+        fn flush(&mut self) -> io::Result<()> {
+            match self.body {
+                ResponseBody::H1(ref mut body) => body.conn_mut().flush(),
 
-    fn flush(&mut self) -> io::Result<()> {
-        match self.body {
-            #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => body.conn_mut().flush(),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().flush(),
-            _ => unimplemented!("Write through HttpTunnel only supports http/1"),
+                ResponseBody::H1Owned(ref mut body) => body.conn_mut().flush(),
+                _ => unimplemented!("Write through HttpTunnel only supports http/1"),
+            }
         }
     }
-}
+};
