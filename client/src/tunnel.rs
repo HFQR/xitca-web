@@ -133,10 +133,10 @@ where
         (TunnelSink(self), TunnelStream(self))
     }
 
-    // leak tunnel from connection reuse pool and underlying connection will not be pushed back to
-    // pool when tunnel is dropped.
-    //
-    // this API does not leak memory
+    /// leak tunnel from connection reuse pool and underlying connection will not be pushed back to
+    /// pool when tunnel is dropped.
+    ///
+    /// this API does not leak memory
     pub fn leak(self) -> Tunnel<I::Target>
     where
         I: Leak,
@@ -144,6 +144,11 @@ where
     {
         let owned = self.inner.into_inner().unwrap().leak();
         Tunnel::new(owned)
+    }
+
+    /// acquire inner tunnel type.
+    pub fn into_inner(self) -> I {
+        self.inner.into_inner().unwrap()
     }
 
     pub(crate) fn new(inner: I) -> Self {

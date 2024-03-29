@@ -97,7 +97,7 @@ impl Leak for WebSocketTunnel<'_> {
 
     fn leak(mut self) -> Self::Target {
         let codec = mem::replace(self.recv_stream.codec_mut(), Codec::new());
-        let body = mem::replace(self.recv_stream.inner_mut(), ResponseBody::Eof).to_owned();
+        let body = mem::replace(self.recv_stream.inner_mut(), ResponseBody::Eof).into_owned();
         WebSocketTunnel {
             codec: self.codec,
             send_buf: self.send_buf,
@@ -130,9 +130,9 @@ impl Sink<Message> for WebSocketTunnel<'_> {
 
         let _io: &mut Connection = match inner.recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(body) => &mut **body.conn(),
+            ResponseBody::H1(body) => body.conn_mut(),
             #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(body) => &mut **body.conn(),
+            ResponseBody::H1Owned(body) => body.conn_mut(),
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {
                 while !inner.send_buf.chunk().is_empty() {
@@ -176,11 +176,11 @@ impl Sink<Message> for WebSocketTunnel<'_> {
         match self.get_mut().recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
             ResponseBody::H1(body) => {
-                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http1")]
             ResponseBody::H1Owned(body) => {
-                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn()), cx).map_err(Into::into)
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {

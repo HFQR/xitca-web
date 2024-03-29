@@ -49,7 +49,7 @@ impl fmt::Debug for ResponseBody<'_> {
 }
 
 impl ResponseBody<'_> {
-    pub(crate) fn to_owned(self) -> ResponseBody<'static> {
+    pub(crate) fn into_owned(self) -> ResponseBody<'static> {
         match self {
             #[cfg(feature = "http1")]
             Self::H1(body) => ResponseBody::H1Owned(body.map_conn(Into::into)),
@@ -67,14 +67,14 @@ impl ResponseBody<'_> {
     pub(crate) fn destroy_on_drop(&mut self) {
         #[cfg(feature = "http1")]
         if let Self::H1(ref mut body) = *self {
-            body.conn().destroy_on_drop()
+            body.conn_mut().destroy_on_drop()
         }
     }
 
     pub(crate) fn can_destroy_on_drop(&mut self) -> bool {
         #[cfg(feature = "http1")]
         if let Self::H1(ref mut body) = *self {
-            return body.conn().is_destroy_on_drop();
+            return body.conn_mut().is_destroy_on_drop();
         }
 
         false
