@@ -138,11 +138,11 @@ where
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => {
                 xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
-            },
+            }
             #[cfg(feature = "http1")]
             ResponseBody::H1Owned(ref mut body) => {
                 xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
-            },
+            }
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
                 body.send_data(xitca_http::bytes::Bytes::new(), true)?;
