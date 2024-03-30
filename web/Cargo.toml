@@ -21,8 +21,8 @@ http3 = ["__server", "xitca-http/http3"]
 io-uring = ["__server", "xitca-server/io-uring"]
 
 # tls transport layer
-openssl = ["__server", "xitca-http/openssl", "openssl-crate"]
-rustls = ["__server", "xitca-http/rustls", "rustls-crate"]
+openssl = ["__server", "xitca-http/openssl", "xitca-tls/openssl"]
+rustls = ["__server", "xitca-http/rustls", "xitca-tls/rustls"]
 
 # params type extractor
 params = ["serde"]
@@ -87,11 +87,8 @@ tokio = { version = "1", features = ["rt", "sync"] }
 # http server
 xitca-server = { version = "0.2", optional = true }
 
-# openssl
-openssl-crate = { package = "openssl", version = "0.10", optional = true }
-
-# rustls
-rustls-crate = { package = "rustls", version = "0.23", optional = true }
+# tls
+xitca-tls = { version = "0.2.2", optional = true }
 
 # (de)serialization shared.
 serde = { version = "1", optional = true }

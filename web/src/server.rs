@@ -204,7 +204,7 @@ where
     pub fn bind_openssl<A: std::net::ToSocketAddrs, ResB, BE>(
         mut self,
         addr: A,
-        mut builder: openssl_crate::ssl::SslAcceptorBuilder,
+        mut builder: xitca_tls::openssl::ssl::SslAcceptorBuilder,
     ) -> std::io::Result<Self>
     where
         S: Service + 'static,
@@ -228,11 +228,11 @@ where
                     Ok(b"h2")
                 }
                 #[cfg(not(feature = "http2"))]
-                Err(openssl_crate::ssl::AlpnError::ALERT_FATAL)
+                Err(xitca_tls::openssl::ssl::AlpnError::ALERT_FATAL)
             } else if protocols.windows(9).any(|window| window == H11) {
                 Ok(b"http/1.1")
             } else {
-                Err(openssl_crate::ssl::AlpnError::NOACK)
+                Err(xitca_tls::openssl::ssl::AlpnError::NOACK)
             }
         });
 
@@ -261,7 +261,7 @@ where
         mut self,
         addr: A,
         #[cfg_attr(not(all(feature = "http1", feature = "http2")), allow(unused_mut))]
-        mut config: rustls_crate::ServerConfig,
+        mut config: xitca_tls::rustls::ServerConfig,
     ) -> std::io::Result<Self>
     where
         S: Service + 'static,
