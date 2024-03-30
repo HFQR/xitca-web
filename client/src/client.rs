@@ -9,12 +9,12 @@ use crate::{
     builder::ClientBuilder,
     bytes::Bytes,
     connect::Connect,
-    connection::{Connection, ConnectionKey},
+    connection::{ConnectionExclusive, ConnectionKey, ConnectionShared},
     date::DateTimeService,
     error::{Error, TimeoutError},
     http::{self, uri, Method, Version},
     http_tunnel::HttpTunnelRequest,
-    pool::Pool,
+    pool,
     request::RequestBuilder,
     resolver::ResolverService,
     service::HttpService,
@@ -28,7 +28,8 @@ use crate::{
 /// [Request]: crate::request::RequestBuilder
 /// [Response]: crate::response::Response
 pub struct Client {
-    pub(crate) pool: Pool<ConnectionKey, Connection>,
+    pub(crate) exclusive_pool: pool::exclusive::Pool<ConnectionKey, ConnectionExclusive>,
+    pub(crate) shared_pool: pool::shared::Pool<ConnectionKey, ConnectionShared>,
     pub(crate) connector: Connector,
     pub(crate) resolver: ResolverService,
     pub(crate) timeout_config: TimeoutConfig,
@@ -249,46 +250,53 @@ impl Client {
 }
 
 impl Client {
-    pub(crate) async fn make_connection(
+    // make exclusive connection that can be inserted into exclusive connection pool.
+    // an expected http version for connection is received and a final http version determined
+    // by server side alpn protocol would be returned.
+    // when the returned version is HTTP_2 the exclusive connection can be upgraded to shared
+    // connection for http2.
+    pub(crate) async fn make_exclusive(
         &self,
         connect: &mut Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
-        max_version: Version,
-    ) -> Result<Connection, Error> {
+        expected_version: Version,
+    ) -> Result<(ConnectionExclusive, Version), Error> {
         match connect.uri {
-            Uri::Tcp(_) => {
-                self.resolver
-                    .call(connect)
-                    .timeout(timer.as_mut())
-                    .await
-                    .map_err(|_| TimeoutError::Resolve)??;
+            Uri::Tcp(_) | Uri::Tls(_) => {
+                let conn = self.make_tcp(connect, timer).await?;
 
-                self.make_tcp(connect, timer).await.map(Into::into)
-            }
-            Uri::Tls(_) => {
-                self.resolver
-                    .call(connect)
-                    .timeout(timer.as_mut())
-                    .await
-                    .map_err(|_| TimeoutError::Resolve)??;
-
-                #[cfg(feature = "http3")]
-                // TODO: find better way to discover http3.
-                if max_version == Version::HTTP_3 {
-                    if let Ok(conn) = self.make_h3(connect, timer).await {
-                        return Ok(conn);
-                    }
+                if matches!(connect.uri, Uri::Tcp(_)) {
+                    return Ok((ConnectionExclusive::Tcp(conn), expected_version));
                 }
-                // Fallback to tcp if http3 failed.
 
-                self.make_tls(connect, timer, max_version).await
+                timer
+                    .as_mut()
+                    .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
+
+                let (conn, version) = self
+                    .connector
+                    .call((connect.hostname(), Box::new(conn)))
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| TimeoutError::TlsHandshake)??;
+
+                Ok((ConnectionExclusive::Tls(conn), version))
             }
             #[cfg(unix)]
-            Uri::Unix(uri) => self.make_unix(uri, timer).await,
+            Uri::Unix(_) => {
+                let conn = self.make_unix(connect, timer).await?;
+                Ok((ConnectionExclusive::Unix(conn), expected_version))
+            }
         }
     }
 
-    async fn make_tcp(&self, connect: &Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<TcpStream, Error> {
+    async fn make_tcp(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<TcpStream, Error> {
+        self.resolver
+            .call(connect)
+            .timeout(timer.as_mut())
+            .await
+            .map_err(|_| TimeoutError::Resolve)??;
+
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
@@ -345,97 +353,20 @@ impl Client {
         }
     }
 
-    async fn make_tls(
+    #[cfg(unix)]
+    async fn make_unix(
         &self,
         connect: &Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
-        max_version: Version,
-    ) -> Result<Connection, Error> {
-        let stream = self.make_tcp(connect, timer).await?;
-
-        timer
-            .as_mut()
-            .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
-
-        let (stream, version) = self
-            .connector
-            .call((connect.hostname(), Box::new(stream)))
-            .timeout(timer.as_mut())
-            .await
-            .map_err(|_| TimeoutError::TlsHandshake)??;
-
-        let version = match (version, max_version) {
-            (Version::HTTP_3, Version::HTTP_2 | Version::HTTP_11 | Version::HTTP_10 | Version::HTTP_09) => max_version,
-            (Version::HTTP_2, Version::HTTP_11 | Version::HTTP_10 | Version::HTTP_09) => max_version,
-            (Version::HTTP_11, Version::HTTP_10 | Version::HTTP_09) => max_version,
-            (Version::HTTP_10, Version::HTTP_09) => max_version,
-            _ => version,
-        };
-
-        match version {
-            Version::HTTP_11 => Ok(stream.into()),
-            Version::HTTP_2 => {
-                #[cfg(feature = "http2")]
-                {
-                    let connection = crate::h2::proto::handshake(stream).await?;
-
-                    Ok(connection.into())
-                }
-
-                #[cfg(not(feature = "http2"))]
-                {
-                    Ok(stream.into())
-                }
-            }
-            Version::HTTP_3 => unreachable!("HTTP_3 can not use TCP connection"),
-            _ => unreachable!("HTTP_09 and HTTP_10 is impossible for tls connections"),
-        }
-    }
-
-    #[cfg(feature = "http3")]
-    async fn make_h3(&self, connect: &Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
-        timer
-            .as_mut()
-            .reset(Instant::now() + self.timeout_config.connect_timeout);
-
-        let stream = self
-            .make_h3_inner(connect)
-            .timeout(timer.as_mut())
-            .await
-            .map_err(|_| TimeoutError::Connect)??;
-
-        Ok(stream)
-    }
-
-    #[cfg(feature = "http3")]
-    async fn make_h3_inner(&self, connect: &Connect<'_>) -> Result<Connection, Error> {
-        let mut iter = connect.addrs();
-
-        let mut addr = iter.next().ok_or(Error::Resolve)?;
-
-        // try to connect with all addresses resolved by dns resolver.
-        // return the last error when all are fail to be connected.
-        loop {
-            match crate::h3::proto::connect(&self.h3_client, &addr, connect.hostname()).await {
-                Ok(connection) => return Ok(connection.into()),
-                Err(e) => match iter.next() {
-                    Some(a) => addr = a,
-                    None => return Err(e.into()),
-                },
-            }
-        }
-    }
-
-    #[cfg(unix)]
-    async fn make_unix(&self, uri: &uri::Uri, timer: &mut Pin<Box<Sleep>>) -> Result<Connection, Error> {
+    ) -> Result<xitca_io::net::UnixStream, Error> {
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
 
         let path = format!(
             "/{}{}",
-            uri.authority().unwrap().as_str(),
-            uri.path_and_query().unwrap().as_str()
+            connect.uri.authority().unwrap().as_str(),
+            connect.uri.path_and_query().unwrap().as_str()
         );
 
         let stream = xitca_io::net::UnixStream::connect(path)
@@ -443,7 +374,7 @@ impl Client {
             .await
             .map_err(|_| TimeoutError::Connect)??;
 
-        Ok(stream.into())
+        Ok(stream)
     }
 }
 

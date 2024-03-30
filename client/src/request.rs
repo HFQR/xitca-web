@@ -71,11 +71,31 @@ impl<'a> RequestBuilder<'a> {
         self
     }
 
-    #[doc(hidden)]
     /// Set HTTP version of this request.
     ///
     /// By default request's HTTP version depends on network stream
+    ///
+    /// # Panic
+    /// - when received a version beyond the range crate is able to handle.
+    /// ```
+    /// // depend on default feature of xitca-client in Cargo.toml
+    /// // [dependencies]
+    /// // xitca-client = { version = "*" }
+    ///
+    /// fn config(mut req: xitca_client::RequestBuilder<'_>) {
+    ///     // this is ok as by default xitca-client can handle http1 request.
+    ///     req = req.version(xitca_client::http::Version::HTTP_09);
+    ///     // bellow would cause panic as http2/3 are additive features.
+    ///     req = req.version(xitca_client::http::Version::HTTP_2);
+    ///     req = req.version(xitca_client::http::Version::HTTP_3);
+    /// }
+    ///
+    /// // enable additive http features and the panic would be gone.
+    /// // #[dependencies]
+    /// // xitca-client = { version = "*", features = ["http2", "http3"] }
+    /// ```
     pub fn version(mut self, version: Version) -> Self {
+        crate::builder::version_check(version);
         *self.req.version_mut() = version;
         self
     }

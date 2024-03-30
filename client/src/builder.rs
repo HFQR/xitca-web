@@ -7,7 +7,7 @@ use crate::{
     connect::Connect,
     date::DateTimeService,
     error::Error,
-    pool::Pool,
+    pool,
     resolver::{base_resolver, ResolverService},
     response::Response,
     service::{base_service, HttpService},
@@ -41,7 +41,7 @@ impl ClientBuilder {
         ClientBuilder {
             connector: connector::nop(),
             resolver: base_resolver(),
-            pool_capacity: 128,
+            pool_capacity: 2,
             timeout_config: TimeoutConfig::new(),
             local_addr: None,
             max_http_version: max_http_version(),
@@ -134,9 +134,7 @@ impl ClientBuilder {
     #[cfg(any(feature = "openssl", feature = "rustls", feature = "rustls-ring-crypto"))]
     const fn alpn_from_version(&self) -> &[&[u8]] {
         match self.max_http_version {
-            Version::HTTP_09 | Version::HTTP_10 => {
-                panic!("tls can not be used on HTTP/0.9 nor HTTP/1.0")
-            }
+            Version::HTTP_09 | Version::HTTP_10 => panic!("tls can not be enabled on HTTP/0.9 nor HTTP/1.0"),
             Version::HTTP_11 => &[b"http/1.1"],
             Version::HTTP_2 | Version::HTTP_3 => &[b"h2", b"http/1.1"],
             _ => unreachable!(),
@@ -282,9 +280,15 @@ impl ClientBuilder {
 
     /// Set capacity of the connection pool for re-useable connection.
     ///
-    /// Default to 128
+    /// # Note
+    /// capacity is for concurrent opening sockets PER remote Domain.
+    /// capacity only applies to http/1 protocol.
+    /// http/2 always open one socket per remote domain.
+    /// http/3 always open one socket for all remote domains.
     ///
-    /// # Panics:
+    /// Default to 2
+    ///
+    /// # Panics
     /// When pass 0 as pool capacity.
     pub fn set_pool_capacity(mut self, cap: usize) -> Self {
         assert_ne!(cap, 0);
@@ -296,12 +300,26 @@ impl ClientBuilder {
     ///
     /// Default to the max version of http feature enabled within Cargo.toml
     ///
-    /// # Examples
-    /// ```(no_run)
-    /// // default max http version would be Version::HTTP_2
-    /// xitca-client = { version = "*", features = ["http2"] }
+    /// # Panics
+    /// - panic when given http version is not compat with enabled crate features.
+    /// ```no_run
+    /// // import xitca-client in Cargo.toml with default features where only http1 is enabled.
+    /// // #[dependencies]
+    /// // xitca-client = { version = "*" }
+    ///
+    /// fn config(mut builder: xitca_client::ClientBuilder) {
+    /// // trying to set max http version beyond http1 would cause panic.
+    ///     builder
+    ///         .set_max_http_version(xitca_client::http::Version::HTTP_2)
+    ///         .set_max_http_version(xitca_client::http::Version::HTTP_3);
+    /// }
+    ///
+    /// // add additive http features and the panic would be gone.
+    /// // #[dependencies]
+    /// // xitca-client = { version = "*", features = ["http2", "http3"] }
     /// ```
     pub fn set_max_http_version(mut self, version: Version) -> Self {
+        version_check(version);
         self.max_http_version = version;
         self
     }
@@ -309,14 +327,14 @@ impl ClientBuilder {
     /// Finish the builder and construct [Client] instance.
     pub fn finish(self) -> Client {
         #[cfg(feature = "http3")]
-        {
+        let h3_client = {
             use std::sync::Arc;
 
             use h3_quinn::quinn::{ClientConfig, Endpoint};
             use rustls_0dot21 as rustls;
 
             #[cfg(not(feature = "dangerous"))]
-            let h3_client = {
+            let mut crypto = {
                 use rustls::{OwnedTrustAnchor, RootCertStore};
                 use webpki_roots_0dot25::TLS_SERVER_ROOTS;
 
@@ -331,27 +349,14 @@ impl ClientBuilder {
                     root_certs.add_trust_anchors(certs);
                 }
 
-                let mut crypto = rustls::ClientConfig::builder()
+                rustls::ClientConfig::builder()
                     .with_safe_defaults()
                     .with_root_certificates(root_certs)
-                    .with_no_client_auth();
-
-                crypto.alpn_protocols = vec![b"h3-29".to_vec()];
-
-                let config = ClientConfig::new(Arc::new(crypto));
-
-                let mut endpoint = match self.local_addr {
-                    Some(addr) => Endpoint::client(addr).unwrap(),
-                    None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
-                };
-
-                endpoint.set_default_client_config(config);
-
-                endpoint
+                    .with_no_client_auth()
             };
 
             #[cfg(feature = "dangerous")]
-            let h3_client = {
+            let mut crypto = {
                 struct SkipServerVerification;
 
                 impl SkipServerVerification {
@@ -373,40 +378,29 @@ impl ClientBuilder {
                     }
                 }
 
-                let mut crypto = rustls::ClientConfig::builder()
+                rustls::ClientConfig::builder()
                     .with_safe_defaults()
                     .with_custom_certificate_verifier(SkipServerVerification::new())
-                    .with_no_client_auth();
-                crypto.alpn_protocols = vec![b"h3-29".to_vec()];
-
-                let config = ClientConfig::new(Arc::new(crypto));
-
-                let mut endpoint = match self.local_addr {
-                    Some(addr) => Endpoint::client(addr).unwrap(),
-                    None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
-                };
-
-                endpoint.set_default_client_config(config);
-
-                endpoint
+                    .with_no_client_auth()
             };
 
-            Client {
-                pool: Pool::with_capacity(self.pool_capacity),
-                connector: self.connector,
-                resolver: self.resolver,
-                timeout_config: self.timeout_config,
-                max_http_version: self.max_http_version,
-                local_addr: self.local_addr,
-                date_service: DateTimeService::new(),
-                service: self.service,
-                h3_client,
-            }
-        }
+            crypto.alpn_protocols = vec![b"h3".to_vec(), b"h32-29".to_vec()];
 
-        #[cfg(not(feature = "http3"))]
+            let config = ClientConfig::new(Arc::new(crypto));
+
+            let mut endpoint = match self.local_addr {
+                Some(addr) => Endpoint::client(addr).unwrap(),
+                None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
+            };
+
+            endpoint.set_default_client_config(config);
+
+            endpoint
+        };
+
         Client {
-            pool: Pool::with_capacity(self.pool_capacity),
+            exclusive_pool: pool::exclusive::Pool::with_capacity(self.pool_capacity),
+            shared_pool: pool::shared::Pool::with_capacity(self.pool_capacity),
             connector: self.connector,
             resolver: self.resolver,
             timeout_config: self.timeout_config,
@@ -414,7 +408,20 @@ impl ClientBuilder {
             local_addr: self.local_addr,
             date_service: DateTimeService::new(),
             service: self.service,
+            #[cfg(feature = "http3")]
+            h3_client,
         }
+    }
+}
+
+pub(crate) fn version_check(version: Version) {
+    match (max_http_version(), version) {
+        (Version::HTTP_3, _) => {}
+        (Version::HTTP_2, Version::HTTP_2 | Version::HTTP_11 | Version::HTTP_10 | Version::HTTP_09) => {}
+        (Version::HTTP_11, Version::HTTP_11 | Version::HTTP_10 | Version::HTTP_09) => {}
+        (Version::HTTP_10, Version::HTTP_10 | Version::HTTP_09) => {}
+        (Version::HTTP_09, Version::HTTP_09) => {}
+        _ => panic!("http version: {version:?} is not compat with crate feature setup."),
     }
 }
 

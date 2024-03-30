@@ -14,7 +14,7 @@ use xitca_io::io::{AsyncIo, Interest};
 use super::{
     body::ResponseBody,
     bytes::{Buf, Bytes, BytesMut},
-    connection::Connection,
+    connection::ConnectionExclusive,
     error::{Error, ErrorResponse},
     http::StatusCode,
     tunnel::{Leak, Tunnel, TunnelRequest},
@@ -92,7 +92,7 @@ where
 
         let inner = self.get_mut();
 
-        let _io: &mut Connection = match inner.body {
+        let _io: &mut ConnectionExclusive = match inner.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => body.conn_mut(),
             #[cfg(feature = "http1")]
@@ -170,7 +170,7 @@ const _: () = {
 
     impl AsyncIo for HttpTunnel<'_> {
         fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
-            let conn: &Connection = match self.body {
+            let conn: &ConnectionExclusive = match self.body {
                 ResponseBody::H1(ref body) => body.conn(),
                 ResponseBody::H1Owned(ref body) => body.conn(),
                 _ => unimplemented!("AsyncIo through HttpTunnel only supports http/1"),

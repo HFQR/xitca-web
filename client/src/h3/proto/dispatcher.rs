@@ -13,21 +13,19 @@ use crate::{
     h3::{Connection, Error},
     http::{
         header::{HeaderValue, CONTENT_LENGTH, DATE},
-        Method, Request, Response, Version,
+        Method, Request, Response,
     },
 };
 
 pub(crate) async fn send<B, E>(
     stream: &mut Connection,
     date: DateTimeHandle<'_>,
-    mut req: Request<B>,
+    req: Request<B>,
 ) -> Result<Response<ResponseBody<'static>>, Error>
 where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
-    *req.version_mut() = Version::HTTP_3;
-
     let (parts, body) = req.into_parts();
     let mut req = Request::from_parts(parts, ());
 
@@ -90,8 +88,23 @@ where
     Ok(res)
 }
 
-pub(crate) async fn connect(client: &Endpoint, addr: &SocketAddr, hostname: &str) -> Result<Connection, Error> {
-    let conn = client.connect(*addr, hostname)?.await?;
+pub(crate) async fn connect(
+    endpoint: &Endpoint,
+    addrs: impl Iterator<Item = SocketAddr>,
+    hostname: &str,
+) -> Result<Connection, Error> {
+    let mut err = None;
+    for addr in addrs {
+        match _connect(endpoint, addr, hostname).await {
+            Ok(connection) => return Ok(connection),
+            Err(e) => err = Some(e),
+        }
+    }
+    Err(err.unwrap())
+}
+
+async fn _connect(client: &Endpoint, addr: SocketAddr, hostname: &str) -> Result<Connection, Error> {
+    let conn = client.connect(addr, hostname)?.await?;
 
     let (mut task, conn) = h3::client::new(h3_quinn::Connection::new(conn)).await?;
 
