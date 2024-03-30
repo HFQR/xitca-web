@@ -12,7 +12,7 @@ use xitca_http::{
     h1,
     http::{
         header::{self, HeaderValue, CONNECTION},
-        Method, Request, RequestExt, Response,
+        Method, Request, RequestExt, Response, Version,
     },
 };
 use xitca_service::fn_service;
@@ -27,7 +27,7 @@ async fn h1_get() -> Result<(), Error> {
     let c = Client::new();
 
     for _ in 0..3 {
-        let mut res = c.get(&server_url)?.send().await?;
+        let mut res = c.get(&server_url)?.version(Version::HTTP_11).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;
@@ -50,7 +50,7 @@ async fn h1_head() -> Result<(), Error> {
     let c = Client::new();
 
     for _ in 0..3 {
-        let mut res = c.head(&server_url)?.send().await?;
+        let mut res = c.head(&server_url)?.version(Version::HTTP_11).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;
@@ -79,7 +79,7 @@ async fn h1_post() -> Result<(), Error> {
         }
         let body_len = body.len();
 
-        let mut res = c.post(&server_url)?.text(body).send().await?;
+        let mut res = c.post(&server_url)?.version(Version::HTTP_11).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.limit::<{ 12 * 1024 }>().string().await?;
@@ -107,7 +107,7 @@ async fn h1_drop_body_read() -> Result<(), Error> {
             body.extend_from_slice(b"Hello,World!");
         }
 
-        let mut res = c.post(&server_url)?.text(body).send().await?;
+        let mut res = c.post(&server_url)?.version(Version::HTTP_11).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(res.can_close_connection());
     }
@@ -133,7 +133,7 @@ async fn h1_partial_body_read() -> Result<(), Error> {
             body.extend_from_slice(b"Hello,World!");
         }
 
-        let mut res = c.post(&server_url)?.text(body).send().await?;
+        let mut res = c.post(&server_url)?.version(Version::HTTP_11).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(res.can_close_connection());
     }
@@ -153,7 +153,7 @@ async fn h1_close_connection() -> Result<(), Error> {
 
     let c = Client::new();
 
-    let mut res = c.get(&server_url)?.send().await?;
+    let mut res = c.get(&server_url)?.version(Version::HTTP_11).send().await?;
     assert_eq!(res.status().as_u16(), 200);
     assert!(res.can_close_connection());
 
@@ -174,7 +174,7 @@ async fn h1_request_too_large() -> Result<(), Error> {
 
     let c = Client::new();
 
-    let mut req = c.get(&server_url)?;
+    let mut req = c.get(&server_url)?.version(Version::HTTP_11);
 
     let body = vec![*b"H".first().unwrap(); 512 * 1024];
     req.headers_mut()
@@ -184,7 +184,7 @@ async fn h1_request_too_large() -> Result<(), Error> {
     assert_eq!(res.status().as_u16(), 200);
     let _ = res.body().await;
 
-    let mut req = c.get(&server_url)?;
+    let mut req = c.get(&server_url)?.version(Version::HTTP_11);
 
     let body = vec![*b"H".first().unwrap(); 1024 * 1024];
     req.headers_mut()
