@@ -19,58 +19,29 @@ use crate::{tls::stream::TlsStream, uri::Uri};
 
 #[cfg(feature = "http1")]
 /// A convince type alias for typing connection without interacting with pool.
-pub type ConnectionWithKey<'a> = crate::pool::Conn<'a, ConnectionKey, Connection>;
+pub type H1ConnectionWithKey<'a> = crate::pool::exclusive::Conn<'a, ConnectionKey, ConnectionExclusive>;
 
 #[cfg(feature = "http1")]
 /// A convince type alias for typing connection without interacting with pool.
-pub type ConnectionWithoutKey = crate::pool::PooledConn<Connection>;
+pub type H1ConnectionWithoutKey = crate::pool::exclusive::PooledConn<ConnectionExclusive>;
 
-/// Connection type branched into different HTTP version/layer.
+/// exclusive connection for http1 and in certain case they can be upgraded to [ConnectionShared]
 #[allow(clippy::large_enum_variant)]
 #[non_exhaustive]
-pub enum Connection {
+pub enum ConnectionExclusive {
     Tcp(TcpStream),
     Tls(TlsStream),
     #[cfg(unix)]
     Unix(UnixStream),
-    #[cfg(feature = "http2")]
-    H2(crate::h2::Connection),
-    #[cfg(feature = "http3")]
-    H3(crate::h3::Connection),
 }
 
-impl AsyncIo for Connection {
-    fn ready(&self, interest: Interest) -> impl std::future::Future<Output = io::Result<Ready>> + Send {
-        // AsyncIo::ready must be producing Send future and with reference as &Connection as self
-        // the Sync trait bound is needed. h2 and h3 Connections are not Sync therefore a type conversion
-        // is necessary.
-        // TODO: consider make the type public with background conversion when it's popped from/pushed back
-        // to connection pool.
-        enum ConnectionSync<'a> {
-            Tcp(&'a TcpStream),
-            Tls(&'a TlsStream),
+impl AsyncIo for ConnectionExclusive {
+    async fn ready(&self, interest: Interest) -> io::Result<Ready> {
+        match self {
+            Self::Tcp(ref io) => io.ready(interest).await,
+            Self::Tls(ref io) => io.ready(interest).await,
             #[cfg(unix)]
-            Unix(&'a UnixStream),
-        }
-
-        let conn = match self {
-            Self::Tcp(ref io) => ConnectionSync::Tcp(io),
-            Self::Tls(ref io) => ConnectionSync::Tls(io),
-            #[cfg(unix)]
-            Self::Unix(ref io) => ConnectionSync::Unix(io),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!(),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!(),
-        };
-
-        async move {
-            match conn {
-                ConnectionSync::Tcp(io) => io.ready(interest).await,
-                ConnectionSync::Tls(io) => io.ready(interest).await,
-                #[cfg(unix)]
-                ConnectionSync::Unix(io) => io.ready(interest).await,
-            }
+            Self::Unix(ref io) => io.ready(interest).await,
         }
     }
 
@@ -80,10 +51,6 @@ impl AsyncIo for Connection {
             Self::Tls(ref io) => io.poll_ready(interest, cx),
             #[cfg(unix)]
             Self::Unix(ref io) => io.poll_ready(interest, cx),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!(),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!(),
         }
     }
 
@@ -93,10 +60,6 @@ impl AsyncIo for Connection {
             Self::Tls(ref io) => io.is_vectored_write(),
             #[cfg(unix)]
             Self::Unix(ref io) => io.is_vectored_write(),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!(),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!(),
         }
     }
 
@@ -106,40 +69,28 @@ impl AsyncIo for Connection {
             Self::Tls(io) => Pin::new(io).poll_shutdown(cx),
             #[cfg(unix)]
             Self::Unix(io) => Pin::new(io).poll_shutdown(cx),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!(),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!(),
         }
     }
 }
 
-impl io::Read for Connection {
+impl io::Read for ConnectionExclusive {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             Self::Tcp(ref mut io) => io.read(buf),
             Self::Tls(ref mut io) => io.read(buf),
             #[cfg(unix)]
             Self::Unix(ref mut io) => io.read(buf),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!(),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!(),
         }
     }
 }
 
-impl io::Write for Connection {
+impl io::Write for ConnectionExclusive {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
             Self::Tcp(ref mut io) => io.write(buf),
             Self::Tls(ref mut io) => io.write(buf),
             #[cfg(unix)]
             Self::Unix(ref mut io) => io.write(buf),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!(),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!(),
         }
     }
 
@@ -149,44 +100,50 @@ impl io::Write for Connection {
             Self::Tls(ref mut io) => io.flush(),
             #[cfg(unix)]
             Self::Unix(ref mut io) => io.flush(),
-            #[cfg(feature = "http2")]
-            Self::H2(_) => unimplemented!(),
-            #[cfg(feature = "http3")]
-            Self::H3(_) => unimplemented!(),
         }
     }
 }
 
-impl From<TcpStream> for Connection {
+impl From<TcpStream> for ConnectionExclusive {
     fn from(tcp: TcpStream) -> Self {
         Self::Tcp(tcp)
     }
 }
 
-impl From<TlsStream> for Connection {
+impl From<TlsStream> for ConnectionExclusive {
     fn from(io: TlsStream) -> Self {
         Self::Tls(io)
     }
 }
 
 #[cfg(unix)]
-impl From<UnixStream> for Connection {
+impl From<UnixStream> for ConnectionExclusive {
     fn from(unix: UnixStream) -> Self {
         Self::Unix(unix)
     }
 }
 
+/// high level shared connection that support multiplexing over single socket
+/// used for http2 and http3
+#[derive(Clone)]
+pub enum ConnectionShared {
+    #[cfg(feature = "http2")]
+    H2(crate::h2::Connection),
+    #[cfg(feature = "http3")]
+    H3(crate::h3::Connection),
+}
+
 #[cfg(feature = "http2")]
-impl From<crate::h2::Connection> for Connection {
-    fn from(connection: crate::h2::Connection) -> Self {
-        Self::H2(connection)
+impl From<crate::h2::Connection> for ConnectionShared {
+    fn from(conn: crate::h2::Connection) -> Self {
+        Self::H2(conn)
     }
 }
 
 #[cfg(feature = "http3")]
-impl From<crate::h3::Connection> for Connection {
-    fn from(connection: crate::h3::Connection) -> Self {
-        Self::H3(connection)
+impl From<crate::h3::Connection> for ConnectionShared {
+    fn from(conn: crate::h3::Connection) -> Self {
+        Self::H3(conn)
     }
 }
 
@@ -227,38 +184,6 @@ impl From<&Uri<'_>> for ConnectionKey {
                 authority: uri.authority().unwrap().clone(),
                 path_and_query: uri.path_and_query().unwrap().clone(),
             }),
-        }
-    }
-}
-
-#[doc(hidden)]
-/// Trait for multiplex connection.
-/// HTTP2 and HTTP3 connections are supposed to be multiplexed on single TCP connection.
-pub trait Multiplex {
-    /// Get a ownership from mut reference.
-    ///
-    /// # Panics:
-    /// When called on connection type that are not multiplexable.
-    fn multiplex(&mut self) -> Self;
-
-    /// Return true for connection that can be multiplexed.
-    fn is_multiplexable(&self) -> bool;
-}
-
-impl Multiplex for Connection {
-    fn multiplex(&mut self) -> Self {
-        match *self {
-            #[cfg(feature = "http2")]
-            Self::H2(ref conn) => Self::H2(conn.clone()),
-            _ => unreachable!("Connection is not multiplexable"),
-        }
-    }
-
-    fn is_multiplexable(&self) -> bool {
-        match *self {
-            #[cfg(feature = "http2")]
-            Self::H2(_) => true,
-            _ => false,
         }
     }
 }

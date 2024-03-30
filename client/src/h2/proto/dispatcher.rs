@@ -9,7 +9,6 @@ use xitca_http::{
         const_header_name::PROTOCOL,
         header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING, UPGRADE},
         method::Method,
-        version::Version,
     },
 };
 use xitca_io::io::{AsyncIo, PollIoAdapter};
@@ -24,14 +23,12 @@ use crate::{
 pub(crate) async fn send<B, E>(
     stream: &mut Connection,
     date: DateTimeHandle<'_>,
-    mut req: http::Request<B>,
+    req: http::Request<B>,
 ) -> Result<http::Response<ResponseBody<'static>>, Error>
 where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
 {
-    *req.version_mut() = Version::HTTP_2;
-
     let (parts, body) = req.into_parts();
     let mut req = http::Request::from_parts(parts, ());
 

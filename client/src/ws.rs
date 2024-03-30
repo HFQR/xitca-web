@@ -15,7 +15,7 @@ use http_ws::{Codec, RequestStream, WsError};
 use super::{
     body::ResponseBody,
     bytes::{Buf, BytesMut},
-    connection::Connection,
+    connection::ConnectionExclusive,
     error::{Error, ErrorResponse},
     http::{StatusCode, Version},
     tunnel::{Leak, Tunnel, TunnelRequest, TunnelSink, TunnelStream},
@@ -128,7 +128,7 @@ impl Sink<Message> for WebSocketTunnel<'_> {
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
 
-        let _io: &mut Connection = match inner.recv_stream.inner_mut() {
+        let _io: &mut ConnectionExclusive = match inner.recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
             ResponseBody::H1(body) => body.conn_mut(),
             #[cfg(feature = "http1")]

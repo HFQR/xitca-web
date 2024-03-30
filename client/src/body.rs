@@ -20,9 +20,9 @@ use crate::bytes::Bytes;
 #[allow(clippy::large_enum_variant)]
 pub enum ResponseBody<'c> {
     #[cfg(feature = "http1")]
-    H1(crate::h1::body::ResponseBody<crate::connection::ConnectionWithKey<'c>>),
+    H1(crate::h1::body::ResponseBody<crate::connection::H1ConnectionWithKey<'c>>),
     #[cfg(feature = "http1")]
-    H1Owned(crate::h1::body::ResponseBody<crate::connection::ConnectionWithoutKey>),
+    H1Owned(crate::h1::body::ResponseBody<crate::connection::H1ConnectionWithoutKey>),
     #[cfg(feature = "http2")]
     H2(crate::h2::body::ResponseBody),
     #[cfg(feature = "http3")]

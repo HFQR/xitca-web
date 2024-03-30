@@ -1,9 +1,14 @@
 use core::{future::Future, pin::Pin, time::Duration};
 
-use tokio::time::Instant;
-
 use crate::{
-    body::BoxBody, client::Client, connect::Connect, error::Error, http::Request, response::Response, uri::Uri,
+    body::BoxBody,
+    client::Client,
+    connect::Connect,
+    error::Error,
+    http::{Request, Version},
+    pool::{exclusive, shared},
+    response::Response,
+    uri::Uri,
 };
 
 type BoxFuture<'f, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'f>>;
@@ -78,128 +83,163 @@ pub(crate) fn base_service() -> HttpService {
 
         async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
-            use crate::{connection::Connection, error::TimeoutError, http::Version, timeout::Timeout};
+            use crate::{
+                error::{FeatureError, TimeoutError},
+                timeout::Timeout,
+            };
 
             let ServiceRequest { req, client, timeout } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
-            // Try to grab a connection from pool.
-            let mut conn = client.pool.acquire(&uri).await?;
+            // temporary version to record possible version downgrade/upgrade happens when making connections.
+            // alpn protocol and alt-svc header are possible source of version change.
+            #[allow(unused_mut)]
+            let mut version = req.version();
 
-            let conn_is_none = conn.is_none();
-
-            // setup timer according to outcome and timeout configs.
-            let dur = if conn_is_none {
-                client.timeout_config.resolve_timeout
-            } else {
-                timeout
-            };
-
-            // heap allocate timer so it can be moved to Response type afterwards
-            let mut timer = Box::pin(tokio::time::sleep(dur));
-
-            // Nothing in the pool. construct new connection and add it to Conn.
-            if conn_is_none {
-                let mut connect = Connect::new(uri);
-                let c = client.make_connection(&mut connect, &mut timer, req.version()).await?;
-                conn.add(c);
-            }
+            let mut connect = Connect::new(uri);
 
             let _date = client.date_service.handle();
 
-            timer
-                .as_mut()
-                .reset(Instant::now() + client.timeout_config.request_timeout);
+            loop {
+                match version {
+                    Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect.uri).await {
+                        shared::AcquireOutput::Conn(mut _conn) => {
+                            let mut _timer = Box::pin(tokio::time::sleep(timeout));
+                            *req.version_mut() = version;
+                            #[allow(unreachable_code)]
+                            return match _conn {
+                                #[cfg(feature = "http2")]
+                                crate::connection::ConnectionShared::H2(ref mut conn) => {
+                                    let res = crate::h2::proto::send(conn, _date, core::mem::take(req))
+                                        .timeout(_timer.as_mut())
+                                        .await
+                                        .map_err(|_| TimeoutError::Request)??;
 
-            let _res = match *conn {
-                #[cfg(feature = "http1")]
-                Connection::Tcp(ref mut stream) => {
-                    if matches!(req.version(), Version::HTTP_2 | Version::HTTP_3) {
-                        *req.version_mut() = Version::HTTP_11
-                    }
-                    crate::h1::proto::send(stream, _date, req).timeout(timer.as_mut()).await
-                }
-                #[cfg(feature = "http1")]
-                Connection::Tls(ref mut stream) => {
-                    if matches!(req.version(), Version::HTTP_2 | Version::HTTP_3) {
-                        *req.version_mut() = Version::HTTP_11
-                    }
-                    crate::h1::proto::send(stream, _date, req).timeout(timer.as_mut()).await
-                }
-                #[cfg(feature = "http1")]
-                #[cfg(unix)]
-                Connection::Unix(ref mut stream) => {
-                    crate::h1::proto::send(stream, _date, req).timeout(timer.as_mut()).await
-                }
-                #[cfg(feature = "http2")]
-                Connection::H2(ref mut stream) => {
-                    *req.version_mut() = Version::HTTP_2;
+                                    let timeout = client.timeout_config.response_timeout;
+                                    Ok(Response::new(res, _timer, timeout))
+                                }
+                                #[cfg(feature = "http3")]
+                                crate::connection::ConnectionShared::H3(ref mut conn) => {
+                                    let res = crate::h3::proto::send(conn, _date, core::mem::take(req))
+                                        .timeout(_timer.as_mut())
+                                        .await
+                                        .map_err(|_| TimeoutError::Request)??;
 
-                    return match crate::h2::proto::send(stream, _date, core::mem::take(req))
-                        .timeout(timer.as_mut())
-                        .await
-                    {
-                        Ok(Ok(res)) => {
-                            let timeout = client.timeout_config.response_timeout;
-                            Ok(Response::new(res, timer, timeout))
+                                    let timeout = client.timeout_config.response_timeout;
+                                    Ok(Response::new(res, _timer, timeout))
+                                }
+                            };
                         }
-                        Ok(Err(e)) => {
-                            conn.destroy_on_drop();
-                            Err(e.into())
-                        }
-                        Err(_) => {
-                            conn.destroy_on_drop();
-                            Err(TimeoutError::Request.into())
-                        }
-                    };
-                }
-                #[cfg(feature = "http3")]
-                Connection::H3(ref mut c) => {
-                    *req.version_mut() = Version::HTTP_3;
+                        shared::AcquireOutput::Spawner(_spawner) => match version {
+                            Version::HTTP_3 => {
+                                #[cfg(feature = "http3")]
+                                {
+                                    let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
 
-                    return match crate::h3::proto::send(c, _date, core::mem::take(req))
-                        .timeout(timer.as_mut())
-                        .await
-                    {
-                        Ok(Ok(res)) => {
-                            let timeout = client.timeout_config.response_timeout;
-                            Ok(Response::new(res, timer, timeout))
-                        }
-                        Ok(Err(e)) => {
-                            conn.destroy_on_drop();
-                            Err(e.into())
-                        }
-                        Err(_) => {
-                            conn.destroy_on_drop();
-                            Err(TimeoutError::Request.into())
-                        }
-                    };
-                }
-                #[cfg(not(feature = "http1"))]
-                _ => panic!("http1 feature is not enabled in Cargo.toml"),
-            };
+                                    Service::call(&client.resolver, &mut connect)
+                                        .timeout(timer.as_mut())
+                                        .await
+                                        .map_err(|_| TimeoutError::Resolve)??;
+                                    timer
+                                        .as_mut()
+                                        .reset(tokio::time::Instant::now() + client.timeout_config.connect_timeout);
 
-            #[cfg(feature = "http1")]
-            match _res {
-                Ok(Ok((res, buf, decoder, is_close))) => {
-                    if is_close {
-                        conn.destroy_on_drop();
-                    }
+                                    if let Ok(Ok(conn)) = crate::h3::proto::connect(
+                                        &client.h3_client,
+                                        connect.addrs(),
+                                        connect.hostname(),
+                                    )
+                                    .timeout(timer.as_mut())
+                                    .await
+                                    {
+                                        _spawner.spawned(conn.into());
+                                    } else {
+                                        version = Version::HTTP_2;
+                                    }
+                                }
 
-                    let body = crate::h1::body::ResponseBody::new(conn, buf, decoder);
-                    let res = res.map(|_| crate::body::ResponseBody::H1(body));
-                    let timeout = client.timeout_config.response_timeout;
+                                #[cfg(not(feature = "http3"))]
+                                {
+                                    return Err(FeatureError::Http3NotEnabled.into());
+                                }
+                            }
+                            Version::HTTP_2 => {
+                                #[cfg(feature = "http2")]
+                                {
+                                    let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
+                                    let (conn, alpn_version) =
+                                        client.make_exclusive(&mut connect, &mut timer, Version::HTTP_2).await?;
 
-                    Ok(Response::new(res, timer, timeout))
-                }
-                Ok(Err(e)) => {
-                    conn.destroy_on_drop();
-                    Err(e.into())
-                }
-                Err(_) => {
-                    conn.destroy_on_drop();
-                    Err(TimeoutError::Request.into())
+                                    if alpn_version == Version::HTTP_2 {
+                                        let conn = crate::h2::proto::handshake(conn).await?;
+                                        _spawner.spawned(conn.into());
+                                    } else {
+                                        #[cfg(not(feature = "http1"))]
+                                        {
+                                            return Err(FeatureError::Http1NotEnabled.into());
+                                        }
+
+                                        #[cfg(feature = "http1")]
+                                        {
+                                            client.exclusive_pool.try_add(&connect.uri, conn);
+                                            // downgrade request version to what alpn protocol suggested from make_exclusive.
+                                            version = alpn_version;
+                                        }
+                                    }
+                                }
+
+                                #[cfg(not(feature = "http2"))]
+                                {
+                                    return Err(FeatureError::Http2NotEnabled.into());
+                                }
+                            }
+                            _ => unreachable!("outer match didn't  handle version correctly."),
+                        },
+                    },
+                    version => match client.exclusive_pool.acquire(&connect.uri).await {
+                        exclusive::AcquireOutput::Conn(mut _conn) => {
+                            *req.version_mut() = version;
+
+                            #[cfg(feature = "http1")]
+                            {
+                                let mut timer = Box::pin(tokio::time::sleep(timeout));
+                                let res = crate::h1::proto::send(&mut *_conn, _date, req)
+                                    .timeout(timer.as_mut())
+                                    .await;
+
+                                return match res {
+                                    Ok(Ok((res, buf, decoder, is_close))) => {
+                                        if is_close {
+                                            _conn.destroy_on_drop();
+                                        }
+                                        let body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
+                                        let res = res.map(|_| crate::body::ResponseBody::H1(body));
+                                        let timeout = client.timeout_config.response_timeout;
+                                        Ok(Response::new(res, timer, timeout))
+                                    }
+                                    Ok(Err(e)) => {
+                                        _conn.destroy_on_drop();
+                                        Err(e.into())
+                                    }
+                                    Err(_) => {
+                                        _conn.destroy_on_drop();
+                                        Err(TimeoutError::Request.into())
+                                    }
+                                };
+                            }
+
+                            #[cfg(not(feature = "http1"))]
+                            {
+                                return Err(FeatureError::Http1NotEnabled.into());
+                            }
+                        }
+                        exclusive::AcquireOutput::Spawner(_spawner) => {
+                            let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
+                            let (conn, _) = client.make_exclusive(&mut connect, &mut timer, version).await?;
+                            _spawner.spawned(conn);
+                        }
+                    },
                 }
             }
         }

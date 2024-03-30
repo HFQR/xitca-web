@@ -216,3 +216,29 @@ impl From<ErrorResponse> for Error {
         Self::Std(Box::new(e))
     }
 }
+
+#[derive(Debug)]
+pub enum FeatureError {
+    Http1NotEnabled,
+    Http2NotEnabled,
+    Http3NotEnabled,
+}
+
+impl fmt::Display for FeatureError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Http1NotEnabled => f.write_str("http1")?,
+            Self::Http2NotEnabled => f.write_str("http2")?,
+            Self::Http3NotEnabled => f.write_str("http3")?,
+        };
+        f.write_str(" crate feature is not enabled")
+    }
+}
+
+impl error::Error for FeatureError {}
+
+impl From<FeatureError> for Error {
+    fn from(e: FeatureError) -> Self {
+        Self::Std(Box::new(e))
+    }
+}
