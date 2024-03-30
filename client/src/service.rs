@@ -83,10 +83,7 @@ pub(crate) fn base_service() -> HttpService {
 
         async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
-            use crate::{
-                error::{FeatureError, TimeoutError},
-                timeout::Timeout,
-            };
+            use crate::{error::TimeoutError, timeout::Timeout};
 
             let ServiceRequest { req, client, timeout } = req;
 
@@ -161,7 +158,7 @@ pub(crate) fn base_service() -> HttpService {
 
                                 #[cfg(not(feature = "http3"))]
                                 {
-                                    return Err(FeatureError::Http3NotEnabled.into());
+                                    return Err(crate::error::FeatureError::Http3NotEnabled.into());
                                 }
                             }
                             Version::HTTP_2 => {
@@ -177,7 +174,7 @@ pub(crate) fn base_service() -> HttpService {
                                     } else {
                                         #[cfg(not(feature = "http1"))]
                                         {
-                                            return Err(FeatureError::Http1NotEnabled.into());
+                                            return Err(crate::error::FeatureError::Http1NotEnabled.into());
                                         }
 
                                         #[cfg(feature = "http1")]
@@ -191,7 +188,7 @@ pub(crate) fn base_service() -> HttpService {
 
                                 #[cfg(not(feature = "http2"))]
                                 {
-                                    return Err(FeatureError::Http2NotEnabled.into());
+                                    return Err(crate::error::FeatureError::Http2NotEnabled.into());
                                 }
                             }
                             _ => unreachable!("outer match didn't  handle version correctly."),
@@ -231,7 +228,7 @@ pub(crate) fn base_service() -> HttpService {
 
                             #[cfg(not(feature = "http1"))]
                             {
-                                return Err(FeatureError::Http1NotEnabled.into());
+                                return Err(crate::error::FeatureError::Http1NotEnabled.into());
                             }
                         }
                         exclusive::AcquireOutput::Spawner(_spawner) => {
