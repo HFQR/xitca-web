@@ -96,7 +96,7 @@ pub(crate) async fn connect(
     let mut err = None;
     for addr in addrs {
         match _connect(endpoint, addr, hostname).await {
-            Ok(connection) => return Ok(connection.into()),
+            Ok(connection) => return Ok(connection),
             Err(e) => err = Some(e),
         }
     }

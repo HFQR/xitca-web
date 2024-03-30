@@ -93,16 +93,14 @@ where
 {
     pub(crate) fn spawned(mut self, conn: C) {
         self.fulfilled = true;
-        if let Some(state) = self
+        if let Some(Connection::Spawning(notify)) = self
             .pool
             .conns
             .lock()
             .unwrap()
             .insert(self.key.clone(), Connection::Conn(conn))
         {
-            if let Connection::Spawning(notify) = state {
-                notify.notify_waiters();
-            }
+            notify.notify_waiters();
         }
     }
 }
