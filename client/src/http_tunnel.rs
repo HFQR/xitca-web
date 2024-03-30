@@ -218,7 +218,6 @@ const _: () = {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             match self.body {
                 ResponseBody::H1(ref mut body) => body.conn_mut().write(buf),
-
                 ResponseBody::H1Owned(ref mut body) => body.conn_mut().write(buf),
                 _ => unimplemented!("Write through HttpTunnel only supports http/1"),
             }
@@ -227,7 +226,6 @@ const _: () = {
         fn flush(&mut self) -> io::Result<()> {
             match self.body {
                 ResponseBody::H1(ref mut body) => body.conn_mut().flush(),
-
                 ResponseBody::H1Owned(ref mut body) => body.conn_mut().flush(),
                 _ => unimplemented!("Write through HttpTunnel only supports http/1"),
             }
