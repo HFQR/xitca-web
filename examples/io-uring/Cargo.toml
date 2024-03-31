@@ -9,6 +9,6 @@ xitca-http = { version = "0.4", features = ["io-uring", "router", "rustls-uring"
 xitca-server = { version = "0.2", features = ["io-uring"] }
 xitca-service = "0.1"
 
-rcgen = "0.12.0"
+rcgen = "0.13"
 rustls = "0.23"
 rustls-pki-types = "1"
