@@ -1,4 +1,6 @@
-# unreleased 0.4.1
+# unreleased
+
+# 0.4.1
 ## Fix
 - fix panic when using `rustls/ring` feature together with `xitca-web/rustls`
 
