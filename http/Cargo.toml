@@ -21,9 +21,9 @@ http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
 # openssl as server side tls.
 openssl = ["xitca-tls/openssl", "runtime"]
 # rustls as server side tls.
-rustls = ["xitca-tls/rustls", "runtime"]
+rustls = ["xitca-tls/rustls-no-crypto", "runtime"]
 # rustls as server side tls.
-rustls-uring = ["rustls", "xitca-tls/rustls-uring", "xitca-io/runtime-uring"]
+rustls-uring = ["rustls", "xitca-tls/rustls-uring-no-crypto", "xitca-io/runtime-uring"]
 # rustls as server side tls.
 native-tls = ["dep:native-tls", "runtime"]
 # async runtime feature.
@@ -48,7 +48,7 @@ tracing = { version = "0.1.40", default-features = false }
 native-tls = { version = "0.2.7", features = ["alpn"], optional = true }
 
 # tls support shared
-xitca-tls = { version = "0.2.2", optional = true }
+xitca-tls = { version = "0.2.3", optional = true }
 
 # http/1 support
 httparse = { version = "1.8", optional = true }

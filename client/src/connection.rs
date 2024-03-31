@@ -15,7 +15,7 @@ use xitca_io::{
 #[cfg(unix)]
 use xitca_io::net::UnixStream;
 
-use crate::{tls::stream::TlsStream, uri::Uri};
+use super::{tls::TlsStream, uri::Uri};
 
 #[cfg(feature = "http1")]
 /// A convince type alias for typing connection without interacting with pool.

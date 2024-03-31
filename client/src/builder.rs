@@ -15,7 +15,7 @@ use crate::{
     timeout::TimeoutConfig,
     tls::{
         connector::{self, Connector},
-        stream::TlsStream,
+        TlsStream,
     },
 };
 

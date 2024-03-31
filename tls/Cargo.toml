@@ -1,6 +1,6 @@
 [package]
 name = "xitca-tls"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 license = "Apache-2.0"
 description = "tls utility for xitca"
@@ -11,12 +11,19 @@ readme= "README.md"
 
 [features]
 openssl = ["dep:openssl"]
+# rustls with no default crypto provider
+rustls-no-crypto = ["rustls_crate"]
+# rustls with aws-lc as crypto provider (default provider from `rustls` crate)
 rustls = ["rustls_crate/aws-lc-rs"]
+# rustls with ring as crypto provider
 rustls-ring-crypto = ["rustls_crate/ring"]
-rustls-uring = ["rustls_crate/default", "xitca-io/runtime-uring"]
+# rustls with no crypto provider for xitca-io io-uring traits
+rustls-uring-no-crypto = ["rustls_crate", "xitca-io/runtime-uring"]
+# rustls with aws-lc as crypto provider for xitca-io io-uring trait (default provider from `rustls` crate)
+rustls-uring = ["rustls_crate/aws-lc-rs", "xitca-io/runtime-uring"]
 
 [dependencies]
 xitca-io = { version = "0.2.1", features = ["runtime"] }
 
-rustls_crate = { package = "rustls", version = "0.23", default-features = false, features = ["logging", "std", "tls12"], optional = true }
 openssl = { version = "0.10", optional = true }
+rustls_crate = { package = "rustls", version = "0.23", default-features = false, features = ["logging", "std", "tls12"], optional = true }
