@@ -1,4 +1,9 @@
-# unreleased
+# unreleased 0.4.1
+## Fix
+- fix panic when using `rustls/ring` feature together with `xitca-web/rustls`
+
+## Change
+- remove direct dependent on `openssl` and `rustls` crates
 
 # 0.4.0
 ## Add

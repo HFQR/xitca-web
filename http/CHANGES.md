@@ -1,7 +1,11 @@
 # unreleased 0.4.1
+## Fix
+- fix panic when using `rustls/ring` feature together with `xitca-http/rustls`
+- fix panic when using `rustls/ring` feature together with `xitca-http/rustls-uring`
+
 ## Change
-- update `xitca-io` to `0.2.1`.
-- update `xitca-tls` to `0.2.3`.
+- update `xitca-io` to `0.2.1`
+- update `xitca-tls` to `0.2.3`
 
 # 0.4.0
 ## Add
