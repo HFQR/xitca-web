@@ -68,7 +68,7 @@ pub use self::request::RequestBuilder;
 pub use self::response::Response;
 pub use self::service::{HttpService, Service, ServiceRequest};
 pub use self::timeout::TimeoutConfig;
-pub use self::tls::{connector::Connector, stream::TlsStream};
+pub use self::tls::{connector::Connector, TlsStream};
 
 // re-export http crate.
 pub use xitca_http::http;

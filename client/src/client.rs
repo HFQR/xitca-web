@@ -11,7 +11,7 @@ use crate::{
     connect::Connect,
     connection::{ConnectionExclusive, ConnectionKey, ConnectionShared},
     date::DateTimeService,
-    error::{Error, TimeoutError},
+    error::{Error, ResolveError, TimeoutError},
     http::{self, uri, Method, Version},
     http_tunnel::HttpTunnelRequest,
     pool,
@@ -316,7 +316,7 @@ impl Client {
     async fn make_tcp_inner(&self, connect: &Connect<'_>) -> Result<TcpStream, Error> {
         let mut iter = connect.addrs();
 
-        let mut addr = iter.next().ok_or(Error::Resolve)?;
+        let mut addr = iter.next().ok_or_else(|| ResolveError::new(connect.hostname()))?;
 
         // try to connect with all addresses resolved by dns resolver.
         // return the last error when all are fail to be connected.

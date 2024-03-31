@@ -10,9 +10,6 @@ pub enum Error {
     Io(io::Error),
     Std(Box<dyn error::Error + Send + Sync>),
     InvalidUri(InvalidUri),
-    Resolve,
-    Timeout(TimeoutError),
-    TlsNotEnabled,
     #[cfg(feature = "http1")]
     H1(crate::h1::Error),
     #[cfg(feature = "http2")]
@@ -95,9 +92,48 @@ pub enum TimeoutError {
     Response,
 }
 
+impl fmt::Display for TimeoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Resolve => f.write_str("dns look up timeout"),
+            Self::Connect => f.write_str("socket connect timeout"),
+            Self::TlsHandshake => f.write_str("tls handshake timeout"),
+            Self::Request => f.write_str("request sending timeout"),
+            Self::Response => f.write_str("response receiving timeout"),
+        }
+    }
+}
+
+impl error::Error for TimeoutError {}
+
 impl From<TimeoutError> for Error {
     fn from(e: TimeoutError) -> Self {
-        Self::Timeout(e)
+        Self::Std(Box::new(e))
+    }
+}
+
+#[derive(Debug)]
+pub struct ResolveError {
+    domain: String,
+}
+
+impl ResolveError {
+    pub(crate) fn new(domain: impl Into<String>) -> Self {
+        Self { domain: domain.into() }
+    }
+}
+
+impl fmt::Display for ResolveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "domain: {} can't be resolved to socket address", self.domain)
+    }
+}
+
+impl error::Error for ResolveError {}
+
+impl From<ResolveError> for Error {
+    fn from(e: ResolveError) -> Self {
+        Self::Std(Box::new(e))
     }
 }
 
@@ -222,6 +258,7 @@ pub enum FeatureError {
     Http1NotEnabled,
     Http2NotEnabled,
     Http3NotEnabled,
+    TlsNotEnabled,
 }
 
 impl fmt::Display for FeatureError {
@@ -230,6 +267,7 @@ impl fmt::Display for FeatureError {
             Self::Http1NotEnabled => f.write_str("http1")?,
             Self::Http2NotEnabled => f.write_str("http2")?,
             Self::Http3NotEnabled => f.write_str("http3")?,
+            Self::TlsNotEnabled => f.write_str("openssl or rustls")?,
         };
         f.write_str(" crate feature is not enabled")
     }

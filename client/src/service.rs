@@ -152,7 +152,15 @@ pub(crate) fn base_service() -> HttpService {
                                     {
                                         _spawner.spawned(conn.into());
                                     } else {
-                                        version = Version::HTTP_2;
+                                        #[cfg(feature = "http2")]
+                                        {
+                                            version = Version::HTTP_2;
+                                        }
+
+                                        #[cfg(not(feature = "http2"))]
+                                        {
+                                            version = Version::HTTP_11;
+                                        }
                                     }
                                 }
 

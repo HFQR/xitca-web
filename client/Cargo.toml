@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-# default feature includes http/1 clear text client.
+# default feature includes http/1 clear text client
 default = ["http1"]
-# http/1 clear text  client
+# http/1 clear text client
 http1 = ["httparse", "xitca-http/http1"]
 # http/2 client(tls enabled by default. see `dangerous` feature for clear text http/2)
 http2 = ["h2", "itoa", "xitca-http/http2"]
-# htt/3 client(tls always enabled with rustls)
+# http/3 client(tls always enabled with rustls)
 http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25"]
 # openssl as http/1 and http/2 tls handler.
 openssl = ["xitca-tls/openssl"]
@@ -24,7 +24,6 @@ compress = ["http-encoding"]
 json = ["serde", "serde_json"]
 # websocket support
 websocket = ["http-ws"]
-
 # feature for testing niche client side usage and correctness of server implemenation:
 # - http/2 clear text over plain tcp connection
 # - http/3 connection to server with self signed certificates.
@@ -57,7 +56,7 @@ async-stream = { version = "0.3", optional = true }
 itoa = { version = "1", optional = true }
 
 # tls shared
-xitca-tls = { version = "0.2.2", optional = true }
+xitca-tls = { version = "0.2.3", optional = true }
 
 # rustls, http3 and dangerous features shared
 webpki-roots = { version = "0.26", optional = true }

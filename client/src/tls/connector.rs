@@ -4,7 +4,7 @@ use crate::{
     service::{Service, ServiceDyn},
 };
 
-use super::stream::TlsStream;
+use super::TlsStream;
 
 /// Connector for tls connections.
 ///
@@ -23,7 +23,7 @@ pub(crate) fn nop() -> Connector {
         async fn call(&self, (_, _io): (&'n str, TlsStream)) -> Result<Self::Response, Self::Error> {
             #[cfg(not(feature = "dangerous"))]
             {
-                Err(Error::TlsNotEnabled)
+                Err(crate::error::FeatureError::TlsNotEnabled.into())
             }
 
             #[cfg(feature = "dangerous")]

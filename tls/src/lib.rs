@@ -1,6 +1,6 @@
 #[cfg(feature = "openssl")]
 pub mod openssl;
-#[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
+#[cfg(any(feature = "rustls", feature = "rustls-ring-crypto", feature = "rustls-no-crypto"))]
 pub mod rustls;
-#[cfg(feature = "rustls-uring")]
+#[cfg(any(feature = "rustls-uring", feature = "rustls-uring-no-crypto"))]
 pub mod rustls_uring;

@@ -1,5 +1,10 @@
 # unreleased
 
+# 0.2.3
+## Add
+- `rustls-no-crypto` feature
+- `rustls-uring-no-crypto` feature
+
 # 0.2.2
 ## Add
 - `rustls-ring-crypto` feature

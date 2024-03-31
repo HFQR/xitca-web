@@ -1,2 +1,3 @@
 pub(crate) mod connector;
-pub(crate) mod stream;
+
+pub type TlsStream = Box<dyn xitca_io::io::AsyncIoDyn + Send + Sync>;
