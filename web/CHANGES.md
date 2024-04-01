@@ -1,4 +1,7 @@
 # unreleased
+## Change
+- update `xitca-http` to `0.5.0`
+- update `xitca-server` to `0.3.0`
 
 # 0.4.1
 ## Fix

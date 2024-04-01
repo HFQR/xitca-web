@@ -1,6 +1,6 @@
 [package]
 name = "xitca-io"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "async network io types and traits"
@@ -15,8 +15,8 @@ default = []
 runtime = ["tokio"]
 # tokio-uring runtime support
 runtime-uring = ["tokio-uring"]
-# http/3 support
-http3 = ["quinn", "runtime"]
+# quic support
+quic = ["quinn", "runtime"]
 
 [dependencies]
 xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }

@@ -1,6 +1,6 @@
 [package]
 name = "xitca-http"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "http library for xitca"
@@ -17,7 +17,7 @@ http1 = ["httparse", "itoa", "runtime"]
 # http2 specific feature.
 http2 = ["h2", "fnv", "futures-util/alloc", "runtime", "slab"]
 # http3 specific feature.
-http3 = ["xitca-io/http3", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
+http3 = ["xitca-io/quic", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
 # openssl as server side tls.
 openssl = ["xitca-tls/openssl", "runtime"]
 # rustls as server side tls.
@@ -34,7 +34,7 @@ io-uring = ["xitca-io/runtime-uring", "tokio-uring"]
 router = ["xitca-router"]
 
 [dependencies]
-xitca-io = "0.2.1"
+xitca-io = "0.3.0"
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = { version = "0.1.1", features = ["bytes"] }
 
@@ -48,7 +48,7 @@ tracing = { version = "0.1.40", default-features = false }
 native-tls = { version = "0.2.7", features = ["alpn"], optional = true }
 
 # tls support shared
-xitca-tls = { version = "0.2.3", optional = true }
+xitca-tls = { version = "0.3.0", optional = true }
 
 # http/1 support
 httparse = { version = "1.8", optional = true }
@@ -78,7 +78,7 @@ socket2 = { version = "0.5.1", features = ["all"] }
 
 [dev-dependencies]
 criterion = "0.5"
-xitca-server = "0.2"
+xitca-server = "0.3"
 
 [[bench]]
 name = "h1_decode"

@@ -14,7 +14,7 @@ use ::h3::{
 };
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
-use xitca_io::net::UdpStream;
+use xitca_io::net::QuicStream;
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
@@ -28,7 +28,7 @@ use crate::{
 
 /// Http/3 dispatcher
 pub(crate) struct Dispatcher<'a, S, ReqB> {
-    io: UdpStream,
+    io: QuicStream,
     addr: SocketAddr,
     service: &'a S,
     _req_body: PhantomData<ReqB>,
@@ -44,7 +44,7 @@ where
 
     ReqB: From<RequestBody>,
 {
-    pub(crate) fn new(io: UdpStream, addr: SocketAddr, service: &'a S) -> Self {
+    pub(crate) fn new(io: QuicStream, addr: SocketAddr, service: &'a S) -> Self {
         Self {
             io,
             addr,

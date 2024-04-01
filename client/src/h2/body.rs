@@ -22,7 +22,7 @@ pub struct ResponseBody {
     /// When used by client [RequestBody] is used as part of response body.
     rx: RequestBody,
     // TODO: use new type and import from xitca_http?
-    tx: Tx,
+    pub(crate) tx: Tx,
     want_poll_cap: bool,
 }
 

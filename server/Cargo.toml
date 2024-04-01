@@ -1,6 +1,6 @@
 [package]
 name = "xitca-server"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "http server for xitca"
@@ -10,13 +10,13 @@ authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
 
 [features]
-# server implementation of http/3
-http3 = ["xitca-io/http3"]
+# server implementation of quic
+quic = ["xitca-io/quic"]
 # server implementation on tokio-uring runtime.
 io-uring = ["tokio-uring"]
 
 [dependencies]
-xitca-io = { version = "0.2.1", features = ["runtime"] }
+xitca-io = { version = "0.3.0", features = ["runtime"] }
 xitca-service = { version = "0.1", features = ["alloc"] }
 xitca-unsafe-collection = "0.1"
 

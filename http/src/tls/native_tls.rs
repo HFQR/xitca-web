@@ -69,7 +69,7 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;
     type Error = NativeTlsError;
 
-    async fn call(&self, io: St) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, mut io: St) -> Result<Self::Response, Self::Error> {
         let mut interest = Interest::READABLE;
 
         io.ready(interest).await?;
@@ -77,7 +77,7 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
         let mut res = self.acceptor.accept(io);
 
         loop {
-            let stream = match res {
+            let mut stream = match res {
                 Ok(io) => return Ok(TlsStream { io }),
                 Err(HandshakeError::WouldBlock(stream)) => {
                     interest = Interest::READABLE;
@@ -86,7 +86,7 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
                 Err(HandshakeError::Failure(e)) => return Err(e.into()),
             };
 
-            stream.get_ref().ready(interest).await?;
+            stream.get_mut().ready(interest).await?;
 
             res = stream.handshake();
         }
@@ -95,13 +95,13 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
 
 impl<S: AsyncIo> AsyncIo for TlsStream<S> {
     #[inline]
-    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
-        self.io.get_ref().ready(interest)
+    fn ready(&mut self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
+        self.io.get_mut().ready(interest)
     }
 
     #[inline]
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
-        self.io.get_ref().poll_ready(interest, cx)
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        self.io.get_mut().poll_ready(interest, cx)
     }
 
     fn is_vectored_write(&self) -> bool {

@@ -58,13 +58,13 @@ where
 
 impl<Io: AsyncIo> AsyncIo for TlsStream<Io> {
     #[inline]
-    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
-        self.io.get_ref().ready(interest)
+    fn ready(&mut self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
+        self.io.get_mut().ready(interest)
     }
 
     #[inline]
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
-        self.io.get_ref().poll_ready(interest, cx)
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        self.io.get_mut().poll_ready(interest, cx)
     }
 
     fn is_vectored_write(&self) -> bool {

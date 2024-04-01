@@ -15,7 +15,7 @@ quic = ["quinn", "quinn-proto", "rustls-pemfile", "rustls_0dot21"]
 io-uring = ["xitca-io/runtime-uring"]
 
 [dependencies]
-xitca-io = { version = "0.2.1", features = ["runtime"] }
+xitca-io = { version = "0.3.0", features = ["runtime"] }
 xitca-service = "0.1"
 xitca-unsafe-collection = { version = "0.1", features = ["bytes"] }
 

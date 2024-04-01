@@ -44,7 +44,7 @@ where
         .worker_threads(1)
         .server_threads(1)
         .disable_signal()
-        .listen::<_, _, Req>("test_server", lst, service)
+        .listen::<_, _, _, Req>("test_server", lst, service)
         .build();
 
     Ok(TestServerHandle { addr, handle })
@@ -127,11 +127,13 @@ where
 
     let config = h3_quinn::quinn::ServerConfig::with_crypto(std::sync::Arc::new(config));
 
+    let listener = xitca_io::net::QuicListenerBuilder::new(addr, config);
+
     let handle = Builder::new()
         .worker_threads(1)
         .server_threads(1)
         .disable_signal()
-        .bind_h3("test_server", addr, config, service.enclosed(HttpServiceBuilder::h3()))?
+        .listen("test_server", listener, service.enclosed(HttpServiceBuilder::h3()))
         .build();
 
     Ok(TestServerHandle { addr, handle })

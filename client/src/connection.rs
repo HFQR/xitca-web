@@ -36,21 +36,21 @@ pub enum ConnectionExclusive {
 }
 
 impl AsyncIo for ConnectionExclusive {
-    async fn ready(&self, interest: Interest) -> io::Result<Ready> {
+    async fn ready(&mut self, interest: Interest) -> io::Result<Ready> {
         match self {
-            Self::Tcp(ref io) => io.ready(interest).await,
-            Self::Tls(ref io) => io.ready(interest).await,
+            Self::Tcp(ref mut io) => io.ready(interest).await,
+            Self::Tls(ref mut io) => io.ready(interest).await,
             #[cfg(unix)]
-            Self::Unix(ref io) => io.ready(interest).await,
+            Self::Unix(ref mut io) => io.ready(interest).await,
         }
     }
 
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
         match self {
-            Self::Tcp(ref io) => io.poll_ready(interest, cx),
-            Self::Tls(ref io) => io.poll_ready(interest, cx),
+            Self::Tcp(ref mut io) => io.poll_ready(interest, cx),
+            Self::Tls(ref mut io) => io.poll_ready(interest, cx),
             #[cfg(unix)]
-            Self::Unix(ref io) => io.poll_ready(interest, cx),
+            Self::Unix(ref mut io) => io.poll_ready(interest, cx),
         }
     }
 
