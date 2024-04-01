@@ -61,6 +61,47 @@ async fn h2_post() -> Result<(), Error> {
 }
 
 #[tokio::test]
+async fn h2_connect() -> Result<(), Error> {
+    let mut handle = test_h2_server(fn_service(handle))?;
+
+    let server_url = format!("https://{}/", handle.ip_port_string());
+
+    let c = Client::new();
+
+    let mut tunnel = c
+        .connect(&server_url)?
+        .version(Version::HTTP_2)
+        .send()
+        .await?
+        .leak()
+        .into_inner();
+
+    use xitca_io::io::{AsyncIo, Interest};
+
+    use std::io::{Read, Write};
+
+    tunnel.ready(Interest::WRITABLE).await?;
+
+    tunnel.write_all(b"996")?;
+
+    let mut buf = [0; 8];
+
+    tunnel.ready(Interest::READABLE).await?;
+
+    let n = tunnel.read(&mut buf)?;
+
+    assert_eq!(b"996", &buf[..n]);
+
+    core::future::poll_fn(|cx| core::pin::Pin::new(&mut tunnel).poll_shutdown(cx)).await?;
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn h2_keepalive() -> Result<(), Error> {
     let mut handle = test_h2_server(fn_service(handle))?;
 
@@ -115,6 +156,14 @@ async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<Re
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => Ok(Response::new(Bytes::from("GET Response").into())),
+        (&Method::CONNECT, "/") => {
+            let (_, mut body) = req.into_parts();
+            Ok(Response::new(ResponseBody::box_stream(async_stream::stream! {
+                while let Some(chunk) = body.next().await {
+                    yield chunk;
+                }
+            })))
+        }
         (&Method::POST, "/") => {
             let (parts, mut body) = req.into_parts();
 

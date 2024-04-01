@@ -18,6 +18,7 @@ xitca-web = "0.5"
 
 http-ws = { version = "0.3", features = ["stream"] }
 
+async-stream = "0.3"
 futures-util = "0.3.17"
 h3-quinn = "0.0.5"
 rustls = "0.21"

@@ -321,12 +321,15 @@ impl TunnelIo {
         body: &mut crate::h2::body::ResponseBody,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<()>> {
-        loop {
+        while self.adaptor.write_cap == 0 {
             body.tx.reserve_capacity(1);
-            if let Some(Ok(_)) = ready!(body.tx.poll_capacity(cx)) {
-                return Poll::Ready(body.tx.send_data(Bytes::new(), true).map_err(io::Error::other));
+            if let Some(Ok(n)) = ready!(body.tx.poll_capacity(cx)) {
+                self.adaptor.write_cap = n;
+                break;
             }
         }
+
+        Poll::Ready(body.tx.send_data(Bytes::new(), true).map_err(io::Error::other))
     }
 
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
