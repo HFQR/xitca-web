@@ -98,12 +98,12 @@ where
     Io: AsyncIo,
 {
     #[inline]
-    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
+    fn ready(&mut self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
         self.io.ready(interest)
     }
 
     #[inline]
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
         self.io.poll_ready(interest, cx)
     }
 

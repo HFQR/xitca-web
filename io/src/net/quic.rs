@@ -4,36 +4,39 @@ use quinn::{Connecting, Endpoint, ServerConfig};
 
 use super::Stream;
 
-pub type UdpConnecting = Connecting;
+pub type QuicConnecting = Connecting;
 
-pub type H3ServerConfig = ServerConfig;
+pub type QuicConfig = ServerConfig;
 
 /// UdpListener is a wrapper type of [`Endpoint`].
 #[derive(Debug)]
-pub struct UdpListener {
+pub struct QuicListener {
     endpoint: Endpoint,
 }
 
-impl UdpListener {
+impl QuicListener {
     pub fn endpoint(&self) -> &Endpoint {
         &self.endpoint
     }
 }
 
-impl UdpListener {
+impl QuicListener {
     /// Accept [`UdpStream`].
-    pub async fn accept(&self) -> io::Result<UdpStream> {
+    pub async fn accept(&self) -> io::Result<QuicStream> {
         let connecting = self
             .endpoint
             .accept()
             .await
             .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "quinn endpoint is closed"))?;
-        Ok(UdpStream { connecting })
+        Ok(QuicStream { connecting })
     }
 }
 
-/// Builder type for UdpListener.
-pub struct UdpListenerBuilder {
+/// Builder type for [QuicListener]
+/// Unlike other OS provided listener types(Tcp .etc), the construction of [QuicListener]
+/// will be interacting with async runtime so it's desirable to delay it until it enters
+/// the context of async runtime. Builder type exists for this purpose.
+pub struct QuicListenerBuilder {
     addr: SocketAddr,
     config: ServerConfig,
     /// An artificial backlog capacity reinforced by bounded channel.
@@ -42,8 +45,8 @@ pub struct UdpListenerBuilder {
     backlog: u32,
 }
 
-impl UdpListenerBuilder {
-    pub fn new(addr: SocketAddr, config: ServerConfig) -> Self {
+impl QuicListenerBuilder {
+    pub const fn new(addr: SocketAddr, config: ServerConfig) -> Self {
         Self {
             addr,
             config,
@@ -56,27 +59,27 @@ impl UdpListenerBuilder {
         self
     }
 
-    pub fn build(self) -> io::Result<UdpListener> {
+    pub fn build(self) -> io::Result<QuicListener> {
         let Self { config, addr, .. } = self;
-        Endpoint::server(config, addr).map(|endpoint| UdpListener { endpoint })
+        Endpoint::server(config, addr).map(|endpoint| QuicListener { endpoint })
     }
 }
 
 /// Wrapper type for [`Connecting`].
 ///
 /// Naming is to keep consistent with `TcpStream` / `UnixStream`.
-pub struct UdpStream {
+pub struct QuicStream {
     connecting: Connecting,
 }
 
-impl UdpStream {
+impl QuicStream {
     /// Expose [`Connecting`] type that can be polled or awaited.
     ///
     /// # Examples:
     ///
     /// ```rust
-    /// # use xitca_io::net::UdpStream;
-    /// async fn handle(stream: UdpStream) {
+    /// # use xitca_io::net::QuicStream;
+    /// async fn handle(stream: QuicStream) {
     ///     use quinn::Connection;
     ///     let new_conn: Connection = stream.connecting().await.unwrap();
     /// }
@@ -91,15 +94,15 @@ impl UdpStream {
     }
 }
 
-impl TryFrom<Stream> for UdpStream {
+impl TryFrom<Stream> for QuicStream {
     type Error = io::Error;
 
     fn try_from(stream: Stream) -> Result<Self, Self::Error> {
-        <(UdpStream, SocketAddr)>::try_from(stream).map(|(udp, _)| udp)
+        <(QuicStream, SocketAddr)>::try_from(stream).map(|(udp, _)| udp)
     }
 }
 
-impl TryFrom<Stream> for (UdpStream, SocketAddr) {
+impl TryFrom<Stream> for (QuicStream, SocketAddr) {
     type Error = io::Error;
 
     fn try_from(stream: Stream) -> Result<Self, Self::Error> {

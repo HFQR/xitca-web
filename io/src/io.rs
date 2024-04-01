@@ -25,13 +25,13 @@ pub trait AsyncIo: io::Read + io::Write + Unpin {
     ///
     /// This constraint is from `tokio`'s behavior which is what xitca built upon and rely on
     /// in downstream crates like `xitca-http` etc.
-    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send;
+    fn ready(&mut self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send;
 
     /// a poll version of ready method.
     ///
     /// # Why:
     /// This is a temporary method for backward compat of [AsyncRead] and [AsyncWrite] traits.
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>>;
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>>;
 
     /// hint if IO can be vectored write.
     ///
@@ -48,9 +48,9 @@ pub trait AsyncIo: io::Read + io::Write + Unpin {
 
 /// object safe version of [AsyncIo] trait.
 pub trait AsyncIoDyn: io::Read + io::Write + Unpin {
-    fn ready(&self, interest: Interest) -> Pin<Box<dyn Future<Output = io::Result<Ready>> + Send + '_>>;
+    fn ready(&mut self, interest: Interest) -> Pin<Box<dyn Future<Output = io::Result<Ready>> + Send + '_>>;
 
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>>;
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>>;
 
     fn is_vectored_write(&self) -> bool;
 
@@ -62,12 +62,12 @@ where
     Io: AsyncIo,
 {
     #[inline]
-    fn ready(&self, interest: Interest) -> Pin<Box<dyn Future<Output = io::Result<Ready>> + Send + '_>> {
+    fn ready(&mut self, interest: Interest) -> Pin<Box<dyn Future<Output = io::Result<Ready>> + Send + '_>> {
         Box::pin(AsyncIo::ready(self, interest))
     }
 
     #[inline]
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
         AsyncIo::poll_ready(self, interest, cx)
     }
 
@@ -82,16 +82,16 @@ where
 
 impl<IoDyn> AsyncIo for Box<IoDyn>
 where
-    IoDyn: AsyncIoDyn + Sync + ?Sized,
+    IoDyn: AsyncIoDyn + Send + ?Sized,
 {
     #[inline]
-    async fn ready(&self, interest: Interest) -> io::Result<Ready> {
-        AsyncIoDyn::ready(&**self, interest).await
+    async fn ready(&mut self, interest: Interest) -> io::Result<Ready> {
+        AsyncIoDyn::ready(&mut **self, interest).await
     }
 
     #[inline]
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
-        AsyncIoDyn::poll_ready(&**self, interest, cx)
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        AsyncIoDyn::poll_ready(&mut **self, interest, cx)
     }
 
     fn is_vectored_write(&self) -> bool {
@@ -132,10 +132,8 @@ where
 {
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-
         loop {
             ready!(this.0.poll_ready(Interest::READABLE, cx))?;
-
             match io::Read::read(&mut this.0, buf.initialize_unfilled()) {
                 Ok(n) => {
                     buf.advance(n);
@@ -186,7 +184,6 @@ where
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-
         loop {
             ready!(this.0.poll_ready(Interest::WRITABLE, cx))?;
             match io::Write::write_vectored(&mut this.0, bufs) {
@@ -207,12 +204,12 @@ where
     Io: AsyncIo,
 {
     #[inline(always)]
-    fn ready(&self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
+    fn ready(&mut self, interest: Interest) -> impl Future<Output = io::Result<Ready>> + Send {
         self.0.ready(interest)
     }
 
     #[inline(always)]
-    fn poll_ready(&self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
         self.0.poll_ready(interest, cx)
     }
 

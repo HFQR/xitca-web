@@ -131,13 +131,21 @@ impl Builder {
         self
     }
 
-    pub fn listen<N, F, St>(self, name: N, listener: net::TcpListener, service: F) -> Self
+    pub fn listen<N, L, F, St>(mut self, name: N, listener: L, service: F) -> Self
     where
         N: AsRef<str>,
         F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
+        Option<L>: AsListener + 'static,
     {
-        self._listen(name, Some(listener), service)
+        self.listeners
+            .entry(name.as_ref().to_string())
+            .or_default()
+            .push(Box::new(Some(listener)));
+
+        self.factories.insert(name.as_ref().to_string(), service.into_object());
+
+        self
     }
 
     pub fn build(self) -> ServerFuture {
@@ -146,23 +154,6 @@ impl Builder {
             Ok(server) => ServerFuture::Init { server, enable_signal },
             Err(e) => ServerFuture::Error(e),
         }
-    }
-
-    fn _listen<N, L, F, St>(mut self, name: N, listener: L, service: F) -> Self
-    where
-        N: AsRef<str>,
-        L: AsListener + 'static,
-        F: IntoServiceObj<St>,
-        St: TryFrom<Stream> + 'static,
-    {
-        self.listeners
-            .entry(name.as_ref().to_string())
-            .or_default()
-            .push(Box::new(listener));
-
-        self.factories.insert(name.as_ref().to_string(), service.into_object());
-
-        self
     }
 }
 
@@ -220,20 +211,11 @@ impl Builder {
 
         let listener = std::os::unix::net::UnixListener::bind(path)?;
 
-        Ok(self.listen_unix(name, listener, service))
-    }
-
-    pub fn listen_unix<N, F, St>(self, name: N, listener: std::os::unix::net::UnixListener, service: F) -> Self
-    where
-        N: AsRef<str>,
-        F: IntoServiceObj<St>,
-        St: TryFrom<Stream> + 'static,
-    {
-        self._listen(name, Some(listener), service)
+        Ok(self.listen(name, listener, service))
     }
 }
 
-#[cfg(feature = "http3")]
+#[cfg(feature = "quic")]
 impl Builder {
     /// Bind to both Tcp and Udp of the same address to enable http/1/2/3 handling
     /// with single service.
@@ -241,7 +223,7 @@ impl Builder {
         mut self,
         name: N,
         addr: A,
-        config: xitca_io::net::H3ServerConfig,
+        config: xitca_io::net::QuicConfig,
         service: F,
     ) -> io::Result<Self>
     where
@@ -256,7 +238,7 @@ impl Builder {
 
         self = self._bind(name.as_ref(), addr, service)?;
 
-        let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
+        let builder = xitca_io::net::QuicListenerBuilder::new(addr, config).backlog(self.backlog);
 
         self.listeners
             .get_mut(name.as_ref())
@@ -270,7 +252,7 @@ impl Builder {
         self,
         name: N,
         addr: A,
-        config: xitca_io::net::H3ServerConfig,
+        config: xitca_io::net::QuicConfig,
         service: F,
     ) -> io::Result<Self>
     where
@@ -284,8 +266,8 @@ impl Builder {
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "Can not parse SocketAddr"))?;
 
-        let builder = xitca_io::net::UdpListenerBuilder::new(addr, config).backlog(self.backlog);
+        let listener = xitca_io::net::QuicListenerBuilder::new(addr, config).backlog(self.backlog);
 
-        Ok(self._listen(name, Some(builder), service))
+        Ok(self.listen(name, listener, service))
     }
 }

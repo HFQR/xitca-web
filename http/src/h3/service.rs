@@ -1,7 +1,7 @@
 use std::{fmt, net::SocketAddr};
 
 use futures_core::Stream;
-use xitca_io::net::UdpStream;
+use xitca_io::net::QuicStream;
 use xitca_service::{ready::ReadyService, Service};
 
 use crate::{
@@ -24,7 +24,7 @@ impl<S> H3Service<S> {
     }
 }
 
-impl<S, ResB, BE> Service<(UdpStream, SocketAddr)> for H3Service<S>
+impl<S, ResB, BE> Service<(QuicStream, SocketAddr)> for H3Service<S>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
@@ -34,7 +34,7 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    async fn call(&self, (stream, addr): (UdpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, (stream, addr): (QuicStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
         let dispatcher = Dispatcher::new(stream, addr, &self.service);
 
         dispatcher.run().await?;

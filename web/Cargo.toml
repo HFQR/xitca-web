@@ -1,6 +1,6 @@
 [package]
 name = "xitca-web"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "an async web framework"
@@ -76,7 +76,7 @@ serde = ["dep:serde"]
 __server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
-xitca-http = { version = "0.4.1", features = ["router"], default-features = false }
+xitca-http = { version = "0.5", features = ["router"], default-features = false }
 xitca-service = { version = "0.1", features = ["alloc", "std"] }
 xitca-unsafe-collection = "0.1.1"
 
@@ -85,7 +85,7 @@ pin-project-lite = "0.2.9"
 tokio = { version = "1", features = ["rt", "sync"] }
 
 # http server
-xitca-server = { version = "0.2", optional = true }
+xitca-server = { version = "0.3", optional = true }
 
 # tls
 xitca-tls = { version = "0.2.3", optional = true }

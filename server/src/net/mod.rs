@@ -1,7 +1,7 @@
 use std::{io, net};
 
-#[cfg(feature = "http3")]
-use xitca_io::net::UdpListenerBuilder;
+#[cfg(feature = "quic")]
+use xitca_io::net::QuicListenerBuilder;
 #[cfg(unix)]
 use xitca_io::net::UnixListener;
 use xitca_io::net::{Listener, TcpListener};
@@ -11,7 +11,7 @@ use tracing::info;
 /// Helper trait for convert listener types to tokio types.
 /// This is to delay the conversion and make it happen in server thread(s).
 /// Otherwise it could panic.
-pub(crate) trait AsListener: Send {
+pub trait AsListener: Send {
     fn as_listener(&mut self) -> io::Result<Listener>;
 }
 
@@ -42,8 +42,8 @@ impl AsListener for Option<std::os::unix::net::UnixListener> {
     }
 }
 
-#[cfg(feature = "http3")]
-impl AsListener for Option<UdpListenerBuilder> {
+#[cfg(feature = "quic")]
+impl AsListener for Option<QuicListenerBuilder> {
     fn as_listener(&mut self) -> io::Result<Listener> {
         let udp = self.take().unwrap().build()?;
 

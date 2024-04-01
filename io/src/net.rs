@@ -3,14 +3,14 @@
 #[cfg(feature = "runtime-uring")]
 pub mod io_uring;
 
-#[cfg(feature = "http3")]
-mod h3;
+#[cfg(feature = "quic")]
+mod quic;
 mod tcp;
 #[cfg(unix)]
 mod unix;
 
-#[cfg(feature = "http3")]
-pub use h3::*;
+#[cfg(feature = "quic")]
+pub use quic::*;
 #[cfg(not(target_family = "wasm"))]
 pub use tcp::TcpSocket;
 pub use tcp::{TcpListener, TcpStream};
@@ -23,12 +23,12 @@ macro_rules! default_aio_impl {
     ($ty: ty) => {
         impl crate::io::AsyncIo for $ty {
             #[inline]
-            async fn ready(&self, interest: crate::io::Interest) -> ::std::io::Result<crate::io::Ready> {
+            async fn ready(&mut self, interest: crate::io::Interest) -> ::std::io::Result<crate::io::Ready> {
                 self.0.ready(interest).await
             }
 
             fn poll_ready(
-                &self,
+                &mut self,
                 interest: crate::io::Interest,
                 cx: &mut ::core::task::Context<'_>,
             ) -> ::core::task::Poll<::std::io::Result<crate::io::Ready>> {
@@ -109,8 +109,8 @@ use default_aio_impl;
 #[derive(Debug)]
 pub enum Listener {
     Tcp(TcpListener),
-    #[cfg(feature = "http3")]
-    Udp(UdpListener),
+    #[cfg(feature = "quic")]
+    Udp(QuicListener),
     #[cfg(unix)]
     Unix(UnixListener),
 }
@@ -123,7 +123,7 @@ impl Listener {
                 let stream = stream.into_std()?;
                 Ok(Stream::Tcp(stream, addr))
             }
-            #[cfg(feature = "http3")]
+            #[cfg(feature = "quic")]
             Self::Udp(ref udp) => {
                 let stream = udp.accept().await?;
                 let addr = stream.peer_addr();
@@ -143,8 +143,8 @@ impl Listener {
 /// A collection of stream types of different protocol.
 pub enum Stream {
     Tcp(std::net::TcpStream, SocketAddr),
-    #[cfg(feature = "http3")]
-    Udp(UdpStream, SocketAddr),
+    #[cfg(feature = "quic")]
+    Udp(QuicStream, SocketAddr),
     #[cfg(unix)]
     Unix(std::os::unix::net::UnixStream, std::os::unix::net::SocketAddr),
 }
