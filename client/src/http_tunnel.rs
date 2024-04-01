@@ -324,8 +324,7 @@ impl TunnelIo {
         loop {
             body.tx.reserve_capacity(1);
             if let Some(Ok(_)) = ready!(body.tx.poll_capacity(cx)) {
-                body.tx.send_data(Bytes::new(), true).unwrap();
-                return Poll::Ready(Ok(()));
+                return Poll::Ready(body.tx.send_data(Bytes::new(), true).map_err(io::Error::other));
             }
         }
     }
