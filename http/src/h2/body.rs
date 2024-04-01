@@ -30,7 +30,13 @@ impl Stream for RequestBody {
 
         match res {
             Some(bytes) if bytes.is_empty() => self.poll_next(cx),
-            Some(bytes) => Poll::Ready(Some(Ok(bytes))),
+            Some(bytes) => {
+                this.stream
+                    .flow_control()
+                    .release_capacity(bytes.len())
+                    .expect("releasing the same amount of received data should never fail");
+                Poll::Ready(Some(Ok(bytes)))
+            }
             None => Poll::Ready(None),
         }
     }
