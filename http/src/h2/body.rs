@@ -1,6 +1,6 @@
 use core::{
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use futures_core::stream::Stream;
@@ -9,22 +9,30 @@ use h2::RecvStream;
 use crate::{bytes::Bytes, error::BodyError};
 
 /// Request body type for Http/2 specifically.
-pub struct RequestBody(RecvStream);
+pub struct RequestBody {
+    end_stream: bool,
+    stream: RecvStream,
+}
 
 impl Stream for RequestBody {
     type Item = Result<Bytes, BodyError>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let stream = &mut self.get_mut().0;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().get_mut();
 
-        stream.poll_data(cx).map(|opt| {
-            opt.map(|res| {
-                let bytes = res?;
-                stream.flow_control().release_capacity(bytes.len())?;
+        if this.end_stream {
+            return Poll::Ready(None);
+        }
 
-                Ok(bytes)
-            })
-        })
+        let res = ready!(this.stream.poll_data(cx)?);
+
+        this.end_stream = this.stream.is_end_stream();
+
+        match res {
+            Some(bytes) if bytes.is_empty() => self.poll_next(cx),
+            Some(bytes) => Poll::Ready(Some(Ok(bytes))),
+            None => Poll::Ready(None),
+        }
     }
 }
 
@@ -36,13 +44,16 @@ impl From<RequestBody> for crate::body::RequestBody {
 
 impl From<RecvStream> for RequestBody {
     fn from(stream: RecvStream) -> Self {
-        RequestBody(stream)
+        RequestBody {
+            end_stream: false,
+            stream,
+        }
     }
 }
 
 // Skip h2::body::RequestBody type and convert to crate level RequestBody directly
 impl From<RecvStream> for crate::body::RequestBody {
     fn from(stream: RecvStream) -> Self {
-        Self::H2(RequestBody(stream))
+        RequestBody::from(stream).into()
     }
 }
