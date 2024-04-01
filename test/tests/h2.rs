@@ -82,7 +82,7 @@ async fn h2_connect() -> Result<(), Error> {
 
     tunnel.ready(Interest::WRITABLE).await?;
 
-    tunnel.write(b"996")?;
+    tunnel.write_all(b"996")?;
 
     let mut buf = [0; 8];
 
