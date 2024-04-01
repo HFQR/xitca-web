@@ -68,16 +68,21 @@ where
 
     let mut end_of_stream = is_eof;
 
-    // websocket specific check.
-    if let Some(v) = req.headers_mut().remove(PROTOCOL) {
-        if req.method() != Method::CONNECT && !is_eof {
+    if req.method() == Method::CONNECT {
+        if !end_of_stream {
             return Err(::h2::Error::from(Reason::PROTOCOL_ERROR).into());
         }
 
-        if let Ok(v) = v.to_str() {
-            req.extensions_mut().insert(::h2::ext::Protocol::from(v));
-            end_of_stream = false;
-        }
+        let protocol = req
+            .headers_mut()
+            .remove(PROTOCOL)
+            .and_then(|v| v.to_str().ok().map(::h2::ext::Protocol::from))
+            // if user did not provide any info about extended protocol assuming it wants tcp tunnel.
+            .unwrap_or_else(|| ::h2::ext::Protocol::from_static("connect-ip"));
+
+        req.extensions_mut().insert(protocol);
+
+        end_of_stream = false;
     }
 
     let is_head_method = *req.method() == Method::HEAD;
