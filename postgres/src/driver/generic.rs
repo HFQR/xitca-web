@@ -40,6 +40,7 @@ pub(crate) enum DriverState {
 }
 
 #[cfg(feature = "io-uring")]
+#[cfg(not(feature = "quic"))]
 impl DriverState {
     pub(crate) fn take_rx(self) -> GenericDriverRx {
         match self {
