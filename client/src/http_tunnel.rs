@@ -181,26 +181,26 @@ impl Stream for HttpTunnel<'_> {
 }
 
 impl AsyncIo for HttpTunnel<'_> {
-    async fn ready(&mut self, interest: Interest) -> io::Result<Ready> {
+    async fn ready(&mut self, _interest: Interest) -> io::Result<Ready> {
         match self.body {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => body.conn_mut().ready(interest).await,
+            ResponseBody::H1(ref mut body) => body.conn_mut().ready(_interest).await,
             #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().ready(interest).await,
+            ResponseBody::H1Owned(ref mut body) => body.conn_mut().ready(_interest).await,
             #[cfg(feature = "http2")]
-            ResponseBody::H2(_) => core::future::poll_fn(|cx| self.poll_ready(interest, cx)).await,
+            ResponseBody::H2(_) => core::future::poll_fn(|cx| self.poll_ready(_interest, cx)).await,
             _ => Ok(Ready::ALL),
         }
     }
 
-    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+    fn poll_ready(&mut self, _interest: Interest, _cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
         match self.body {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => body.conn_mut().poll_ready(interest, cx),
+            ResponseBody::H1(ref mut body) => body.conn_mut().poll_ready(_interest, _cx),
             #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().poll_ready(interest, cx),
+            ResponseBody::H1Owned(ref mut body) => body.conn_mut().poll_ready(_interest, _cx),
             #[cfg(feature = "http2")]
-            ResponseBody::H2(ref mut body) => self.io.poll_ready(body, interest, cx),
+            ResponseBody::H2(ref mut body) => self.io.poll_ready(body, _interest, _cx),
             _ => Poll::Ready(Ok(Ready::ALL)),
         }
     }
@@ -215,43 +215,43 @@ impl AsyncIo for HttpTunnel<'_> {
         }
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         match this.body {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx),
+            ResponseBody::H1(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), _cx),
             #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx),
+            ResponseBody::H1Owned(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), _cx),
             #[cfg(feature = "http2")]
-            ResponseBody::H2(ref mut body) => this.io.poll_shutdown(body, cx),
+            ResponseBody::H2(ref mut body) => this.io.poll_shutdown(body, _cx),
             _ => Poll::Ready(Ok(())),
         }
     }
 }
 
 impl io::Read for HttpTunnel<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
         match self.body {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => body.conn_mut().read(buf),
+            ResponseBody::H1(ref mut body) => body.conn_mut().read(_buf),
             #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().read(buf),
+            ResponseBody::H1Owned(ref mut body) => body.conn_mut().read(_buf),
             #[cfg(feature = "http2")]
-            ResponseBody::H2(_) => self.io.read(buf),
+            ResponseBody::H2(_) => self.io.read(_buf),
             _ => Ok(0),
         }
     }
 }
 
 impl io::Write for HttpTunnel<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
         match self.body {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => body.conn_mut().write(buf),
+            ResponseBody::H1(ref mut body) => body.conn_mut().write(_buf),
             #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().write(buf),
+            ResponseBody::H1Owned(ref mut body) => body.conn_mut().write(_buf),
             #[cfg(feature = "http2")]
-            ResponseBody::H2(ref mut body) => self.io.write(body, buf),
+            ResponseBody::H2(ref mut body) => self.io.write(body, _buf),
             _ => Ok(0),
         }
     }
