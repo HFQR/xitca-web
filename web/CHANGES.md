@@ -1,4 +1,8 @@
-# unreleased
+# unreleased 0.5.0
+## Add
+- add `file-raw` feature to enable file serving when no runtime is available
+- add `service::file::ServeDir::with_fs` to complement with `file-raw` feature
+
 ## Change
 - update `xitca-http` to `0.5.0`
 - update `xitca-server` to `0.3.0`

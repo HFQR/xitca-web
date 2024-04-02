@@ -4,16 +4,17 @@ use core::convert::Infallible;
 
 use std::path::PathBuf;
 
-use http_file::ServeDir as _ServeDir;
+use http_file::{runtime::AsyncFs, ServeDir as _ServeDir};
 use xitca_http::util::service::router::{PathGen, RouteGen};
 
 use crate::service::Service;
 
 /// builder type for serve dir service.
-pub struct ServeDir {
-    inner: _ServeDir,
+pub struct ServeDir<F: AsyncFs = dumb::Dumb> {
+    inner: _ServeDir<F>,
 }
 
+#[cfg(feature = "file")]
 impl ServeDir {
     /// construct a new static file service that serve given relative file path's file based on file name.
     ///
@@ -31,14 +32,30 @@ impl ServeDir {
     ///     .at("/foo", handler_service(|| async { "foo!" }))
     ///     # .at("/bar", handler_service(|_: &WebContext<'_>| async { "used for inferring types!" }));
     /// ```
-    pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self {
+    pub fn new(path: impl Into<PathBuf>) -> ServeDir<impl AsyncFs + Clone> {
+        ServeDir {
             inner: _ServeDir::new(path),
         }
     }
 }
 
-impl PathGen for ServeDir {
+impl<F> ServeDir<F>
+where
+    F: AsyncFs,
+{
+    /// construct a new static file service with given file system. file system must be a type impl [AsyncFs]
+    /// trait to instruct how async read/write of disk(or in memory) file can be performed.
+    pub fn with_fs(path: impl Into<PathBuf>, fs: F) -> Self {
+        ServeDir {
+            inner: _ServeDir::with_fs(path, fs),
+        }
+    }
+}
+
+impl<F> PathGen for ServeDir<F>
+where
+    F: AsyncFs,
+{
     fn path_gen(&mut self, prefix: &str) -> String {
         let mut prefix = String::from(prefix);
         if prefix.ends_with('/') {
@@ -51,7 +68,10 @@ impl PathGen for ServeDir {
     }
 }
 
-impl RouteGen for ServeDir {
+impl<F> RouteGen for ServeDir<F>
+where
+    F: AsyncFs,
+{
     type Route<R> = R;
 
     fn route_gen<R>(route: R) -> Self::Route<R> {
@@ -59,8 +79,11 @@ impl RouteGen for ServeDir {
     }
 }
 
-impl Service for ServeDir {
-    type Response = service::ServeDirService;
+impl<F> Service for ServeDir<F>
+where
+    F: AsyncFs + Clone,
+{
+    type Response = service::ServeDirService<F>;
     type Error = Infallible;
 
     async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
@@ -69,7 +92,7 @@ impl Service for ServeDir {
 }
 
 mod service {
-    use http_file::{ServeDir, ServeError};
+    use http_file::{runtime::AsyncFs, ServeDir, ServeError};
 
     use crate::{
         body::ResponseBody,
@@ -79,9 +102,13 @@ mod service {
         service::Service,
     };
 
-    pub struct ServeDirService(pub(super) ServeDir);
+    pub struct ServeDirService<F: AsyncFs>(pub(super) ServeDir<F>);
 
-    impl<'r, C, B> Service<WebContext<'r, C, B>> for ServeDirService {
+    impl<'r, C, B, F> Service<WebContext<'r, C, B>> for ServeDirService<F>
+    where
+        F: AsyncFs,
+        F::File: 'static,
+    {
         type Response = WebResponse;
         type Error = RouterError<Error<C>>;
 
@@ -102,6 +129,56 @@ mod service {
                     _ => RouterError::Service(Error::from(ErrorStatus::bad_request())),
                 }),
             }
+        }
+    }
+}
+
+mod dumb {
+    use core::future::Ready;
+
+    use std::{io, path::PathBuf};
+
+    use http_file::runtime::{AsyncFs, ChunkRead, Meta};
+
+    use crate::bytes::BytesMut;
+
+    // a dummy type to help make ServerDir::new work as is.
+    #[derive(Clone, Copy)]
+    pub struct Dumb;
+
+    impl AsyncFs for Dumb {
+        type File = DumbFile;
+
+        type OpenFuture = Ready<io::Result<Self::File>>;
+
+        fn open(&self, _: PathBuf) -> Self::OpenFuture {
+            unimplemented!()
+        }
+    }
+
+    // just like Dumb
+    pub struct DumbFile;
+
+    impl Meta for DumbFile {
+        fn modified(&mut self) -> Option<std::time::SystemTime> {
+            unimplemented!()
+        }
+
+        fn len(&self) -> u64 {
+            unimplemented!()
+        }
+    }
+
+    impl ChunkRead for DumbFile {
+        type SeekFuture<'f> = Ready<io::Result<()>> where Self: 'f;
+        type Future = Ready<io::Result<Option<(Self, BytesMut, usize)>>>;
+
+        fn seek(&mut self, _: io::SeekFrom) -> Self::SeekFuture<'_> {
+            unimplemented!()
+        }
+
+        fn next(self, _: xitca_http::bytes::BytesMut) -> Self::Future {
+            unimplemented!()
         }
     }
 }
