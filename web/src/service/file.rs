@@ -32,7 +32,7 @@ impl ServeDir {
     ///     .at("/foo", handler_service(|| async { "foo!" }))
     ///     # .at("/bar", handler_service(|_: &WebContext<'_>| async { "used for inferring types!" }));
     /// ```
-    pub fn new(path: impl Into<PathBuf>) -> ServeDir<impl AsyncFs> {
+    pub fn new(path: impl Into<PathBuf>) -> ServeDir<impl AsyncFs + Clone> {
         ServeDir {
             inner: _ServeDir::new(path),
         }
