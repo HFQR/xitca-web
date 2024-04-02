@@ -1,6 +1,6 @@
 use core::ops::Range;
 
-use crate::driver::Response;
+use crate::driver::codec::Response;
 
 pub struct GenericRowStream<C> {
     pub(crate) res: Response,

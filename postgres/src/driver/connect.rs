@@ -22,7 +22,7 @@ use super::{
 
 #[cold]
 #[inline(never)]
-pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, Driver), Error> {
+pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, Driver), Error> {
     // this block have repeated code due to HRTB limitation.
     // namely for <'_> AsyncIo::Future<'_>: Send bound can not be expressed correctly.
     match host {
@@ -82,6 +82,17 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, 
             }
         }
     }
+}
+
+#[cold]
+#[inline(never)]
+pub(super) async fn connect_io<Io>(io: Io, cfg: &mut Config) -> Result<(DriverTx, Driver), Error>
+where
+    Io: AsyncIo + Send + 'static,
+{
+    let (mut drv, tx) = GenericDriver::new(Box::new(io) as _);
+    prepare_session(&mut drv, cfg).await?;
+    Ok((tx, Driver::dynamic(drv)))
 }
 
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {

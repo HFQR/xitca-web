@@ -2,9 +2,6 @@ pub(crate) mod codec;
 pub(crate) mod generic;
 
 mod connect;
-mod response;
-
-pub use response::Response;
 
 pub(crate) use generic::DriverTx;
 
@@ -25,7 +22,10 @@ use core::{
 use std::net::SocketAddr;
 
 use postgres_protocol::message::backend;
-use xitca_io::bytes::BytesMut;
+use xitca_io::{
+    bytes::BytesMut,
+    io::{AsyncIo, AsyncIoDyn},
+};
 
 use super::{client::Client, config::Config, error::Error, iter::AsyncLendingIterator};
 
@@ -41,13 +41,21 @@ pub(super) async fn connect(cfg: &mut Config) -> Result<(Client, Driver), Error>
     let mut err = None;
     let hosts = cfg.get_hosts().to_vec();
     for host in hosts {
-        match self::connect::_connect(host, cfg).await {
+        match self::connect::connect(host, cfg).await {
             Ok((tx, drv)) => return Ok((Client::new(tx), drv)),
             Err(e) => err = Some(e),
         }
     }
 
     Err(err.unwrap())
+}
+
+pub(super) async fn connect_io<Io>(io: Io, cfg: &mut Config) -> Result<(Client, Driver), Error>
+where
+    Io: AsyncIo + Send + 'static,
+{
+    let (tx, drv) = self::connect::connect_io(io, cfg).await?;
+    Ok((Client::new(tx), drv))
 }
 
 /// async driver of [Client](crate::Client).
@@ -83,6 +91,7 @@ impl Driver {
     async fn run_till_closed(self) {
         let _ = match self.inner {
             _Driver::Tcp(drv) => drv.run().await,
+            _Driver::Dynamic(drv) => drv.run().await,
             #[cfg(feature = "tls")]
             _Driver::Tls(drv) => drv.run().await,
             #[cfg(unix)]
@@ -99,6 +108,12 @@ impl Driver {
     pub(super) fn tcp(drv: GenericDriver<TcpStream>) -> Self {
         Self {
             inner: _Driver::Tcp(drv),
+        }
+    }
+
+    pub(super) fn dynamic(drv: GenericDriver<Box<dyn AsyncIoDyn + Send>>) -> Self {
+        Self {
+            inner: _Driver::Dynamic(drv),
         }
     }
 
@@ -133,6 +148,7 @@ impl Driver {
 // TODO: use Box<dyn AsyncIterator> when life time GAT is object safe.
 enum _Driver {
     Tcp(GenericDriver<TcpStream>),
+    Dynamic(GenericDriver<Box<dyn AsyncIoDyn + Send>>),
     #[cfg(feature = "tls")]
     Tls(GenericDriver<TlsStream<ClientConnection, TcpStream>>),
     #[cfg(unix)]
@@ -151,6 +167,7 @@ impl AsyncLendingIterator for Driver {
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
         match self.inner {
             _Driver::Tcp(ref mut drv) => drv.try_next().await,
+            _Driver::Dynamic(ref mut drv) => drv.try_next().await,
             #[cfg(feature = "tls")]
             _Driver::Tls(ref mut drv) => drv.try_next().await,
             #[cfg(unix)]

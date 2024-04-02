@@ -5,7 +5,7 @@ use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{
-    driver::{DriverTx, Response},
+    driver::{codec::Response, DriverTx},
     error::Error,
     statement::Statement,
     util::lock::Lock,

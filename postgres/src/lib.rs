@@ -36,6 +36,8 @@ pub use self::{
     query::{RowSimpleStream, RowStream},
 };
 
+use xitca_io::io::AsyncIo;
+
 #[derive(Debug)]
 pub struct Postgres<C, const BATCH_LIMIT: usize> {
     cfg: C,
@@ -93,6 +95,17 @@ where
     pub async fn connect(self) -> Result<(Client, Driver), Error> {
         let mut cfg = Config::try_from(self.cfg)?;
         driver::connect(&mut cfg).await
+    }
+
+    /// Connect to database with an already established Io type.
+    /// Io type must impl [AsyncIo] trait to instruct the client and driver how to transmit
+    /// data through the Io.
+    pub async fn connect_io<Io>(self, io: Io) -> Result<(Client, Driver), Error>
+    where
+        Io: AsyncIo + Send + 'static,
+    {
+        let mut cfg = Config::try_from(self.cfg)?;
+        driver::connect_io(io, &mut cfg).await
     }
 
     #[cfg(feature = "quic")]
@@ -156,12 +169,12 @@ mod test {
         tokio::spawn(
             Proxy::with_config(config)
                 .upstream_addr(upstream)
-                .listen_addr("127.0.0.1:5435".parse().unwrap())
+                .listen_addr("127.0.0.1:5432".parse().unwrap())
                 .run(),
         );
 
         let (cli, task) =
-            Postgres::new("postgres://postgres:postgres@127.0.0.1:5435/postgres?target_session_attrs=read-write")
+            Postgres::new("postgres://postgres:postgres@127.0.0.1:5432/postgres?target_session_attrs=read-write")
                 .connect_quic()
                 .await
                 .unwrap();

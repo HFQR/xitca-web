@@ -17,8 +17,7 @@ use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 use crate::{error::Error, iter::AsyncLendingIterator};
 
 use super::{
-    codec::{Request, ResponseMessage, ResponseSender},
-    response::Response,
+    codec::{Request, Response, ResponseMessage, ResponseSender},
     Drive,
 };
 

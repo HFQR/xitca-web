@@ -9,7 +9,7 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     column::Column,
-    driver::Response,
+    driver::codec::Response,
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
     row::Row,

@@ -11,7 +11,7 @@ use quinn::{Connecting, Endpoint, ServerConfig};
 use rustls_0dot21::{Certificate, PrivateKey};
 use tracing::error;
 use xitca_io::{
-    bytes::{Buf, BytesMut},
+    bytes::Buf,
     io::{AsyncIo, Interest},
     net::TcpStream,
 };
@@ -118,15 +118,16 @@ fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<Server
 
 async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     let conn = conn.await?;
+
     let mut upstream = TcpStream::connect(addr).await?;
 
     let (mut tx, mut rx) = conn.accept_bi().await?;
 
-    let mut buf = BytesMut::new();
+    let mut buf = [0; 4096];
 
     loop {
         match rx
-            .read_chunk(65535, true)
+            .read_chunk(4096, true)
             .select(upstream.ready(Interest::READABLE))
             .await
         {
@@ -135,7 +136,9 @@ async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
                 while !bytes.is_empty() {
                     match upstream.write(bytes.as_ref()) {
                         Ok(0) => return Ok(()),
-                        Ok(n) => bytes.advance(n),
+                        Ok(n) => {
+                            bytes.advance(n);
+                        }
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                             upstream.ready(Interest::WRITABLE).await?;
                         }
@@ -146,16 +149,12 @@ async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
             SelectOutput::B(Ok(_)) => 'inner: loop {
                 match upstream.read(&mut buf) {
                     Ok(0) => return Ok(()),
-                    Ok(n) => {
-                        let mut written = 0;
-                        while written < n {
-                            written += tx.write(&buf[written..n]).await?;
-                        }
-                    }
+                    Ok(n) => tx.write_all(&buf[..n]).await?,
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break 'inner,
                     Err(e) => return Err(e.into()),
                 }
             },
+            SelectOutput::A(Err(e)) => return Err(e.into()),
             SelectOutput::B(Err(e)) => return Err(e.into()),
             _ => return Ok(()),
         }

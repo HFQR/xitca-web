@@ -3,81 +3,187 @@
 use core::{
     cmp,
     future::Future,
+    mem,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll},
 };
 
 use std::{io, sync::Arc};
 
-use tokio::sync::Mutex;
+use quinn::{ClientConfig, Endpoint, RecvStream, SendStream};
 use xitca_io::{
     bytes::{Buf, Bytes},
     io::{AsyncIo, Interest, Ready},
 };
 
-use quinn::{ClientConfig, Endpoint};
-
 use crate::error::Error;
 
 pub(crate) const QUIC_ALPN: &[u8] = b"quic";
 
+type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+
 pub struct QuicStream {
-    tx: Arc<Mutex<quinn::SendStream>>,
-    rx: quinn::RecvStream,
-    write_task: Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send>>>,
-    write_err: Option<io::Error>,
-    read_buf: Option<Bytes>,
-    read_err: Option<io::Error>,
-    read_closed: bool,
+    writer: Writer,
+    reader: Reader,
+}
+
+enum Writer {
+    Tx(SendStream),
+    Error(io::Error),
+    InFlight(BoxFuture<io::Result<SendStream>>),
+    Closed,
+}
+
+impl Writer {
+    fn poll_ready(&mut self, interest: Interest, ready: &mut Ready, cx: &mut Context<'_>) {
+        match self {
+            Self::InFlight(ref mut fut) => {
+                if let Poll::Ready(res) = fut.as_mut().poll(cx) {
+                    if interest.is_writable() {
+                        *ready |= Ready::WRITABLE;
+                    }
+                    match res {
+                        Ok(tx) => *self = Self::Tx(tx),
+                        Err(e) => *self = Self::Error(e),
+                    }
+                }
+            }
+            _ => {
+                if interest.is_writable() {
+                    *ready |= Ready::WRITABLE;
+                }
+            }
+        }
+    }
+
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Error(_) => {
+                let Self::Error(e) = mem::replace(self, Self::Closed) else {
+                    unreachable!()
+                };
+                Err(e)
+            }
+            Self::Tx(_) => {
+                let Self::Tx(mut tx) = mem::replace(self, Self::Closed) else {
+                    unreachable!()
+                };
+                let bytes = Bytes::copy_from_slice(buf);
+                *self = Self::InFlight(Box::pin(async move {
+                    tx.write_chunk(bytes).await?;
+                    Ok(tx)
+                }));
+
+                Ok(buf.len())
+            }
+            Self::InFlight(_) => Err(io::ErrorKind::WouldBlock.into()),
+            Self::Closed => unreachable!(),
+        }
+    }
+
+    fn poll_shutdown(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self {
+            Self::Tx(tx) => tx.poll_finish(cx).map_err(io::Error::other),
+            // TODO: handle in flight write.
+            _ => Poll::Ready(Ok(())),
+        }
+    }
+}
+
+enum Reader {
+    Buffered((Bytes, RecvStream)),
+    InFlight(BoxFuture<io::Result<Option<(Bytes, RecvStream)>>>),
+    Error(io::Error),
+    Closed,
+}
+
+impl Reader {
+    fn in_flight(mut rx: RecvStream) -> Self {
+        Self::InFlight(Box::pin(async move {
+            let chunk = rx.read_chunk(4096, true).await?;
+            Ok(chunk.map(|c| (c.bytes, rx)))
+        }))
+    }
+
+    fn poll_ready_once(&mut self, cx: &mut Context<'_>, ready: &mut Ready) {
+        match self {
+            Self::Buffered((ref bytes, _)) => {
+                if !bytes.is_empty() {
+                    *ready |= Ready::READABLE;
+                    return;
+                }
+
+                let Self::Buffered((_, rx)) = mem::replace(self, Self::Closed) else {
+                    unreachable!()
+                };
+
+                *self = Self::in_flight(rx);
+
+                self.poll_ready_once(cx, ready);
+            }
+            Self::InFlight(ref mut fut) => {
+                if let Poll::Ready(res) = fut.as_mut().poll(cx) {
+                    *ready |= Ready::READABLE;
+                    match res {
+                        Ok(Some(res)) => *self = Self::Buffered(res),
+                        Ok(None) => *self = Self::Closed,
+                        Err(e) => *self = Self::Error(e),
+                    }
+                }
+            }
+            Self::Error(_) => *ready |= Ready::READABLE,
+            Self::Closed => {}
+        }
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Buffered((bytes, _)) => {
+                let len = cmp::min(buf.len(), bytes.len());
+                buf[..len].copy_from_slice(&bytes[..len]);
+                bytes.advance(len);
+                Ok(len)
+            }
+            Self::Error(_) => {
+                let Self::Error(e) = mem::replace(self, Self::Closed) else {
+                    unreachable!()
+                };
+                Err(e)
+            }
+            Self::Closed => Ok(0),
+            _ => Err(io::ErrorKind::WouldBlock.into()),
+        }
+    }
 }
 
 impl QuicStream {
-    pub(crate) fn new(tx: quinn::SendStream, rx: quinn::RecvStream) -> Self {
+    pub(crate) fn new(tx: SendStream, rx: RecvStream) -> Self {
         Self {
-            tx: Arc::new(Mutex::new(tx)),
-            rx,
-            write_task: None,
-            write_err: None,
-            read_buf: None,
-            read_err: None,
-            read_closed: false,
+            writer: Writer::Tx(tx),
+            reader: Reader::in_flight(rx),
         }
     }
 }
 
 impl AsyncIo for QuicStream {
     async fn ready(&mut self, interest: Interest) -> io::Result<Ready> {
-        let mut ready = Ready::EMPTY;
-        if interest.is_readable() {
-            if self.read_buf.is_some() {
-                ready |= Ready::READABLE;
-            } else {
-                let res = self.rx.read_chunk(4096, true).await;
-                ready |= Ready::READABLE;
-                match res {
-                    Ok(Some(chunk)) => self.read_buf = Some(chunk.bytes),
-                    Ok(None) => self.read_closed = true,
-                    Err(e) => self.read_err = Some(io::Error::other(e)),
-                }
-            }
-        }
-
-        if interest.is_writable() {
-            if let Some(task) = self.write_task.as_mut() {
-                if let Err(e) = task.await {
-                    self.write_err = Some(e);
-                }
-                self.write_task = None;
-            }
-
-            ready |= Ready::WRITABLE;
-        }
-
-        Ok(ready)
+        core::future::poll_fn(|cx| self.poll_ready(interest, cx)).await
     }
 
-    fn poll_ready(&mut self, _: Interest, _: &mut Context<'_>) -> Poll<io::Result<Ready>> {
-        unimplemented!("poll_ready is not used!!!!")
+    fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        let mut ready = Ready::EMPTY;
+
+        if interest.is_readable() {
+            self.reader.poll_ready_once(cx, &mut ready);
+        }
+
+        self.writer.poll_ready(interest, &mut ready, cx);
+
+        if ready.is_empty() {
+            Poll::Pending
+        } else {
+            Poll::Ready(Ok(ready))
+        }
     }
 
     fn is_vectored_write(&self) -> bool {
@@ -85,54 +191,19 @@ impl AsyncIo for QuicStream {
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let this = self.get_mut();
-        if let Some(mut task) = this.write_task.take() {
-            ready!(task.as_mut().poll(cx))?;
-        }
-
-        // lock only exists in write_task and tx fields.
-        // write_task is resolved and dropped beforehand and this lock would always succeed.
-        this.tx.try_lock().unwrap().poll_finish(cx).map_err(io::Error::other)
+        self.get_mut().writer.poll_shutdown(cx)
     }
 }
 
 impl io::Read for QuicStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if let Some(mut bytes) = self.read_buf.take() {
-            let len = cmp::min(buf.len(), bytes.len());
-            buf[..len].copy_from_slice(&bytes[..len]);
-            bytes.advance(len);
-            if !bytes.is_empty() {
-                self.read_buf = Some(bytes);
-            }
-            return Ok(len);
-        };
-
-        if let Some(e) = self.read_err.take() {
-            return Err(e);
-        }
-
-        if self.read_closed {
-            return Ok(0);
-        }
-
-        Err(io::ErrorKind::WouldBlock.into())
+        self.reader.read(buf)
     }
 }
 
 impl io::Write for QuicStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.write_task.is_some() {
-            return Err(io::ErrorKind::WouldBlock.into());
-        }
-
-        let tx = self.tx.clone();
-        let bytes = Bytes::copy_from_slice(buf);
-        self.write_task = Some(Box::pin(async move {
-            tx.lock().await.write_chunk(bytes).await.map_err(io::Error::other)
-        }));
-
-        Ok(buf.len())
+        self.writer.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
