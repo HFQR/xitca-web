@@ -253,7 +253,7 @@ fn dangerous_config_rustls_0dot21(alpn: Vec<Vec<u8>>) -> Arc<rustls_0dot21::Clie
 #[cold]
 #[inline(never)]
 pub(crate) async fn connect_quic(host: &str, ports: &[u16]) -> Result<QuicStream, Error> {
-    let addrs = super::resolve(host, ports).await?;
+    let addrs = super::connect::resolve(host, ports).await?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
 
     let cfg = dangerous_config_rustls_0dot21(vec![QUIC_ALPN.to_vec()]);

@@ -1,6 +1,4 @@
-//! tcp socket client.
-
-use std::io;
+use std::{io, net::SocketAddr};
 
 use postgres_protocol::message::frontend;
 use xitca_io::{
@@ -96,7 +94,7 @@ where
 }
 
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
-    let addrs = super::resolve(host, ports).await?;
+    let addrs = resolve(host, ports).await?;
 
     let mut err = None;
 
@@ -153,4 +151,17 @@ where
             Err(e) => return Err(e),
         }
     }
+}
+
+pub(super) async fn resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
+    let addrs = tokio::net::lookup_host((host, 0))
+        .await?
+        .flat_map(|mut addr| {
+            ports.iter().map(move |port| {
+                addr.set_port(*port);
+                addr
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(addrs)
 }

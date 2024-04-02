@@ -19,8 +19,6 @@ use core::{
     pin::Pin,
 };
 
-use std::net::SocketAddr;
-
 use postgres_protocol::message::backend;
 use xitca_io::{
     bytes::BytesMut,
@@ -87,24 +85,26 @@ pub struct Driver {
 }
 
 impl Driver {
-    // run till the connection is closed by Client.
-    async fn run_till_closed(self) {
-        let _ = match self.inner {
-            _Driver::Tcp(drv) => drv.run().await,
-            _Driver::Dynamic(drv) => drv.run().await,
-            #[cfg(feature = "tls")]
-            _Driver::Tls(drv) => drv.run().await,
-            #[cfg(unix)]
-            _Driver::Unix(drv) => drv.run().await,
-            #[cfg(all(unix, feature = "tls"))]
-            _Driver::UnixTls(drv) => drv.run().await,
-            #[cfg(feature = "quic")]
-            _Driver::Quic(drv) => drv.run().await,
-        };
+    #[cfg(feature = "io-uring")]
+    /// downcast [Driver] to IoUringDriver if it's Tcp variant.
+    /// IoUringDriver can not be a new variant of Dirver as it's !Send.
+    pub fn try_into_io_uring_tcp(self) -> io_uring::IoUringDriver<xitca_io::net::io_uring::TcpStream> {
+        match self.inner {
+            _Driver::Tcp(drv) => {
+                let std = drv.io.into_std().unwrap();
+                let tcp = xitca_io::net::io_uring::TcpStream::from_std(std);
+                io_uring::IoUringDriver::new(
+                    tcp,
+                    drv.state.take_rx(),
+                    drv.write_buf.into_inner(),
+                    drv.read_buf.into_inner(),
+                    drv.res,
+                )
+            }
+            _ => todo!(),
+        }
     }
-}
 
-impl Driver {
     pub(super) fn tcp(drv: GenericDriver<TcpStream>) -> Self {
         Self {
             inner: _Driver::Tcp(drv),
@@ -144,7 +144,24 @@ impl Driver {
             inner: _Driver::Quic(drv),
         }
     }
+
+    // run till the connection is closed by Client.
+    async fn run_till_closed(self) {
+        let _ = match self.inner {
+            _Driver::Tcp(drv) => drv.run().await,
+            _Driver::Dynamic(drv) => drv.run().await,
+            #[cfg(feature = "tls")]
+            _Driver::Tls(drv) => drv.run().await,
+            #[cfg(unix)]
+            _Driver::Unix(drv) => drv.run().await,
+            #[cfg(all(unix, feature = "tls"))]
+            _Driver::UnixTls(drv) => drv.run().await,
+            #[cfg(feature = "quic")]
+            _Driver::Quic(drv) => drv.run().await,
+        };
+    }
 }
+
 // TODO: use Box<dyn AsyncIterator> when life time GAT is object safe.
 enum _Driver {
     Tcp(GenericDriver<TcpStream>),
@@ -186,41 +203,6 @@ impl IntoFuture for Driver {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(self.run_till_closed())
-    }
-}
-
-async fn resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
-    let addrs = tokio::net::lookup_host((host, 0))
-        .await?
-        .flat_map(|mut addr| {
-            ports.iter().map(move |port| {
-                addr.set_port(*port);
-                addr
-            })
-        })
-        .collect::<Vec<_>>();
-    Ok(addrs)
-}
-
-#[cfg(feature = "io-uring")]
-impl Driver {
-    // downcast Driver to IoUringDriver if it's Tcp variant.
-    // IoUringDriver can not be a new variant of Dirver as it's !Send.
-    pub fn try_into_io_uring_tcp(self) -> io_uring::IoUringDriver<xitca_io::net::io_uring::TcpStream> {
-        match self.inner {
-            _Driver::Tcp(drv) => {
-                let std = drv.io.into_std().unwrap();
-                let tcp = xitca_io::net::io_uring::TcpStream::from_std(std);
-                io_uring::IoUringDriver::new(
-                    tcp,
-                    drv.state.take_rx(),
-                    drv.write_buf.into_inner(),
-                    drv.read_buf.into_inner(),
-                    drv.res,
-                )
-            }
-            _ => todo!(),
-        }
     }
 }
 
