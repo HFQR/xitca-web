@@ -48,7 +48,9 @@ multipart = ["http-multipart"]
 websocket = ["http-ws/stream", "tokio/time"]
 
 # static file serving
-file = ["http-file", "nightly"]
+file = ["file-raw", "http-file/default"]
+# static file serving without default file system
+file-raw = ["http-file", "nightly"]
 
 # rate-limit middleware
 rate-limit = ["http-rate"]
@@ -112,7 +114,7 @@ http-multipart = { version = "0.1", optional = true }
 http-ws = { version = "0.3", optional = true }
 
 # static file
-http-file = { version = "0.1", optional = true }
+http-file = { version = "0.1", default-features = false ,optional = true }
 
 # rate limit
 http-rate = { version = "0.1", optional = true }

@@ -5,7 +5,7 @@ use core::{
     future::Future,
     mem,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use std::{io, sync::Arc};
@@ -84,7 +84,11 @@ impl Writer {
     fn poll_shutdown(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self {
             Self::Tx(tx) => tx.poll_finish(cx).map_err(io::Error::other),
-            // TODO: handle in flight write.
+            Self::InFlight(fut) => {
+                let tx = ready!(fut.as_mut().poll(cx))?;
+                *self = Self::Tx(tx);
+                self.poll_shutdown(cx)
+            }
             _ => Poll::Ready(Ok(())),
         }
     }
