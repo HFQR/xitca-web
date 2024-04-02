@@ -1,16 +1,23 @@
-use std::{collections::HashSet, error, fs, net::SocketAddr, path::Path, sync::Arc};
+use std::{
+    collections::HashSet,
+    error, fs,
+    io::{self, Read, Write},
+    net::SocketAddr,
+    path::Path,
+    sync::Arc,
+};
 
 use quinn::{Connecting, Endpoint, ServerConfig};
 use rustls_0dot21::{Certificate, PrivateKey};
 use tracing::error;
-use xitca_io::net::TcpStream;
+use xitca_io::{
+    bytes::{Buf, BytesMut},
+    io::{AsyncIo, Interest},
+    net::TcpStream,
+};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use super::driver::{
-    generic::GenericDriver,
-    quic::{QuicStream, QUIC_ALPN},
-    Drive,
-};
+use super::driver::quic::QUIC_ALPN;
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -111,27 +118,46 @@ fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<Server
 
 async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     let conn = conn.await?;
-    let upstream = TcpStream::connect(addr).await?;
+    let mut upstream = TcpStream::connect(addr).await?;
 
-    let (mut drv, _tx) = GenericDriver::new(upstream);
+    let (mut tx, mut rx) = conn.accept_bi().await?;
 
-    let (tx, rx) = conn.accept_bi().await?;
-    let (mut quic_drv, _quic_tx) = GenericDriver::new(QuicStream::new(tx, rx));
+    let mut buf = BytesMut::new();
 
     loop {
-        match quic_drv
-            .recv_with(|buf| (!buf.is_empty()).then(|| Ok(buf.split())))
-            .select(drv.recv_with(|buf| (!buf.is_empty()).then(|| Ok(buf.split()))))
+        match rx
+            .read_chunk(65535, true)
+            .select(upstream.ready(Interest::READABLE))
             .await
         {
-            SelectOutput::A(res) => {
-                let msg = res?;
-                drv.send(msg).await?;
+            SelectOutput::A(Ok(Some(chunk))) => {
+                let mut bytes = chunk.bytes;
+                while !bytes.is_empty() {
+                    match upstream.write(bytes.as_ref()) {
+                        Ok(0) => return Ok(()),
+                        Ok(n) => bytes.advance(n),
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            upstream.ready(Interest::WRITABLE).await?;
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
             }
-            SelectOutput::B(res) => {
-                let msg = res?;
-                quic_drv.send(msg).await?;
-            }
+            SelectOutput::B(Ok(_)) => 'inner: loop {
+                match upstream.read(&mut buf) {
+                    Ok(0) => return Ok(()),
+                    Ok(n) => {
+                        let mut written = 0;
+                        while written < n {
+                            written += tx.write(&buf[written..n]).await?;
+                        }
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break 'inner,
+                    Err(e) => return Err(e.into()),
+                }
+            },
+            SelectOutput::B(Err(e)) => return Err(e.into()),
+            _ => return Ok(()),
         }
     }
 }
