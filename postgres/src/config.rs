@@ -25,7 +25,7 @@ pub enum SslMode {
 pub enum Host {
     /// A TCP hostname.
     Tcp(String),
-    Udp(String),
+    Quic(String),
     /// A Unix hostname.
     Unix(PathBuf),
 }
@@ -152,18 +152,7 @@ impl Config {
             return self.host_path(host);
         }
 
-        let host = {
-            let host = host.to_string();
-            #[cfg(feature = "quic")]
-            {
-                Host::Udp(host)
-            }
-
-            #[cfg(not(feature = "quic"))]
-            {
-                Host::Tcp(host)
-            }
-        };
+        let host = Host::Tcp(host.to_string());
 
         self.host.push(host);
         self

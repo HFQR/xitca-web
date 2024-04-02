@@ -12,15 +12,13 @@ mod pool;
 mod prepare;
 mod query;
 mod session;
+mod transaction;
 mod util;
 
 pub mod error;
 pub mod pipeline;
 pub mod row;
 pub mod statement;
-
-#[cfg(not(feature = "quic"))]
-mod transaction;
 
 #[cfg(feature = "quic")]
 pub mod proxy;
@@ -96,6 +94,22 @@ where
         let mut cfg = Config::try_from(self.cfg)?;
         driver::connect(&mut cfg).await
     }
+
+    #[cfg(feature = "quic")]
+    pub async fn connect_quic(self) -> Result<(Client, Driver), Error> {
+        use config::Host;
+
+        let mut cfg = Config::try_from(self.cfg)?;
+        cfg.host = cfg
+            .host
+            .into_iter()
+            .map(|host| match host {
+                Host::Tcp(host) => Host::Quic(host),
+                host => host,
+            })
+            .collect();
+        driver::connect(&mut cfg).await
+    }
 }
 
 fn _assert_send<F: Send>(_: F) {}
@@ -148,7 +162,7 @@ mod test {
 
         let (cli, task) =
             Postgres::new("postgres://postgres:postgres@127.0.0.1:5435/postgres?target_session_attrs=read-write")
-                .connect()
+                .connect_quic()
                 .await
                 .unwrap();
 

@@ -1,19 +1,12 @@
 use std::{collections::HashSet, error, fs, net::SocketAddr, path::Path, sync::Arc};
 
-use quinn::{Connecting, Endpoint, RecvStream, SendStream, ServerConfig};
+use quinn::{Connecting, Endpoint, ServerConfig};
 use rustls_0dot21::{Certificate, PrivateKey};
-use tokio::sync::mpsc::unbounded_channel;
 use tracing::error;
-use xitca_io::{bytes::BytesMut, net::TcpStream};
+use xitca_io::net::TcpStream;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use crate::iter::AsyncLendingIterator;
-
-use super::driver::{
-    codec::Request,
-    generic::{GenericDriver, GenericDriverTx},
-    Drive, QuicDriver, QUIC_ALPN,
-};
+use super::driver::{generic::GenericDriver, Drive, QuicStream, QUIC_ALPN};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -116,75 +109,27 @@ async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
     let conn = conn.await?;
     let upstream = TcpStream::connect(addr).await?;
 
-    let (mut drv, tx) = GenericDriver::new(upstream);
+    let (mut drv, _tx) = GenericDriver::new(upstream);
 
-    let streams = conn.accept_bi().await?;
-    let mut quic_drv = QuicDriver::new(streams);
+    let (tx, rx) = conn.accept_bi().await?;
+    let (mut quic_drv, _quic_tx) = GenericDriver::new(QuicStream::new(tx, rx));
 
     loop {
         match quic_drv
-            .recv_raw()
+            .recv_with(|buf| (!buf.is_empty()).then(|| Ok(buf.split())))
             .select(drv.recv_with(|buf| (!buf.is_empty()).then(|| Ok(buf.split()))))
             .await
         {
-            SelectOutput::A(Some(res)) => {
-                let bytes = res?;
-                drv.send(BytesMut::from(bytes.as_ref())).await?;
+            SelectOutput::A(res) => {
+                let msg = res?;
+                drv.send(msg).await?;
             }
-            SelectOutput::A(None) => break,
             SelectOutput::B(res) => {
                 let msg = res?;
                 quic_drv.send(msg).await?;
             }
         }
     }
-
-    tokio::spawn(async move {
-        loop {
-            match drv.try_next().await {
-                Ok(Some(_)) => {
-                    // TODO: encode the message? or make driver able to emit un parsed raw bytes?
-                }
-                Ok(None) => return,
-                Err(e) => return error!("Proxy upstream error: {e}"),
-            }
-        }
-    });
-
-    loop {
-        let (stream_tx, rx) = conn.accept_bi().await?;
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = handler(stream_tx, tx, rx).await {
-                error!("connection error: {e}");
-            }
-        });
-    }
-}
-
-async fn handler(mut stream_tx: SendStream, tx: GenericDriverTx, mut rx: RecvStream) -> Result<(), Error> {
-    let mut bytes = BytesMut::new();
-    while let Some(c) = rx.read_chunk(usize::MAX, true).await? {
-        bytes.extend_from_slice(&c.bytes);
-    }
-
-    // quic driver would send 8 bytes in u64 big endian as prefix for presenting sync message associated
-    // with the following bytes buffer.
-    let sync_count = bytes.split_to(8).as_ref().try_into().unwrap();
-    let sync_count = u64::from_be_bytes(sync_count);
-
-    let (recv_tx, mut recv_rx) = unbounded_channel();
-
-    let msg = Request::new(recv_tx, sync_count as usize, bytes);
-
-    tx.send(msg)?;
-
-    while let Some(bytes) = recv_rx.recv().await {
-        stream_tx.write_chunk(bytes.freeze()).await?;
-    }
-    stream_tx.finish().await?;
-
-    Ok(())
 }
 
 #[cfg(test)]

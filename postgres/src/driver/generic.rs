@@ -18,13 +18,37 @@ use crate::{error::Error, iter::AsyncLendingIterator};
 
 use super::{
     codec::{Request, ResponseMessage, ResponseSender},
+    response::Response,
     Drive,
 };
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
-pub(crate) type GenericDriverTx = UnboundedSender<Request>;
 pub(crate) type GenericDriverRx = UnboundedReceiver<Request>;
+
+#[derive(Debug)]
+pub(crate) struct DriverTx(UnboundedSender<Request>);
+
+impl DriverTx {
+    pub(crate) fn is_closed(&self) -> bool {
+        self.0.is_closed()
+    }
+
+    pub(crate) fn send(&self, msg: BytesMut) -> impl Future<Output = Result<Response, Error>> + '_ {
+        self.send_multi(1, msg)
+    }
+
+    pub(crate) async fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
+        let (tx, rx) = unbounded_channel();
+        self.0.send(Request::new(tx, msg_count, msg))?;
+        Ok(Response::new(rx))
+    }
+
+    pub(crate) fn do_send(&self, msg: BytesMut) {
+        let (tx, _) = unbounded_channel();
+        let _ = self.0.send(Request::new(tx, 1, msg));
+    }
+}
 
 pub(crate) struct GenericDriver<Io> {
     pub(crate) io: Io,
@@ -40,7 +64,6 @@ pub(crate) enum DriverState {
 }
 
 #[cfg(feature = "io-uring")]
-#[cfg(not(feature = "quic"))]
 impl DriverState {
     pub(crate) fn take_rx(self) -> GenericDriverRx {
         match self {
@@ -54,7 +77,7 @@ impl<Io> GenericDriver<Io>
 where
     Io: AsyncIo,
 {
-    pub(crate) fn new(io: Io) -> (Self, GenericDriverTx) {
+    pub(crate) fn new(io: Io) -> (Self, DriverTx) {
         let (tx, rx) = unbounded_channel();
         (
             Self {
@@ -64,7 +87,7 @@ where
                 res: VecDeque::new(),
                 state: DriverState::Running(rx),
             },
-            tx,
+            DriverTx(tx),
         )
     }
 
@@ -129,8 +152,6 @@ where
         }
     }
 
-    // TODO: remove this feature gate.
-    #[cfg(not(feature = "quic"))]
     pub(crate) async fn run(mut self) -> Result<(), Error> {
         while self._try_next().await?.is_some() {}
         Ok(())

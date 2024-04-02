@@ -1,106 +1,142 @@
 //! udp socket with quic protocol as client transport layer.
 
-mod response;
-
-pub use self::response::Response;
-
 use core::{
+    cmp,
     future::Future,
-    sync::atomic::{AtomicUsize, Ordering},
+    pin::Pin,
+    task::{ready, Context, Poll},
 };
 
-use std::sync::Arc;
+use std::{io, sync::Arc};
 
-use postgres_protocol::message::backend;
-use quinn::{ClientConfig, Connection, Endpoint, ReadError, RecvStream, SendStream};
-use quinn_proto::ConnectionError;
-use xitca_io::bytes::{Bytes, BytesMut};
-
-use crate::{
-    config::{Config, Host},
-    error::{unexpected_eof_err, Error},
-    iter::AsyncLendingIterator,
-    session::prepare_session,
+use tokio::sync::Mutex;
+use xitca_io::{
+    bytes::{Buf, Bytes},
+    io::{AsyncIo, Interest, Ready},
 };
 
-use super::{Drive, Driver};
+use quinn::{ClientConfig, Endpoint};
+
+use crate::error::Error;
 
 pub(crate) const QUIC_ALPN: &[u8] = b"quic";
 
-pub(crate) struct ClientTx {
-    counter: Arc<AtomicUsize>,
-    inner: Connection,
+pub struct QuicStream {
+    tx: Arc<Mutex<quinn::SendStream>>,
+    rx: quinn::RecvStream,
+    write_task: Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send>>>,
+    write_err: Option<io::Error>,
+    read_buf: Option<Bytes>,
+    read_err: Option<io::Error>,
+    read_closed: bool,
 }
 
-impl Clone for ClientTx {
-    fn clone(&self) -> Self {
-        self.counter.fetch_add(1, Ordering::SeqCst);
+impl QuicStream {
+    pub(crate) fn new(tx: quinn::SendStream, rx: quinn::RecvStream) -> Self {
         Self {
-            counter: self.counter.clone(),
-            inner: self.inner.clone(),
+            tx: Arc::new(Mutex::new(tx)),
+            rx,
+            write_task: None,
+            write_err: None,
+            read_buf: None,
+            read_err: None,
+            read_closed: false,
         }
     }
 }
 
-impl Drop for ClientTx {
-    fn drop(&mut self) {
-        // QuicDriver always hold one stream for receiving server
-        // notify. ClientTx must call Connection::close manually
-        // so server can observe the event.
-        if self.counter.fetch_sub(1, Ordering::SeqCst) == 1 {
-            self.inner.close(0u8.into(), &[]);
+impl AsyncIo for QuicStream {
+    async fn ready(&mut self, interest: Interest) -> io::Result<Ready> {
+        let mut ready = Ready::EMPTY;
+        if interest.is_readable() {
+            if self.read_buf.is_some() {
+                ready |= Ready::READABLE;
+            } else {
+                let res = self.rx.read_chunk(4096, true).await;
+                ready |= Ready::READABLE;
+                match res {
+                    Ok(Some(chunk)) => self.read_buf = Some(chunk.bytes),
+                    Ok(None) => self.read_closed = true,
+                    Err(e) => self.read_err = Some(io::Error::other(e)),
+                }
+            }
         }
+
+        if interest.is_writable() {
+            if let Some(task) = self.write_task.as_mut() {
+                if let Err(e) = task.await {
+                    self.write_err = Some(e);
+                }
+                self.write_task = None;
+            }
+
+            ready |= Ready::WRITABLE;
+        }
+
+        Ok(ready)
+    }
+
+    fn poll_ready(&mut self, _: Interest, _: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+        unimplemented!("poll_ready is not used!!!!")
+    }
+
+    fn is_vectored_write(&self) -> bool {
+        false
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        if let Some(mut task) = this.write_task.take() {
+            ready!(task.as_mut().poll(cx))?;
+        }
+
+        // lock only exists in write_task and tx fields.
+        // write_task is resolved and dropped beforehand and this lock would always succeed.
+        this.tx.try_lock().unwrap().poll_finish(cx).map_err(io::Error::other)
     }
 }
 
-impl ClientTx {
-    fn new(inner: Connection) -> Self {
-        Self {
-            counter: Arc::new(AtomicUsize::new(1)),
-            inner,
+impl io::Read for QuicStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let Some(mut bytes) = self.read_buf.take() {
+            let len = cmp::min(buf.len(), bytes.len());
+            buf[..len].copy_from_slice(&bytes[..len]);
+            bytes.advance(len);
+            if !bytes.is_empty() {
+                self.read_buf = Some(bytes);
+            }
+            return Ok(len);
+        };
+
+        if let Some(e) = self.read_err.take() {
+            return Err(e);
         }
-    }
 
-    pub(crate) fn is_closed(&self) -> bool {
-        self.inner.close_reason().is_some()
-    }
+        if self.read_closed {
+            return Ok(0);
+        }
 
-    pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        self.send_multi(1, msg).await
-    }
-
-    pub(crate) async fn send_multi(&self, sync_count: usize, msg: BytesMut) -> Result<Response, Error> {
-        let (mut tx, rx) = self.inner.open_bi().await.unwrap();
-        // quic driver would send 8 bytes in u64 big endian as prefix for presenting sync message associated
-        // with the following bytes buffer.
-        let sync_count = (sync_count as u64).to_be_bytes();
-        tx.write_all(&sync_count).await.unwrap();
-        tx.write_all(&msg).await.unwrap();
-        tx.finish().await.unwrap();
-        Ok(Response::new(rx))
-    }
-
-    pub(crate) fn do_send(&self, msg: BytesMut) {
-        let this = self.clone();
-        tokio::spawn(async move {
-            let _ = this.send(msg).await;
-        });
+        Err(io::ErrorKind::WouldBlock.into())
     }
 }
 
-#[cold]
-#[inline(never)]
-pub(super) async fn _connect(host: Host, cfg: &Config) -> Result<(ClientTx, Driver), Error> {
-    match host {
-        Host::Udp(ref host) => {
-            let tx = connect_quic(host, cfg.get_ports()).await?;
-            let streams = tx.inner.open_bi().await.unwrap();
-            let mut drv = QuicDriver::new(streams);
-            prepare_session(&mut drv, cfg).await?;
-            drv.close_tx().await;
-            Ok((tx, Driver::quic(drv)))
+impl io::Write for QuicStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.write_task.is_some() {
+            return Err(io::ErrorKind::WouldBlock.into());
         }
-        _ => unreachable!(),
+
+        let tx = self.tx.clone();
+        let bytes = Bytes::copy_from_slice(buf);
+        self.write_task = Some(Box::pin(async move {
+            tx.lock().await.write_chunk(bytes).await.map_err(io::Error::other)
+        }));
+
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -145,7 +181,7 @@ fn dangerous_config_rustls_0dot21(alpn: Vec<Vec<u8>>) -> Arc<rustls_0dot21::Clie
 
 #[cold]
 #[inline(never)]
-async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
+pub(crate) async fn connect_quic(host: &str, ports: &[u16]) -> Result<QuicStream, Error> {
     let addrs = super::resolve(host, ports).await?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
 
@@ -157,7 +193,10 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     for addr in addrs {
         match endpoint.connect(addr, host) {
             Ok(conn) => match conn.await {
-                Ok(inner) => return Ok(ClientTx::new(inner)),
+                Ok(inner) => {
+                    let (tx, rx) = inner.open_bi().await.unwrap();
+                    return Ok(QuicStream::new(tx, rx));
+                }
                 Err(_) => err = Some(Error::todo()),
             },
             Err(_) => err = Some(Error::todo()),
@@ -165,79 +204,4 @@ async fn connect_quic(host: &str, ports: &[u16]) -> Result<ClientTx, Error> {
     }
 
     Err(err.unwrap())
-}
-
-// an arbitrary driver type for unified Drive trait with transport::driver::Driver type.
-// *. QuicDriver does not act as actual driver and real IO is handled by `quinn` crate.
-pub(crate) struct QuicDriver {
-    pub(crate) tx: SendStream,
-    pub(crate) rx: RecvStream,
-    buf: BytesMut,
-}
-
-impl QuicDriver {
-    pub(crate) fn new((tx, rx): (SendStream, RecvStream)) -> Self {
-        Self {
-            tx,
-            rx,
-            buf: BytesMut::new(),
-        }
-    }
-
-    pub(crate) async fn run(mut self) -> Result<(), Error> {
-        while self.try_next().await?.is_some() {}
-        Ok(())
-    }
-
-    pub(crate) async fn recv_raw(&mut self) -> Option<Result<Bytes, Error>> {
-        self.rx
-            .read_chunk(4096, true)
-            .await
-            .map(|c| c.map(|c| c.bytes))
-            .map_err(|_| Error::todo())
-            .transpose()
-    }
-
-    async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
-        loop {
-            if let Some(msg) = backend::Message::parse(&mut self.buf)? {
-                return Ok(Some(msg));
-            }
-
-            match self.rx.read_chunk(4096, true).await {
-                Ok(Some(chunk)) => self.buf.extend_from_slice(&chunk.bytes),
-                Ok(None)
-                | Err(ReadError::ConnectionLost(ConnectionError::ApplicationClosed(_)))
-                | Err(ReadError::ConnectionLost(ConnectionError::LocallyClosed)) => return Ok(None),
-                Err(_) => return Err(Error::todo()),
-            }
-        }
-    }
-
-    async fn close_tx(&mut self) {
-        let _ = self.tx.finish().await;
-    }
-}
-
-impl AsyncLendingIterator for QuicDriver {
-    type Ok<'i> = backend::Message where Self: 'i;
-    type Err = Error;
-
-    #[inline]
-    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
-        self.try_next().await
-    }
-}
-
-impl Drive for QuicDriver {
-    fn send(&mut self, msg: BytesMut) -> impl Future<Output = Result<(), Error>> + Send {
-        Box::pin(async move {
-            self.tx.write_all(&msg).await.unwrap();
-            Ok(())
-        })
-    }
-
-    fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send {
-        Box::pin(async move { self.try_next().await?.ok_or_else(|| Error::from(unexpected_eof_err())) })
-    }
 }
