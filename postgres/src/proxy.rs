@@ -6,7 +6,11 @@ use tracing::error;
 use xitca_io::net::TcpStream;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use super::driver::{generic::GenericDriver, Drive, QuicStream, QUIC_ALPN};
+use super::driver::{
+    generic::GenericDriver,
+    quic::{QuicStream, QUIC_ALPN},
+    Drive,
+};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 

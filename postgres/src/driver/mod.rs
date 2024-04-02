@@ -8,14 +8,14 @@ pub use response::Response;
 
 pub(crate) use generic::DriverTx;
 
-#[cfg(feature = "io-uring")]
-mod io_uring;
-#[cfg(feature = "quic")]
-mod quic;
 #[cfg(feature = "tls")]
 mod tls;
 
-pub(crate) use quic::{QuicStream, QUIC_ALPN};
+#[cfg(feature = "io-uring")]
+mod io_uring;
+
+#[cfg(feature = "quic")]
+pub(crate) mod quic;
 
 use core::{
     future::{Future, IntoFuture},
