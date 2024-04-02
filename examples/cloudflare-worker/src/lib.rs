@@ -15,9 +15,9 @@ use xitca_web::{
     body::{BoxBody, RequestBody, ResponseBody},
     bytes::Bytes,
     error::{BodyError, Error},
-    handler::{extension::ExtensionRef, handler_service, redirect::Redirect},
+    handler::redirect::Redirect,
     http::{self, RequestExt, StatusCode, WebRequest, WebResponse},
-    route::{get, Route},
+    route::Route,
     service::{fn_service, object, Service, ServiceExt},
     App, WebContext,
 };
@@ -39,7 +39,6 @@ pub fn start() {
 
     let app = App::new()
         .at("/", Redirect::see_other("/index.html"))
-        .at("/worker-version", get(handler_service(version)))
         .at(
             "/*path",
             Route::new([http::Method::GET, http::Method::HEAD]).route(fn_service(serve)),
@@ -66,28 +65,25 @@ pub async fn main(mut req: Request, env: Env, _: Context) -> Result<Response, wo
     router.call(req).await
 }
 
-// env version handler.
-async fn version(ExtensionRef(version): ExtensionRef<'_, worker::Env>) -> String {
-    version.var("WORKERS_RS_VERSION").unwrap().to_string()
-}
-
 // static file handler
 async fn serve(ctx: WebContext<'_>) -> Result<WebResponse, Error> {
     // get file and handle error.
-    let res = ServeDir::with_fs("", file::Files)
-        .serve(ctx.req())
-        .await
-        .map_err(|e| match e {
-            ServeError::NotFound => StatusCode::NOT_FOUND,
+    match ServeDir::with_fs("", file::Files).serve(ctx.req()).await {
+        // box file body stream
+        Ok(res) => Ok(res.map(ResponseBody::box_stream)),
+        Err(e) => match e {
+            ServeError::NotFound => Err(StatusCode::NOT_FOUND.into()),
             ServeError::MethodNotAllowed => unreachable!("method is taken cared by Route"),
-            ServeError::NotModified => StatusCode::NOT_MODIFIED,
-            ServeError::PreconditionFailed => StatusCode::PRECONDITION_FAILED,
-            ServeError::InvalidPath => StatusCode::BAD_REQUEST,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
-
-    // box file body stream
-    Ok(res.map(ResponseBody::box_stream))
+            // note: worker-rs does not know how to handle 304 status code.
+            ServeError::NotModified => Ok(WebResponse::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .body(ResponseBody::none())
+                .unwrap()),
+            ServeError::PreconditionFailed => Err(StatusCode::PRECONDITION_FAILED.into()),
+            ServeError::InvalidPath => Err(StatusCode::BAD_REQUEST.into()),
+            _ => Err(StatusCode::INTERNAL_SERVER_ERROR.into()),
+        },
+    }
 }
 
 // middleware for map types and bridge xitca-web and worker-rs
