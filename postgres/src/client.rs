@@ -5,14 +5,14 @@ use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{
-    driver::{ClientTx, Response},
+    driver::{codec::Response, DriverTx},
     error::Error,
     statement::Statement,
     util::lock::Lock,
 };
 
 pub struct Client {
-    pub(crate) tx: ClientTx,
+    pub(crate) tx: DriverTx,
     pub(crate) buf: Lock<BytesMut>,
     cached_typeinfo: Lock<CachedTypeInfo>,
 }
@@ -36,7 +36,7 @@ struct CachedTypeInfo {
 }
 
 impl Client {
-    pub(crate) fn new(tx: ClientTx) -> Self {
+    pub(crate) fn new(tx: DriverTx) -> Self {
         Self {
             tx,
             buf: Lock::new(BytesMut::new()),

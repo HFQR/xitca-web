@@ -1,17 +1,6 @@
-//! tcp socket client.
-
-mod response;
-#[cfg(feature = "tls")]
-mod tls;
-
-pub use self::response::Response;
-
-use core::future::Future;
-
-use std::io;
+use std::{io, net::SocketAddr};
 
 use postgres_protocol::message::frontend;
-use tokio::sync::mpsc::unbounded_channel;
 use xitca_io::{
     bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest},
@@ -25,38 +14,13 @@ use crate::{
 };
 
 use super::{
-    codec::Request,
-    generic::{GenericDriver, GenericDriverTx},
+    generic::{DriverTx, GenericDriver},
     Driver,
 };
 
-#[derive(Debug)]
-pub(crate) struct ClientTx(GenericDriverTx);
-
-impl ClientTx {
-    pub(crate) fn is_closed(&self) -> bool {
-        self.0.is_closed()
-    }
-
-    pub(crate) fn send(&self, msg: BytesMut) -> impl Future<Output = Result<Response, Error>> + '_ {
-        self.send_multi(1, msg)
-    }
-
-    pub(crate) async fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
-        let (tx, rx) = unbounded_channel();
-        self.0.send(Request::new(tx, msg_count, msg))?;
-        Ok(Response::new(rx))
-    }
-
-    pub(crate) fn do_send(&self, msg: BytesMut) {
-        let (tx, _) = unbounded_channel();
-        let _ = self.0.send(Request::new(tx, 1, msg));
-    }
-}
-
 #[cold]
 #[inline(never)]
-pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, Driver), Error> {
+pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, Driver), Error> {
     // this block have repeated code due to HRTB limitation.
     // namely for <'_> AsyncIo::Future<'_>: Send bound can not be expressed correctly.
     match host {
@@ -65,10 +29,10 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, 
             if should_connect_tls(&mut io, cfg).await? {
                 #[cfg(feature = "tls")]
                 {
-                    let io = tls::connect(io, host, cfg).await?;
+                    let io = super::tls::connect_tls(io, host, cfg).await?;
                     let (mut drv, tx) = GenericDriver::new(io);
                     prepare_session(&mut drv, cfg).await?;
-                    Ok((ClientTx(tx), Driver::tls(drv)))
+                    Ok((tx, Driver::tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -77,7 +41,7 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, 
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
                 prepare_session(&mut drv, cfg).await?;
-                Ok((ClientTx(tx), Driver::tcp(drv)))
+                Ok((tx, Driver::tcp(drv)))
             }
         }
         #[cfg(unix)]
@@ -87,10 +51,10 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, 
                 #[cfg(feature = "tls")]
                 {
                     let host = host.to_string_lossy();
-                    let io = tls::connect(io, host.as_ref(), cfg).await?;
+                    let io = super::tls::connect_tls(io, host.as_ref(), cfg).await?;
                     let (mut drv, tx) = GenericDriver::new(io);
                     prepare_session(&mut drv, cfg).await?;
-                    Ok((ClientTx(tx), Driver::unix_tls(drv)))
+                    Ok((tx, Driver::unix_tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -99,15 +63,38 @@ pub(super) async fn _connect(host: Host, cfg: &mut Config) -> Result<(ClientTx, 
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
                 prepare_session(&mut drv, cfg).await?;
-                Ok((ClientTx(tx), Driver::unix(drv)))
+                Ok((tx, Driver::unix(drv)))
             }
         }
-        _ => unreachable!(),
+        Host::Quic(ref _host) => {
+            #[cfg(feature = "quic")]
+            {
+                let io = super::quic::connect_quic(_host, cfg.get_ports()).await?;
+                let (mut drv, tx) = GenericDriver::new(io);
+                prepare_session(&mut drv, cfg).await?;
+                Ok((tx, Driver::quic(drv)))
+            }
+            #[cfg(not(feature = "quic"))]
+            {
+                Err(crate::error::FeatureError::Quic.into())
+            }
+        }
     }
 }
 
+#[cold]
+#[inline(never)]
+pub(super) async fn connect_io<Io>(io: Io, cfg: &mut Config) -> Result<(DriverTx, Driver), Error>
+where
+    Io: AsyncIo + Send + 'static,
+{
+    let (mut drv, tx) = GenericDriver::new(Box::new(io) as _);
+    prepare_session(&mut drv, cfg).await?;
+    Ok((tx, Driver::dynamic(drv)))
+}
+
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
-    let addrs = super::resolve(host, ports).await?;
+    let addrs = resolve(host, ports).await?;
 
     let mut err = None;
 
@@ -164,4 +151,17 @@ where
             Err(e) => return Err(e),
         }
     }
+}
+
+pub(super) async fn resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
+    let addrs = tokio::net::lookup_host((host, 0))
+        .await?
+        .flat_map(|mut addr| {
+            ports.iter().map(move |port| {
+                addr.set_port(*port);
+                addr
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(addrs)
 }

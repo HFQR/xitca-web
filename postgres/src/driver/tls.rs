@@ -1,16 +1,44 @@
-#[cfg(not(feature = "quic"))]
-#[cfg(feature = "tls")]
-pub(super) fn dangerous_config(alpn: Vec<Vec<u8>>) -> std::sync::Arc<xitca_tls::rustls::ClientConfig> {
-    use std::sync::Arc;
+use std::sync::Arc;
 
-    use xitca_tls::rustls::{
-        self,
-        client::danger::HandshakeSignatureValid,
-        crypto::{verify_tls12_signature, verify_tls13_signature},
-        pki_types::{CertificateDer, ServerName, UnixTime},
-        ClientConfig, DigitallySignedStruct, RootCertStore,
-    };
+use sha2::{Digest, Sha256};
+use xitca_io::io::AsyncIo;
+use xitca_tls::rustls::{
+    self,
+    client::danger::HandshakeSignatureValid,
+    crypto::{verify_tls12_signature, verify_tls13_signature},
+    pki_types::{CertificateDer, ServerName, UnixTime},
+    ClientConfig, ClientConnection, DigitallySignedStruct, RootCertStore, TlsStream,
+};
 
+use crate::{config::Config, error::Error};
+
+pub(super) async fn connect_tls<Io>(
+    io: Io,
+    host: &str,
+    cfg: &mut Config,
+) -> Result<TlsStream<ClientConnection, Io>, Error>
+where
+    Io: AsyncIo,
+{
+    let name = ServerName::try_from(host).map_err(|_| Error::todo())?.to_owned();
+    let config = dangerous_config(Vec::new());
+    let session = ClientConnection::new(config, name).map_err(|_| Error::todo())?;
+
+    let stream = TlsStream::handshake(io, session).await?;
+
+    if let Some(sha256) = stream
+        .session()
+        .peer_certificates()
+        .and_then(|certs| certs.first())
+        .map(|cert| Sha256::digest(cert.as_ref()).to_vec())
+    {
+        cfg.tls_server_end_point(sha256);
+    }
+
+    Ok(stream)
+}
+
+fn dangerous_config(alpn: Vec<Vec<u8>>) -> std::sync::Arc<xitca_tls::rustls::ClientConfig> {
     #[derive(Debug)]
     struct SkipServerVerification;
 

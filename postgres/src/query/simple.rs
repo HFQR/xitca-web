@@ -3,7 +3,8 @@ use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
-    client::Client, column::Column, driver::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple, Type,
+    client::Client, column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple,
+    Type,
 };
 
 use super::row_stream::GenericRowStream;
