@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use quinn::{Connecting, Endpoint, ServerConfig};
+use quinn::{Endpoint, Incoming, ServerConfig};
 use rustls_0dot21::{Certificate, PrivateKey};
 use tracing::error;
 use xitca_io::{
@@ -116,7 +116,7 @@ fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<Server
     Ok(ServerConfig::with_crypto(Arc::new(config)))
 }
 
-async fn listen_task(conn: Connecting, addr: SocketAddr) -> Result<(), Error> {
+async fn listen_task(conn: Incoming, addr: SocketAddr) -> Result<(), Error> {
     let conn = conn.await?;
 
     let mut upstream = TcpStream::connect(addr).await?;
