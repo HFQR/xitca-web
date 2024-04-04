@@ -49,7 +49,7 @@ impl DriverTx {
     }
 }
 
-pub(crate) struct GenericDriver<Io> {
+pub struct GenericDriver<Io> {
     pub(crate) io: Io,
     pub(crate) write_buf: WriteBuf,
     pub(crate) read_buf: PagedBytesMut,

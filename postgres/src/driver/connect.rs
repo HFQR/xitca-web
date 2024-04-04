@@ -32,7 +32,7 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
                     let io = super::tls::connect_tls(io, host, cfg).await?;
                     let (mut drv, tx) = GenericDriver::new(io);
                     prepare_session(&mut drv, cfg).await?;
-                    Ok((tx, Driver::tls(drv)))
+                    Ok((tx, Driver::Tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
@@ -41,7 +41,7 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
             } else {
                 let (mut drv, tx) = GenericDriver::new(io);
                 prepare_session(&mut drv, cfg).await?;
-                Ok((tx, Driver::tcp(drv)))
+                Ok((tx, Driver::Tcp(drv)))
             }
         }
         Host::Unix(ref _host) => {
@@ -55,7 +55,7 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
                         let io = super::tls::connect_tls(io, host.as_ref(), cfg).await?;
                         let (mut drv, tx) = GenericDriver::new(io);
                         prepare_session(&mut drv, cfg).await?;
-                        Ok((tx, Driver::unix_tls(drv)))
+                        Ok((tx, Driver::UnixTls(drv)))
                     }
                     #[cfg(not(feature = "tls"))]
                     {
@@ -64,7 +64,7 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
                 } else {
                     let (mut drv, tx) = GenericDriver::new(io);
                     prepare_session(&mut drv, cfg).await?;
-                    Ok((tx, Driver::unix(drv)))
+                    Ok((tx, Driver::Unix(drv)))
                 }
             }
 
@@ -79,7 +79,7 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
                 let io = super::quic::connect_quic(_host, cfg.get_ports()).await?;
                 let (mut drv, tx) = GenericDriver::new(io);
                 prepare_session(&mut drv, cfg).await?;
-                Ok((tx, Driver::quic(drv)))
+                Ok((tx, Driver::Quic(drv)))
             }
             #[cfg(not(feature = "quic"))]
             {
@@ -97,7 +97,7 @@ where
 {
     let (mut drv, tx) = GenericDriver::new(Box::new(io) as _);
     prepare_session(&mut drv, cfg).await?;
-    Ok((tx, Driver::dynamic(drv)))
+    Ok((tx, Driver::Dynamic(drv)))
 }
 
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
