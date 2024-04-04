@@ -97,16 +97,13 @@ where
             }
 
             let interest = if self.write_buf.want_write_io() {
-                Interest::READABLE | Interest::WRITABLE
+                Interest::READABLE.add(Interest::WRITABLE)
             } else {
                 Interest::READABLE
             };
 
             let select = match self.state {
-                DriverState::Running(ref mut rx) => {
-                    let ready = self.io.ready(interest);
-                    rx.recv().select(ready).await
-                }
+                DriverState::Running(ref mut rx) => rx.recv().select(self.io.ready(interest)).await,
                 DriverState::Closing(ref mut e) => {
                     if !interest.is_writable() && self.res.is_empty() {
                         // no interest to write to io and all response have been finished so
@@ -114,11 +111,9 @@ where
                         // if there is a better way to exhaust potential remaining backend message
                         // please file an issue.
                         poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
-
                         return e.take().map(|e| Err(e.into())).transpose();
                     }
-                    let ready = self.io.ready(interest);
-                    SelectOutput::B(ready.await)
+                    SelectOutput::B(self.io.ready(interest).await)
                 }
             };
 
@@ -164,8 +159,7 @@ where
             if let Some(o) = func(self.read_buf.get_mut()) {
                 return o;
             }
-            let ready = self.io.ready(Interest::READABLE);
-            ready.await?;
+            self.io.ready(Interest::READABLE).await?;
             self.try_read()?;
         }
     }
@@ -227,8 +221,7 @@ where
             if self.write_buf.is_empty() {
                 return Ok(());
             }
-            let ready = self.io.ready(Interest::WRITABLE);
-            ready.await?;
+            self.io.ready(Interest::WRITABLE).await?;
         }
     }
 

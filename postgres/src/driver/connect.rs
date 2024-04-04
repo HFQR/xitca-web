@@ -44,26 +44,33 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
                 Ok((tx, Driver::tcp(drv)))
             }
         }
-        #[cfg(unix)]
-        Host::Unix(ref host) => {
-            let mut io = xitca_io::net::UnixStream::connect(host).await?;
-            if should_connect_tls(&mut io, cfg).await? {
-                #[cfg(feature = "tls")]
-                {
-                    let host = host.to_string_lossy();
-                    let io = super::tls::connect_tls(io, host.as_ref(), cfg).await?;
+        Host::Unix(ref _host) => {
+            #[cfg(unix)]
+            {
+                let mut io = xitca_io::net::UnixStream::connect(_host).await?;
+                if should_connect_tls(&mut io, cfg).await? {
+                    #[cfg(feature = "tls")]
+                    {
+                        let host = _host.to_string_lossy();
+                        let io = super::tls::connect_tls(io, host.as_ref(), cfg).await?;
+                        let (mut drv, tx) = GenericDriver::new(io);
+                        prepare_session(&mut drv, cfg).await?;
+                        Ok((tx, Driver::unix_tls(drv)))
+                    }
+                    #[cfg(not(feature = "tls"))]
+                    {
+                        Err(crate::error::FeatureError::Tls.into())
+                    }
+                } else {
                     let (mut drv, tx) = GenericDriver::new(io);
                     prepare_session(&mut drv, cfg).await?;
-                    Ok((tx, Driver::unix_tls(drv)))
+                    Ok((tx, Driver::unix(drv)))
                 }
-                #[cfg(not(feature = "tls"))]
-                {
-                    Err(crate::error::FeatureError::Tls.into())
-                }
-            } else {
-                let (mut drv, tx) = GenericDriver::new(io);
-                prepare_session(&mut drv, cfg).await?;
-                Ok((tx, Driver::unix(drv)))
+            }
+
+            #[cfg(not(unix))]
+            {
+                panic!("Host::Unix only support unix platform")
             }
         }
         Host::Quic(ref _host) => {
