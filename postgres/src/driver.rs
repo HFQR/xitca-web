@@ -80,8 +80,18 @@ where
 ///     tokio::spawn(drv.into_future());
 /// }
 /// ```
-pub struct Driver {
-    inner: _Driver,
+// TODO: use Box<dyn AsyncIterator> when life time GAT is object safe.
+pub enum Driver {
+    Tcp(GenericDriver<TcpStream>),
+    Dynamic(GenericDriver<Box<dyn AsyncIoDyn + Send>>),
+    #[cfg(feature = "tls")]
+    Tls(GenericDriver<TlsStream<ClientConnection, TcpStream>>),
+    #[cfg(unix)]
+    Unix(GenericDriver<UnixStream>),
+    #[cfg(all(unix, feature = "tls"))]
+    UnixTls(GenericDriver<TlsStream<ClientConnection, UnixStream>>),
+    #[cfg(feature = "quic")]
+    Quic(GenericDriver<crate::driver::quic::QuicStream>),
 }
 
 impl Driver {
@@ -89,8 +99,8 @@ impl Driver {
     /// downcast [Driver] to IoUringDriver if it's Tcp variant.
     /// IoUringDriver can not be a new variant of Dirver as it's !Send.
     pub fn try_into_io_uring_tcp(self) -> io_uring::IoUringDriver<xitca_io::net::io_uring::TcpStream> {
-        match self.inner {
-            _Driver::Tcp(drv) => {
+        match self {
+            Self::Tcp(drv) => {
                 let std = drv.io.into_std().unwrap();
                 let tcp = xitca_io::net::io_uring::TcpStream::from_std(std);
                 io_uring::IoUringDriver::new(
@@ -105,75 +115,21 @@ impl Driver {
         }
     }
 
-    pub(super) fn tcp(drv: GenericDriver<TcpStream>) -> Self {
-        Self {
-            inner: _Driver::Tcp(drv),
-        }
-    }
-
-    pub(super) fn dynamic(drv: GenericDriver<Box<dyn AsyncIoDyn + Send>>) -> Self {
-        Self {
-            inner: _Driver::Dynamic(drv),
-        }
-    }
-
-    #[cfg(feature = "tls")]
-    pub(super) fn tls(drv: GenericDriver<TlsStream<ClientConnection, TcpStream>>) -> Self {
-        Self {
-            inner: _Driver::Tls(drv),
-        }
-    }
-
-    #[cfg(unix)]
-    pub(super) fn unix(drv: GenericDriver<UnixStream>) -> Self {
-        Self {
-            inner: _Driver::Unix(drv),
-        }
-    }
-
-    #[cfg(all(unix, feature = "tls"))]
-    pub(super) fn unix_tls(drv: GenericDriver<TlsStream<ClientConnection, UnixStream>>) -> Self {
-        Self {
-            inner: _Driver::UnixTls(drv),
-        }
-    }
-
-    #[cfg(feature = "quic")]
-    pub(super) fn quic(drv: GenericDriver<crate::driver::quic::QuicStream>) -> Self {
-        Self {
-            inner: _Driver::Quic(drv),
-        }
-    }
-
     // run till the connection is closed by Client.
     async fn run_till_closed(self) {
-        let _ = match self.inner {
-            _Driver::Tcp(drv) => drv.run().await,
-            _Driver::Dynamic(drv) => drv.run().await,
+        let _ = match self {
+            Self::Tcp(drv) => drv.run().await,
+            Self::Dynamic(drv) => drv.run().await,
             #[cfg(feature = "tls")]
-            _Driver::Tls(drv) => drv.run().await,
+            Self::Tls(drv) => drv.run().await,
             #[cfg(unix)]
-            _Driver::Unix(drv) => drv.run().await,
+            Self::Unix(drv) => drv.run().await,
             #[cfg(all(unix, feature = "tls"))]
-            _Driver::UnixTls(drv) => drv.run().await,
+            Self::UnixTls(drv) => drv.run().await,
             #[cfg(feature = "quic")]
-            _Driver::Quic(drv) => drv.run().await,
+            Self::Quic(drv) => drv.run().await,
         };
     }
-}
-
-// TODO: use Box<dyn AsyncIterator> when life time GAT is object safe.
-enum _Driver {
-    Tcp(GenericDriver<TcpStream>),
-    Dynamic(GenericDriver<Box<dyn AsyncIoDyn + Send>>),
-    #[cfg(feature = "tls")]
-    Tls(GenericDriver<TlsStream<ClientConnection, TcpStream>>),
-    #[cfg(unix)]
-    Unix(GenericDriver<UnixStream>),
-    #[cfg(all(unix, feature = "tls"))]
-    UnixTls(GenericDriver<TlsStream<ClientConnection, UnixStream>>),
-    #[cfg(feature = "quic")]
-    Quic(GenericDriver<crate::driver::quic::QuicStream>),
 }
 
 impl AsyncLendingIterator for Driver {
@@ -182,17 +138,17 @@ impl AsyncLendingIterator for Driver {
 
     #[inline]
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
-        match self.inner {
-            _Driver::Tcp(ref mut drv) => drv.try_next().await,
-            _Driver::Dynamic(ref mut drv) => drv.try_next().await,
+        match self {
+            Self::Tcp(ref mut drv) => drv.try_next().await,
+            Self::Dynamic(ref mut drv) => drv.try_next().await,
             #[cfg(feature = "tls")]
-            _Driver::Tls(ref mut drv) => drv.try_next().await,
+            Self::Tls(ref mut drv) => drv.try_next().await,
             #[cfg(unix)]
-            _Driver::Unix(ref mut drv) => drv.try_next().await,
+            Self::Unix(ref mut drv) => drv.try_next().await,
             #[cfg(all(unix, feature = "tls"))]
-            _Driver::UnixTls(ref mut drv) => drv.try_next().await,
+            Self::UnixTls(ref mut drv) => drv.try_next().await,
             #[cfg(feature = "quic")]
-            _Driver::Quic(ref mut drv) => drv.try_next().await,
+            Self::Quic(ref mut drv) => drv.try_next().await,
         }
     }
 }
@@ -206,6 +162,7 @@ impl IntoFuture for Driver {
     }
 }
 
+// helper trait for interacting with io driver directly.
 pub(crate) trait Drive: Send {
     fn send(&mut self, msg: BytesMut) -> impl Future<Output = Result<(), Error>> + Send;
 
