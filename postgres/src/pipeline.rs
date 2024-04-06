@@ -184,9 +184,14 @@ impl<'a> AsyncLendingIterator for PipelineStream<'a> {
         while !self.columns.is_empty() {
             match self.res.recv().await? {
                 backend::Message::BindComplete => {
+                    let columns = self
+                        .columns
+                        .pop_front()
+                        .expect("PipelineItem must not overflow PipelineStream's columns array");
                     return Ok(Some(PipelineItem {
                         finished: false,
                         stream: self,
+                        columns,
                     }));
                 }
                 backend::Message::DataRow(_) | backend::Message::CommandComplete(_) => {
@@ -213,6 +218,7 @@ impl<'a> AsyncLendingIterator for PipelineStream<'a> {
 pub struct PipelineItem<'a, 'c> {
     finished: bool,
     stream: &'a mut PipelineStream<'c>,
+    columns: &'a [Column],
 }
 
 impl PipelineItem<'_, '_> {
@@ -244,12 +250,7 @@ impl AsyncLendingIterator for PipelineItem<'_, '_> {
         while !self.finished {
             match self.stream.res.recv().await? {
                 backend::Message::DataRow(body) => {
-                    let columns = self
-                        .stream
-                        .columns
-                        .front()
-                        .expect("PipelineItem must not overflow PipelineStream's columns array");
-                    return Row::try_new(columns, body, &mut self.stream.ranges).map(Some);
+                    return Row::try_new(self.columns, body, &mut self.stream.ranges).map(Some);
                 }
                 backend::Message::CommandComplete(_) => self.finished = true,
                 _ => return Err(Error::unexpected()),
@@ -257,11 +258,5 @@ impl AsyncLendingIterator for PipelineItem<'_, '_> {
         }
 
         Ok(None)
-    }
-}
-
-impl Drop for PipelineItem<'_, '_> {
-    fn drop(&mut self) {
-        self.stream.columns.pop_front();
     }
 }

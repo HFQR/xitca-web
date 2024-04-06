@@ -22,6 +22,8 @@ pub mod statement;
 
 #[cfg(feature = "quic")]
 pub mod proxy;
+#[cfg(feature = "quic")]
+pub use driver::quic::QuicStream;
 
 pub use postgres_types::{BorrowToSql, FromSql, ToSql, Type};
 
@@ -145,7 +147,7 @@ mod test {
     use quinn::ServerConfig;
     use rustls_0dot21::{Certificate, PrivateKey};
 
-    use crate::{proxy::Proxy, AsyncLendingIterator, Postgres};
+    use crate::{proxy::Proxy, AsyncLendingIterator, Config, Postgres, QuicStream};
 
     #[tokio::test]
     async fn proxy() {
@@ -173,11 +175,13 @@ mod test {
                 .run(),
         );
 
-        let (cli, task) =
-            Postgres::new("postgres://postgres:postgres@127.0.0.1:5432/postgres?target_session_attrs=read-write")
-                .connect_quic()
-                .await
-                .unwrap();
+        let mut cfg = Config::new();
+
+        cfg.dbname("postgres").user("postgres").password("postgres");
+
+        let conn = crate::driver::quic::_connect_quic("127.0.0.1", &[5432]).await.unwrap();
+        let stream = conn.open_bi().await.unwrap();
+        let (cli, task) = Postgres::new(cfg).connect_io(QuicStream::from(stream)).await.unwrap();
 
         let handle = tokio::spawn(task.into_future());
 

@@ -130,6 +130,40 @@ impl Client {
     }
 
     #[inline(never)]
+    async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
+        let stmt = self.typeinfo_enum_statement().await?;
+
+        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
+
+        let mut res = Vec::new();
+
+        while let Some(row) = rows.try_next().await? {
+            let variant = row.try_get(0)?;
+            res.push(variant);
+        }
+
+        Ok(res)
+    }
+
+    #[inline(never)]
+    async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
+        let stmt = self.typeinfo_composite_statement().await?;
+
+        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
+
+        let mut fields = Vec::new();
+
+        while let Some(row) = rows.try_next().await? {
+            let name = row.try_get(0)?;
+            let oid = row.try_get(1)?;
+            let type_ = self.get_type(oid).await?;
+            fields.push(Field::new(name, type_));
+        }
+
+        Ok(fields)
+    }
+
+    #[inline(never)]
     async fn typeinfo_statement(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
@@ -150,22 +184,6 @@ impl Client {
     }
 
     #[inline(never)]
-    async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
-        let stmt = self.typeinfo_enum_statement().await?;
-
-        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
-
-        let mut res = Vec::new();
-
-        while let Some(row) = rows.try_next().await? {
-            let variant = row.try_get(0)?;
-            res.push(variant);
-        }
-
-        Ok(res)
-    }
-
-    #[inline(never)]
     async fn typeinfo_enum_statement(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
@@ -183,24 +201,6 @@ impl Client {
         self.set_typeinfo_enum(&stmt);
 
         Ok(stmt)
-    }
-
-    #[inline(never)]
-    async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
-        let stmt = self.typeinfo_composite_statement().await?;
-
-        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
-
-        let mut fields = Vec::new();
-
-        while let Some(row) = rows.try_next().await? {
-            let name = row.try_get(0)?;
-            let oid = row.try_get(1)?;
-            let type_ = self.get_type(oid).await?;
-            fields.push(Field::new(name, type_));
-        }
-
-        Ok(fields)
     }
 
     #[inline(never)]
