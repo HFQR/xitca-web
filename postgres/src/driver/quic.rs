@@ -10,7 +10,7 @@ use core::{
 
 use std::{io, sync::Arc};
 
-use quinn::{ClientConfig, Endpoint, RecvStream, SendStream};
+use quinn::{ClientConfig, Connection, Endpoint, RecvStream, SendStream};
 use xitca_io::{
     bytes::{Buf, Bytes},
     io::{AsyncIo, Interest, Ready},
@@ -160,8 +160,8 @@ impl Reader {
     }
 }
 
-impl QuicStream {
-    pub(crate) fn new(tx: SendStream, rx: RecvStream) -> Self {
+impl From<(SendStream, RecvStream)> for QuicStream {
+    fn from((tx, rx): (SendStream, RecvStream)) -> Self {
         Self {
             writer: Writer::Tx(tx),
             reader: Reader::in_flight(rx),
@@ -256,7 +256,7 @@ fn dangerous_config_rustls_0dot21(alpn: Vec<Vec<u8>>) -> Arc<rustls_0dot21::Clie
 
 #[cold]
 #[inline(never)]
-pub(crate) async fn connect_quic(host: &str, ports: &[u16]) -> Result<QuicStream, Error> {
+pub(crate) async fn _connect_quic(host: &str, ports: &[u16]) -> Result<Connection, Error> {
     let addrs = super::connect::resolve(host, ports).await?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
 
@@ -268,10 +268,7 @@ pub(crate) async fn connect_quic(host: &str, ports: &[u16]) -> Result<QuicStream
     for addr in addrs {
         match endpoint.connect(addr, host) {
             Ok(conn) => match conn.await {
-                Ok(inner) => {
-                    let (tx, rx) = inner.open_bi().await.unwrap();
-                    return Ok(QuicStream::new(tx, rx));
-                }
+                Ok(conn) => return Ok(conn),
                 Err(_) => err = Some(Error::todo()),
             },
             Err(_) => err = Some(Error::todo()),
@@ -279,4 +276,12 @@ pub(crate) async fn connect_quic(host: &str, ports: &[u16]) -> Result<QuicStream
     }
 
     Err(err.unwrap())
+}
+
+#[cold]
+#[inline(never)]
+pub(crate) async fn connect_quic(host: &str, ports: &[u16]) -> Result<QuicStream, Error> {
+    let conn = _connect_quic(host, ports).await?;
+    let stream = conn.open_bi().await.map_err(|_| Error::todo())?;
+    Ok(stream.into())
 }

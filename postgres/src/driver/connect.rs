@@ -20,9 +20,7 @@ use super::{
 
 #[cold]
 #[inline(never)]
-pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, Driver), Error> {
-    // this block have repeated code due to HRTB limitation.
-    // namely for <'_> AsyncIo::Future<'_>: Send bound can not be expressed correctly.
+pub(super) async fn connect_host(host: Host, cfg: &mut Config) -> Result<(DriverTx, Driver), Error> {
     match host {
         Host::Tcp(ref host) => {
             let mut io = connect_tcp(host, cfg.get_ports()).await?;
@@ -30,18 +28,14 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
                 #[cfg(feature = "tls")]
                 {
                     let io = super::tls::connect_tls(io, host, cfg).await?;
-                    let (mut drv, tx) = GenericDriver::new(io);
-                    prepare_session(&mut drv, cfg).await?;
-                    Ok((tx, Driver::Tls(drv)))
+                    connect_io(io, cfg).await.map(|(tx, drv)| (tx, Driver::Tls(drv)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(crate::error::FeatureError::Tls.into())
                 }
             } else {
-                let (mut drv, tx) = GenericDriver::new(io);
-                prepare_session(&mut drv, cfg).await?;
-                Ok((tx, Driver::Tcp(drv)))
+                connect_io(io, cfg).await.map(|(tx, drv)| (tx, Driver::Tcp(drv)))
             }
         }
         Host::Unix(ref _host) => {
@@ -53,18 +47,14 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
                     {
                         let host = _host.to_string_lossy();
                         let io = super::tls::connect_tls(io, host.as_ref(), cfg).await?;
-                        let (mut drv, tx) = GenericDriver::new(io);
-                        prepare_session(&mut drv, cfg).await?;
-                        Ok((tx, Driver::UnixTls(drv)))
+                        connect_io(io, cfg).await.map(|(tx, drv)| (tx, Driver::UnixTls(drv)))
                     }
                     #[cfg(not(feature = "tls"))]
                     {
                         Err(crate::error::FeatureError::Tls.into())
                     }
                 } else {
-                    let (mut drv, tx) = GenericDriver::new(io);
-                    prepare_session(&mut drv, cfg).await?;
-                    Ok((tx, Driver::Unix(drv)))
+                    connect_io(io, cfg).await.map(|(tx, drv)| (tx, Driver::Unix(drv)))
                 }
             }
 
@@ -77,9 +67,7 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
             #[cfg(feature = "quic")]
             {
                 let io = super::quic::connect_quic(_host, cfg.get_ports()).await?;
-                let (mut drv, tx) = GenericDriver::new(io);
-                prepare_session(&mut drv, cfg).await?;
-                Ok((tx, Driver::Quic(drv)))
+                connect_io(io, cfg).await.map(|(tx, drv)| (tx, Driver::Quic(drv)))
             }
             #[cfg(not(feature = "quic"))]
             {
@@ -91,13 +79,22 @@ pub(super) async fn connect(host: Host, cfg: &mut Config) -> Result<(DriverTx, D
 
 #[cold]
 #[inline(never)]
-pub(super) async fn connect_io<Io>(io: Io, cfg: &mut Config) -> Result<(DriverTx, Driver), Error>
+pub(super) async fn connect_dyn<Io>(io: Io, cfg: &mut Config) -> Result<(DriverTx, Driver), Error>
 where
     Io: AsyncIo + Send + 'static,
 {
-    let (mut drv, tx) = GenericDriver::new(Box::new(io) as _);
+    connect_io(Box::new(io) as _, cfg)
+        .await
+        .map(|(tx, drv)| (tx, Driver::Dynamic(drv)))
+}
+
+async fn connect_io<Io>(io: Io, cfg: &mut Config) -> Result<(DriverTx, GenericDriver<Io>), Error>
+where
+    Io: AsyncIo + Send + 'static,
+{
+    let (mut drv, tx) = GenericDriver::new(io);
     prepare_session(&mut drv, cfg).await?;
-    Ok((tx, Driver::Dynamic(drv)))
+    Ok((tx, drv))
 }
 
 async fn connect_tcp(host: &str, ports: &[u16]) -> Result<TcpStream, Error> {
@@ -139,22 +136,24 @@ where
     frontend::ssl_request(&mut buf);
 
     while !buf.is_empty() {
-        io.ready(Interest::WRITABLE).await?;
         match io.write(&buf) {
             Ok(0) => return Err(unexpected_eof_err()),
             Ok(n) => buf.advance(n),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                io.ready(Interest::WRITABLE).await?;
+            }
             Err(e) => return Err(e),
         }
     }
 
     let mut buf = [0];
     loop {
-        io.ready(Interest::READABLE).await?;
         match io.read(&mut buf) {
             Ok(0) => return Err(unexpected_eof_err()),
             Ok(_) => return Ok(buf[0] == b'S'),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                io.ready(Interest::READABLE).await?;
+            }
             Err(e) => return Err(e),
         }
     }
