@@ -1,9 +1,10 @@
-use std::{
+use core::{
     cmp,
-    collections::VecDeque,
     hash::{Hash, Hasher},
-    mem, usize,
+    mem,
 };
+
+use std::collections::VecDeque;
 
 use fnv::FnvHasher;
 

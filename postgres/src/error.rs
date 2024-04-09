@@ -76,7 +76,8 @@ impl error::Error for Error {
     }
 }
 
-/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore.
+/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when sending
+/// request to driver.
 ///
 /// the field inside error contains the raw bytes buffer of query message that are ready to be
 /// sent to the [Driver] for transporting. It's possible to construct a new [Client] and [Driver]
@@ -103,6 +104,25 @@ impl error::Error for DriverDown {}
 
 impl From<DriverDown> for Error {
     fn from(e: DriverDown) -> Self {
+        Self(Box::new(e))
+    }
+}
+
+/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when receiving response
+/// from server. any mid flight response and unfinished response data are lost and can't be recovered.
+#[derive(Debug)]
+pub struct DriverDownReceiving;
+
+impl fmt::Display for DriverDownReceiving {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Driver is dropped and unaccessible. Response data is lost and unrecoverable.")
+    }
+}
+
+impl error::Error for DriverDownReceiving {}
+
+impl From<DriverDownReceiving> for Error {
+    fn from(e: DriverDownReceiving) -> Self {
         Self(Box::new(e))
     }
 }

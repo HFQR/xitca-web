@@ -7,7 +7,7 @@ use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
-use crate::error::{DriverDown, Error};
+use crate::error::{DriverDownReceiving, Error};
 
 pub struct Response {
     rx: ResponseReceiver,
@@ -22,15 +22,14 @@ impl Response {
         }
     }
 
-    pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + '_ {
+    pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send + '_ {
         poll_fn(|cx| {
             if self.buf.is_empty() {
-                self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| DriverDown(BytesMut::new()))?;
+                self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| DriverDownReceiving)?;
             }
 
             let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.")
             {
-                // TODO: error response.
                 backend::Message::ErrorResponse(_body) => Err(Error::todo()),
                 msg => Ok(msg),
             };
@@ -46,23 +45,30 @@ pub(crate) struct ResponseSender {
     msg_count: usize,
 }
 
+pub(super) enum SenderState {
+    Continue,
+    Finish,
+}
+
 impl ResponseSender {
     fn new(tx: UnboundedSender<BytesMut>, msg_count: usize) -> Self {
         Self { tx, msg_count }
     }
 
-    pub(super) fn send(&mut self, msg: BytesMut) {
+    pub(super) fn send(&mut self, msg: BytesMut, complete: bool) -> SenderState {
+        debug_assert!(self.msg_count > 0);
+
         let _ = self.tx.send(msg);
-    }
 
-    pub(super) fn complete(&mut self, current_msg_complete: bool) -> bool {
-        assert!(self.msg_count > 0);
-
-        if current_msg_complete {
+        if complete {
             self.msg_count -= 1;
         }
 
-        self.msg_count == 0
+        if self.msg_count == 0 {
+            SenderState::Finish
+        } else {
+            SenderState::Continue
+        }
     }
 }
 

@@ -16,7 +16,7 @@ use xitca_unsafe_collection::futures::{ReusableLocalBoxFuture, Select, SelectOut
 use crate::error::Error;
 
 use super::{
-    codec::{ResponseMessage, ResponseSender},
+    codec::{ResponseMessage, ResponseSender, SenderState},
     generic::GenericDriverRx,
 };
 
@@ -97,10 +97,12 @@ where
                 while let Some(res) = ResponseMessage::try_from_buf(buf)? {
                     match res {
                         ResponseMessage::Normal { buf, complete } => {
-                            let front = self.res.front_mut().expect("out of bound must not happen");
-                            front.send(buf);
-                            if front.complete(complete) {
-                                self.res.pop_front();
+                            let front = self.res.front_mut().expect("server respond out of bound");
+                            match front.send(buf, complete) {
+                                SenderState::Finish => {
+                                    self.res.pop_front();
+                                }
+                                SenderState::Continue => {}
                             }
                         }
                         ResponseMessage::Async(msg) => return Ok(Some(msg)),

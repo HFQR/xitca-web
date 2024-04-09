@@ -17,7 +17,7 @@ use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 use crate::{error::Error, iter::AsyncLendingIterator};
 
 use super::{
-    codec::{Request, Response, ResponseMessage, ResponseSender},
+    codec::{Request, Response, ResponseMessage, ResponseSender, SenderState},
     Drive,
 };
 
@@ -183,11 +183,12 @@ where
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    if let Some(front) = self.res.front_mut() {
-                        front.send(buf);
-                        if front.complete(complete) {
+                    let front = self.res.front_mut().expect("server respond out of bound");
+                    match front.send(buf, complete) {
+                        SenderState::Finish => {
                             self.res.pop_front();
                         }
+                        SenderState::Continue => {}
                     }
                 }
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),
