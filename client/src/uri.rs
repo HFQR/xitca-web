@@ -8,7 +8,6 @@ use crate::{error::InvalidUri, http::uri};
 pub enum Uri<'a> {
     Tcp(&'a uri::Uri),
     Tls(&'a uri::Uri),
-    #[cfg(unix)]
     Unix(&'a uri::Uri),
 }
 
@@ -19,7 +18,6 @@ impl Deref for Uri<'_> {
         match *self {
             Self::Tcp(uri) => uri,
             Self::Tls(uri) => uri,
-            #[cfg(unix)]
             Self::Unix(uri) => uri,
         }
     }
@@ -33,7 +31,6 @@ impl<'a> Uri<'a> {
             (None, _, _) => Err(InvalidUri::MissingScheme),
             (Some("http" | "ws"), _, _) => Ok(Uri::Tcp(uri)),
             (Some("https" | "wss"), _, _) => Ok(Uri::Tls(uri)),
-            #[cfg(unix)]
             (Some("unix"), _, _) => Ok(Uri::Unix(uri)),
             (Some(_), _, _) => Err(InvalidUri::UnknownScheme),
         }
@@ -62,7 +59,6 @@ mod test {
         let _ = Uri::try_parse(&uri).unwrap();
     }
 
-    #[cfg(unix)]
     #[test]
     fn uds_parse() {
         let uri = uri::Uri::from_static("unix://tmp/foo.socket");

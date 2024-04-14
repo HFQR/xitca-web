@@ -266,7 +266,7 @@ impl Client {
                 let conn = self.make_tcp(connect, timer).await?;
 
                 if matches!(connect.uri, Uri::Tcp(_)) {
-                    return Ok((ConnectionExclusive::Tcp(conn), expected_version));
+                    return Ok((conn, expected_version));
                 }
 
                 timer
@@ -275,22 +275,25 @@ impl Client {
 
                 let (conn, version) = self
                     .connector
-                    .call((connect.hostname(), Box::new(conn)))
+                    .call((connect.hostname(), conn))
                     .timeout(timer.as_mut())
                     .await
                     .map_err(|_| TimeoutError::TlsHandshake)??;
 
-                Ok((ConnectionExclusive::Tls(conn), version))
+                Ok((conn, version))
             }
-            #[cfg(unix)]
-            Uri::Unix(_) => {
-                let conn = self.make_unix(connect, timer).await?;
-                Ok((ConnectionExclusive::Unix(conn), expected_version))
-            }
+            Uri::Unix(_) => self
+                .make_unix(connect, timer)
+                .await
+                .map(|conn| (conn, expected_version)),
         }
     }
 
-    async fn make_tcp(&self, connect: &mut Connect<'_>, timer: &mut Pin<Box<Sleep>>) -> Result<TcpStream, Error> {
+    async fn make_tcp(
+        &self,
+        connect: &mut Connect<'_>,
+        timer: &mut Pin<Box<Sleep>>,
+    ) -> Result<ConnectionExclusive, Error> {
         self.resolver
             .call(connect)
             .timeout(timer.as_mut())
@@ -310,7 +313,7 @@ impl Client {
         // TODO: make nodelay configurable?
         let _ = stream.set_nodelay(true);
 
-        Ok(stream)
+        Ok(Box::new(stream))
     }
 
     async fn make_tcp_inner(&self, connect: &Connect<'_>) -> Result<TcpStream, Error> {
@@ -353,12 +356,11 @@ impl Client {
         }
     }
 
-    #[cfg(unix)]
     async fn make_unix(
         &self,
         connect: &Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
-    ) -> Result<xitca_io::net::UnixStream, Error> {
+    ) -> Result<ConnectionExclusive, Error> {
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
@@ -369,12 +371,20 @@ impl Client {
             connect.uri.path_and_query().unwrap().as_str()
         );
 
-        let stream = xitca_io::net::UnixStream::connect(path)
-            .timeout(timer.as_mut())
-            .await
-            .map_err(|_| TimeoutError::Connect)??;
+        #[cfg(unix)]
+        {
+            let stream = xitca_io::net::UnixStream::connect(path)
+                .timeout(timer.as_mut())
+                .await
+                .map_err(|_| TimeoutError::Connect)??;
 
-        Ok(stream)
+            Ok(Box::new(stream))
+        }
+
+        #[cfg(not(unix))]
+        {
+            unimplemented!("only unix supports unix domain socket")
+        }
     }
 }
 
