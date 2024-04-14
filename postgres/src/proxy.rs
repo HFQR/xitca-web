@@ -1,3 +1,7 @@
+//! proxy serves as a sample implementation of server side traffic forwarder
+//! between a xitca-postgres Client with `quic` feature enabled and the postgres
+//! database server.
+
 use std::{
     collections::HashSet,
     error, fs,
@@ -119,9 +123,16 @@ fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<Server
 async fn listen_task(conn: Incoming, addr: SocketAddr) -> Result<(), Error> {
     let conn = conn.await?;
 
+    // bridge quic client connection to tcp connection to database.
     let mut upstream = TcpStream::connect(addr).await?;
 
+    // the proxy does not multiplex over streams from a quic client connection but it's not a hard
+    // requirement.
+    // an alternative proxy implementation can multiplex tcp socket connection to database with
+    // additional bidirectional stream.
     let (mut tx, mut rx) = conn.accept_bi().await?;
+
+    // loop and copy bytes between the quic stream and tcp socket.
 
     let mut buf = [0; 4096];
 
