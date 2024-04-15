@@ -34,8 +34,6 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
 
                 let method = Method::from_bytes(req.method.unwrap().as_bytes())?;
 
-                let uri = req.path.unwrap().parse::<Uri>()?;
-
                 // default body decoder from method.
                 let mut decoder = match method {
                     // set method to context so it can pass method to response.
@@ -62,11 +60,17 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 // record indices of headers from bytes buffer.
                 let mut header_idx = uninit::uninit_array::<_, MAX_HEADERS>();
                 let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, req.headers);
-
                 let headers_len = req.headers.len();
+
+                // record indices of request path from buffer.
+                let path = req.path.unwrap();
+                let path_head = path.as_ptr() as usize - buf.as_ptr() as usize;
+                let path_len = path.len();
 
                 // split the headers from buffer.
                 let slice = buf.split_to(len).freeze();
+
+                let uri = Uri::from_maybe_shared(slice.slice(path_head..path_head + path_len))?;
 
                 // pop a cached headermap or construct a new one.
                 let mut headers = self.take_headers();

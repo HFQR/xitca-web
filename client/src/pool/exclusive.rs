@@ -34,7 +34,8 @@ where
         }
     }
 
-    // acquire a connection from pool. if a new connection needs to be made
+    // acquire a connection from pool. if a new connection needs to be made a spawner type
+    // would be returned.
     pub(crate) async fn acquire(&self, key: impl Into<K>) -> AcquireOutput<'_, K, C> {
         let key = key.into();
 
