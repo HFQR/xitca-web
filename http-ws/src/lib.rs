@@ -86,12 +86,7 @@ impl From<HandshakeError> for Builder {
 /// Prepare a [Request] with given [Uri] and [Version]  for websocket connection.
 /// Only [Version::HTTP_11] and [Version::HTTP_2] are supported.
 /// After process the request would be ready to be sent to server.
-pub fn client_request_from_uri<U, E>(uri: U, version: Version) -> Result<Request<()>, E>
-where
-    Uri: TryFrom<U, Error = E>,
-{
-    let uri = uri.try_into()?;
-
+pub fn client_request_from_uri(uri: Uri, version: Version) -> Request<()> {
     let mut req = Request::new(());
     *req.uri_mut() = uri;
     *req.version_mut() = version;
@@ -124,7 +119,7 @@ where
     req.headers_mut()
         .insert(SEC_WEBSOCKET_VERSION, SEC_WEBSOCKET_VERSION_VALUE);
 
-    Ok(req)
+    req
 }
 
 /// Verify HTTP/1.1 WebSocket handshake request and create handshake response.

@@ -75,7 +75,7 @@ serde = { version = "1.0.130", default-features = false, optional = true }
 serde_json = { version = "1", optional = true }
 
 # websocket
-http-ws = { version = "0.3", features = ["stream"], optional = true }
+http-ws = { version = "0.4", features = ["stream"], optional = true }
 
 [dev-dependencies]
 futures = "0.3"

@@ -55,6 +55,28 @@ impl From<Infallible> for Error {
     }
 }
 
+/// a collection of multiple errors chained together.
+#[derive(Debug)]
+pub struct ErrorMultiple(Vec<Error>);
+
+impl fmt::Display for ErrorMultiple {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for e in self.0.iter() {
+            write!(f, "{}", e)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl error::Error for ErrorMultiple {}
+
+impl From<Vec<Error>> for Error {
+    fn from(err: Vec<Error>) -> Self {
+        Self::Std(Box::new(ErrorMultiple(err)))
+    }
+}
+
 #[derive(Debug)]
 pub enum InvalidUri {
     MissingHost,

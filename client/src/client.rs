@@ -50,12 +50,12 @@ impl Default for Client {
 macro_rules! method {
     ($method: tt, $method2: tt) => {
         #[doc = concat!("Start a new [Method::",stringify!($method2),"] request with empty request body.")]
-        pub fn $method<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
+        pub fn $method<U>(&self, url: U) -> RequestBuilder<'_>
         where
             uri::Uri: TryFrom<U>,
             Error: From<<uri::Uri as TryFrom<U>>::Error>,
         {
-            Ok(self.get(url)?.method(Method::$method2))
+            self.get(url).method(Method::$method2)
         }
     };
 }
@@ -84,18 +84,23 @@ impl Client {
     }
 
     /// Start a new [Method::GET] request with empty request body.
-    pub fn get<U>(&self, url: U) -> Result<RequestBuilder<'_>, Error>
+    pub fn get<U>(&self, url: U) -> RequestBuilder<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        let uri = uri::Uri::try_from(url)?;
-
         let mut req = http::Request::new(BoxBody::default());
-        *req.uri_mut() = uri;
         *req.version_mut() = self.max_http_version;
 
-        Ok(self.request(req))
+        let err = uri::Uri::try_from(url).map(|uri| *req.uri_mut() = uri).err();
+
+        let mut builder = self.request(req);
+
+        if let Some(e) = err {
+            builder.push_error(e.into());
+        }
+
+        builder
     }
 
     method!(post, POST);
@@ -114,7 +119,7 @@ impl Client {
     /// # async fn _main() -> Result<(), xitca_client::error::Error> {
     /// // construct a new client and initialize connect request.
     /// let client = Client::new();
-    /// let mut http_tunnel = client.connect("http://localhost:8080")?.send().await?;
+    /// let mut http_tunnel = client.connect("http://localhost:8080").send().await?;
     ///
     /// // http_tunnel is tunnel connection type exposing Stream and Sink trait
     /// // interfaces for 2 way bytes data communicating.
@@ -141,7 +146,7 @@ impl Client {
     /// // write part can operate with Sink trait implement.
     /// write.send(b"996").await?;
     ///
-    /// let mut http_tunnel = client.connect("http://localhost:8080")?.send().await?;    
+    /// let mut http_tunnel = client.connect("http://localhost:8080").send().await?;    
     ///
     /// // import AsyncIo trait and use http tunnel as io type directly.
     /// use xitca_io::io::{Interest, AsyncIo};
@@ -170,13 +175,12 @@ impl Client {
     /// Ok(())
     /// # }
     /// ```
-    pub fn connect<U>(&self, url: U) -> Result<HttpTunnelRequest<'_>, Error>
+    pub fn connect<U>(&self, url: U) -> HttpTunnelRequest<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        self.get(url)
-            .map(|req| HttpTunnelRequest::new(req.method(Method::CONNECT)))
+        HttpTunnelRequest::new(self.get(url).method(Method::CONNECT))
     }
 
     #[cfg(all(feature = "websocket", feature = "http1"))]
@@ -189,7 +193,7 @@ impl Client {
     /// # async fn _main() -> Result<(), xitca_client::error::Error> {
     /// // construct a new client and initialize websocket request.
     /// let client = Client::new();
-    /// let mut ws = client.ws("ws://localhost:8080")?.send().await?;
+    /// let mut ws = client.ws("ws://localhost:8080").send().await?;
     ///
     /// // ws is websocket connection type exposing Stream and Sink trait
     /// // interfaces for 2 way websocket message communicating.
@@ -219,7 +223,7 @@ impl Client {
     /// Ok(())
     /// # }
     /// ```
-    pub fn ws<U>(&self, url: U) -> Result<crate::ws::WsRequest<'_>, Error>
+    pub fn ws<U>(&self, url: U) -> crate::ws::WsRequest<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -229,7 +233,7 @@ impl Client {
 
     #[cfg(all(feature = "websocket", feature = "http2"))]
     /// Start a new websocket request with HTTP/2.
-    pub fn ws2<U>(&self, url: U) -> Result<crate::ws::WsRequest<'_>, Error>
+    pub fn ws2<U>(&self, url: U) -> crate::ws::WsRequest<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -238,14 +242,23 @@ impl Client {
     }
 
     #[cfg(feature = "websocket")]
-    fn _ws<U>(&self, url: U, version: Version) -> Result<crate::ws::WsRequest<'_>, Error>
+    fn _ws<U>(&self, url: U, version: Version) -> crate::ws::WsRequest<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        let req = http_ws::client_request_from_uri(url, version)?.map(|_| BoxBody::default());
-        let req = RequestBuilder::new(req, self);
-        Ok(crate::ws::WsRequest::new(req))
+        let builder = match uri::Uri::try_from(url) {
+            Ok(uri) => {
+                let req = http_ws::client_request_from_uri(uri, version).map(|_| BoxBody::default());
+                self.request(req)
+            }
+            Err(e) => {
+                let mut builder = self.request(http::Request::new(BoxBody::default()));
+                builder.push_error(e.into());
+                builder
+            }
+        };
+        crate::ws::WsRequest::new(builder)
     }
 }
 
@@ -402,7 +415,6 @@ mod test {
             .openssl()
             .finish()
             .get("https://www.google.com/")
-            .unwrap()
             .send()
             .await
             .unwrap()

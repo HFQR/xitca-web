@@ -18,12 +18,9 @@ use crate::{
 
 /// builder type for [http::Request] with extended functionalities.
 pub struct RequestBuilder<'a> {
-    /// HTTP request type from [http] crate.
     req: http::Request<BoxBody>,
-    /// Reference to Client instance.
+    err: Vec<Error>,
     client: &'a Client,
-    /// Request level timeout setting. When Some(Duration) would override
-    /// timeout configuration from Client.
     timeout: Duration,
 }
 
@@ -35,9 +32,14 @@ impl<'a> RequestBuilder<'a> {
     {
         Self {
             req: req.map(BoxBody::new),
+            err: Vec::new(),
             client,
             timeout: client.timeout_config.request_timeout,
         }
+    }
+
+    pub(crate) fn push_error(&mut self, e: Error) {
+        self.err.push(e);
     }
 
     /// Returns request's headers.
@@ -124,12 +126,17 @@ impl<'a> RequestBuilder<'a> {
 
     #[cfg(feature = "json")]
     /// Use json object as request body.
-    pub fn json(mut self, body: impl serde::ser::Serialize) -> Result<RequestBuilder<'a>, Error> {
-        // TODO: handle serialize error.
-        let body = serde_json::to_vec(&body).unwrap();
-
-        self.headers_mut().insert(CONTENT_TYPE, const_header_value::JSON);
-        Ok(self.body(body))
+    pub fn json(mut self, body: impl serde::ser::Serialize) -> RequestBuilder<'a> {
+        match serde_json::to_vec(&body) {
+            Ok(body) => {
+                self.headers_mut().insert(CONTENT_TYPE, const_header_value::JSON);
+                self.body(body)
+            }
+            Err(e) => {
+                self.push_error(e.into());
+                self
+            }
+        }
     }
 
     /// Use pre allocated bytes as request body.
@@ -168,9 +175,14 @@ impl<'a> RequestBuilder<'a> {
     pub async fn send(self) -> Result<Response<'a>, Error> {
         let Self {
             mut req,
+            err,
             client,
             timeout,
         } = self;
+
+        if !err.is_empty() {
+            return Err(err.into());
+        }
 
         client
             .service
