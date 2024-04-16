@@ -57,7 +57,7 @@ async fn h2_v2_post() {
 
     let c = Client::new();
 
-    let mut req = c.post("https://localhost:8080/").unwrap();
+    let mut req = c.post("https://localhost:8080/");
 
     req.headers_mut().insert("foo", "bar".parse().unwrap());
 

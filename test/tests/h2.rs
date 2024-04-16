@@ -20,7 +20,7 @@ async fn h2_get() -> Result<(), Error> {
     let c = Client::new();
 
     for _ in 0..3 {
-        let mut res = c.get(&server_url)?.version(Version::HTTP_2).send().await?;
+        let mut res = c.get(&server_url).version(Version::HTTP_2).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;
@@ -47,7 +47,7 @@ async fn h2_post() -> Result<(), Error> {
         for _ in 0..1024 * 1024 {
             body.extend_from_slice(b"Hello,World!");
         }
-        let mut res = c.post(&server_url)?.version(Version::HTTP_2).text(body).send().await?;
+        let mut res = c.post(&server_url).version(Version::HTTP_2).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let _ = res.body().await;
@@ -69,7 +69,7 @@ async fn h2_connect() -> Result<(), Error> {
     let c = Client::new();
 
     let mut tunnel = c
-        .connect(&server_url)?
+        .connect(&server_url)
         .version(Version::HTTP_2)
         .send()
         .await?
@@ -117,7 +117,7 @@ async fn h2_keepalive() -> Result<(), Error> {
             .block_on(async move {
                 let c = Client::new();
 
-                let mut res = c.get(&server_url)?.version(Version::HTTP_2).send().await?;
+                let mut res = c.get(&server_url).version(Version::HTTP_2).send().await?;
                 assert_eq!(res.status().as_u16(), 200);
                 assert!(!res.can_close_connection());
                 let body = res.string().await?;

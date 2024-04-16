@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.4.0
+## Change
+- `client_request_from_uri` becomes infallible by receive `Uri` type without try conversion.
 
 # 0.3.0
 ## Add

@@ -12,7 +12,7 @@ async fn message() -> Result<(), Error> {
 
     let c = Client::new();
 
-    let ws = c.ws(&format!("ws://{}", handle.ip_port_string()))?.send().await?;
+    let ws = c.ws(&format!("ws://{}", handle.ip_port_string())).send().await?;
 
     let (mut tx, mut rx) = ws.split();
 
@@ -45,7 +45,7 @@ async fn message_h2() -> Result<(), Error> {
 
     {
         let c = Client::new();
-        let (mut tx, mut rx) = c.ws2(&server_url)?.send().await?.split();
+        let (mut tx, mut rx) = c.ws2(&server_url).send().await?.split();
 
         for _ in 0..9 {
             tx.send(Message::Text(Bytes::from("Hello,World!"))).await?;
