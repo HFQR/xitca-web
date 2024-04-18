@@ -138,11 +138,11 @@ async fn listen_task(conn: Incoming, addr: SocketAddr) -> Result<(), Error> {
     loop {
         match rx.read(&mut buf).select(upstream.ready(Interest::READABLE)).await {
             SelectOutput::A(Ok(Some(len))) => {
-                let mut written = 0;
-                while written != len {
-                    match upstream.write(&buf[written..]) {
+                let mut off = 0;
+                while off != len {
+                    match upstream.write(&buf[off..len]) {
                         Ok(0) => return Ok(()),
-                        Ok(n) => written += n,
+                        Ok(n) => off += n,
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                             upstream.ready(Interest::WRITABLE).await?;
                         }
