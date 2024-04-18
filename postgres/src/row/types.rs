@@ -35,7 +35,7 @@ pub struct GenericRow<'a, M> {
 
 impl<M> fmt::Debug for GenericRow<'_, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Row").field("columns", &self.columns()).finish()
+        f.debug_struct("Row").field("columns", &self.columns).finish()
     }
 }
 
@@ -45,14 +45,15 @@ impl<'a, C> GenericRow<'a, C> {
         body: DataRowBody,
         ranges: &'a mut Vec<Option<Range<usize>>>,
     ) -> Result<Self, Error> {
-        let mut iter = body.ranges().enumerate();
+        let mut iter = body.ranges();
+
+        ranges.clear();
         ranges.reserve(iter.size_hint().0);
-        while let Some((idx, range)) = iter.next()? {
-            match ranges.get_mut(idx) {
-                Some(r) => *r = range,
-                None => ranges.push(range),
-            }
+
+        while let Some(range) = iter.next()? {
+            ranges.push(range);
         }
+
         Ok(Self {
             columns,
             body,
@@ -88,7 +89,7 @@ impl<'a, C> GenericRow<'a, C> {
         ty_check: impl FnOnce(&Type) -> bool,
     ) -> Result<(usize, &Type), Error> {
         let (idx, ty) = idx
-            ._from_columns(self.columns())
+            ._from_columns(self.columns)
             .ok_or_else(|| InvalidColumnIndex(idx.to_string()))?;
 
         if !ty_check(ty) {
