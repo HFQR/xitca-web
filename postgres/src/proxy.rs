@@ -15,7 +15,6 @@ use quinn::{Endpoint, Incoming, ServerConfig};
 use rustls_0dot21::{Certificate, PrivateKey};
 use tracing::error;
 use xitca_io::{
-    bytes::Buf,
     io::{AsyncIo, Interest},
     net::TcpStream,
 };
@@ -137,19 +136,13 @@ async fn listen_task(conn: Incoming, addr: SocketAddr) -> Result<(), Error> {
     let mut buf = [0; 4096];
 
     loop {
-        match rx
-            .read_chunk(4096, true)
-            .select(upstream.ready(Interest::READABLE))
-            .await
-        {
-            SelectOutput::A(Ok(Some(chunk))) => {
-                let mut bytes = chunk.bytes;
-                while !bytes.is_empty() {
-                    match upstream.write(bytes.as_ref()) {
+        match rx.read(&mut buf).select(upstream.ready(Interest::READABLE)).await {
+            SelectOutput::A(Ok(Some(len))) => {
+                let mut off = 0;
+                while off != len {
+                    match upstream.write(&buf[off..len]) {
                         Ok(0) => return Ok(()),
-                        Ok(n) => {
-                            bytes.advance(n);
-                        }
+                        Ok(n) => off += n,
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                             upstream.ready(Interest::WRITABLE).await?;
                         }
