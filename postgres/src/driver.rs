@@ -20,10 +20,7 @@ use core::{
 };
 
 use postgres_protocol::message::backend;
-use xitca_io::{
-    bytes::BytesMut,
-    io::{AsyncIo, AsyncIoDyn},
-};
+use xitca_io::io::{AsyncIo, AsyncIoDyn};
 
 use super::{client::Client, config::Config, error::Error, iter::AsyncLendingIterator};
 
@@ -114,22 +111,6 @@ impl Driver {
             _ => todo!(),
         }
     }
-
-    // run till the connection is closed by Client.
-    async fn run_till_closed(self) {
-        let _ = match self {
-            Self::Tcp(drv) => drv.run().await,
-            Self::Dynamic(drv) => drv.run().await,
-            #[cfg(feature = "tls")]
-            Self::Tls(drv) => drv.run().await,
-            #[cfg(unix)]
-            Self::Unix(drv) => drv.run().await,
-            #[cfg(all(unix, feature = "tls"))]
-            Self::UnixTls(drv) => drv.run().await,
-            #[cfg(feature = "quic")]
-            Self::Quic(drv) => drv.run().await,
-        };
-    }
 }
 
 impl AsyncLendingIterator for Driver {
@@ -157,14 +138,7 @@ impl IntoFuture for Driver {
     type Output = ();
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(self.run_till_closed())
+    fn into_future(mut self) -> Self::IntoFuture {
+        Box::pin(async move { while self.try_next().await.ok().flatten().is_some() {} })
     }
-}
-
-// helper trait for interacting with io driver directly.
-pub(crate) trait Drive: Send {
-    fn send(&mut self, msg: BytesMut) -> impl Future<Output = Result<(), Error>> + Send;
-
-    fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send;
 }

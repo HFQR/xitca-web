@@ -14,12 +14,9 @@ use xitca_io::{
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
-use crate::{error::Error, iter::AsyncLendingIterator};
+use crate::error::Error;
 
-use super::{
-    codec::{Request, Response, ResponseMessage, ResponseSender, SenderState},
-    Drive,
-};
+use super::codec::{Request, Response, ResponseMessage, ResponseSender, SenderState};
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
@@ -74,7 +71,7 @@ impl DriverState {
 
 impl<Io> GenericDriver<Io>
 where
-    Io: AsyncIo,
+    Io: AsyncIo + Send,
 {
     pub(crate) fn new(io: Io) -> (Self, DriverTx) {
         let (tx, rx) = unbounded_channel();
@@ -90,7 +87,22 @@ where
         )
     }
 
-    async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
+    pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
+        self.write_buf_extend(&msg);
+        loop {
+            self.try_write()?;
+            if self.write_buf.is_empty() {
+                return Ok(());
+            }
+            self.io.ready(Interest::WRITABLE).await?;
+        }
+    }
+
+    pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send + '_ {
+        self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose())
+    }
+
+    pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(msg) = self.try_decode()? {
                 return Ok(Some(msg));
@@ -146,12 +158,7 @@ where
         }
     }
 
-    pub(crate) async fn run(mut self) -> Result<(), Error> {
-        while self._try_next().await?.is_some() {}
-        Ok(())
-    }
-
-    pub(crate) async fn recv_with<F, O>(&mut self, mut func: F) -> Result<O, Error>
+    async fn recv_with<F, O>(&mut self, mut func: F) -> Result<O, Error>
     where
         F: FnMut(&mut BytesMut) -> Option<Result<O, Error>>,
     {
@@ -195,38 +202,5 @@ where
             }
         }
         Ok(None)
-    }
-}
-
-impl<Io> AsyncLendingIterator for GenericDriver<Io>
-where
-    Io: AsyncIo + Send,
-{
-    type Ok<'i> = backend::Message where Self: 'i;
-    type Err = Error;
-
-    #[inline]
-    fn try_next(&mut self) -> impl Future<Output = Result<Option<Self::Ok<'_>>, Self::Err>> + Send {
-        self._try_next()
-    }
-}
-
-impl<Io> Drive for GenericDriver<Io>
-where
-    Io: AsyncIo + Send,
-{
-    async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
-        self.write_buf_extend(&msg);
-        loop {
-            self.try_write()?;
-            if self.write_buf.is_empty() {
-                return Ok(());
-            }
-            self.io.ready(Interest::WRITABLE).await?;
-        }
-    }
-
-    fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send {
-        self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose())
     }
 }
