@@ -5,11 +5,11 @@ use postgres_protocol::{
     authentication::{self, sasl},
     message::{backend, frontend},
 };
-use xitca_io::bytes::BytesMut;
+use xitca_io::{bytes::BytesMut, io::AsyncIo};
 
 use super::{
     config::Config,
-    driver::Drive,
+    driver::generic::GenericDriver,
     error::{AuthenticationError, Error},
 };
 
@@ -26,9 +26,9 @@ pub enum TargetSessionAttrs {
 #[allow(clippy::needless_pass_by_ref_mut)] // dumb clippy
 #[cold]
 #[inline(never)]
-pub(super) async fn prepare_session<D>(drv: &mut D, cfg: &Config) -> Result<(), Error>
+pub(super) async fn prepare_session<Io>(drv: &mut GenericDriver<Io>, cfg: &Config) -> Result<(), Error>
 where
-    D: Drive,
+    Io: AsyncIo + Send,
 {
     let mut buf = BytesMut::new();
 
@@ -74,9 +74,9 @@ where
 
 #[cold]
 #[inline(never)]
-async fn auth<D>(drv: &mut D, cfg: &Config, buf: &mut BytesMut) -> Result<(), Error>
+async fn auth<Io>(drv: &mut GenericDriver<Io>, cfg: &Config, buf: &mut BytesMut) -> Result<(), Error>
 where
-    D: Drive,
+    Io: AsyncIo + Send,
 {
     let mut params = vec![("client_encoding", "UTF8")];
     if let Some(user) = &cfg.user {
@@ -172,9 +172,9 @@ where
     }
 }
 
-async fn send_pass<D>(drv: &mut D, pass: impl AsRef<[u8]>, buf: &mut BytesMut) -> Result<(), Error>
+async fn send_pass<Io>(drv: &mut GenericDriver<Io>, pass: impl AsRef<[u8]>, buf: &mut BytesMut) -> Result<(), Error>
 where
-    D: Drive,
+    Io: AsyncIo + Send,
 {
     frontend::password_message(pass.as_ref(), buf)?;
     let msg = buf.split();
