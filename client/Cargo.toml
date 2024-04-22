@@ -12,7 +12,7 @@ http1 = ["httparse", "xitca-http/http1"]
 http2 = ["h2", "itoa", "xitca-http/http2"]
 # http/3 client(tls always enabled with rustls)
 http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25"]
-# openssl as http/1 and http/2 tls handler.
+# openssl as http/1 and http/2 tls handler
 openssl = ["xitca-tls/openssl"]
 # rustls as http/1 and http/2 tls handler
 rustls = ["xitca-tls/rustls", "webpki-roots"]
@@ -22,11 +22,11 @@ rustls-ring-crypto =  ["xitca-tls/rustls-ring-crypto", "webpki-roots"]
 compress = ["http-encoding"]
 # json response body parsing support
 json = ["serde", "serde_json"]
-# websocket support
+# websocket support. must be used together with http/1 and/or http/2 feature(s)
 websocket = ["http-ws"]
-# feature for testing niche client side usage and correctness of server implemenation:
+# feature for trusted local network:
 # - http/2 clear text over plain tcp connection
-# - http/3 connection to server with self signed certificates.
+# - http/3 connection to server with self signed certificates
 dangerous = ["rustls_0dot21/dangerous_configuration"]
 
 [dependencies]

@@ -1,6 +1,5 @@
-//! proxy serves as a sample implementation of server side traffic forwarder
-//! between a xitca-postgres Client with `quic` feature enabled and the postgres
-//! database server.
+//! transparent proxy serves as a sample implementation of server side traffic forwarder
+//! between a xitca-postgres Client with `quic` feature enabled and the postgres database
 
 use std::{
     collections::HashSet,
@@ -24,7 +23,7 @@ use super::driver::quic::QUIC_ALPN;
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
-/// proxy for translating multiplexed quic traffic to plain tcp traffic for postgres protocol.
+/// proxy for forwarding multiplexed quic traffic to plain tcp traffic
 pub struct Proxy {
     cfg: Result<ServerConfig, Error>,
     upstream_addr: SocketAddr,

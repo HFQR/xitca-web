@@ -1,6 +1,8 @@
 //! strongly typed library error.
 
-use std::{convert::Infallible, error, fmt, io, str};
+use core::{convert::Infallible, fmt, str};
+
+use std::{error, io};
 
 use super::http::{uri, StatusCode};
 
@@ -29,7 +31,14 @@ impl fmt::Display for Error {
     }
 }
 
-impl error::Error for Error {}
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Self::Std(e) => e.source(),
+            _ => None,
+        }
+    }
+}
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
@@ -280,7 +289,7 @@ pub enum FeatureError {
     Http1NotEnabled,
     Http2NotEnabled,
     Http3NotEnabled,
-    TlsNotEnabled,
+    DangerNotEnabled,
 }
 
 impl fmt::Display for FeatureError {
@@ -289,9 +298,9 @@ impl fmt::Display for FeatureError {
             Self::Http1NotEnabled => f.write_str("http1")?,
             Self::Http2NotEnabled => f.write_str("http2")?,
             Self::Http3NotEnabled => f.write_str("http3")?,
-            Self::TlsNotEnabled => f.write_str("openssl or rustls")?,
+            Self::DangerNotEnabled => f.write_str("dangerous")?,
         };
-        f.write_str(" crate feature is not enabled")
+        f.write_str(" crate feature is not enabled.")
     }
 }
 
