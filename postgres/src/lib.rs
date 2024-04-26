@@ -142,10 +142,9 @@ fn _assert_driver_send() {
 #[cfg(all(feature = "tls", feature = "quic"))]
 #[cfg(test)]
 mod test {
-    use std::{future::IntoFuture, sync::Arc};
+    use std::future::IntoFuture;
 
-    use quinn::ServerConfig;
-    use rustls_0dot21::{Certificate, PrivateKey};
+    use quinn::{rustls::pki_types::PrivatePkcs8KeyDer, ServerConfig};
 
     use crate::{proxy::Proxy, AsyncLendingIterator, Config, Postgres, QuicStream};
 
@@ -154,17 +153,10 @@ mod test {
         let name = vec!["127.0.0.1".to_string(), "localhost".to_string()];
         let cert = rcgen::generate_simple_self_signed(name).unwrap();
 
-        let key = PrivateKey(cert.serialize_private_key_der());
-        let cert = vec![Certificate(cert.serialize_der().unwrap())];
+        let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()).into();
+        let cert = cert.cert.der().clone();
 
-        let mut config = rustls_0dot21::ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_single_cert(cert, key)
-            .unwrap();
-
-        config.alpn_protocols = vec![b"quic".to_vec()];
-        let config = ServerConfig::with_crypto(Arc::new(config));
+        let config = ServerConfig::with_single_cert(vec![cert], key).unwrap();
 
         let upstream = tokio::net::lookup_host("localhost:5432").await.unwrap().next().unwrap();
 
@@ -180,6 +172,7 @@ mod test {
         cfg.dbname("postgres").user("postgres").password("postgres");
 
         let conn = crate::driver::quic::_connect_quic("127.0.0.1", &[5432]).await.unwrap();
+
         let stream = conn.open_bi().await.unwrap();
         let (cli, task) = Postgres::new(cfg).connect_io(QuicStream::from(stream)).await.unwrap();
 

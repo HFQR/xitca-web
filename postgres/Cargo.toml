@@ -7,10 +7,10 @@ edition = "2021"
 # feature for single thread client that have lower overhead(no lock) at the cost of no thread safety.
 single-thread = []
 # feature for connecting to tls enabled server.
-tls = ["xitca-tls/rustls", "sha2", "webpki-roots"]
+tls = ["xitca-tls/rustls-ring-crypto", "sha2", "webpki-roots"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
-quic = ["quinn", "quinn-proto", "rustls-pemfile", "rustls_0dot21"]
+quic = ["quinn", "quinn-proto", "rustls-pemfile", "tls"]
 # feature for using tokio_uring as IO reactor.
 io-uring = ["xitca-io/runtime-uring"]
 
@@ -34,9 +34,8 @@ xitca-tls = { version = "0.3.0", optional = true }
 # quic
 quinn = { version = "0.11", git = "https://github.com/quinn-rs/quinn.git", optional = true }
 quinn-proto = { git = "https://github.com/quinn-rs/quinn.git", optional = true }
-rustls-pemfile = { version = "1.0.2", optional = true }
-rustls_0dot21 = { package = "rustls", version = "0.21", features = ["dangerous_configuration"], optional = true }
+rustls-pemfile = { version = "2", optional = true }
 
 [dev-dependencies]
-rcgen = "0.11"
+rcgen = "0.13"
 tokio = { version = "1.30", features = ["macros", "rt"] }

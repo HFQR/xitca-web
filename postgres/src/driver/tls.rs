@@ -22,6 +22,7 @@ where
 {
     let name = ServerName::try_from(host).map_err(|_| Error::todo())?.to_owned();
     let config = dangerous_config(Vec::new());
+    let config = Arc::new(config);
     let session = ClientConnection::new(config, name).map_err(|_| Error::todo())?;
 
     let stream = TlsStream::handshake(io, session).await?;
@@ -38,63 +39,7 @@ where
     Ok(stream)
 }
 
-fn dangerous_config(alpn: Vec<Vec<u8>>) -> std::sync::Arc<xitca_tls::rustls::ClientConfig> {
-    #[derive(Debug)]
-    struct SkipServerVerification;
-
-    impl SkipServerVerification {
-        fn new() -> Arc<Self> {
-            Arc::new(Self)
-        }
-    }
-
-    impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
-        fn verify_server_cert(
-            &self,
-            _end_entity: &CertificateDer<'_>,
-            _intermediates: &[CertificateDer<'_>],
-            _server_name: &ServerName<'_>,
-            _ocsp: &[u8],
-            _now: UnixTime,
-        ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-            Ok(rustls::client::danger::ServerCertVerified::assertion())
-        }
-
-        fn verify_tls12_signature(
-            &self,
-            message: &[u8],
-            cert: &CertificateDer<'_>,
-            dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
-            verify_tls12_signature(
-                message,
-                cert,
-                dss,
-                &rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms,
-            )
-        }
-
-        fn verify_tls13_signature(
-            &self,
-            message: &[u8],
-            cert: &CertificateDer<'_>,
-            dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
-            verify_tls13_signature(
-                message,
-                cert,
-                dss,
-                &rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms,
-            )
-        }
-
-        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-            rustls::crypto::aws_lc_rs::default_provider()
-                .signature_verification_algorithms
-                .supported_schemes()
-        }
-    }
-
+pub(crate) fn dangerous_config(alpn: Vec<Vec<u8>>) -> xitca_tls::rustls::ClientConfig {
     let mut root_store = RootCertStore::empty();
 
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -106,5 +51,61 @@ fn dangerous_config(alpn: Vec<Vec<u8>>) -> std::sync::Arc<xitca_tls::rustls::Cli
 
     cfg.dangerous().set_certificate_verifier(SkipServerVerification::new());
 
-    Arc::new(cfg)
+    cfg
+}
+
+#[derive(Debug)]
+pub(crate) struct SkipServerVerification;
+
+impl SkipServerVerification {
+    fn new() -> Arc<Self> {
+        Arc::new(Self)
+    }
+}
+
+impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp: &[u8],
+        _now: UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
 }
