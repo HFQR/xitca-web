@@ -364,7 +364,7 @@ impl ClientBuilder {
                         Arc::new(Self)
                     }
                 }
-                
+
                 impl rustls::client::ServerCertVerifier for SkipServerVerification {
                     fn verify_server_cert(
                         &self,
