@@ -85,10 +85,9 @@ jobs:
       uses: Swatinem/rust-cache@v2
 
     - name: Install cargo-hack
-      uses: actions-rs/cargo@v1
+      uses: taiki-e/install-action@v2
       with:
-        command: install
-        args: cargo-hack
+        tool: cargo-hack
 
     - name: check-non-linux
       if: matrix.target.os != 'ubuntu-latest'
@@ -122,7 +121,7 @@ jobs:
     - name: Install ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        toolchain: ${{ matrix.version }}
         profile: minimal
         override: true
 
