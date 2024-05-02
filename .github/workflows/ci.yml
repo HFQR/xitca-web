@@ -11,8 +11,8 @@ jobs:
     strategy:
       matrix:
         target:
-          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
-          - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
+          - { name: Linux, os: ubuntu-latest }
+          - { name: macOS, os: macos-latest }
         version:
           - 1.75
     name: http check @ ${{ matrix.target.name }} - ${{ matrix.version }}
@@ -20,11 +20,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Install ${{ matrix.version }}
+    - name: Install Rust ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        toolchain: ${{ matrix.version }}
         profile: minimal
         override: true
 
@@ -36,10 +35,9 @@ jobs:
       uses: Swatinem/rust-cache@v2
 
     - name: Install cargo-hack
-      uses: actions-rs/cargo@v1
+      uses: taiki-e/install-action@v2
       with:
-        command: install
-        args: cargo-hack
+        tool: cargo-hack
 
     - name: check-non-linux
       if: matrix.target.os != 'ubuntu-latest'
@@ -60,8 +58,8 @@ jobs:
     strategy:
       matrix:
         target:
-          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
-          - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
+          - { name: Linux, os: ubuntu-latest }
+          - { name: macOS, os: macos-latest }
         version:
           - nightly
     name: web check @ ${{ matrix.target.name }} - ${{ matrix.version }}
@@ -69,11 +67,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Install ${{ matrix.version }}
+    - name: Install Rust ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        toolchain: ${{ matrix.version }}
         profile: minimal
         override: true
 
@@ -108,8 +105,8 @@ jobs:
     strategy:
       matrix:
         target:
-          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
-          - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
+          - { name: Linux, os: ubuntu-latest }
+          - { name: macOS, os: macos-latest }
         version:
           - 1.75
     name: client check @ ${{ matrix.target.name }} - ${{ matrix.version }}
@@ -117,8 +114,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Install ${{ matrix.version }}
+    - name: Install Rust ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
         toolchain: ${{ matrix.version }}
@@ -133,10 +129,9 @@ jobs:
       uses: Swatinem/rust-cache@v2
 
     - name: Install cargo-hack
-      uses: actions-rs/cargo@v1
+      uses: taiki-e/install-action@v2
       with:
-        command: install
-        args: cargo-hack
+        tool: cargo-hack
 
     - name: check-non-linux
       if: matrix.target.os != 'ubuntu-latest'
@@ -157,8 +152,8 @@ jobs:
     strategy:
       matrix:
         target:
-          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
-          - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
+          - { name: Linux, os: ubuntu-latest }
+          - { name: macOS, os: macos-latest }
         version:
           - nightly
     name: other check @ ${{ matrix.target.name }} - ${{ matrix.version }}
@@ -166,11 +161,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install ${{ matrix.version }}
+      - name: Install Rust ${{ matrix.version }}
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+          toolchain: ${{ matrix.version }}
           profile: minimal
           override: true
 
@@ -182,10 +176,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-hack
-        uses: actions-rs/cargo@v1
+        uses: taiki-e/install-action@v2
         with:
-          command: install
-          args: cargo-hack
+          tool: cargo-hack
 
       - name: check-non-linux
         if: matrix.target.os != 'ubuntu-latest'
@@ -206,7 +199,7 @@ jobs:
     strategy:
       matrix:
         target:
-          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
+          - { name: Linux, os: ubuntu-latest }
         version:
           - nightly
     name: test @ ${{ matrix.target.name }} - ${{ matrix.version }}
@@ -228,11 +221,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Install ${{ matrix.version }}
+    - name: Install Rust ${{ matrix.version }}
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+        toolchain: ${{ matrix.version }}
         profile: minimal
         override: true
 
@@ -244,10 +236,9 @@ jobs:
       uses: Swatinem/rust-cache@v2
 
     - name: Install cargo-hack
-      uses: actions-rs/cargo@v1
+      uses: taiki-e/install-action@v2
       with:
-        command: install
-        args: cargo-hack
+        tool: cargo-hack
 
     - name: tests-linux
       if: matrix.target.os == 'ubuntu-latest'
@@ -263,8 +254,8 @@ jobs:
     strategy:
       matrix:
         target:
-          - { name: Linux, os: ubuntu-latest, triple: x86_64-unknown-linux-gnu }
-          - { name: macOS, os: macos-latest, triple: x86_64-apple-darwin }
+          - { name: Linux, os: ubuntu-latest }
+          - { name: macOS, os: macos-latest }
         version:
           - nightly
     name: example check @ ${{ matrix.target.name }} - ${{ matrix.version }}
@@ -272,11 +263,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install ${{ matrix.version }}
+      - name: Install Rust ${{ matrix.version }}
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.version }}-${{ matrix.target.triple }}
+          toolchain: ${{ matrix.version }}
           profile: minimal
           override: true
 
@@ -288,10 +278,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-hack
-        uses: actions-rs/cargo@v1
+        uses: taiki-e/install-action@v2
         with:
-          command: install
-          args: cargo-hack
+          tool: cargo-hack
 
       - name: Install protoc
         uses: taiki-e/install-action@v2
