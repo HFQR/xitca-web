@@ -156,7 +156,16 @@ mod test {
         let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()).into();
         let cert = cert.cert.der().clone();
 
-        let config = ServerConfig::with_single_cert(vec![cert], key).unwrap();
+        let mut cfg = quinn::rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], key)
+            .unwrap();
+
+        cfg.alpn_protocols = vec![crate::driver::quic::QUIC_ALPN.to_vec()];
+
+        let cfg = quinn::crypto::rustls::QuicServerConfig::try_from(cfg).unwrap();
+
+        let config = ServerConfig::with_crypto(std::sync::Arc::new(cfg));
 
         let upstream = tokio::net::lookup_host("localhost:5432").await.unwrap().next().unwrap();
 
@@ -173,7 +182,12 @@ mod test {
 
         let conn = crate::driver::quic::_connect_quic("127.0.0.1", &[5432]).await.unwrap();
 
+        println!("we are here2222!!!!!");
+
         let stream = conn.open_bi().await.unwrap();
+
+        println!("we are here!!!!!");
+
         let (cli, task) = Postgres::new(cfg).connect_io(QuicStream::from(stream)).await.unwrap();
 
         let handle = tokio::spawn(task.into_future());
