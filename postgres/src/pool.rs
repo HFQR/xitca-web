@@ -1,6 +1,6 @@
 use core::{future::IntoFuture, sync::atomic::Ordering};
 
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use postgres_types::{BorrowToSql, ToSql, Type};
 use tokio::sync::{Notify, RwLock, RwLockReadGuard};
@@ -8,10 +8,12 @@ use xitca_io::bytes::BytesMut;
 
 use crate::{
     client::Client,
+    column::Column,
     config::Config,
     driver::connect,
     error::{DriverDown, Error},
     iter::slice_iter,
+    pipeline::{Pipeline, PipelineStream},
     statement::{Statement, StatementGuarded},
     util::lock::Lock,
     RowSimpleStream, RowStream,
@@ -255,65 +257,56 @@ impl SharedClient {
     }
 }
 
-const _: () = {
-    use std::collections::VecDeque;
-
-    use crate::{
-        column::Column,
-        pipeline::{Pipeline, PipelineStream},
-    };
-
-    impl SharedClient {
-        pub async fn pipeline<'a, const SYNC_MODE: bool>(
-            &self,
-            pipe: Pipeline<'a, SYNC_MODE>,
-        ) -> Result<PipelineStream<'a>, Error> {
-            let Pipeline { columns, buf } = pipe;
-            let cli = self.read().await;
-            match cli._pipeline::<SYNC_MODE>(&columns, buf).await {
-                Ok(res) => Ok(PipelineStream {
-                    res,
-                    columns,
-                    ranges: Vec::new(),
-                }),
-                Err(err) => {
-                    drop(cli);
-                    Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, err)).await
-                }
-            }
-        }
-
-        async fn pipeline_slow<'a, const SYNC_MODE: bool>(
-            &self,
-            columns: VecDeque<&'a [Column]>,
-            mut err: Error,
-        ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
-            let mut buf;
-
-            loop {
-                match err.if_driver_down() {
-                    Some(DriverDown(b)) => buf = b,
-                    None => return Err(err),
-                }
-
-                self.reconnect().await;
-
-                match self
-                    .read()
-                    .await
-                    ._pipeline_no_additive_sync::<SYNC_MODE>(&columns, buf)
-                    .await
-                {
-                    Ok(res) => {
-                        return Ok(crate::pipeline::PipelineStream {
-                            res,
-                            columns,
-                            ranges: Vec::new(),
-                        })
-                    }
-                    Err(e) => err = e,
-                }
+impl SharedClient {
+    pub async fn pipeline<'a, const SYNC_MODE: bool>(
+        &self,
+        pipe: Pipeline<'a, SYNC_MODE>,
+    ) -> Result<PipelineStream<'a>, Error> {
+        let Pipeline { columns, buf } = pipe;
+        let cli = self.read().await;
+        match cli._pipeline::<SYNC_MODE>(&columns, buf).await {
+            Ok(res) => Ok(PipelineStream {
+                res,
+                columns,
+                ranges: Vec::new(),
+            }),
+            Err(err) => {
+                drop(cli);
+                Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, err)).await
             }
         }
     }
-};
+
+    async fn pipeline_slow<'a, const SYNC_MODE: bool>(
+        &self,
+        columns: VecDeque<&'a [Column]>,
+        mut err: Error,
+    ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
+        let mut buf;
+
+        loop {
+            match err.if_driver_down() {
+                Some(DriverDown(b)) => buf = b,
+                None => return Err(err),
+            }
+
+            self.reconnect().await;
+
+            match self
+                .read()
+                .await
+                ._pipeline_no_additive_sync::<SYNC_MODE>(&columns, buf)
+                .await
+            {
+                Ok(res) => {
+                    return Ok(crate::pipeline::PipelineStream {
+                        res,
+                        columns,
+                        ranges: Vec::new(),
+                    })
+                }
+                Err(e) => err = e,
+            }
+        }
+    }
+}

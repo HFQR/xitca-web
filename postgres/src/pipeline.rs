@@ -247,7 +247,7 @@ impl AsyncLendingIterator for PipelineItem<'_, '_> {
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
-        while !self.finished {
+        if !self.finished {
             match self.stream.res.recv().await? {
                 backend::Message::DataRow(body) => {
                     return Row::try_new(self.columns, body, &mut self.stream.ranges).map(Some);

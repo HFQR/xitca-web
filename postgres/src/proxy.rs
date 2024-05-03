@@ -1,6 +1,5 @@
-//! proxy serves as a sample implementation of server side traffic forwarder
-//! between a xitca-postgres Client with `quic` feature enabled and the postgres
-//! database server.
+//! transparent proxy serves as a sample implementation of server side traffic forwarder
+//! between a xitca-postgres Client with `quic` feature enabled and the postgres database
 
 use std::{
     collections::HashSet,
@@ -11,8 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use quinn::{Endpoint, Incoming, ServerConfig};
-use rustls_0dot21::{Certificate, PrivateKey};
+use quinn::{crypto::rustls::QuicServerConfig, Endpoint, Incoming, ServerConfig};
 use tracing::error;
 use xitca_io::{
     io::{AsyncIo, Interest},
@@ -24,7 +22,7 @@ use super::driver::quic::QUIC_ALPN;
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
-/// proxy for translating multiplexed quic traffic to plain tcp traffic for postgres protocol.
+/// proxy for forwarding multiplexed quic traffic to plain tcp traffic
 pub struct Proxy {
     cfg: Result<ServerConfig, Error>,
     upstream_addr: SocketAddr,
@@ -101,20 +99,18 @@ impl Proxy {
 fn cfg_from_cert(cert: impl AsRef<Path>, key: impl AsRef<Path>) -> Result<ServerConfig, Error> {
     let cert = fs::read(cert)?;
     let key = fs::read(key)?;
-    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
-    let key = PrivateKey(key);
+    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).next().unwrap().unwrap();
+    let key = quinn::rustls::pki_types::PrivateKeyDer::from(key);
 
-    let cert = rustls_pemfile::certs(&mut &*cert)?
-        .into_iter()
-        .map(Certificate)
-        .collect();
+    let cert = rustls_pemfile::certs(&mut &*cert).collect::<Result<_, _>>().unwrap();
 
-    let mut config = rustls_0dot21::ServerConfig::builder()
-        .with_safe_defaults()
+    let mut config = quinn::rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert, key)?;
 
     config.alpn_protocols = vec![QUIC_ALPN.to_vec()];
+
+    let config = QuicServerConfig::try_from(config).unwrap();
 
     Ok(ServerConfig::with_crypto(Arc::new(config)))
 }

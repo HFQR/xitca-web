@@ -23,14 +23,11 @@ pub(crate) fn nop() -> Connector {
         async fn call(&self, (_, _io): (&'n str, TlsStream)) -> Result<Self::Response, Self::Error> {
             #[cfg(not(feature = "dangerous"))]
             {
-                Err(crate::error::FeatureError::TlsNotEnabled.into())
+                Err(crate::error::FeatureError::DangerNotEnabled.into())
             }
 
             #[cfg(feature = "dangerous")]
             {
-                // Enable HTTP/2 over plain TCP connection with dangerous feature.
-                //
-                // *. This is meant for test and local network usage. DO NOT use in internet environment.
                 Ok((_io, Version::HTTP_2))
             }
         }
