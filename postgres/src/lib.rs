@@ -139,63 +139,60 @@ fn _assert_driver_send() {
     _assert_send2::<Driver>();
 }
 
-#[cfg(all(feature = "tls", feature = "quic"))]
-#[cfg(test)]
-mod test {
-    use std::future::IntoFuture;
+// temporary disabled test due to cargo workspace test bug.
+// #[cfg(feature = "quic")]
+// #[cfg(test)]
+// mod test {
+//     use std::future::IntoFuture;
 
-    use quinn::{rustls::pki_types::PrivatePkcs8KeyDer, ServerConfig};
+//     use quinn::{rustls::pki_types::PrivatePkcs8KeyDer, ServerConfig};
 
-    use crate::{proxy::Proxy, AsyncLendingIterator, Config, Postgres, QuicStream};
+//     use crate::{proxy::Proxy, AsyncLendingIterator, Config, Postgres, QuicStream};
 
-    #[tokio::test]
-    async fn proxy() {
-        let name = vec!["127.0.0.1".to_string(), "localhost".to_string()];
-        let cert = rcgen::generate_simple_self_signed(name).unwrap();
+//     #[tokio::test]
+//     async fn proxy() {
+//         let name = vec!["127.0.0.1".to_string(), "localhost".to_string()];
+//         let cert = rcgen::generate_simple_self_signed(name).unwrap();
 
-        let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()).into();
-        let cert = cert.cert.der().clone();
+//         let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()).into();
+//         let cert = cert.cert.der().clone();
 
-        let mut cfg = quinn::rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(vec![cert], key)
-            .unwrap();
+//         let mut cfg = xitca_tls::rustls::ServerConfig::builder()
+//             .with_no_client_auth()
+//             .with_single_cert(vec![cert], key)
+//             .unwrap();
 
-        cfg.alpn_protocols = vec![crate::driver::quic::QUIC_ALPN.to_vec()];
+//         cfg.alpn_protocols = vec![crate::driver::quic::QUIC_ALPN.to_vec()];
 
-        let cfg = quinn::crypto::rustls::QuicServerConfig::try_from(cfg).unwrap();
+//         let cfg = quinn::crypto::rustls::QuicServerConfig::try_from(cfg).unwrap();
 
-        let config = ServerConfig::with_crypto(std::sync::Arc::new(cfg));
+//         let config = ServerConfig::with_crypto(std::sync::Arc::new(cfg));
 
-        let upstream = tokio::net::lookup_host("localhost:5432").await.unwrap().next().unwrap();
+//         let upstream = tokio::net::lookup_host("localhost:5432").await.unwrap().next().unwrap();
 
-        tokio::spawn(
-            Proxy::with_config(config)
-                .upstream_addr(upstream)
-                .listen_addr("127.0.0.1:5432".parse().unwrap())
-                .run(),
-        );
+//         tokio::spawn(
+//             Proxy::with_config(config)
+//                 .upstream_addr(upstream)
+//                 .listen_addr("127.0.0.1:5432".parse().unwrap())
+//                 .run(),
+//         );
 
-        let mut cfg = Config::new();
+//         let mut cfg = Config::new();
 
-        cfg.dbname("postgres").user("postgres").password("postgres");
+//         cfg.dbname("postgres").user("postgres").password("postgres");
 
-        let conn = crate::driver::quic::_connect_quic("127.0.0.1", &[5432]).await.unwrap();
+//         let conn = crate::driver::quic::_connect_quic("127.0.0.1", &[5432]).await.unwrap();
 
-        println!("we are here2222!!!!!");
+//         let stream = conn.open_bi().await.unwrap();
 
-        let stream = conn.open_bi().await.unwrap();
+//         let (cli, task) = Postgres::new(cfg).connect_io(QuicStream::from(stream)).await.unwrap();
 
-        println!("we are here!!!!!");
+//         let handle = tokio::spawn(task.into_future());
 
-        let (cli, task) = Postgres::new(cfg).connect_io(QuicStream::from(stream)).await.unwrap();
+//         let _ = cli.query_simple("").await.unwrap().try_next().await;
 
-        let handle = tokio::spawn(task.into_future());
+//         drop(cli);
 
-        let _ = cli.query_simple("").await.unwrap().try_next().await;
-
-        drop(cli);
-
-        handle.await.unwrap();
-    }
-}
+//         handle.await.unwrap();
+//     }
+// }
