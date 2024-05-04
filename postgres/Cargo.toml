@@ -10,7 +10,7 @@ single-thread = []
 tls = ["xitca-tls/rustls-ring-crypto", "sha2", "webpki-roots"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
-quic = ["quinn", "quinn-proto", "rustls-pemfile", "tls"]
+quic = ["quinn", "rustls-pemfile", "tls"]
 # feature for using tokio_uring as IO reactor.
 io-uring = ["xitca-io/runtime-uring"]
 
@@ -32,8 +32,7 @@ webpki-roots = { version = "0.26", optional = true }
 xitca-tls = { version = "0.3.0", optional = true }
 
 # quic
-quinn = { version = "0.11", git = "https://github.com/quinn-rs/quinn.git", optional = true }
-quinn-proto = { git = "https://github.com/quinn-rs/quinn.git", optional = true }
+quinn = { version = "0.11", git = "https://github.com/quinn-rs/quinn.git", features = ["ring"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
 
 [dev-dependencies]

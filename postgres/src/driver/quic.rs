@@ -83,7 +83,7 @@ impl Writer {
 
     fn poll_shutdown(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self {
-            Self::Tx(tx) => tx.poll_finish(cx).map_err(io::Error::other),
+            Self::Tx(tx) => Poll::Ready(tx.finish().map_err(io::Error::other)),
             Self::InFlight(fut) => {
                 let tx = ready!(fut.as_mut().poll(cx))?;
                 *self = Self::Tx(tx);
