@@ -31,7 +31,7 @@ use super::{
 ///     pipe.query(statement.as_ref(), &[])?;
 ///     pipe.query_raw::<[i32; 0]>(statement.as_ref(), [])?;
 ///
-///     let mut res = client.pipeline(pipe).await?;
+///     let mut res = client.pipeline(pipe)?;
 ///
 ///     while let Some(mut item) = res.try_next().await? {
 ///         while let Some(row) = item.try_next().await? {
