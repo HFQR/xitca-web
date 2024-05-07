@@ -17,7 +17,7 @@ use crate::error::Error;
 
 use super::{
     codec::{ResponseMessage, ResponseSender, SenderState},
-    generic::GenericDriverRx,
+    generic::DriverRx,
 };
 
 type Opt = (io::Result<usize>, BytesMut);
@@ -66,7 +66,7 @@ pub struct IoUringDriver<Io> {
     io: Rc<Io>,
     read_task: BufTask,
     write_task: BufTask,
-    rx: GenericDriverRx,
+    rx: DriverRx,
     res: VecDeque<ResponseSender>,
 }
 
@@ -77,7 +77,7 @@ where
     #[allow(dead_code)]
     pub(crate) fn new(
         io: Io,
-        rx: GenericDriverRx,
+        rx: DriverRx,
         write_buf: BytesMut,
         read_buf: BytesMut,
         res: VecDeque<ResponseSender>,

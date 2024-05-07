@@ -20,7 +20,7 @@ use super::codec::{Request, Response, ResponseMessage, ResponseSender, SenderSta
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
-pub(crate) type GenericDriverRx = UnboundedReceiver<Request>;
+pub(crate) type DriverRx = UnboundedReceiver<Request>;
 
 #[derive(Debug)]
 pub(crate) struct DriverTx(UnboundedSender<Request>);
@@ -30,19 +30,18 @@ impl DriverTx {
         self.0.is_closed()
     }
 
-    pub(crate) fn send(&self, msg: BytesMut) -> impl Future<Output = Result<Response, Error>> + '_ {
+    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
         self.send_multi(1, msg)
     }
 
-    pub(crate) async fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
+    pub(crate) fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
         let (tx, rx) = unbounded_channel();
         self.0.send(Request::new(tx, msg_count, msg))?;
         Ok(Response::new(rx))
     }
 
     pub(crate) fn do_send(&self, msg: BytesMut) {
-        let (tx, _) = unbounded_channel();
-        let _ = self.0.send(Request::new(tx, 1, msg));
+        let _ = self.send(msg);
     }
 }
 
@@ -55,13 +54,13 @@ pub struct GenericDriver<Io> {
 }
 
 pub(crate) enum DriverState {
-    Running(GenericDriverRx),
+    Running(DriverRx),
     Closing(Option<io::Error>),
 }
 
 #[cfg(feature = "io-uring")]
 impl DriverState {
-    pub(crate) fn take_rx(self) -> GenericDriverRx {
+    pub(crate) fn take_rx(self) -> DriverRx {
         match self {
             Self::Running(rx) => rx,
             _ => panic!("driver is closing. no rx can be handed out"),

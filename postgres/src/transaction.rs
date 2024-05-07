@@ -52,13 +52,13 @@ impl Transaction<'_> {
     }
 
     pub async fn commit(mut self) -> Result<(), Error> {
-        let res = self.client.encode_send_simple("COMMIT").await?;
+        let res = self.client.encode_send_simple("COMMIT")?;
         self.state = State::Finish;
         res.try_into_ready().await
     }
 
     pub async fn rollback(mut self) -> Result<(), Error> {
-        let res = self.client.encode_send_simple("ROLLBACK").await?;
+        let res = self.client.encode_send_simple("ROLLBACK")?;
         self.state = State::Finish;
         res.try_into_ready().await
     }

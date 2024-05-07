@@ -41,40 +41,25 @@ pub use self::{
 use xitca_io::io::AsyncIo;
 
 #[derive(Debug)]
-pub struct Postgres<C, const BATCH_LIMIT: usize> {
+pub struct Postgres<C> {
     cfg: C,
-    backlog: usize,
 }
 
-impl<C> Postgres<C, 32>
+impl<C> Postgres<C>
 where
     Config: TryFrom<C>,
     Error: From<<Config as TryFrom<C>>::Error>,
 {
     pub fn new(cfg: C) -> Self {
-        Self { cfg, backlog: 32 }
+        Self { cfg }
     }
 }
 
-impl<C, const BATCH_LIMIT: usize> Postgres<C, BATCH_LIMIT>
+impl<C> Postgres<C>
 where
     Config: TryFrom<C>,
     Error: From<<Config as TryFrom<C>>::Error>,
 {
-    /// Set backlog of pending async queries.
-    pub fn backlog(mut self, num: usize) -> Self {
-        self.backlog = num;
-        self
-    }
-
-    /// Set upper bound of batched queries.
-    pub fn batch_limit<const BATCH_LIMIT2: usize>(self) -> Postgres<C, BATCH_LIMIT2> {
-        Postgres {
-            cfg: self.cfg,
-            backlog: self.backlog,
-        }
-    }
-
     /// Connect to database. The returned values are [Client] and a detached async task
     /// that drives the client communication to db and it needs to spawn on an async runtime.
     ///

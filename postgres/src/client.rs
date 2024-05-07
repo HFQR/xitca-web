@@ -53,8 +53,8 @@ impl Client {
         self.tx.is_closed()
     }
 
-    pub(crate) async fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        self.tx.send(msg).await
+    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
+        self.tx.send(msg)
     }
 
     // send a message in non blocking manner without concerning response.
