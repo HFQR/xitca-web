@@ -31,7 +31,7 @@ use super::{
 ///     pipe.query(statement.as_ref(), &[])?;
 ///     pipe.query_raw::<[i32; 0]>(statement.as_ref(), [])?;
 ///
-///     let mut res = client.pipeline(pipe).await?;
+///     let mut res = client.pipeline(pipe)?;
 ///
 ///     while let Some(mut item) = res.try_next().await? {
 ///         while let Some(row) = item.try_next().await? {
@@ -128,12 +128,11 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
 
 impl Client {
     /// execute the pipeline.
-    pub async fn pipeline<'a, const SYNC_MODE: bool>(
+    pub fn pipeline<'a, const SYNC_MODE: bool>(
         &self,
         pipe: Pipeline<'a, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
         self._pipeline::<SYNC_MODE>(&pipe.columns, pipe.buf)
-            .await
             .map(|res| PipelineStream {
                 res,
                 columns: pipe.columns,
@@ -141,7 +140,7 @@ impl Client {
             })
     }
 
-    pub(crate) async fn _pipeline<const SYNC_MODE: bool>(
+    pub(crate) fn _pipeline<const SYNC_MODE: bool>(
         &self,
         columns: &VecDeque<&[Column]>,
         mut buf: BytesMut,
@@ -155,16 +154,16 @@ impl Client {
             1
         };
 
-        self.tx.send_multi(sync_count, buf).await
+        self.tx.send_multi(sync_count, buf)
     }
 
-    pub(crate) async fn _pipeline_no_additive_sync<const SYNC_MODE: bool>(
+    pub(crate) fn _pipeline_no_additive_sync<const SYNC_MODE: bool>(
         &self,
         columns: &VecDeque<&[Column]>,
         buf: BytesMut,
     ) -> Result<Response, Error> {
         let sync_count = if SYNC_MODE { columns.len() } else { 1 };
-        self.tx.send_multi(sync_count, buf).await
+        self.tx.send_multi(sync_count, buf)
     }
 }
 

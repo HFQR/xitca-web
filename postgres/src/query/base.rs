@@ -86,7 +86,7 @@ impl Client {
     }
 
     async fn send_buf(&self, buf: BytesMut) -> Result<Response, Error> {
-        let mut res = self.send(buf).await?;
+        let mut res = self.send(buf)?;
         match res.recv().await? {
             backend::Message::BindComplete => Ok(res),
             _ => Err(Error::unexpected()),

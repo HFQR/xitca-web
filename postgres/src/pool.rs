@@ -166,7 +166,7 @@ impl SharedClient {
     #[inline(never)]
     pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         let cli = self.read().await;
-        match cli.query_simple(stmt).await {
+        match cli.query_simple(stmt) {
             Ok(res) => Ok(res),
             Err(mut e) => match e.if_driver_down() {
                 Some(DriverDown(buf)) => {
@@ -181,7 +181,7 @@ impl SharedClient {
     async fn query_simple_slow(&self, mut buf: BytesMut) -> Result<RowSimpleStream, Error> {
         loop {
             self.reconnect().await;
-            match self.read().await.query_buf_simple(buf).await {
+            match self.read().await.query_buf_simple(buf) {
                 Ok(res) => return Ok(res),
                 Err(mut e) => match e.if_driver_down() {
                     Some(DriverDown(b)) => buf = b,
@@ -264,7 +264,7 @@ impl SharedClient {
     ) -> Result<PipelineStream<'a>, Error> {
         let Pipeline { columns, buf } = pipe;
         let cli = self.read().await;
-        match cli._pipeline::<SYNC_MODE>(&columns, buf).await {
+        match cli._pipeline::<SYNC_MODE>(&columns, buf) {
             Ok(res) => Ok(PipelineStream {
                 res,
                 columns,
@@ -292,12 +292,7 @@ impl SharedClient {
 
             self.reconnect().await;
 
-            match self
-                .read()
-                .await
-                ._pipeline_no_additive_sync::<SYNC_MODE>(&columns, buf)
-                .await
-            {
+            match self.read().await._pipeline_no_additive_sync::<SYNC_MODE>(&columns, buf) {
                 Ok(res) => {
                     return Ok(crate::pipeline::PipelineStream {
                         res,

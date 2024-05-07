@@ -10,23 +10,23 @@ use crate::{
 use super::row_stream::GenericRowStream;
 
 impl Client {
-    pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
+    pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         let buf = self.try_buf_and_split(|buf| frontend::query(stmt, buf))?;
-        self.query_buf_simple(buf).await
+        self.query_buf_simple(buf)
     }
 
     #[inline]
     pub async fn execute_simple(&self, stmt: &str) -> Result<u64, Error> {
-        self.encode_send_simple(stmt).await?.try_into_row_affected().await
+        self.encode_send_simple(stmt)?.try_into_row_affected().await
     }
 
-    pub(crate) async fn encode_send_simple(&self, stmt: &str) -> Result<Response, Error> {
+    pub(crate) fn encode_send_simple(&self, stmt: &str) -> Result<Response, Error> {
         let buf = self.try_buf_and_split(|buf| frontend::query(stmt, buf))?;
-        self.send(buf).await
+        self.send(buf)
     }
 
-    pub(crate) async fn query_buf_simple(&self, buf: BytesMut) -> Result<RowSimpleStream, Error> {
-        self.send(buf).await.map(|res| RowSimpleStream {
+    pub(crate) fn query_buf_simple(&self, buf: BytesMut) -> Result<RowSimpleStream, Error> {
+        self.send(buf).map(|res| RowSimpleStream {
             res,
             col: Vec::new(),
             ranges: Vec::new(),
