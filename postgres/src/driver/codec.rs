@@ -4,10 +4,24 @@ use core::{
 };
 
 use postgres_protocol::message::backend;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
 use crate::error::{DriverDownReceiving, Error};
+
+pub(super) fn request_pair(msg_count: usize, msg: BytesMut) -> (Request, Response) {
+    let (tx, rx) = unbounded_channel();
+    (
+        Request {
+            tx: ResponseSender { tx, msg_count },
+            msg,
+        },
+        Response {
+            rx,
+            buf: BytesMut::new(),
+        },
+    )
+}
 
 pub struct Response {
     rx: ResponseReceiver,
@@ -15,13 +29,6 @@ pub struct Response {
 }
 
 impl Response {
-    pub(crate) fn new(rx: ResponseReceiver) -> Self {
-        Self {
-            rx,
-            buf: BytesMut::new(),
-        }
-    }
-
     pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send + '_ {
         poll_fn(|cx| {
             if self.buf.is_empty() {
@@ -51,10 +58,6 @@ pub(super) enum SenderState {
 }
 
 impl ResponseSender {
-    fn new(tx: UnboundedSender<BytesMut>, msg_count: usize) -> Self {
-        Self { tx, msg_count }
-    }
-
     pub(super) fn send(&mut self, msg: BytesMut, complete: bool) -> SenderState {
         debug_assert!(self.msg_count > 0);
 
@@ -80,17 +83,6 @@ pub(super) type ResponseReceiver = UnboundedReceiver<BytesMut>;
 pub struct Request {
     pub(super) tx: ResponseSender,
     pub(crate) msg: BytesMut,
-}
-
-impl Request {
-    // a request with multiple response messages from database with msg_count as the count of total
-    // number of messages.
-    pub(crate) fn new(tx: UnboundedSender<BytesMut>, msg_count: usize, msg: BytesMut) -> Self {
-        Self {
-            tx: ResponseSender::new(tx, msg_count),
-            msg,
-        }
-    }
 }
 
 pub enum ResponseMessage {

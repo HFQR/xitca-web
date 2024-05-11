@@ -35,9 +35,9 @@ impl DriverTx {
     }
 
     pub(crate) fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
-        let (tx, rx) = unbounded_channel();
-        self.0.send(Request::new(tx, msg_count, msg))?;
-        Ok(Response::new(rx))
+        let (tx, rx) = super::codec::request_pair(msg_count, msg);
+        self.0.send(tx)?;
+        Ok(rx)
     }
 
     pub(crate) fn do_send(&self, msg: BytesMut) {
