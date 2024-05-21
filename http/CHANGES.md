@@ -1,4 +1,4 @@
-# unreleased
+# unreleased 0.5.0
 ## Change
 - update `xitca-io` to `0.3.0`
 - update `xitca-tls` to `0.3.0`

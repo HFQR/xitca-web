@@ -2,8 +2,7 @@ use core::{
     fmt,
     future::{poll_fn, Future},
     marker::PhantomData,
-    pin::{pin, Pin},
-    task::{ready, Context, Poll},
+    pin::pin,
 };
 
 use std::net::SocketAddr;
@@ -13,13 +12,12 @@ use ::h3::{
     server::{self, RequestStream},
 };
 use futures_core::stream::Stream;
-use pin_project_lite::pin_project;
 use xitca_io::net::QuicStream;
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
-    bytes::{Buf, Bytes},
+    bytes::Bytes,
     error::HttpServiceError,
     h3::{body::RequestBody, error::Error},
     http::{Extension, Request, RequestExt, Response},
@@ -69,16 +67,9 @@ where
                 SelectOutput::A(Ok(Some((req, stream)))) => {
                     let (tx, rx) = stream.split();
 
-                    let body = Box::pin(AsyncStream::new(rx, |mut stream| async move {
-                        // What the fuck is this API? We need to find another http3 implementation on quinn
-                        // that actually make sense. This is plain stupid.
-                        let res = stream.recv_data().await?;
-                        Ok(res.map(|bytes| (Bytes::copy_from_slice(bytes.chunk()), stream)))
-                    }));
-
                     // Reconstruct Request to attach crate body type.
                     let req = req.map(|_| {
-                        let body = ReqB::from(RequestBody(body));
+                        let body = ReqB::from(RequestBody(rx));
                         RequestExt::from_parts(body, Extension::new(self.addr))
                     });
 
@@ -126,83 +117,4 @@ where
     stream.finish().await?;
 
     Ok(())
-}
-
-pin_project! {
-    struct AsyncStream<F, Arg, Fut>{
-        callback: F,
-        #[pin]
-        inner: _AsyncStream<Arg, Fut>
-    }
-}
-
-pin_project! {
-    #[project = AsyncStreamProj]
-    #[project_replace = AsyncStreamReplaceProj]
-    enum _AsyncStream<Arg, Fut> {
-        Arg {
-            arg: Arg
-        },
-        Next {
-            #[pin]
-            fut: Fut
-        },
-        Empty
-    }
-}
-
-impl<F, Arg, Fut> AsyncStream<F, Arg, Fut> {
-    fn new(arg: Arg, callback: F) -> Self
-    where
-        F: Fn(Arg) -> Fut,
-    {
-        let fut = callback(arg);
-
-        Self {
-            callback,
-            inner: _AsyncStream::Next { fut },
-        }
-    }
-}
-
-impl<F, Arg, Fut, Res, Err> Stream for AsyncStream<F, Arg, Fut>
-where
-    F: Fn(Arg) -> Fut,
-    Fut: Future<Output = Result<Option<(Res, Arg)>, Err>>,
-{
-    type Item = Result<Res, Err>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-
-        loop {
-            match this.inner.as_mut().project() {
-                AsyncStreamProj::Next { fut } => {
-                    return match ready!(fut.poll(cx)) {
-                        Ok(Some((bytes, arg))) => {
-                            this.inner.set(_AsyncStream::Arg { arg });
-                            Poll::Ready(Some(Ok(bytes)))
-                        }
-                        Ok(None) => {
-                            this.inner.set(_AsyncStream::Empty);
-                            Poll::Ready(None)
-                        }
-                        Err(e) => {
-                            this.inner.set(_AsyncStream::Empty);
-                            Poll::Ready(Some(Err(e)))
-                        }
-                    }
-                }
-                AsyncStreamProj::Arg { .. } => match this.inner.as_mut().project_replace(_AsyncStream::Empty) {
-                    AsyncStreamReplaceProj::Arg { arg } => {
-                        this.inner.set(_AsyncStream::Next {
-                            fut: (this.callback)(arg),
-                        });
-                    }
-                    _ => unreachable!("Never gonna happen"),
-                },
-                AsyncStreamProj::Empty => unreachable!("StreamRequest polled after finis"),
-            }
-        }
-    }
 }
