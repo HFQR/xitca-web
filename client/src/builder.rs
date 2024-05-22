@@ -330,34 +330,32 @@ impl ClientBuilder {
         let h3_client = {
             use std::sync::Arc;
 
-            use h3_quinn::quinn::{ClientConfig, Endpoint};
-            use rustls_0dot21 as rustls;
+            use h3_quinn::quinn::Endpoint;
+            use webpki_roots::TLS_SERVER_ROOTS;
+            use xitca_tls::rustls::{ClientConfig, RootCertStore};
 
-            #[cfg(not(feature = "dangerous"))]
-            let mut crypto = {
-                use rustls::{OwnedTrustAnchor, RootCertStore};
-                use webpki_roots_0dot25::TLS_SERVER_ROOTS;
+            let mut root_store = RootCertStore::empty();
 
-                let mut root_certs = RootCertStore::empty();
-                for cert in TLS_SERVER_ROOTS {
-                    let cert = OwnedTrustAnchor::from_subject_spki_name_constraints(
-                        cert.subject,
-                        cert.spki,
-                        cert.name_constraints,
-                    );
-                    let certs = vec![cert].into_iter();
-                    root_certs.add_trust_anchors(certs);
-                }
+            root_store.extend(TLS_SERVER_ROOTS.iter().cloned());
 
-                rustls::ClientConfig::builder()
-                    .with_safe_defaults()
-                    .with_root_certificates(root_certs)
-                    .with_no_client_auth()
-            };
+            let mut cfg = ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+
+            cfg.alpn_protocols = vec![b"h3".to_vec(), b"h32-29".to_vec()];
 
             #[cfg(feature = "dangerous")]
-            let mut crypto = {
-                struct SkipServerVerification;
+            {
+                use xitca_tls::rustls::{
+                    self,
+                    client::danger::HandshakeSignatureValid,
+                    crypto::{verify_tls12_signature, verify_tls13_signature},
+                    pki_types::{CertificateDer, ServerName, UnixTime},
+                    DigitallySignedStruct,
+                };
+
+                #[derive(Debug)]
+                pub(crate) struct SkipServerVerification;
 
                 impl SkipServerVerification {
                     fn new() -> Arc<Self> {
@@ -365,36 +363,63 @@ impl ClientBuilder {
                     }
                 }
 
-                impl rustls::client::ServerCertVerifier for SkipServerVerification {
+                impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
                     fn verify_server_cert(
                         &self,
-                        _end_entity: &rustls::Certificate,
-                        _intermediates: &[rustls::Certificate],
-                        _server_name: &rustls::ServerName,
-                        _scts: &mut dyn Iterator<Item = &[u8]>,
-                        _ocsp_response: &[u8],
-                        _now: std::time::SystemTime,
-                    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-                        Ok(rustls::client::ServerCertVerified::assertion())
+                        _end_entity: &CertificateDer<'_>,
+                        _intermediates: &[CertificateDer<'_>],
+                        _server_name: &ServerName<'_>,
+                        _ocsp: &[u8],
+                        _now: UnixTime,
+                    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+                        Ok(rustls::client::danger::ServerCertVerified::assertion())
+                    }
+
+                    fn verify_tls12_signature(
+                        &self,
+                        message: &[u8],
+                        cert: &CertificateDer<'_>,
+                        dss: &DigitallySignedStruct,
+                    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+                        verify_tls12_signature(
+                            message,
+                            cert,
+                            dss,
+                            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+                        )
+                    }
+
+                    fn verify_tls13_signature(
+                        &self,
+                        message: &[u8],
+                        cert: &CertificateDer<'_>,
+                        dss: &DigitallySignedStruct,
+                    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+                        verify_tls13_signature(
+                            message,
+                            cert,
+                            dss,
+                            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+                        )
+                    }
+
+                    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+                        rustls::crypto::ring::default_provider()
+                            .signature_verification_algorithms
+                            .supported_schemes()
                     }
                 }
 
-                rustls::ClientConfig::builder()
-                    .with_safe_defaults()
-                    .with_custom_certificate_verifier(SkipServerVerification::new())
-                    .with_no_client_auth()
-            };
-
-            crypto.alpn_protocols = vec![b"h3".to_vec(), b"h32-29".to_vec()];
-
-            let config = ClientConfig::new(Arc::new(crypto));
+                cfg.dangerous().set_certificate_verifier(SkipServerVerification::new());
+            }
 
             let mut endpoint = match self.local_addr {
                 Some(addr) => Endpoint::client(addr).unwrap(),
                 None => Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap(),
             };
 
-            endpoint.set_default_client_config(config);
+            let cfg = quinn::crypto::rustls::QuicClientConfig::try_from(cfg).unwrap();
+            endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(cfg)));
 
             endpoint
         };

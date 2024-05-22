@@ -11,7 +11,7 @@ http1 = ["httparse", "xitca-http/http1"]
 # http/2 client(tls enabled by default. see `dangerous` feature for clear text http/2)
 http2 = ["h2", "itoa", "xitca-http/http2"]
 # http/3 client(tls always enabled with rustls)
-http3 = ["h3", "h3-quinn", "quinn/tls-rustls", "itoa", "async-stream", "rustls_0dot21", "webpki_roots_0dot25"]
+http3 = ["h3", "h3-quinn", "quinn", "itoa", "async-stream", "rustls-ring-crypto"]
 # openssl as http/1 and http/2 tls handler
 openssl = ["xitca-tls/openssl"]
 # rustls as http/1 and http/2 tls handler
@@ -27,7 +27,7 @@ websocket = ["http-ws"]
 # feature for trusted local network:
 # - http/2 clear text over plain tcp connection
 # - http/3 connection to server with self signed certificates
-dangerous = ["rustls_0dot21/dangerous_configuration"]
+dangerous = []
 
 [dependencies]
 xitca-http = { version = "0.5", default-features = false, features = ["runtime"] }
@@ -47,9 +47,9 @@ httparse = { version = "1.8.0", optional = true }
 h2 = { version = "0.4", optional = true }
 
 # http/3
-h3 = { version = "0.0.4", optional = true }
-h3-quinn = { version = "0.0.5", optional = true }
-quinn = { version = "0.10", optional = true }
+h3 = { version = "0.0.5", optional = true }
+h3-quinn = { version = "0.0.6", optional = true }
+quinn = { version = "0.11", features = ["ring"], optional = true }
 async-stream = { version = "0.3", optional = true }
 
 # http/2 and http/3 shared
@@ -60,10 +60,6 @@ xitca-tls = { version = "0.3.0", optional = true }
 
 # rustls, http3 and dangerous features shared
 webpki-roots = { version = "0.26", optional = true }
-
-# http3 temporary exclusive
-rustls_0dot21 = { package = "rustls", version = "0.21", optional = true }
-webpki_roots_0dot25 = { package = "webpki-roots", version = "0.25", optional = true }
 
 # compression
 http-encoding = { version = "0.2", features = ["br", "gz", "de"], optional = true }
