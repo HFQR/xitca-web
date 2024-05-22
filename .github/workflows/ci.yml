@@ -240,12 +240,12 @@ jobs:
       with:
         tool: cargo-hack
 
-    - name: [test][linux][other]
+    - name: test-linux-other
       if: matrix.target.os == 'ubuntu-latest'
       run: |
         sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-other"  
 
-    - name: [test][linux][xitca_test]
+    - name: test-linux-test
       if: matrix.target.os == 'ubuntu-latest'
       run: |
         sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-test"  
