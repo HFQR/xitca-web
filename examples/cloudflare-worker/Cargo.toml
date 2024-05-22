@@ -8,7 +8,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-xitca-web = { version = "0.4", default-features = false }
+xitca-web = { version = "0.5", default-features = false }
 xitca-unsafe-collection = "0.1"
 
 http-file = { version = "0.1", default-features = false }
@@ -16,7 +16,7 @@ http-file = { version = "0.1", default-features = false }
 cfg-if = "1.0.0"
 futures-core = "0.3"
 rust-embed = "8"
-worker = { version = "0.0.24", features = ["http"] }
+worker = { version = "0.3.0", features = ["http"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
