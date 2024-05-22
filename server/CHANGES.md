@@ -1,4 +1,6 @@
 # unreleased
+
+# 0.3.0
 ## Remove
 - remove `Builder::listen_unix`
 
