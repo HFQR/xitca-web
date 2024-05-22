@@ -1,10 +1,10 @@
 use std::{io, net::SocketAddr};
 
-use quinn::{Connecting, Endpoint, ServerConfig};
+use quinn::{Endpoint, Incoming, ServerConfig};
 
 use super::Stream;
 
-pub type QuicConnecting = Connecting;
+pub type QuicConnecting = Incoming;
 
 pub type QuicConfig = ServerConfig;
 
@@ -69,7 +69,7 @@ impl QuicListenerBuilder {
 ///
 /// Naming is to keep consistent with `TcpStream` / `UnixStream`.
 pub struct QuicStream {
-    connecting: Connecting,
+    connecting: QuicConnecting,
 }
 
 impl QuicStream {
@@ -84,7 +84,7 @@ impl QuicStream {
     ///     let new_conn: Connection = stream.connecting().await.unwrap();
     /// }
     /// ```
-    pub fn connecting(self) -> Connecting {
+    pub fn connecting(self) -> QuicConnecting {
         self.connecting
     }
 

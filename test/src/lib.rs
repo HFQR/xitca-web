@@ -110,20 +110,18 @@ where
     let key = fs::read("../examples/cert/key.pem")?;
     let cert = fs::read("../examples/cert/cert.pem")?;
 
-    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key)?.remove(0);
-    let key = rustls::PrivateKey(key);
+    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).next().unwrap().unwrap();
+    let key = h3_quinn::quinn::rustls::pki_types::PrivateKeyDer::from(key);
 
-    let cert = rustls_pemfile::certs(&mut &*cert)?
-        .into_iter()
-        .map(rustls::Certificate)
-        .collect();
+    let cert = rustls_pemfile::certs(&mut &*cert).collect::<Result<_, _>>().unwrap();
 
-    let mut config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
+    let mut config = h3_quinn::quinn::rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert, key)?;
 
     config.alpn_protocols = vec![b"h3".to_vec(), b"h3-29".to_vec(), b"h3-28".to_vec(), b"h3-27".to_vec()];
+
+    let config = h3_quinn::quinn::crypto::rustls::QuicServerConfig::try_from(config).unwrap();
 
     let config = h3_quinn::quinn::ServerConfig::with_crypto(std::sync::Arc::new(config));
 

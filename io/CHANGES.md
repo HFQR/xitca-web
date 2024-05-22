@@ -5,6 +5,7 @@
 - rename `Udp` prefixed types to `Quic` prefixed
 - `AsyncIo::ready` and `AsyncIoDyn::ready` receive `&mut self`. Allowing more arbitrary types implement these traits.
 - `AsyncIo::poll_ready` and `AsyncIoDyn::poll_ready` receive `&mut self`. For the same reason as above change.
+- update `quinn` to `0.11`
 
 # 0.2.1
 ## Add

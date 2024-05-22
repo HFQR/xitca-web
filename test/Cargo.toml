@@ -20,7 +20,6 @@ http-ws = { version = "0.4", features = ["stream"] }
 
 async-stream = "0.3"
 futures-util = "0.3.17"
-h3-quinn = "0.0.5"
-rustls = "0.21"
-rustls-pemfile = "1"
+h3-quinn = "0.0.6"
+rustls-pemfile = "2"
 tokio = { version = "1.30", features = ["macros", "rt"] }
