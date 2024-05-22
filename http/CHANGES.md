@@ -1,7 +1,11 @@
-# unreleased 0.5.0
+# unreleased
+
+# 0.5.0
 ## Change
 - update `xitca-io` to `0.3.0`
 - update `xitca-tls` to `0.3.0`
+- update `h3` to `0.0.5`
+- update `h3-quinn` to `0.0.6`
 
 # 0.4.1
 ## Fix

@@ -1,4 +1,6 @@
-# unreleased 0.3.0
+# unreleased
+
+# 0.3.0
 ## Change
 - rename `http3` feature to `quic`
 - rename `H3ServerConfig` to `QuicConfig`
