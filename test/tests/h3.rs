@@ -17,11 +17,7 @@ async fn h3_get() -> Result<(), Error> {
     let server_url = format!("https://localhost:{}/", handle.addr().port());
 
     for _ in 0..3 {
-        println!("getting!");
-        let mut res = c.get(&server_url).version(Version::HTTP_3).send().await.map_err(|e| {
-            println!("{e}");
-            e
-        })?;
+        let mut res = c.get(&server_url).version(Version::HTTP_3).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;

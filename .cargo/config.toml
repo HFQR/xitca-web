@@ -11,8 +11,8 @@ ci-check-client = "hack check --package xitca-client --each-feature --no-dev-dep
 ci-check-other-exclude-io-uring = "hack check --workspace --exclude xitca-http --exclude xitca-client --exclude xitca-web --feature-powerset --exclude-features=io-uring,tokio-uring,runtime-uring,rustls-uring,rustls-uring-no-crypto"
 ci-check-other = "hack check --workspace --exclude xitca-http --exclude xitca-client --exclude xitca-web --feature-powerset"
 
-ci-test-exclude-io-uring = "hack test --workspace --feature-powerset --exclude-features=io-uring --no-fail-fast -- --nocapture"
-ci-test = "test --workspace --all-features --no-fail-fast -- --nocapture"
+ci-test-other = "test --workspace --exclude xitca-client --exclude xitca-test --all-features --no-fail-fast -- --nocapture"
+ci-test-test = "test --package xitca-test --all-features --no-fail-fast -- --nocapture"
 
 ci-check-examples-exclude-io-uring = "hack check --workspace --exclude xitca-web-wasi --exclude xitca-web-io-uring --feature-powerset"
 ci-check-examples = "hack check --workspace --exclude xitca-web-wasi --feature-powerset"
