@@ -5,6 +5,6 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.4", features = ["compress-br", "compress-de", "compress-gz", "logger"] }
+xitca-web = { version = "0.5", features = ["compress-br", "compress-de", "compress-gz", "logger"] }
 
 tracing = "0.1"

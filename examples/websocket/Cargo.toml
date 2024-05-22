@@ -5,4 +5,4 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]
-xitca-web = { version = "0.4", features = ["websocket"] }
+xitca-web = { version = "0.5", features = ["websocket"] }

@@ -10,7 +10,6 @@ use std::{convert::Infallible, fs, io, sync::Arc};
 
 use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 use quinn::ServerConfig;
-use rustls::{Certificate, PrivateKey};
 use xitca_http::{
     h1, h2, h3,
     http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, RequestExt, Response, Version},
@@ -119,22 +118,19 @@ fn h3_config() -> io::Result<ServerConfig> {
     let cert = fs::read("../cert/cert.pem")?;
     let key = fs::read("../cert/key.pem")?;
 
-    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).unwrap().remove(0);
-    let key = PrivateKey(key);
+    let key = rustls_pemfile::pkcs8_private_keys(&mut &*key).next().unwrap().unwrap();
+    let key = quinn::rustls::pki_types::PrivateKeyDer::from(key);
 
-    let cert = rustls_pemfile::certs(&mut &*cert)
-        .unwrap()
-        .into_iter()
-        .map(Certificate)
-        .collect();
+    let cert = rustls_pemfile::certs(&mut &*cert).collect::<Result<_, _>>().unwrap();
 
-    let mut acceptor = rustls::ServerConfig::builder()
-        .with_safe_defaults()
+    let mut config = quinn::rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert, key)
         .unwrap();
 
-    acceptor.alpn_protocols = vec![b"h3".to_vec()];
+    config.alpn_protocols = vec![b"h3".to_vec()];
 
-    Ok(ServerConfig::with_crypto(Arc::new(acceptor)))
+    let config = quinn::crypto::rustls::QuicServerConfig::try_from(config).unwrap();
+
+    Ok(ServerConfig::with_crypto(Arc::new(config)))
 }
