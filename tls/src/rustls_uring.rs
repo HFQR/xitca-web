@@ -24,8 +24,14 @@ use self::buf::WriteBuf;
 /// For now due to design limitation TlsStream offers concurrency with [AsyncBufRead::read] and
 /// [AsyncBufWrite::write] but in either case the async function must run to completion and cancel
 /// it prematurely would cause panic.
-/// ```rust(no_run)
-/// # async fn complete(stream: TlsStream<ServerConnection, TcpStream>) {
+/// ```
+/// use xitca_io::{
+///     io_uring::{AsyncBufRead, AsyncBufWrite},
+///     net::io_uring::TcpStream
+/// };
+/// use xitca_tls::rustls_uring::{ServerConnection, TlsStream};
+///
+/// async fn complete(stream: TlsStream<ServerConnection, TcpStream>) {
 ///     let _ = stream.read(vec![0; 128]).await;
 ///     let _ = stream.read(vec![0; 128]).await; // serialize read to complete is ok.
 ///
