@@ -41,18 +41,24 @@ type DefaultWebObject<C> = WebObject<C, RequestBody, WebResponse, RouterError<Er
 type DefaultAppRouter<C> = AppRouter<RouteObject<(), DefaultWebObject<C>, Infallible>>;
 
 // helper trait to poly between () and Box<dyn Fn()> as application state.
-pub trait IntoCtx<C> {
-    fn into_ctx(self) -> impl Fn() -> BoxFuture<C> + Send + Sync;
+pub trait IntoCtx {
+    type Ctx;
+
+    fn into_ctx(self) -> impl Fn() -> BoxFuture<Self::Ctx> + Send + Sync;
 }
 
-impl IntoCtx<()> for () {
-    fn into_ctx(self) -> impl Fn() -> BoxFuture<()> + Send + Sync {
+impl IntoCtx for () {
+    type Ctx = ();
+
+    fn into_ctx(self) -> impl Fn() -> BoxFuture<Self::Ctx> + Send + Sync {
         || Box::pin(ready(Ok(())))
     }
 }
 
-impl<C> IntoCtx<C> for CtxBuilder<C> {
-    fn into_ctx(self) -> impl Fn() -> BoxFuture<C> + Send + Sync {
+impl<C> IntoCtx for CtxBuilder<C> {
+    type Ctx = C;
+
+    fn into_ctx(self) -> impl Fn() -> BoxFuture<Self::Ctx> + Send + Sync {
         self
     }
 }
@@ -449,7 +455,7 @@ where
     where
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>,
-        CF: IntoCtx<C>,
+        CF: IntoCtx<Ctx = C>,
         C: 'static,
     {
         let App { ctx_builder, router } = self;
@@ -469,7 +475,7 @@ where
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: error::Error + Send + Sync + 'static,
-        CF: IntoCtx<C> + 'static,
+        CF: IntoCtx<Ctx = C> + 'static,
         C: 'static,
     {
         struct BoxApp<S>(S);
@@ -508,7 +514,7 @@ where
         R::Response: ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
         ResB: 'static,
-        CF: IntoCtx<C> + 'static,
+        CF: IntoCtx<Ctx = C> + 'static,
         C: 'static,
     {
         crate::server::HttpServer::serve(self.finish())
@@ -535,7 +541,7 @@ where
     }
 }
 
-impl<R, Arg, F> Service<Arg> for App<R, F>
+impl<R, Arg> Service<Arg> for App<R>
 where
     R: Service<Arg>,
 {
@@ -543,6 +549,20 @@ where
     type Error = R::Error;
 
     async fn call(&self, req: Arg) -> Result<Self::Response, Self::Error> {
+        self.router.call(req).await
+    }
+}
+
+impl<R, Arg, C> Service<Arg> for App<R, CtxBuilder<C>>
+where
+    R: Service<Arg>,
+{
+    type Response = R::Response;
+    type Error = R::Error;
+
+    async fn call(&self, req: Arg) -> Result<Self::Response, Self::Error> {
+        // TODO:
+        // enable nesting application state?
         self.router.call(req).await
     }
 }

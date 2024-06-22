@@ -3,13 +3,13 @@
 //! In xitca-web error is treated as high level type and handled lazily.
 //!
 //! - high level:
-//! An error type is represented firstly and mostly as a Rust type with useful trait bounds.It doesn't
-//! necessarily mapped and/or converted into http response immediately. User is encouraged to pass the
-//! error value around and convert it to http response on condition they prefer.
+//!   An error type is represented firstly and mostly as a Rust type with useful trait bounds.It doesn't
+//!   necessarily mapped and/or converted into http response immediately. User is encouraged to pass the
+//!   error value around and convert it to http response on condition they prefer.
 //!
 //! - lazy:
-//! Since an error is passed as value mostly the error is handled lazily when the value is needed.
-//! Including but not limiting to: formatting, logging, generating http response.
+//!   Since an error is passed as value mostly the error is handled lazily when the value is needed.
+//!   Including but not limiting to: formatting, logging, generating http response.
 //!
 //! # Example
 //! ```rust

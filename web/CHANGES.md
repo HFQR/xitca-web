@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.5.1
+## Change
+- remove generic type param from `IntoCtx` trait
 
 # 0.5.0
 ## Add
