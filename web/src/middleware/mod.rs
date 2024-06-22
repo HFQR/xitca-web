@@ -263,24 +263,24 @@
 //! ```
 //! The main take away from the table should be:
 //! - a type enclosed by middleware(s) is always the last one to take ownership of input request
-//! and the first one to take ownership of output response (it's tasked with producing it)
+//!   and the first one to take ownership of output response (it's tasked with producing it)
 //! - a middleware always take ownership of input before the type it enclosed on and always take
-//! ownership of output response after
+//!   ownership of output response after
 //! - multiple middlewares always go in a reverse order between input request and output
-//! response: the input request goes from bottom to top.(in above example it goes from
-//! `middleware2 -> middleware1 -> handler`). And the output response goes from top to bottom
-//! (in above example it goes from `handler -> middleware1 -> middleware2`)
+//!   response: the input request goes from bottom to top.(in above example it goes from
+//!   `middleware2 -> middleware1 -> handler`). And the output response goes from top to bottom
+//!   (in above example it goes from `handler -> middleware1 -> middleware2`)
 //! - `enclosed` and `enclosed_fn` share the same ordering rule however they are mixed in usage
 //!
 //! # Type mutation
 //! - In [`WebContext<'_, C, B>`] type the last generic type param `B` is for http body type.
-//! middleware and service are free to transform it's type and constraint it's inner/next service
-//! to accept the new type as it's request http body type. [`DeCompress`] and [`Limit`] middleware are
-//! examples of this practice. [`TypeEraser`] middleware on the other hand can be used to reserve the
-//! type mutation and restore `B` type to it's default as [`RequestBody`] type. In this case web context
-//! can be written in short form as [`WebContext<'_, C>`].
+//!   middleware and service are free to transform it's type and constraint it's inner/next service
+//!   to accept the new type as it's request http body type. [`DeCompress`] and [`Limit`] middleware are
+//!   examples of this practice. [`TypeEraser`] middleware on the other hand can be used to reserve the
+//!   type mutation and restore `B` type to it's default as [`RequestBody`] type. In this case web context
+//!   can be written in short form as [`WebContext<'_, C>`].
 //! - [`WebResponse<B>`] type share the characteristic as web context type. The `B` type can be transform
-//! into new type by services and middleware while type eraser is able to reverse the process.
+//!   into new type by services and middleware while type eraser is able to reverse the process.
 //!
 //! [`App::with_state`]: crate::App::with_state
 //! [`Service`]: crate::service::Service

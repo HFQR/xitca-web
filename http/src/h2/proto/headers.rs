@@ -226,10 +226,9 @@ where
         (self.header_block.pseudo, self.header_block.fields)
     }
 
-    #[cfg(feature = "unstable")]
-    pub fn pseudo_mut(&mut self) -> &mut Pseudo {
-        &mut self.header_block.pseudo
-    }
+    // pub fn pseudo_mut(&mut self) -> &mut Pseudo {
+    //     &mut self.header_block.pseudo
+    // }
 
     pub fn fields(&self) -> &HeaderMap {
         &self.header_block.fields
@@ -371,10 +370,9 @@ impl Pseudo {
         ResponsePseudo { status }
     }
 
-    #[cfg(feature = "unstable")]
-    pub fn set_status(&mut self, value: StatusCode) {
-        self.status = Some(value);
-    }
+    // pub fn set_status(&mut self, value: StatusCode) {
+    //     self.status = Some(value);
+    // }
 
     pub fn set_scheme(&mut self, scheme: uri::Scheme) {
         let bytes_str = match scheme.as_str() {

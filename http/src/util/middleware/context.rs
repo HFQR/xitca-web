@@ -11,9 +11,7 @@ use crate::http::{BorrowReq, BorrowReqMut};
 /// State is roughly doing the same thing as `move ||` style closure capture. The difference comes
 /// down to:
 ///
-/// - The captured state is constructed lazily when [Service::call] method is
-/// called.
-///
+/// - The captured state is constructed lazily when [Service::call] method is called.
 /// - State can be referenced in nested types and beyond closures.
 ///
 /// # Example:
