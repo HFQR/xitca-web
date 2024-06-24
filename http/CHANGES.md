@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.6.0
+## Change
+- bump MSRV to `1.78`
 
 # 0.5.0
 ## Change

@@ -1,6 +1,8 @@
-# unreleased 0.5.1
+# unreleased 0.6.0
 ## Change
 - remove generic type param from `IntoCtx` trait
+- bump MSRV to `1.78`
+- update `xitca-http` to `0.6.0`
 
 # 0.5.0
 ## Add

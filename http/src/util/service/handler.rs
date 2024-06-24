@@ -111,6 +111,12 @@ where
 /// assert_eq!(extract.0, input.as_str());
 /// # }
 /// ```
+
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not impl FromRequest trait",
+    label = "handler function arguments must impl FromRequest trait",
+    note = "consider add `impl FromRequest<_> for {Self}`"
+)]
 pub trait FromRequest<'a, Req>: Sized {
     // Used to construct the type for any lifetime 'b.
     type Type<'b>: FromRequest<'b, Req, Error = Self::Error>;
@@ -155,6 +161,11 @@ from_req_impl! { A, B, C, D, E, F, G, H, I, }
 
 /// Make Response with ownership of Req.
 /// The Output type is what returns from [handler_service] function.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not impl Responder trait",
+    label = "handler function return type must impl Responder trait",
+    note = "consider add `impl Responder<_> for {Self}`"
+)]
 pub trait Responder<Req> {
     type Response;
     type Error;
