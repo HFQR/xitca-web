@@ -1,5 +1,6 @@
 use core::{
     fmt,
+    mem::MaybeUninit,
     ops::{Deref, DerefMut},
 };
 
@@ -7,10 +8,7 @@ use std::io;
 
 use tracing::trace;
 use xitca_io::bytes::{Buf, BytesMut};
-use xitca_unsafe_collection::{
-    bytes::{read_buf, BufList, ChunkVectoredUninit},
-    uninit::uninit_array,
-};
+use xitca_unsafe_collection::bytes::{read_buf, BufList, ChunkVectoredUninit};
 
 pub use xitca_io::bytes::{BufInterest, BufRead, BufWrite};
 
@@ -240,7 +238,7 @@ where
                 break;
             }
 
-            let mut buf = uninit_array::<_, BUF_LIST_CNT>();
+            let mut buf = [const { MaybeUninit::uninit() }; BUF_LIST_CNT];
             let slice = queue.chunks_vectored_uninit_into_init(&mut buf);
             match io.write_vectored(slice) {
                 Ok(0) => return write_zero(self.want_write_io()),

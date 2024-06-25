@@ -1,6 +1,6 @@
 [package]
 name = "xitca-router"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 description = "router for xitca"
@@ -10,7 +10,7 @@ authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
 
 [dependencies]
-xitca-unsafe-collection = "0.1"
+xitca-unsafe-collection = "0.2.0"
 
 [dev-dependencies]
 criterion = "0.5"

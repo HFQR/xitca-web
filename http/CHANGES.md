@@ -1,6 +1,11 @@
 # unreleased 0.6.0
 ## Change
 - bump MSRV to `1.78`
+- update `xitca-io` to `0.4.0`
+- update `xitca-router` to `0.3.0`
+- update `xitca-service` to `0.2.0`
+- update `xitca-tls` to `0.4.0`
+- update `xitca-unsafe-collection` to `0.2.0`
 
 # 0.5.0
 ## Change

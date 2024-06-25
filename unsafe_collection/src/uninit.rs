@@ -2,14 +2,6 @@
 
 use core::mem::MaybeUninit;
 
-/// A shortcut for create array of uninit type.
-#[allow(clippy::uninit_assumed_init)] // wtf
-#[inline(always)]
-pub const fn uninit_array<T, const N: usize>() -> [MaybeUninit<T>; N] {
-    // SAFETY: An uninitialized `[MaybeUninit<_>; LEN]` is valid.
-    unsafe { MaybeUninit::uninit().assume_init() }
-}
-
 // SAFETY:
 //
 // It is up to the caller to guarantee that the `MaybeUninit<T>` elements

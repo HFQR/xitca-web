@@ -1,7 +1,5 @@
 use core::{fmt, mem::MaybeUninit};
 
-use crate::uninit;
-
 use super::{Bounded, PushError, Queueable};
 
 pub struct StackQueue<T, const N: usize> {
@@ -19,7 +17,7 @@ impl<T, const N: usize> StackQueue<T, N> {
     pub const fn new() -> Self {
         Self {
             inner: Bounded {
-                queue: uninit::uninit_array(),
+                queue: [const { MaybeUninit::uninit() }; N],
                 next: 0,
                 len: 0,
             },

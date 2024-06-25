@@ -1,20 +1,20 @@
+use core::mem::MaybeUninit;
+
 use httparse::{ParserConfig, Status};
 
+use super::context::Context;
 use xitca_http::{
     bytes::BytesMut,
     h1::proto::{codec::TransferCoding, error::ProtoError, header::HeaderIndex},
     http::{Response, StatusCode, Version},
 };
-use xitca_unsafe_collection::uninit;
-
-use super::context::Context;
 
 impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
     pub(crate) fn decode_head(
         &mut self,
         buf: &mut BytesMut,
     ) -> Result<Option<(Response<()>, TransferCoding)>, ProtoError> {
-        let mut headers = uninit::uninit_array::<_, HEADER_LIMIT>();
+        let mut headers = [const { MaybeUninit::uninit() }; HEADER_LIMIT];
 
         let mut parsed = httparse::Response::new(&mut []);
 
@@ -32,7 +32,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
                 let status = StatusCode::from_u16(parsed.code.unwrap())?;
 
                 // record the index of headers from the buffer.
-                let mut header_idx = uninit::uninit_array::<_, HEADER_LIMIT>();
+                let mut header_idx = [const { MaybeUninit::uninit() }; HEADER_LIMIT];
                 let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, parsed.headers);
 
                 let headers_len = parsed.headers.len();

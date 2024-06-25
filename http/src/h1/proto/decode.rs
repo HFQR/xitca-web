@@ -1,5 +1,6 @@
+use core::mem::MaybeUninit;
+
 use httparse::Status;
-use xitca_unsafe_collection::uninit;
 
 use crate::{
     bytes::{Buf, Bytes, BytesMut},
@@ -25,7 +26,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
         buf: &mut BytesMut,
     ) -> Result<Option<Decoded>, ProtoError> {
         let mut req = httparse::Request::new(&mut []);
-        let mut headers = uninit::uninit_array::<_, MAX_HEADERS>();
+        let mut headers = [const { MaybeUninit::uninit() }; MAX_HEADERS];
 
         match req.parse_with_uninit_headers(buf, &mut headers)? {
             Status::Complete(len) => {
@@ -58,7 +59,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 };
 
                 // record indices of headers from bytes buffer.
-                let mut header_idx = uninit::uninit_array::<_, MAX_HEADERS>();
+                let mut header_idx = [const { MaybeUninit::uninit() }; MAX_HEADERS];
                 let header_idx_slice = HeaderIndex::record(&mut header_idx, buf, req.headers);
                 let headers_len = req.headers.len();
 
