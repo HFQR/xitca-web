@@ -72,7 +72,7 @@ impl<B: ChunkVectoredUninit, const LEN: usize> BufList<B, LEN> {
     /// let mut lst = xitca_unsafe_collection::bytes::BufList::<&[u8], 6>::new();
     /// lst.push(&b"996"[..]);
     /// lst.push(&b"007"[..]);
-    /// let mut dst = xitca_unsafe_collection::uninit::uninit_array::<std::io::IoSlice<'_>, 8>();
+    /// let mut dst = [const { core::mem::MaybeUninit::uninit() }; 8];
     /// let init_slice = lst.chunks_vectored_uninit_into_init(&mut dst);
     /// assert_eq!(init_slice.len(), 2);
     /// assert_eq!(&*init_slice[0], &b"996"[..]);
@@ -160,13 +160,11 @@ impl ChunkVectoredUninit for &'_ [u8] {
 mod test {
     use super::*;
 
-    use crate::uninit::uninit_array;
-
     #[test]
     fn either_buf() {
         let mut lst = BufList::<_, 2>::new();
 
-        let mut buf = uninit_array::<_, 4>();
+        let mut buf = [const { MaybeUninit::uninit() }; 4];
 
         lst.push(EitherBuf::Left(&b"left"[..]));
         lst.push(EitherBuf::Right(&b"right"[..]));
@@ -182,7 +180,7 @@ mod test {
     fn either_chain() {
         let mut lst = BufList::<_, 3>::new();
 
-        let mut buf = uninit_array::<_, 5>();
+        let mut buf = [const { MaybeUninit::uninit() }; 5];
 
         lst.push(EitherBuf::Left((&b"1"[..]).chain(&b"2"[..])));
         lst.push(EitherBuf::Right(&b"3"[..]));

@@ -1,6 +1,6 @@
 [package]
 name = "xitca-http"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "http library for xitca"
@@ -34,9 +34,9 @@ io-uring = ["xitca-io/runtime-uring", "tokio-uring"]
 router = ["xitca-router"]
 
 [dependencies]
-xitca-io = "0.3.0"
-xitca-service = { version = "0.1", features = ["alloc", "std"] }
-xitca-unsafe-collection = { version = "0.1.1", features = ["bytes"] }
+xitca-io = "0.4.0"
+xitca-service = { version = "0.2.0", features = ["alloc", "std"] }
+xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
 futures-core = "0.3.17"
 http = "1"
@@ -48,7 +48,7 @@ tracing = { version = "0.1.40", default-features = false }
 native-tls = { version = "0.2.7", features = ["alpn"], optional = true }
 
 # tls support shared
-xitca-tls = { version = "0.3.0", optional = true }
+xitca-tls = { version = "0.4.0", optional = true }
 
 # http/1 support
 httparse = { version = "1.8", optional = true }
@@ -68,7 +68,7 @@ h3-quinn = { version = "0.0.6", optional = true }
 tokio = { version = "1.30", features = ["rt", "time"], optional = true }
 
 # util service support
-xitca-router = { version = "0.2", optional = true }
+xitca-router = { version = "0.3.0", optional = true }
 
 # io-uring support
 tokio-uring = { version = "0.4.0", features = ["bytes"], optional = true }
@@ -78,7 +78,7 @@ socket2 = { version = "0.5.1", features = ["all"] }
 
 [dev-dependencies]
 criterion = "0.5"
-xitca-server = "0.3"
+xitca-server = "0.4"
 
 [[bench]]
 name = "h1_decode"

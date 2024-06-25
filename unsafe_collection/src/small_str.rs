@@ -15,7 +15,7 @@ mod inner {
         slice,
     };
 
-    use crate::uninit::{slice_assume_init, uninit_array};
+    use crate::uninit::slice_assume_init;
 
     const TAG: u8 = 0b1000_0000;
 
@@ -34,7 +34,7 @@ mod inner {
         // SAFETY:
         // caller must make sure slice is no more than 15 bytes in length.
         unsafe fn from_slice(slice: &[u8]) -> Self {
-            let mut arr = uninit_array();
+            let mut arr = [const { MaybeUninit::uninit() }; 15];
 
             let len = slice.len();
 
@@ -107,7 +107,7 @@ mod inner {
             {
                 Self {
                     inline: Inline {
-                        arr: uninit_array(),
+                        arr: [const { MaybeUninit::uninit() }; 15],
                         len: TAG,
                     },
                 }
