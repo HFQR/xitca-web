@@ -1,6 +1,6 @@
 # unreleased 0.4.0
 ## Change
-- bump MSRV to `1.78`
+- bump MSRV to `1.79`
 - update `xitca-unsafe-collection` to `0.2.0`
 
 # 0.3.0

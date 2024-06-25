@@ -1,7 +1,7 @@
 # unreleased 0.6.0
 ## Change
 - remove generic type param from `IntoCtx` trait
-- bump MSRV to `1.78`
+- bump MSRV to `1.79`
 - update `xitca-http` to `0.6.0`
 - update `xitca-server` to `0.4.0`
 - update `xitca-service` to `0.2.0`

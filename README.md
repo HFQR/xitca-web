@@ -1,7 +1,7 @@
 # An alternative http library and web framework inspired by hyper
 
 ## Minimum Supported Rust Version
-- 1.78 [^1]
+- 1.79 [^1]
 
 ## Motivation
 - Less synchronization and thread per core design is used.

@@ -1,6 +1,6 @@
 # unreleased 0.3.0
 ## Change
-- bump MSRV to `1.78`
+- bump MSRV to `1.79`
 
 ## Fix
 - allow catch all matching for route without leading slash. `foo/*` and `foo/*bar` become valid pattern.
