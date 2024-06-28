@@ -82,10 +82,7 @@ impl BufWrite for BytesMut {
         F: FnOnce(&mut Self) -> Result<T, E>,
     {
         let len = self.len();
-        func(self).map_err(|e| {
-            self.truncate(len);
-            e
-        })
+        func(self).inspect_err(|_| self.truncate(len))
     }
 
     #[cold]
@@ -162,10 +159,7 @@ impl BufWrite for WriteBuf {
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
-        self.buf.write_buf(func).map(|t| {
-            self.want_flush = false;
-            t
-        })
+        self.buf.write_buf(func).inspect_err(|_| self.want_flush = false)
     }
 
     fn do_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {

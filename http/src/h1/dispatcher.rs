@@ -372,11 +372,11 @@ impl BodyReader {
 
     // wait for service start to consume RequestBody.
     pub(super) async fn wait_for_poll(&mut self) -> io::Result<()> {
-        self.tx.wait_for_poll().await.map_err(|e| {
-            // IMPORTANT: service future drop RequestBody so marker decoder to corrupted.
-            self.decoder.set_corrupted();
-            e
-        })
+        // IMPORTANT: service future drop RequestBody so marker decoder to corrupted.
+        self.tx
+            .wait_for_poll()
+            .await
+            .inspect_err(|_| self.decoder.set_corrupted())
     }
 }
 

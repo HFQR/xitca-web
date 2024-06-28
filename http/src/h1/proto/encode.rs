@@ -61,16 +61,14 @@ where
 
         let size = BodySize::from_stream(body);
 
-        self.encode_headers(&mut headers, size, buf, skip_ct_te)
-            .map(|encoding| {
-                // put header map back to cache.
-                self.replace_headers(headers);
+        self.encode_headers(&mut headers, size, buf, skip_ct_te).inspect(|_| {
+            // put header map back to cache.
+            self.replace_headers(headers);
 
-                // put extension back to cache;
-                extensions.clear();
-                self.replace_extensions(extensions);
-                encoding
-            })
+            // put extension back to cache;
+            extensions.clear();
+            self.replace_extensions(extensions);
+        })
     }
 }
 

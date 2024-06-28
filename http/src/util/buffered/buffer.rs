@@ -220,10 +220,7 @@ where
     {
         // in ListWriteBuf the BytesMut is only used as temporary storage of buffer.
         // only when ListWriteBuf::buffer is called we set self.want_flush to false.
-        func(&mut self.buf).map_err(|e| {
-            self.buf.clear();
-            e
-        })
+        func(&mut self.buf).inspect_err(|_| self.buf.clear())
     }
 
     fn do_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {

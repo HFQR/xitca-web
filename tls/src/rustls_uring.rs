@@ -62,12 +62,11 @@ where
     C: DerefMut + Deref<Target = ConnectionCommon<S>>,
 {
     fn read_plain(&mut self, buf: &mut impl BoundedBufMut) -> io::Result<usize> {
-        io::Read::read(&mut self.session.reader(), io_ref_mut_slice(buf)).map(|n| {
+        io::Read::read(&mut self.session.reader(), io_ref_mut_slice(buf)).inspect(|n| {
             // SAFETY
             // required by IoBufMut trait. when n bytes is write into buffer this method
             // must be called to advance the initialized part of it.
-            unsafe { buf.set_init(n) };
-            n
+            unsafe { buf.set_init(*n) };
         })
     }
 
@@ -110,10 +109,7 @@ where
             }
         }
 
-        let res = session.session.read_tls(&mut buf.as_ref()).map(|n| {
-            buf.advance(n);
-            n
-        });
+        let res = session.session.read_tls(&mut buf.as_ref()).inspect(|n| buf.advance(*n));
 
         session.read_buf.replace(buf);
 
@@ -343,13 +339,7 @@ mod buf {
             let (res, buf) = io.write(self.buf).await;
             self.buf = buf;
 
-            (
-                res.map(|n| {
-                    self.buf.advance(n);
-                    n
-                }),
-                self,
-            )
+            (res.inspect(|n| self.buf.advance(*n)), self)
         }
     }
 
