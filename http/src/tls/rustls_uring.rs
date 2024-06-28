@@ -2,7 +2,7 @@ use core::convert::Infallible;
 
 use std::{io, net::Shutdown, sync::Arc};
 
-use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut};
+use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
 use xitca_service::Service;
 use xitca_tls::{
     rustls::{ServerConfig, ServerConnection},
@@ -73,7 +73,7 @@ where
     #[inline]
     async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
-        B: IoBufMut,
+        B: BoundedBufMut,
     {
         self.inner.read(buf).await
     }
@@ -86,7 +86,7 @@ where
     #[inline]
     async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
-        B: IoBuf,
+        B: BoundedBuf,
     {
         self.inner.write(buf).await
     }

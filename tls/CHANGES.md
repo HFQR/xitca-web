@@ -2,6 +2,7 @@
 ## Change
 - bump MSRV to `1.79`
 - update `xitca-io` to `0.4.0`
+- update `tokio-uring` to `0.5.0`
 
 # 0.3.0
 - update `xitca-io` to `0.3.0`

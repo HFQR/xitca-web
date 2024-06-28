@@ -9,7 +9,7 @@ use postgres_protocol::message::backend;
 use xitca_io::bytes::Buf;
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf},
+    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf},
 };
 use xitca_unsafe_collection::futures::{ReusableLocalBoxFuture, Select, SelectOutput};
 

@@ -8,7 +8,7 @@ pub use tokio_uring::net::TcpStream;
 #[cfg(unix)]
 pub use tokio_uring::net::UnixStream;
 
-use crate::io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut};
+use crate::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
 
 use super::Stream;
 
@@ -36,7 +36,7 @@ impl AsyncBufRead for TcpStream {
     #[inline(always)]
     async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
-        B: IoBufMut,
+        B: BoundedBufMut,
     {
         TcpStream::read(self, buf).await
     }
@@ -46,9 +46,9 @@ impl AsyncBufWrite for TcpStream {
     #[inline(always)]
     async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
-        B: IoBuf,
+        B: BoundedBuf,
     {
-        TcpStream::write(self, buf).await
+        TcpStream::write(self, buf).submit().await
     }
 
     #[inline(always)]
@@ -60,6 +60,8 @@ impl AsyncBufWrite for TcpStream {
 #[cfg(unix)]
 mod unix {
     use std::os::unix::net::SocketAddr;
+
+    use tokio_uring::buf::BoundedBuf;
 
     use super::*;
 
@@ -87,7 +89,7 @@ mod unix {
         #[inline(always)]
         async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
         where
-            B: IoBufMut,
+            B: BoundedBufMut,
         {
             UnixStream::read(self, buf).await
         }
@@ -97,9 +99,9 @@ mod unix {
         #[inline(always)]
         async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
         where
-            B: IoBuf,
+            B: BoundedBuf,
         {
-            UnixStream::write(self, buf).await
+            UnixStream::write(self, buf).submit().await
         }
 
         #[inline(always)]

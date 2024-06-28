@@ -12,7 +12,7 @@ pub use rustls_crate::*;
 
 use xitca_io::{
     bytes::{Buf, BytesMut},
-    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf, IoBufMut},
+    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut},
 };
 
 use self::buf::WriteBuf;
@@ -61,7 +61,7 @@ impl<C, S> Session<C>
 where
     C: DerefMut + Deref<Target = ConnectionCommon<S>>,
 {
-    fn read_plain(&mut self, buf: &mut impl IoBufMut) -> io::Result<usize> {
+    fn read_plain(&mut self, buf: &mut impl BoundedBufMut) -> io::Result<usize> {
         io::Read::read(&mut self.session.reader(), io_ref_mut_slice(buf)).map(|n| {
             // SAFETY
             // required by IoBufMut trait. when n bytes is write into buffer this method
@@ -71,7 +71,7 @@ where
         })
     }
 
-    fn write_plain(&mut self, buf: &impl IoBuf) -> io::Result<usize> {
+    fn write_plain(&mut self, buf: &impl BoundedBuf) -> io::Result<usize> {
         let writer = &mut self.session.writer();
         let n = io::Write::write(writer, io_ref_slice(buf))?;
         // keep this no op in case rustls change it's behavior.
@@ -229,7 +229,7 @@ where
 {
     async fn read<B>(&self, mut buf: B) -> (io::Result<usize>, B)
     where
-        B: IoBufMut,
+        B: BoundedBufMut,
     {
         let mut session = self.session.borrow_mut();
 
@@ -258,7 +258,7 @@ where
 {
     async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
-        B: IoBuf,
+        B: BoundedBuf,
     {
         let mut session = self.session.borrow_mut();
 
@@ -308,13 +308,13 @@ where
     }
 }
 
-fn io_ref_slice(buf: &impl IoBuf) -> &[u8] {
+fn io_ref_slice(buf: &impl BoundedBuf) -> &[u8] {
     // SAFETY
     // have to trust IoBuf implementor to provide valid pointer and it's length.
     unsafe { slice::from_raw_parts(buf.stable_ptr(), buf.bytes_init()) }
 }
 
-fn io_ref_mut_slice(buf: &mut impl IoBufMut) -> &mut [u8] {
+fn io_ref_mut_slice(buf: &mut impl BoundedBufMut) -> &mut [u8] {
     // SAFETY
     // have to trust IoBufMut implementor to provide valid pointer and it's capacity.
     unsafe { slice::from_raw_parts_mut(buf.stable_mut_ptr(), buf.bytes_total()) }

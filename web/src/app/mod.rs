@@ -557,13 +557,45 @@ impl<R, Arg, C> Service<Arg> for App<R, CtxBuilder<C>>
 where
     R: Service<Arg>,
 {
-    type Response = R::Response;
+    type Response = NestAppService<C, R::Response>;
     type Error = R::Error;
 
     async fn call(&self, req: Arg) -> Result<Self::Response, Self::Error> {
-        // TODO:
-        // enable nesting application state?
-        self.router.call(req).await
+        let ctx = (self.ctx_builder)()
+            .await
+            .expect("fallible nested application state builder is not supported yet");
+        let service = self.router.call(req).await?;
+
+        Ok(NestAppService { ctx, service })
+    }
+}
+
+pub struct NestAppService<C, S> {
+    ctx: C,
+    service: S,
+}
+
+impl<'r, C1, C, S, SE> Service<WebContext<'r, C1>> for NestAppService<C, S>
+where
+    S: for<'r1> Service<WebContext<'r1, C>, Response = WebResponse, Error = SE>,
+    SE: for<'r1> Service<WebContext<'r1, C>, Response = WebResponse, Error = Infallible>,
+{
+    type Response = WebResponse;
+    type Error = Error<C1>;
+
+    async fn call(&self, req: WebContext<'r, C1>) -> Result<Self::Response, Self::Error> {
+        let WebContext { req, body, .. } = req;
+
+        let mut ctx = WebContext {
+            req,
+            body,
+            ctx: &self.ctx,
+        };
+
+        match self.service.call(ctx.reborrow()).await {
+            Ok(res) => Ok(res),
+            Err(e) => e.call(ctx).await.map_err(|e| match e {}),
+        }
     }
 }
 
@@ -738,9 +770,39 @@ mod test {
 
         let state = String::from("state");
         let service = App::new()
-            .with_state(state)
+            .with_state(state.clone())
             .at("/root", get(handler_service(handler)))
             .at("/scope", app())
+            .finish()
+            .call(())
+            .now_or_panic()
+            .ok()
+            .unwrap();
+
+        let req = request::Builder::default()
+            .uri("/scope/nest")
+            .body(Default::default())
+            .unwrap();
+
+        let res = service.call(req).now_or_panic().unwrap();
+
+        assert_eq!(res.status().as_u16(), 200);
+
+        async fn handler2(StateRef(state): StateRef<'_, usize>, PathRef(path): PathRef<'_>) -> String {
+            assert_eq!(996, *state);
+            assert_eq!("/scope/nest", path);
+            state.to_string()
+        }
+
+        let service = App::new()
+            .with_state(state)
+            .at("/root", get(handler_service(handler)))
+            .at(
+                "/scope",
+                App::new()
+                    .with_state(996usize)
+                    .at("/nest", get(handler_service(handler2))),
+            )
             .finish()
             .call(())
             .now_or_panic()
