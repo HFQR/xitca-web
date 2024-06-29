@@ -2,6 +2,7 @@
 ## Change
 - bump MSRV to `1.79`
 - update `xitca-unsafe-collection` to `0.2.0`
+- update `tokio-uring` to `0.5.0`
 
 # 0.3.0
 ## Change

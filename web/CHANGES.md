@@ -1,5 +1,21 @@
 # unreleased 0.6.0
 ## Change
+- add support for scoped application state
+  ```rust
+  App::new()
+    .with_state(996usize) // global state is usize
+    .at(
+      "/foo"
+      App::new()
+        .with_state(996isize) // scoped state is isize
+        .at("/bar", handler_service(handler))
+  )
+
+  // handler function would receive isize as typed state. overriding the global app state of usize
+  async fn handler(StateRef(state): StateRef<'_, isize>) -> .. {
+    assert_eq!(*state, 996isize)
+  }
+  ```
 - remove generic type param from `IntoCtx` trait
 - bump MSRV to `1.79`
 - update `xitca-http` to `0.6.0`

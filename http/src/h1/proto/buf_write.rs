@@ -63,10 +63,9 @@ impl<const BUF_LIMIT: usize> H1BufWrite for ListWriteBuf<EncodedBuf<Bytes, Eof>,
     {
         // list buffer use BufWrite::write_buf for temporary response head storage.
         // after the head is successfully written we must move the bytes to list.
-        self.write_buf(func).map(|t| {
+        self.write_buf(func).inspect(|_| {
             let bytes = self.split_buf().freeze();
             self.buffer(EitherBuf::Left(bytes));
-            t
         })
     }
 

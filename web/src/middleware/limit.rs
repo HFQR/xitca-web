@@ -82,10 +82,9 @@ where
         self.service
             .call(WebContext::new(&mut req, &mut body, state))
             .await
-            .map_err(|e| {
+            .inspect_err(|_| {
                 let body = body.into_inner().into_inner();
                 *ctx.body_borrow_mut() = body;
-                e
             })
     }
 }

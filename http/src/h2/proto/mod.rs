@@ -41,7 +41,7 @@ mod io_uring {
     use tracing::error;
     use xitca_io::{
         bytes::{Buf, BufMut, BytesMut},
-        io_uring::{write_all, AsyncBufRead, AsyncBufWrite, IoBuf},
+        io_uring::{write_all, AsyncBufRead, AsyncBufWrite, BoundedBuf},
     };
     use xitca_service::Service;
     use xitca_unsafe_collection::futures::{Select, SelectOutput};

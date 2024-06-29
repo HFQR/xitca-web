@@ -32,8 +32,7 @@ pub type WsRequest<'a> = TunnelRequest<'a, marker::WebSocket>;
 
 /// A unified websocket that can be used as both sender/receiver.
 ///
-/// * This type can not handle concurrent message which means send always block receive and vice
-/// versa.
+/// * This type can not handle concurrent message which means send always block receive and vice versa.
 pub type WebSocket<'a> = Tunnel<WebSocketTunnel<'a>>;
 
 /// sender part of websocket connection.

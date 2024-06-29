@@ -9,7 +9,7 @@ use postgres_protocol::message::backend;
 use xitca_io::bytes::Buf;
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, IoBuf},
+    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf},
 };
 use xitca_unsafe_collection::futures::{ReusableLocalBoxFuture, Select, SelectOutput};
 
@@ -147,13 +147,7 @@ where
                                 let io = self.io.clone();
                                 async move {
                                     let (res, mut buf) = io.write(buf).await;
-                                    (
-                                        res.map(|n| {
-                                            buf.advance(n);
-                                            n
-                                        }),
-                                        buf,
-                                    )
+                                    (res.inspect(|n| buf.advance(*n)), buf)
                                 }
                             });
                         }

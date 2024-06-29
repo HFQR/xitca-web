@@ -20,7 +20,7 @@ use pin_project_lite::pin_project;
 use tracing::trace;
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{write_all, AsyncBufRead, AsyncBufWrite, IoBuf},
+    io_uring::{write_all, AsyncBufRead, AsyncBufWrite, BoundedBuf},
 };
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;

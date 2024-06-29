@@ -4,18 +4,20 @@ use core::future::Future;
 
 use std::{io, net::Shutdown};
 
-pub use tokio_uring::buf::{IoBuf, IoBufMut, Slice};
+use tokio_uring::buf::IoBuf;
+
+pub use tokio_uring::buf::{BoundedBuf, BoundedBufMut, Slice};
 
 pub trait AsyncBufRead {
     fn read<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
-        B: IoBufMut;
+        B: BoundedBufMut;
 }
 
 pub trait AsyncBufWrite {
     fn write<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
-        B: IoBuf;
+        B: BoundedBuf;
 
     fn shutdown(&self, direction: Shutdown) -> io::Result<()>;
 }
@@ -23,10 +25,10 @@ pub trait AsyncBufWrite {
 pub async fn write_all<Io, B>(io: &Io, mut buf: B) -> (io::Result<()>, B)
 where
     Io: AsyncBufWrite,
-    B: IoBuf,
+    B: BoundedBuf<Buf = B> + IoBuf,
 {
     let mut n = 0;
-    while n < buf.bytes_init() {
+    while n < IoBuf::bytes_init(&buf) {
         match io.write(buf.slice(n..)).await {
             (Ok(0), slice) => {
                 return (Err(io::ErrorKind::WriteZero.into()), slice.into_inner());
