@@ -118,11 +118,8 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
         let len = self.buf.len();
         crate::query::encode::encode_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params)
             .map(|_| self.columns.push_back(stmt.columns()))
-            .map_err(|e| {
-                // revert back to last pipelined query when encoding error occurred.
-                self.buf.truncate(len);
-                e
-            })
+            // revert back to last pipelined query when encoding error occurred.
+            .inspect_err(|_| self.buf.truncate(len))
     }
 }
 

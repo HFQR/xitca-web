@@ -147,13 +147,7 @@ where
                                 let io = self.io.clone();
                                 async move {
                                     let (res, mut buf) = io.write(buf).await;
-                                    (
-                                        res.map(|n| {
-                                            buf.advance(n);
-                                            n
-                                        }),
-                                        buf,
-                                    )
+                                    (res.inspect(|n| buf.advance(*n)), buf)
                                 }
                             });
                         }

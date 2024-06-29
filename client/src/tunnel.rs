@@ -116,8 +116,7 @@ where
 
 /// A unified tunnel that can be used as both sender/receiver.
 ///
-/// * This type can not do concurrent message handling which means send always block receive
-/// and vice versa.
+/// * This type can not do concurrent message handling which means send always block receive and vice versa.
 pub struct Tunnel<I> {
     pub(crate) inner: Mutex<I>,
 }
