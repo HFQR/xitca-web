@@ -322,10 +322,9 @@ impl<R, CF> App<R, CF> {
     ///
     /// # Example
     /// ```rust
-    /// # use std::borrow::Borrow;
     /// # use xitca_web::{
     /// #   error::Error,
-    /// #   handler::{handler_service, state::StateRef, FromRequest},
+    /// #   handler::{handler_service, state::{BorrowState, StateRef}, FromRequest},
     /// #   service::Service,
     /// #   App, WebContext
     /// # };
@@ -337,7 +336,7 @@ impl<R, CF> App<R, CF> {
     /// }
     ///
     /// // implement Borrow trait to enable borrowing &String type from State.
-    /// impl Borrow<String> for State {
+    /// impl BorrowState<String> for State {
     ///     fn borrow(&self) -> &String {
     ///         &self.string
     ///     }
@@ -360,7 +359,7 @@ impl<R, CF> App<R, CF> {
     /// async fn middleware_fn<S, C, Res>(service: &S, ctx: WebContext<'_, C>) -> Result<Res, Error<C>>
     /// where
     ///     S: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Error<C>>,
-    ///     C: Borrow<String> // annotate we want to borrow &String from generic C state type.
+    ///     C: BorrowState<String> // annotate we want to borrow &String from generic C state type.
     /// {
     ///     // WebContext::state would return &C then we can call Borrow::borrow on it to get &String
     ///     let _string = ctx.state().borrow();
