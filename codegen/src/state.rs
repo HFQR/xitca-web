@@ -28,7 +28,7 @@ pub(crate) fn state(input: DeriveInput) -> Result<TokenStream, Error> {
             let ty = &field.ty;
 
             quote! {
-                impl ::core::borrow::Borrow<#ty> for #ty_ident {
+                impl ::xitca_web::handler::state::BorrowState<#ty> for #ty_ident {
                     fn borrow(&self) -> &#ty {
                         &self.#ident
                     }

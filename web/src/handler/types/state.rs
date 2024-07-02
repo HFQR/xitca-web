@@ -1,8 +1,31 @@
 //! type extractor or application state.
 
-use core::{borrow::Borrow, fmt, ops::Deref};
+use core::{fmt, ops::Deref};
 
 use crate::{context::WebContext, error::Error, handler::FromRequest};
+
+/// borrow trait for extracting typed field from application state
+#[diagnostic::on_unimplemented(
+    message = "`{T}` can not be borrowed from {Self}",
+    label = "{Self} must impl BorrowState trait for borrowing {T} from app state",
+    note = "consider add `impl BorrowState<{T}> for {Self}`"
+)]
+pub trait BorrowState<T>
+where
+    T: ?Sized,
+{
+    fn borrow(&self) -> &T;
+}
+
+impl<T> BorrowState<T> for T
+where
+    T: ?Sized,
+{
+    #[inline]
+    fn borrow(&self) -> &T {
+        self
+    }
+}
 
 /// App state extractor.
 /// S type must be the same with the type passed to App::with_xxx_state(S).
@@ -10,13 +33,19 @@ pub struct StateRef<'a, S>(pub &'a S)
 where
     S: ?Sized;
 
-impl<S: fmt::Debug> fmt::Debug for StateRef<'_, S> {
+impl<S> fmt::Debug for StateRef<'_, S>
+where
+    S: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StateRef({:?})", self.0)
     }
 }
 
-impl<S: fmt::Display> fmt::Display for StateRef<'_, S> {
+impl<S> fmt::Display for StateRef<'_, S>
+where
+    S: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StateRef({})", self.0)
     }
@@ -25,6 +54,7 @@ impl<S: fmt::Display> fmt::Display for StateRef<'_, S> {
 impl<S> Deref for StateRef<'_, S> {
     type Target = S;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.0
     }
@@ -32,7 +62,7 @@ impl<S> Deref for StateRef<'_, S> {
 
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for StateRef<'a, T>
 where
-    C: Borrow<T>,
+    C: BorrowState<T>,
     T: ?Sized + 'static,
 {
     type Type<'b> = StateRef<'b, T>;
@@ -48,13 +78,19 @@ where
 /// S type must be the same with the type passed to App::with_xxx_state(S).
 pub struct StateOwn<S>(pub S);
 
-impl<S: fmt::Debug> fmt::Debug for StateOwn<S> {
+impl<S> fmt::Debug for StateOwn<S>
+where
+    S: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StateOwn({:?})", self.0)
     }
 }
 
-impl<S: fmt::Display> fmt::Display for StateOwn<S> {
+impl<S> fmt::Display for StateOwn<S>
+where
+    S: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StateOwn({})", self.0)
     }
@@ -63,6 +99,7 @@ impl<S: fmt::Display> fmt::Display for StateOwn<S> {
 impl<S> Deref for StateOwn<S> {
     type Target = S;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -70,7 +107,7 @@ impl<S> Deref for StateOwn<S> {
 
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for StateOwn<T>
 where
-    C: Borrow<T>,
+    C: BorrowState<T>,
     T: Clone,
 {
     type Type<'b> = StateOwn<T>;
@@ -86,23 +123,32 @@ where
 mod test {
     use std::sync::Arc;
 
-    use xitca_codegen::State;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{handler::handler_service, http::WebRequest, route::get, service::Service, App};
 
     use super::*;
 
-    #[derive(State, Clone, Debug)]
+    #[derive(Clone, Debug)]
     struct State {
-        #[borrow]
         field1: String,
-        #[borrow]
         field2: u32,
         field3: Arc<dyn std::any::Any + Send + Sync>,
     }
 
-    impl Borrow<dyn std::any::Any + Send + Sync> for State {
+    impl BorrowState<String> for State {
+        fn borrow(&self) -> &String {
+            &self.field1
+        }
+    }
+
+    impl BorrowState<u32> for State {
+        fn borrow(&self) -> &u32 {
+            &self.field2
+        }
+    }
+
+    impl BorrowState<dyn std::any::Any + Send + Sync> for State {
         fn borrow(&self) -> &(dyn std::any::Any + Send + Sync) {
             &*self.field3
         }

@@ -137,6 +137,11 @@ where
 impl<E> error::Error for RouterError<E> where E: error::Error {}
 
 /// trait for specialized route generation when utilizing [Router::insert].
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not impl PathGen trait",
+    label = "route must impl PathGen trait for specialized route path configuration",
+    note = "consider add `impl PathGen for {Self}`"
+)]
 pub trait PathGen {
     /// path generator.
     ///
@@ -147,6 +152,11 @@ pub trait PathGen {
 }
 
 /// trait for specialized route generation when utilizing [Router::insert].
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not impl RouteGen trait",
+    label = "route must impl RouteGen trait for specialized route path and service configuration",
+    note = "consider add `impl PathGen for {Self}` and `impl RouteGen for {Self}`"
+)]
 pub trait RouteGen: PathGen {
     /// service builder type for generating the final route service.
     type Route<R>;
@@ -286,6 +296,11 @@ where
 /// A [Service] type, for example, may be type-erased into `Box<dyn Service<&'static str>>`,
 /// `Box<dyn for<'a> Service<&'a str>>`, `Box<dyn Service<&'static str> + Service<u8>>`, etc.
 /// Each would be a separate impl for [IntoObject].
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not impl IntoObject trait",
+    label = "route must impl IntoObject trait for specialized type erased service type",
+    note = "consider add `impl IntoObject<_> for {Self}`"
+)]
 pub trait IntoObject<I, Arg> {
     /// The type-erased form of `I`.
     type Object;

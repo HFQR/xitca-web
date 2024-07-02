@@ -124,7 +124,7 @@ tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 
 # codegen
-xitca-codegen = { version = "0.2", optional = true }
+xitca-codegen = { version = "0.3", optional = true }
 
 # tower-http-compat
 tower-service = { version = "0.3", optional = true }
@@ -132,7 +132,7 @@ tower-layer = { version = "0.3", optional = true }
 http-body = { version = "1", optional = true }
 
 [dev-dependencies]
-xitca-codegen = { version = "0.2" }
+xitca-codegen = { version = "0.3" }
 
 futures-util = { version = "0.3", features = ["alloc"] }
 serde = { version = "1.0.137", features = ["derive"] }

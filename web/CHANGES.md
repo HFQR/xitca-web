@@ -1,4 +1,7 @@
 # unreleased 0.6.0
+## Add
+- add `handler::state::BorrowState` trait for partial borrowing sub-typed state
+
 ## Change
 - add support for scoped application state
   ```rust
@@ -15,6 +18,30 @@
   async fn handler(StateRef(state): StateRef<'_, isize>) -> .. {
     assert_eq!(*state, 996isize)
   }
+  ```
+- use `handler::state::BorrowState` trait instead of `std::borrow::Borrow` for borrowing sub-typed state
+  ```rust
+  use xitca_web::handler::state::{BorrowState, StateRef};
+
+  // arbitrary state type
+  struct State {
+    field: String 
+  }
+
+  // impl trait for borrowing String type from State
+  impl BorrowState<String> for State {
+    fn borrow(&self) -> &String {
+      &self.field
+    }
+  }
+
+  // handler function use &String as typed state.
+  async fn handler(StateRef(state): StateRef<'_, String>) -> String {
+    assert_eq!(state, "996");
+    state.into()
+  }
+
+  App::new().with_state(State { field: String::from("996") }).at("/foo", handler_service(handler));
   ```
 - remove generic type param from `IntoCtx` trait
 - bump MSRV to `1.79`
