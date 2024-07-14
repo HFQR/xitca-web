@@ -31,6 +31,7 @@ use crate::{
 ///     // only catch panic on "/scope" path.
 ///     .at("/scope", handler_service(handler).enclosed(CatchUnwind));
 /// ```
+#[derive(Clone)]
 pub struct CatchUnwind;
 
 impl<Arg> Service<Arg> for CatchUnwind

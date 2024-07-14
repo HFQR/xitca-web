@@ -1,6 +1,8 @@
 # unreleased 0.6.0
 ## Change
 - bump MSRV to `1.79`
+- update `h3` to `0.0.6`
+- update `h3-quinn` to `0.0.7`
 - update `xitca-io` to `0.4.0`
 - update `xitca-router` to `0.3.0`
 - update `xitca-service` to `0.2.0`

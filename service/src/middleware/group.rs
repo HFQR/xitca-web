@@ -26,6 +26,14 @@ use crate::service::Service;
 /// ```
 pub struct Group<S, E>(PhantomData<fn(S, E)>);
 
+impl<S, E> Clone for Group<S, E> {
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+impl<S, E> Copy for Group<S, E> {}
+
 impl<S, E> Default for Group<S, E> {
     fn default() -> Self {
         unimplemented!("please use Group::new");
