@@ -28,7 +28,7 @@ pub struct Group<S, E>(PhantomData<fn(S, E)>);
 
 impl<S, E> Clone for Group<S, E> {
     fn clone(&self) -> Self {
-        Self::new()
+        *self
     }
 }
 
