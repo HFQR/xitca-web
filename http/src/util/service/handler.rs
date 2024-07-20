@@ -245,6 +245,17 @@ where
             Self::Second(s) => s.respond(req).await.map_err(From::from),
         }
     }
+
+    #[inline]
+    fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error>
+    where
+        Self: Sized,
+    {
+        match self {
+            Self::First(f) => f.map(res),
+            Self::Second(s) => s.map(res).map_err(From::from),
+        }
+    }
 }
 
 macro_rules! borrow_req_impl {
