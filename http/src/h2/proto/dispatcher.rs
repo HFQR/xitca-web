@@ -2,12 +2,11 @@ use core::{
     cmp, fmt,
     future::{poll_fn, Future},
     marker::PhantomData,
+    net::SocketAddr,
     pin::{pin, Pin},
     task::{ready, Context, Poll},
     time::Duration,
 };
-
-use std::net::SocketAddr;
 
 use ::h2::{
     server::{Connection, SendResponse},

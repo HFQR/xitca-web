@@ -1,6 +1,6 @@
-use core::time::Duration;
+use core::{net::SocketAddr, time::Duration};
 
-use std::{io, net::SocketAddr};
+use std::io;
 
 use socket2::{SockRef, TcpKeepalive};
 

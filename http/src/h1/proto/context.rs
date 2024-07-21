@@ -1,6 +1,4 @@
-use core::mem;
-
-use std::net::SocketAddr;
+use core::{mem, net::SocketAddr};
 
 use crate::http::{header::HeaderMap, Extensions};
 

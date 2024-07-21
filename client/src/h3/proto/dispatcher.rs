@@ -1,6 +1,4 @@
-use core::{future::poll_fn, pin::pin};
-
-use std::net::SocketAddr;
+use core::{future::poll_fn, net::SocketAddr, pin::pin};
 
 use ::h3_quinn::quinn::Endpoint;
 use futures_core::stream::Stream;

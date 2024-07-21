@@ -1,6 +1,4 @@
-use core::{fmt, pin::pin};
-
-use std::net::SocketAddr;
+use core::{fmt, net::SocketAddr, pin::pin};
 
 use futures_core::Stream;
 use xitca_io::io::{AsyncIo, PollIoAdapter};

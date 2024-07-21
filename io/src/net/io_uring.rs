@@ -1,7 +1,6 @@
-use std::{
-    io,
-    net::{Shutdown, SocketAddr},
-};
+use core::net::SocketAddr;
+
+use std::{io, net::Shutdown};
 
 pub use tokio_uring::net::TcpStream;
 

@@ -4,16 +4,13 @@ use core::{
     future::{poll_fn, Future},
     marker::PhantomData,
     mem,
+    net::SocketAddr,
     ops::{Deref, DerefMut},
     pin::{pin, Pin},
     task::{self, ready, Poll, Waker},
 };
 
-use std::{
-    io,
-    net::{Shutdown, SocketAddr},
-    rc::Rc,
-};
+use std::{io, net::Shutdown, rc::Rc};
 
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
