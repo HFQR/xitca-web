@@ -82,12 +82,7 @@ pub use header::*;
 pub use router::*;
 pub use status::*;
 
-use core::{
-    any::Any,
-    convert::Infallible,
-    fmt,
-    ops::{Deref, DerefMut},
-};
+use core::{any::Any, convert::Infallible, fmt};
 
 use std::{error, io, sync::Mutex};
 
@@ -144,12 +139,11 @@ use self::service_impl::ErrorService;
 ///     let res = Service::call(&e, ctx).await.unwrap();
 ///     assert_eq!(res.status().as_u16(), 200);
 ///
-///     // upcast and downcast to concrete error type again.
-///     // *. trait upcast is a nightly feature.
-///     // see https://github.com/rust-lang/rust/issues/65991 for detail
+///     // upcast error to trait object of std::error::Error
+///     let e = e.upcast();
 ///     
-///     // let e = &*e as &dyn error::Error;
-///     // assert!(e.downcast_ref::<Foo>().is_some());
+///     // downcast error object to concrete type again
+///     assert!(e.downcast_ref::<Foo>().is_some());
 /// }
 /// ```
 pub struct Error<C = ()>(Box<dyn for<'r> ErrorService<WebContext<'r, C>>>);
@@ -166,17 +160,32 @@ impl<C> Error<C> {
     {
         Self(Box::new(s))
     }
+
+    /// upcast Error to trait object for advanced error handling.
+    /// See [std::error::Error] for usage
+    pub fn upcast(&self) -> &(dyn error::Error + 'static) {
+        let e = self.0.dyn_err();
+        // due to Rust's specialization limitation Box<dyn std::error::Error> can impl neither
+        // std::error::Error nor service_impl::DynError traits. Therefore a StdError new type
+        // wrapper is introduced to work around it. When upcasting the error this new type is manually
+        // removed so the trait object have correct std::error::Error trait impl for the inner
+        // type
+        if let Some(e) = e.downcast_ref::<StdError>() {
+            return &*e.0;
+        }
+        e
+    }
 }
 
 impl<C> fmt::Debug for Error<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, f)
+        fmt::Debug::fmt(&*self.0, f)
     }
 }
 
 impl<C> fmt::Display for Error<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
+        fmt::Display::fmt(&*self.0, f)
     }
 }
 
@@ -191,26 +200,12 @@ impl<C> error::Error for Error<C> {
     }
 }
 
-impl<C> Deref for Error<C> {
-    type Target = dyn for<'r> ErrorService<WebContext<'r, C>>;
-
-    fn deref(&self) -> &Self::Target {
-        &*self.0
-    }
-}
-
-impl<C> DerefMut for Error<C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut *self.0
-    }
-}
-
 impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
     type Response = WebResponse;
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
-        crate::service::object::ServiceObject::call(self.deref(), ctx).await
+        crate::service::object::ServiceObject::call(&self.0, ctx).await
     }
 }
 
@@ -318,14 +313,15 @@ impl<C> From<StdErr> for Error<C> {
 
 forward_blank_internal!(StdErr);
 
-/// new type for `Box<dyn std::error::Error + Send + Sync>`. produce minimal
-/// "500 InternalServerError" response and forward formatting, error handling
-/// to inner type.
-///
-/// In other words it's an error type keep it's original formatting and error
-/// handling methods without a specific `Service` impl for generating custom
-/// http response.
-pub struct StdError(pub StdErr);
+/*
+    new type for `Box<dyn std::error::Error + Send + Sync>`. produce minimal
+    "500 InternalServerError" response and forward formatting, error handling
+    to inner type.
+    In other words it's an error type keep it's original formatting and error
+    handling methods without a specific `Service` impl for generating custom
+    http response.
+*/
+struct StdError(StdErr);
 
 impl fmt::Debug for StdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -445,14 +441,30 @@ mod service_impl {
 
     use super::*;
 
+    /// helper trait for constraint error object to multiple bounds
     pub trait ErrorService<Req>:
-        ServiceObject<Req, Response = WebResponse, Error = Infallible> + error::Error + Send + Sync
+        ServiceObject<Req, Response = WebResponse, Error = Infallible> + DynError + Send + Sync
     {
     }
 
     impl<S, Req> ErrorService<Req> for S where
-        S: ServiceObject<Req, Response = WebResponse, Error = Infallible> + error::Error + Send + Sync
+        S: ServiceObject<Req, Response = WebResponse, Error = Infallible> + DynError + Send + Sync
     {
+    }
+
+    /// helper trait for enabling error trait upcast without depending on nightly rust feature
+    /// (written when project MSRV is 1.79)
+    pub trait DynError: error::Error {
+        fn dyn_err(&self) -> &(dyn error::Error + 'static);
+    }
+
+    impl<E> DynError for E
+    where
+        E: error::Error + 'static,
+    {
+        fn dyn_err(&self) -> &(dyn error::Error + 'static) {
+            self
+        }
     }
 }
 
@@ -494,5 +506,12 @@ mod test {
         let mut ctx = WebContext::new_test(());
         let res = Service::call(&foo, ctx.as_web_ctx()).now_or_panic().unwrap();
         assert_eq!(res.status().as_u16(), 200);
+
+        let err = Error::<()>::from(Box::new(Foo) as Box<dyn std::error::Error + Send + Sync>);
+
+        println!("{err:?}");
+        println!("{err}");
+
+        assert!(err.upcast().downcast_ref::<Foo>().is_some());
     }
 }

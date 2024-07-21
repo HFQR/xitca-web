@@ -1,6 +1,21 @@
 # unreleased 0.6.0
 ## Add
 - add `handler::state::BorrowState` trait for partial borrowing sub-typed state
+- add `error::Error::upcast` method for enabling error trait upcasting without depending on nightly Rust
+  ```rust
+  fn handle_error<C>(err: Error<C>) {
+    // upcast to trait object of std::error::Error
+    let err_obj = err.upcast();
+    // try to downcast object to concrete type
+    if let Some(..) = err_obj.downcast_ref::<Foo>() {
+      ...
+    }
+  }
+  ```
+
+## Remove
+- remove `error::StdError` type from public API to reduce possibility of misuse
+- remove `std::ops::{Deref, DerefMut}` impl for `error::Error`. `error::Error::upcast` method can be used to achieve similar effect of dereferencing
 
 ## Change
 - add support for scoped application state
