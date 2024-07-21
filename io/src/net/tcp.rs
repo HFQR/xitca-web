@@ -1,4 +1,6 @@
-use std::{io, net::SocketAddr};
+use core::net::SocketAddr;
+
+use std::io;
 
 use super::Stream;
 

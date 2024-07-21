@@ -17,7 +17,9 @@ pub use tcp::{TcpListener, TcpStream};
 #[cfg(unix)]
 pub use unix::{UnixListener, UnixStream};
 
-use std::{io, net::SocketAddr};
+use core::net::SocketAddr;
+
+use std::io;
 
 macro_rules! default_aio_impl {
     ($ty: ty) => {

@@ -2,11 +2,12 @@ use core::{
     convert::Infallible,
     future::{pending, poll_fn, Future},
     marker::PhantomData,
+    net::SocketAddr,
     pin::{pin, Pin},
     time::Duration,
 };
 
-use std::{io, net::SocketAddr};
+use std::io;
 
 use futures_core::stream::Stream;
 use tracing::trace;

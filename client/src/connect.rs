@@ -1,8 +1,6 @@
-use std::{
-    collections::vec_deque::{self, VecDeque},
-    fmt, iter,
-    net::SocketAddr,
-};
+use core::{fmt, iter, net::SocketAddr};
+
+use std::collections::vec_deque::{self, VecDeque};
 
 use crate::uri::Uri;
 

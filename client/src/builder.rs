@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, time::Duration};
+use core::{net::SocketAddr, time::Duration};
 
 use xitca_http::http::version::Version;
 

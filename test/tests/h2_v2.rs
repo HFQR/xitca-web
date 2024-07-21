@@ -1,7 +1,7 @@
 #[cfg(feature = "io-uring")]
 use {
+    core::{convert::Infallible, net::SocketAddr},
     futures_util::stream::StreamExt,
-    std::{convert::Infallible, net::SocketAddr},
     xitca_client::Client,
     xitca_http::{
         body::Once,

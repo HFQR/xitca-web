@@ -1,4 +1,4 @@
-use std::{fmt, net::SocketAddr};
+use core::{fmt, net::SocketAddr};
 
 use futures_core::Stream;
 use xitca_io::net::QuicStream;

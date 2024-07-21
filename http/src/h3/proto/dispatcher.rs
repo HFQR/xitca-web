@@ -2,10 +2,9 @@ use core::{
     fmt,
     future::{poll_fn, Future},
     marker::PhantomData,
+    net::SocketAddr,
     pin::pin,
 };
-
-use std::net::SocketAddr;
 
 use ::h3::{
     quic::SendStream,

@@ -1,11 +1,12 @@
 //! transparent proxy serves as a sample implementation of server side traffic forwarder
 //! between a xitca-postgres Client with `quic` feature enabled and the postgres database
 
+use core::net::SocketAddr;
+
 use std::{
     collections::HashSet,
     error, fs,
     io::{self, Read, Write},
-    net::SocketAddr,
     path::Path,
     sync::Arc,
 };

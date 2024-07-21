@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, pin::Pin};
+use core::{net::SocketAddr, pin::Pin};
 
 use futures_core::stream::Stream;
 use tokio::time::{Instant, Sleep};
@@ -371,21 +371,21 @@ impl Client {
 
     async fn make_unix(
         &self,
-        connect: &Connect<'_>,
+        _connect: &Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
     ) -> Result<ConnectionExclusive, Error> {
         timer
             .as_mut()
             .reset(Instant::now() + self.timeout_config.connect_timeout);
 
-        let path = format!(
-            "/{}{}",
-            connect.uri.authority().unwrap().as_str(),
-            connect.uri.path_and_query().unwrap().as_str()
-        );
-
         #[cfg(unix)]
         {
+            let path = format!(
+                "/{}{}",
+                _connect.uri.authority().unwrap().as_str(),
+                _connect.uri.path_and_query().unwrap().as_str()
+            );
+
             let stream = xitca_io::net::UnixStream::connect(path)
                 .timeout(timer.as_mut())
                 .await

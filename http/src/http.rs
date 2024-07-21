@@ -5,11 +5,10 @@ pub use ::http::*;
 use core::{
     borrow::{Borrow, BorrowMut},
     mem,
+    net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
 };
-
-use std::net::SocketAddr;
 
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;

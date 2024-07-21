@@ -1,8 +1,6 @@
 //! high level async function service with "variadic generic" ish.
 
-use core::{convert::Infallible, future::Future, marker::PhantomData};
-
-use std::net::SocketAddr;
+use core::{convert::Infallible, future::Future, marker::PhantomData, net::SocketAddr};
 
 use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
 
