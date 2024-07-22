@@ -1,4 +1,7 @@
 # unreleased 0.6.0
+## Fix
+- fix `error::ErrorStatus::internal` wrongly create http status code `400` rather than `500`
+
 ## Add
 - add `handler::state::BorrowState` trait for partial borrowing sub-typed state
 - add `error::Error::upcast` method for enabling error trait upcasting without depending on nightly Rust
