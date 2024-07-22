@@ -18,6 +18,6 @@
 - (optional) optimize compiled wasm file. <https://github.com/WebAssembly/binaryen>
 - run compiled wasm file.
   ```commandline
-  wasmtime run -S tcplisten=127.0.0.1:8080 --env FD_COUNT=3 ../target/wasm32-wasi/release/xitca-web-wasi.wasm 
+  wasmtime run -S preview2=n -S tcplisten=127.0.0.1:8080 --env FD_COUNT=3 ../target/wasm32-wasi/release/xitca-web-wasi.wasm
   ```
 - open browser and visit <http://127.0.0.1:8080>
