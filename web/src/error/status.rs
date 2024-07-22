@@ -26,7 +26,7 @@ impl ErrorStatus {
         // verbosity of constructor is desired here so back trace capture
         // can direct capture the call site.
         Self {
-            status: StatusCode::BAD_REQUEST,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             _back_trace: Backtrace::capture(),
         }
     }
