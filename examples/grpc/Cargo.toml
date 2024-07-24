@@ -5,9 +5,9 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]
-xitca-http = { version = "0.5", default-features = false, features = ["http2", "router"] }
-xitca-server = "0.3"
-xitca-service = "0.1"
+xitca-http = { version = "0.6", default-features = false, features = ["http2", "router"] }
+xitca-server = "0.4"
+xitca-service = "0.2"
 
 anyhow = "1.0.66"
 futures-util = { version = "0.3", default-features = false }

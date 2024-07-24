@@ -1,4 +1,10 @@
-# unreleased 0.3.0
+# unreleased
+
+# 0.3.1
+## Fix
+- fix route macro impl not implementing `xitca_web::handler::state::BorrowState` trait.
+
+# 0.3.0
 ## Change
 - macro is refactored to target xitca-web `0.6.0`
 

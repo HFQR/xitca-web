@@ -1,4 +1,8 @@
-# unreleased 0.6.0
+# 0.6.1
+## Change
+- update `xitca-codegen` to `0.3.1`
+
+# 0.6.0
 ## Fix
 - fix `error::ErrorStatus::internal` wrongly create http status code `400` rather than `500`
 

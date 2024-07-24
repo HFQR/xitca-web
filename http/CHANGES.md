@@ -1,4 +1,6 @@
-# unreleased 0.6.0
+# unreleased
+
+# 0.6.0
 ## Change
 - bump MSRV to `1.79`
 - update `h3` to `0.0.6`
