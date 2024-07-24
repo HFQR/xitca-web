@@ -1,3 +1,9 @@
+# unreleased
+
+# 0.6.2
+## Fix
+- make default impl of `handler::state::BorrowState` forward to `core::borrow::Borrow`. enable backward compat of all previous working patterns of std types
+
 # 0.6.1
 ## Change
 - update `xitca-codegen` to `0.3.1`

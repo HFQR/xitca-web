@@ -17,13 +17,13 @@ where
     fn borrow(&self) -> &T;
 }
 
-impl<T> BorrowState<T> for T
+impl<T, B> BorrowState<B> for T
 where
-    T: ?Sized,
+    T: core::borrow::Borrow<B> + ?Sized,
+    B: ?Sized,
 {
-    #[inline]
-    fn borrow(&self) -> &T {
-        self
+    fn borrow(&self) -> &B {
+        <T as core::borrow::Borrow<B>>::borrow(self)
     }
 }
 
