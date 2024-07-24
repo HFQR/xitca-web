@@ -143,7 +143,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
             match state {
                 State::Partial(ty) => {
                     where_clause = quote! {
-                        #where_clause + ::core::borrow::Borrow<#ty>
+                        #where_clause + ::xitca_web::handler::state::BorrowState<#ty>
                     };
                 }
                 State::Full(ty) => {

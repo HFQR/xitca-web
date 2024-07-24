@@ -4,9 +4,8 @@
 // nightly rust features are not required for error handling in xitca-web. but they can enhance
 // the experience quite a bit with certain features and they are purely opt-in.
 //
-// trait_upcasting nightly feature enables casting xitca_web::error::Error type to &dyn std::error::Error.
 // error_generic_member_access and error_reporter nightly feature enables stack backtrace capture and display.
-#![feature(trait_upcasting, error_generic_member_access, error_reporter)]
+#![feature(error_generic_member_access, error_reporter)]
 
 use std::{backtrace::Backtrace, convert::Infallible, error, fmt};
 
@@ -126,7 +125,7 @@ where
             // upcast trait and downcast to concrete type again.
             // this offers the ability to regain typed error specific error handling.
             // *. this is a runtime feature and not reinforced at compile time.
-            if let Some(_e) = (&*e as &dyn error::Error).downcast_ref::<MyError>() {
+            if let Some(_e) = e.upcast().downcast_ref::<MyError>() {
                 // handle typed error.
             }
 
@@ -135,7 +134,7 @@ where
             // *. "internal" means these error types have their default error formatter and http response generator.
             // *. "internal" error types are public types exported through `xitca_web::error` module. it's OK to
             // override them for custom formatting/http response generating.
-            if (&*e as &dyn error::Error).downcast_ref::<MatchError>().is_some() {
+            if e.upcast().downcast_ref::<MatchError>().is_some() {
                 // MatchError is error type for request not matching any route from application service.
                 // in this case we override it's default behavior by generating a different http response.
                 return (Html("<h1>404 Not Found</h1>"), StatusCode::NOT_FOUND)
