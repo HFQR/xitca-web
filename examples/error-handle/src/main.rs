@@ -113,15 +113,6 @@ where
             let _res = e.call(ctx.reborrow()).await?;
             // return Ok(_res);
 
-            // above are error handling enabled by stable rust.
-
-            // below are error handling enabled by nightly rust.
-
-            // utilize std::error module for backtrace and more advanced error info.
-            let report = error::Report::new(&e).pretty(true).show_backtrace(true);
-            // display error report
-            println!("{report}");
-
             // upcast trait and downcast to concrete type again.
             // this offers the ability to regain typed error specific error handling.
             // *. this is a runtime feature and not reinforced at compile time.
@@ -141,6 +132,13 @@ where
                     .respond(ctx)
                     .await;
             }
+
+            // below are error handling feature only enabled by using nightly rust.
+
+            // utilize std::error module for backtrace and more advanced error info.
+            let report = error::Report::new(&e).pretty(true).show_backtrace(true);
+            // display error report
+            println!("{report}");
 
             // the most basic error handling is to ignore it and return as is. xitca-web is able to take care
             // of error by utilizing it's according trait implements(Debug,Display,Error and Service impls)
