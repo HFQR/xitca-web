@@ -17,15 +17,31 @@ where
     fn borrow(&self) -> &T;
 }
 
-impl<T, B> BorrowState<B> for T
+impl<T> BorrowState<T> for T
 where
-    T: core::borrow::Borrow<B> + ?Sized,
-    B: ?Sized,
+    T: ?Sized,
 {
-    fn borrow(&self) -> &B {
-        <T as core::borrow::Borrow<B>>::borrow(self)
+    fn borrow(&self) -> &T {
+        self
     }
 }
+
+macro_rules! pointer_impl {
+    ($t: path) => {
+        impl<T> BorrowState<T> for $t
+        where
+            T: ?Sized,
+        {
+            fn borrow(&self) -> &T {
+                &*self
+            }
+        }
+    };
+}
+
+pointer_impl!(std::boxed::Box<T>);
+pointer_impl!(std::rc::Rc<T>);
+pointer_impl!(std::sync::Arc<T>);
 
 /// App state extractor.
 /// S type must be the same with the type passed to App::with_xxx_state(S).
@@ -180,6 +196,37 @@ mod test {
         App::new()
             .with_state(state)
             .at("/", get(handler_service(handler)))
+            .finish()
+            .call(())
+            .now_or_panic()
+            .ok()
+            .unwrap()
+            .call(WebRequest::default())
+            .now_or_panic()
+            .unwrap();
+    }
+
+    #[test]
+    fn state_extract_deref() {
+        use std::{any::Any, sync::Arc};
+
+        async fn handler(StateRef(state): StateRef<'_, dyn Any + Send + Sync>) -> String {
+            state.downcast_ref::<i32>().unwrap().to_string()
+        }
+
+        async fn handler2(StateRef(state): StateRef<'_, i32>) -> String {
+            state.to_string()
+        }
+
+        let state = Arc::new(996);
+
+        App::new()
+            .with_state(state.clone() as Arc<dyn Any + Send + Sync>)
+            .at("/", get(handler_service(handler)))
+            .at(
+                "/scope",
+                App::new().with_state(state).at("/", handler_service(handler2)),
+            )
             .finish()
             .call(())
             .now_or_panic()

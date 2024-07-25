@@ -1,4 +1,9 @@
-# unreleased
+# unreleased 0.6.3
+## Add
+- add default impl to `handler::state::BorrowState` trait for `Box`, `Rc` and `Arc` types
+
+## Change
+- revert `handler::state::BorrowState` change from `0.6.2`
 
 # 0.6.2
 ## Fix
