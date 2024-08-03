@@ -2,7 +2,6 @@ mod object;
 mod router;
 
 use core::{
-    cell::RefCell,
     convert::Infallible,
     fmt,
     future::{ready, Future},
@@ -13,7 +12,7 @@ use std::error;
 
 use futures_core::stream::Stream;
 use xitca_http::util::{
-    middleware::context::{Context, ContextBuilder},
+    middleware::context::ContextBuilder,
     service::router::{IntoObject, PathGen, RouteGen, RouteObject, TypedRoute},
 };
 
@@ -459,7 +458,7 @@ where
     {
         let App { ctx_builder, router } = self;
         router
-            .enclosed_fn(map_req_res)
+            .enclosed(crate::middleware::WebContext)
             .enclosed(ContextBuilder::new(ctx_builder.into_ctx()))
     }
 
@@ -519,6 +518,8 @@ where
         crate::server::HttpServer::serve(self.finish())
     }
 }
+
+type EitherResBody<B> = Either<B, ResponseBody>;
 
 impl<R, F> PathGen for App<R, F>
 where
@@ -601,32 +602,6 @@ where
 /// object safe [App] instance. used for case where naming [App]'s type is needed.
 pub type AppObject<S> =
     Box<dyn xitca_service::object::ServiceObject<(), Response = S, Error = Box<dyn fmt::Debug>> + Send + Sync>;
-
-type EitherResBody<B> = Either<B, ResponseBody>;
-
-// middleware for converting xitca_http types to xitca_web types.
-// this is for enabling side effect see [WebContext::reborrow] for detail.
-async fn map_req_res<C, S, SE, ResB>(
-    service: &S,
-    ctx: Context<'_, WebRequest, C>,
-) -> Result<WebResponse<EitherResBody<ResB>>, Infallible>
-where
-    C: 'static,
-    S: for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE>,
-    SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>,
-{
-    let (req, state) = ctx.into_parts();
-    let (parts, ext) = req.into_parts();
-    let (ext, body) = ext.replace_body(());
-    let mut req = WebRequest::from_parts(parts, ext);
-    let mut body = RefCell::new(body);
-    let mut ctx = WebContext::new(&mut req, &mut body, state);
-
-    match service.call(ctx.reborrow()).await {
-        Ok(res) => Ok(res.map(Either::left)),
-        Err(e) => e.call(ctx).await.map(|res| res.map(Either::right)),
-    }
-}
 
 #[cfg(test)]
 mod test {

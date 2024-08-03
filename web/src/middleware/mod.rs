@@ -313,8 +313,10 @@ mod logger;
 pub use logger::Logger;
 
 mod catch_unwind;
+mod context;
 
 pub use catch_unwind::CatchUnwind;
+pub use context::WebContext;
 pub use xitca_http::util::middleware::Extension;
 pub use xitca_service::middleware::{Group, UncheckedReady};
 
