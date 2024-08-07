@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.7.0
+## Change
+- update `xitca-service` to `0.3.0`
 
 # 0.6.0
 ## Change

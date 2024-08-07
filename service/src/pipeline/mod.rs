@@ -9,7 +9,7 @@ pub use r#enum::Pipeline as PipelineE;
 pub use r#struct::Pipeline as PipelineT;
 
 /// Type alias for specialized [PipelineT] type.
-pub type EnclosedFnBuilder<F, S> = PipelineT<F, S, marker::BuildEnclosedFn>;
+pub type EnclosedFnBuilder<F, S> = PipelineT<F, crate::middleware::AsyncFn<S>, marker::BuildEnclosed>;
 
 /// Type alias for specialized [PipelineT] type.
 pub type EnclosedBuilder<F, S> = PipelineT<F, S, marker::BuildEnclosed>;

@@ -1,5 +1,5 @@
 use crate::{
-    async_closure::AsyncClosure,
+    async_fn, middleware,
     pipeline::{marker, PipelineT},
 };
 
@@ -18,12 +18,12 @@ pub trait ServiceExt<Arg>: Service<Arg> {
     }
 
     /// Function version of [Self::enclosed] method.
-    fn enclosed_fn<T, Req>(self, func: T) -> PipelineT<Self, T, marker::BuildEnclosedFn>
+    fn enclosed_fn<T, Req>(self, func: T) -> PipelineT<Self, middleware::AsyncFn<T>, marker::BuildEnclosed>
     where
-        T: for<'s> AsyncClosure<(&'s Self::Response, Req)> + Clone,
+        T: for<'s> async_fn::AsyncFn<(&'s Self::Response, Req)> + Clone,
         Self: Sized,
     {
-        PipelineT::new(self, func)
+        self.enclosed(middleware::AsyncFn(func))
     }
 
     /// Mutate `<<Self::Response as Service<Req>>::Future as Future>::Output` type with given

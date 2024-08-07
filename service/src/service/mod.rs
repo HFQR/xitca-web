@@ -1,6 +1,5 @@
 mod and_then;
 mod enclosed;
-mod enclosed_fn;
 mod ext;
 mod function;
 mod map;

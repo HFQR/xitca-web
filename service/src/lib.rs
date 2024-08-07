@@ -37,7 +37,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-mod async_closure;
+mod async_fn;
 mod service;
 
 pub mod middleware;
@@ -45,7 +45,7 @@ pub mod pipeline;
 pub mod ready;
 
 pub use self::{
-    async_closure::AsyncClosure,
+    async_fn::AsyncFn,
     pipeline::{EnclosedBuilder, EnclosedFnBuilder, MapBuilder, MapErrorBuilder},
     service::{fn_build, fn_service, FnService, Service, ServiceExt},
 };
