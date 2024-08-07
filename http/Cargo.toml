@@ -1,6 +1,6 @@
 [package]
 name = "xitca-http"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "http library for xitca"
@@ -35,7 +35,7 @@ router = ["xitca-router"]
 
 [dependencies]
 xitca-io = "0.4.0"
-xitca-service = { version = "0.2.0", features = ["alloc", "std"] }
+xitca-service = { version = "0.3.0", features = ["alloc", "std"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
 futures-core = "0.3.17"
@@ -78,7 +78,7 @@ socket2 = { version = "0.5.1", features = ["all"] }
 
 [dev-dependencies]
 criterion = "0.5"
-xitca-server = "0.4"
+xitca-server = "0.5"
 
 [[bench]]
 name = "h1_decode"

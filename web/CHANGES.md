@@ -1,10 +1,13 @@
-# unreleased 0.6.3
+# unreleased 0.7.0
 ## Add
 - add default impl to `handler::state::BorrowState` trait for `Box`, `Rc` and `Arc` types
 - add `middleware::WebContext`
 
 ## Change
 - revert `handler::state::BorrowState` change from `0.6.2`
+- update `xitca-http` to `0.7.0`
+- update `xitca-service` to `0.3.0`
+- update `xitca-server` to `0.5.0`
 
 # 0.6.2
 ## Fix

@@ -23,7 +23,7 @@ use crate::{
     error::{Error, RouterError},
     http::{WebRequest, WebResponse},
     middleware::eraser::TypeEraser,
-    service::{ready::ReadyService, AsyncClosure, EnclosedBuilder, EnclosedFnBuilder, MapBuilder, Service, ServiceExt},
+    service::{ready::ReadyService, AsyncFn, EnclosedBuilder, EnclosedFnBuilder, MapBuilder, Service, ServiceExt},
 };
 
 use self::{object::WebObject, router::AppRouter};
@@ -416,7 +416,7 @@ where
     /// See [middleware](crate::middleware) for more.
     pub fn enclosed_fn<Req, T>(self, transform: T) -> App<EnclosedFnBuilder<R, T>, CF>
     where
-        T: for<'s> AsyncClosure<(&'s R::Response, Req)> + Clone,
+        T: for<'s> AsyncFn<(&'s R::Response, Req)> + Clone,
     {
         App {
             router: self.router.enclosed_fn(transform),

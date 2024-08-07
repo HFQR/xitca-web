@@ -1,8 +1,8 @@
-use crate::pipeline::{marker::EnclosedFn, PipelineT};
+use crate::pipeline::{marker::AsyncFn, PipelineT};
 
 use super::ReadyService;
 
-impl<S, T> ReadyService for PipelineT<S, T, EnclosedFn>
+impl<S, T> ReadyService for PipelineT<S, T, AsyncFn>
 where
     S: ReadyService,
 {

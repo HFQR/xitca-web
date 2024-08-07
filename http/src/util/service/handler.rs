@@ -2,7 +2,7 @@
 
 use core::{convert::Infallible, future::Future, marker::PhantomData, net::SocketAddr};
 
-use xitca_service::{pipeline::PipelineE, AsyncClosure, Service};
+use xitca_service::{pipeline::PipelineE, AsyncFn, Service};
 
 use crate::http::{BorrowReq, Extensions, HeaderMap, Method, Request, RequestExt, Uri};
 
@@ -13,7 +13,7 @@ use crate::http::{BorrowReq, Extensions, HeaderMap, Method, Request, RequestExt,
 /// output type.
 pub fn handler_service<F, T>(func: F) -> HandlerService<F, T, marker::BuilderMark>
 where
-    F: AsyncClosure<T> + Clone,
+    F: AsyncFn<T> + Clone,
 {
     HandlerService::new(func)
 }
@@ -61,8 +61,8 @@ where
     // for borrowed extractors, `T` is the `'static` version of the extractors
     T: FromRequest<'static, Req>,
     // just to assist type inference to pinpoint `T`
-    F: AsyncClosure<T>,
-    F: for<'a> AsyncClosure<T::Type<'a>, Output = O>,
+    F: AsyncFn<T>,
+    F: for<'a> AsyncFn<T::Type<'a>, Output = O>,
     O: Responder<Req>,
     T::Error: From<O::Error>,
 {
