@@ -159,7 +159,7 @@ impl BufWrite for WriteBuf {
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
-        self.buf.write_buf(func).inspect_err(|_| self.want_flush = false)
+        self.buf.write_buf(func).inspect(|_| self.want_flush = false)
     }
 
     fn do_io<Io: io::Write>(&mut self, io: &mut Io) -> io::Result<()> {
