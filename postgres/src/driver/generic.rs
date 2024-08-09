@@ -1,38 +1,30 @@
-use core::{
-    future::{poll_fn, Future},
-    mem::MaybeUninit,
-    pin::Pin,
+use core::future::Future;
+
+use std::{
+    collections::VecDeque,
+    io,
+    sync::{Arc, Mutex},
 };
 
-use std::{collections::VecDeque, io};
-
 use postgres_protocol::message::backend;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::Notify;
 use xitca_io::{
     bytes::{Buf, BufRead, BytesMut},
     io::{AsyncIo, Interest},
 };
-use xitca_unsafe_collection::{
-    bytes::BufList,
-    futures::{Select as _, SelectOutput},
-};
+use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
 use crate::error::Error;
 
-use super::codec::{Request, Response, ResponseMessage, ResponseSender, SenderState};
+use super::codec::{Response, ResponseMessage, ResponseSender, SenderState};
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
-const BUF_LIST_CNT: usize = 32;
-
-pub(crate) type DriverRx = UnboundedReceiver<Request>;
-
-#[derive(Debug)]
-pub(crate) struct DriverTx(UnboundedSender<Request>);
+pub(crate) struct DriverTx(Arc<SharedState>);
 
 impl DriverTx {
     pub(crate) fn is_closed(&self) -> bool {
-        self.0.is_closed()
+        Arc::strong_count(&self.0) == 1
     }
 
     pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
@@ -41,7 +33,10 @@ impl DriverTx {
 
     pub(crate) fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
         let (tx, rx) = super::codec::request_pair(msg_count, msg);
-        self.0.send(tx)?;
+        let mut inner = self.0.guarded.lock().unwrap();
+        inner.buf.extend_from_slice(&tx.msg);
+        inner.res.push_back(tx.tx);
+        self.0.notify.notify_one();
         Ok(rx)
     }
 
@@ -50,28 +45,28 @@ impl DriverTx {
     }
 }
 
+pub(crate) struct SharedState {
+    guarded: Mutex<State>,
+    notify: Notify,
+}
+
+struct State {
+    buf: BytesMut,
+    res: VecDeque<ResponseSender>,
+}
+
 pub struct GenericDriver<Io> {
     pub(crate) io: Io,
     pub(crate) read_buf: PagedBytesMut,
     pub(crate) state: DriverState,
-    pub(crate) res: VecDeque<ResponseSender>,
-    pub(crate) write_bufs: BufList<BytesMut, BUF_LIST_CNT>,
-    want_flush_io: bool,
+    pub(crate) shared_state: Arc<SharedState>,
+    want_write: bool,
+    want_flush: bool,
 }
 
 pub(crate) enum DriverState {
-    Running(DriverRx),
+    Running,
     Closing(Option<io::Error>),
-}
-
-#[cfg(feature = "io-uring")]
-impl DriverState {
-    pub(crate) fn take_rx(self) -> DriverRx {
-        match self {
-            Self::Running(rx) => rx,
-            _ => panic!("driver is closing. no rx can be handed out"),
-        }
-    }
 }
 
 impl<Io> GenericDriver<Io>
@@ -79,29 +74,36 @@ where
     Io: AsyncIo + Send,
 {
     pub(crate) fn new(io: Io) -> (Self, DriverTx) {
-        let (tx, rx) = unbounded_channel();
+        let state = Arc::new(SharedState {
+            guarded: Mutex::new(State {
+                buf: BytesMut::new(),
+                res: VecDeque::new(),
+            }),
+            notify: Notify::const_new(),
+        });
+
         (
             Self {
                 io,
                 read_buf: PagedBytesMut::new(),
-                state: DriverState::Running(rx),
-                res: VecDeque::new(),
-                write_bufs: BufList::new(),
-                want_flush_io: false,
+                state: DriverState::Running,
+                shared_state: state.clone(),
+                want_write: false,
+                want_flush: false,
             },
-            DriverTx(tx),
+            DriverTx(state),
         )
     }
 
-    fn want_write_io(&self) -> bool {
-        !self.write_bufs.is_empty() || self.want_flush_io
+    fn want_write(&self) -> bool {
+        self.want_write || self.want_flush
     }
 
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
-        self.write_bufs.push(msg);
+        self.shared_state.guarded.lock().unwrap().buf.extend_from_slice(&msg);
         loop {
             self.try_write()?;
-            if self.write_bufs.is_empty() {
+            if !self.want_write() {
                 return Ok(());
             }
             self.io.ready(Interest::WRITABLE).await?;
@@ -118,43 +120,40 @@ where
                 return Ok(Some(msg));
             }
 
-            let interest = if self.want_write_io() {
+            let interest = if self.want_write() {
                 Interest::READABLE.add(Interest::WRITABLE)
             } else {
                 Interest::READABLE
             };
 
             let select = match self.state {
-                DriverState::Running(ref mut rx) => {
-                    async {
-                        if self.write_bufs.is_full() {
-                            core::future::pending().await
-                        } else {
-                            rx.recv().await
-                        }
-                    }
-                    .select(self.io.ready(interest))
-                    .await
+                DriverState::Running => {
+                    self.shared_state
+                        .notify
+                        .notified()
+                        .select(self.io.ready(interest))
+                        .await
                 }
+
                 DriverState::Closing(ref mut e) => {
-                    if !interest.is_writable() && self.res.is_empty() {
-                        // no interest to write to io and all response have been finished so
-                        // shutdown io and exit.
-                        // if there is a better way to exhaust potential remaining backend message
-                        // please file an issue.
-                        poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
-                        return e.take().map(|e| Err(e.into())).transpose();
-                    }
-                    SelectOutput::B(self.io.ready(interest).await)
+                    return e.take().map(|e| Err(e.into())).transpose();
+                    // if !interest.is_writable() && self.res.is_empty() {
+                    //     // no interest to write to io and all response have been finished so
+                    //     // shutdown io and exit.
+                    //     // if there is a better way to exhaust potential remaining backend message
+                    //     // please file an issue.
+                    //     poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
+                    //     return e.take().map(|e| Err(e.into())).transpose();
+                    // }
+                    // SelectOutput::B(self.io.ready(interest).await)
                 }
             };
 
             match select {
                 // batch message and keep polling.
-                SelectOutput::A(Some(req)) => {
-                    self.res.push_back(req.tx);
-                    self.write_bufs.push(req.msg);
-                    self.want_flush_io = false;
+                SelectOutput::A(_) => {
+                    self.want_write = true;
+                    self.want_flush = false;
                 }
                 SelectOutput::B(ready) => {
                     let ready = ready?;
@@ -166,8 +165,10 @@ where
                             // when write error occur the driver would go into half close state(read only).
                             // clearing write_buf would drop all pending requests in it and hint the driver
                             // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
-                            self.write_bufs.clear();
-                            self.want_flush_io = false;
+                            let mut inner = self.shared_state.guarded.lock().unwrap();
+                            inner.buf.clear();
+                            self.want_write = false;
+                            self.want_flush = false;
 
                             // enter closed state and no more request would be received from channel.
                             // requests inside it would eventually be dropped after shutdown completed.
@@ -175,7 +176,6 @@ where
                         }
                     }
                 }
-                SelectOutput::A(None) => self.state = DriverState::Closing(None),
             }
         }
     }
@@ -199,24 +199,22 @@ where
 
     fn try_write(&mut self) -> io::Result<()> {
         loop {
-            if self.want_flush_io {
+            if self.want_flush {
                 match io::Write::flush(&mut self.io) {
-                    Ok(_) => self.want_flush_io = false,
+                    Ok(_) => self.want_flush = false,
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                     Err(e) => return Err(e),
                 }
                 break;
             }
 
-            let mut bufs = [const { MaybeUninit::uninit() }; BUF_LIST_CNT];
-            let slice = self.write_bufs.chunks_vectored_uninit_into_init(&mut bufs);
-            match io::Write::write_vectored(&mut self.io, slice) {
+            let mut inner = self.shared_state.guarded.lock().unwrap();
+
+            match io::Write::write(&mut self.io, &inner.buf) {
                 Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                 Ok(n) => {
-                    self.write_bufs.advance(n);
-                    if self.write_bufs.is_empty() {
-                        self.want_flush_io = true;
-                    }
+                    inner.buf.advance(n);
+                    self.want_flush = inner.buf.is_empty();
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e),
@@ -230,10 +228,11 @@ where
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    let front = self.res.front_mut().expect("server respond out of bound");
+                    let mut inner = self.shared_state.guarded.lock().unwrap();
+                    let front = inner.res.front_mut().expect("server respond out of bound");
                     match front.send(buf, complete) {
                         SenderState::Finish => {
-                            self.res.pop_front();
+                            inner.res.pop_front();
                         }
                         SenderState::Continue => {}
                     }

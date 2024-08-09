@@ -8,9 +8,6 @@ pub(crate) use generic::DriverTx;
 #[cfg(feature = "tls")]
 mod tls;
 
-#[cfg(feature = "io-uring")]
-mod io_uring;
-
 #[cfg(feature = "quic")]
 pub(crate) mod quic;
 
@@ -89,28 +86,6 @@ pub enum Driver {
     UnixTls(GenericDriver<TlsStream<ClientConnection, UnixStream>>),
     #[cfg(feature = "quic")]
     Quic(GenericDriver<crate::driver::quic::QuicStream>),
-}
-
-impl Driver {
-    #[cfg(feature = "io-uring")]
-    /// downcast [Driver] to IoUringDriver if it's Tcp variant.
-    /// IoUringDriver can not be a new variant of Dirver as it's !Send.
-    pub fn try_into_io_uring_tcp(self) -> io_uring::IoUringDriver<xitca_io::net::io_uring::TcpStream> {
-        match self {
-            Self::Tcp(drv) => {
-                let std = drv.io.into_std().unwrap();
-                let tcp = xitca_io::net::io_uring::TcpStream::from_std(std);
-                io_uring::IoUringDriver::new(
-                    tcp,
-                    drv.state.take_rx(),
-                    drv.write_bufs.into(),
-                    drv.read_buf.into_inner(),
-                    drv.res,
-                )
-            }
-            _ => todo!(),
-        }
-    }
 }
 
 impl AsyncLendingIterator for Driver {
