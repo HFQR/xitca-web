@@ -47,10 +47,7 @@ impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     }
 }
 
-impl<B, const LEN: usize> Buf for BufList<B, LEN>
-where
-    B: Buf,
-{
+impl<B: Buf, const LEN: usize> Buf for BufList<B, LEN> {
     #[inline]
     fn remaining(&self) -> usize {
         self.remaining
