@@ -127,40 +127,44 @@ impl Client {
     /// execute the pipeline.
     pub fn pipeline<'a, const SYNC_MODE: bool>(
         &self,
-        pipe: Pipeline<'a, SYNC_MODE>,
+        mut pipe: Pipeline<'a, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
-        self._pipeline::<SYNC_MODE>(&pipe.columns, pipe.buf)
-            .map(|res| PipelineStream {
-                res,
-                columns: pipe.columns,
-                ranges: Vec::new(),
-            })
+        let Pipeline {
+            ref columns,
+            ref mut buf,
+        } = pipe;
+
+        self._pipeline::<SYNC_MODE>(columns, buf).map(|res| PipelineStream {
+            res,
+            columns: pipe.columns,
+            ranges: Vec::new(),
+        })
     }
 
     pub(crate) fn _pipeline<const SYNC_MODE: bool>(
         &self,
         columns: &VecDeque<&[Column]>,
-        mut buf: BytesMut,
+        buf: &mut BytesMut,
     ) -> Result<Response, Error> {
         assert!(!buf.is_empty());
 
         let sync_count = if SYNC_MODE {
             columns.len()
         } else {
-            frontend::sync(&mut buf);
+            frontend::sync(buf);
             1
         };
 
-        self.tx.send_multi(sync_count, buf)
+        self.tx.send_multi_with(|b| Ok(b.extend_from_slice(&buf)), sync_count)
     }
 
     pub(crate) fn _pipeline_no_additive_sync<const SYNC_MODE: bool>(
         &self,
         columns: &VecDeque<&[Column]>,
-        buf: BytesMut,
+        buf: &BytesMut,
     ) -> Result<Response, Error> {
         let sync_count = if SYNC_MODE { columns.len() } else { 1 };
-        self.tx.send_multi(sync_count, buf)
+        self.tx.send_multi_with(|b| Ok(b.extend_from_slice(&buf)), sync_count)
     }
 }
 

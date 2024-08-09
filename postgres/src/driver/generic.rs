@@ -1,4 +1,7 @@
-use core::future::Future;
+use core::{
+    future::{poll_fn, Future},
+    pin::Pin,
+};
 
 use std::{
     collections::VecDeque,
@@ -14,7 +17,7 @@ use xitca_io::{
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
-use crate::error::Error;
+use crate::error::{DriverDown, Error};
 
 use super::codec::{Response, ResponseMessage, ResponseSender, SenderState};
 
@@ -32,11 +35,33 @@ impl DriverTx {
     }
 
     pub(crate) fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
-        let (tx, rx) = super::codec::request_pair(msg_count, msg);
+        self.send_multi_with(|b| Ok(b.extend_from_slice(&msg)), msg_count)
+    }
+
+    pub(crate) fn send_with<F>(&self, func: F) -> Result<Response, Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
+        self.send_multi_with(func, 1)
+    }
+
+    pub(crate) fn send_multi_with<F>(&self, func: F, msg_count: usize) -> Result<Response, Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
         let mut inner = self.0.guarded.lock().unwrap();
-        inner.buf.extend_from_slice(&tx.msg);
-        inner.res.push_back(tx.tx);
+
+        if inner.closed {
+            return Err(DriverDown.into());
+        }
+
+        let len = inner.buf.len();
+
+        func(&mut inner.buf).inspect_err(|_| inner.buf.truncate(len))?;
+        let (tx, rx) = super::codec::request_pair(msg_count);
+        inner.res.push_back(tx);
         self.0.notify.notify_one();
+
         Ok(rx)
     }
 
@@ -51,6 +76,7 @@ pub(crate) struct SharedState {
 }
 
 struct State {
+    closed: bool,
     buf: BytesMut,
     res: VecDeque<ResponseSender>,
 }
@@ -61,6 +87,13 @@ pub struct GenericDriver<Io> {
     pub(crate) state: DriverState,
     pub(crate) shared_state: Arc<SharedState>,
     write_state: WriteState,
+}
+
+// in case driver is dropped without closing the shared state
+impl<Io> Drop for GenericDriver<Io> {
+    fn drop(&mut self) {
+        self.shared_state.guarded.lock().unwrap().closed = true;
+    }
 }
 
 enum WriteState {
@@ -81,6 +114,7 @@ where
     pub(crate) fn new(io: Io) -> (Self, DriverTx) {
         let state = Arc::new(SharedState {
             guarded: Mutex::new(State {
+                closed: false,
                 buf: BytesMut::new(),
                 res: VecDeque::new(),
             }),
@@ -139,18 +173,16 @@ where
                         .select(self.io.ready(interest))
                         .await
                 }
-
                 DriverState::Closing(ref mut e) => {
-                    return e.take().map(|e| Err(e.into())).transpose();
-                    // if !interest.is_writable() && self.res.is_empty() {
-                    //     // no interest to write to io and all response have been finished so
-                    //     // shutdown io and exit.
-                    //     // if there is a better way to exhaust potential remaining backend message
-                    //     // please file an issue.
-                    //     poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
-                    //     return e.take().map(|e| Err(e.into())).transpose();
-                    // }
-                    // SelectOutput::B(self.io.ready(interest).await)
+                    if !interest.is_writable() && self.shared_state.guarded.lock().unwrap().res.is_empty() {
+                        // no interest to write to io and all response have been finished so
+                        // shutdown io and exit.
+                        // if there is a better way to exhaust potential remaining backend message
+                        // please file an issue.
+                        poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
+                        return e.take().map(|e| Err(e.into())).transpose();
+                    }
+                    SelectOutput::B(self.io.ready(interest).await)
                 }
             };
 
@@ -171,6 +203,8 @@ where
                             // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
                             let mut inner = self.shared_state.guarded.lock().unwrap();
                             inner.buf.clear();
+                            // close shared state early so driver tx can observe the shutdown in first hand
+                            inner.closed = true;
                             self.write_state = WriteState::Waiting;
 
                             // enter closed state and no more request would be received from channel.

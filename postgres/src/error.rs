@@ -1,15 +1,10 @@
 use core::{
     convert::Infallible,
-    fmt, mem,
+    fmt,
     ops::{Deref, DerefMut},
 };
 
 use std::{error, io};
-
-use tokio::sync::mpsc::error::SendError;
-use xitca_io::bytes::BytesMut;
-
-use crate::driver::codec::Request;
 
 use super::from_sql::FromSqlError;
 
@@ -39,8 +34,8 @@ impl Error {
 
     #[cold]
     #[inline(never)]
-    pub(crate) fn if_driver_down(&mut self) -> Option<DriverDown> {
-        self.0.downcast_mut().map(mem::take)
+    pub(crate) fn is_driver_down(&self) -> bool {
+        self.0.downcast_ref::<DriverDown>().is_some()
     }
 }
 
@@ -79,14 +74,10 @@ impl error::Error for Error {
 /// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when sending
 /// request to driver.
 ///
-/// the field inside error contains the raw bytes buffer of query message that are ready to be
-/// sent to the [Driver] for transporting. It's possible to construct a new [Client] and [Driver]
-/// pair where the bytes buffer could be reused for graceful retry of previous failed queries.
-///
 /// [Client]: crate::client::Client
 /// [Driver]: crate::driver::Driver
 #[derive(Default)]
-pub struct DriverDown(pub BytesMut);
+pub struct DriverDown;
 
 impl fmt::Debug for DriverDown {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -164,18 +155,6 @@ impl From<io::Error> for Error {
 impl From<FromSqlError> for Error {
     fn from(e: FromSqlError) -> Self {
         Self(e)
-    }
-}
-
-impl From<SendError<BytesMut>> for Error {
-    fn from(e: SendError<BytesMut>) -> Self {
-        Self(Box::new(DriverDown(e.0)))
-    }
-}
-
-impl From<SendError<Request>> for Error {
-    fn from(e: SendError<Request>) -> Self {
-        Self(Box::new(DriverDown(e.0.msg)))
     }
 }
 

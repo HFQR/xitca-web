@@ -9,13 +9,10 @@ use xitca_io::bytes::BytesMut;
 
 use crate::error::{DriverDownReceiving, Error};
 
-pub(super) fn request_pair(msg_count: usize, msg: BytesMut) -> (Request, Response) {
+pub(super) fn request_pair(msg_count: usize) -> (ResponseSender, Response) {
     let (tx, rx) = unbounded_channel();
     (
-        Request {
-            tx: ResponseSender { tx, msg_count },
-            msg,
-        },
+        ResponseSender { tx, msg_count },
         Response {
             rx,
             buf: BytesMut::new(),
@@ -78,12 +75,6 @@ impl ResponseSender {
 // TODO: remove this lint.
 #[allow(dead_code)]
 pub(super) type ResponseReceiver = UnboundedReceiver<BytesMut>;
-
-#[derive(Debug)]
-pub struct Request {
-    pub(super) tx: ResponseSender,
-    pub(crate) msg: BytesMut,
-}
 
 pub enum ResponseMessage {
     Normal { buf: BytesMut, complete: bool },

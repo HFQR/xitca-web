@@ -41,8 +41,15 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let buf = self.encode(stmt, params)?;
-        self.query_buf(stmt, buf).await
+        let mut res = self.tx.send_with(|buf| Self::encode(buf, stmt, params))?;
+        match res.recv().await? {
+            backend::Message::BindComplete => Ok(RowStream {
+                col: stmt.columns(),
+                res,
+                ranges: Vec::new(),
+            }),
+            _ => Err(Error::unexpected()),
+        }
     }
 
     /// Executes a statement, returning the number of rows modified.
@@ -73,27 +80,13 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let buf = self.encode(stmt, params)?;
-        self.send_buf(buf).await?.try_into_row_affected().await
+        self.tx
+            .send_with(|buf| Self::encode(buf, stmt, params))?
+            .try_into_row_affected()
+            .await
     }
 
-    pub(crate) async fn query_buf<'a>(&self, stmt: &'a Statement, buf: BytesMut) -> Result<RowStream<'a>, Error> {
-        self.send_buf(buf).await.map(|res| RowStream {
-            col: stmt.columns(),
-            res,
-            ranges: Vec::new(),
-        })
-    }
-
-    async fn send_buf(&self, buf: BytesMut) -> Result<Response, Error> {
-        let mut res = self.send(buf)?;
-        match res.recv().await? {
-            backend::Message::BindComplete => Ok(res),
-            _ => Err(Error::unexpected()),
-        }
-    }
-
-    fn encode<I>(&self, stmt: &Statement, params: I) -> Result<BytesMut, Error>
+    fn encode<I>(buf: &mut BytesMut, stmt: &Statement, params: I) -> Result<(), Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
@@ -101,7 +94,7 @@ impl Client {
     {
         let params = params.into_iter();
         stmt.params_assert(&params);
-        self.try_buf_and_split(|buf| super::encode::encode(buf, stmt, params))
+        super::encode::encode(buf, stmt, params)
     }
 }
 
