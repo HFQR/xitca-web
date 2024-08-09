@@ -17,6 +17,6 @@ pub trait AsyncLendingIterator {
     }
 }
 
-pub(super) fn slice_iter<'a>(s: &'a [&(dyn ToSql + Sync)]) -> impl ExactSizeIterator<Item = &'a dyn ToSql> {
+pub(super) fn slice_iter<'a>(s: &'a [&(dyn ToSql + Sync)]) -> impl ExactSizeIterator<Item = &'a dyn ToSql> + Clone {
     s.iter().map(|s| *s as _)
 }

@@ -11,8 +11,6 @@ tls = ["xitca-tls/rustls-ring-crypto", "sha2", "webpki-roots"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
 quic = ["quinn", "rustls-pemfile", "tls"]
-# feature for using tokio_uring as IO reactor.
-io-uring = ["xitca-io/runtime-uring"]
 
 [dependencies]
 xitca-io = { version = "0.4.0", features = ["runtime"] }

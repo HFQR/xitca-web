@@ -11,7 +11,7 @@ use crate::{
     column::Column,
     config::Config,
     driver::connect,
-    error::{DriverDown, Error},
+    error::Error,
     iter::slice_iter,
     pipeline::{Pipeline, PipelineStream},
     statement::{Statement, StatementGuarded},
@@ -130,32 +130,39 @@ impl SharedClient {
 
     pub async fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator,
+        I: IntoIterator + Clone,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
         let cli = self.read().await;
-        match cli.query_raw(stmt, params).await {
+        match cli.query_raw(stmt, params.clone()).await {
             Ok(res) => Ok(res),
             Err(err) => {
                 drop(cli);
-                Box::pin(self.query_raw_slow(stmt, err)).await
+                Box::pin(self.query_raw_slow(stmt, params, err)).await
             }
         }
     }
 
-    async fn query_raw_slow<'a>(&self, stmt: &'a Statement, mut err: Error) -> Result<RowStream<'a>, Error> {
-        let mut buf;
-
+    async fn query_raw_slow<'a, I>(
+        &self,
+        stmt: &'a Statement,
+        params: I,
+        mut err: Error,
+    ) -> Result<RowStream<'a>, Error>
+    where
+        I: IntoIterator + Clone,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: BorrowToSql,
+    {
         loop {
-            match err.if_driver_down() {
-                Some(DriverDown(b)) => buf = b,
-                None => return Err(err),
+            if !err.is_driver_down() {
+                return Err(err);
             }
 
             self.reconnect().await;
 
-            match self.read().await.query_buf(stmt, buf).await {
+            match self.read().await.query_raw(stmt, params.clone()).await {
                 Ok(res) => return Ok(res),
                 Err(e) => err = e,
             }
@@ -168,25 +175,27 @@ impl SharedClient {
         let cli = self.read().await;
         match cli.query_simple(stmt) {
             Ok(res) => Ok(res),
-            Err(mut e) => match e.if_driver_down() {
-                Some(DriverDown(buf)) => {
+            Err(e) => {
+                if e.is_driver_down() {
                     drop(cli);
-                    Box::pin(self.query_simple_slow(buf)).await
+                    Box::pin(self.query_simple_slow(stmt)).await
+                } else {
+                    Err(e)
                 }
-                None => Err(e),
-            },
+            }
         }
     }
 
-    async fn query_simple_slow(&self, mut buf: BytesMut) -> Result<RowSimpleStream, Error> {
+    async fn query_simple_slow(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         loop {
             self.reconnect().await;
-            match self.read().await.query_buf_simple(buf) {
+            match self.read().await.query_simple(stmt) {
                 Ok(res) => return Ok(res),
-                Err(mut e) => match e.if_driver_down() {
-                    Some(DriverDown(b)) => buf = b,
-                    None => return Err(e),
-                },
+                Err(e) => {
+                    if !e.is_driver_down() {
+                        return Err(e);
+                    }
+                }
             }
         }
     }
@@ -200,8 +209,8 @@ impl SharedClient {
             let cli = self.read().await;
             match cli._prepare(query, types).await {
                 Ok(stmt) => return Ok(stmt.into_guarded(cli)),
-                Err(mut e) => {
-                    if e.if_driver_down().is_none() {
+                Err(e) => {
+                    if !e.is_driver_down() {
                         return Err(e);
                     }
                     drop(cli);
@@ -262,9 +271,9 @@ impl SharedClient {
         &self,
         pipe: Pipeline<'a, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
-        let Pipeline { columns, buf } = pipe;
+        let Pipeline { columns, mut buf } = pipe;
         let cli = self.read().await;
-        match cli._pipeline::<SYNC_MODE>(&columns, buf) {
+        match cli._pipeline::<SYNC_MODE>(&columns, &mut buf) {
             Ok(res) => Ok(PipelineStream {
                 res,
                 columns,
@@ -272,7 +281,7 @@ impl SharedClient {
             }),
             Err(err) => {
                 drop(cli);
-                Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, err)).await
+                Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, buf, err)).await
             }
         }
     }
@@ -280,19 +289,21 @@ impl SharedClient {
     async fn pipeline_slow<'a, const SYNC_MODE: bool>(
         &self,
         columns: VecDeque<&'a [Column]>,
+        buf: BytesMut,
         mut err: Error,
     ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
-        let mut buf;
-
         loop {
-            match err.if_driver_down() {
-                Some(DriverDown(b)) => buf = b,
-                None => return Err(err),
+            if !err.is_driver_down() {
+                return Err(err);
             }
 
             self.reconnect().await;
 
-            match self.read().await._pipeline_no_additive_sync::<SYNC_MODE>(&columns, buf) {
+            match self
+                .read()
+                .await
+                ._pipeline_no_additive_sync::<SYNC_MODE>(&columns, &buf)
+            {
                 Ok(res) => {
                     return Ok(crate::pipeline::PipelineStream {
                         res,
