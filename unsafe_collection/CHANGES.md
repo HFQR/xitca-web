@@ -3,6 +3,7 @@
 - add `bytes::ChunkVectoredUninit` impl for `BytesMut`
 - add `bytes::BufList::clear` method
 - add `Send`,`Sync` auto bound for `bytes::BufList`
+- add `From` impl for converting `bytes::BufList` to `Bytes` and `BytesMut`
 
 # 0.2.0
 ## Add

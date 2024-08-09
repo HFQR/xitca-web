@@ -103,7 +103,7 @@ impl Driver {
                 io_uring::IoUringDriver::new(
                     tcp,
                     drv.state.take_rx(),
-                    drv.write_buf.into_inner(),
+                    drv.write_bufs.into(),
                     drv.read_buf.into_inner(),
                     drv.res,
                 )

@@ -55,7 +55,7 @@ pub struct GenericDriver<Io> {
     pub(crate) read_buf: PagedBytesMut,
     pub(crate) state: DriverState,
     pub(crate) res: VecDeque<ResponseSender>,
-    write_bufs: BufList<BytesMut, BUF_LIST_CNT>,
+    pub(crate) write_bufs: BufList<BytesMut, BUF_LIST_CNT>,
     want_flush_io: bool,
 }
 
