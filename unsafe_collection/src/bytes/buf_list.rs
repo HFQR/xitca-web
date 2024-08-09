@@ -45,12 +45,6 @@ impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     pub const fn is_empty(&self) -> bool {
         self.bufs.is_empty()
     }
-
-    #[inline]
-    pub fn clear(&mut self) {
-        self.bufs.clear();
-        self.remaining = 0;
-    }
 }
 
 impl<B, const LEN: usize> Buf for BufList<B, LEN>
@@ -132,28 +126,6 @@ where
                 bm.freeze()
             }
         }
-    }
-}
-
-impl<B, const LEN: usize> From<BufList<B, LEN>> for BytesMut
-where
-    B: Buf,
-{
-    fn from(mut buf: BufList<B, LEN>) -> Self {
-        let mut bytes = BytesMut::with_capacity(buf.remaining);
-        while let Some(buf) = buf.bufs.pop_front() {
-            bytes.extend_from_slice(buf.chunk());
-        }
-        bytes
-    }
-}
-
-impl<B, const LEN: usize> From<BufList<B, LEN>> for Bytes
-where
-    B: Buf,
-{
-    fn from(buf: BufList<B, LEN>) -> Self {
-        BytesMut::from(buf).into()
     }
 }
 

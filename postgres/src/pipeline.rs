@@ -155,7 +155,13 @@ impl Client {
             1
         };
 
-        self.tx.send_multi_with(|b| Ok(b.extend_from_slice(&buf)), sync_count)
+        self.tx.send_multi_with(
+            |b| {
+                b.extend_from_slice(buf);
+                Ok(())
+            },
+            sync_count,
+        )
     }
 
     pub(crate) fn _pipeline_no_additive_sync<const SYNC_MODE: bool>(
@@ -164,7 +170,13 @@ impl Client {
         buf: &BytesMut,
     ) -> Result<Response, Error> {
         let sync_count = if SYNC_MODE { columns.len() } else { 1 };
-        self.tx.send_multi_with(|b| Ok(b.extend_from_slice(&buf)), sync_count)
+        self.tx.send_multi_with(
+            |b| {
+                b.extend_from_slice(buf);
+                Ok(())
+            },
+            sync_count,
+        )
     }
 }
 

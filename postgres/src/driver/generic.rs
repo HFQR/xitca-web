@@ -35,7 +35,13 @@ impl DriverTx {
     }
 
     pub(crate) fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
-        self.send_multi_with(|b| Ok(b.extend_from_slice(&msg)), msg_count)
+        self.send_multi_with(
+            |b| {
+                b.extend_from_slice(&msg);
+                Ok(())
+            },
+            msg_count,
+        )
     }
 
     pub(crate) fn send_with<F>(&self, func: F) -> Result<Response, Error>
