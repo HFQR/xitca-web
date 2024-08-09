@@ -139,6 +139,14 @@ impl<T, const CAP: usize> Queueable for HeapQueueInner<T, CAP> {
     }
 }
 
+// SAFETY:
+// queue is Send when item stored in it is Send
+unsafe impl<T, const CAP: usize> Send for HeapQueueInner<T, CAP> where T: Send {}
+
+// SAFETY:
+// queue is Sync when item stored in it is Sync
+unsafe impl<T, const CAP: usize> Sync for HeapQueueInner<T, CAP> where T: Sync {}
+
 #[cfg(test)]
 mod test {
     use super::*;

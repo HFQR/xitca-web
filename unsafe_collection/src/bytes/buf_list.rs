@@ -45,6 +45,12 @@ impl<B: Buf, const LEN: usize> BufList<B, LEN> {
     pub const fn is_empty(&self) -> bool {
         self.bufs.is_empty()
     }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.bufs.clear();
+        self.remaining = 0;
+    }
 }
 
 impl<B: Buf, const LEN: usize> Buf for BufList<B, LEN> {

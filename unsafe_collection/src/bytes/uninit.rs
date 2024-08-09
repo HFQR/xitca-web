@@ -1,6 +1,6 @@
 use std::{io::IoSlice, mem::MaybeUninit};
 
-use bytes_crate::{buf::Chain, Buf, Bytes};
+use bytes_crate::{buf::Chain, Buf, Bytes, BytesMut};
 
 use crate::uninit;
 
@@ -119,6 +119,26 @@ where
 impl sealed::Sealed for Bytes {}
 
 impl ChunkVectoredUninit for Bytes {
+    // SAFETY:
+    //
+    // See ChunkVectoredUninit trait for safety rule.
+    unsafe fn chunks_vectored_uninit<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> usize {
+        if dst.is_empty() {
+            return 0;
+        }
+
+        if self.has_remaining() {
+            dst[0].write(IoSlice::new(self.chunk()));
+            1
+        } else {
+            0
+        }
+    }
+}
+
+impl sealed::Sealed for BytesMut {}
+
+impl ChunkVectoredUninit for BytesMut {
     // SAFETY:
     //
     // See ChunkVectoredUninit trait for safety rule.

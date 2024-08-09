@@ -1,4 +1,8 @@
-# unreleased
+# unreleased 0.2.1
+## Add
+- add `bytes::ChunkVectoredUninit` impl for `BytesMut`
+- add `bytes::BufList::clear` method
+- add `Send`,`Sync` auto bound for `bytes::BufList`
 
 # 0.2.0
 ## Add
