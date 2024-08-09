@@ -60,8 +60,13 @@ pub struct GenericDriver<Io> {
     pub(crate) read_buf: PagedBytesMut,
     pub(crate) state: DriverState,
     pub(crate) shared_state: Arc<SharedState>,
-    want_write: bool,
-    want_flush: bool,
+    write_state: WriteState,
+}
+
+enum WriteState {
+    Waiting,
+    WantWrite,
+    WantFlush,
 }
 
 pub(crate) enum DriverState {
@@ -88,15 +93,14 @@ where
                 read_buf: PagedBytesMut::new(),
                 state: DriverState::Running,
                 shared_state: state.clone(),
-                want_write: false,
-                want_flush: false,
+                write_state: WriteState::Waiting,
             },
             DriverTx(state),
         )
     }
 
     fn want_write(&self) -> bool {
-        self.want_write || self.want_flush
+        !matches!(self.write_state, WriteState::Waiting)
     }
 
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
@@ -152,8 +156,7 @@ where
             match select {
                 // batch message and keep polling.
                 SelectOutput::A(_) => {
-                    self.want_write = true;
-                    self.want_flush = false;
+                    self.write_state = WriteState::WantWrite;
                 }
                 SelectOutput::B(ready) => {
                     let ready = ready?;
@@ -167,8 +170,7 @@ where
                             // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
                             let mut inner = self.shared_state.guarded.lock().unwrap();
                             inner.buf.clear();
-                            self.want_write = false;
-                            self.want_flush = false;
+                            self.write_state = WriteState::Waiting;
 
                             // enter closed state and no more request would be received from channel.
                             // requests inside it would eventually be dropped after shutdown completed.
@@ -199,25 +201,32 @@ where
 
     fn try_write(&mut self) -> io::Result<()> {
         loop {
-            if self.want_flush {
-                match io::Write::flush(&mut self.io) {
-                    Ok(_) => self.want_flush = false,
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(e) => return Err(e),
+            match self.write_state {
+                WriteState::WantFlush => {
+                    match io::Write::flush(&mut self.io) {
+                        Ok(_) => self.write_state = WriteState::Waiting,
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(e) => return Err(e),
+                    }
+                    break;
                 }
-                break;
-            }
+                WriteState::WantWrite => {
+                    let mut inner = self.shared_state.guarded.lock().unwrap();
 
-            let mut inner = self.shared_state.guarded.lock().unwrap();
+                    match io::Write::write(&mut self.io, &inner.buf) {
+                        Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                        Ok(n) => {
+                            inner.buf.advance(n);
 
-            match io::Write::write(&mut self.io, &inner.buf) {
-                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                Ok(n) => {
-                    inner.buf.advance(n);
-                    self.want_flush = inner.buf.is_empty();
+                            if inner.buf.is_empty() {
+                                self.write_state = WriteState::WantFlush;
+                            }
+                        }
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(e) => return Err(e),
+                    }
                 }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
+                WriteState::Waiting => unreachable!("try_write must be called when WriteState is waiting"),
             }
         }
 
