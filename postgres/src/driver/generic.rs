@@ -105,6 +105,7 @@ where
 
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
         self.shared_state.guarded.lock().unwrap().buf.extend_from_slice(&msg);
+        self.write_state = WriteState::WantWrite;
         loop {
             self.try_write()?;
             if !self.want_write() {
