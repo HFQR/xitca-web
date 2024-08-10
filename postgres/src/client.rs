@@ -1,19 +1,12 @@
 use std::collections::HashMap;
 
 use postgres_types::{Oid, Type};
-use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
-use super::{
-    driver::{codec::Response, DriverTx},
-    error::Error,
-    statement::Statement,
-    util::lock::Lock,
-};
+use super::{driver::DriverTx, statement::Statement, util::lock::Lock};
 
 pub struct Client {
     pub(crate) tx: DriverTx,
-    pub(crate) buf: Lock<BytesMut>,
     cached_typeinfo: Lock<CachedTypeInfo>,
 }
 
@@ -39,7 +32,6 @@ impl Client {
     pub(crate) fn new(tx: DriverTx) -> Self {
         Self {
             tx,
-            buf: Lock::new(BytesMut::new()),
             cached_typeinfo: Lock::new(CachedTypeInfo {
                 typeinfo: None,
                 typeinfo_composite: None,
@@ -49,17 +41,10 @@ impl Client {
         }
     }
 
+    // a lossy hint of running state of io driver. an io driver shutdown can happen
+    // at the same time this api is called.
     pub fn closed(&self) -> bool {
         self.tx.is_closed()
-    }
-
-    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        self.tx.send(msg)
-    }
-
-    // send a message in non blocking manner without concerning response.
-    pub(crate) fn do_send(&self, msg: BytesMut) {
-        self.tx.do_send(msg)
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
@@ -96,20 +81,6 @@ impl Client {
 
     pub fn clear_type_cache(&self) {
         self.cached_typeinfo.lock().types.clear();
-    }
-
-    pub(crate) fn try_buf_and_split<F, E>(&self, f: F) -> Result<BytesMut, E>
-    where
-        F: FnOnce(&mut BytesMut) -> Result<(), E>,
-    {
-        let mut buf = self.buf.lock();
-        match f(&mut buf) {
-            Ok(_) => Ok(buf.split()),
-            Err(e) => {
-                buf.clear();
-                Err(e)
-            }
-        }
     }
 }
 

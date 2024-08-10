@@ -30,20 +30,6 @@ impl DriverTx {
         Arc::strong_count(&self.0) == 1
     }
 
-    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        self.send_multi(1, msg)
-    }
-
-    pub(crate) fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
-        self.send_multi_with(
-            |b| {
-                b.extend_from_slice(&msg);
-                Ok(())
-            },
-            msg_count,
-        )
-    }
-
     pub(crate) fn send_with<F>(&self, func: F) -> Result<Response, Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
@@ -69,10 +55,6 @@ impl DriverTx {
         self.0.notify.notify_one();
 
         Ok(rx)
-    }
-
-    pub(crate) fn do_send(&self, msg: BytesMut) {
-        let _ = self.send(msg);
     }
 }
 

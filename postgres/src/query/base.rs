@@ -1,7 +1,5 @@
 use postgres_protocol::message::backend;
 
-use xitca_io::bytes::BytesMut;
-
 use crate::{
     client::Client,
     column::Column,
@@ -41,7 +39,7 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let mut res = self.tx.send_with(|buf| Self::encode(buf, stmt, params))?;
+        let mut res = self.send_encode(stmt, params)?;
         match res.recv().await? {
             backend::Message::BindComplete => Ok(RowStream {
                 col: stmt.columns(),
@@ -80,13 +78,10 @@ impl Client {
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        self.tx
-            .send_with(|buf| Self::encode(buf, stmt, params))?
-            .try_into_row_affected()
-            .await
+        self.send_encode(stmt, params)?.try_into_row_affected().await
     }
 
-    fn encode<I>(buf: &mut BytesMut, stmt: &Statement, params: I) -> Result<(), Error>
+    fn send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
@@ -94,7 +89,7 @@ impl Client {
     {
         let params = params.into_iter();
         stmt.params_assert(&params);
-        super::encode::encode(buf, stmt, params)
+        self.tx.send_with(|buf| super::encode::encode(buf, stmt, params))
     }
 }
 

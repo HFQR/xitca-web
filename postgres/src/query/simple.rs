@@ -1,6 +1,5 @@
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
-use xitca_io::bytes::BytesMut;
 
 use crate::{
     client::Client, column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple,
@@ -11,26 +10,20 @@ use super::row_stream::GenericRowStream;
 
 impl Client {
     pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        let buf = self.try_buf_and_split(|buf| frontend::query(stmt, buf))?;
-        self.query_buf_simple(buf)
-    }
-
-    #[inline]
-    pub async fn execute_simple(&self, stmt: &str) -> Result<u64, Error> {
-        self.encode_send_simple(stmt)?.try_into_row_affected().await
-    }
-
-    pub(crate) fn encode_send_simple(&self, stmt: &str) -> Result<Response, Error> {
-        let buf = self.try_buf_and_split(|buf| frontend::query(stmt, buf))?;
-        self.send(buf)
-    }
-
-    pub(crate) fn query_buf_simple(&self, buf: BytesMut) -> Result<RowSimpleStream, Error> {
-        self.send(buf).map(|res| RowSimpleStream {
+        self.send_encode_simple(stmt).map(|res| RowSimpleStream {
             res,
             col: Vec::new(),
             ranges: Vec::new(),
         })
+    }
+
+    #[inline]
+    pub async fn execute_simple(&self, stmt: &str) -> Result<u64, Error> {
+        self.send_encode_simple(stmt)?.try_into_row_affected().await
+    }
+
+    pub(crate) fn send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
+        self.tx.send_with(|buf| frontend::query(stmt, buf).map_err(Into::into))
     }
 }
 
