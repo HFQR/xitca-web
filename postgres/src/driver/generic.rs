@@ -175,7 +175,6 @@ where
             };
 
             match select {
-                // batch message and keep polling.
                 SelectOutput::A(_) => {
                     self.write_state = WriteState::WantWrite;
                 }

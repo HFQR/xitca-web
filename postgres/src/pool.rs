@@ -269,7 +269,7 @@ impl SharedClient {
 impl SharedClient {
     pub async fn pipeline<'a, const SYNC_MODE: bool>(
         &self,
-        pipe: Pipeline<'a, SYNC_MODE>,
+        pipe: Pipeline<'a, '_, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
         let Pipeline { columns, mut buf } = pipe;
         let cli = self.read().await;
@@ -281,7 +281,7 @@ impl SharedClient {
             }),
             Err(err) => {
                 drop(cli);
-                Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, buf, err)).await
+                Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, &buf, err)).await
             }
         }
     }
@@ -289,7 +289,7 @@ impl SharedClient {
     async fn pipeline_slow<'a, const SYNC_MODE: bool>(
         &self,
         columns: VecDeque<&'a [Column]>,
-        buf: BytesMut,
+        buf: &BytesMut,
         mut err: Error,
     ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
         loop {
@@ -299,11 +299,7 @@ impl SharedClient {
 
             self.reconnect().await;
 
-            match self
-                .read()
-                .await
-                ._pipeline_no_additive_sync::<SYNC_MODE>(&columns, &buf)
-            {
+            match self.read().await._pipeline_no_additive_sync::<SYNC_MODE>(&columns, buf) {
                 Ok(res) => {
                     return Ok(crate::pipeline::PipelineStream {
                         res,
