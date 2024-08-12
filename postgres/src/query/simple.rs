@@ -9,6 +9,7 @@ use crate::{
 use super::row_stream::GenericRowStream;
 
 impl Client {
+    #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         self.send_encode_simple(stmt).map(|res| RowSimpleStream {
             res,

@@ -144,6 +144,8 @@ impl SharedClient {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     async fn query_raw_slow<'a, I>(
         &self,
         stmt: &'a Statement,
@@ -169,33 +171,30 @@ impl SharedClient {
         }
     }
 
-    #[cold]
-    #[inline(never)]
     pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         let cli = self.read().await;
         match cli.query_simple(stmt) {
             Ok(res) => Ok(res),
             Err(e) => {
-                if e.is_driver_down() {
-                    drop(cli);
-                    Box::pin(self.query_simple_slow(stmt)).await
-                } else {
-                    Err(e)
-                }
+                drop(cli);
+                Box::pin(self.query_simple_slow(stmt, e)).await
             }
         }
     }
 
-    async fn query_simple_slow(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
+    #[cold]
+    #[inline(never)]
+    async fn query_simple_slow(&self, stmt: &str, mut err: Error) -> Result<RowSimpleStream, Error> {
         loop {
+            if !err.is_driver_down() {
+                return Err(err);
+            }
+
             self.reconnect().await;
+
             match self.read().await.query_simple(stmt) {
                 Ok(res) => return Ok(res),
-                Err(e) => {
-                    if !e.is_driver_down() {
-                        return Err(e);
-                    }
-                }
+                Err(e) => err = e,
             }
         }
     }
@@ -269,7 +268,7 @@ impl SharedClient {
 impl SharedClient {
     pub async fn pipeline<'a, const SYNC_MODE: bool>(
         &self,
-        pipe: Pipeline<'a, '_, SYNC_MODE>,
+        pipe: Pipeline<'a, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
         let Pipeline { columns, mut buf } = pipe;
         let cli = self.read().await;
@@ -286,6 +285,8 @@ impl SharedClient {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     async fn pipeline_slow<'a, const SYNC_MODE: bool>(
         &self,
         columns: VecDeque<&'a [Column]>,

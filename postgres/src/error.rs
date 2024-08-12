@@ -35,7 +35,7 @@ impl Error {
     #[cold]
     #[inline(never)]
     pub(crate) fn is_driver_down(&self) -> bool {
-        self.0.downcast_ref::<DriverDown>().is_some()
+        self.0.is::<DriverDown>()
     }
 }
 
@@ -173,7 +173,6 @@ impl fmt::Display for AuthenticationError {
             Self::MissingPassWord => f.write_str("password is missing")?,
             Self::WrongPassWord => f.write_str("password is wrong")?,
         }
-
         f.write_str(" for authentication")
     }
 }

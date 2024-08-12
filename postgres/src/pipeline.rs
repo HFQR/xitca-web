@@ -1,4 +1,4 @@
-use core::ops::{Deref, DerefMut, Range};
+use core::ops::Range;
 
 use std::collections::VecDeque;
 
@@ -42,47 +42,22 @@ use super::{
 ///     Ok(())
 /// }
 /// ```
-pub struct Pipeline<'a, 'b, const SYNC_MODE: bool = true> {
+pub struct Pipeline<'a, const SYNC_MODE: bool = true> {
     pub(crate) columns: VecDeque<&'a [Column]>,
-    pub(crate) buf: EitherBuf<'b>,
-}
-
-pub(crate) enum EitherBuf<'a> {
-    Owned(BytesMut),
-    Borrowed(&'a mut BytesMut),
-}
-
-impl Deref for EitherBuf<'_> {
-    type Target = BytesMut;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Owned(ref bytes) => bytes,
-            Self::Borrowed(bytes) => bytes,
-        }
-    }
-}
-
-impl DerefMut for EitherBuf<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Owned(ref mut bytes) => bytes,
-            Self::Borrowed(bytes) => bytes,
-        }
-    }
+    pub(crate) buf: BytesMut,
 }
 
 fn _assert_pipe_send() {
-    crate::_assert_send2::<Pipeline<'_, '_>>();
+    crate::_assert_send2::<Pipeline<'_>>();
 }
 
-impl Default for Pipeline<'_, '_, true> {
+impl Default for Pipeline<'_, true> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Pipeline<'_, '_, true> {
+impl Pipeline<'_, true> {
     /// start a new pipeline.
     ///
     /// pipeline is sync by default. which means every query inside is considered separate binding
@@ -96,15 +71,9 @@ impl Pipeline<'_, '_, true> {
     pub fn new() -> Self {
         Self::with_capacity(0)
     }
-
-    #[doc(hidden)]
-    #[inline]
-    pub fn new_from_buf(buf: &mut BytesMut) -> Pipeline<'_, '_, true> {
-        Pipeline::with_capacity_from_buf(0, buf)
-    }
 }
 
-impl Pipeline<'_, '_, false> {
+impl Pipeline<'_, false> {
     /// start a new un-sync pipeline.
     ///
     /// in un-sync mode pipeline treat all queries inside as one single binding and database server
@@ -116,37 +85,28 @@ impl Pipeline<'_, '_, false> {
     pub fn unsync() -> Self {
         Self::with_capacity(0)
     }
-
-    #[doc(hidden)]
-    #[inline]
-    pub fn unsync_from_buf(buf: &mut BytesMut) -> Pipeline<'_, '_, false> {
-        Pipeline::with_capacity_from_buf(0, buf)
-    }
 }
 
-impl<const SYNC_MODE: bool> Pipeline<'_, '_, SYNC_MODE> {
+impl<const SYNC_MODE: bool> Pipeline<'_, SYNC_MODE> {
     /// start a new pipeline with given capacity.
     /// capacity represent how many queries will be contained by a single pipeline. a determined cap
     /// can possibly reduce memory reallocation when constructing the pipeline.
     #[inline]
     pub fn with_capacity(cap: usize) -> Self {
-        Self {
-            columns: VecDeque::with_capacity(cap),
-            buf: EitherBuf::Owned(BytesMut::new()),
-        }
+        Self::with_capacity_from_buf(cap, BytesMut::new())
     }
 
     #[doc(hidden)]
     #[inline]
-    pub fn with_capacity_from_buf(cap: usize, buf: &mut BytesMut) -> Pipeline<'_, '_, SYNC_MODE> {
-        Pipeline {
+    pub fn with_capacity_from_buf(cap: usize, buf: BytesMut) -> Self {
+        Self {
             columns: VecDeque::with_capacity(cap),
-            buf: EitherBuf::Borrowed(buf),
+            buf,
         }
     }
 }
 
-impl<'a, const SYNC_MODE: bool> Pipeline<'a, '_, SYNC_MODE> {
+impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
     /// pipelined version of [Client::query] and [Client::execute]
     #[inline]
     pub fn query(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<(), Error> {
@@ -174,10 +134,9 @@ impl Client {
     /// execute the pipeline.
     pub fn pipeline<'a, const SYNC_MODE: bool>(
         &self,
-        mut pipe: Pipeline<'a, '_, SYNC_MODE>,
+        mut pipe: Pipeline<'a, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
         let Pipeline { columns, ref mut buf } = pipe;
-
         self._pipeline::<SYNC_MODE>(&columns, buf).map(|res| PipelineStream {
             res,
             columns,
