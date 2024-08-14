@@ -25,6 +25,13 @@ type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
 pub(crate) struct DriverTx(Arc<SharedState>);
 
+impl Drop for DriverTx {
+    fn drop(&mut self) {
+        self.0.guarded.lock().unwrap().closed = true;
+        self.0.notify.notify_one();
+    }
+}
+
 impl DriverTx {
     pub(crate) fn is_closed(&self) -> bool {
         Arc::strong_count(&self.0) == 1
@@ -148,18 +155,27 @@ where
             }
 
             let interest = if self.want_write() {
-                Interest::READABLE.add(Interest::WRITABLE)
+                const { Interest::READABLE.add(Interest::WRITABLE) }
             } else {
                 Interest::READABLE
             };
 
-            let select = match self.state {
+            let ready = match self.state {
                 DriverState::Running => {
-                    self.shared_state
+                    match self
+                        .shared_state
                         .notify
                         .notified()
                         .select(self.io.ready(interest))
                         .await
+                    {
+                        SelectOutput::A(_) => {
+                            let interest = interest.add(Interest::WRITABLE);
+                            self.write_state = WriteState::WantWrite;
+                            self.io.ready(interest).await
+                        }
+                        SelectOutput::B(ready) => ready,
+                    }
                 }
                 DriverState::Closing(ref mut e) => {
                     if !interest.is_writable() && self.shared_state.guarded.lock().unwrap().res.is_empty() {
@@ -170,35 +186,25 @@ where
                         poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
                         return e.take().map(|e| Err(e.into())).transpose();
                     }
-                    SelectOutput::B(self.io.ready(interest).await)
+                    self.io.ready(interest).await
                 }
             };
 
-            match select {
-                SelectOutput::A(_) => {
-                    self.write_state = WriteState::WantWrite;
-                }
-                SelectOutput::B(ready) => {
-                    let ready = ready?;
-                    if ready.is_readable() {
-                        self.try_read()?;
-                    }
-                    if ready.is_writable() {
-                        if let Err(e) = self.try_write() {
-                            // when write error occur the driver would go into half close state(read only).
-                            // clearing write_buf would drop all pending requests in it and hint the driver
-                            // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
-                            let mut inner = self.shared_state.guarded.lock().unwrap();
-                            inner.buf.clear();
-                            // close shared state early so driver tx can observe the shutdown in first hand
-                            inner.closed = true;
-                            self.write_state = WriteState::Waiting;
-
-                            // enter closed state and no more request would be received from channel.
-                            // requests inside it would eventually be dropped after shutdown completed.
-                            self.state = DriverState::Closing(Some(e));
-                        }
-                    }
+            let ready = ready?;
+            if ready.is_readable() {
+                self.try_read()?;
+            }
+            if ready.is_writable() {
+                if let Err(e) = self.try_write() {
+                    // when write error occur the driver would go into half close state(read only).
+                    // clearing write_buf would drop all pending requests in it and hint the driver
+                    // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
+                    let mut inner = self.shared_state.guarded.lock().unwrap();
+                    inner.buf.clear();
+                    // close shared state early so driver tx can observe the shutdown in first hand
+                    inner.closed = true;
+                    self.write_state = WriteState::Waiting;
+                    self.state = DriverState::Closing(Some(e));
                 }
             }
         }
@@ -234,6 +240,14 @@ where
                 }
                 WriteState::WantWrite => {
                     let mut inner = self.shared_state.guarded.lock().unwrap();
+
+                    if inner.closed {
+                        if inner.buf.is_empty() {
+                            self.write_state = WriteState::Waiting;
+                        }
+                        self.state = DriverState::Closing(None);
+                        break;
+                    }
 
                     match io::Write::write(&mut self.io, &inner.buf) {
                         Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
