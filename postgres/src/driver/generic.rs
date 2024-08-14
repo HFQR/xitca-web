@@ -154,14 +154,14 @@ where
                 return Ok(Some(msg));
             }
 
-            let interest = if self.want_write() {
+            let mut interest = if self.want_write() {
                 const { Interest::READABLE.add(Interest::WRITABLE) }
             } else {
                 Interest::READABLE
             };
 
             let ready = match self.state {
-                DriverState::Running => {
+                DriverState::Running => 'inner: loop {
                     match self
                         .shared_state
                         .notify
@@ -170,13 +170,13 @@ where
                         .await
                     {
                         SelectOutput::A(_) => {
-                            let interest = interest.add(Interest::WRITABLE);
                             self.write_state = WriteState::WantWrite;
-                            self.io.ready(interest).await
+                            interest = interest.add(Interest::WRITABLE);
+                            continue 'inner;
                         }
-                        SelectOutput::B(ready) => ready,
+                        SelectOutput::B(ready) => break ready,
                     }
-                }
+                },
                 DriverState::Closing(ref mut e) => {
                     if !interest.is_writable() && self.shared_state.guarded.lock().unwrap().res.is_empty() {
                         // no interest to write to io and all response have been finished so
