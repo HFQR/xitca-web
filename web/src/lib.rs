@@ -239,23 +239,20 @@
 //! of API.
 //! ```rust
 //! # #[cfg(feature = "codegen")]
-//! # fn _main() {
+//! # async fn _main() -> std::io::Result<()> {
 //! use xitca_web::{codegen::route, App};
-//!
-//! #[tokio::main]
-//! async fn main() -> std::io::Result<()> {
-//!     App::new()
-//!         .at_typed(index)
-//!         .serve()
-//!         .bind("localhost:8080")?
-//!         .run()
-//!         .await
-//! }
 //!
 //! #[route("/", method = get)]
 //! async fn index() -> &'static str {
 //!     "Hello,World!"
 //! }
+//!
+//! App::new()
+//!     .at_typed(index)
+//!     .serve()
+//!     .bind("localhost:8080")?
+//!     .run()
+//!     .await
 //! # }
 //! ```
 
