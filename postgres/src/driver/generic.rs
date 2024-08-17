@@ -174,7 +174,7 @@ where
                             interest = interest.add(Interest::WRITABLE);
                             continue 'inner;
                         }
-                        SelectOutput::B(ready) => break ready,
+                        SelectOutput::B(ready) => break ready?,
                     }
                 },
                 DriverState::Closing(ref mut e) => {
@@ -186,14 +186,14 @@ where
                         poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
                         return e.take().map(|e| Err(e.into())).transpose();
                     }
-                    self.io.ready(interest).await
+                    self.io.ready(interest).await?
                 }
             };
 
-            let ready = ready?;
             if ready.is_readable() {
                 self.try_read()?;
             }
+
             if ready.is_writable() {
                 if let Err(e) = self.try_write() {
                     // when write error occur the driver would go into half close state(read only).
@@ -242,11 +242,14 @@ where
                     let mut inner = self.shared_state.guarded.lock().unwrap();
 
                     if inner.closed {
-                        if inner.buf.is_empty() {
-                            self.write_state = WriteState::Waiting;
+                        if matches!(self.state, DriverState::Running) {
+                            self.state = DriverState::Closing(None);
                         }
-                        self.state = DriverState::Closing(None);
-                        break;
+
+                        if inner.buf.is_empty() {
+                            self.write_state = WriteState::WantFlush;
+                            continue;
+                        }
                     }
 
                     match io::Write::write(&mut self.io, &inner.buf) {
