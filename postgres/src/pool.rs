@@ -1,14 +1,15 @@
-use core::{future::IntoFuture, sync::atomic::Ordering};
+use core::{
+    future::{Future, IntoFuture},
+    sync::atomic::Ordering,
+};
 
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 
-use postgres_types::{BorrowToSql, ToSql, Type};
 use tokio::sync::{Notify, RwLock, RwLockReadGuard};
-use xitca_io::bytes::BytesMut;
+use xitca_service::pipeline::PipelineE;
 
 use crate::{
     client::Client,
-    column::Column,
     config::Config,
     driver::connect,
     error::Error,
@@ -16,7 +17,7 @@ use crate::{
     pipeline::{Pipeline, PipelineStream},
     statement::{Statement, StatementGuarded},
     util::lock::Lock,
-    RowSimpleStream, RowStream,
+    BorrowToSql, RowSimpleStream, RowStream, ToSql, Type,
 };
 
 /// a shared connection for non transaction queries and [Statement] cache live as long as the connection itself.
@@ -266,21 +267,46 @@ impl SharedClient {
 }
 
 impl SharedClient {
-    pub async fn pipeline<'a, const SYNC_MODE: bool>(
-        &self,
-        pipe: Pipeline<'a, SYNC_MODE>,
-    ) -> Result<PipelineStream<'a>, Error> {
-        let Pipeline { columns, mut buf } = pipe;
-        let cli = self.read().await;
-        match cli._pipeline::<SYNC_MODE, true>(&columns, &mut buf) {
-            Ok(res) => Ok(PipelineStream {
-                res,
-                columns,
-                ranges: Vec::new(),
-            }),
-            Err(err) => {
-                drop(cli);
-                Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, &mut buf, err)).await
+    #[cfg(not(feature = "single-thread"))]
+    pub fn pipeline<'a, 's, 'f, const SYNC_MODE: bool>(
+        &'s self,
+        pipe: Pipeline<'a, '_, SYNC_MODE>,
+    ) -> impl Future<Output = Result<PipelineStream<'a>, Error>> + Send + 'f
+    where
+        'a: 'f,
+        's: 'f,
+    {
+        let opt = match self.inner.try_read() {
+            Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
+            Err(_) => PipelineE::Second(pipe.to_owned()),
+        };
+
+        async {
+            match opt {
+                PipelineE::First(res) => res,
+                PipelineE::Second(pipe) => Box::pin(self.pipeline_slow(pipe)).await,
+            }
+        }
+    }
+
+    #[cfg(feature = "single-thread")]
+    pub fn pipeline<'a, 's, 'f, const SYNC_MODE: bool>(
+        &'s self,
+        pipe: Pipeline<'a, '_, SYNC_MODE>,
+    ) -> impl Future<Output = Result<PipelineStream<'a>, Error>> + 'f
+    where
+        'a: 'f,
+        's: 'f,
+    {
+        let opt = match self.inner.try_read() {
+            Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
+            Err(_) => PipelineE::Second(pipe.to_owned()),
+        };
+
+        async {
+            match opt {
+                PipelineE::First(res) => res,
+                PipelineE::Second(pipe) => Box::pin(self.pipeline_slow(pipe)).await,
             }
         }
     }
@@ -289,26 +315,36 @@ impl SharedClient {
     #[inline(never)]
     async fn pipeline_slow<'a, const SYNC_MODE: bool>(
         &self,
-        columns: VecDeque<&'a [Column]>,
-        buf: &mut BytesMut,
-        mut err: Error,
-    ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
-        loop {
-            if !err.is_driver_down() {
-                return Err(err);
-            }
+        pipe: Pipeline<'a, '_, SYNC_MODE>,
+    ) -> Result<PipelineStream<'a>, Error> {
+        let Pipeline { columns, mut buf } = pipe;
+        let cli = self.read().await;
+        match cli._pipeline::<SYNC_MODE, true>(&columns, &mut *buf) {
+            Ok(res) => Ok(PipelineStream {
+                res,
+                columns,
+                ranges: Vec::new(),
+            }),
+            Err(mut err) => {
+                drop(cli);
+                loop {
+                    if !err.is_driver_down() {
+                        return Err(err);
+                    }
 
-            self.reconnect().await;
+                    self.reconnect().await;
 
-            match self.read().await._pipeline::<SYNC_MODE, false>(&columns, buf) {
-                Ok(res) => {
-                    return Ok(PipelineStream {
-                        res,
-                        columns,
-                        ranges: Vec::new(),
-                    })
+                    match self.read().await._pipeline::<SYNC_MODE, false>(&columns, &mut buf) {
+                        Ok(res) => {
+                            return Ok(PipelineStream {
+                                res,
+                                columns,
+                                ranges: Vec::new(),
+                            })
+                        }
+                        Err(e) => err = e,
+                    }
                 }
-                Err(e) => err = e,
             }
         }
     }

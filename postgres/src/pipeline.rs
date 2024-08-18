@@ -1,9 +1,8 @@
-use core::ops::Range;
+use core::ops::{Deref, DerefMut, Range};
 
 use std::collections::VecDeque;
 
 use postgres_protocol::message::{backend, frontend};
-use postgres_types::BorrowToSql;
 use xitca_io::bytes::BytesMut;
 
 use super::{
@@ -14,7 +13,7 @@ use super::{
     iter::{slice_iter, AsyncLendingIterator},
     row::Row,
     statement::Statement,
-    ToSql,
+    BorrowToSql, ToSql,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
@@ -25,15 +24,24 @@ use super::{
 /// use xitca_postgres::{AsyncLendingIterator, Client, pipeline::Pipeline};
 ///
 /// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+///     // prepare a statement that will be called repeatedly.
+///     // it can be a collection of statements that will be called in iteration.
 ///     let statement = client.prepare("SELECT * FROM public.users", &[]).await?;
 ///
+///     // create a new pipeline.
 ///     let mut pipe = Pipeline::new();
+///
+///     // pipeline can encode multiple queries.
 ///     pipe.query(statement.as_ref(), &[])?;
 ///     pipe.query_raw::<[i32; 0]>(statement.as_ref(), [])?;
 ///
+///     // execute the pipeline and on success a streaming response will be returned.
 ///     let mut res = client.pipeline(pipe)?;
 ///
+///     // iterate through the query responses. the response order is the same as the order of
+///     // queries encoded into pipeline with Pipeline::query_xxx api.
 ///     while let Some(mut item) = res.try_next().await? {
+///         // every query can contain streaming rows.
 ///         while let Some(row) = item.try_next().await? {
 ///             let _: u32 = row.get("id");
 ///         }
@@ -42,22 +50,56 @@ use super::{
 ///     Ok(())
 /// }
 /// ```
-pub struct Pipeline<'a, const SYNC_MODE: bool = true> {
+pub struct Pipeline<'a, 'b, const SYNC_MODE: bool = true> {
     pub(crate) columns: VecDeque<&'a [Column]>,
-    pub(crate) buf: BytesMut,
+    pub(crate) buf: PipelineBuf<'b>,
 }
 
-fn _assert_pipe_send() {
-    crate::_assert_send2::<Pipeline<'_>>();
+pub(crate) enum PipelineBuf<'a> {
+    Borrowed(&'a mut BytesMut),
+    Owned(BytesMut),
 }
 
-impl Default for Pipeline<'_, true> {
-    fn default() -> Self {
-        Self::new()
+impl<'a, 'b, const SYNC_MODE: bool> Pipeline<'a, 'b, SYNC_MODE> {
+    // to_owned only do partial copy where references of columns are left untouched.
+    // this api is for the purpose of possible reuse/cache of pipeline buffer where encoded queries are stored.
+    pub(crate) fn to_owned(self) -> Pipeline<'a, 'static, SYNC_MODE> {
+        let Self { columns, buf } = self;
+
+        let buf = match buf {
+            PipelineBuf::Borrowed(buf) => PipelineBuf::Owned(BytesMut::from(buf.as_ref())),
+            PipelineBuf::Owned(buf) => PipelineBuf::Owned(buf),
+        };
+
+        Pipeline { columns, buf }
     }
 }
 
-impl Pipeline<'_, true> {
+impl Deref for PipelineBuf<'_> {
+    type Target = BytesMut;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(buf) => buf,
+            Self::Owned(ref buf) => buf,
+        }
+    }
+}
+
+impl DerefMut for PipelineBuf<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Borrowed(buf) => buf,
+            Self::Owned(ref mut buf) => buf,
+        }
+    }
+}
+
+fn _assert_pipe_send() {
+    crate::_assert_send2::<Pipeline<'_, '_>>();
+}
+
+impl<'b> Pipeline<'_, 'b, true> {
     /// start a new pipeline.
     ///
     /// pipeline is sync by default. which means every query inside is considered separate binding
@@ -73,7 +115,7 @@ impl Pipeline<'_, true> {
     }
 }
 
-impl Pipeline<'_, false> {
+impl Pipeline<'_, '_, false> {
     /// start a new un-sync pipeline.
     ///
     /// in un-sync mode pipeline treat all queries inside as one single binding and database server
@@ -87,26 +129,35 @@ impl Pipeline<'_, false> {
     }
 }
 
-impl<const SYNC_MODE: bool> Pipeline<'_, SYNC_MODE> {
+impl<const SYNC_MODE: bool> Pipeline<'_, '_, SYNC_MODE> {
     /// start a new pipeline with given capacity.
     /// capacity represent how many queries will be contained by a single pipeline. a determined cap
     /// can possibly reduce memory reallocation when constructing the pipeline.
     #[inline]
     pub fn with_capacity(cap: usize) -> Self {
-        Self::with_capacity_from_buf(cap, BytesMut::new())
-    }
-
-    #[doc(hidden)]
-    #[inline]
-    pub fn with_capacity_from_buf(cap: usize, buf: BytesMut) -> Self {
         Self {
             columns: VecDeque::with_capacity(cap),
-            buf,
+            buf: PipelineBuf::Owned(BytesMut::new()),
         }
     }
 }
 
-impl<'a, const SYNC_MODE: bool> Pipeline<'a, SYNC_MODE> {
+impl<'b, const SYNC_MODE: bool> Pipeline<'_, 'b, SYNC_MODE> {
+    #[doc(hidden)]
+    /// pipeline can be constructed from user supplied bytes buffer. buffer is clear when constructing a
+    /// new pipeline and after [Client::pipeline] method is executed it's ownership is released.
+    /// this api is for actively buffer reuse to reduce repeated heap memory allocation of executing pipeline.
+    #[inline]
+    pub fn with_capacity_from_buf(cap: usize, buf: &'b mut BytesMut) -> Self {
+        buf.clear();
+        Self {
+            columns: VecDeque::with_capacity(cap),
+            buf: PipelineBuf::Borrowed(buf),
+        }
+    }
+}
+
+impl<'a, const SYNC_MODE: bool> Pipeline<'a, '_, SYNC_MODE> {
     /// pipelined version of [Client::query] and [Client::execute]
     #[inline]
     pub fn query(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<(), Error> {
@@ -134,7 +185,7 @@ impl Client {
     /// execute the pipeline.
     pub fn pipeline<'a, const SYNC_MODE: bool>(
         &self,
-        mut pipe: Pipeline<'a, SYNC_MODE>,
+        mut pipe: Pipeline<'a, '_, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
         let Pipeline { columns, ref mut buf } = pipe;
         self._pipeline::<SYNC_MODE, true>(&columns, buf)
