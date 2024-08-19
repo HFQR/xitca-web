@@ -105,16 +105,26 @@ pub(crate) fn base_service() -> HttpService {
                             let mut _timer = Box::pin(tokio::time::sleep(timeout));
                             *req.version_mut() = version;
                             #[allow(unreachable_code)]
-                            return match _conn {
+                            return match _conn.conn {
                                 #[cfg(feature = "http2")]
                                 crate::connection::ConnectionShared::H2(ref mut conn) => {
-                                    let res = crate::h2::proto::send(conn, _date, core::mem::take(req))
+                                    match crate::h2::proto::send(conn, _date, core::mem::take(req))
                                         .timeout(_timer.as_mut())
                                         .await
-                                        .map_err(|_| TimeoutError::Request)??;
-
-                                    let timeout = client.timeout_config.response_timeout;
-                                    Ok(Response::new(res, _timer, timeout))
+                                    {
+                                        Ok(Ok(res)) => {
+                                            let timeout = client.timeout_config.response_timeout;
+                                            Ok(Response::new(res, _timer, timeout))
+                                        }
+                                        Ok(Err(e)) => {
+                                            _conn.destroy_on_drop();
+                                            Err(e.into())
+                                        }
+                                        Err(_) => {
+                                            _conn.destroy_on_drop();
+                                            Err(TimeoutError::Request.into())
+                                        }
+                                    }
                                 }
                                 #[cfg(feature = "http3")]
                                 crate::connection::ConnectionShared::H3(ref mut conn) => {
