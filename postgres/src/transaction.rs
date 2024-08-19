@@ -52,13 +52,13 @@ impl Transaction<'_> {
     }
 
     pub async fn commit(mut self) -> Result<(), Error> {
-        let res = self.client.encode_send_simple("COMMIT")?;
+        let res = self.client.send_encode_simple("COMMIT")?;
         self.state = State::Finish;
         res.try_into_ready().await
     }
 
     pub async fn rollback(mut self) -> Result<(), Error> {
-        let res = self.client.encode_send_simple("ROLLBACK")?;
+        let res = self.client.send_encode_simple("ROLLBACK")?;
         self.state = State::Finish;
         res.try_into_ready().await
     }
@@ -71,11 +71,9 @@ impl Transaction<'_> {
     }
 
     fn do_rollback(&mut self) {
-        if !self.client.closed() {
-            let res = self.client.try_buf_and_split(|b| frontend::query("ROLLBACK", b));
-            if let Ok(msg) = res {
-                self.client.do_send(msg);
-            }
-        }
+        let _ = self
+            .client
+            .tx
+            .send_with(|buf| frontend::query("ROLLBACK", buf).map_err(Into::into));
     }
 }

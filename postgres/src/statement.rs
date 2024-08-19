@@ -44,15 +44,11 @@ where
 
     fn cancel(&mut self) {
         if let Some(statement) = self.statement.take() {
-            if !self.client.closed() {
-                let res = self
-                    .client
-                    .try_buf_and_split(|b| frontend::close(b'S', &statement.name, b).map(|_| frontend::sync(b)));
-
-                if let Ok(msg) = res {
-                    self.client.do_send(msg);
-                }
-            }
+            let _ = self.client.tx.send_with(|buf| {
+                frontend::close(b'S', &statement.name, buf)?;
+                frontend::sync(buf);
+                Ok(())
+            });
         }
     }
 }

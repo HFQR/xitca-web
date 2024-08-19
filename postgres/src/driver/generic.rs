@@ -1,71 +1,105 @@
 use core::{
-    convert::Infallible,
     future::{poll_fn, Future},
     pin::Pin,
 };
 
-use std::{collections::VecDeque, io};
+use std::{
+    collections::VecDeque,
+    io,
+    sync::{Arc, Mutex},
+};
 
 use postgres_protocol::message::backend;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::Notify;
 use xitca_io::{
-    bytes::{BufInterest, BufRead, BufWrite, BytesMut, WriteBuf},
+    bytes::{Buf, BufRead, BytesMut},
     io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
-use crate::error::Error;
+use crate::error::{DriverDown, Error};
 
-use super::codec::{Request, Response, ResponseMessage, ResponseSender, SenderState};
+use super::codec::{Response, ResponseMessage, ResponseSender, SenderState};
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
-pub(crate) type DriverRx = UnboundedReceiver<Request>;
+pub(crate) struct DriverTx(Arc<SharedState>);
 
-#[derive(Debug)]
-pub(crate) struct DriverTx(UnboundedSender<Request>);
+impl Drop for DriverTx {
+    fn drop(&mut self) {
+        self.0.guarded.lock().unwrap().closed = true;
+        self.0.notify.notify_one();
+    }
+}
 
 impl DriverTx {
     pub(crate) fn is_closed(&self) -> bool {
-        self.0.is_closed()
+        Arc::strong_count(&self.0) == 1
     }
 
-    pub(crate) fn send(&self, msg: BytesMut) -> Result<Response, Error> {
-        self.send_multi(1, msg)
+    pub(crate) fn send_with<F>(&self, func: F) -> Result<Response, Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
+        self.send_multi_with(func, 1)
     }
 
-    pub(crate) fn send_multi(&self, msg_count: usize, msg: BytesMut) -> Result<Response, Error> {
-        let (tx, rx) = super::codec::request_pair(msg_count, msg);
-        self.0.send(tx)?;
+    pub(crate) fn send_multi_with<F>(&self, func: F, msg_count: usize) -> Result<Response, Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
+        let mut inner = self.0.guarded.lock().unwrap();
+
+        if inner.closed {
+            return Err(DriverDown.into());
+        }
+
+        let len = inner.buf.len();
+
+        func(&mut inner.buf).inspect_err(|_| inner.buf.truncate(len))?;
+        let (tx, rx) = super::codec::request_pair(msg_count);
+        inner.res.push_back(tx);
+        self.0.notify.notify_one();
+
         Ok(rx)
     }
+}
 
-    pub(crate) fn do_send(&self, msg: BytesMut) {
-        let _ = self.send(msg);
-    }
+pub(crate) struct SharedState {
+    guarded: Mutex<State>,
+    notify: Notify,
+}
+
+struct State {
+    closed: bool,
+    buf: BytesMut,
+    res: VecDeque<ResponseSender>,
 }
 
 pub struct GenericDriver<Io> {
     pub(crate) io: Io,
-    pub(crate) write_buf: WriteBuf,
     pub(crate) read_buf: PagedBytesMut,
     pub(crate) state: DriverState,
-    pub(crate) res: VecDeque<ResponseSender>,
+    pub(crate) shared_state: Arc<SharedState>,
+    write_state: WriteState,
+}
+
+// in case driver is dropped without closing the shared state
+impl<Io> Drop for GenericDriver<Io> {
+    fn drop(&mut self) {
+        self.shared_state.guarded.lock().unwrap().closed = true;
+    }
+}
+
+enum WriteState {
+    Waiting,
+    WantWrite,
+    WantFlush,
 }
 
 pub(crate) enum DriverState {
-    Running(DriverRx),
+    Running,
     Closing(Option<io::Error>),
-}
-
-#[cfg(feature = "io-uring")]
-impl DriverState {
-    pub(crate) fn take_rx(self) -> DriverRx {
-        match self {
-            Self::Running(rx) => rx,
-            _ => panic!("driver is closing. no rx can be handed out"),
-        }
-    }
 }
 
 impl<Io> GenericDriver<Io>
@@ -73,24 +107,37 @@ where
     Io: AsyncIo + Send,
 {
     pub(crate) fn new(io: Io) -> (Self, DriverTx) {
-        let (tx, rx) = unbounded_channel();
+        let state = Arc::new(SharedState {
+            guarded: Mutex::new(State {
+                closed: false,
+                buf: BytesMut::new(),
+                res: VecDeque::new(),
+            }),
+            notify: Notify::const_new(),
+        });
+
         (
             Self {
                 io,
-                write_buf: WriteBuf::new(),
                 read_buf: PagedBytesMut::new(),
-                res: VecDeque::new(),
-                state: DriverState::Running(rx),
+                state: DriverState::Running,
+                shared_state: state.clone(),
+                write_state: WriteState::Waiting,
             },
-            DriverTx(tx),
+            DriverTx(state),
         )
     }
 
+    fn want_write(&self) -> bool {
+        !matches!(self.write_state, WriteState::Waiting)
+    }
+
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
-        self.write_buf_extend(&msg);
+        self.shared_state.guarded.lock().unwrap().buf.extend_from_slice(&msg);
+        self.write_state = WriteState::WantWrite;
         loop {
             self.try_write()?;
-            if self.write_buf.is_empty() {
+            if !self.want_write() {
                 return Ok(());
             }
             self.io.ready(Interest::WRITABLE).await?;
@@ -107,16 +154,31 @@ where
                 return Ok(Some(msg));
             }
 
-            let interest = if self.write_buf.want_write_io() {
-                Interest::READABLE.add(Interest::WRITABLE)
+            let mut interest = if self.want_write() {
+                const { Interest::READABLE.add(Interest::WRITABLE) }
             } else {
                 Interest::READABLE
             };
 
-            let select = match self.state {
-                DriverState::Running(ref mut rx) => rx.recv().select(self.io.ready(interest)).await,
+            let ready = match self.state {
+                DriverState::Running => 'inner: loop {
+                    match self
+                        .shared_state
+                        .notify
+                        .notified()
+                        .select(self.io.ready(interest))
+                        .await
+                    {
+                        SelectOutput::A(_) => {
+                            self.write_state = WriteState::WantWrite;
+                            interest = interest.add(Interest::WRITABLE);
+                            continue 'inner;
+                        }
+                        SelectOutput::B(ready) => break ready?,
+                    }
+                },
                 DriverState::Closing(ref mut e) => {
-                    if !interest.is_writable() && self.res.is_empty() {
+                    if !interest.is_writable() && self.shared_state.guarded.lock().unwrap().res.is_empty() {
                         // no interest to write to io and all response have been finished so
                         // shutdown io and exit.
                         // if there is a better way to exhaust potential remaining backend message
@@ -124,35 +186,26 @@ where
                         poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
                         return e.take().map(|e| Err(e.into())).transpose();
                     }
-                    SelectOutput::B(self.io.ready(interest).await)
+                    self.io.ready(interest).await?
                 }
             };
 
-            match select {
-                // batch message and keep polling.
-                SelectOutput::A(Some(req)) => {
-                    self.write_buf_extend(req.msg.as_ref());
-                    self.res.push_back(req.tx);
-                }
-                SelectOutput::B(ready) => {
-                    let ready = ready?;
-                    if ready.is_readable() {
-                        self.try_read()?;
-                    }
-                    if ready.is_writable() {
-                        if let Err(e) = self.try_write() {
-                            // when write error occur the driver would go into half close state(read only).
-                            // clearing write_buf would drop all pending requests in it and hint the driver
-                            // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
-                            self.write_buf.clear();
+            if ready.is_readable() {
+                self.try_read()?;
+            }
 
-                            // enter closed state and no more request would be received from channel.
-                            // requests inside it would eventually be dropped after shutdown completed.
-                            self.state = DriverState::Closing(Some(e));
-                        }
-                    }
+            if ready.is_writable() {
+                if let Err(e) = self.try_write() {
+                    // when write error occur the driver would go into half close state(read only).
+                    // clearing write_buf would drop all pending requests in it and hint the driver
+                    // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
+                    let mut inner = self.shared_state.guarded.lock().unwrap();
+                    inner.buf.clear();
+                    // close shared state early so driver tx can observe the shutdown in first hand
+                    inner.closed = true;
+                    self.write_state = WriteState::Waiting;
+                    self.state = DriverState::Closing(Some(e));
                 }
-                SelectOutput::A(None) => self.state = DriverState::Closing(None),
             }
         }
     }
@@ -170,29 +223,64 @@ where
         }
     }
 
-    fn write_buf_extend(&mut self, buf: &[u8]) {
-        let _ = self.write_buf.write_buf(|w| {
-            w.extend_from_slice(buf);
-            Ok::<_, Infallible>(())
-        });
-    }
-
     fn try_read(&mut self) -> Result<(), Error> {
         self.read_buf.do_io(&mut self.io).map_err(Into::into)
     }
 
     fn try_write(&mut self) -> io::Result<()> {
-        self.write_buf.do_io(&mut self.io)
+        loop {
+            match self.write_state {
+                WriteState::WantFlush => {
+                    match io::Write::flush(&mut self.io) {
+                        Ok(_) => self.write_state = WriteState::Waiting,
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(e) => return Err(e),
+                    }
+                    break;
+                }
+                WriteState::WantWrite => {
+                    let mut inner = self.shared_state.guarded.lock().unwrap();
+
+                    if inner.closed {
+                        if matches!(self.state, DriverState::Running) {
+                            self.state = DriverState::Closing(None);
+                        }
+
+                        if inner.buf.is_empty() {
+                            self.write_state = WriteState::WantFlush;
+                            continue;
+                        }
+                    }
+
+                    match io::Write::write(&mut self.io, &inner.buf) {
+                        Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                        Ok(n) => {
+                            inner.buf.advance(n);
+
+                            if inner.buf.is_empty() {
+                                self.write_state = WriteState::WantFlush;
+                            }
+                        }
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(e) => return Err(e),
+                    }
+                }
+                WriteState::Waiting => unreachable!("try_write must be called when WriteState is waiting"),
+            }
+        }
+
+        Ok(())
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
-                    let front = self.res.front_mut().expect("server respond out of bound");
+                    let mut inner = self.shared_state.guarded.lock().unwrap();
+                    let front = inner.res.front_mut().expect("server respond out of bound");
                     match front.send(buf, complete) {
                         SenderState::Finish => {
-                            self.res.pop_front();
+                            inner.res.pop_front();
                         }
                         SenderState::Continue => {}
                     }

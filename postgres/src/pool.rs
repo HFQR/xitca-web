@@ -1,22 +1,23 @@
-use core::{future::IntoFuture, sync::atomic::Ordering};
+use core::{
+    future::{Future, IntoFuture},
+    sync::atomic::Ordering,
+};
 
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 
-use postgres_types::{BorrowToSql, ToSql, Type};
 use tokio::sync::{Notify, RwLock, RwLockReadGuard};
-use xitca_io::bytes::BytesMut;
+use xitca_service::pipeline::PipelineE;
 
 use crate::{
     client::Client,
-    column::Column,
     config::Config,
     driver::connect,
-    error::{DriverDown, Error},
+    error::Error,
     iter::slice_iter,
     pipeline::{Pipeline, PipelineStream},
     statement::{Statement, StatementGuarded},
     util::lock::Lock,
-    RowSimpleStream, RowStream,
+    BorrowToSql, RowSimpleStream, RowStream, ToSql, Type,
 };
 
 /// a shared connection for non transaction queries and [Statement] cache live as long as the connection itself.
@@ -130,63 +131,71 @@ impl SharedClient {
 
     pub async fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator,
+        I: IntoIterator + Clone,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
         let cli = self.read().await;
-        match cli.query_raw(stmt, params).await {
+        match cli.query_raw(stmt, params.clone()).await {
             Ok(res) => Ok(res),
             Err(err) => {
                 drop(cli);
-                Box::pin(self.query_raw_slow(stmt, err)).await
-            }
-        }
-    }
-
-    async fn query_raw_slow<'a>(&self, stmt: &'a Statement, mut err: Error) -> Result<RowStream<'a>, Error> {
-        let mut buf;
-
-        loop {
-            match err.if_driver_down() {
-                Some(DriverDown(b)) => buf = b,
-                None => return Err(err),
-            }
-
-            self.reconnect().await;
-
-            match self.read().await.query_buf(stmt, buf).await {
-                Ok(res) => return Ok(res),
-                Err(e) => err = e,
+                Box::pin(self.query_raw_slow(stmt, params, err)).await
             }
         }
     }
 
     #[cold]
     #[inline(never)]
+    async fn query_raw_slow<'a, I>(
+        &self,
+        stmt: &'a Statement,
+        params: I,
+        mut err: Error,
+    ) -> Result<RowStream<'a>, Error>
+    where
+        I: IntoIterator + Clone,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: BorrowToSql,
+    {
+        loop {
+            if !err.is_driver_down() {
+                return Err(err);
+            }
+
+            self.reconnect().await;
+
+            match self.read().await.query_raw(stmt, params.clone()).await {
+                Ok(res) => return Ok(res),
+                Err(e) => err = e,
+            }
+        }
+    }
+
     pub async fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         let cli = self.read().await;
         match cli.query_simple(stmt) {
             Ok(res) => Ok(res),
-            Err(mut e) => match e.if_driver_down() {
-                Some(DriverDown(buf)) => {
-                    drop(cli);
-                    Box::pin(self.query_simple_slow(buf)).await
-                }
-                None => Err(e),
-            },
+            Err(e) => {
+                drop(cli);
+                Box::pin(self.query_simple_slow(stmt, e)).await
+            }
         }
     }
 
-    async fn query_simple_slow(&self, mut buf: BytesMut) -> Result<RowSimpleStream, Error> {
+    #[cold]
+    #[inline(never)]
+    async fn query_simple_slow(&self, stmt: &str, mut err: Error) -> Result<RowSimpleStream, Error> {
         loop {
+            if !err.is_driver_down() {
+                return Err(err);
+            }
+
             self.reconnect().await;
-            match self.read().await.query_buf_simple(buf) {
+
+            match self.read().await.query_simple(stmt) {
                 Ok(res) => return Ok(res),
-                Err(mut e) => match e.if_driver_down() {
-                    Some(DriverDown(b)) => buf = b,
-                    None => return Err(e),
-                },
+                Err(e) => err = e,
             }
         }
     }
@@ -200,8 +209,8 @@ impl SharedClient {
             let cli = self.read().await;
             match cli._prepare(query, types).await {
                 Ok(stmt) => return Ok(stmt.into_guarded(cli)),
-                Err(mut e) => {
-                    if e.if_driver_down().is_none() {
+                Err(e) => {
+                    if !e.is_driver_down() {
                         return Err(e);
                     }
                     drop(cli);
@@ -258,49 +267,84 @@ impl SharedClient {
 }
 
 impl SharedClient {
-    pub async fn pipeline<'a, const SYNC_MODE: bool>(
+    #[cfg(not(feature = "single-thread"))]
+    pub fn pipeline<'a, 's, 'f, const SYNC_MODE: bool>(
+        &'s self,
+        pipe: Pipeline<'a, '_, SYNC_MODE>,
+    ) -> impl Future<Output = Result<PipelineStream<'a>, Error>> + Send + 'f
+    where
+        'a: 'f,
+        's: 'f,
+    {
+        let opt = match self.inner.try_read() {
+            Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
+            Err(_) => PipelineE::Second(pipe.to_owned()),
+        };
+
+        async {
+            match opt {
+                PipelineE::First(res) => res,
+                PipelineE::Second(pipe) => Box::pin(self.pipeline_slow(pipe)).await,
+            }
+        }
+    }
+
+    #[cfg(feature = "single-thread")]
+    pub fn pipeline<'a, 's, 'f, const SYNC_MODE: bool>(
+        &'s self,
+        pipe: Pipeline<'a, '_, SYNC_MODE>,
+    ) -> impl Future<Output = Result<PipelineStream<'a>, Error>> + 'f
+    where
+        'a: 'f,
+        's: 'f,
+    {
+        let opt = match self.inner.try_read() {
+            Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
+            Err(_) => PipelineE::Second(pipe.to_owned()),
+        };
+
+        async {
+            match opt {
+                PipelineE::First(res) => res,
+                PipelineE::Second(pipe) => Box::pin(self.pipeline_slow(pipe)).await,
+            }
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    async fn pipeline_slow<'a, const SYNC_MODE: bool>(
         &self,
-        pipe: Pipeline<'a, SYNC_MODE>,
+        pipe: Pipeline<'a, '_, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
-        let Pipeline { columns, buf } = pipe;
+        let Pipeline { columns, mut buf } = pipe;
         let cli = self.read().await;
-        match cli._pipeline::<SYNC_MODE>(&columns, buf) {
+        match cli._pipeline::<SYNC_MODE, true>(&columns, &mut *buf) {
             Ok(res) => Ok(PipelineStream {
                 res,
                 columns,
                 ranges: Vec::new(),
             }),
-            Err(err) => {
+            Err(mut err) => {
                 drop(cli);
-                Box::pin(self.pipeline_slow::<SYNC_MODE>(columns, err)).await
-            }
-        }
-    }
+                loop {
+                    if !err.is_driver_down() {
+                        return Err(err);
+                    }
 
-    async fn pipeline_slow<'a, const SYNC_MODE: bool>(
-        &self,
-        columns: VecDeque<&'a [Column]>,
-        mut err: Error,
-    ) -> Result<crate::pipeline::PipelineStream<'a>, Error> {
-        let mut buf;
+                    self.reconnect().await;
 
-        loop {
-            match err.if_driver_down() {
-                Some(DriverDown(b)) => buf = b,
-                None => return Err(err),
-            }
-
-            self.reconnect().await;
-
-            match self.read().await._pipeline_no_additive_sync::<SYNC_MODE>(&columns, buf) {
-                Ok(res) => {
-                    return Ok(crate::pipeline::PipelineStream {
-                        res,
-                        columns,
-                        ranges: Vec::new(),
-                    })
+                    match self.read().await._pipeline::<SYNC_MODE, false>(&columns, &mut buf) {
+                        Ok(res) => {
+                            return Ok(PipelineStream {
+                                res,
+                                columns,
+                                ranges: Vec::new(),
+                            })
+                        }
+                        Err(e) => err = e,
+                    }
                 }
-                Err(e) => err = e,
             }
         }
     }

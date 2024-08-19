@@ -318,7 +318,7 @@ mod context;
 pub use catch_unwind::CatchUnwind;
 pub use context::WebContext;
 pub use xitca_http::util::middleware::Extension;
-pub use xitca_service::middleware::{Group, UncheckedReady};
+pub use xitca_service::middleware::{AsyncFn, Group, UncheckedReady};
 
 #[cfg(test)]
 mod test {

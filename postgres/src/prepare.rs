@@ -8,11 +8,11 @@ use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
-use xitca_io::bytes::BytesMut;
 
 use crate::{
     client::Client,
     column::Column,
+    driver::codec::Response,
     error::Error,
     iter::AsyncLendingIterator,
     statement::{Statement, StatementGuarded},
@@ -40,9 +40,7 @@ impl Client {
     pub(crate) async fn prepare_with_id(&self, id: usize, query: &str, types: &[Type]) -> Result<Statement, Error> {
         let name = format!("s{id}");
 
-        let buf = self.prepare_buf(name.as_str(), query, types)?;
-
-        let mut res = self.send(buf)?;
+        let mut res = self.send_prepare(name.as_str(), query, types)?;
 
         match res.recv().await? {
             backend::Message::ParseComplete => {}
@@ -216,14 +214,14 @@ impl Client {
         Ok(stmt)
     }
 
-    fn prepare_buf(&self, name: &str, query: &str, types: &[Type]) -> Result<BytesMut, Error> {
+    fn send_prepare(&self, name: &str, query: &str, types: &[Type]) -> Result<Response, Error> {
         if types.is_empty() {
             debug!("preparing query {}: {}", name, query);
         } else {
             debug!("preparing query {} with types {:?}: {}", name, types, query);
         }
 
-        self.try_buf_and_split(|buf| {
+        self.tx.send_with(|buf| {
             frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
             frontend::describe(b'S', name, buf)?;
             frontend::sync(buf);

@@ -8,6 +8,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+# https://github.com/cloudflare/workers-rs/issues/617
+wasm-bindgen = "=0.2.92"
+
 xitca-web = { version = "0.6", default-features = false }
 xitca-unsafe-collection = "0.2"
 
@@ -20,8 +23,3 @@ worker = { version = "0.3.0", features = ["http"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
-
-[profile.release]
-lto = true
-strip = true
-codegen-units = 1

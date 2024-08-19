@@ -9,7 +9,7 @@ use tokio::sync::Notify;
 
 #[doc(hidden)]
 pub struct Pool<K, C> {
-    conns: Mutex<HashMap<K, Connection<C>>>,
+    conns: Mutex<HashMap<K, PooledConnection<C>>>,
 }
 
 impl<K, C> Pool<K, C>
@@ -32,11 +32,18 @@ where
             let notify = {
                 let mut conns = self.conns.lock().unwrap();
                 match conns.get(&key) {
-                    Some(Connection::Conn(c)) => return AcquireOutput::Conn(c.clone()),
-                    Some(Connection::Spawning(notify)) => notify.clone(),
+                    Some(PooledConnection::Conn(c)) => {
+                        return AcquireOutput::Conn(Conn {
+                            pool: self,
+                            key,
+                            conn: c.clone(),
+                            destroy_on_drop: false,
+                        })
+                    }
+                    Some(PooledConnection::Spawning(notify)) => notify.clone(),
                     None => {
                         let notify = Arc::new(Notify::new());
-                        conns.insert(key.clone(), Connection::Spawning(notify.clone()));
+                        conns.insert(key.clone(), PooledConnection::Spawning(notify.clone()));
                         return AcquireOutput::Spawner(Spawner {
                             pool: self,
                             key,
@@ -51,7 +58,7 @@ where
     }
 }
 
-enum Connection<C> {
+enum PooledConnection<C> {
     Conn(C),
     Spawning(Arc<Notify>),
 }
@@ -60,8 +67,18 @@ pub(crate) enum AcquireOutput<'a, K, C>
 where
     K: Eq + Hash + Clone,
 {
-    Conn(C),
+    Conn(Conn<'a, K, C>),
     Spawner(Spawner<'a, K, C>),
+}
+
+pub(crate) struct Conn<'a, K, C>
+where
+    K: Eq + Hash + Clone,
+{
+    pool: &'a Pool<K, C>,
+    key: K,
+    pub(crate) conn: C,
+    destroy_on_drop: bool,
 }
 
 pub(crate) struct Spawner<'a, K, C>
@@ -72,6 +89,20 @@ where
     key: K,
     notify: Arc<Notify>,
     fulfilled: bool,
+}
+
+impl<K, C> Drop for Conn<'_, K, C>
+where
+    K: Eq + Hash + Clone,
+{
+    fn drop(&mut self) {
+        if self.destroy_on_drop {
+            let mut conns = self.pool.conns.lock().unwrap();
+            if matches!(conns.get(&self.key), Some(PooledConnection::Conn(_))) {
+                conns.remove(&self.key);
+            }
+        }
+    }
 }
 
 impl<K, C> Drop for Spawner<'_, K, C>
@@ -93,14 +124,23 @@ where
 {
     pub(crate) fn spawned(mut self, conn: C) {
         self.fulfilled = true;
-        if let Some(Connection::Spawning(notify)) = self
+        if let Some(PooledConnection::Spawning(notify)) = self
             .pool
             .conns
             .lock()
             .unwrap()
-            .insert(self.key.clone(), Connection::Conn(conn))
+            .insert(self.key.clone(), PooledConnection::Conn(conn))
         {
             notify.notify_waiters();
         }
+    }
+}
+
+impl<K, C> Conn<'_, K, C>
+where
+    K: Eq + Hash + Clone,
+{
+    pub(crate) fn destroy_on_drop(&mut self) {
+        self.destroy_on_drop = true;
     }
 }
