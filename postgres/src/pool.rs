@@ -277,7 +277,7 @@ impl SharedClient {
     where
         'a: 'f,
         's: 'f,
-        B: DerefMut<Target = BytesMut> + Into<Owned> + Send + 'f,
+        B: DerefMut<Target = BytesMut> + Into<Owned>,
     {
         let opt = match self.inner.try_read() {
             Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
@@ -300,7 +300,7 @@ impl SharedClient {
     where
         'a: 'f,
         's: 'f,
-        B: DerefMut<Target = BytesMut> + Into<Owned> + 'f,
+        B: DerefMut<Target = BytesMut> + Into<Owned>,
     {
         let opt = match self.inner.try_read() {
             Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
