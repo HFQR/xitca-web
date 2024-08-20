@@ -263,7 +263,7 @@ impl<'a> PipelineStream<'a> {
     }
 }
 
-type Ranges = Vec<Option<Range<usize>>>;
+type Ranges = Vec<Range<usize>>;
 
 struct Columns<'a> {
     columns: Vec<&'a [Column]>,

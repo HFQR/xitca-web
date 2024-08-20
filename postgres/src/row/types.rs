@@ -29,7 +29,7 @@ mod marker {
 pub struct GenericRow<'a, M> {
     columns: &'a [Column],
     body: DataRowBody,
-    ranges: &'a mut Vec<Option<Range<usize>>>,
+    ranges: &'a mut Vec<Range<usize>>,
     _marker: PhantomData<M>,
 }
 
@@ -43,7 +43,7 @@ impl<'a, C> GenericRow<'a, C> {
     pub(crate) fn try_new(
         columns: &'a [Column],
         body: DataRowBody,
-        ranges: &'a mut Vec<Option<Range<usize>>>,
+        ranges: &'a mut Vec<Range<usize>>,
     ) -> Result<Self, Error> {
         let mut iter = body.ranges();
 
@@ -51,7 +51,13 @@ impl<'a, C> GenericRow<'a, C> {
         ranges.reserve(iter.size_hint().0);
 
         while let Some(range) = iter.next()? {
-            ranges.push(range);
+            // when unwraping the Range an impossible value is used to represent nullable pg value offsets
+            // inside row's raw data buffer.
+            // when impossible range is used to slice a data collection(&[u8] in this case) through a safe
+            // Rust API(`<&[u8]>::get(Range<usize>)` in this case) it always produce Option type where the
+            // None variant can be used as final output of nullable pg value.
+            // this saves 8 bytes per range storage
+            ranges.push(range.unwrap_or(Range { start: 1, end: 0 }));
         }
 
         Ok(Self {
@@ -80,7 +86,8 @@ impl<'a, C> GenericRow<'a, C> {
 
     // Get the raw bytes for the column at the given index.
     fn col_buffer(&self, idx: usize) -> Option<(&Range<usize>, &Bytes)> {
-        self.ranges[idx].as_ref().map(|r| (r, self.body.buffer_bytes()))
+        let range = &self.ranges[idx];
+        (!range.is_empty()).then(|| (range, self.body.buffer_bytes()))
     }
 
     fn get_idx_ty(
@@ -114,7 +121,7 @@ impl Row<'_> {
     where
         T: FromSqlExt<'s>,
     {
-        self.try_get(&idx)
+        self.try_get(idx)
             .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
     }
 
@@ -133,7 +140,7 @@ impl Row<'_> {
     where
         T: FromSql<'s>,
     {
-        self.try_get_raw(&idx)
+        self.try_get_raw(idx)
             .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
     }
 
@@ -144,11 +151,7 @@ impl Row<'_> {
         T: FromSql<'s>,
     {
         let (idx, ty) = self.get_idx_ty(idx, T::accepts)?;
-        FromSql::from_sql_nullable(
-            ty,
-            self.ranges[idx].as_ref().map(|r| &self.body.buffer()[r.start..r.end]),
-        )
-        .map_err(Into::into)
+        FromSql::from_sql_nullable(ty, self.body.buffer().get(self.ranges[idx].clone())).map_err(Into::into)
     }
 }
 
@@ -161,7 +164,7 @@ impl RowSimple<'_> {
     ///
     /// Panics if the index is out of bounds or if the value cannot be converted to the specified type.
     pub fn get(&self, idx: impl RowIndexAndType + fmt::Display) -> Option<&str> {
-        self.try_get(&idx)
+        self.try_get(idx)
             .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
     }
 
@@ -170,4 +173,10 @@ impl RowSimple<'_> {
         let (idx, ty) = self.get_idx_ty(idx, <&str as FromSqlExt>::accepts)?;
         FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
     }
+}
+
+fn _try_get_usize(row: Row) {
+    let _ = row.try_get::<u32>(0);
+    let _ = row.try_get::<&str>("test");
+    let _ = row.try_get_raw::<String>(String::from("get_raw").as_str());
 }
