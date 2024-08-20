@@ -324,11 +324,7 @@ impl SharedClient {
         let Pipeline { columns, ref mut buf } = pipe;
         let cli = self.read().await;
         match cli._pipeline::<SYNC_MODE, true>(&columns, buf) {
-            Ok(res) => Ok(PipelineStream {
-                res,
-                columns,
-                ranges: Vec::new(),
-            }),
+            Ok(res) => Ok(PipelineStream::new(res, columns)),
             Err(mut err) => {
                 drop(cli);
                 loop {
@@ -339,13 +335,7 @@ impl SharedClient {
                     self.reconnect().await;
 
                     match self.read().await._pipeline::<SYNC_MODE, false>(&columns, buf) {
-                        Ok(res) => {
-                            return Ok(PipelineStream {
-                                res,
-                                columns,
-                                ranges: Vec::new(),
-                            })
-                        }
+                        Ok(res) => return Ok(PipelineStream::new(res, columns)),
                         Err(e) => err = e,
                     }
                 }

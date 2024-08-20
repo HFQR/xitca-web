@@ -1,7 +1,5 @@
 use core::ops::{Deref, DerefMut, Range};
 
-use std::collections::VecDeque;
-
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
 
@@ -51,7 +49,7 @@ use super::{
 /// }
 /// ```
 pub struct Pipeline<'a, B = Owned, const SYNC_MODE: bool = true> {
-    pub(crate) columns: VecDeque<&'a [Column]>,
+    pub(crate) columns: Vec<&'a [Column]>,
     // type for either owned or borrowed bytes buffer.
     pub(crate) buf: B,
 }
@@ -159,7 +157,7 @@ impl<const SYNC_MODE: bool> Pipeline<'_, Owned, SYNC_MODE> {
     #[inline]
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            columns: VecDeque::with_capacity(cap),
+            columns: Vec::with_capacity(cap),
             buf: Owned(BytesMut::new()),
         }
     }
@@ -174,7 +172,7 @@ impl<'b, const SYNC_MODE: bool> Pipeline<'_, Borrowed<'b>, SYNC_MODE> {
     pub fn with_capacity_from_buf(cap: usize, buf: &'b mut BytesMut) -> Self {
         buf.clear();
         Self {
-            columns: VecDeque::with_capacity(cap),
+            columns: Vec::with_capacity(cap),
             buf: Borrowed(buf),
         }
     }
@@ -201,7 +199,7 @@ where
         stmt.params_assert(&params);
         let len = self.buf.len();
         crate::query::encode::encode_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params)
-            .map(|_| self.columns.push_back(stmt.columns()))
+            .map(|_| self.columns.push(stmt.columns()))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| self.buf.truncate(len))
     }
@@ -218,16 +216,12 @@ impl Client {
     {
         let Pipeline { columns, ref mut buf } = pipe;
         self._pipeline::<SYNC_MODE, true>(&columns, buf)
-            .map(|res| PipelineStream {
-                res,
-                columns,
-                ranges: Vec::new(),
-            })
+            .map(|res| PipelineStream::new(res, columns))
     }
 
     pub(crate) fn _pipeline<const SYNC_MODE: bool, const ENCODE_SYNC: bool>(
         &self,
-        columns: &VecDeque<&[Column]>,
+        columns: &[&[Column]],
         buf: &mut BytesMut,
     ) -> Result<Response, Error> {
         assert!(!buf.is_empty());
@@ -254,27 +248,59 @@ impl Client {
 /// streaming response of pipeline.
 /// impl [AsyncLendingIterator] trait and can be collected asynchronously.
 pub struct PipelineStream<'a> {
-    pub(crate) res: Response,
-    pub(crate) columns: VecDeque<&'a [Column]>,
-    pub(crate) ranges: Vec<Option<Range<usize>>>,
+    res: Response,
+    columns: Columns<'a>,
+    ranges: Ranges,
+}
+
+impl<'a> PipelineStream<'a> {
+    pub(crate) const fn new(res: Response, columns: Vec<&'a [Column]>) -> Self {
+        Self {
+            res,
+            columns: Columns { columns, next: 0 },
+            ranges: Vec::new(),
+        }
+    }
+}
+
+type Ranges = Vec<Option<Range<usize>>>;
+
+struct Columns<'a> {
+    columns: Vec<&'a [Column]>,
+    next: usize,
+}
+
+impl<'a> Columns<'a> {
+    // only move the cursor by one.
+    // column references will be removed when pipeline stream is dropped.
+    fn pop_front(&mut self) -> &'a [Column] {
+        let off = self.next;
+        self.next += 1;
+        self.columns[off]
+    }
+
+    fn len(&self) -> usize {
+        self.columns.len() - self.next
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl<'a> AsyncLendingIterator for PipelineStream<'a> {
-    type Ok<'i> = PipelineItem<'i, 'a> where Self: 'i;
+    type Ok<'i> = PipelineItem<'i> where Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
         while !self.columns.is_empty() {
             match self.res.recv().await? {
                 backend::Message::BindComplete => {
-                    let columns = self
-                        .columns
-                        .pop_front()
-                        .expect("PipelineItem must not overflow PipelineStream's columns array");
                     return Ok(Some(PipelineItem {
                         finished: false,
-                        stream: self,
-                        columns,
+                        res: &mut self.res,
+                        ranges: &mut self.ranges,
+                        columns: self.columns.pop_front(),
                     }));
                 }
                 backend::Message::DataRow(_) | backend::Message::CommandComplete(_) => {
@@ -298,13 +324,14 @@ impl<'a> AsyncLendingIterator for PipelineStream<'a> {
 
 /// streaming item of certain query inside pipeline's [PipelineStream].
 /// impl [AsyncLendingIterator] and can be used to collect [Row] from item.
-pub struct PipelineItem<'a, 'c> {
+pub struct PipelineItem<'a> {
     finished: bool,
-    stream: &'a mut PipelineStream<'c>,
+    res: &'a mut Response,
+    ranges: &'a mut Ranges,
     columns: &'a [Column],
 }
 
-impl PipelineItem<'_, '_> {
+impl PipelineItem<'_> {
     /// collect rows affected by this pipelined query. [Row] information will be ignored.
     ///
     /// # Panic
@@ -313,7 +340,7 @@ impl PipelineItem<'_, '_> {
     pub async fn row_affected(mut self) -> Result<u64, Error> {
         assert!(!self.finished, "PipelineItem has already finished");
         loop {
-            match self.stream.res.recv().await? {
+            match self.res.recv().await? {
                 backend::Message::DataRow(_) => {}
                 backend::Message::CommandComplete(body) => {
                     self.finished = true;
@@ -325,15 +352,15 @@ impl PipelineItem<'_, '_> {
     }
 }
 
-impl AsyncLendingIterator for PipelineItem<'_, '_> {
+impl AsyncLendingIterator for PipelineItem<'_> {
     type Ok<'i> = Row<'i> where Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
         if !self.finished {
-            match self.stream.res.recv().await? {
+            match self.res.recv().await? {
                 backend::Message::DataRow(body) => {
-                    return Row::try_new(self.columns, body, &mut self.stream.ranges).map(Some);
+                    return Row::try_new(self.columns, body, self.ranges).map(Some);
                 }
                 backend::Message::CommandComplete(_) => self.finished = true,
                 _ => return Err(Error::unexpected()),
