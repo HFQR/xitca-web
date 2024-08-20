@@ -2,6 +2,7 @@
 ## Add
 - add default impl to `handler::state::BorrowState` trait for `Box`, `Rc` and `Arc` types
 - add `middleware::WebContext`
+- add `WebContext::extract` method
 
 ## Change
 - revert `handler::state::BorrowState` change from `0.6.2`

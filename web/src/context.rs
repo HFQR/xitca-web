@@ -7,6 +7,7 @@ use core::{
 
 use super::{
     body::{RequestBody, ResponseBody},
+    handler::FromRequest,
     http::{BorrowReq, BorrowReqMut, IntoResponse, Request, RequestExt, WebRequest, WebResponse},
 };
 
@@ -52,6 +53,30 @@ impl<'a, C, B> WebContext<'a, C, B> {
             body: self.body,
             ctx: self.ctx,
         }
+    }
+
+    /// extract typed data from WebContext. type must impl [FromRequest] trait.
+    /// this is a shortcut method that avoiding explicit import of mentioned trait.
+    /// # Examples
+    /// ```rust
+    /// # use xitca_web::{handler::state::StateRef, WebContext};
+    /// async fn extract(ctx: WebContext<'_, usize>) {
+    ///     // extract state from context.
+    ///     let StateRef(state1) = ctx.extract().await.unwrap();
+    ///
+    ///     // equivalent of above method with explicit trait import.
+    ///     use xitca_web::handler::FromRequest;
+    ///     let StateRef(state2) = StateRef::<'_, usize>::from_request(&ctx).await.unwrap();
+    ///
+    ///     // two extractors will return the same type and data state.
+    ///     assert_eq!(state1, state2);
+    /// }
+    /// ```
+    pub async fn extract<'r, T>(&'r self) -> Result<T, T::Error>
+    where
+        T: FromRequest<'r, Self>,
+    {
+        T::from_request(self).await
     }
 
     /// Get an immutable reference of App state
@@ -176,5 +201,30 @@ impl<C> WebContext<'_, C> {
             body: RefCell::new(RequestBody::None),
             ctx,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use xitca_unsafe_collection::futures::NowOrPanic;
+
+    use super::*;
+
+    #[test]
+    fn extract() {
+        use crate::handler::{path::PathRef, state::StateRef};
+
+        let mut ctx = WebContext::new_test(996usize);
+        let mut ctx = ctx.as_web_ctx();
+
+        *ctx.req_mut().uri_mut() = crate::http::Uri::from_static("/foo");
+
+        let StateRef(state) = ctx.extract().now_or_panic().ok().unwrap();
+
+        assert_eq!(*state, 996);
+
+        let PathRef(path) = ctx.extract().now_or_panic().ok().unwrap();
+
+        assert_eq!(path, "/foo");
     }
 }
