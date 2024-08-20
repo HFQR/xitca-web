@@ -50,56 +50,79 @@ use super::{
 ///     Ok(())
 /// }
 /// ```
-pub struct Pipeline<'a, 'b, const SYNC_MODE: bool = true> {
+pub struct Pipeline<'a, B = Owned, const SYNC_MODE: bool = true> {
     pub(crate) columns: VecDeque<&'a [Column]>,
-    pub(crate) buf: PipelineBuf<'b>,
+    // type for either owned or borrowed bytes buffer.
+    pub(crate) buf: B,
 }
 
-pub(crate) enum PipelineBuf<'a> {
-    Borrowed(&'a mut BytesMut),
-    Owned(BytesMut),
-}
+/// borrowed bytes buffer supplied by api caller
+pub struct Borrowed<'a>(&'a mut BytesMut);
 
-impl<'a, 'b, const SYNC_MODE: bool> Pipeline<'a, 'b, SYNC_MODE> {
-    // to_owned only do partial copy where references of columns are left untouched.
-    // this api is for the purpose of possible reuse/cache of pipeline buffer where encoded queries are stored.
-    pub(crate) fn to_owned(self) -> Pipeline<'a, 'static, SYNC_MODE> {
-        let Self { columns, buf } = self;
+/// owned bytes buffer created by [Pipeline]
+pub struct Owned(BytesMut);
 
-        let buf = match buf {
-            PipelineBuf::Borrowed(buf) => PipelineBuf::Owned(BytesMut::from(buf.as_ref())),
-            PipelineBuf::Owned(buf) => PipelineBuf::Owned(buf),
-        };
-
-        Pipeline { columns, buf }
-    }
-}
-
-impl Deref for PipelineBuf<'_> {
+impl Deref for Borrowed<'_> {
     type Target = BytesMut;
 
     fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Borrowed(buf) => buf,
-            Self::Owned(ref buf) => buf,
-        }
+        self.0
     }
 }
 
-impl DerefMut for PipelineBuf<'_> {
+impl DerefMut for Borrowed<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Borrowed(buf) => buf,
-            Self::Owned(ref mut buf) => buf,
+        self.0
+    }
+}
+
+impl Deref for Owned {
+    type Target = BytesMut;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Owned {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a> From<Borrowed<'a>> for Owned {
+    fn from(buf: Borrowed<'a>) -> Self {
+        Self(BytesMut::from(buf.as_ref()))
+    }
+}
+
+impl<'a, B, const SYNC_MODE: bool> Pipeline<'a, B, SYNC_MODE>
+where
+    B: Into<Owned>,
+{
+    // partial copy where references of columns are left untouched.
+    // this api is for the purpose of possible reuse/cache of pipeline buffer where encoded queries are stored.
+    pub(crate) fn into_owned(self) -> Pipeline<'a, Owned, SYNC_MODE> {
+        let Self { columns, buf } = self;
+        Pipeline {
+            columns,
+            buf: buf.into(),
         }
     }
 }
 
 fn _assert_pipe_send() {
-    crate::_assert_send2::<Pipeline<'_, '_>>();
+    crate::_assert_send2::<Pipeline<'_, Owned>>();
+    crate::_assert_send2::<Pipeline<'_, Borrowed<'_>>>();
 }
 
-impl<'b> Pipeline<'_, 'b, true> {
+impl Default for Pipeline<'_, Owned, true> {
+    fn default() -> Self {
+        unimplemented!("Please use Pipeline::new or Pipeline::unsync")
+    }
+}
+
+impl Pipeline<'_, Owned, true> {
     /// start a new pipeline.
     ///
     /// pipeline is sync by default. which means every query inside is considered separate binding
@@ -115,7 +138,7 @@ impl<'b> Pipeline<'_, 'b, true> {
     }
 }
 
-impl Pipeline<'_, '_, false> {
+impl Pipeline<'_, Owned, false> {
     /// start a new un-sync pipeline.
     ///
     /// in un-sync mode pipeline treat all queries inside as one single binding and database server
@@ -129,7 +152,7 @@ impl Pipeline<'_, '_, false> {
     }
 }
 
-impl<const SYNC_MODE: bool> Pipeline<'_, '_, SYNC_MODE> {
+impl<const SYNC_MODE: bool> Pipeline<'_, Owned, SYNC_MODE> {
     /// start a new pipeline with given capacity.
     /// capacity represent how many queries will be contained by a single pipeline. a determined cap
     /// can possibly reduce memory reallocation when constructing the pipeline.
@@ -137,12 +160,12 @@ impl<const SYNC_MODE: bool> Pipeline<'_, '_, SYNC_MODE> {
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             columns: VecDeque::with_capacity(cap),
-            buf: PipelineBuf::Owned(BytesMut::new()),
+            buf: Owned(BytesMut::new()),
         }
     }
 }
 
-impl<'b, const SYNC_MODE: bool> Pipeline<'_, 'b, SYNC_MODE> {
+impl<'b, const SYNC_MODE: bool> Pipeline<'_, Borrowed<'b>, SYNC_MODE> {
     #[doc(hidden)]
     /// pipeline can be constructed from user supplied bytes buffer. buffer is clear when constructing a
     /// new pipeline and after [Client::pipeline] method is executed it's ownership is released.
@@ -152,12 +175,15 @@ impl<'b, const SYNC_MODE: bool> Pipeline<'_, 'b, SYNC_MODE> {
         buf.clear();
         Self {
             columns: VecDeque::with_capacity(cap),
-            buf: PipelineBuf::Borrowed(buf),
+            buf: Borrowed(buf),
         }
     }
 }
 
-impl<'a, const SYNC_MODE: bool> Pipeline<'a, '_, SYNC_MODE> {
+impl<'a, B, const SYNC_MODE: bool> Pipeline<'a, B, SYNC_MODE>
+where
+    B: DerefMut<Target = BytesMut>,
+{
     /// pipelined version of [Client::query] and [Client::execute]
     #[inline]
     pub fn query(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<(), Error> {
@@ -183,10 +209,13 @@ impl<'a, const SYNC_MODE: bool> Pipeline<'a, '_, SYNC_MODE> {
 
 impl Client {
     /// execute the pipeline.
-    pub fn pipeline<'a, const SYNC_MODE: bool>(
+    pub fn pipeline<'a, B, const SYNC_MODE: bool>(
         &self,
-        mut pipe: Pipeline<'a, '_, SYNC_MODE>,
-    ) -> Result<PipelineStream<'a>, Error> {
+        mut pipe: Pipeline<'a, B, SYNC_MODE>,
+    ) -> Result<PipelineStream<'a>, Error>
+    where
+        B: DerefMut<Target = BytesMut>,
+    {
         let Pipeline { columns, ref mut buf } = pipe;
         self._pipeline::<SYNC_MODE, true>(&columns, buf)
             .map(|res| PipelineStream {

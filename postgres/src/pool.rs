@@ -1,20 +1,22 @@
 use core::{
     future::{Future, IntoFuture},
+    ops::DerefMut,
     sync::atomic::Ordering,
 };
 
 use std::sync::Arc;
 
 use tokio::sync::{Notify, RwLock, RwLockReadGuard};
+use xitca_io::bytes::BytesMut;
 use xitca_service::pipeline::PipelineE;
 
-use crate::{
+use super::{
     client::Client,
     config::Config,
     driver::connect,
     error::Error,
     iter::slice_iter,
-    pipeline::{Pipeline, PipelineStream},
+    pipeline::{Owned, Pipeline, PipelineStream},
     statement::{Statement, StatementGuarded},
     util::lock::Lock,
     BorrowToSql, RowSimpleStream, RowStream, ToSql, Type,
@@ -268,17 +270,18 @@ impl SharedClient {
 
 impl SharedClient {
     #[cfg(not(feature = "single-thread"))]
-    pub fn pipeline<'a, 's, 'f, const SYNC_MODE: bool>(
+    pub fn pipeline<'a, 's, 'f, B, const SYNC_MODE: bool>(
         &'s self,
-        pipe: Pipeline<'a, '_, SYNC_MODE>,
+        pipe: Pipeline<'a, B, SYNC_MODE>,
     ) -> impl Future<Output = Result<PipelineStream<'a>, Error>> + Send + 'f
     where
         'a: 'f,
         's: 'f,
+        B: DerefMut<Target = BytesMut> + Into<Owned> + Send + 'f,
     {
         let opt = match self.inner.try_read() {
             Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
-            Err(_) => PipelineE::Second(pipe.to_owned()),
+            Err(_) => PipelineE::Second(pipe.into_owned()),
         };
 
         async {
@@ -290,17 +293,18 @@ impl SharedClient {
     }
 
     #[cfg(feature = "single-thread")]
-    pub fn pipeline<'a, 's, 'f, const SYNC_MODE: bool>(
+    pub fn pipeline<'a, 's, 'f, B, const SYNC_MODE: bool>(
         &'s self,
-        pipe: Pipeline<'a, '_, SYNC_MODE>,
+        pipe: Pipeline<'a, B, SYNC_MODE>,
     ) -> impl Future<Output = Result<PipelineStream<'a>, Error>> + 'f
     where
         'a: 'f,
         's: 'f,
+        B: DerefMut<Target = BytesMut> + Into<Owned> + 'f,
     {
         let opt = match self.inner.try_read() {
             Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
-            Err(_) => PipelineE::Second(pipe.to_owned()),
+            Err(_) => PipelineE::Second(pipe.into_owned()),
         };
 
         async {
@@ -315,11 +319,11 @@ impl SharedClient {
     #[inline(never)]
     async fn pipeline_slow<'a, const SYNC_MODE: bool>(
         &self,
-        pipe: Pipeline<'a, '_, SYNC_MODE>,
+        mut pipe: Pipeline<'a, Owned, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error> {
-        let Pipeline { columns, mut buf } = pipe;
+        let Pipeline { columns, ref mut buf } = pipe;
         let cli = self.read().await;
-        match cli._pipeline::<SYNC_MODE, true>(&columns, &mut *buf) {
+        match cli._pipeline::<SYNC_MODE, true>(&columns, buf) {
             Ok(res) => Ok(PipelineStream {
                 res,
                 columns,
@@ -334,7 +338,7 @@ impl SharedClient {
 
                     self.reconnect().await;
 
-                    match self.read().await._pipeline::<SYNC_MODE, false>(&columns, &mut buf) {
+                    match self.read().await._pipeline::<SYNC_MODE, false>(&columns, buf) {
                         Ok(res) => {
                             return Ok(PipelineStream {
                                 res,
