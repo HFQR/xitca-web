@@ -51,12 +51,14 @@ impl<'a, C> GenericRow<'a, C> {
         ranges.reserve(iter.size_hint().0);
 
         while let Some(range) = iter.next()? {
-            // when unwraping the Range an impossible value is used to represent nullable pg value offsets
-            // inside row's raw data buffer.
-            // when impossible range is used to slice a data collection(&[u8] in this case) through a safe
-            // Rust API(`<&[u8]>::get(Range<usize>)` in this case) it always produce Option type where the
-            // None variant can be used as final output of nullable pg value.
-            // this saves 8 bytes per range storage
+            /*
+                when unwrapping the Range an empty value is used to represent null pg value offsets inside row's raw
+                data buffer.
+                when empty range is used to slice data collection through a safe Rust API(`<&[u8]>::get(Range<usize>)`
+                in this case) it always produce Option type where the None variant can be used as final output of null
+                pg value.
+                this saves 8 bytes per range storage
+            */
             ranges.push(range.unwrap_or(Range { start: 1, end: 0 }));
         }
 
@@ -84,10 +86,9 @@ impl<'a, C> GenericRow<'a, C> {
         self.columns().len()
     }
 
-    // Get the raw bytes for the column at the given index.
-    fn col_buffer(&self, idx: usize) -> Option<(&Range<usize>, &Bytes)> {
-        let range = &self.ranges[idx];
-        (!range.is_empty()).then(|| (range, self.body.buffer_bytes()))
+    // Get the raw bytes for the column at the given range.
+    fn col_buffer(&self, idx: usize) -> (&Range<usize>, &Bytes) {
+        (&self.ranges[idx], self.body.buffer_bytes())
     }
 
     fn get_idx_ty(
