@@ -108,7 +108,7 @@
 //! use xitca_web::{
 //!     body::ResponseBody,
 //!     error::Error,
-//!     handler::{handler_service, handler_sync_service, FromRequest},
+//!     handler::{handler_service, handler_sync_service, Responder},
 //!     http::{Method, WebResponse},
 //!     route::get,
 //!     service::fn_service,
@@ -140,19 +140,16 @@
 //! }
 //!
 //! // function with concrete typed input and output where http types
-//! // are handled manually.
+//! // are handled manually and explicitly.
+//! // it can also be seen as a desugar of previous example of
+//! // handler_service(high)
 //! async fn low(ctx: WebContext<'_>) -> Result<WebResponse, Error> {
-//!     // manually check http method.
-//!     assert_eq!(ctx.req().method(), Method::GET);
-//!
-//!     // high level abstraction can be opt-in explicitly if desired.
-//!     // below is roughly what async fn high did to receive &Method as
-//!     // function argument.
-//!     let method = <&Method>::from_request(&ctx).await?;
-//!     assert_eq!(method, Method::GET);
-//!     
-//!     // manually pack http response.
-//!     Ok(WebResponse::new(ResponseBody::from("low level")))       
+//!     // extract method from request context.
+//!     let method = ctx.extract().await?;
+//!     // execute high level abstraction example function.
+//!     let str = high(method).await;
+//!     // convert string literal to http response.
+//!     str.respond(ctx).await
 //! }
 //!
 //! // high level abstraction but for synchronous function. this function
