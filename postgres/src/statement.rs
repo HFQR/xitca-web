@@ -53,7 +53,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Statement {
     name: Box<str>,
     params: Box<[Type]>,
