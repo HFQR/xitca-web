@@ -5,4 +5,4 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2021"
 
 [dependencies]
-xitca-web = "0.6"
+xitca-web = { version = "0.6", features = ["logger"] }

@@ -1,3 +1,5 @@
+use core::future::Future;
+
 use postgres_protocol::message::backend;
 
 use crate::{
@@ -26,27 +28,50 @@ impl Client {
     ///
     /// Panics if given params slice length does not match the length of [Statement::params].
     #[inline]
-    pub async fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
-        self.query_raw(stmt, slice_iter(params)).await
+    pub fn query<'a>(
+        &self,
+        stmt: &'a Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> impl Future<Output = Result<RowStream<'a>, Error>> + Send + 'a {
+        // TODO: call query_raw when Rust2024 edition capture rule is stabled.
+        let res = self.send_encode(stmt, slice_iter(params));
+        async {
+            let mut res = res?;
+            match res.recv().await? {
+                backend::Message::BindComplete => Ok(RowStream {
+                    col: stmt.columns(),
+                    res,
+                    ranges: Vec::new(),
+                }),
+                _ => Err(Error::unexpected()),
+            }
+        }
     }
 
     /// # Panics
     ///
     /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
-    pub async fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub fn query_raw<'a, I>(
+        &self,
+        stmt: &'a Statement,
+        params: I,
+    ) -> impl Future<Output = Result<RowStream<'a>, Error>> + Send + 'a
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let mut res = self.send_encode(stmt, params)?;
-        match res.recv().await? {
-            backend::Message::BindComplete => Ok(RowStream {
-                col: stmt.columns(),
-                res,
-                ranges: Vec::new(),
-            }),
-            _ => Err(Error::unexpected()),
+        let res = self.send_encode(stmt, params);
+        async {
+            let mut res = res?;
+            match res.recv().await? {
+                backend::Message::BindComplete => Ok(RowStream {
+                    col: stmt.columns(),
+                    res,
+                    ranges: Vec::new(),
+                }),
+                _ => Err(Error::unexpected()),
+            }
         }
     }
 
@@ -63,22 +88,28 @@ impl Client {
     /// # Panics
     ///
     /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
-    #[inline]
-    pub async fn execute(&self, stmt: &Statement, params: &[&(dyn ToSql + Sync)]) -> Result<u64, Error> {
-        self.execute_raw(stmt, slice_iter(params)).await
+    pub fn execute(
+        &self,
+        stmt: &Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> impl Future<Output = Result<u64, Error>> + Send {
+        // TODO: call execute_raw when Rust2024 edition capture rule is stabled.
+        let res = self.send_encode(stmt, slice_iter(params));
+        async { res?.try_into_row_affected().await }
     }
 
     /// # Panics
     ///
     /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
     #[inline]
-    pub async fn execute_raw<I>(&self, stmt: &Statement, params: I) -> Result<u64, Error>
+    pub fn execute_raw<I>(&self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        self.send_encode(stmt, params)?.try_into_row_affected().await
+        let res = self.send_encode(stmt, params);
+        async { res?.try_into_row_affected().await }
     }
 
     fn send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>

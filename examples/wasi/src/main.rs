@@ -1,6 +1,6 @@
 use std::{io, os::wasi::io::FromRawFd};
 
-use xitca_web::{handler::handler_service, route::get, App};
+use xitca_web::{handler::handler_service, middleware::Logger, route::get, App};
 
 fn main() -> io::Result<()> {
     // get fd int from env.
@@ -15,6 +15,7 @@ fn main() -> io::Result<()> {
     // run server.
     App::new()
         .at("/", get(handler_service(|| async { "hello,wasi" })))
+        .enclosed(Logger::new())
         .serve()
         .listen(listener)?
         .run()
