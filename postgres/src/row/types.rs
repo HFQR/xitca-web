@@ -7,7 +7,7 @@ use xitca_io::bytes::Bytes;
 
 use crate::{
     column::Column,
-    error::{Error, InvalidColumnIndex},
+    error::{Error, InvalidColumnIndex, WrongType},
     from_sql::FromSqlExt,
     Type,
 };
@@ -91,7 +91,7 @@ impl<'a, C> GenericRow<'a, C> {
         (&self.ranges[idx], self.body.buffer_bytes())
     }
 
-    fn get_idx_ty(
+    fn get_idx_ty<T>(
         &self,
         idx: impl RowIndexAndType + fmt::Display,
         ty_check: impl FnOnce(&Type) -> bool,
@@ -101,8 +101,7 @@ impl<'a, C> GenericRow<'a, C> {
             .ok_or_else(|| InvalidColumnIndex(idx.to_string()))?;
 
         if !ty_check(ty) {
-            return Err(Error::todo());
-            // return Err(Error::from_sql(Box::new(WrongType::new::<T>(ty.clone())), idx));
+            return Err(Error::from(WrongType::new::<T>(ty.clone())));
         }
 
         Ok((idx, ty))
@@ -131,7 +130,7 @@ impl Row<'_> {
     where
         T: FromSqlExt<'s>,
     {
-        let (idx, ty) = self.get_idx_ty(idx, T::accepts)?;
+        let (idx, ty) = self.get_idx_ty::<T>(idx, T::accepts)?;
         FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
     }
 
@@ -151,7 +150,7 @@ impl Row<'_> {
     where
         T: FromSql<'s>,
     {
-        let (idx, ty) = self.get_idx_ty(idx, T::accepts)?;
+        let (idx, ty) = self.get_idx_ty::<T>(idx, T::accepts)?;
         FromSql::from_sql_nullable(ty, self.body.buffer().get(self.ranges[idx].clone())).map_err(Into::into)
     }
 }
@@ -171,7 +170,7 @@ impl RowSimple<'_> {
 
     /// Like `RowSimple::get`, but returns a `Result` rather than panicking.
     pub fn try_get(&self, idx: impl RowIndexAndType + fmt::Display) -> Result<Option<&str>, Error> {
-        let (idx, ty) = self.get_idx_ty(idx, <&str as FromSqlExt>::accepts)?;
+        let (idx, ty) = self.get_idx_ty::<&str>(idx, <&str as FromSql>::accepts)?;
         FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
     }
 }

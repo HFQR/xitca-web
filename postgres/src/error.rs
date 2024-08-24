@@ -1,4 +1,5 @@
 use core::{
+    any,
     convert::Infallible,
     fmt,
     ops::{Deref, DerefMut},
@@ -6,7 +7,7 @@ use core::{
 
 use std::{error, io};
 
-use super::from_sql::FromSqlError;
+use super::{from_sql::FromSqlError, Type};
 
 /// public facing error type. providing basic format and display based error handling.
 /// for typed based error handling runtime type cast is needed with the help of other
@@ -228,4 +229,38 @@ pub(crate) fn unexpected_eof_err() -> io::Error {
         io::ErrorKind::UnexpectedEof,
         "zero byte read. remote close connection unexpectedly",
     )
+}
+
+#[derive(Debug)]
+pub struct WrongType {
+    postgres: Type,
+    rust: &'static str,
+}
+
+impl fmt::Display for WrongType {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "cannot convert between the Rust type `{}` and the Postgres type `{}`",
+            self.rust, self.postgres,
+        )
+    }
+}
+
+impl error::Error for WrongType {}
+
+impl From<WrongType> for Error {
+    fn from(e: WrongType) -> Self {
+        Self(Box::new(e))
+    }
+}
+
+impl WrongType {
+    /// Creates a new `WrongType` error.
+    pub fn new<T>(ty: Type) -> WrongType {
+        WrongType {
+            postgres: ty,
+            rust: any::type_name::<T>(),
+        }
+    }
 }
