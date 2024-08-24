@@ -1,3 +1,5 @@
+use core::future::Future;
+
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
 
@@ -18,9 +20,9 @@ impl Client {
         })
     }
 
-    #[inline]
-    pub async fn execute_simple(&self, stmt: &str) -> Result<u64, Error> {
-        self.send_encode_simple(stmt)?.try_into_row_affected().await
+    pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> {
+        let res = self.send_encode_simple(stmt);
+        async { res?.try_into_row_affected().await }
     }
 
     pub(crate) fn send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
