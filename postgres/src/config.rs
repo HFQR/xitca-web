@@ -24,19 +24,19 @@ pub enum SslMode {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Host {
     /// A TCP hostname.
-    Tcp(String),
-    Quic(String),
+    Tcp(Box<str>),
+    Quic(Box<str>),
     /// A Unix hostname.
     Unix(PathBuf),
 }
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct Config {
-    pub(crate) user: Option<String>,
-    pub(crate) password: Option<Vec<u8>>,
-    pub(crate) dbname: Option<String>,
-    pub(crate) options: Option<String>,
-    pub(crate) application_name: Option<String>,
+    pub(crate) user: Option<Box<str>>,
+    pub(crate) password: Option<Box<[u8]>>,
+    pub(crate) dbname: Option<Box<str>>,
+    pub(crate) options: Option<Box<str>>,
+    pub(crate) application_name: Option<Box<str>>,
     pub(crate) ssl_mode: SslMode,
     pub(crate) host: Vec<Host>,
     pub(crate) port: Vec<u16>,
@@ -71,7 +71,7 @@ impl Config {
     ///
     /// Required.
     pub fn user(&mut self, user: &str) -> &mut Config {
-        self.user = Some(user.to_string());
+        self.user = Some(Box::from(user));
         self
     }
 
@@ -86,7 +86,7 @@ impl Config {
     where
         T: AsRef<[u8]>,
     {
-        self.password = Some(password.as_ref().to_vec());
+        self.password = Some(Box::from(password.as_ref()));
         self
     }
 
@@ -100,7 +100,7 @@ impl Config {
     ///
     /// Defaults to the user.
     pub fn dbname(&mut self, dbname: &str) -> &mut Config {
-        self.dbname = Some(dbname.to_string());
+        self.dbname = Some(Box::from(dbname));
         self
     }
 
@@ -112,7 +112,7 @@ impl Config {
 
     /// Sets command line options used to configure the server.
     pub fn options(&mut self, options: &str) -> &mut Config {
-        self.options = Some(options.to_string());
+        self.options = Some(Box::from(options));
         self
     }
 
@@ -124,7 +124,7 @@ impl Config {
 
     /// Sets the value of the `application_name` runtime parameter.
     pub fn application_name(&mut self, application_name: &str) -> &mut Config {
-        self.application_name = Some(application_name.to_string());
+        self.application_name = Some(Box::from(application_name));
         self
     }
 
@@ -152,7 +152,7 @@ impl Config {
             return self.host_path(host);
         }
 
-        let host = Host::Tcp(host.to_string());
+        let host = Host::Tcp(Box::from(host));
 
         self.host.push(host);
         self
