@@ -37,6 +37,13 @@ impl ServeDir {
             inner: _ServeDir::new(path),
         }
     }
+
+    #[cfg(feature = "io-uring")]
+    pub fn new_tokio_uring(path: impl Into<PathBuf>) -> ServeDir<impl AsyncFs + Clone> {
+        ServeDir {
+            inner: _ServeDir::new_tokio_uring(path),
+        }
+    }
 }
 
 impl<F> ServeDir<F>

@@ -143,22 +143,29 @@ mod tokio_uring_impl {
 
     impl AsyncFs for TokioUringFs {
         type File = TokioUringFile;
-        type OpenFuture = impl Future<Output = io::Result<Self::File>> + Send;
+        type OpenFuture = impl Future<Output = io::Result<Self::File>>;
 
         fn open(&self, path: PathBuf) -> Self::OpenFuture {
             async {
-                let (file, modified_time, len) = tokio::task::spawn_blocking(move || {
-                    let file = std::fs::File::open(path)?;
-                    let meta = file.metadata()?;
-                    let modified_time = meta.modified().ok();
-                    let len = meta.len();
-                    Ok::<_, io::Error>((file, modified_time, len))
-                })
-                .await
-                .unwrap()?;
+                let file = File::open(path).await?;
+
+                // SAFETY: fd is borrowed and lives longer than the unsafe block
+                let meta = unsafe {
+                    use std::os::fd::{AsRawFd, FromRawFd};
+
+                    let file = std::fs::File::from_raw_fd(file.as_raw_fd());
+                    let md = file.metadata();
+                    // SAFETY: forget the fd before exiting block in success or error case but don't
+                    // run destructor (that would close file handle)
+                    core::mem::forget(file);
+                    md?
+                };
+
+                let modified_time = meta.modified().ok();
+                let len = meta.len();
 
                 Ok(TokioUringFile {
-                    file: File::from_std(file),
+                    file,
                     pos: 0,
                     modified_time,
                     len,
