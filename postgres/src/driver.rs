@@ -13,15 +13,19 @@ pub(crate) mod quic;
 
 use core::{
     future::{Future, IntoFuture},
+    net::SocketAddr,
     pin::Pin,
 };
 
 use postgres_protocol::message::backend;
-use xitca_io::io::{AsyncIo, AsyncIoDyn};
+use xitca_io::{
+    io::{AsyncIo, AsyncIoDyn},
+    net::TcpStream,
+};
 
 use super::{client::Client, config::Config, error::Error, iter::AsyncLendingIterator};
 
-use {self::generic::GenericDriver, xitca_io::net::TcpStream};
+use self::generic::GenericDriver;
 
 #[cfg(feature = "tls")]
 use xitca_tls::rustls::{ClientConnection, TlsStream};
@@ -46,8 +50,21 @@ pub(super) async fn connect_io<Io>(io: Io, cfg: &mut Config) -> Result<(Client, 
 where
     Io: AsyncIo + Send + 'static,
 {
-    let (tx, drv) = self::connect::connect_dyn(io, cfg).await?;
+    let (tx, drv) = self::connect::connect_io(io, cfg).await?;
     Ok((Client::new(tx), drv))
+}
+
+async fn dns_resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
+    let addrs = tokio::net::lookup_host((host, 0))
+        .await?
+        .flat_map(|mut addr| {
+            ports.iter().map(move |port| {
+                addr.set_port(*port);
+                addr
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(addrs)
 }
 
 /// async driver of [Client](crate::Client).

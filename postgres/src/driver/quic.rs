@@ -218,7 +218,7 @@ impl io::Write for QuicStream {
 #[cold]
 #[inline(never)]
 pub(crate) async fn _connect_quic(host: &str, ports: &[u16]) -> Result<Connection, Error> {
-    let addrs = super::connect::resolve(host, ports).await?;
+    let addrs = super::dns_resolve(host, ports).await?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
 
     let cfg = super::tls::dangerous_config(vec![QUIC_ALPN.to_vec()]);
