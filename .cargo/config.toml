@@ -2,7 +2,7 @@
 ci-check-http-exclude-io-uring = "hack check --package xitca-http --feature-powerset --exclude-features=io-uring,rustls-uring"
 ci-check-http = "hack check --package xitca-http --feature-powerset"
 
-ci-check-web-exclude-io-uring = "hack check --package xitca-web --each-feature --no-dev-deps --exclude-features=io-uring"
+ci-check-web-exclude-io-uring = "hack check --package xitca-web --each-feature --no-dev-deps --exclude-features=io-uring,file-io-uring"
 ci-check-web = "hack check --package xitca-web --each-feature --no-dev-deps"
 
 ci-check-client-exclude-io-uring = "hack check --package xitca-client --each-feature --no-dev-deps --exclude-features=io-uring"

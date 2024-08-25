@@ -134,6 +134,13 @@ impl Pipeline<'_, Owned, true> {
     pub fn new() -> Self {
         Self::with_capacity(0)
     }
+
+    /// start a new pipeline with given capacity.
+    /// capacity represent how many queries will be contained by a single pipeline. a determined cap
+    /// can possibly reduce memory reallocation when constructing the pipeline.
+    pub fn with_capacity(cap: usize) -> Self {
+        Self::_with_capacity(cap)
+    }
 }
 
 impl Pipeline<'_, Owned, false> {
@@ -146,16 +153,66 @@ impl Pipeline<'_, Owned, false> {
     /// of socket syscall is needed.
     #[inline]
     pub fn unsync() -> Self {
-        Self::with_capacity(0)
+        Self::unsync_with_capacity(0)
+    }
+
+    /// start a new un-sync pipeline with given capacity.
+    /// capacity represent how many queries will be contained by a single pipeline. a determined cap
+    /// can possibly reduce memory reallocation when constructing the pipeline.
+    pub fn unsync_with_capacity(cap: usize) -> Self {
+        Self::_with_capacity(cap)
+    }
+}
+
+impl<'a> Pipeline<'_, Borrowed<'a>, true> {
+    /// start a new borrowed pipeline. pipeline will use borrowed bytes buffer to store encode messages
+    /// before sending it to database.
+    ///
+    /// pipeline is sync by default. which means every query inside is considered separate binding
+    /// and the pipeline is transparent to database server. the pipeline only happen on socket
+    /// transport where minimal amount of syscall is needed.
+    ///
+    /// for more relaxed [Pipeline Mode][libpq_link] see [Pipeline::unsync_from_buf] api.
+    ///
+    /// [libpq_link]: https://www.postgresql.org/docs/current/libpq-pipeline-mode.html
+    #[inline]
+    pub fn from_buf(buf: &'a mut BytesMut) -> Self {
+        Self::with_capacity_from_buf(0, buf)
+    }
+
+    /// start a new borrowed pipeline with given capacity.
+    /// capacity represent how many queries will be contained by a single pipeline. a determined cap
+    /// can possibly reduce memory reallocation when constructing the pipeline.
+    #[inline]
+    pub fn with_capacity_from_buf(cap: usize, buf: &'a mut BytesMut) -> Self {
+        Self::_with_capacity_from_buf(cap, buf)
+    }
+}
+
+impl<'a> Pipeline<'_, Borrowed<'a>, false> {
+    /// start a new borrowed un-sync pipeline.
+    ///
+    /// in un-sync mode pipeline treat all queries inside as one single binding and database server
+    /// can see them as no sync point in between which can result in potential performance gain.
+    ///
+    /// it behaves the same on transportation level as [Pipeline::from_buf] where minimal amount
+    /// of socket syscall is needed.
+    #[inline]
+    pub fn unsync_from_buf(buf: &'a mut BytesMut) -> Self {
+        Self::unsync_with_capacity_from_buf(0, buf)
+    }
+
+    /// start a new borrowed un-sync pipeline with given capacity.
+    /// capacity represent how many queries will be contained by a single pipeline. a determined cap
+    /// can possibly reduce memory reallocation when constructing the pipeline.
+    #[inline]
+    pub fn unsync_with_capacity_from_buf(cap: usize, buf: &'a mut BytesMut) -> Self {
+        Self::_with_capacity_from_buf(cap, buf)
     }
 }
 
 impl<const SYNC_MODE: bool> Pipeline<'_, Owned, SYNC_MODE> {
-    /// start a new pipeline with given capacity.
-    /// capacity represent how many queries will be contained by a single pipeline. a determined cap
-    /// can possibly reduce memory reallocation when constructing the pipeline.
-    #[inline]
-    pub fn with_capacity(cap: usize) -> Self {
+    fn _with_capacity(cap: usize) -> Self {
         Self {
             columns: Vec::with_capacity(cap),
             buf: Owned(BytesMut::new()),
@@ -164,12 +221,7 @@ impl<const SYNC_MODE: bool> Pipeline<'_, Owned, SYNC_MODE> {
 }
 
 impl<'b, const SYNC_MODE: bool> Pipeline<'_, Borrowed<'b>, SYNC_MODE> {
-    #[doc(hidden)]
-    /// pipeline can be constructed from user supplied bytes buffer. buffer is clear when constructing a
-    /// new pipeline and after [Client::pipeline] method is executed it's ownership is released.
-    /// this api is for actively buffer reuse to reduce repeated heap memory allocation of executing pipeline.
-    #[inline]
-    pub fn with_capacity_from_buf(cap: usize, buf: &'b mut BytesMut) -> Self {
+    fn _with_capacity_from_buf(cap: usize, buf: &'b mut BytesMut) -> Self {
         buf.clear();
         Self {
             columns: Vec::with_capacity(cap),

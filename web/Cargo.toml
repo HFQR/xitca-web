@@ -12,12 +12,12 @@ readme= "README.md"
 [features]
 default = ["http1"]
 
-# extended http versions.
+# extended http versions
 http1 = ["__server", "xitca-http/http1"]
 http2 = ["__server", "xitca-http/http2"]
 http3 = ["__server", "xitca-http/http3"]
 
-# linux io-uring async io.
+# linux io-uring async file io
 io-uring = ["__server", "xitca-server/io-uring"]
 
 # tls transport layer
@@ -49,6 +49,8 @@ websocket = ["http-ws/stream", "tokio/time"]
 
 # static file serving
 file = ["file-raw", "http-file/default"]
+# static file serving with io-uring 
+file-io-uring = ["io-uring", "file", "http-file/tokio-uring"]
 # static file serving without default file system
 file-raw = ["http-file", "nightly"]
 
@@ -114,7 +116,7 @@ http-multipart = { version = "0.1", optional = true }
 http-ws = { version = "0.3", optional = true }
 
 # static file
-http-file = { version = "0.1", default-features = false ,optional = true }
+http-file = { version = "0.2", default-features = false ,optional = true }
 
 # rate limit
 http-rate = { version = "0.1", optional = true }
