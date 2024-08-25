@@ -203,6 +203,72 @@ impl Config {
         self.target_session_attrs
     }
 
+    /// change the remote peer's tls certificates. it's often coupled with [`Postgres::connect_io`] API for manual tls
+    /// session connecting and channel binding authentication.
+    /// # Examples
+    /// ```rust
+    /// use xitca_postgres::{Config, Postgres};
+    ///
+    /// // handle tls connection on your own.
+    /// async fn connect_io() {
+    ///     let mut cfg = Config::try_from("postgres://postgres:postgres@localhost/postgres").unwrap();
+    ///     
+    /// // an imaginary function where you establish a tls connection to database on your own.
+    ///     // the established connection should be providing valid cert bytes.
+    ///     let (io, certs) = your_tls_connector().await;
+    ///
+    ///     // set cert bytes to configuration
+    ///     cfg.tls_server_end_point(certs);
+    ///
+    ///     // give xitca-postgres the config and established io and finish db session process.
+    ///     let _ = Postgres::new(cfg).connect_io(io).await;
+    /// }
+    ///
+    /// async fn your_tls_connector() -> (MyTlsStream, Vec<u8>) {
+    ///     todo!("your tls connecting logic lives here. the process can be async or not.")
+    /// }
+    ///
+    /// // a possible type representation of your manual tls connection to database
+    /// struct MyTlsStream;
+    ///
+    /// # use std::{io, pin::Pin, task::{Context, Poll}};
+    /// #
+    /// # use xitca_io::io::{AsyncIo, Interest, Ready};
+    /// #   
+    /// # impl AsyncIo for MyTlsStream {
+    /// #   async fn ready(&mut self, interest: Interest) -> io::Result<Ready> {
+    /// #       todo!()
+    /// #   }
+    /// #
+    /// #   fn poll_ready(&mut self, interest: Interest, cx: &mut Context<'_>) -> Poll<io::Result<Ready>> {
+    /// #       todo!()
+    /// #   }
+    /// #   
+    /// #   fn is_vectored_write(&self) -> bool {
+    /// #       false
+    /// #   }
+    /// #   
+    /// #   fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    /// #       Poll::Ready(Ok(()))
+    /// #   }
+    /// # }
+    /// #   
+    /// # impl io::Read for MyTlsStream {
+    /// #   fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    /// #       todo!()
+    /// #   }
+    /// # }   
+    /// #
+    /// # impl io::Write for MyTlsStream {
+    /// #   fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    /// #       todo!()
+    /// #   }
+    /// #   
+    /// #   fn flush(&mut self) -> io::Result<()> {
+    /// #       Ok(())
+    /// #   }
+    /// # }
+    /// ```
     pub fn tls_server_end_point(&mut self, tls_server_end_point: Vec<u8>) -> &mut Self {
         self.tls_server_end_point = tls_server_end_point;
         self
