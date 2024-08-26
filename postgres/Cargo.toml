@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-# feature for single thread client that have lower overhead(no lock) at the cost of no thread safety.
-single-thread = []
 # feature for connecting to tls enabled server.
 tls = ["xitca-tls/rustls-ring-crypto", "sha2", "webpki-roots"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.

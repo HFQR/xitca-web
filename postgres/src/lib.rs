@@ -13,7 +13,6 @@ mod prepare;
 mod query;
 mod session;
 mod transaction;
-mod util;
 
 pub mod error;
 pub mod pipeline;
@@ -115,7 +114,6 @@ where
 fn _assert_send<F: Send>(_: F) {}
 fn _assert_send2<F: Send>() {}
 
-#[cfg(not(feature = "single-thread"))]
 fn _assert_connect_send() {
     _assert_send(crate::Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
 }
