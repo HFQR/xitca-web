@@ -2,8 +2,10 @@
 
 use crate::service::Service;
 
-/// A decompress middleware look into [WebContext]'s `Content-Encoding` header and
-/// apply according decompression to it according to enabled compress feature.
+/// decompress middleware.
+///
+/// look into [WebContext]'s `Content-Encoding` header and apply according decompression to
+/// it according to enabled compress feature.
 /// `compress-x` feature must be enabled for this middleware to function correctly.
 ///
 /// # Type mutation

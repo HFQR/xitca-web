@@ -12,6 +12,7 @@ use std::{error, io};
 use super::from_sql::FromSqlError;
 
 /// public facing error type. providing basic format and display based error handling.
+///
 /// for typed based error handling runtime type cast is needed with the help of other
 /// public error types offered by this module.
 ///
@@ -74,8 +75,8 @@ impl error::Error for Error {
     }
 }
 
-/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when sending
-/// request to driver.
+/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when sending request to driver.
+///
 /// database query related to this error has not been sent to database and it's safe to retry operation if
 /// desired.
 ///
@@ -105,9 +106,13 @@ impl From<DriverDown> for Error {
 }
 
 /// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when receiving response
-/// from server. any mid flight response and unfinished response data are lost and can't be recovered.
-/// database query related to this error may or may not executed successfully and it should not be retried
-/// blindly.
+/// from server.
+///
+/// all mid flight response and unfinished response data are lost and can't be recovered. database query
+/// related to this error may or may not executed successfully and it should not be retried blindly.
+///
+/// [Client]: crate::client::Client
+/// [Driver]: crate::driver::Driver
 #[derive(Debug)]
 pub struct DriverDownReceiving;
 

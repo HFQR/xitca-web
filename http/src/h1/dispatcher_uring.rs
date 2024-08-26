@@ -86,10 +86,7 @@ impl BufOwned {
         let mut buf = self.buf.take().unwrap();
 
         let len = buf.len();
-        let remaining = buf.capacity() - len;
-        if remaining < 4096 {
-            buf.reserve(4096 - remaining);
-        }
+        buf.reserve(4096);
 
         let (res, buf) = io.read(buf.slice(len..)).await;
         self.buf = Some(buf.into_inner());

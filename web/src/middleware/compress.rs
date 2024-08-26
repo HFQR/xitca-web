@@ -2,8 +2,10 @@
 
 use crate::service::Service;
 
-/// A compress middleware look into [WebRequest]'s `Accept-Encoding` header and
-/// apply according compression to [WebResponse]'s body according to enabled compress feature.
+/// compress middleware.
+///
+/// look into [WebRequest]'s `Accept-Encoding` header and apply according compression to
+/// [WebResponse]'s body according to enabled compress feature.
 /// `compress-x` feature must be enabled for this middleware to function correctly.
 ///
 /// # Type mutation
