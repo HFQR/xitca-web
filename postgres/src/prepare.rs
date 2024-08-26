@@ -19,10 +19,6 @@ use crate::{
     Type,
 };
 
-#[cfg(feature = "single-thread")]
-type BoxedFuture<'a> = Pin<Box<dyn Future<Output = Result<Type, Error>> + 'a>>;
-
-#[cfg(not(feature = "single-thread"))]
 type BoxedFuture<'a> = Pin<Box<dyn Future<Output = Result<Type, Error>> + Send + 'a>>;
 
 impl Client {

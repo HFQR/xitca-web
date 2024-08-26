@@ -4,7 +4,7 @@ use core::{
     sync::atomic::Ordering,
 };
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::{Notify, RwLock, RwLockReadGuard};
 use xitca_io::bytes::BytesMut;
@@ -18,7 +18,6 @@ use super::{
     iter::slice_iter,
     pipeline::{Owned, Pipeline, PipelineStream},
     statement::{Statement, StatementGuarded},
-    util::lock::Lock,
     BorrowToSql, RowSimpleStream, RowStream, ToSql, Type,
 };
 
@@ -41,14 +40,14 @@ impl Persist {
 }
 
 struct Spawner {
-    notify: Lock<Option<Arc<Notify>>>,
+    notify: Mutex<Option<Arc<Notify>>>,
 }
 
 impl Spawner {
     #[cold]
     #[inline(never)]
     fn spawn_or_wait(&self) -> Option<Arc<Notify>> {
-        let mut lock = self.notify.lock();
+        let mut lock = self.notify.lock().unwrap();
         match *lock {
             Some(ref notify) => Some(notify.clone()),
             None => {
@@ -61,7 +60,7 @@ impl Spawner {
     #[cold]
     #[inline(never)]
     async fn wait_for_spawn(&self) {
-        let notify = self.notify.lock().clone();
+        let notify = self.notify.lock().unwrap().clone();
         if let Some(notify) = notify {
             notify.notified().await;
         }
@@ -74,7 +73,7 @@ impl Drop for SpawnGuard<'_> {
     fn drop(&mut self) {
         // if for any reason current task is cancelled by user the drop guard would
         // restore the spawning state.
-        if let Some(notify) = self.0.spawner.notify.lock().take() {
+        if let Some(notify) = self.0.spawner.notify.lock().unwrap().take() {
             notify.notify_waiters();
         }
     }
@@ -118,7 +117,7 @@ impl SharedClient {
             inner: RwLock::new(cli),
             persist: Box::new(Persist {
                 spawner: Spawner {
-                    notify: Lock::new(None),
+                    notify: Mutex::new(None),
                 },
                 config,
                 statements_cache: Vec::new(),
@@ -269,34 +268,10 @@ impl SharedClient {
 }
 
 impl SharedClient {
-    #[cfg(not(feature = "single-thread"))]
     pub fn pipeline<'a, 's, 'f, B, const SYNC_MODE: bool>(
         &'s self,
         pipe: Pipeline<'a, B, SYNC_MODE>,
     ) -> impl Future<Output = Result<PipelineStream<'a>, Error>> + Send + 'f
-    where
-        'a: 'f,
-        's: 'f,
-        B: DerefMut<Target = BytesMut> + Into<Owned>,
-    {
-        let opt = match self.inner.try_read() {
-            Ok(cli) => PipelineE::First(cli.pipeline(pipe)),
-            Err(_) => PipelineE::Second(pipe.into_owned()),
-        };
-
-        async {
-            match opt {
-                PipelineE::First(res) => res,
-                PipelineE::Second(pipe) => Box::pin(self.pipeline_slow(pipe)).await,
-            }
-        }
-    }
-
-    #[cfg(feature = "single-thread")]
-    pub fn pipeline<'a, 's, 'f, B, const SYNC_MODE: bool>(
-        &'s self,
-        pipe: Pipeline<'a, B, SYNC_MODE>,
-    ) -> impl Future<Output = Result<PipelineStream<'a>, Error>> + 'f
     where
         'a: 'f,
         's: 'f,

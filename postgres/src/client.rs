@@ -1,13 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Mutex};
 
 use postgres_types::{Oid, Type};
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
-use super::{driver::DriverTx, statement::Statement, util::lock::Lock};
+use super::{driver::DriverTx, statement::Statement};
 
 pub struct Client {
     pub(crate) tx: DriverTx,
-    cached_typeinfo: Lock<CachedTypeInfo>,
+    cached_typeinfo: Mutex<CachedTypeInfo>,
 }
 
 /// A cache of type info and prepared statements for fetching type info
@@ -32,7 +32,7 @@ impl Client {
     pub(crate) fn new(tx: DriverTx) -> Self {
         Self {
             tx,
-            cached_typeinfo: Lock::new(CachedTypeInfo {
+            cached_typeinfo: Mutex::new(CachedTypeInfo {
                 typeinfo: None,
                 typeinfo_composite: None,
                 typeinfo_enum: None,
@@ -48,39 +48,39 @@ impl Client {
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().typeinfo.clone()
+        self.cached_typeinfo.lock().unwrap().typeinfo.clone()
     }
 
     pub fn set_typeinfo(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().typeinfo = Some(statement.clone());
+        self.cached_typeinfo.lock().unwrap().typeinfo = Some(statement.clone());
     }
 
     pub fn typeinfo_composite(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().typeinfo_composite.clone()
+        self.cached_typeinfo.lock().unwrap().typeinfo_composite.clone()
     }
 
     pub fn set_typeinfo_composite(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().typeinfo_composite = Some(statement.clone());
+        self.cached_typeinfo.lock().unwrap().typeinfo_composite = Some(statement.clone());
     }
 
     pub fn typeinfo_enum(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().typeinfo_enum.clone()
+        self.cached_typeinfo.lock().unwrap().typeinfo_enum.clone()
     }
 
     pub fn set_typeinfo_enum(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().typeinfo_enum = Some(statement.clone());
+        self.cached_typeinfo.lock().unwrap().typeinfo_enum = Some(statement.clone());
     }
 
     pub fn type_(&self, oid: Oid) -> Option<Type> {
-        self.cached_typeinfo.lock().types.get(&oid).cloned()
+        self.cached_typeinfo.lock().unwrap().types.get(&oid).cloned()
     }
 
     pub fn set_type(&self, oid: Oid, type_: &Type) {
-        self.cached_typeinfo.lock().types.insert(oid, type_.clone());
+        self.cached_typeinfo.lock().unwrap().types.insert(oid, type_.clone());
     }
 
     pub fn clear_type_cache(&self) {
-        self.cached_typeinfo.lock().types.clear();
+        self.cached_typeinfo.lock().unwrap().types.clear();
     }
 }
 
@@ -89,7 +89,7 @@ impl Drop for Client {
         // convert leaked statements to guarded statements.
         // this is to cancel the statement on client go away.
         let (type_info, typeinfo_composite, typeinfo_enum) = {
-            let cache = self.cached_typeinfo.get_mut();
+            let cache = self.cached_typeinfo.get_mut().unwrap();
             (
                 cache.typeinfo.take(),
                 cache.typeinfo_composite.take(),

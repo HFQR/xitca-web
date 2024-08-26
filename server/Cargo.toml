@@ -20,6 +20,7 @@ xitca-io = { version = "0.4.0", features = ["runtime"] }
 xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = "0.2.0"
 
+tokio = { version = "1.30", features = ["sync", "time"] }
 tracing = { version = "0.1.40", default-features = false }
 
 # io-uring support
@@ -27,10 +28,10 @@ tokio-uring = { version = "0.5", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.5.1" }
-tokio = { version = "1.30", features = ["rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.30", features = ["rt-multi-thread", "signal"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tokio = { version = "1.30", features = ["rt", "sync", "time"] }
+tokio = { version = "1.30", features = ["rt"] }
 
 [dev-dependencies]
 bytes = "1.4"
