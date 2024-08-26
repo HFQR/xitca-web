@@ -34,7 +34,6 @@ impl Server {
     #[cfg(target_family = "wasm")]
     pub fn new(builder: Builder) -> io::Result<Self> {
         let Builder {
-            server_threads,
             listeners,
             factories,
             shutdown_timeout,
@@ -42,10 +41,7 @@ impl Server {
             ..
         } = builder;
 
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(server_threads)
-            .enable_all()
-            .build()?;
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
         let fut = async {
             listeners
