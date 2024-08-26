@@ -113,7 +113,7 @@ where
                 buf: BytesMut::new(),
                 res: VecDeque::new(),
             }),
-            notify: Notify::const_new(),
+            notify: Notify::new(),
         });
 
         (

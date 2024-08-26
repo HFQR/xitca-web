@@ -84,6 +84,7 @@ impl From<HandshakeError> for Builder {
 }
 
 /// Prepare a [Request] with given [Uri] and [Version]  for websocket connection.
+///
 /// Only [Version::HTTP_11] and [Version::HTTP_2] are supported.
 /// After process the request would be ready to be sent to server.
 pub fn client_request_from_uri(uri: Uri, version: Version) -> Request<()> {

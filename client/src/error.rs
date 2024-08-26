@@ -257,6 +257,7 @@ impl From<crate::h3::Error> for Error {
 }
 
 /// error type for unexpected http response.
+///
 /// high level crate types like http tunnel and websocket needs specific http response to function
 /// properly and an unexpected http response will be converted into this error type.
 #[derive(Debug)]

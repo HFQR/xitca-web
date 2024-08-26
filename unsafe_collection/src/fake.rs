@@ -5,9 +5,10 @@ use core::{
 
 use std::thread::{self, ThreadId};
 
-/// thread id guarded wrapper for `!Send` type to make it `Send` bound. It is safe to transfer
-/// FakeSend between threads and panic when actual access happens on threads other than the one it's
-/// constructed from.
+/// thread id guarded wrapper for `!Send` type to make it `Send` bound.
+///
+/// It is safe to transfer FakeSend between threads and panic when actual access happens on threads
+/// other than the one it's constructed from.
 ///
 /// Drop `FakeSend<B>` on a foreign thread will not trigger de structure of B(if it has one). The
 /// memory of B allocation would be leaked.

@@ -35,6 +35,7 @@ impl QuicListener {
 }
 
 /// Builder type for [QuicListener]
+///
 /// Unlike other OS provided listener types(Tcp .etc), the construction of [QuicListener]
 /// will be interacting with async runtime so it's desirable to delay it until it enters
 /// the context of async runtime. Builder type exists for this purpose.
