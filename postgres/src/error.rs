@@ -1,5 +1,7 @@
+/// re-export error types used when parsing Row to rust types.
+pub use postgres_types::{WasNull, WrongType};
+
 use core::{
-    any,
     convert::Infallible,
     fmt,
     ops::{Deref, DerefMut},
@@ -7,7 +9,7 @@ use core::{
 
 use std::{error, io};
 
-use super::{from_sql::FromSqlError, Type};
+use super::from_sql::FromSqlError;
 
 /// public facing error type. providing basic format and display based error handling.
 /// for typed based error handling runtime type cast is needed with the help of other
@@ -74,6 +76,8 @@ impl error::Error for Error {
 
 /// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when sending
 /// request to driver.
+/// database query related to this error has not been sent to database and it's safe to retry operation if
+/// desired.
 ///
 /// [Client]: crate::client::Client
 /// [Driver]: crate::driver::Driver
@@ -102,6 +106,8 @@ impl From<DriverDown> for Error {
 
 /// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when receiving response
 /// from server. any mid flight response and unfinished response data are lost and can't be recovered.
+/// database query related to this error may or may not executed successfully and it should not be retried
+/// blindly.
 #[derive(Debug)]
 pub struct DriverDownReceiving;
 
@@ -231,36 +237,8 @@ pub(crate) fn unexpected_eof_err() -> io::Error {
     )
 }
 
-#[derive(Debug)]
-pub struct WrongType {
-    postgres: Type,
-    rust: &'static str,
-}
-
-impl fmt::Display for WrongType {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            fmt,
-            "cannot convert between the Rust type `{}` and the Postgres type `{}`",
-            self.rust, self.postgres,
-        )
-    }
-}
-
-impl error::Error for WrongType {}
-
 impl From<WrongType> for Error {
     fn from(e: WrongType) -> Self {
         Self(Box::new(e))
-    }
-}
-
-impl WrongType {
-    /// Creates a new `WrongType` error.
-    pub fn new<T>(ty: Type) -> WrongType {
-        WrongType {
-            postgres: ty,
-            rust: any::type_name::<T>(),
-        }
     }
 }
