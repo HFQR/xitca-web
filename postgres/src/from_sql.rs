@@ -72,7 +72,7 @@ where
     default_impl!();
 }
 
-// forward_impl!(Vec<u8>);
+// default_impl!(Vec<u8>);
 default_impl!(&'a [u8]);
 default_impl!(&'a str);
 default_impl!(String);
