@@ -127,17 +127,15 @@ where
                 let (channel_binding, mechanism) = match (is_scram_plus, is_scram) {
                     (true, is_scram) => {
                         let buf = cfg.get_tls_server_end_point();
-                        if !buf.is_empty() {
-                            (
-                                sasl::ChannelBinding::tls_server_end_point(buf),
+                        match (buf, is_scram) {
+                            (Some(buf), _) => (
+                                sasl::ChannelBinding::tls_server_end_point(buf.to_owned()),
                                 sasl::SCRAM_SHA_256_PLUS,
-                            )
-                        } else if is_scram {
-                            (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256)
-                        } else {
+                            ),
+                            (None, true) => (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256),
                             // server ask for channel binding but no tls_server_end_point can be
                             // found.
-                            return Err(Error::todo());
+                            _ => return Err(Error::todo()),
                         }
                     }
                     (false, true) => (sasl::ChannelBinding::unrequested(), sasl::SCRAM_SHA_256),
