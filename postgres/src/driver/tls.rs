@@ -31,7 +31,7 @@ where
         .session()
         .peer_certificates()
         .and_then(|certs| certs.first())
-        .map(|cert| Sha256::digest(cert.as_ref()).to_vec())
+        .map(|cert| Sha256::digest(cert.as_ref()))
     {
         cfg.tls_server_end_point(sha256);
     }

@@ -41,7 +41,7 @@ pub struct Config {
     pub(crate) host: Vec<Host>,
     pub(crate) port: Vec<u16>,
     target_session_attrs: TargetSessionAttrs,
-    tls_server_end_point: Vec<u8>,
+    tls_server_end_point: Option<Box<[u8]>>,
 }
 
 impl Default for Config {
@@ -63,7 +63,7 @@ impl Config {
             host: Vec::new(),
             port: Vec::new(),
             target_session_attrs: TargetSessionAttrs::Any,
-            tls_server_end_point: Vec::new(),
+            tls_server_end_point: None,
         }
     }
 
@@ -213,7 +213,7 @@ impl Config {
     /// async fn connect_io() {
     ///     let mut cfg = Config::try_from("postgres://postgres:postgres@localhost/postgres").unwrap();
     ///     
-    /// // an imaginary function where you establish a tls connection to database on your own.
+    ///     // an imaginary function where you establish a tls connection to database on your own.
     ///     // the established connection should be providing valid cert bytes.
     ///     let (io, certs) = your_tls_connector().await;
     ///
@@ -269,13 +269,13 @@ impl Config {
     /// #   }
     /// # }
     /// ```
-    pub fn tls_server_end_point(&mut self, tls_server_end_point: Vec<u8>) -> &mut Self {
-        self.tls_server_end_point = tls_server_end_point;
+    pub fn tls_server_end_point(&mut self, tls_server_end_point: impl AsRef<[u8]>) -> &mut Self {
+        self.tls_server_end_point = Some(Box::from(tls_server_end_point.as_ref()));
         self
     }
 
-    pub fn get_tls_server_end_point(&self) -> Vec<u8> {
-        self.tls_server_end_point.to_vec()
+    pub fn get_tls_server_end_point(&self) -> Option<&[u8]> {
+        self.tls_server_end_point.as_deref()
     }
 
     fn param(&mut self, key: &str, value: &str) -> Result<(), Error> {
