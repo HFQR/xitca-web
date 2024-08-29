@@ -18,17 +18,18 @@ use super::{
     connection::ConnectionExclusive,
     error::{Error, ErrorResponse},
     http::{StatusCode, Version},
-    tunnel::{Leak, Tunnel, TunnelRequest, TunnelSink, TunnelStream},
+    request::RequestBuilder,
+    tunnel::{Leak, Tunnel, TunnelSink, TunnelStream},
 };
-
-mod marker {
-    pub struct WebSocket;
-}
 
 /// new type of [RequestBuilder] with extended functionality for websocket handling.
 ///
 /// [RequestBuilder]: crate::RequestBuilder
-pub type WsRequest<'a> = TunnelRequest<'a, marker::WebSocket>;
+pub type WsRequest<'a> = RequestBuilder<'a, marker::WebSocket>;
+
+mod marker {
+    pub struct WebSocket;
+}
 
 /// A unified websocket that can be used as both sender/receiver.
 ///
@@ -46,7 +47,7 @@ pub type WebSocketReader<'a, 'b> = TunnelStream<'a, WebSocketTunnel<'b>>;
 impl<'a> WsRequest<'a> {
     /// Send the request and wait for response asynchronously.
     pub async fn send(self) -> Result<WebSocket<'a>, Error> {
-        let res = self.req.send().await?;
+        let res = self._send().await?;
 
         let status = res.status();
         let expect_status = match res.version() {
@@ -108,18 +109,13 @@ impl Leak for WebSocketTunnel<'_> {
 impl Sink<Message> for WebSocketTunnel<'_> {
     type Error = Error;
 
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         // TODO: set up a meaningful backpressure limit for send buf.
-        if !self.as_mut().get_mut().send_buf.chunk().is_empty() {
-            self.poll_flush(cx)
-        } else {
-            Poll::Ready(Ok(()))
-        }
+        Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
         let inner = self.get_mut();
-
         inner.codec.encode(item, &mut inner.send_buf).map_err(Into::into)
     }
 

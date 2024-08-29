@@ -180,7 +180,7 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        HttpTunnelRequest::new(self.get(url).method(Method::CONNECT))
+        self.get(url).method(Method::CONNECT).mutate_marker()
     }
 
     #[cfg(all(feature = "websocket", feature = "http1"))]
@@ -247,18 +247,17 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        let builder = match uri::Uri::try_from(url) {
+        match uri::Uri::try_from(url) {
             Ok(uri) => {
                 let req = http_ws::client_request_from_uri(uri, version).map(|_| BoxBody::default());
-                self.request(req)
+                self.request(req).mutate_marker()
             }
             Err(e) => {
-                let mut builder = self.request(http::Request::new(BoxBody::default()));
+                let mut builder = RequestBuilder::new(http::Request::new(BoxBody::default()), self);
                 builder.push_error(e.into());
                 builder
             }
-        };
-        crate::ws::WsRequest::new(builder)
+        }
     }
 }
 

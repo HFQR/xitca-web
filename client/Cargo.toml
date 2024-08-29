@@ -30,7 +30,7 @@ websocket = ["http-ws"]
 dangerous = []
 
 [dependencies]
-xitca-http = { version = "0.6.0", default-features = false, features = ["runtime"] }
+xitca-http = { version = "0.7.0", default-features = false, features = ["runtime"] }
 xitca-io = "0.4.0"
 xitca-unsafe-collection = "0.2.0"
 

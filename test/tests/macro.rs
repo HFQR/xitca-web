@@ -97,7 +97,7 @@ struct MyState {
 
 #[test]
 fn state_borrow() {
-    use core::borrow::Borrow;
+    use xitca_web::handler::state::BorrowState;
 
     let state = MyState {
         field1: String::from("996"),
