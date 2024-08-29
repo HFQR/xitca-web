@@ -108,18 +108,13 @@ impl Leak for WebSocketTunnel<'_> {
 impl Sink<Message> for WebSocketTunnel<'_> {
     type Error = Error;
 
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         // TODO: set up a meaningful backpressure limit for send buf.
-        if !self.as_mut().get_mut().send_buf.chunk().is_empty() {
-            self.poll_flush(cx)
-        } else {
-            Poll::Ready(Ok(()))
-        }
+        Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
         let inner = self.get_mut();
-
         inner.codec.encode(item, &mut inner.send_buf).map_err(Into::into)
     }
 
