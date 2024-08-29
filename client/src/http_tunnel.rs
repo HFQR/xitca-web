@@ -17,10 +17,11 @@ use super::{
     connection::ConnectionExclusive,
     error::{Error, ErrorResponse},
     http::StatusCode,
-    tunnel::{Leak, Tunnel, TunnelRequest},
+    request::RequestBuilder,
+    tunnel::{Leak, Tunnel},
 };
 
-pub type HttpTunnelRequest<'a> = TunnelRequest<'a, marker::Connect>;
+pub type HttpTunnelRequest<'a> = RequestBuilder<'a, marker::Connect>;
 
 mod marker {
     pub struct Connect;
@@ -29,7 +30,7 @@ mod marker {
 impl<'a> HttpTunnelRequest<'a> {
     /// Send the request and wait for response asynchronously.
     pub async fn send(self) -> Result<Tunnel<HttpTunnel<'a>>, Error> {
-        let res = self.req.send().await?;
+        let res = self._send().await?;
 
         let status = res.status();
         let expect_status = StatusCode::OK;

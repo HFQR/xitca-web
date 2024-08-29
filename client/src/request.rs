@@ -1,4 +1,4 @@
-use core::time::Duration;
+use core::{marker::PhantomData, time::Duration};
 
 use futures_core::Stream;
 
@@ -17,14 +17,27 @@ use crate::{
 };
 
 /// builder type for [http::Request] with extended functionalities.
-pub struct RequestBuilder<'a> {
+pub struct RequestBuilder<'a, M = marker::Http> {
     req: http::Request<BoxBody>,
     err: Vec<Error>,
     client: &'a Client,
     timeout: Duration,
+    _marker: PhantomData<M>,
+}
+
+// default marker for normal http request
+mod marker {
+    pub struct Http;
 }
 
 impl<'a> RequestBuilder<'a> {
+    /// Finish request builder and send it to server.
+    pub async fn send(self) -> Result<Response<'a>, Error> {
+        self._send().await
+    }
+}
+
+impl<'a, M> RequestBuilder<'a, M> {
     pub(crate) fn new<B, E>(req: http::Request<B>, client: &'a Client) -> Self
     where
         B: Stream<Item = Result<Bytes, E>> + Send + 'static,
@@ -35,7 +48,42 @@ impl<'a> RequestBuilder<'a> {
             err: Vec::new(),
             client,
             timeout: client.timeout_config.request_timeout,
+            _marker: PhantomData,
         }
+    }
+
+    pub(crate) fn mutate_marker<M2>(self) -> RequestBuilder<'a, M2> {
+        RequestBuilder {
+            req: self.req,
+            err: self.err,
+            client: self.client,
+            timeout: self.timeout,
+            _marker: PhantomData,
+        }
+    }
+
+    // send request to server
+    pub(crate) async fn _send(self) -> Result<Response<'a>, Error> {
+        let Self {
+            mut req,
+            err,
+            client,
+            timeout,
+            ..
+        } = self;
+
+        if !err.is_empty() {
+            return Err(err.into());
+        }
+
+        client
+            .service
+            .call(ServiceRequest {
+                req: &mut req,
+                client,
+                timeout,
+            })
+            .await
     }
 
     pub(crate) fn push_error(&mut self, e: Error) {
@@ -116,7 +164,7 @@ impl<'a> RequestBuilder<'a> {
     /// Use text(utf-8 encoded) as request body.
     ///
     /// [CONTENT_TYPE] header would be set with value: `text/plain; charset=utf-8`.
-    pub fn text<B1>(mut self, text: B1) -> RequestBuilder<'a>
+    pub fn text<B1>(mut self, text: B1) -> RequestBuilder<'a, M>
     where
         Bytes: From<B1>,
     {
@@ -126,7 +174,7 @@ impl<'a> RequestBuilder<'a> {
 
     #[cfg(feature = "json")]
     /// Use json object as request body.
-    pub fn json(mut self, body: impl serde::ser::Serialize) -> RequestBuilder<'a> {
+    pub fn json(mut self, body: impl serde::ser::Serialize) -> RequestBuilder<'a, M> {
         match serde_json::to_vec(&body) {
             Ok(body) => {
                 self.headers_mut().insert(CONTENT_TYPE, const_header_value::JSON);
@@ -142,7 +190,7 @@ impl<'a> RequestBuilder<'a> {
     /// Use pre allocated bytes as request body.
     ///
     /// Input type must implement [From] trait with [Bytes].
-    pub fn body<B>(mut self, body: B) -> RequestBuilder<'a>
+    pub fn body<B>(mut self, body: B) -> RequestBuilder<'a, M>
     where
         Bytes: From<B>,
     {
@@ -154,7 +202,7 @@ impl<'a> RequestBuilder<'a> {
 
     /// Use streaming type as request body.
     #[inline]
-    pub fn stream<B, E>(self, body: B) -> RequestBuilder<'a>
+    pub fn stream<B, E>(self, body: B) -> RequestBuilder<'a, M>
     where
         B: Stream<Item = Result<Bytes, E>> + Send + 'static,
         E: Into<BodyError>,
@@ -162,35 +210,12 @@ impl<'a> RequestBuilder<'a> {
         self.map_body(body)
     }
 
-    fn map_body<B, E>(mut self, b: B) -> RequestBuilder<'a>
+    fn map_body<B, E>(mut self, b: B) -> RequestBuilder<'a, M>
     where
         B: Stream<Item = Result<Bytes, E>> + Send + 'static,
         E: Into<BodyError>,
     {
         self.req = self.req.map(|_| BoxBody::new(b));
         self
-    }
-
-    /// Finish request builder and send it to server.
-    pub async fn send(self) -> Result<Response<'a>, Error> {
-        let Self {
-            mut req,
-            err,
-            client,
-            timeout,
-        } = self;
-
-        if !err.is_empty() {
-            return Err(err.into());
-        }
-
-        client
-            .service
-            .call(ServiceRequest {
-                req: &mut req,
-                client,
-                timeout,
-            })
-            .await
     }
 }

@@ -1,76 +1,12 @@
 use core::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
 
 use std::sync::Mutex;
 
 use futures_core::stream::Stream;
 use futures_sink::Sink;
-
-use super::{
-    http::{Method, Version},
-    request::RequestBuilder,
-};
-
-/// new type of [RequestBuilder] with extended functionality for tunnel handling.
-pub struct TunnelRequest<'a, M> {
-    pub(crate) req: RequestBuilder<'a>,
-    _marker: PhantomData<M>,
-}
-
-/// new type of [RequestBuilder] with extended functionality for tunnel handling.
-
-impl<'a, M> Deref for TunnelRequest<'a, M> {
-    type Target = RequestBuilder<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.req
-    }
-}
-
-impl<'a, M> DerefMut for TunnelRequest<'a, M> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.req
-    }
-}
-
-impl<'a, M> TunnelRequest<'a, M> {
-    pub(super) fn new(req: RequestBuilder<'a>) -> Self {
-        Self {
-            req,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Set HTTP method of this request.
-    pub fn method(mut self, method: Method) -> Self {
-        self.req = self.req.method(method);
-        self
-    }
-
-    #[doc(hidden)]
-    /// Set HTTP version of this request.
-    ///
-    /// By default request's HTTP version depends on network stream
-    pub fn version(mut self, version: Version) -> Self {
-        self.req = self.req.version(version);
-        self
-    }
-
-    /// Set timeout of this request.
-    ///
-    /// The value passed would override global [ClientBuilder::set_request_timeout].
-    ///
-    /// [ClientBuilder::set_request_timeout]: crate::ClientBuilder::set_request_timeout
-    pub fn timeout(mut self, dur: Duration) -> Self {
-        self.req = self.req.timeout(dur);
-        self
-    }
-}
 
 /// sender part of tunneled connection.
 /// [Sink] trait is used to asynchronously send message.

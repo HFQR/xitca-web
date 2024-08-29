@@ -18,17 +18,18 @@ use super::{
     connection::ConnectionExclusive,
     error::{Error, ErrorResponse},
     http::{StatusCode, Version},
-    tunnel::{Leak, Tunnel, TunnelRequest, TunnelSink, TunnelStream},
+    request::RequestBuilder,
+    tunnel::{Leak, Tunnel, TunnelSink, TunnelStream},
 };
-
-mod marker {
-    pub struct WebSocket;
-}
 
 /// new type of [RequestBuilder] with extended functionality for websocket handling.
 ///
 /// [RequestBuilder]: crate::RequestBuilder
-pub type WsRequest<'a> = TunnelRequest<'a, marker::WebSocket>;
+pub type WsRequest<'a> = RequestBuilder<'a, marker::WebSocket>;
+
+mod marker {
+    pub struct WebSocket;
+}
 
 /// A unified websocket that can be used as both sender/receiver.
 ///
@@ -46,7 +47,7 @@ pub type WebSocketReader<'a, 'b> = TunnelStream<'a, WebSocketTunnel<'b>>;
 impl<'a> WsRequest<'a> {
     /// Send the request and wait for response asynchronously.
     pub async fn send(self) -> Result<WebSocket<'a>, Error> {
-        let res = self.req.send().await?;
+        let res = self._send().await?;
 
         let status = res.status();
         let expect_status = match res.version() {
