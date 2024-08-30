@@ -63,12 +63,14 @@ pub struct Owned(BytesMut);
 impl Deref for Borrowed<'_> {
     type Target = BytesMut;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
 impl DerefMut for Borrowed<'_> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0
     }
@@ -77,12 +79,14 @@ impl DerefMut for Borrowed<'_> {
 impl Deref for Owned {
     type Target = BytesMut;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl DerefMut for Owned {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
