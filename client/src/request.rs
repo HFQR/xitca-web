@@ -18,7 +18,7 @@ use crate::{
 
 /// builder type for [http::Request] with extended functionalities.
 pub struct RequestBuilder<'a, M = marker::Http> {
-    req: http::Request<BoxBody>,
+    pub(crate) req: http::Request<BoxBody>,
     err: Vec<Error>,
     client: &'a Client,
     timeout: Duration,
