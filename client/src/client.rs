@@ -50,12 +50,12 @@ impl Default for Client {
 macro_rules! method {
     ($method: tt, $method2: tt) => {
         #[doc = concat!("Start a new [Method::",stringify!($method2),"] request with empty request body.")]
-        pub fn $method<U>(&self, url: U) -> RequestBuilder<'_>
+        pub fn $method<U>(&self, uri: U) -> RequestBuilder<'_>
         where
             uri::Uri: TryFrom<U>,
             Error: From<<uri::Uri as TryFrom<U>>::Error>,
         {
-            self.get(url).method(Method::$method2)
+            self.from_uri_method(uri, Method::$method2)
         }
     };
 }
@@ -83,13 +83,21 @@ impl Client {
         RequestBuilder::new(req, self)
     }
 
-    /// Start a new [Method::GET] request with empty request body.
-    pub fn get<U>(&self, url: U) -> RequestBuilder<'_>
+    method!(get, GET);
+    method!(post, POST);
+    method!(put, PUT);
+    method!(patch, PATCH);
+    method!(delete, DELETE);
+    method!(options, OPTIONS);
+    method!(head, HEAD);
+
+    fn from_uri_method<U>(&self, url: U, method: Method) -> RequestBuilder<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
         let mut req = http::Request::new(BoxBody::default());
+        *req.method_mut() = method;
         *req.version_mut() = self.max_http_version;
 
         let err = uri::Uri::try_from(url).map(|uri| *req.uri_mut() = uri).err();
@@ -102,13 +110,6 @@ impl Client {
 
         builder
     }
-
-    method!(post, POST);
-    method!(put, PUT);
-    method!(patch, PATCH);
-    method!(delete, DELETE);
-    method!(options, OPTIONS);
-    method!(head, HEAD);
 
     /// Start a new connect request for http tunnel.
     ///
@@ -180,7 +181,7 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        self.get(url).method(Method::CONNECT).mutate_marker()
+        self.from_uri_method(url, Method::CONNECT).mutate_marker()
     }
 
     #[cfg(all(feature = "websocket", feature = "http1"))]

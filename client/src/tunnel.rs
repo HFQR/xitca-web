@@ -77,7 +77,7 @@ where
         I: Leak,
         I::Target: Unpin,
     {
-        let owned = self.inner.into_inner().unwrap().leak();
+        let owned = self.into_inner().leak();
         Tunnel::new(owned)
     }
 
