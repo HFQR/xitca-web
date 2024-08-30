@@ -92,7 +92,15 @@ pub fn client_request_from_uri(uri: Uri, version: Version) -> Request<()> {
     *req.uri_mut() = uri;
     *req.version_mut() = version;
 
-    match version {
+    client_request_extend(&mut req);
+
+    req
+}
+
+/// Extend a [Request] with websocket associated headers and methods.
+/// After extension the request would be ready to be sent to server.
+pub fn client_request_extend<B>(req: &mut Request<B>) {
+    match req.version() {
         Version::HTTP_11 => {
             req.headers_mut().insert(UPGRADE, WEBSOCKET);
             req.headers_mut().insert(CONNECTION, UPGRADE_VALUE);
@@ -119,8 +127,6 @@ pub fn client_request_from_uri(uri: Uri, version: Version) -> Request<()> {
 
     req.headers_mut()
         .insert(SEC_WEBSOCKET_VERSION, SEC_WEBSOCKET_VERSION_VALUE);
-
-    req
 }
 
 /// Verify HTTP/1.1 WebSocket handshake request and create handshake response.

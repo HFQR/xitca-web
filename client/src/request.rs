@@ -18,7 +18,7 @@ use crate::{
 
 /// builder type for [http::Request] with extended functionalities.
 pub struct RequestBuilder<'a, M = marker::Http> {
-    req: http::Request<BoxBody>,
+    pub(crate) req: http::Request<BoxBody>,
     err: Vec<Error>,
     client: &'a Client,
     timeout: Duration,
@@ -30,7 +30,63 @@ mod marker {
     pub struct Http;
 }
 
-impl<'a> RequestBuilder<'a> {
+impl<'a> RequestBuilder<'a, marker::Http> {
+    /// Set HTTP method of this request.
+    #[inline]
+    pub fn method(mut self, method: Method) -> Self {
+        *self.req.method_mut() = method;
+        self
+    }
+
+    /// Use text(utf-8 encoded) as request body.
+    ///
+    /// [CONTENT_TYPE] header would be set with value: `text/plain; charset=utf-8`.
+    pub fn text<B1>(mut self, text: B1) -> Self
+    where
+        Bytes: From<B1>,
+    {
+        self.headers_mut().insert(CONTENT_TYPE, const_header_value::TEXT_UTF8);
+        self.body(text)
+    }
+
+    #[cfg(feature = "json")]
+    /// Use json object as request body.
+    pub fn json(mut self, body: impl serde::ser::Serialize) -> Self {
+        match serde_json::to_vec(&body) {
+            Ok(body) => {
+                self.headers_mut().insert(CONTENT_TYPE, const_header_value::JSON);
+                self.body(body)
+            }
+            Err(e) => {
+                self.push_error(e.into());
+                self
+            }
+        }
+    }
+
+    /// Use pre allocated bytes as request body.
+    ///
+    /// Input type must implement [From] trait with [Bytes].
+    pub fn body<B>(mut self, body: B) -> Self
+    where
+        Bytes: From<B>,
+    {
+        let bytes = Bytes::from(body);
+        let val = HeaderValue::from(bytes.len());
+        self.headers_mut().insert(CONTENT_LENGTH, val);
+        self.map_body(Once::new(bytes))
+    }
+
+    /// Use streaming type as request body.
+    #[inline]
+    pub fn stream<B, E>(self, body: B) -> Self
+    where
+        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        E: Into<BodyError>,
+    {
+        self.map_body(body)
+    }
+
     /// Finish request builder and send it to server.
     pub async fn send(self) -> Result<Response<'a>, Error> {
         self._send().await
@@ -114,13 +170,6 @@ impl<'a, M> RequestBuilder<'a, M> {
         self.req.extensions_mut()
     }
 
-    /// Set HTTP method of this request.
-    #[inline]
-    pub fn method(mut self, method: Method) -> Self {
-        *self.req.method_mut() = method;
-        self
-    }
-
     /// Set HTTP version of this request.
     ///
     /// By default request's HTTP version depends on network stream
@@ -159,55 +208,6 @@ impl<'a, M> RequestBuilder<'a, M> {
     pub fn timeout(mut self, dur: Duration) -> Self {
         self.timeout = dur;
         self
-    }
-
-    /// Use text(utf-8 encoded) as request body.
-    ///
-    /// [CONTENT_TYPE] header would be set with value: `text/plain; charset=utf-8`.
-    pub fn text<B1>(mut self, text: B1) -> RequestBuilder<'a, M>
-    where
-        Bytes: From<B1>,
-    {
-        self.headers_mut().insert(CONTENT_TYPE, const_header_value::TEXT_UTF8);
-        self.body(text)
-    }
-
-    #[cfg(feature = "json")]
-    /// Use json object as request body.
-    pub fn json(mut self, body: impl serde::ser::Serialize) -> RequestBuilder<'a, M> {
-        match serde_json::to_vec(&body) {
-            Ok(body) => {
-                self.headers_mut().insert(CONTENT_TYPE, const_header_value::JSON);
-                self.body(body)
-            }
-            Err(e) => {
-                self.push_error(e.into());
-                self
-            }
-        }
-    }
-
-    /// Use pre allocated bytes as request body.
-    ///
-    /// Input type must implement [From] trait with [Bytes].
-    pub fn body<B>(mut self, body: B) -> RequestBuilder<'a, M>
-    where
-        Bytes: From<B>,
-    {
-        let bytes = Bytes::from(body);
-        let val = HeaderValue::from(bytes.len());
-        self.headers_mut().insert(CONTENT_LENGTH, val);
-        self.map_body(Once::new(bytes))
-    }
-
-    /// Use streaming type as request body.
-    #[inline]
-    pub fn stream<B, E>(self, body: B) -> RequestBuilder<'a, M>
-    where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
-        E: Into<BodyError>,
-    {
-        self.map_body(body)
     }
 
     fn map_body<B, E>(mut self, b: B) -> RequestBuilder<'a, M>

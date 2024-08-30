@@ -1,4 +1,7 @@
 # unreleased 0.4.0
+## Add
+- add `client_request_extend` function for extending websocket headers/methods to an existing `Request` type.
+
 ## Change
 - `client_request_from_uri` becomes infallible by receive `Uri` type without try conversion.
 

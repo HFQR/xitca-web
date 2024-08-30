@@ -228,7 +228,7 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        self._ws(url, Version::HTTP_11)
+        self.get(url).version(Version::HTTP_11).mutate_marker()
     }
 
     #[cfg(all(feature = "websocket", feature = "http2"))]
@@ -238,26 +238,7 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        self._ws(url, Version::HTTP_2)
-    }
-
-    #[cfg(feature = "websocket")]
-    fn _ws<U>(&self, url: U, version: Version) -> crate::ws::WsRequest<'_>
-    where
-        uri::Uri: TryFrom<U>,
-        Error: From<<uri::Uri as TryFrom<U>>::Error>,
-    {
-        match uri::Uri::try_from(url) {
-            Ok(uri) => {
-                let req = http_ws::client_request_from_uri(uri, version).map(|_| BoxBody::default());
-                self.request(req).mutate_marker()
-            }
-            Err(e) => {
-                let mut builder = RequestBuilder::new(http::Request::new(BoxBody::default()), self);
-                builder.push_error(e.into());
-                builder
-            }
-        }
+        self.get(url).version(Version::HTTP_2).mutate_marker()
     }
 }
 

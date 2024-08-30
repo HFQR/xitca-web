@@ -46,7 +46,9 @@ pub type WebSocketReader<'a, 'b> = TunnelStream<'a, WebSocketTunnel<'b>>;
 
 impl<'a> WsRequest<'a> {
     /// Send the request and wait for response asynchronously.
-    pub async fn send(self) -> Result<WebSocket<'a>, Error> {
+    pub async fn send(mut self) -> Result<WebSocket<'a>, Error> {
+        http_ws::client_request_extend(&mut self.req);
+
         let res = self._send().await?;
 
         let status = res.status();
