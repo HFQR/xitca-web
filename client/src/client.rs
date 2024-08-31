@@ -55,7 +55,7 @@ macro_rules! method {
             uri::Uri: TryFrom<U>,
             Error: From<<uri::Uri as TryFrom<U>>::Error>,
         {
-            self.from_uri_method(uri, Method::$method2)
+            self.request_builder(uri, Method::$method2)
         }
     };
 }
@@ -91,7 +91,7 @@ impl Client {
     method!(options, OPTIONS);
     method!(head, HEAD);
 
-    fn from_uri_method<U>(&self, url: U, method: Method) -> RequestBuilder<'_>
+    fn request_builder<U>(&self, url: U, method: Method) -> RequestBuilder<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -181,7 +181,7 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        self.from_uri_method(url, Method::CONNECT).mutate_marker()
+        self.request_builder(url, Method::CONNECT).mutate_marker()
     }
 
     #[cfg(all(feature = "websocket", feature = "http1"))]
