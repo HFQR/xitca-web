@@ -22,7 +22,7 @@ where
     I::Item: BorrowToSql,
 {
     encode_bind(stmt, params, "", buf)?;
-    frontend::execute("", 0, buf).map_err(|_| Error::todo())?;
+    frontend::execute("", 0, buf)?;
     if SYNC_MODE {
         frontend::sync(buf);
     }

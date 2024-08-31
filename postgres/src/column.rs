@@ -18,11 +18,13 @@ impl Column {
     }
 
     /// Returns the name of the column.
+    #[inline]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Returns the type of the column.
+    #[inline]
     pub fn r#type(&self) -> &Type {
         &self.r#type
     }

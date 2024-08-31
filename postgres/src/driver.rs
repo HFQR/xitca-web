@@ -54,16 +54,13 @@ where
     Ok((Client::new(tx), drv))
 }
 
-async fn dns_resolve(host: &str, ports: &[u16]) -> Result<Vec<SocketAddr>, Error> {
-    let addrs = tokio::net::lookup_host((host, 0))
-        .await?
-        .flat_map(|mut addr| {
-            ports.iter().map(move |port| {
-                addr.set_port(*port);
-                addr
-            })
+async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterator<Item = SocketAddr> + 'p, Error> {
+    let addrs = tokio::net::lookup_host((host, 0)).await?.flat_map(|mut addr| {
+        ports.iter().map(move |port| {
+            addr.set_port(*port);
+            addr
         })
-        .collect::<Vec<_>>();
+    });
     Ok(addrs)
 }
 
