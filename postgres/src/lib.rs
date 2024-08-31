@@ -40,25 +40,23 @@ pub use self::{
 use xitca_io::io::AsyncIo;
 
 #[derive(Debug)]
-pub struct Postgres<C> {
-    cfg: C,
+pub struct Postgres {
+    cfg: Result<Config, Error>,
 }
 
-impl<C> Postgres<C>
-where
-    Config: TryFrom<C>,
-    Error: From<<Config as TryFrom<C>>::Error>,
-{
-    pub fn new(cfg: C) -> Self {
-        Self { cfg }
+impl Postgres {
+    pub fn new<C>(cfg: C) -> Self
+    where
+        Config: TryFrom<C>,
+        Error: From<<Config as TryFrom<C>>::Error>,
+    {
+        Self {
+            cfg: Config::try_from(cfg).map_err(Into::into),
+        }
     }
 }
 
-impl<C> Postgres<C>
-where
-    Config: TryFrom<C>,
-    Error: From<<Config as TryFrom<C>>::Error>,
-{
+impl Postgres {
     /// Connect to database. The returned values are [Client] and a detached async task
     /// that drives the client communication to db and it needs to spawn on an async runtime.
     ///
@@ -79,7 +77,7 @@ where
     ///
     /// ```
     pub async fn connect(self) -> Result<(Client, Driver), Error> {
-        let mut cfg = Config::try_from(self.cfg)?;
+        let mut cfg = self.cfg?;
         driver::connect(&mut cfg).await
     }
 
@@ -90,7 +88,7 @@ where
     where
         Io: AsyncIo + Send + 'static,
     {
-        let mut cfg = Config::try_from(self.cfg)?;
+        let mut cfg = self.cfg?;
         driver::connect_io(io, &mut cfg).await
     }
 
@@ -98,7 +96,7 @@ where
     pub async fn connect_quic(self) -> Result<(Client, Driver), Error> {
         use config::Host;
 
-        let mut cfg = Config::try_from(self.cfg)?;
+        let mut cfg = self.cfg?;
         cfg.host = cfg
             .host
             .into_iter()
