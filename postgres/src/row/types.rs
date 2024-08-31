@@ -77,11 +77,13 @@ impl<'a, C> GenericRow<'a, C> {
     }
 
     /// Determines if the row contains no values.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns the number of values in the row.
+    #[inline]
     pub fn len(&self) -> usize {
         self.columns().len()
     }

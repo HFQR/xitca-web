@@ -4,10 +4,10 @@ mod sealed {
     pub trait Sealed {}
 }
 
+#[doc(hidden)]
 /// a trait implemented by types that can find index and it's associated [Type] into columns of a
 /// row. cannot be implemented beyond crate boundary.
 pub trait RowIndexAndType: sealed::Sealed + Copy {
-    #[doc(hidden)]
     fn _from_columns(self, col: &[Column]) -> Option<(usize, &Type)>;
 }
 
