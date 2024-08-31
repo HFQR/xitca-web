@@ -76,6 +76,12 @@ impl DerefMut for Borrowed<'_> {
     }
 }
 
+impl Drop for Borrowed<'_> {
+    fn drop(&mut self) {
+        self.0.clear();
+    }
+}
+
 impl Deref for Owned {
     type Target = BytesMut;
 
@@ -226,7 +232,7 @@ impl<const SYNC_MODE: bool> Pipeline<'_, Owned, SYNC_MODE> {
 
 impl<'b, const SYNC_MODE: bool> Pipeline<'_, Borrowed<'b>, SYNC_MODE> {
     fn _with_capacity_from_buf(cap: usize, buf: &'b mut BytesMut) -> Self {
-        buf.clear();
+        debug_assert!(buf.is_empty(), "pipeline is borrowing potential polluted buffer");
         Self {
             columns: Vec::with_capacity(cap),
             buf: Borrowed(buf),
