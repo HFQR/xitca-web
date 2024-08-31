@@ -101,7 +101,6 @@ pub(crate) fn base_service() -> HttpService {
             loop {
                 match version {
                     Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect.uri).await {
-                        #[cfg(any(feature = "http2", feature = "http3"))]
                         shared::AcquireOutput::Conn(mut _conn) => {
                             let mut _timer = Box::pin(tokio::time::sleep(timeout));
                             *req.version_mut() = version;
