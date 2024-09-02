@@ -4,11 +4,16 @@ use core::{
     sync::atomic::Ordering,
 };
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{Arc, Mutex},
+};
 
-use tokio::sync::{Notify, RwLock, RwLockReadGuard};
+use tokio::sync::{Notify, RwLock, RwLockReadGuard, Semaphore, SemaphorePermit};
 use xitca_io::bytes::BytesMut;
 use xitca_service::pipeline::PipelineE;
+
+use crate::error::DriverDown;
 
 use super::{
     client::Client,
@@ -20,6 +25,97 @@ use super::{
     statement::{Statement, StatementGuarded},
     BorrowToSql, RowSimpleStream, RowStream, ToSql, Type,
 };
+
+pub struct ExclusivePool {
+    conn: Mutex<VecDeque<ExclusiveClient>>,
+    permits: Semaphore,
+}
+
+struct ExclusiveClient {
+    client: Client,
+    statements: HashMap<Box<str>, Arc<Statement>>,
+}
+
+impl ExclusivePool {
+    pub async fn get(&self) -> Result<ExclusiveConnection<'_>, Error> {
+        let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
+        match self.conn.lock().unwrap().pop_front() {
+            None => todo!(),
+            Some(conn) => Ok(ExclusiveConnection {
+                pool: self,
+                conn: Some((conn, _permit)),
+            }),
+        }
+    }
+}
+
+pub struct ExclusiveConnection<'a> {
+    pool: &'a ExclusivePool,
+    conn: Option<(ExclusiveClient, SemaphorePermit<'a>)>,
+}
+
+impl<'p> ExclusiveConnection<'p> {
+    pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
+        let conn = self.try_conn()?;
+        match conn.statements.get(query) {
+            Some(stmt) => Ok(stmt.clone()),
+            None => {
+                let stmt = conn.client.prepare(query, types).await?.leak();
+                let stmt = Arc::new(stmt);
+                conn.statements.insert(Box::from(query), stmt.clone());
+                Ok(stmt)
+            }
+        }
+    }
+
+    pub fn query<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    where
+        I: IntoIterator + Clone,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: BorrowToSql,
+    {
+        self.try_conn()?.client.query_raw(stmt, params).inspect_err(|e| {
+            if e.is_driver_down() {
+                let _ = self.leak();
+            }
+        })
+    }
+
+    pub fn pipeline<'a, B, const SYNC_MODE: bool>(
+        &mut self,
+        pipe: Pipeline<'a, B, SYNC_MODE>,
+    ) -> Result<PipelineStream<'a>, Error>
+    where
+        B: DerefMut<Target = BytesMut>,
+    {
+        self.try_conn()?.client.pipeline(pipe).inspect_err(|e| {
+            if e.is_driver_down() {
+                let _ = self.leak();
+            }
+        })
+    }
+
+    fn try_conn(&mut self) -> Result<&mut ExclusiveClient, Error> {
+        match self.conn {
+            Some((ref mut conn, _)) => Ok(conn),
+            None => Err(DriverDown.into()),
+        }
+    }
+
+    fn leak(&mut self) -> (ExclusiveClient, SemaphorePermit<'p>) {
+        self.conn
+            .take()
+            .expect("connection must not be leaked when it's already broken")
+    }
+}
+
+impl Drop for ExclusiveConnection<'_> {
+    fn drop(&mut self) {
+        if let Some((conn, _permit)) = self.conn.take() {
+            self.pool.conn.lock().unwrap().push_back(conn);
+        }
+    }
+}
 
 /// a shared connection for non transaction queries and [Statement] cache live as long as the connection itself.
 pub struct SharedClient {
@@ -137,7 +233,7 @@ impl SharedClient {
         I::Item: BorrowToSql,
     {
         let cli = self.read().await;
-        match cli.query_raw(stmt, params.clone()).await {
+        match cli.query_raw(stmt, params.clone()) {
             Ok(res) => Ok(res),
             Err(err) => {
                 drop(cli);
@@ -166,7 +262,7 @@ impl SharedClient {
 
             self.reconnect().await;
 
-            match self.read().await.query_raw(stmt, params.clone()).await {
+            match self.read().await.query_raw(stmt, params.clone()) {
                 Ok(res) => return Ok(res),
                 Err(e) => err = e,
             }

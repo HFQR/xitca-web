@@ -1,8 +1,4 @@
-use core::{
-    future::Future,
-    pin::Pin,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
@@ -16,10 +12,8 @@ use crate::{
     error::Error,
     iter::AsyncLendingIterator,
     statement::{Statement, StatementGuarded},
-    Type,
+    BoxedFuture, Type,
 };
-
-type BoxedFuture<'a> = Pin<Box<dyn Future<Output = Result<Type, Error>> + Send + 'a>>;
 
 impl Client {
     pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<&'_ Self>, Error> {
@@ -76,7 +70,7 @@ impl Client {
 
     // get type is called recursively so a boxed future is needed.
     #[inline(never)]
-    fn get_type(&self, oid: Oid) -> BoxedFuture<'_> {
+    fn get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         Box::pin(async move {
             if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
                 return Ok(ty);
@@ -84,7 +78,7 @@ impl Client {
 
             let stmt = self.typeinfo_statement().await?;
 
-            let mut rows = self.query_raw(&stmt, &[&oid]).await?;
+            let mut rows = self.query_raw(&stmt, &[&oid])?;
             let row = rows.try_next().await?.ok_or_else(Error::unexpected)?;
 
             let name = row.try_get::<String>(0)?;
@@ -127,7 +121,7 @@ impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
-        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
+        let mut rows = self.query_raw(&stmt, &[&oid])?;
 
         let mut res = Vec::new();
 
@@ -143,7 +137,7 @@ impl Client {
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
-        let mut rows = self.query_raw(&stmt, &[&oid]).await?;
+        let mut rows = self.query_raw(&stmt, &[&oid])?;
 
         let mut fields = Vec::new();
 

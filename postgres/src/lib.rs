@@ -33,9 +33,11 @@ pub use self::{
     error::Error,
     from_sql::FromSqlExt,
     iter::AsyncLendingIterator,
-    pool::SharedClient,
+    pool::{ExclusivePool, SharedClient},
     query::{RowSimpleStream, RowStream},
 };
+
+use core::{future::Future, pin::Pin};
 
 use xitca_io::io::AsyncIo;
 
@@ -108,6 +110,8 @@ impl Postgres {
         driver::connect(&mut cfg).await
     }
 }
+
+type BoxedFuture<'a, O> = Pin<Box<dyn Future<Output = O> + Send + 'a>>;
 
 fn _assert_send<F: Send>(_: F) {}
 fn _assert_send2<F: Send>() {}

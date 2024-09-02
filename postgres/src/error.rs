@@ -39,7 +39,7 @@ impl Error {
     #[cold]
     #[inline(never)]
     pub(crate) fn is_driver_down(&self) -> bool {
-        self.0.is::<DriverDown>()
+        self.0.is::<DriverDown>() || self.0.is::<DriverDownReceiving>()
     }
 }
 

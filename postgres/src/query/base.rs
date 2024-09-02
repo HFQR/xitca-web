@@ -28,51 +28,24 @@ impl Client {
     ///
     /// Panics if given params slice length does not match the length of [Statement::params].
     #[inline]
-    pub fn query<'a>(
-        &self,
-        stmt: &'a Statement,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> impl Future<Output = Result<RowStream<'a>, Error>> + Send + 'a {
-        // TODO: call query_raw when Rust2024 edition capture rule is stabled.
-        let res = self.send_encode(stmt, slice_iter(params));
-        async {
-            let mut res = res?;
-            match res.recv().await? {
-                backend::Message::BindComplete => Ok(RowStream {
-                    col: stmt.columns(),
-                    res,
-                    ranges: Vec::new(),
-                }),
-                _ => Err(Error::unexpected()),
-            }
-        }
+    pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+        self.query_raw(stmt, slice_iter(params))
     }
 
     /// # Panics
     ///
     /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
-    pub fn query_raw<'a, I>(
-        &self,
-        stmt: &'a Statement,
-        params: I,
-    ) -> impl Future<Output = Result<RowStream<'a>, Error>> + Send + 'a
+    pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        let res = self.send_encode(stmt, params);
-        async {
-            let mut res = res?;
-            match res.recv().await? {
-                backend::Message::BindComplete => Ok(RowStream {
-                    col: stmt.columns(),
-                    res,
-                    ranges: Vec::new(),
-                }),
-                _ => Err(Error::unexpected()),
-            }
-        }
+        self.send_encode(stmt, params).map(|res| RowStream {
+            res,
+            col: stmt.columns(),
+            ranges: Vec::new(),
+        })
     }
 
     /// Executes a statement, returning the number of rows modified.
@@ -165,7 +138,8 @@ impl<'a> AsyncLendingIterator for RowStream<'a> {
         loop {
             match self.res.recv().await? {
                 backend::Message::DataRow(body) => return Row::try_new(self.col, body, &mut self.ranges).map(Some),
-                backend::Message::EmptyQueryResponse
+                backend::Message::BindComplete
+                | backend::Message::EmptyQueryResponse
                 | backend::Message::CommandComplete(_)
                 | backend::Message::PortalSuspended => {}
                 backend::Message::ReadyForQuery(_) => return Ok(None),

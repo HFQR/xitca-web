@@ -36,19 +36,19 @@ impl Drop for Transaction<'_> {
 impl Transaction<'_> {
     /// [Client::query] for transaction.
     #[inline]
-    pub async fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
-        self.client.query(stmt, params).await
+    pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+        self.client.query(stmt, params)
     }
 
     /// [Client::query_raw] for transaction.
     #[inline]
-    pub async fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        self.client.query_raw(stmt, params).await
+        self.client.query_raw(stmt, params)
     }
 
     pub async fn commit(mut self) -> Result<(), Error> {
