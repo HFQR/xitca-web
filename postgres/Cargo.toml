@@ -3,12 +3,15 @@ name = "xitca-postgres"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [features]
 # feature for connecting to tls enabled server.
-tls = ["xitca-tls/rustls-ring-crypto", "sha2", "webpki-roots"]
+tls = ["dep:xitca-tls", "xitca-tls/rustls-ring-crypto", "dep:sha2", "dep:webpki-roots"]
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
-quic = ["quinn", "rustls-pemfile", "tls"]
+quic = ["dep:quinn", "dep:rustls-pemfile", "tls"]
 
 [dependencies]
 xitca-io = { version = "0.4.0", features = ["runtime"] }

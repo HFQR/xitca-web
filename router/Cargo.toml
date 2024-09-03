@@ -9,6 +9,9 @@ keywords = ["xitca", "xitca-web"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
 
+[lints]
+workspace = true
+
 [dependencies]
 xitca-unsafe-collection = "0.2.0"
 

@@ -13,7 +13,7 @@ use tokio::sync::{Notify, RwLock, RwLockReadGuard, Semaphore, SemaphorePermit};
 use xitca_io::bytes::BytesMut;
 use xitca_service::pipeline::PipelineE;
 
-use crate::error::DriverDown;
+use crate::{error::DriverDown, Postgres};
 
 use super::{
     client::Client,
@@ -26,21 +26,59 @@ use super::{
     BorrowToSql, RowSimpleStream, RowStream, ToSql, Type,
 };
 
+pub struct ExclusivePoolBuilder {
+    config: Result<Config, Error>,
+    capacity: usize,
+}
+
+impl ExclusivePoolBuilder {
+    pub fn capacity(mut self, cap: usize) -> Self {
+        self.capacity = cap;
+        self
+    }
+
+    pub fn build(self) -> Result<ExclusivePool, Error> {
+        let config = self.config?;
+
+        Ok(ExclusivePool {
+            conn: Mutex::new(VecDeque::with_capacity(self.capacity)),
+            permits: Semaphore::new(self.capacity),
+            config,
+        })
+    }
+}
+
 pub struct ExclusivePool {
     conn: Mutex<VecDeque<ExclusiveClient>>,
     permits: Semaphore,
-}
-
-struct ExclusiveClient {
-    client: Client,
-    statements: HashMap<Box<str>, Arc<Statement>>,
+    config: Config,
 }
 
 impl ExclusivePool {
+    pub fn builder<C>(cfg: C) -> ExclusivePoolBuilder
+    where
+        Config: TryFrom<C>,
+        Error: From<<Config as TryFrom<C>>::Error>,
+    {
+        ExclusivePoolBuilder {
+            config: cfg.try_into().map_err(Into::into),
+            capacity: 1,
+        }
+    }
+
     pub async fn get(&self) -> Result<ExclusiveConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
         match self.conn.lock().unwrap().pop_front() {
-            None => todo!(),
+            None => {
+                let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
+
+                tokio::task::spawn(driver.into_future());
+
+                Ok(ExclusiveConnection {
+                    pool: self,
+                    conn: Some((ExclusiveClient::new(client), _permit)),
+                })
+            }
             Some(conn) => Ok(ExclusiveConnection {
                 pool: self,
                 conn: Some((conn, _permit)),
@@ -56,29 +94,41 @@ pub struct ExclusiveConnection<'a> {
 
 impl<'p> ExclusiveConnection<'p> {
     pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
-        let conn = self.try_conn()?;
-        match conn.statements.get(query) {
+        match self.try_conn()?.statements.get(query) {
             Some(stmt) => Ok(stmt.clone()),
             None => {
-                let stmt = conn.client.prepare(query, types).await?.leak();
-                let stmt = Arc::new(stmt);
-                conn.statements.insert(Box::from(query), stmt.clone());
+                let stmt = self
+                    .try_conn()
+                    .unwrap()
+                    .client
+                    .prepare(query, types)
+                    .await
+                    .map(|stmt| Arc::new(stmt.leak()))
+                    .inspect_err(|e| self.try_drop_on_error(e))?;
+                self.try_conn()
+                    .unwrap()
+                    .statements
+                    .insert(Box::from(query), stmt.clone());
                 Ok(stmt)
             }
         }
     }
 
-    pub fn query<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    #[inline]
+    pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+        self.query_raw(stmt, slice_iter(params))
+    }
+
+    pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: IntoIterator + Clone,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        self.try_conn()?.client.query_raw(stmt, params).inspect_err(|e| {
-            if e.is_driver_down() {
-                let _ = self.leak();
-            }
-        })
+        self.try_conn()?
+            .client
+            .query_raw(stmt, params)
+            .inspect_err(|e| self.try_drop_on_error(e))
     }
 
     pub fn pipeline<'a, B, const SYNC_MODE: bool>(
@@ -88,17 +138,23 @@ impl<'p> ExclusiveConnection<'p> {
     where
         B: DerefMut<Target = BytesMut>,
     {
-        self.try_conn()?.client.pipeline(pipe).inspect_err(|e| {
-            if e.is_driver_down() {
-                let _ = self.leak();
-            }
-        })
+        self.try_conn()?
+            .client
+            .pipeline(pipe)
+            .inspect_err(|e| self.try_drop_on_error(e))
     }
 
     fn try_conn(&mut self) -> Result<&mut ExclusiveClient, Error> {
         match self.conn {
             Some((ref mut conn, _)) => Ok(conn),
             None => Err(DriverDown.into()),
+        }
+    }
+
+    fn try_drop_on_error(&mut self, e: &Error) {
+        // remove connection if it's driver is gone.
+        if e.is_driver_down() {
+            let _ = self.leak();
         }
     }
 
@@ -113,6 +169,20 @@ impl Drop for ExclusiveConnection<'_> {
     fn drop(&mut self) {
         if let Some((conn, _permit)) = self.conn.take() {
             self.pool.conn.lock().unwrap().push_back(conn);
+        }
+    }
+}
+
+struct ExclusiveClient {
+    client: Client,
+    statements: HashMap<Box<str>, Arc<Statement>>,
+}
+
+impl ExclusiveClient {
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+            statements: HashMap::new(),
         }
     }
 }

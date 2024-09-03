@@ -40,20 +40,6 @@ pub struct HttpServiceBuilder<
     pub(crate) _body: PhantomData<fn(V, St)>,
 }
 
-impl Default
-    for HttpServiceBuilder<
-        marker::Http,
-        net::Stream,
-        tls::NoOpTlsAcceptorBuilder,
-        DEFAULT_HEADER_LIMIT,
-        DEFAULT_READ_BUF_LIMIT,
-        DEFAULT_WRITE_BUF_LIMIT,
-    >
-{
-    fn default() -> Self {
-        unimplemented!("please use HttpServiceBuilder::new")
-    }
-}
 impl
     HttpServiceBuilder<
         marker::Http,

@@ -101,43 +101,34 @@ pub(super) async fn connect_host(host: Host, cfg: &mut Config) -> Result<(Driver
                 prepare_driver(io, cfg).await.map(|(tx, drv)| (tx, Driver::Tcp(drv)))
             }
         }
-        Host::Unix(ref _host) => {
-            #[cfg(unix)]
-            {
-                let mut io = xitca_io::net::UnixStream::connect(_host).await?;
-                if should_connect_tls(&mut io, cfg).await? {
-                    #[cfg(feature = "tls")]
-                    {
-                        let host = _host.to_string_lossy();
-                        let io = super::tls::connect_tls(io, host.as_ref(), cfg).await?;
-                        prepare_driver(io, cfg)
-                            .await
-                            .map(|(tx, drv)| (tx, Driver::UnixTls(drv)))
-                    }
-                    #[cfg(not(feature = "tls"))]
-                    {
-                        Err(crate::error::FeatureError::Tls.into())
-                    }
-                } else {
-                    prepare_driver(io, cfg).await.map(|(tx, drv)| (tx, Driver::Unix(drv)))
+        #[cfg(not(unix))]
+        Host::Unix(_) => Err(crate::error::SystemError::Unix.into()),
+        #[cfg(unix)]
+        Host::Unix(ref host) => {
+            let mut io = xitca_io::net::UnixStream::connect(host).await?;
+            if should_connect_tls(&mut io, cfg).await? {
+                #[cfg(feature = "tls")]
+                {
+                    let host = host.to_string_lossy();
+                    let io = super::tls::connect_tls(io, host.as_ref(), cfg).await?;
+                    prepare_driver(io, cfg)
+                        .await
+                        .map(|(tx, drv)| (tx, Driver::UnixTls(drv)))
                 }
-            }
-
-            #[cfg(not(unix))]
-            {
-                panic!("Host::Unix only support unix platform")
+                #[cfg(not(feature = "tls"))]
+                {
+                    Err(crate::error::FeatureError::Tls.into())
+                }
+            } else {
+                prepare_driver(io, cfg).await.map(|(tx, drv)| (tx, Driver::Unix(drv)))
             }
         }
-        Host::Quic(ref _host) => {
-            #[cfg(feature = "quic")]
-            {
-                let io = super::quic::connect_quic(_host, cfg.get_ports()).await?;
-                prepare_driver(io, cfg).await.map(|(tx, drv)| (tx, Driver::Quic(drv)))
-            }
-            #[cfg(not(feature = "quic"))]
-            {
-                Err(crate::error::FeatureError::Quic.into())
-            }
+        #[cfg(not(feature = "quic"))]
+        Host::Quic(_) => Err(crate::error::FeatureError::Quic.into()),
+        #[cfg(feature = "quic")]
+        Host::Quic(ref host) => {
+            let io = super::quic::connect_quic(host, cfg.get_ports()).await?;
+            prepare_driver(io, cfg).await.map(|(tx, drv)| (tx, Driver::Quic(drv)))
         }
     }
 }

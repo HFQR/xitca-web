@@ -9,6 +9,9 @@ keywords = ["http", "websocket"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 stream = ["pin-project-lite", "tokio/sync"]

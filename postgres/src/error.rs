@@ -28,18 +28,16 @@ use super::from_sql::FromSqlError;
 pub struct Error(Box<dyn error::Error + Send + Sync>);
 
 impl Error {
+    pub fn is_driver_down(&self) -> bool {
+        self.0.is::<DriverDown>() || self.0.is::<DriverDownReceiving>()
+    }
+
     pub(crate) fn todo() -> Self {
         Self("WIP error type placeholder".to_string().into())
     }
 
     pub(crate) fn unexpected() -> Self {
         Self(Box::new(UnexpectedMessage))
-    }
-
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn is_driver_down(&self) -> bool {
-        self.0.is::<DriverDown>() || self.0.is::<DriverDownReceiving>()
     }
 }
 
@@ -193,6 +191,29 @@ impl error::Error for AuthenticationError {}
 
 impl From<AuthenticationError> for Error {
     fn from(e: AuthenticationError) -> Self {
+        Self(Box::new(e))
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum SystemError {
+    Unix,
+}
+
+impl fmt::Display for SystemError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Unix => f.write_str("unix")?,
+        }
+        f.write_str(" system is not available")
+    }
+}
+
+impl error::Error for SystemError {}
+
+impl From<SystemError> for Error {
+    fn from(e: SystemError) -> Self {
         Self(Box::new(e))
     }
 }

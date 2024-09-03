@@ -34,12 +34,6 @@ impl<S, E> Clone for Group<S, E> {
 
 impl<S, E> Copy for Group<S, E> {}
 
-impl<S, E> Default for Group<S, E> {
-    fn default() -> Self {
-        unimplemented!("please use Group::new");
-    }
-}
-
 impl<S, E> Group<S, E> {
     pub const fn new() -> Self {
         Self(PhantomData)

@@ -9,6 +9,9 @@ keywords = ["xitca", "xitca-web"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
 
+[lints]
+workspace = true
+
 [features]
 # default include only http1.
 default = ["http1"]

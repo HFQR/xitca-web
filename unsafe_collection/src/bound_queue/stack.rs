@@ -6,12 +6,6 @@ pub struct StackQueue<T, const N: usize> {
     inner: Bounded<[MaybeUninit<T>; N]>,
 }
 
-impl<T, const N: usize> Default for StackQueue<T, N> {
-    fn default() -> Self {
-        unimplemented!("please use StackQueue::new");
-    }
-}
-
 impl<T, const N: usize> StackQueue<T, N> {
     #[inline]
     pub const fn new() -> Self {

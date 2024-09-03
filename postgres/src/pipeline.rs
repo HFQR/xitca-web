@@ -124,12 +124,6 @@ fn _assert_pipe_send() {
     crate::_assert_send2::<Pipeline<'_, Borrowed<'_>>>();
 }
 
-impl Default for Pipeline<'_, Owned, true> {
-    fn default() -> Self {
-        unimplemented!("Please use Pipeline::new or Pipeline::unsync")
-    }
-}
-
 impl Pipeline<'_, Owned, true> {
     /// start a new pipeline.
     ///
