@@ -3,6 +3,9 @@ name = "xitca-postgres"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [features]
 # feature for connecting to tls enabled server.
 tls = ["xitca-tls/rustls-ring-crypto", "sha2", "webpki-roots"]

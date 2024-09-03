@@ -42,3 +42,11 @@ http-ws = { path = "./http-ws" }
 lto = true
 opt-level = 3
 codegen-units = 1
+
+# disable useless and/or broken lints
+[workspace.lints.rust]
+unreachable_patterns = "allow"
+
+[workspace.lints.clippy]
+await_holding_lock = "allow"
+new_without_default = "allow"
