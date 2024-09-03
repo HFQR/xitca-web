@@ -197,6 +197,29 @@ impl From<AuthenticationError> for Error {
 
 #[non_exhaustive]
 #[derive(Debug)]
+pub enum SystemError {
+    Unix,
+}
+
+impl fmt::Display for SystemError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Unix => f.write_str("unix")?,
+        }
+        f.write_str(" system is not available")
+    }
+}
+
+impl error::Error for SystemError {}
+
+impl From<SystemError> for Error {
+    fn from(e: SystemError) -> Self {
+        Self(Box::new(e))
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug)]
 pub enum FeatureError {
     Tls,
     Quic,
