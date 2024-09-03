@@ -13,7 +13,7 @@ use tokio::sync::{Notify, RwLock, RwLockReadGuard, Semaphore, SemaphorePermit};
 use xitca_io::bytes::BytesMut;
 use xitca_service::pipeline::PipelineE;
 
-use crate::error::DriverDown;
+use crate::{error::DriverDown, Postgres};
 
 use super::{
     client::Client,
@@ -26,21 +26,59 @@ use super::{
     BorrowToSql, RowSimpleStream, RowStream, ToSql, Type,
 };
 
+pub struct ExclusivePoolBuilder {
+    config: Result<Config, Error>,
+    capacity: usize,
+}
+
+impl ExclusivePoolBuilder {
+    pub fn capacity(mut self, cap: usize) -> Self {
+        self.capacity = cap;
+        self
+    }
+
+    pub fn build(self) -> Result<ExclusivePool, Error> {
+        let config = self.config?;
+
+        Ok(ExclusivePool {
+            conn: Mutex::new(VecDeque::with_capacity(self.capacity)),
+            permits: Semaphore::new(self.capacity),
+            config,
+        })
+    }
+}
+
 pub struct ExclusivePool {
     conn: Mutex<VecDeque<ExclusiveClient>>,
     permits: Semaphore,
-}
-
-struct ExclusiveClient {
-    client: Client,
-    statements: HashMap<Box<str>, Arc<Statement>>,
+    config: Config,
 }
 
 impl ExclusivePool {
+    pub fn builder<C>(cfg: C) -> ExclusivePoolBuilder
+    where
+        Config: TryFrom<C>,
+        Error: From<<Config as TryFrom<C>>::Error>,
+    {
+        ExclusivePoolBuilder {
+            config: cfg.try_into().map_err(Into::into),
+            capacity: 1,
+        }
+    }
+
     pub async fn get(&self) -> Result<ExclusiveConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
         match self.conn.lock().unwrap().pop_front() {
-            None => todo!(),
+            None => {
+                let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
+
+                tokio::task::spawn(driver.into_future());
+
+                Ok(ExclusiveConnection {
+                    pool: self,
+                    conn: Some((ExclusiveClient::new(client), _permit)),
+                })
+            }
             Some(conn) => Ok(ExclusiveConnection {
                 pool: self,
                 conn: Some((conn, _permit)),
@@ -113,6 +151,20 @@ impl Drop for ExclusiveConnection<'_> {
     fn drop(&mut self) {
         if let Some((conn, _permit)) = self.conn.take() {
             self.pool.conn.lock().unwrap().push_back(conn);
+        }
+    }
+}
+
+struct ExclusiveClient {
+    client: Client,
+    statements: HashMap<Box<str>, Arc<Statement>>,
+}
+
+impl ExclusiveClient {
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+            statements: HashMap::new(),
         }
     }
 }
