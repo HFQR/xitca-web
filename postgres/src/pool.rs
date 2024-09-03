@@ -94,29 +94,41 @@ pub struct ExclusiveConnection<'a> {
 
 impl<'p> ExclusiveConnection<'p> {
     pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
-        let conn = self.try_conn()?;
-        match conn.statements.get(query) {
+        match self.try_conn()?.statements.get(query) {
             Some(stmt) => Ok(stmt.clone()),
             None => {
-                let stmt = conn.client.prepare(query, types).await?.leak();
-                let stmt = Arc::new(stmt);
-                conn.statements.insert(Box::from(query), stmt.clone());
+                let stmt = self
+                    .try_conn()
+                    .unwrap()
+                    .client
+                    .prepare(query, types)
+                    .await
+                    .map(|stmt| Arc::new(stmt.leak()))
+                    .inspect_err(|e| self.try_drop_on_error(e))?;
+                self.try_conn()
+                    .unwrap()
+                    .statements
+                    .insert(Box::from(query), stmt.clone());
                 Ok(stmt)
             }
         }
     }
 
-    pub fn query<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    #[inline]
+    pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+        self.query_raw(stmt, slice_iter(params))
+    }
+
+    pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: IntoIterator + Clone,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
-        self.try_conn()?.client.query_raw(stmt, params).inspect_err(|e| {
-            if e.is_driver_down() {
-                let _ = self.leak();
-            }
-        })
+        self.try_conn()?
+            .client
+            .query_raw(stmt, params)
+            .inspect_err(|e| self.try_drop_on_error(e))
     }
 
     pub fn pipeline<'a, B, const SYNC_MODE: bool>(
@@ -126,17 +138,23 @@ impl<'p> ExclusiveConnection<'p> {
     where
         B: DerefMut<Target = BytesMut>,
     {
-        self.try_conn()?.client.pipeline(pipe).inspect_err(|e| {
-            if e.is_driver_down() {
-                let _ = self.leak();
-            }
-        })
+        self.try_conn()?
+            .client
+            .pipeline(pipe)
+            .inspect_err(|e| self.try_drop_on_error(e))
     }
 
     fn try_conn(&mut self) -> Result<&mut ExclusiveClient, Error> {
         match self.conn {
             Some((ref mut conn, _)) => Ok(conn),
             None => Err(DriverDown.into()),
+        }
+    }
+
+    fn try_drop_on_error(&mut self, e: &Error) {
+        // remove connection if it's driver is gone.
+        if e.is_driver_down() {
+            let _ = self.leak();
         }
     }
 
