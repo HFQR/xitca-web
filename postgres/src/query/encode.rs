@@ -54,7 +54,7 @@ where
 
     match r {
         Ok(()) => Ok(()),
-        Err(frontend::BindError::Conversion(_)) => Err(Error::todo()),
-        Err(frontend::BindError::Serialization(_)) => Err(Error::todo()),
+        Err(frontend::BindError::Conversion(e)) => Err(Error::from(e)),
+        Err(frontend::BindError::Serialization(e)) => Err(Error::from(e)),
     }
 }
