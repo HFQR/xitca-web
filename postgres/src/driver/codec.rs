@@ -7,7 +7,7 @@ use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
-use crate::error::{DriverDownReceiving, Error};
+use crate::error::{DbError, DriverDownReceiving, Error};
 
 pub(super) fn request_pair(msg_count: usize) -> (ResponseSender, Response) {
     let (tx, rx) = unbounded_channel();
@@ -34,7 +34,10 @@ impl Response {
 
             let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.")
             {
-                backend::Message::ErrorResponse(_body) => Err(Error::todo()),
+                backend::Message::ErrorResponse(body) => {
+                    let e = DbError::parse(&mut body.fields())?;
+                    Err(e.into())
+                }
                 msg => Ok(msg),
             };
 
