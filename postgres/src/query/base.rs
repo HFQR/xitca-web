@@ -1,6 +1,7 @@
 use core::future::Future;
 
 use postgres_protocol::message::backend;
+use tracing::debug;
 
 use crate::{
     client::Client,
@@ -104,6 +105,7 @@ impl Response {
             match self.recv().await? {
                 backend::Message::RowDescription(_) | backend::Message::DataRow(_) => {}
                 backend::Message::CommandComplete(body) => {
+                    debug!("command completed with tag: {:?}", body.tag());
                     rows = super::decode::body_to_affected_rows(&body)?;
                 }
                 backend::Message::EmptyQueryResponse => rows = 0,
