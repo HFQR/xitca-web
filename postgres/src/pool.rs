@@ -132,8 +132,14 @@ impl<'p> ExclusiveConnection<'p> {
     }
 
     pub fn execute_simple(&mut self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        let res = self.try_conn().map(|conn| conn.client.execute_simple(stmt));
-        async { res?.await }
+        let res = match self.try_conn() {
+            Ok(conn) => conn
+                .client
+                .send_encode_simple(stmt)
+                .inspect_err(|e| self.try_drop_on_error(e)),
+            Err(e) => Err(e),
+        };
+        async { res?.try_into_row_affected().await }
     }
 
     pub fn pipeline<'a, B, const SYNC_MODE: bool>(

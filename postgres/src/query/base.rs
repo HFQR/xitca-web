@@ -98,7 +98,7 @@ impl Client {
 }
 
 impl Response {
-    pub(super) async fn try_into_row_affected(mut self) -> Result<u64, Error> {
+    pub(crate) async fn try_into_row_affected(mut self) -> Result<u64, Error> {
         let mut rows = 0;
         loop {
             match self.recv().await? {
