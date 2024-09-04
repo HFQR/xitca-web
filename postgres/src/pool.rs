@@ -13,17 +13,16 @@ use tokio::sync::{Notify, RwLock, RwLockReadGuard, Semaphore, SemaphorePermit};
 use xitca_io::bytes::BytesMut;
 use xitca_service::pipeline::PipelineE;
 
-use crate::{error::DriverDown, Postgres};
-
 use super::{
     client::Client,
     config::Config,
     driver::connect,
+    error::DriverDown,
     error::Error,
     iter::slice_iter,
     pipeline::{Owned, Pipeline, PipelineStream},
     statement::{Statement, StatementGuarded},
-    BorrowToSql, RowSimpleStream, RowStream, ToSql, Type,
+    BorrowToSql, Postgres, RowSimpleStream, RowStream, ToSql, Type,
 };
 
 pub struct ExclusivePoolBuilder {
@@ -68,7 +67,12 @@ impl ExclusivePool {
 
     pub async fn get(&self) -> Result<ExclusiveConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
-        match self.conn.lock().unwrap().pop_front() {
+        let conn = self.conn.lock().unwrap().pop_front();
+        match conn {
+            Some(conn) => Ok(ExclusiveConnection {
+                pool: self,
+                conn: Some((conn, _permit)),
+            }),
             None => {
                 let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
 
@@ -79,10 +83,6 @@ impl ExclusivePool {
                     conn: Some((ExclusiveClient::new(client), _permit)),
                 })
             }
-            Some(conn) => Ok(ExclusiveConnection {
-                pool: self,
-                conn: Some((conn, _permit)),
-            }),
         }
     }
 }
@@ -152,22 +152,19 @@ impl<'p> ExclusiveConnection<'p> {
     }
 
     fn try_drop_on_error(&mut self, e: &Error) {
-        // remove connection if it's driver is gone.
         if e.is_driver_down() {
-            let _ = self.leak();
+            let _ = self.take();
         }
     }
 
-    fn leak(&mut self) -> (ExclusiveClient, SemaphorePermit<'p>) {
-        self.conn
-            .take()
-            .expect("connection must not be leaked when it's already broken")
+    fn take(&mut self) -> Option<(ExclusiveClient, SemaphorePermit<'p>)> {
+        self.conn.take()
     }
 }
 
 impl Drop for ExclusiveConnection<'_> {
     fn drop(&mut self) {
-        if let Some((conn, _permit)) = self.conn.take() {
+        if let Some((conn, _permit)) = self.take() {
             self.pool.conn.lock().unwrap().push_back(conn);
         }
     }
