@@ -131,6 +131,17 @@ impl<'p> ExclusiveConnection<'p> {
             .inspect_err(|e| self.try_drop_on_error(e))
     }
 
+    pub fn execute_simple(&mut self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
+        let res = match self.try_conn() {
+            Ok(conn) => conn
+                .client
+                .send_encode_simple(stmt)
+                .inspect_err(|e| self.try_drop_on_error(e)),
+            Err(e) => Err(e),
+        };
+        async { res?.try_into_row_affected().await }
+    }
+
     pub fn pipeline<'a, B, const SYNC_MODE: bool>(
         &mut self,
         pipe: Pipeline<'a, B, SYNC_MODE>,
