@@ -299,6 +299,8 @@ pub struct DbError {
 }
 
 impl DbError {
+    #[cold]
+    #[inline(never)]
     pub(crate) fn parse(fields: &mut ErrorFields<'_>) -> io::Result<DbError> {
         let mut severity = None;
         let mut parsed_severity = None;
