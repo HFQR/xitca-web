@@ -19,7 +19,7 @@ use super::{
     iter::slice_iter,
     pipeline::{Pipeline, PipelineStream},
     statement::Statement,
-    BorrowToSql, Postgres, RowStream, ToSql, Type,
+    BorrowToSql, BoxedFuture, Postgres, RowStream, ToSql, Type,
 };
 
 /// builder type for connection pool
@@ -76,22 +76,23 @@ impl Pool {
     pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
         let conn = self.conn.lock().unwrap().pop_front();
-        match conn {
-            Some(conn) => Ok(PoolConnection {
-                pool: self,
-                conn: Some((conn, _permit)),
-            }),
-            None => {
-                let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
+        let conn = match conn {
+            Some(conn) => conn,
+            None => self.connect().await?,
+        };
+        Ok(PoolConnection {
+            pool: self,
+            conn: Some((conn, _permit)),
+        })
+    }
 
-                tokio::task::spawn(driver.into_future());
-
-                Ok(PoolConnection {
-                    pool: self,
-                    conn: Some((PoolClient::new(client), _permit)),
-                })
-            }
-        }
+    #[inline(never)]
+    fn connect(&self) -> BoxedFuture<'_, Result<PoolClient, Error>> {
+        Box::pin(async move {
+            let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
+            tokio::task::spawn(driver.into_future());
+            Ok(PoolClient::new(client))
+        })
     }
 }
 
@@ -109,22 +110,27 @@ impl<'p> PoolConnection<'p> {
     pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
         match self.try_conn()?.statements.get(query) {
             Some(stmt) => Ok(stmt.clone()),
-            None => {
-                let stmt = self
-                    .try_conn()
-                    .unwrap()
-                    .client
-                    .prepare(query, types)
-                    .await
-                    .map(|stmt| Arc::new(stmt.leak()))
-                    .inspect_err(|e| self.try_drop_on_error(e))?;
-                self.try_conn()
-                    .unwrap()
-                    .statements
-                    .insert(Box::from(query), stmt.clone());
-                Ok(stmt)
-            }
+            None => self._prepare(query, types).await,
         }
+    }
+
+    #[inline(never)]
+    fn _prepare<'a>(&'a mut self, query: &'a str, types: &'a [Type]) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
+        Box::pin(async move {
+            let stmt = self
+                .try_conn()
+                .unwrap()
+                .client
+                .prepare(query, types)
+                .await
+                .map(|stmt| Arc::new(stmt.leak()))
+                .inspect_err(|e| self.try_drop_on_error(e))?;
+            self.try_conn()
+                .unwrap()
+                .statements
+                .insert(Box::from(query), stmt.clone());
+            Ok(stmt)
+        })
     }
 
     /// function the same as [Client::query]
