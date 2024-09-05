@@ -253,7 +253,17 @@ where
                     }
 
                     match io::Write::write(&mut self.io, &inner.buf) {
-                        Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                        Ok(0) => {
+                            // spurious write can happen if ClientTx release locked buffer before writer
+                            // obtain it's lock. The buffer can be written to IO before Notified get polled.
+                            // Notified will cause another write and at that point the buffer could be emptied
+                            // already.
+                            if inner.buf.is_empty() {
+                                break;
+                            }
+
+                            return Err(io::ErrorKind::WriteZero.into());
+                        }
                         Ok(n) => {
                             inner.buf.advance(n);
 
