@@ -178,6 +178,63 @@ impl<'p> PoolConnection<'p> {
             .inspect_err(|e| self.try_drop_on_error(e))
     }
 
+    /// a shortcut to move and take ownership of self.
+    /// an important behavior of [PoolConnection] is it supports pipelining. eagerly drop it after usage can
+    /// contribute to more queries being pipelined. especially before any `await` point.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use xitca_postgres::{Error, Pool};
+    ///
+    /// async fn example(pool: &Pool) -> Result<(), Error> {
+    ///     // get a connection from pool and start a query.
+    ///     let mut conn = pool.get().await?;
+    ///
+    ///     conn.execute_simple("SELECT *").await?;
+    ///     
+    ///     // connection is kept across await point. making it unusable to other concurrent
+    ///     // callers to example function. and no pipelining will happen until it's released.
+    ///     let conn = conn;
+    ///
+    ///     // start another query but this time consume ownership and when res is returned
+    ///     // connection is dropped and went back to pool.
+    ///     let res = conn.consume().execute_simple("SELECT *");
+    ///
+    ///     // connection can't be used anymore in this scope but other concurrent callers
+    ///     // to example function is able to use it and if they follow the same calling
+    ///     // convention pipelining could happen and reduce syscall overhead.
+    ///     //
+    ///     // let res = conn.consume().execute_simple("SELECT *");
+    ///
+    ///     // without connection the response can still be collected asynchronously
+    ///     res.await?;
+    ///
+    ///     // therefore a good calling convention for independent queries could be:
+    ///     let mut conn = pool.get().await?;
+    ///     let res1 = conn.execute_simple("SELECT *");
+    ///     let res2 = conn.execute_simple("SELECT *");
+    ///     let res3 = conn.consume().execute_simple("SELECT *");
+    ///
+    ///     // all three queries can be pipelined into a single write syscall. and possibly
+    ///     // even more can be pipelined after conn.consume() is called if there are concurrent
+    ///     // callers use the same connection.
+    ///     
+    ///     res1.await?;
+    ///     res2.await?;
+    ///     res3.await?;
+    ///
+    ///     // it should be noted that pipelining is an optional crate feature for some potential
+    ///     // performance gain.
+    ///     // it's totally fine to ignore and use the apis normally with zero thought put into it.
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    #[inline(always)]
+    pub fn consume(self) -> Self {
+        self
+    }
+
     fn try_conn(&mut self) -> Result<&mut PoolClient, Error> {
         match self.conn {
             Some((ref mut conn, _)) => Ok(conn),
