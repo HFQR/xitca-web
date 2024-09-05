@@ -33,7 +33,7 @@ pub use self::{
     error::Error,
     from_sql::FromSqlExt,
     iter::AsyncLendingIterator,
-    pool::{ExclusivePool, SharedClient},
+    pool::{Pool, PoolBuilder, PoolConnection},
     query::{RowSimpleStream, RowStream},
 };
 

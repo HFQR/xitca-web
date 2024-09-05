@@ -104,21 +104,6 @@ impl<'a> From<Borrowed<'a>> for Owned {
     }
 }
 
-impl<'a, B, const SYNC_MODE: bool> Pipeline<'a, B, SYNC_MODE>
-where
-    B: Into<Owned>,
-{
-    // partial copy where references of columns are left untouched.
-    // this api is for the purpose of possible reuse/cache of pipeline buffer where encoded queries are stored.
-    pub(crate) fn into_owned(self) -> Pipeline<'a, Owned, SYNC_MODE> {
-        let Self { columns, buf } = self;
-        Pipeline {
-            columns,
-            buf: buf.into(),
-        }
-    }
-}
-
 fn _assert_pipe_send() {
     crate::_assert_send2::<Pipeline<'_, Owned>>();
     crate::_assert_send2::<Pipeline<'_, Borrowed<'_>>>();
