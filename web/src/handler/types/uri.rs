@@ -15,7 +15,7 @@ impl Deref for UriRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for UriRef<'a> {
     type Type<'b> = UriRef<'b>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -25,7 +25,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for UriRef<'a> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a Uri {
     type Type<'b> = &'b Uri;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -35,7 +35,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a Uri {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Uri {
     type Type<'b> = Uri;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -56,7 +56,7 @@ impl Deref for UriOwn {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for UriOwn {
     type Type<'b> = UriOwn;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

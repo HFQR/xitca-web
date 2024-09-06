@@ -49,10 +49,10 @@ mod service {
     where
         B: BodyStream + Default,
         S: for<'rs> Service<WebContext<'rs, C, Coder<B>>, Response = Res, Error = Err>,
-        Err: Into<Error<C>>,
+        Err: Into<Error>,
     {
         type Response = Res;
-        type Error = Error<C>;
+        type Error = Error;
 
         async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
             let (parts, ext) = ctx.take_request().into_parts();

@@ -12,7 +12,7 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = Multipart<B>;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();

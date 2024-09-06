@@ -26,7 +26,7 @@ where
     T: for<'de> Deserialize<'de>,
 {
     type Type<'b> = Query<T>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -44,7 +44,7 @@ pub struct LazyQuery<'a, T> {
 }
 
 impl<T> LazyQuery<'_, T> {
-    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
+    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error>
     where
         T: Deserialize<'de>,
     {
@@ -57,7 +57,7 @@ where
     T: Deserialize<'static>,
 {
     type Type<'b> = LazyQuery<'b, T>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

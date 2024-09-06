@@ -162,10 +162,10 @@ mod service {
     impl<'r, C, B, S> Service<WebContext<'r, C, B>> for EraserService<EraseErr, S>
     where
         S: Service<WebContext<'r, C, B>>,
-        S::Error: Into<Error<C>>,
+        S::Error: Into<Error>,
     {
         type Response = S::Response;
-        type Error = Error<C>;
+        type Error = Error;
 
         #[inline]
         async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -248,9 +248,9 @@ mod test {
             s.call(ctx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
         }
 
-        async fn middleware_fn2<S, C, B>(s: &S, ctx: WebContext<'_, C, B>) -> Result<WebResponse, Error<C>>
+        async fn middleware_fn2<S, C, B>(s: &S, ctx: WebContext<'_, C, B>) -> Result<WebResponse, Error>
         where
-            S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Error<C>>,
+            S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Error>,
         {
             s.call(ctx).await
         }

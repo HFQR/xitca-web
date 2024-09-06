@@ -68,13 +68,13 @@ impl From<StatusCode> for ErrorStatus {
     }
 }
 
-impl<C> From<StatusCode> for Error<C> {
+impl From<StatusCode> for Error {
     fn from(e: StatusCode) -> Self {
         Error::from(ErrorStatus::from(e))
     }
 }
 
-impl<C> From<ErrorStatus> for Error<C> {
+impl From<ErrorStatus> for Error {
     fn from(e: ErrorStatus) -> Self {
         Error::from_service(e)
     }

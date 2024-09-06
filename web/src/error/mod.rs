@@ -127,9 +127,9 @@ use self::service_impl::ErrorService;
 ///     }
 /// }
 ///
-/// async fn handle_error<C>(ctx: WebContext<'_, C>) {
+/// async fn handle_error<C>(ctx: WebContext<'_, C>) where C: 'static {
 ///     // construct error object.
-///     let e = Error::<C>::from_service(Foo);
+///     let e = Error::from_service(Foo);
 ///
 ///     // format and display error
 ///     println!("{e:?}");
@@ -146,13 +146,86 @@ use self::service_impl::ErrorService;
 ///     assert!(e.downcast_ref::<Foo>().is_some());
 /// }
 /// ```
-pub struct Error<C = ()>(Box<dyn for<'r> ErrorService<WebContext<'r, C>>>);
+pub struct Error(Box<dyn for<'r> ErrorService<WebContext<'r, Request<'r>>>>);
 
-impl<C> Error<C> {
+// TODO: this is a temporary type to mirror std::error::Request and latter should
+// be used when it's stabled.
+/// container for dynamic type provided by Error's default Service impl
+pub struct Request<'a> {
+    inner: &'a dyn Any,
+}
+
+impl Request<'_> {
+    /// request a reference of concrete type from dynamic container.
+    /// [Error] would provide your application's global state to it.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use std::{convert::Infallible, fmt};
+    ///
+    /// use xitca_web::{
+    ///     error::{Error, Request},
+    ///     handler::handler_service,
+    ///     http::WebResponse,
+    ///     service::Service,
+    ///     App, WebContext
+    /// };
+    ///
+    /// let app = App::new()
+    ///     .at("/", handler_service(handler))
+    ///     .with_state(String::from("996")); // application has a root state of String type.
+    ///
+    /// // handler function returns custom error type
+    /// async fn handler(_: &WebContext<'_, String>) -> Result<&'static str, MyError> {
+    ///     Err(MyError)
+    /// }
+    ///
+    /// // a self defined error type and necessary error implements.
+    /// #[derive(Debug)]
+    /// struct MyError;
+    ///
+    /// impl fmt::Display for MyError {
+    ///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    ///         f.write_str("my error")
+    ///     }
+    /// }
+    ///
+    /// impl std::error::Error for MyError {}
+    ///
+    /// impl From<MyError> for Error {
+    ///     fn from(e: MyError) -> Self {
+    ///         Self::from_service(e)
+    ///     }
+    /// }
+    ///
+    /// // Assuming application state is needed in error handler then this is the Service impl
+    /// // you want to write
+    /// impl<'r> Service<WebContext<'r, Request<'r>>> for MyError {
+    ///     type Response = WebResponse;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn call(&self, ctx: WebContext<'r, Request<'r>>) -> Result<Self::Response, Self::Error> {
+    ///         // error::Request is able to provide application's state reference with runtime type casting.
+    ///         if let Some(state) = ctx.state().request_ref::<String>() {
+    ///             assert_eq!(state, "996");
+    ///         }
+    ///         todo!()
+    ///     }
+    /// }
+    /// ```
+    pub fn request_ref<C>(&self) -> Option<&C>
+    where
+        C: 'static,
+    {
+        self.inner.downcast_ref()
+    }
+}
+
+impl Error {
     // construct an error object from given service type.
     pub fn from_service<S>(s: S) -> Self
     where
-        S: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible>
+        S: for<'r> Service<WebContext<'r, Request<'r>>, Response = WebResponse, Error = Infallible>
             + error::Error
             + Send
             + Sync
@@ -177,19 +250,19 @@ impl<C> Error<C> {
     }
 }
 
-impl<C> fmt::Debug for Error<C> {
+impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&*self.0, f)
     }
 }
 
-impl<C> fmt::Display for Error<C> {
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&*self.0, f)
     }
 }
 
-impl<C> error::Error for Error<C> {
+impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         self.0.source()
     }
@@ -200,18 +273,30 @@ impl<C> error::Error for Error<C> {
     }
 }
 
-impl<'r, C> Service<WebContext<'r, C>> for Error<C> {
+impl<'r, C> Service<WebContext<'r, C>> for Error
+where
+    C: 'static,
+{
     type Response = WebResponse;
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
-        crate::service::object::ServiceObject::call(&self.0, ctx).await
+        let WebContext { req, body, ctx } = ctx;
+        crate::service::object::ServiceObject::call(
+            &self.0,
+            WebContext {
+                req,
+                body,
+                ctx: &Request { inner: ctx as _ },
+            },
+        )
+        .await
     }
 }
 
 macro_rules! error_from_service {
     ($tt: ty) => {
-        impl<C> From<$tt> for crate::error::Error<C> {
+        impl From<$tt> for crate::error::Error {
             fn from(e: $tt) -> Self {
                 Self::from_service(e)
             }
@@ -268,7 +353,7 @@ macro_rules! forward_blank_bad_request {
 
 pub(crate) use forward_blank_bad_request;
 
-impl<C> From<Infallible> for Error<C> {
+impl From<Infallible> for Error {
     fn from(e: Infallible) -> Self {
         match e {}
     }
@@ -288,20 +373,20 @@ forward_blank_internal!(io::Error);
 
 type StdErr = Box<dyn error::Error + Send + Sync>;
 
-impl<C> From<StdErr> for Error<C> {
+impl From<StdErr> for Error {
     fn from(e: StdErr) -> Self {
         // this is a hack for middleware::Limit where it wraps around request stream body
         // and produce BodyOverFlow error and return it as BodyError. In the mean time
         // BodyError is another type alias share the same real type of StdErr and both share
-        // the same conversion path when converting into Error<C>.
+        // the same conversion path when converting into Error.
         //
         // currently the downcast and clone is to restore BodyOverFlow's original Service impl
         // where it will produce 400 bad request http response while StdErr will be producing
-        // 500 internal server error http response. As well as restoring downstream Error<C>
+        // 500 internal server error http response. As well as restoring downstream Error
         // consumer's chance to downcast BodyOverFlow type.
         //
-        // TODO: BodyError type should be replaced with Error<C> in streaming interface. Or better
-        // make Error<C> unbound to C type with the help of non_lifetime_binders feature.
+        // TODO: BodyError type should be replaced with Error in streaming interface. Or better
+        // make Error unbound to C type with the help of non_lifetime_binders feature.
         // see https://github.com/rust-lang/rust/issues/108185 for detail.
         if let Some(e) = e.downcast_ref::<BodyOverFlow>() {
             return Self::from(e.clone());
@@ -423,10 +508,10 @@ impl ThreadJoinError {
 error_from_service!(ThreadJoinError);
 forward_blank_internal!(ThreadJoinError);
 
-impl<F, S, C> From<PipelineE<F, S>> for Error<C>
+impl<F, S> From<PipelineE<F, S>> for Error
 where
-    F: Into<Error<C>>,
-    S: Into<Error<C>>,
+    F: Into<Error>,
+    S: Into<Error>,
 {
     fn from(pipe: PipelineE<F, S>) -> Self {
         match pipe {
@@ -472,7 +557,7 @@ mod service_impl {
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::body::ResponseBody;
+    use crate::{body::ResponseBody, http::StatusCode};
 
     use super::*;
 
@@ -498,7 +583,7 @@ mod test {
             }
         }
 
-        let foo = Error::<()>::from_service(Foo);
+        let foo = Error::from_service(Foo);
 
         println!("{foo:?}");
         println!("{foo}");
@@ -507,11 +592,41 @@ mod test {
         let res = Service::call(&foo, ctx.as_web_ctx()).now_or_panic().unwrap();
         assert_eq!(res.status().as_u16(), 200);
 
-        let err = Error::<()>::from(Box::new(Foo) as Box<dyn std::error::Error + Send + Sync>);
+        let err = Error::from(Box::new(Foo) as Box<dyn std::error::Error + Send + Sync>);
 
         println!("{err:?}");
         println!("{err}");
 
         assert!(err.upcast().downcast_ref::<Foo>().is_some());
+
+        #[derive(Debug)]
+        struct Bar;
+
+        impl fmt::Display for Bar {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("Foo")
+            }
+        }
+
+        impl error::Error for Bar {}
+
+        impl<'r> Service<WebContext<'r, Request<'r>>> for Bar {
+            type Response = WebResponse;
+            type Error = Infallible;
+
+            async fn call(&self, ctx: WebContext<'r, Request<'r>>) -> Result<Self::Response, Self::Error> {
+                let status = ctx.state().request_ref::<StatusCode>().unwrap();
+                Ok(WebResponse::builder().status(*status).body(Default::default()).unwrap())
+            }
+        }
+
+        let bar = Error::from_service(Bar);
+
+        let res = bar
+            .call(WebContext::new_test(StatusCode::IM_USED).as_web_ctx())
+            .now_or_panic()
+            .unwrap();
+
+        assert_eq!(res.status(), StatusCode::IM_USED);
     }
 }

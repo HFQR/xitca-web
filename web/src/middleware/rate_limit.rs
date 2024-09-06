@@ -77,10 +77,10 @@ mod service {
 
     impl<'r, C, B, S, ResB> Service<WebContext<'r, C, B>> for RateLimitService<S>
     where
-        S: for<'r2> Service<WebContext<'r2, C, B>, Response = WebResponse<ResB>, Error = Error<C>>,
+        S: for<'r2> Service<WebContext<'r2, C, B>, Response = WebResponse<ResB>, Error = Error>,
     {
         type Response = WebResponse<ResB>;
-        type Error = Error<C>;
+        type Error = Error;
 
         async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
             let headers = ctx.req().headers();

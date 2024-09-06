@@ -13,16 +13,16 @@ pub(crate) fn error(_: TokenStream, item: ItemImpl) -> Result<TokenStream, Error
     let call_stmts = &call_impl.block.stmts;
 
     Ok(quote! {
-        impl<'r, C> ::xitca_web::service::Service<WebContext<'r, C>> for #err_ty {
+        impl<'r> ::xitca_web::service::Service<WebContext<'r, ::xitca_web::error::Request<'r>>> for #err_ty {
             type Response = WebResponse;
             type Error = ::core::convert::Infallible;
 
-            async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
+            async fn call(&self, ctx: WebContext<'r, ::xitca_web::error::Request<'r>>) -> Result<Self::Response, Self::Error> {
                 Ok({#(#call_stmts)*})
             }
         }
 
-        impl<C> From<#err_ty> for ::xitca_web::error::Error<C> {
+        impl From<#err_ty> for ::xitca_web::error::Error {
             fn from(e: #err_ty) -> Self {
                 Self::from_service(e)
             }

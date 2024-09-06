@@ -159,7 +159,7 @@ where
     B: BodyStream + Default + 'static,
 {
     type Type<'b> = WebSocket<B>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

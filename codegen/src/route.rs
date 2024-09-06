@@ -174,7 +174,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                 Box<dyn for<'r> ::xitca_web::service::object::ServiceObject<
                     ::xitca_web::WebContext<'r, #state_ident>,
                     Response = ::xitca_web::http::WebResponse,
-                    Error = ::xitca_web::error::RouterError<::xitca_web::error::Error<#state_ident>>
+                    Error = ::xitca_web::error::RouterError<::xitca_web::error::Error>
                 >>,
                 ::core::convert::Infallible
             >;

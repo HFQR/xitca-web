@@ -117,7 +117,7 @@ mod service {
         F::File: 'static,
     {
         type Response = WebResponse;
-        type Error = RouterError<Error<C>>;
+        type Error = RouterError<Error>;
 
         async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
             match self.0.serve(ctx.req()).await {

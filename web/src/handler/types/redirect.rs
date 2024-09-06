@@ -47,7 +47,7 @@ impl Redirect {
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for Redirect {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
@@ -82,7 +82,7 @@ impl Service for Redirect {
 
 impl<'r, C, B> Service<WebContext<'r, C, B>> for Redirect {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {

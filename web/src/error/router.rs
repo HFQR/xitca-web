@@ -45,7 +45,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
     }
 }
 
-impl<E, C> From<RouterError<E>> for Error<C>
+impl<E> From<RouterError<E>> for Error
 where
     E: Into<Self>,
 {

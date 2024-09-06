@@ -82,7 +82,7 @@ where
     T: ?Sized + 'static,
 {
     type Type<'b> = StateRef<'b, T>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -127,7 +127,7 @@ where
     T: Clone,
 {
     type Type<'b> = StateOwn<T>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
