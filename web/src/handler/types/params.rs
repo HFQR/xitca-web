@@ -36,7 +36,7 @@ pub struct LazyParams<'a, T> {
 }
 
 impl<T> LazyParams<'_, T> {
-    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error>
+    pub fn deserialize<'de>(&'de self) -> Result<T, Error>
     where
         T: Deserialize<'de>,
     {
@@ -774,7 +774,7 @@ mod tests {
     }
 
     async fn handler3(lazy: LazyParams<'_, Meme<'_>>) -> &'static str {
-        let Meme { name } = lazy.deserialize::<()>().unwrap();
+        let Meme { name } = lazy.deserialize().unwrap();
         assert_eq!(name, "doge");
         "such dead much unoriginal"
     }

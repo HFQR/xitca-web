@@ -44,7 +44,7 @@ pub struct LazyQuery<'a, T> {
 }
 
 impl<T> LazyQuery<'_, T> {
-    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error>
+    pub fn deserialize<'de>(&'de self) -> Result<T, Error>
     where
         T: Deserialize<'de>,
     {
@@ -106,7 +106,7 @@ mod test {
         *ctx.req_mut().uri_mut() = Uri::from_static("/996/251/?id=dagongren");
 
         async fn handler(lazy: LazyQuery<'_, Id2<'_>>) -> &'static str {
-            let id = lazy.deserialize::<()>().unwrap();
+            let id = lazy.deserialize().unwrap();
             assert_eq!(id.id, "dagongren");
             "kubi"
         }
