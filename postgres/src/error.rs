@@ -1,4 +1,6 @@
 //! library error types with re-export error from `rust-postgres`
+//!
+//! this crate only exposes a single [Error] type from API where type erase is used to hide complexity
 
 mod sql_state;
 
@@ -99,7 +101,7 @@ impl fmt::Debug for DriverDown {
 
 impl fmt::Display for DriverDown {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Driver is dropped and unaccessible.")
+        f.write_str("Driver is dropped and unaccessible. Associated query has not been sent to database.")
     }
 }
 
@@ -124,7 +126,7 @@ pub struct DriverDownReceiving;
 
 impl fmt::Display for DriverDownReceiving {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Driver is dropped and unaccessible. Response data is lost and unrecoverable.")
+        f.write_str("Driver is dropped and unaccessible. Associated query has been sent to database.")
     }
 }
 

@@ -269,6 +269,8 @@ impl Config {
     /// #   }
     /// # }
     /// ```
+    ///
+    /// [`Postgres::connect_io`]: crate::Postgres::connect_io
     pub fn tls_server_end_point(&mut self, tls_server_end_point: impl AsRef<[u8]>) -> &mut Self {
         self.tls_server_end_point = Some(Box::from(tls_server_end_point.as_ref()));
         self

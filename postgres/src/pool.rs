@@ -18,8 +18,9 @@ use super::{
     error::Error,
     iter::slice_iter,
     pipeline::{Pipeline, PipelineStream},
+    query::{RowSimpleStream, RowStream},
     statement::Statement,
-    BorrowToSql, BoxedFuture, Postgres, RowStream, ToSql, Type,
+    BorrowToSql, BoxedFuture, Postgres, ToSql, Type,
 };
 
 /// builder type for connection pool
@@ -104,9 +105,8 @@ pub struct PoolConnection<'a> {
 }
 
 impl<'p> PoolConnection<'p> {
-    /// prepare a [Statement] for future query. statement will be cached for future reuse and the
-    /// return type is [Arc<Statement>] smart pointer. this smart pointer is used to detach ownership
-    /// from [ExclusiveConnection]
+    /// function like [Client::prepare] with some behavior difference:
+    /// statement will be cached for future reuse and the return type is [`Arc<Statement>`] smart pointer
     pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
         match self.try_conn()?.statements.get(query) {
             Some(stmt) => Ok(stmt.clone()),
@@ -149,6 +149,14 @@ impl<'p> PoolConnection<'p> {
         self.try_conn()?
             .client
             .query_raw(stmt, params)
+            .inspect_err(|e| self.try_drop_on_error(e))
+    }
+
+    /// function the same as [Client::query_simple]
+    pub fn query_simple(&mut self, stmt: &str) -> Result<RowSimpleStream, Error> {
+        self.try_conn()?
+            .client
+            .query_simple(stmt)
             .inspect_err(|e| self.try_drop_on_error(e))
     }
 

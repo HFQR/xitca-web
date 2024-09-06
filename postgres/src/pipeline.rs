@@ -1,3 +1,13 @@
+//! explicit pipelining module
+//!
+//! this crate supports "implicit" pipeline like [`tokio-postgres`] does and explicit pipeline is an optional addition.
+//!
+//! making pipelined queries with explicit types and apis has following benefits:
+//! - reduced lock contention. explicit pipeline only lock client once when executed regardless query count
+//! - flexible transform between sync and un-sync pipeline. See [Pipeline::new] for detail
+//! - ordered response handling with a single stream type. reduce memory footprint
+//!
+//! [`tokio-postgres`]: https://docs.rs/tokio-postgres/latest/tokio_postgres/#pipelining
 use core::ops::{Deref, DerefMut, Range};
 
 use postgres_protocol::message::{backend, frontend};

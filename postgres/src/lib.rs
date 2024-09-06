@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/).
+//! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/)
 
 mod client;
 mod column;
