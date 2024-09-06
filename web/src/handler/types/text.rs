@@ -16,7 +16,7 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = String;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -31,7 +31,7 @@ macro_rules! text_utf8 {
     ($type: ty) => {
         impl<'r, C, B> Responder<WebContext<'r, C, B>> for $type {
             type Response = WebResponse;
-            type Error = Error<C>;
+            type Error = Error;
 
             #[inline]
             async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -60,7 +60,7 @@ where
     T: Into<ResponseBody>,
 {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let mut res = ctx.into_response(self.0.into());
@@ -92,7 +92,7 @@ where
     T: Into<ResponseBody> + Clone,
 {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {

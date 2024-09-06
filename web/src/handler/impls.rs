@@ -14,7 +14,7 @@ where
     T: FromRequest<'a, WebContext<'r, C, B>, Error = E>,
 {
     type Type<'b> = Result<T::Type<'b>, T::Error>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -27,7 +27,7 @@ where
     T: FromRequest<'a, WebContext<'r, C, B>>,
 {
     type Type<'b> = Option<T::Type<'b>>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -41,7 +41,7 @@ where
     B: 'static,
 {
     type Type<'b> = &'b WebContext<'b, C, B>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -51,7 +51,7 @@ where
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a WebRequest<()> {
     type Type<'b> = &'b WebRequest<()>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -61,7 +61,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a WebRequest<()> 
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for WebRequest<()> {
     type Type<'b> = WebRequest<()>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -71,7 +71,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for WebRequest<()> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a RequestExt<()> {
     type Type<'b> = &'b RequestExt<()>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -81,7 +81,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a RequestExt<()> 
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for RequestExt<()> {
     type Type<'b> = RequestExt<()>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -91,7 +91,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for RequestExt<()> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a SocketAddr {
     type Type<'b> = &'b SocketAddr;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -101,7 +101,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a SocketAddr {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for SocketAddr {
     type Type<'b> = SocketAddr;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -111,7 +111,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for SocketAddr {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a Method {
     type Type<'b> = &'b Method;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -121,7 +121,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a Method {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Method {
     type Type<'b> = Method;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -131,7 +131,7 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Method {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for () {
     type Type<'b> = ();
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(_: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -142,10 +142,10 @@ impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for () {
 impl<'r, C, B, T, Res, Err, E> Responder<WebContext<'r, C, B>> for Result<T, E>
 where
     T: for<'r2> Responder<WebContext<'r2, C, B>, Response = Res, Error = Err>,
-    Error<C>: From<E> + From<Err>,
+    Error: From<E> + From<Err>,
 {
     type Response = Res;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -155,7 +155,7 @@ where
 
 impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for WebResponse<ResB> {
     type Response = WebResponse<ResB>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -163,9 +163,9 @@ impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for WebResponse<ResB> {
     }
 }
 
-impl<'r, C, B> Responder<WebContext<'r, C, B>> for Error<C> {
+impl<'r, C, B> Responder<WebContext<'r, C, B>> for Error {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -175,7 +175,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Error<C> {
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for ErrorStatus {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, _: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -185,7 +185,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for ErrorStatus {
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
@@ -220,10 +220,7 @@ mod test {
 
         Option::<()>::from_request(&req).now_or_panic().unwrap().unwrap();
 
-        Result::<(), Error<()>>::from_request(&req)
-            .now_or_panic()
-            .unwrap()
-            .unwrap();
+        Result::<(), Error>::from_request(&req).now_or_panic().unwrap().unwrap();
 
         <&WebContext<'_>>::from_request(&req).now_or_panic().unwrap();
 

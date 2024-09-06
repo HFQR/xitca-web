@@ -95,7 +95,7 @@ impl<const HEADER_NAME: usize> Deref for HeaderRef<'_, HEADER_NAME> {
 
 impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebContext<'r, C, B>> for HeaderRef<'a, HEADER_NAME> {
     type Type<'b> = HeaderRef<'b, HEADER_NAME>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -110,7 +110,7 @@ impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebContext<'r, C, B
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
@@ -125,7 +125,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
 
 impl<'r, C, B, const N: usize> Responder<WebContext<'r, C, B>> for [(HeaderName, HeaderValue); N] {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
@@ -142,7 +142,7 @@ impl<'r, C, B, const N: usize> Responder<WebContext<'r, C, B>> for [(HeaderName,
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for Vec<(HeaderName, HeaderValue)> {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
@@ -159,7 +159,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Vec<(HeaderName, HeaderValue)
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for HeaderMap {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());

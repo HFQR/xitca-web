@@ -57,7 +57,7 @@ where
     C: Borrow<Self>,
 {
     type Type<'b> = Self;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -76,7 +76,7 @@ key_impl!(ExtensionKey);
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionKey {
     type Type<'b> = Self;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -133,7 +133,7 @@ pub struct Plain;
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Plain {
     type Type<'b> = Self;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(_: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -199,10 +199,10 @@ macro_rules! cookie_variant {
 
         impl<'a, 'r, C, B, K> FromRequest<'a, WebContext<'r, C, B>> for $variant<K>
         where
-            K: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = Error<C>> + Into<Key>,
+            K: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = Error> + Into<Key>,
         {
             type Type<'b> = Self;
-            type Error = Error<C>;
+            type Error = Error;
 
             #[inline]
             async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -220,10 +220,10 @@ cookie_variant!(Signed, signed, signed_mut);
 
 impl<'a, 'r, C, B, K> FromRequest<'a, WebContext<'r, C, B>> for CookieJar<K>
 where
-    K: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = Error<C>>,
+    K: for<'a2, 'r2> FromRequest<'a2, WebContext<'r2, C, B>, Error = Error>,
 {
     type Type<'b> = CookieJar<K>;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let key = K::from_request(ctx).await?;
@@ -255,7 +255,7 @@ forward_blank_bad_request!(ParseError);
 
 impl<'r, C, B, K> Responder<WebContext<'r, C, B>> for CookieJar<K> {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         let res = ctx.into_response(ResponseBody::empty());
@@ -321,7 +321,7 @@ mod test {
 
     impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for MyKey {
         type Type<'b> = MyKey;
-        type Error = Error<C>;
+        type Error = Error;
 
         async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
             Ok(ctx.req().extensions().get::<MyKey>().unwrap().clone())

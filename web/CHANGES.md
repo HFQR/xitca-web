@@ -6,7 +6,41 @@
 - add `service::ServeFile::new_tokio_uring` API. Guarded by `file-tokio-uring` feature.
 
 ## Change
+- change `error::Error` type by removing it's generic type param. Everywhere it had to be written as `Error<C>` can now be written as plain `Error`. Side effect of this change is how error interact with application state(typed data passed into `App::with_state` API). For most cases error type don't interact with app state at all and their impl don't need any change. But in rare case where it's needed it has to be changed in the following pattern:
+  ```rust
+  struct CustomError;
+
+  // Debug, Display, Error and From impl are ignored there as they don't need change.
+
+  // assuming app state is needed in error impl. the WebContext has to be written in the exact following type
+  impl<'r> Service<WebContext<'r, xitca_web::error::Request<'r>>> for CustomError {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: xitca_web::error::Request<'r>>) -> Result<Self::Response, Self::Error> {
+      // xitca_web::error::Request::request_ref method is able do runtime type casting. and when the type requested
+      // is the same as application's state it will return Some(app_state).
+      if let Some(state) = ctx.state().request_ref::<String>() {
+
+      }
+    }
+  }
+  ```
+- change `codegen::error_impl` marco to coop with the change to `Error` type. the impl method must receive `error::Request` type as `WebContext`'s type param. Example:
+  ```rust
+  struct CustomError;
+
+  #[error_impl]
+  impl CustomError {
+    // remove generic types and use concrete type.
+    async fn call(&self, ctx: WebContext<'_, Request<'_>>) -> WebResponse {
+
+    }
+  }
+  ```
+- change behavior of scoped app error handling. Back when `Error<AppState>` carries addition type info scoped app's error type has to be eagerly converted to `WebResponse` before the output goes beyond it's own scope due to possible state type difference. Since `Error` type does not carry type state param anymore scoped app's error will pass through beyond scopes unless it hits an error handler that convert it to `WebResponse`
 - revert `handler::state::BorrowState` change from `0.6.2`
+- update `xitca-codegen` to `0.4.0`
 - update `xitca-http` to `0.7.0`
 - update `xitca-service` to `0.3.0`
 - update `xitca-server` to `0.5.0`

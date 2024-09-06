@@ -1,4 +1,5 @@
-# unreleased
+# unreleased 0.4.0
+- macro is refactored to target xitca-web `0.7.0`
 
 # 0.3.1
 ## Fix

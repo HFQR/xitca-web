@@ -36,7 +36,7 @@ pub struct App<R = (), CF = ()> {
 
 type BoxFuture<C> = Pin<Box<dyn Future<Output = Result<C, Box<dyn fmt::Debug>>>>>;
 type CtxBuilder<C> = Box<dyn Fn() -> BoxFuture<C> + Send + Sync>;
-type DefaultWebObject<C> = WebObject<C, RequestBody, WebResponse, RouterError<Error<C>>>;
+type DefaultWebObject<C> = WebObject<C, RequestBody, WebResponse, RouterError<Error>>;
 type DefaultAppRouter<C> = AppRouter<RouteObject<(), DefaultWebObject<C>, Infallible>>;
 
 // helper trait to poly between () and Box<dyn Fn()> as application state.
@@ -355,9 +355,9 @@ impl<R, CF> App<R, CF> {
     ///
     /// // similar to function service. the middleware does not need to know the real type of C.
     /// // it only needs to know it implement according trait.
-    /// async fn middleware_fn<S, C, Res>(service: &S, ctx: WebContext<'_, C>) -> Result<Res, Error<C>>
+    /// async fn middleware_fn<S, C, Res>(service: &S, ctx: WebContext<'_, C>) -> Result<Res, Error>
     /// where
-    ///     S: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Error<C>>,
+    ///     S: for<'r> Service<WebContext<'r, C>, Response = Res, Error = Error>,
     ///     C: BorrowState<String> // annotate we want to borrow &String from generic C state type.
     /// {
     ///     // WebContext::state would return &C then we can call Borrow::borrow on it to get &String
@@ -578,24 +578,22 @@ pub struct NestAppService<C, S> {
 impl<'r, C1, C, S, SE> Service<WebContext<'r, C1>> for NestAppService<C, S>
 where
     S: for<'r1> Service<WebContext<'r1, C>, Response = WebResponse, Error = SE>,
-    SE: for<'r1> Service<WebContext<'r1, C>, Response = WebResponse, Error = Infallible>,
+    SE: Into<Error>,
 {
     type Response = WebResponse;
-    type Error = Error<C1>;
+    type Error = Error;
 
-    async fn call(&self, req: WebContext<'r, C1>) -> Result<Self::Response, Self::Error> {
-        let WebContext { req, body, .. } = req;
+    async fn call(&self, ctx: WebContext<'r, C1>) -> Result<Self::Response, Self::Error> {
+        let WebContext { req, body, .. } = ctx;
 
-        let mut ctx = WebContext {
-            req,
-            body,
-            ctx: &self.ctx,
-        };
-
-        match self.service.call(ctx.reborrow()).await {
-            Ok(res) => Ok(res),
-            Err(e) => e.call(ctx).await.map_err(|e| match e {}),
-        }
+        self.service
+            .call(WebContext {
+                req,
+                body,
+                ctx: &self.ctx,
+            })
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -628,7 +626,7 @@ mod test {
 
     #[allow(clippy::too_many_arguments)]
     async fn handler(
-        _res: Result<UriRef<'_>, Error<String>>,
+        _res: Result<UriRef<'_>, Error>,
         _opt: Option<UriRef<'_>>,
         _req: &WebRequest<()>,
         StateRef(state): StateRef<'_, String>,

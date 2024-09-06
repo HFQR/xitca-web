@@ -66,7 +66,7 @@ where
     T: for<'de> Deserialize<'de>,
 {
     type Type<'b> = Json<T, LIMIT>;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
@@ -113,7 +113,7 @@ pub struct LazyJson<T, const LIMIT: usize = DEFAULT_LIMIT> {
 }
 
 impl<T, const LIMIT: usize> LazyJson<T, LIMIT> {
-    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
+    pub fn deserialize<'de>(&'de self) -> Result<T, Error>
     where
         T: Deserialize<'de>,
     {
@@ -127,7 +127,7 @@ where
     T: Deserialize<'static>,
 {
     type Type<'b> = LazyJson<T, LIMIT>;
-    type Error = Error<C>;
+    type Error = Error;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
@@ -144,7 +144,7 @@ where
     T: Serialize,
 {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -158,7 +158,7 @@ where
 }
 
 impl<T> Json<T> {
-    fn _respond<F, C>(self, func: F) -> Result<WebResponse, Error<C>>
+    fn _respond<F>(self, func: F) -> Result<WebResponse, Error>
     where
         T: Serialize,
         F: FnOnce(Bytes) -> WebResponse,
@@ -173,7 +173,7 @@ impl<T> Json<T> {
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for serde_json::Value {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -216,7 +216,7 @@ where
     T: Serialize + Clone,
 {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -258,7 +258,7 @@ mod test {
         *ctx.body_borrow_mut() = body.into();
 
         async fn handler(lazy: LazyJson<Gacha<'_>>) -> &'static str {
-            let ga = lazy.deserialize::<()>().unwrap();
+            let ga = lazy.deserialize().unwrap();
             assert_eq!(ga.credit_card, "declined");
             "bankruptcy"
         }

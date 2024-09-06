@@ -26,7 +26,7 @@ where
     T: Send + Sync + 'static,
 {
     type Type<'b> = ExtensionRef<'b, T>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -60,7 +60,7 @@ where
     T: Send + Sync + Clone + 'static,
 {
     type Type<'b> = ExtensionOwn<T>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -85,7 +85,7 @@ impl Deref for ExtensionsRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ExtensionsRef<'a> {
     type Type<'b> = ExtensionsRef<'b>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

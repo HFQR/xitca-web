@@ -17,7 +17,7 @@ impl Deref for PathRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for PathRef<'a> {
     type Type<'b> = PathRef<'b>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -38,7 +38,7 @@ impl Deref for PathOwn {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for PathOwn {
     type Type<'b> = PathOwn;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {

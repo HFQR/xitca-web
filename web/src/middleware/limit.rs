@@ -182,7 +182,7 @@ mod test {
         let chunk = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().ok().unwrap();
 
         let err = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().err().unwrap();
-        let err = crate::error::Error::<()>::from(err.into());
+        let err = crate::error::Error::from(err.into());
         assert_eq!(
             err.to_string(),
             format!("body size reached limit: {} bytes", CHUNK.len())

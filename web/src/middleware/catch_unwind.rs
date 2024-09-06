@@ -51,10 +51,10 @@ pub struct CatchUnwindService<S>(S);
 impl<'r, C, B, S> Service<WebContext<'r, C, B>> for CatchUnwindService<S>
 where
     S: Service<WebContext<'r, C, B>>,
-    S::Error: Into<Error<C>>,
+    S::Error: Into<Error>,
 {
     type Response = S::Response;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -62,9 +62,9 @@ where
     }
 }
 
-impl<C, E> From<CatchUnwindError<E>> for Error<C>
+impl<E> From<CatchUnwindError<E>> for Error
 where
-    E: Into<Error<C>>,
+    E: Into<Error>,
 {
     fn from(e: CatchUnwindError<E>) -> Self {
         match e {

@@ -20,7 +20,7 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = Body<B>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -40,7 +40,7 @@ macro_rules! from_bytes_impl {
             B: BodyStream + Default,
         {
             type Type<'b> = ($type, Limit<LIMIT>);
-            type Error = Error<C>;
+            type Error = Error;
 
             async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
                 let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(ctx)
@@ -78,7 +78,7 @@ macro_rules! from_bytes_impl {
             B: BodyStream + Default,
         {
             type Type<'b> = $type;
-            type Error = Error<C>;
+            type Error = Error;
 
             #[inline]
             async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -98,7 +98,7 @@ where
     B: BodyStream + Default,
 {
     type Type<'b> = (Bytes, Limit<LIMIT>);
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -135,7 +135,7 @@ responder_impl!(Vec<u8>);
 
 impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for ResponseBody<ResB> {
     type Response = WebResponse<ResponseBody<ResB>>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -150,7 +150,7 @@ impl<'r, C, B, ResB> Responder<WebContext<'r, C, B>> for ResponseBody<ResB> {
 
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for BoxBody {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {

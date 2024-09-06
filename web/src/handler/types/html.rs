@@ -30,7 +30,7 @@ where
     T: Into<ResponseBody>,
 {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
@@ -72,7 +72,7 @@ where
     T: Clone + Into<ResponseBody>,
 {
     type Response = WebResponse;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {

@@ -19,7 +19,7 @@ where
     T: for<'de> Deserialize<'de>,
 {
     type Type<'b> = Params<T>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -36,7 +36,7 @@ pub struct LazyParams<'a, T> {
 }
 
 impl<T> LazyParams<'_, T> {
-    pub fn deserialize<'de, C>(&'de self) -> Result<T, Error<C>>
+    pub fn deserialize<'de>(&'de self) -> Result<T, Error>
     where
         T: Deserialize<'de>,
     {
@@ -46,7 +46,7 @@ impl<T> LazyParams<'_, T> {
 
 impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for LazyParams<'a, T> {
     type Type<'b> = LazyParams<'b, T>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -70,7 +70,7 @@ impl Deref for ParamsRef<'_> {
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for ParamsRef<'a> {
     type Type<'b> = ParamsRef<'b>;
-    type Error = Error<C>;
+    type Error = Error;
 
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
@@ -774,7 +774,7 @@ mod tests {
     }
 
     async fn handler3(lazy: LazyParams<'_, Meme<'_>>) -> &'static str {
-        let Meme { name } = lazy.deserialize::<()>().unwrap();
+        let Meme { name } = lazy.deserialize().unwrap();
         assert_eq!(name, "doge");
         "such dead much unoriginal"
     }

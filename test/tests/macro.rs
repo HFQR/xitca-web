@@ -1,4 +1,10 @@
+use core::fmt;
+
 use xitca_service::{ready::ReadyService, Service, ServiceExt};
+use xitca_web::{
+    http::{StatusCode, WebResponse},
+    WebContext,
+};
 
 struct Test;
 
@@ -109,4 +115,23 @@ fn state_borrow() {
 
     assert_eq!(string.as_str(), "996");
     assert_eq!(num, &251);
+}
+
+#[derive(Debug)]
+struct MyError;
+
+impl fmt::Display for MyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("huh")
+    }
+}
+
+impl std::error::Error for MyError {}
+
+#[xitca_codegen::error_impl]
+impl MyError {
+    async fn call(&self, ctx: WebContext<'_, Request<'_>>) -> WebResponse {
+        let status = ctx.state().request_ref::<StatusCode>().unwrap();
+        WebResponse::builder().status(*status).body(Default::default()).unwrap()
+    }
 }
