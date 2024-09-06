@@ -148,7 +148,7 @@ use self::service_impl::ErrorService;
 /// ```
 pub struct Error(Box<dyn for<'r> ErrorService<WebContext<'r, Request<'r>>>>);
 
-// TODO: this is a temporary type to mirror std::error::Request and latter should
+// TODO: this is a temporary type to mirror std::error::request_ref API and latter should
 // be used when it's stabled.
 /// container for dynamic type provided by Error's default Service impl
 pub struct Request<'a> {
@@ -385,9 +385,7 @@ impl From<StdErr> for Error {
         // 500 internal server error http response. As well as restoring downstream Error
         // consumer's chance to downcast BodyOverFlow type.
         //
-        // TODO: BodyError type should be replaced with Error in streaming interface. Or better
-        // make Error unbound to C type with the help of non_lifetime_binders feature.
-        // see https://github.com/rust-lang/rust/issues/108185 for detail.
+        // TODO: BodyError type should be replaced with Error in streaming interface.
         if let Some(e) = e.downcast_ref::<BodyOverFlow>() {
             return Self::from(e.clone());
         }
