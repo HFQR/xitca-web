@@ -89,7 +89,7 @@ where
     }
 
     fn do_rollback(&mut self) {
-        let _ = self.client._execute_simple("ROLLBACK");
+        drop(self.client._execute_simple("ROLLBACK"));
     }
 }
 

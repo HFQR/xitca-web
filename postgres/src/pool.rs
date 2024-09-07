@@ -256,6 +256,8 @@ impl<'p> PoolConnection<'p> {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     fn try_drop_on_error(&mut self, e: &Error) {
         if e.is_driver_down() {
             let _ = self.take();
