@@ -7,7 +7,6 @@
     - zero copy row data parsing.
     - quic transport layer for remote lossy database connection.
 - Cons
-    - feature absence. no transaction, no query canceling, etc.(being worked on)
-    - require nightly rust. (the project's goal is to compile on stable eventually)
+    - feature absence. no transaction portal and savepoint, no query canceling, etc.(being worked on)
     - depend on other xitca-xxx crates.
     - expose liftime in public type params.(harder to return from function or contained in new types)

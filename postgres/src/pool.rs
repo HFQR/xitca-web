@@ -1,7 +1,4 @@
-use core::{
-    future::{Future, IntoFuture},
-    ops::DerefMut,
-};
+use core::{future::Future, ops::DerefMut};
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -16,11 +13,12 @@ use super::{
     config::Config,
     error::DriverDown,
     error::Error,
-    iter::slice_iter,
+    iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
-    query::{RowSimpleStream, RowStream},
+    query::{AsParams, RowSimpleStream, RowStream},
     statement::Statement,
-    BorrowToSql, BoxedFuture, Postgres, ToSql, Type,
+    transaction::Transaction,
+    BoxedFuture, Postgres, ToSql, Type,
 };
 
 /// builder type for connection pool
@@ -90,8 +88,12 @@ impl Pool {
     #[inline(never)]
     fn connect(&self) -> BoxedFuture<'_, Result<PoolClient, Error>> {
         Box::pin(async move {
-            let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
-            tokio::task::spawn(driver.into_future());
+            let (client, mut driver) = Postgres::new(self.config.clone()).connect().await?;
+            tokio::task::spawn(async move {
+                while let Ok(Some(_)) = driver.try_next().await {
+                    // TODO: add notify listen callback to Pool
+                }
+            });
             Ok(PoolClient::new(client))
         })
     }
@@ -142,9 +144,7 @@ impl<'p> PoolConnection<'p> {
     /// function the same as [Client::query_raw]
     pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator + Clone,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         self.try_conn()?
             .client
@@ -170,6 +170,11 @@ impl<'p> PoolConnection<'p> {
             Err(e) => Err(e),
         };
         async { res?.try_into_row_affected().await }
+    }
+
+    /// function the same as [Client::transaction]
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> {
+        Transaction::new(self)
     }
 
     /// function the same as [Client::pipeline]
@@ -250,6 +255,8 @@ impl<'p> PoolConnection<'p> {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     fn try_drop_on_error(&mut self, e: &Error) {
         if e.is_driver_down() {
             let _ = self.take();
