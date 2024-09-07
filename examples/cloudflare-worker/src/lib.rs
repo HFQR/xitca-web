@@ -5,22 +5,20 @@
 #![feature(impl_trait_in_assoc_type)]
 
 mod file;
-mod utils;
 
 use std::{cell::OnceCell, rc::Rc};
 
-use http_file::{ServeDir, ServeError};
 use worker::{Context, Env};
 use xitca_unsafe_collection::futures::NowOrPanic;
 use xitca_web::{
-    body::{BoxBody, RequestBody, ResponseBody},
+    body::{BoxBody, RequestBody},
     bytes::Bytes,
-    error::{BodyError, Error},
+    error::BodyError,
     handler::redirect::Redirect,
-    http::{self, RequestExt, StatusCode, WebRequest, WebResponse},
-    route::Route,
-    service::{fn_service, object, Service, ServiceExt},
-    App, WebContext,
+    http::{self, RequestExt, WebRequest, WebResponse},
+    service::file::ServeDir,
+    service::{object, Service, ServiceExt},
+    App,
 };
 
 // type alias to reduce type complexity.
@@ -38,10 +36,7 @@ fn get_router() -> AppService {
     let router_builder = || {
         let service = App::new()
             .at("/", Redirect::see_other("/index.html"))
-            .at(
-                "/",
-                Route::new([http::Method::GET, http::Method::HEAD]).route(fn_service(serve)),
-            )
+            .at("/", ServeDir::with_fs("", file::Files))
             .finish()
             .enclosed_fn(map_type)
             .call(())
@@ -53,36 +48,11 @@ fn get_router() -> AppService {
     R.with(|r| r.get_or_init(router_builder).clone())
 }
 
-#[worker::event(start)]
-pub fn start() {
-    utils::set_panic_hook();
-}
-
 #[worker::event(fetch)]
-pub async fn main(req: Request, _: Env, _: Context) -> Result<Response, worker::Error> {
+pub async fn fetch(req: Request, _: Env, _: Context) -> Result<Response, worker::Error> {
+    console_error_panic_hook::set_once();
     // get router from thread local and call router service
     get_router().call(req).await
-}
-
-// static file handler
-async fn serve(ctx: WebContext<'_>) -> Result<WebResponse, Error> {
-    // get file and handle error.
-    match ServeDir::with_fs("", file::Files).serve(ctx.req()).await {
-        // box file body stream
-        Ok(res) => Ok(res.map(ResponseBody::box_stream)),
-        Err(e) => match e {
-            ServeError::NotFound => Err(StatusCode::NOT_FOUND.into()),
-            ServeError::MethodNotAllowed => unreachable!("method is taken cared by Route"),
-            // note: worker-rs does not know how to handle 304 status code.
-            ServeError::NotModified => Ok(WebResponse::builder()
-                .status(StatusCode::NOT_MODIFIED)
-                .body(ResponseBody::none())
-                .unwrap()),
-            ServeError::PreconditionFailed => Err(StatusCode::PRECONDITION_FAILED.into()),
-            ServeError::InvalidPath => Err(StatusCode::BAD_REQUEST.into()),
-            _ => Err(StatusCode::INTERNAL_SERVER_ERROR.into()),
-        },
-    }
 }
 
 // middleware for map types and bridge xitca-web and worker-rs
