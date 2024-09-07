@@ -1,7 +1,11 @@
 use core::future::Future;
 
 use super::{
-    client::Client, error::Error, iter::slice_iter, query::RowStream, statement::Statement, BorrowToSql,
+    client::Client,
+    error::Error,
+    iter::slice_iter,
+    query::{AsParams, RowStream},
+    statement::Statement,
     PoolConnection, ToSql,
 };
 
@@ -60,9 +64,7 @@ where
     #[inline]
     pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         self.client._query_raw(stmt, params)
     }
@@ -96,9 +98,7 @@ where
 pub trait TransactionOps {
     fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql;
+        I: AsParams;
 
     fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>>;
 }
@@ -106,9 +106,7 @@ pub trait TransactionOps {
 impl TransactionOps for Client {
     fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         self.query_raw(stmt, params)
     }
@@ -121,9 +119,7 @@ impl TransactionOps for Client {
 impl TransactionOps for PoolConnection<'_> {
     fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         self.query_raw(stmt, params)
     }

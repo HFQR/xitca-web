@@ -8,9 +8,10 @@ use crate::{
     driver::codec::Response,
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
+    query::AsParams,
     row::Row,
     statement::Statement,
-    BorrowToSql, ToSql,
+    ToSql,
 };
 
 use super::row_stream::GenericRowStream;
@@ -37,9 +38,7 @@ impl Client {
     /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
     pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         self.send_encode(stmt, params).map(|res| RowStream {
             res,
@@ -77,9 +76,7 @@ impl Client {
     #[inline]
     pub fn execute_raw<I>(&self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         let res = self.send_encode(stmt, params);
         async { res?.try_into_row_affected().await }
@@ -87,9 +84,7 @@ impl Client {
 
     fn send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         let params = params.into_iter();
         stmt.params_assert(&params);

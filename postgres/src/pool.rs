@@ -1,7 +1,4 @@
-use core::{
-    future::{Future, IntoFuture},
-    ops::DerefMut,
-};
+use core::{future::Future, ops::DerefMut};
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -16,12 +13,12 @@ use super::{
     config::Config,
     error::DriverDown,
     error::Error,
-    iter::slice_iter,
+    iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
-    query::{RowSimpleStream, RowStream},
+    query::{AsParams, RowSimpleStream, RowStream},
     statement::Statement,
     transaction::Transaction,
-    BorrowToSql, BoxedFuture, Postgres, ToSql, Type,
+    BoxedFuture, Postgres, ToSql, Type,
 };
 
 /// builder type for connection pool
@@ -91,8 +88,12 @@ impl Pool {
     #[inline(never)]
     fn connect(&self) -> BoxedFuture<'_, Result<PoolClient, Error>> {
         Box::pin(async move {
-            let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
-            tokio::task::spawn(driver.into_future());
+            let (client, mut driver) = Postgres::new(self.config.clone()).connect().await?;
+            tokio::task::spawn(async move {
+                while let Ok(Some(_)) = driver.try_next().await {
+                    // TODO: add notify listen callback to Pool
+                }
+            });
             Ok(PoolClient::new(client))
         })
     }
@@ -143,9 +144,7 @@ impl<'p> PoolConnection<'p> {
     /// function the same as [Client::query_raw]
     pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         self.try_conn()?
             .client

@@ -19,9 +19,10 @@ use super::{
     driver::codec::Response,
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
+    query::AsParams,
     row::Row,
     statement::Statement,
-    BorrowToSql, ToSql,
+    ToSql,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
@@ -242,9 +243,7 @@ where
     /// pipelined version of [Client::query_raw] and [Client::execute_raw]
     pub fn query_raw<I>(&mut self, stmt: &'a Statement, params: I) -> Result<(), Error>
     where
-        I: IntoIterator,
-        I::IntoIter: ExactSizeIterator,
-        I::Item: BorrowToSql,
+        I: AsParams,
     {
         let params = params.into_iter();
         stmt.params_assert(&params);
