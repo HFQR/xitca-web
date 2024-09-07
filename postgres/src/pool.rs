@@ -20,6 +20,7 @@ use super::{
     pipeline::{Pipeline, PipelineStream},
     query::{RowSimpleStream, RowStream},
     statement::Statement,
+    transaction::Transaction,
     BorrowToSql, BoxedFuture, Postgres, ToSql, Type,
 };
 
@@ -142,7 +143,7 @@ impl<'p> PoolConnection<'p> {
     /// function the same as [Client::query_raw]
     pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
-        I: IntoIterator + Clone,
+        I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
         I::Item: BorrowToSql,
     {
@@ -170,6 +171,11 @@ impl<'p> PoolConnection<'p> {
             Err(e) => Err(e),
         };
         async { res?.try_into_row_affected().await }
+    }
+
+    /// function the same as [Client::transaction]
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> {
+        Transaction::new(self)
     }
 
     /// function the same as [Client::pipeline]
