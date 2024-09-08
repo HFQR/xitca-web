@@ -160,6 +160,38 @@ impl<'p> PoolConnection<'p> {
             .inspect_err(|e| self.try_drop_on_error(e))
     }
 
+    /// function the same as [Client::execute]
+    pub fn execute(
+        &mut self,
+        stmt: &Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> impl Future<Output = Result<u64, Error>> + Send {
+        // TODO: forward to execute_raw
+        let res = match self.try_conn() {
+            Ok(conn) => conn
+                .client
+                .send_encode(stmt, slice_iter(params))
+                .inspect_err(|e| self.try_drop_on_error(e)),
+            Err(e) => Err(e),
+        };
+        async { res?.try_into_row_affected().await }
+    }
+
+    /// function the same as [Client::execute_raw]
+    pub fn execute_raw<I>(&mut self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
+    where
+        I: AsParams,
+    {
+        let res = match self.try_conn() {
+            Ok(conn) => conn
+                .client
+                .send_encode(stmt, params)
+                .inspect_err(|e| self.try_drop_on_error(e)),
+            Err(e) => Err(e),
+        };
+        async { res?.try_into_row_affected().await }
+    }
+
     /// function the same as [Client::execute_simple]
     pub fn execute_simple(&mut self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
         let res = match self.try_conn() {
