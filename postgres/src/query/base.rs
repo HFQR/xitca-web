@@ -82,7 +82,7 @@ impl Client {
         async { res?.try_into_row_affected().await }
     }
 
-    fn send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
+    pub(crate) fn send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: AsParams,
     {
