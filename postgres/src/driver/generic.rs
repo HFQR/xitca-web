@@ -21,6 +21,8 @@ use crate::error::{DriverDown, Error};
 
 use super::codec::{Response, ResponseMessage, ResponseSender, SenderState};
 
+type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
+
 pub(crate) struct DriverTx(Arc<SharedState>);
 
 impl Drop for DriverTx {
@@ -76,7 +78,7 @@ struct State {
 
 pub struct GenericDriver<Io> {
     pub(crate) io: Io,
-    pub(crate) read_buf: BytesMut,
+    pub(crate) read_buf: PagedBytesMut,
     pub(crate) state: DriverState,
     pub(crate) shared_state: Arc<SharedState>,
     write_state: WriteState,
@@ -117,7 +119,7 @@ where
         (
             Self {
                 io,
-                read_buf: BytesMut::new(),
+                read_buf: PagedBytesMut::new(),
                 state: DriverState::Running,
                 shared_state: state.clone(),
                 write_state: WriteState::Waiting,
@@ -213,7 +215,7 @@ where
         F: FnMut(&mut BytesMut) -> Option<Result<O, Error>>,
     {
         loop {
-            if let Some(o) = func(&mut self.read_buf) {
+            if let Some(o) = func(self.read_buf.get_mut()) {
                 return o;
             }
             self.io.ready(Interest::READABLE).await?;
@@ -281,7 +283,7 @@ where
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
-        while let Some(res) = ResponseMessage::try_from_buf(&mut self.read_buf)? {
+        while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal { buf, complete } => {
                     let mut inner = self.shared_state.guarded.lock().unwrap();
