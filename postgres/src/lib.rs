@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 //! A postgresql client on top of [`rust-postgres`](https://github.com/sfackler/rust-postgres/)
 //!
 //! This crate shares a similar feature set and public API with [`tokio-postgres`](https://docs.rs/tokio-postgres/latest/tokio_postgres/) with some differences:
@@ -20,6 +18,9 @@
 //!
 //! built in connection pool with pipelining support enabled
 
+#![forbid(unsafe_code)]
+
+mod cancel;
 mod client;
 mod column;
 mod config;
@@ -52,6 +53,7 @@ pub use self::{
     from_sql::FromSqlExt,
     iter::AsyncLendingIterator,
     query::{RowSimpleStream, RowStream},
+    session::Session,
 };
 
 use core::{future::Future, pin::Pin};

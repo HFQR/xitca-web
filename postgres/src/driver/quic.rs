@@ -4,6 +4,7 @@ use core::{
     cmp,
     future::Future,
     mem,
+    net::SocketAddr,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -217,20 +218,35 @@ impl io::Write for QuicStream {
 
 #[cold]
 #[inline(never)]
-pub(crate) async fn _connect_quic(host: &str, ports: &[u16]) -> Result<Connection, Error> {
-    let addrs = super::dns_resolve(host, ports).await?;
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
+pub(crate) async fn connect_quic(host: &str, ports: &[u16]) -> Result<(QuicStream, SocketAddr), Error> {
+    let (conn, addr) = _connect_quic(host, ports).await?;
+    let stream = conn.open_bi().await.map_err(|_| Error::todo())?;
+    Ok((stream.into(), addr))
+}
 
-    let cfg = super::tls::dangerous_config(vec![QUIC_ALPN.to_vec()]);
-    let cfg = QuicClientConfig::try_from(cfg).unwrap();
-    endpoint.set_default_client_config(ClientConfig::new(Arc::new(cfg)));
+#[cold]
+#[inline(never)]
+pub(crate) async fn connect_quic_addr(host: &str, addr: SocketAddr) -> Result<QuicStream, Error> {
+    let endpoint = prepare_endpoint()?;
+
+    let conn = endpoint.connect(addr, host).map_err(|_| Error::todo())?;
+
+    let conn = conn.await.map_err(|_| Error::todo())?;
+
+    let stream = conn.open_bi().await.map_err(|_| Error::todo())?;
+    Ok(stream.into())
+}
+
+async fn _connect_quic(host: &str, ports: &[u16]) -> Result<(Connection, SocketAddr), Error> {
+    let addrs = super::dns_resolve(host, ports).await?;
+    let endpoint = prepare_endpoint()?;
 
     let mut err = None;
 
     for addr in addrs {
         match endpoint.connect(addr, host) {
             Ok(conn) => match conn.await {
-                Ok(conn) => return Ok(conn),
+                Ok(conn) => return Ok((conn, addr)),
                 Err(_) => err = Some(Error::todo()),
             },
             Err(_) => err = Some(Error::todo()),
@@ -240,10 +256,10 @@ pub(crate) async fn _connect_quic(host: &str, ports: &[u16]) -> Result<Connectio
     Err(err.unwrap())
 }
 
-#[cold]
-#[inline(never)]
-pub(crate) async fn connect_quic(host: &str, ports: &[u16]) -> Result<QuicStream, Error> {
-    let conn = _connect_quic(host, ports).await?;
-    let stream = conn.open_bi().await.map_err(|_| Error::todo())?;
-    Ok(stream.into())
+fn prepare_endpoint() -> Result<Endpoint, Error> {
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
+    let cfg = super::tls::dangerous_config(vec![QUIC_ALPN.to_vec()]);
+    let cfg = QuicClientConfig::try_from(cfg).unwrap();
+    endpoint.set_default_client_config(ClientConfig::new(Arc::new(cfg)));
+    Ok(endpoint)
 }
