@@ -1,4 +1,6 @@
-//! session handling after server connection is established.
+//! session handling after server connection is established with authentication and credential info.
+
+use core::net::SocketAddr;
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::{
@@ -8,8 +10,9 @@ use postgres_protocol::{
 use xitca_io::{bytes::BytesMut, io::AsyncIo};
 
 use super::{
-    config::Config,
+    config::{Config, SslMode},
     driver::generic::GenericDriver,
+    error::DbError,
     error::{AuthenticationError, Error},
 };
 
@@ -23,53 +26,106 @@ pub enum TargetSessionAttrs {
     ReadWrite,
 }
 
-#[allow(clippy::needless_pass_by_ref_mut)] // dumb clippy
-#[cold]
-#[inline(never)]
-pub(super) async fn prepare_session<Io>(drv: &mut GenericDriver<Io>, cfg: &Config) -> Result<(), Error>
-where
-    Io: AsyncIo + Send,
-{
-    let mut buf = BytesMut::new();
+/// information about session. used for canceling query
+#[derive(Clone)]
+pub struct Session {
+    pub(crate) id: i32,
+    pub(crate) key: i32,
+    pub(crate) info: ConnectInfo,
+}
 
-    auth(drv, cfg, &mut buf).await?;
+#[derive(Clone)]
+pub(crate) struct ConnectInfo {
+    pub(crate) addr: Addr,
+    pub(crate) ssl_mode: SslMode,
+}
 
-    loop {
-        match drv.recv().await? {
-            backend::Message::ReadyForQuery(_) => break,
-            backend::Message::BackendKeyData(_) => {
-                // TODO: handle process id and secret key.
-            }
-            backend::Message::ParameterStatus(_) => {
-                // TODO: handle parameters
-            }
-            _ => {
-                // TODO: other session message handling?
-            }
-        }
+impl Default for ConnectInfo {
+    fn default() -> Self {
+        Self::new(Addr::None, SslMode::Disable)
     }
+}
 
-    if matches!(cfg.get_target_session_attrs(), TargetSessionAttrs::ReadWrite) {
-        frontend::query("SHOW transaction_read_only", &mut buf)?;
-        let msg = buf.split();
-        drv.send(msg).await?;
-        // TODO: use RowSimple for parsing?
+impl ConnectInfo {
+    pub(crate) fn new(addr: Addr, ssl_mode: SslMode) -> Self {
+        Self { addr, ssl_mode }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum Addr {
+    Tcp(Box<str>, SocketAddr),
+    #[cfg(unix)]
+    Unix(Box<str>, std::path::PathBuf),
+    #[cfg(feature = "quic")]
+    Quic(Box<str>, SocketAddr),
+    // case for where io is supplied by user and no connectivity can be done from this crate
+    None,
+}
+
+impl Session {
+    fn new(info: ConnectInfo) -> Self {
+        Self { id: 0, key: 0, info }
+    }
+}
+
+impl Session {
+    #[allow(clippy::needless_pass_by_ref_mut)] // dumb clippy
+    #[cold]
+    #[inline(never)]
+    pub(super) async fn prepare_session<Io>(
+        info: ConnectInfo,
+        drv: &mut GenericDriver<Io>,
+        cfg: &Config,
+    ) -> Result<Self, Error>
+    where
+        Io: AsyncIo + Send,
+    {
+        let mut buf = BytesMut::new();
+
+        auth(drv, cfg, &mut buf).await?;
+
+        let mut session = Session::new(info);
+
         loop {
             match drv.recv().await? {
-                backend::Message::DataRow(body) => {
-                    let range = body.ranges().next()?.flatten().ok_or(Error::todo())?;
-                    let slice = &body.buffer()[range.start..range.end];
-                    if slice == b"on" {
-                        return Err(Error::todo());
-                    }
+                backend::Message::ReadyForQuery(_) => break,
+                backend::Message::BackendKeyData(body) => {
+                    session.id = body.process_id();
+                    session.key = body.secret_key();
                 }
-                backend::Message::RowDescription(_) | backend::Message::CommandComplete(_) => {}
-                backend::Message::EmptyQueryResponse | backend::Message::ReadyForQuery(_) => break,
+                backend::Message::ParameterStatus(body) => {
+                    // TODO: handling params?
+                    let _name = body.name()?;
+                    let _value = body.value()?;
+                }
+                backend::Message::ErrorResponse(body) => return Err(DbError::parse(&mut body.fields())?.into()),
                 _ => return Err(Error::unexpected()),
             }
         }
+
+        if matches!(cfg.get_target_session_attrs(), TargetSessionAttrs::ReadWrite) {
+            frontend::query("SHOW transaction_read_only", &mut buf)?;
+            let msg = buf.split();
+            drv.send(msg).await?;
+            // TODO: use RowSimple for parsing?
+            loop {
+                match drv.recv().await? {
+                    backend::Message::DataRow(body) => {
+                        let range = body.ranges().next()?.flatten().ok_or(Error::todo())?;
+                        let slice = &body.buffer()[range.start..range.end];
+                        if slice == b"on" {
+                            return Err(Error::todo());
+                        }
+                    }
+                    backend::Message::RowDescription(_) | backend::Message::CommandComplete(_) => {}
+                    backend::Message::EmptyQueryResponse | backend::Message::ReadyForQuery(_) => break,
+                    _ => return Err(Error::unexpected()),
+                }
+            }
+        }
+        Ok(session)
     }
-    Ok(())
 }
 
 #[cold]

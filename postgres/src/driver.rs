@@ -19,11 +19,12 @@ use core::{
 
 use postgres_protocol::message::backend;
 use xitca_io::{
+    bytes::BytesMut,
     io::{AsyncIo, AsyncIoDyn},
     net::TcpStream,
 };
 
-use super::{client::Client, config::Config, error::Error, iter::AsyncLendingIterator};
+use super::{client::Client, config::Config, error::Error, iter::AsyncLendingIterator, session::ConnectInfo};
 
 use self::generic::GenericDriver;
 
@@ -38,7 +39,7 @@ pub(super) async fn connect(cfg: &mut Config) -> Result<(Client, Driver), Error>
     let hosts = cfg.get_hosts().to_vec();
     for host in hosts {
         match self::connect::connect_host(host, cfg).await {
-            Ok((tx, drv)) => return Ok((Client::new(tx), drv)),
+            Ok((tx, session, drv)) => return Ok((Client::new(tx, session), drv)),
             Err(e) => err = Some(e),
         }
     }
@@ -50,8 +51,12 @@ pub(super) async fn connect_io<Io>(io: Io, cfg: &mut Config) -> Result<(Client, 
 where
     Io: AsyncIo + Send + 'static,
 {
-    let (tx, drv) = self::connect::connect_io(io, cfg).await?;
-    Ok((Client::new(tx), drv))
+    let (tx, session, drv) = self::connect::connect_io(io, cfg).await?;
+    Ok((Client::new(tx, session), drv))
+}
+
+pub(super) async fn connect_info(info: ConnectInfo) -> Result<Driver, Error> {
+    self::connect::connect_info(info).await
 }
 
 async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterator<Item = SocketAddr> + 'p, Error> {
@@ -100,6 +105,24 @@ pub enum Driver {
     UnixTls(GenericDriver<TlsStream<ClientConnection, UnixStream>>),
     #[cfg(feature = "quic")]
     Quic(GenericDriver<crate::driver::quic::QuicStream>),
+}
+
+impl Driver {
+    #[inline]
+    pub(crate) async fn send(&mut self, buf: BytesMut) -> Result<(), Error> {
+        match self {
+            Self::Tcp(ref mut drv) => drv.send(buf).await,
+            Self::Dynamic(ref mut drv) => drv.send(buf).await,
+            #[cfg(feature = "tls")]
+            Self::Tls(ref mut drv) => drv.send(buf).await,
+            #[cfg(unix)]
+            Self::Unix(ref mut drv) => drv.send(buf).await,
+            #[cfg(all(unix, feature = "tls"))]
+            Self::UnixTls(ref mut drv) => drv.send(buf).await,
+            #[cfg(feature = "quic")]
+            Self::Quic(ref mut drv) => drv.send(buf).await,
+        }
+    }
 }
 
 impl AsyncLendingIterator for Driver {

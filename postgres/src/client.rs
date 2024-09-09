@@ -3,10 +3,11 @@ use std::{collections::HashMap, sync::Mutex};
 use postgres_types::{Oid, Type};
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
-use super::{driver::DriverTx, statement::Statement};
+use super::{driver::DriverTx, session::Session, statement::Statement};
 
 pub struct Client {
     pub(crate) tx: DriverTx,
+    pub(crate) session: Session,
     cached_typeinfo: Mutex<CachedTypeInfo>,
 }
 
@@ -29,9 +30,10 @@ struct CachedTypeInfo {
 }
 
 impl Client {
-    pub(crate) fn new(tx: DriverTx) -> Self {
+    pub(crate) fn new(tx: DriverTx, session: Session) -> Self {
         Self {
             tx,
+            session,
             cached_typeinfo: Mutex::new(CachedTypeInfo {
                 typeinfo: None,
                 typeinfo_composite: None,

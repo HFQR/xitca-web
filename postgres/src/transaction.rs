@@ -130,22 +130,20 @@ where
 
     /// Consumes the transaction, committing all changes made within it.
     pub async fn commit(mut self) -> Result<(), Error> {
+        self.state = State::Finish;
         let query = self.save_point.commit_query();
-        self.client
-            ._execute_simple(&query)
-            .await
-            .map(|_| self.state = State::Finish)
+        self.client._execute_simple(&query).await?;
+        Ok(())
     }
 
     /// Rolls the transaction back, discarding all changes made within it.
     ///
     /// This is equivalent to [`Transaction`]'s [`Drop`] implementation, but provides any error encountered to the caller.
     pub async fn rollback(mut self) -> Result<(), Error> {
+        self.state = State::Finish;
         let query = self.save_point.rollback_query();
-        self.client
-            ._execute_simple(&query)
-            .await
-            .map(|_| self.state = State::Finish)
+        self.client._execute_simple(&query).await?;
+        Ok(())
     }
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<'_, C>, Error> {
