@@ -4,9 +4,10 @@ use super::{
     client::Client,
     error::Error,
     iter::slice_iter,
+    pool::PoolConnection,
     query::{AsParams, RowStream},
     statement::Statement,
-    PoolConnection, ToSql,
+    ToSql,
 };
 
 impl Client {

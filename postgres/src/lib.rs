@@ -1,6 +1,24 @@
 #![forbid(unsafe_code)]
 
-//! A postgresql client on top of [rust-postgres](https://github.com/sfackler/rust-postgres/)
+//! A postgresql client on top of [`rust-postgres`](https://github.com/sfackler/rust-postgres/)
+//!
+//! This crate shares a similar feature set and public API with [`tokio-postgres`](https://docs.rs/tokio-postgres/latest/tokio_postgres/) with some differences:
+//!
+//! # Pipelining
+//!
+//! offer both "implicit" and explicit API. support for more relaxed pipeline.
+//!
+//! # SSL/TLS support
+//!
+//! powered by `rustls`
+//!
+//! # QUIC transport layer
+//!
+//! offer transparent QUIC transport layer and proxy for lossy remote database connection
+//!
+//! # Connection Pool
+//!
+//! built in connection pool with pipelining support enabled
 
 mod client;
 mod column;
@@ -8,7 +26,6 @@ mod config;
 mod driver;
 mod from_sql;
 mod iter;
-mod pool;
 mod prepare;
 mod query;
 mod session;
@@ -16,6 +33,7 @@ mod transaction;
 
 pub mod error;
 pub mod pipeline;
+pub mod pool;
 pub mod row;
 pub mod statement;
 
@@ -33,7 +51,6 @@ pub use self::{
     error::Error,
     from_sql::FromSqlExt,
     iter::AsyncLendingIterator,
-    pool::{Pool, PoolBuilder, PoolConnection},
     query::{RowSimpleStream, RowStream},
 };
 

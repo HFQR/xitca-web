@@ -24,10 +24,6 @@ impl Client {
 impl Client {
     pub(crate) async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        self.prepare_with_id(id, query, types).await
-    }
-
-    pub(crate) async fn prepare_with_id(&self, id: usize, query: &str, types: &[Type]) -> Result<Statement, Error> {
         let name = format!("s{id}");
 
         let mut res = self.send_prepare(name.as_str(), query, types)?;

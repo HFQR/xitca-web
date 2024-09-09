@@ -229,7 +229,7 @@ impl<'p> PoolConnection<'p> {
     ///
     /// # Examples
     /// ```rust
-    /// use xitca_postgres::{Error, Pool};
+    /// use xitca_postgres::{pool::Pool, Error};
     ///
     /// async fn example(pool: &Pool) -> Result<(), Error> {
     ///     // get a connection from pool and start a query.
