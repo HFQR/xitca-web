@@ -100,13 +100,13 @@ where
         })
     }
 
-    /// [`Client::query``] for transaction.
+    /// [`Client::query`] for transaction.
     #[inline]
     pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         self.query_raw(stmt, slice_iter(params))
     }
 
-    /// [`Client::query_raw``] for transaction.
+    /// [`Client::query_raw`] for transaction.
     #[inline]
     pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
@@ -139,7 +139,7 @@ where
 
     /// Rolls the transaction back, discarding all changes made within it.
     ///
-    /// This is equivalent to `Transaction`'s `Drop` implementation, but provides any error encountered to the caller.
+    /// This is equivalent to [`Transaction`]'s [`Drop`] implementation, but provides any error encountered to the caller.
     pub async fn rollback(mut self) -> Result<(), Error> {
         let query = self.save_point.rollback_query();
         self.client
