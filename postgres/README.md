@@ -8,5 +8,4 @@
     - quic transport layer for remote lossy database connection.
 - Cons
     - feature absence. no transaction portal, no copy in/out, etc.(being worked on)
-    - depend on other xitca-xxx crates.
     - expose liftime in public type params.(harder to return from function or contained in new types)

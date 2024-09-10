@@ -44,7 +44,7 @@ where
 
     fn cancel(&mut self) {
         if let Some(statement) = self.statement.take() {
-            let _ = self.client.tx.send_with(|buf| {
+            let _ = self.client.tx.send(|buf| {
                 frontend::close(b'S', &statement.name, buf)?;
                 frontend::sync(buf);
                 Ok(())

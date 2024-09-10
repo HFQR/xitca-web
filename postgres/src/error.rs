@@ -160,6 +160,26 @@ impl From<InvalidColumnIndex> for Error {
     }
 }
 
+#[derive(Debug)]
+pub struct InvalidParamCount {
+    pub expected: usize,
+    pub params: usize,
+}
+
+impl fmt::Display for InvalidParamCount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "expected {} parameters but got {}", self.expected, self.params)
+    }
+}
+
+impl error::Error for InvalidParamCount {}
+
+impl From<InvalidParamCount> for Error {
+    fn from(e: InvalidParamCount) -> Self {
+        Self(Box::new(e))
+    }
+}
+
 impl From<Infallible> for Error {
     fn from(e: Infallible) -> Self {
         match e {}

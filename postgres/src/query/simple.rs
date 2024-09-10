@@ -26,7 +26,7 @@ impl Client {
     }
 
     pub(crate) fn send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
-        self.tx.send_with(|buf| frontend::query(stmt, buf).map_err(Into::into))
+        self.tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
     }
 }
 
