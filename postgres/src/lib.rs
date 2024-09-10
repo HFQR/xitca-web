@@ -24,6 +24,7 @@ mod cancel;
 mod client;
 mod column;
 mod config;
+mod copy;
 mod driver;
 mod from_sql;
 mod iter;
@@ -85,6 +86,7 @@ impl Postgres {
     /// ```rust
     /// use std::future::IntoFuture;
     /// use xitca_postgres::Postgres;
+    ///
     /// # async fn connect() {
     /// let cfg = String::from("postgres://user:pass@localhost/db");
     /// let (client, driver) = Postgres::new(cfg).connect().await.unwrap();

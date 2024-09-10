@@ -86,9 +86,7 @@ impl Client {
     where
         I: AsParams,
     {
-        let params = params.into_iter();
-        stmt.params_assert(&params);
-        self.tx.send_with(|buf| super::encode::encode(buf, stmt, params))
+        self.tx.send(|buf| super::encode::encode(buf, stmt, params.into_iter()))
     }
 }
 

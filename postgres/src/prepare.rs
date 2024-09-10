@@ -207,7 +207,7 @@ impl Client {
             debug!("preparing query {} with types {:?}: {}", name, types, query);
         }
 
-        self.tx.send_with(|buf| {
+        self.tx.send(|buf| {
             frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
             frontend::describe(b'S', name, buf)?;
             frontend::sync(buf);

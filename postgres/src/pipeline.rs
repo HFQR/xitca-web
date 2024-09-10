@@ -285,7 +285,7 @@ impl Client {
             1
         };
 
-        self.tx.send_multi_with(
+        self.tx.send_multi(
             |b| {
                 b.extend_from_slice(buf);
                 Ok(())

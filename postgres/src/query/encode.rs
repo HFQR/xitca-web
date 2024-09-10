@@ -2,7 +2,10 @@ use postgres_protocol::message::frontend;
 use postgres_types::{BorrowToSql, IsNull};
 use xitca_io::bytes::BytesMut;
 
-use crate::{error::Error, statement::Statement};
+use crate::{
+    error::{Error, InvalidParamCount},
+    statement::Statement,
+};
 
 pub(crate) fn encode<I>(buf: &mut BytesMut, stmt: &Statement, params: I) -> Result<(), Error>
 where
@@ -34,12 +37,24 @@ where
     I: ExactSizeIterator,
     I::Item: BorrowToSql,
 {
+    if params.len() != stmt.params().len() {
+        return Err(Error::from(InvalidParamCount {
+            expected: params.len(),
+            params: stmt.params().len(),
+        }));
+    }
+
+    let (param_formats, params): (Vec<_>, Vec<_>) = params
+        .zip(stmt.params())
+        .map(|(p, ty)| (p.borrow_to_sql().encode_format(ty) as i16, (p, ty)))
+        .unzip();
+
     let mut error_idx = 0;
     let r = frontend::bind(
         portal,
         stmt.name(),
-        Some(1),
-        params.zip(stmt.params()).enumerate(),
+        param_formats,
+        params.into_iter().enumerate(),
         |(idx, (param, ty)), buf| match param.borrow_to_sql().to_sql_checked(ty, buf) {
             Ok(IsNull::No) => Ok(postgres_protocol::IsNull::No),
             Ok(IsNull::Yes) => Ok(postgres_protocol::IsNull::Yes),
