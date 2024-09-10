@@ -5,7 +5,7 @@ use super::{client::Client, driver::codec::Response, error::Error, statement::St
 
 pub struct CopyIn<'a, C>
 where
-    C: Copy,
+    C: r#Copy,
 {
     client: &'a mut C,
     res: Option<Response>,
@@ -13,7 +13,7 @@ where
 
 impl<C> Drop for CopyIn<'_, C>
 where
-    C: Copy,
+    C: r#Copy,
 {
     fn drop(&mut self) {
         // when response is not taken on drop it means the progress is aborted before finish.
@@ -26,7 +26,7 @@ where
 
 impl<'a, C> CopyIn<'a, C>
 where
-    C: Copy,
+    C: r#Copy,
 {
     pub(crate) async fn new(client: &'a mut C, stmt: &Statement) -> Result<Self, Error> {
         let mut res = client._encode_send(stmt)?;
