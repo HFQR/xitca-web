@@ -1,24 +1,17 @@
 use core::net::SocketAddr;
 
-use std::io;
-
-use postgres_protocol::message::frontend;
-use xitca_io::{
-    bytes::{Buf, BytesMut},
-    io::{AsyncIo, Interest},
-    net::TcpStream,
-};
+use xitca_io::net::TcpStream;
 
 use crate::{
-    config::{Config, Host, SslMode},
-    error::{unexpected_eof_err, Error},
+    config::{Config, Host},
+    error::Error,
     session::{Addr, ConnectInfo, Session},
 };
 
 use super::{
     dns_resolve,
     generic::{DriverTx, GenericDriver},
-    Driver,
+    prepare_driver, should_connect_tls, Driver,
 };
 
 #[cold]
@@ -152,73 +145,5 @@ pub(super) async fn connect_info(info: ConnectInfo) -> Result<Driver, Error> {
             Ok(Driver::Quic(GenericDriver::new(io).0))
         }
         Addr::None => Err(Error::todo()),
-    }
-}
-
-#[cold]
-#[inline(never)]
-pub(super) async fn connect_io<Io>(io: Io, cfg: &mut Config) -> Result<(DriverTx, Session, Driver), Error>
-where
-    Io: AsyncIo + Send + 'static,
-{
-    prepare_driver(ConnectInfo::default(), Box::new(io) as _, cfg)
-        .await
-        .map(|(tx, session, drv)| (tx, session, Driver::Dynamic(drv)))
-}
-
-async fn prepare_driver<Io>(
-    info: ConnectInfo,
-    io: Io,
-    cfg: &mut Config,
-) -> Result<(DriverTx, Session, GenericDriver<Io>), Error>
-where
-    Io: AsyncIo + Send + 'static,
-{
-    let (mut drv, tx) = GenericDriver::new(io);
-    let session = Session::prepare_session(info, &mut drv, cfg).await?;
-    Ok((tx, session, drv))
-}
-
-async fn should_connect_tls<Io>(io: &mut Io, ssl_mode: SslMode) -> Result<bool, Error>
-where
-    Io: AsyncIo,
-{
-    async fn query_tls_availability<Io>(io: &mut Io) -> std::io::Result<bool>
-    where
-        Io: AsyncIo,
-    {
-        let mut buf = BytesMut::new();
-        frontend::ssl_request(&mut buf);
-
-        while !buf.is_empty() {
-            match io.write(&buf) {
-                Ok(0) => return Err(unexpected_eof_err()),
-                Ok(n) => buf.advance(n),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    io.ready(Interest::WRITABLE).await?;
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        let mut buf = [0];
-        loop {
-            match io.read(&mut buf) {
-                Ok(0) => return Err(unexpected_eof_err()),
-                Ok(_) => return Ok(buf[0] == b'S'),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    io.ready(Interest::READABLE).await?;
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    match ssl_mode {
-        SslMode::Disable => Ok(false),
-        mode => match (query_tls_availability(io).await?, mode) {
-            (false, SslMode::Require) => Err(Error::todo()),
-            (bool, _) => Ok(bool),
-        },
     }
 }

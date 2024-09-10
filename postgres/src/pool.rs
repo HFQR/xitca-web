@@ -11,11 +11,11 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     config::Config,
-    error::DriverDown,
-    error::Error,
+    error::{DriverDown, Error},
     iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
     query::{AsParams, RowSimpleStream, RowStream},
+    session::Session,
     statement::Statement,
     transaction::Transaction,
     BoxedFuture, Postgres, ToSql, Type,
@@ -107,7 +107,7 @@ pub struct PoolConnection<'a> {
 }
 
 impl<'p> PoolConnection<'p> {
-    /// function like [Client::prepare] with some behavior difference:
+    /// function like [`Client::prepare`] with some behavior difference:
     /// statement will be cached for future reuse and the return type is [`Arc<Statement>`] smart pointer
     pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
         match self.try_conn()?.statements.get(query) {
@@ -135,13 +135,13 @@ impl<'p> PoolConnection<'p> {
         })
     }
 
-    /// function the same as [Client::query]
+    /// function the same as [`Client::query`]
     #[inline]
     pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         self.query_raw(stmt, slice_iter(params))
     }
 
-    /// function the same as [Client::query_raw]
+    /// function the same as [`Client::query_raw`]
     pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: AsParams,
@@ -152,7 +152,7 @@ impl<'p> PoolConnection<'p> {
             .inspect_err(|e| self.try_drop_on_error(e))
     }
 
-    /// function the same as [Client::query_simple]
+    /// function the same as [`Client::query_simple`]
     pub fn query_simple(&mut self, stmt: &str) -> Result<RowSimpleStream, Error> {
         self.try_conn()?
             .client
@@ -160,7 +160,7 @@ impl<'p> PoolConnection<'p> {
             .inspect_err(|e| self.try_drop_on_error(e))
     }
 
-    /// function the same as [Client::execute]
+    /// function the same as [`Client::execute`]
     pub fn execute(
         &mut self,
         stmt: &Statement,
@@ -177,7 +177,7 @@ impl<'p> PoolConnection<'p> {
         async { res?.try_into_row_affected().await }
     }
 
-    /// function the same as [Client::execute_raw]
+    /// function the same as [`Client::execute_raw`]
     pub fn execute_raw<I>(&mut self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
         I: AsParams,
@@ -192,7 +192,7 @@ impl<'p> PoolConnection<'p> {
         async { res?.try_into_row_affected().await }
     }
 
-    /// function the same as [Client::execute_simple]
+    /// function the same as [`Client::execute_simple`]
     pub fn execute_simple(&mut self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
         let res = match self.try_conn() {
             Ok(conn) => conn
@@ -204,12 +204,12 @@ impl<'p> PoolConnection<'p> {
         async { res?.try_into_row_affected().await }
     }
 
-    /// function the same as [Client::transaction]
+    /// function the same as [`Client::transaction`]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> {
         Transaction::new(self)
     }
 
-    /// function the same as [Client::pipeline]
+    /// function the same as [`Client::pipeline`]
     pub fn pipeline<'a, B, const SYNC_MODE: bool>(
         &mut self,
         pipe: Pipeline<'a, B, SYNC_MODE>,
@@ -278,6 +278,11 @@ impl<'p> PoolConnection<'p> {
     #[inline(always)]
     pub fn consume(self) -> Self {
         self
+    }
+
+    /// function the same as [`Client::cancel_token`]
+    pub fn cancel_token(&mut self) -> Result<Session, Error> {
+        self.try_conn().map(|conn| conn.client.cancel_token())
     }
 
     fn try_conn(&mut self) -> Result<&mut PoolClient, Error> {
