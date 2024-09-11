@@ -44,32 +44,27 @@ where
         }));
     }
 
-    let (param_formats, params): (Vec<_>, Vec<_>) = params
-        .zip(stmt.params())
-        .map(|(p, ty)| (p.borrow_to_sql().encode_format(ty) as i16, (p, ty)))
-        .unzip();
+    let params = params.zip(stmt.params()).collect::<Vec<_>>();
 
-    let mut error_idx = 0;
-    let r = frontend::bind(
+    frontend::bind(
         portal,
         stmt.name(),
-        param_formats,
-        params.into_iter().enumerate(),
-        |(idx, (param, ty)), buf| match param.borrow_to_sql().to_sql_checked(ty, buf) {
-            Ok(IsNull::No) => Ok(postgres_protocol::IsNull::No),
-            Ok(IsNull::Yes) => Ok(postgres_protocol::IsNull::Yes),
-            Err(e) => {
-                error_idx = idx;
-                Err(e)
-            }
+        params.iter().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),
+        params.iter(),
+        |(param, ty), buf| {
+            param
+                .borrow_to_sql()
+                .to_sql_checked(ty, buf)
+                .map(|is_null| match is_null {
+                    IsNull::No => postgres_protocol::IsNull::No,
+                    IsNull::Yes => postgres_protocol::IsNull::Yes,
+                })
         },
         Some(1),
         buf,
-    );
-
-    match r {
-        Ok(()) => Ok(()),
-        Err(frontend::BindError::Conversion(e)) => Err(Error::from(e)),
-        Err(frontend::BindError::Serialization(e)) => Err(Error::from(e)),
-    }
+    )
+    .map_err(|e| match e {
+        frontend::BindError::Conversion(e) => Error::from(e),
+        frontend::BindError::Serialization(e) => Error::from(e),
+    })
 }
