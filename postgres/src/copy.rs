@@ -44,10 +44,18 @@ where
         Ok(CopyIn { client, res: Some(res) })
     }
 
+    /// copy given buffer into [`Driver`] and send it to database in non blocking manner
+    ///
+    /// *. calling this api in rapid succession and/or supply huge buffer may result in high memory consumption.
+    /// consider rate limiting the progress with small chunk of buffer and/or using smart pointers for throughput
+    /// counting
+    ///
+    /// [`Driver`]: crate::driver::Driver
     pub fn copy(&mut self, item: impl Buf) -> Result<(), Error> {
         self.client.copy_in(item)
     }
 
+    /// finish copy in and return how many rows are affected
     pub async fn finish(mut self) -> Result<u64, Error> {
         self.client.copy_in_finish()?;
         self.res.take().unwrap().try_into_row_affected().await
@@ -100,6 +108,7 @@ impl r#Copy for Client {
 }
 
 impl Client {
+    /// start a copy in query
     pub async fn copy_in(&mut self, stmt: &Statement) -> Result<CopyIn<'_, Client>, Error> {
         CopyIn::new(self, stmt).await
     }

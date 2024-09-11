@@ -49,7 +49,7 @@ where
     frontend::bind(
         portal,
         stmt.name(),
-        params.iter().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as i16),
+        params.iter().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),
         params.iter(),
         |(param, ty), buf| {
             param
