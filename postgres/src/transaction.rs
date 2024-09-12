@@ -1,23 +1,15 @@
-use core::future::Future;
+use crate::query::QuerySimple;
 
 use super::{
-    client::Client,
     error::Error,
-    pool::PoolConnection,
     query::{AsParams, Query, RowStream},
     statement::Statement,
     ToSql,
 };
 
-impl Client {
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Client>, Error>> {
-        Transaction::new(self)
-    }
-}
-
 pub struct Transaction<'a, C>
 where
-    C: TransactionOps,
+    C: Query + QuerySimple,
 {
     client: &'a mut C,
     save_point: SavePoint,
@@ -76,7 +68,7 @@ enum State {
 
 impl<C> Drop for Transaction<'_, C>
 where
-    C: TransactionOps,
+    C: Query + QuerySimple,
 {
     fn drop(&mut self) {
         match self.state {
@@ -88,7 +80,7 @@ where
 
 impl<C> Transaction<'_, C>
 where
-    C: TransactionOps,
+    C: Query + QuerySimple,
 {
     pub(crate) async fn new(client: &mut C) -> Result<Transaction<'_, C>, Error> {
         client._execute_simple("BEGIN").await?;
@@ -159,22 +151,5 @@ where
     fn do_rollback(&mut self) {
         let query = self.save_point.rollback_query();
         drop(self.client._execute_simple(&query));
-    }
-}
-
-// TODO: remove this trait and use Query + QuerySimple traits constraint on Transaction's generic type param
-pub trait TransactionOps: Query {
-    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> + Send;
-}
-
-impl TransactionOps for Client {
-    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        self.execute_simple(query)
-    }
-}
-
-impl TransactionOps for PoolConnection<'_> {
-    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        self.execute_simple(query)
     }
 }

@@ -16,7 +16,7 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     column::Column,
-    driver::codec::Response,
+    driver::codec::{body_to_affected_rows, Response},
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
     query::AsParams,
@@ -394,7 +394,7 @@ impl PipelineItem<'_> {
                 backend::Message::DataRow(_) => {}
                 backend::Message::CommandComplete(body) => {
                     self.finished = true;
-                    return crate::query::decode::body_to_affected_rows(&body);
+                    return body_to_affected_rows(&body);
                 }
                 _ => return Err(Error::unexpected()),
             }
