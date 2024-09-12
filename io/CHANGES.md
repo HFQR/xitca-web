@@ -1,4 +1,6 @@
-# unreleased 0.4.1
+# unreleased
+
+# 0.4.1
 ## Fix
 - fix `WriteBuf` not properly removing Io flushing state
 
