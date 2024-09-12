@@ -5,8 +5,8 @@ mod simple;
 pub(crate) mod decode;
 pub(crate) mod encode;
 
-pub use base::RowStream;
-pub use simple::RowSimpleStream;
+pub use base::{Query, RowStream};
+pub use simple::{QuerySimple, RowSimpleStream};
 
 use super::BorrowToSql;
 

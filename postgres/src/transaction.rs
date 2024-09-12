@@ -3,9 +3,8 @@ use core::future::Future;
 use super::{
     client::Client,
     error::Error,
-    iter::slice_iter,
     pool::PoolConnection,
-    query::{AsParams, RowStream},
+    query::{AsParams, Query, RowStream},
     statement::Statement,
     ToSql,
 };
@@ -103,7 +102,7 @@ where
     /// [`Client::query`] for transaction.
     #[inline]
     pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
-        self.query_raw(stmt, slice_iter(params))
+        self.client._query(stmt, params)
     }
 
     /// [`Client::query_raw`] for transaction.
@@ -163,36 +162,19 @@ where
     }
 }
 
-pub trait TransactionOps {
-    fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
-    where
-        I: AsParams;
-
-    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>>;
+// TODO: remove this trait and use Query + QuerySimple traits constraint on Transaction's generic type param
+pub trait TransactionOps: Query {
+    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> + Send;
 }
 
 impl TransactionOps for Client {
-    fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
-    where
-        I: AsParams,
-    {
-        self.query_raw(stmt, params)
-    }
-
-    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> {
+    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> + Send {
         self.execute_simple(query)
     }
 }
 
 impl TransactionOps for PoolConnection<'_> {
-    fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
-    where
-        I: AsParams,
-    {
-        self.query_raw(stmt, params)
-    }
-
-    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> {
+    fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> + Send {
         self.execute_simple(query)
     }
 }

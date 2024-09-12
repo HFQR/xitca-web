@@ -11,10 +11,11 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     config::Config,
+    driver::codec::Response,
     error::{DriverDown, Error},
     iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
-    query::{AsParams, RowSimpleStream, RowStream},
+    query::{AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
     statement::Statement,
     transaction::Transaction,
@@ -138,26 +139,22 @@ impl<'p> PoolConnection<'p> {
     /// function the same as [`Client::query`]
     #[inline]
     pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
-        self.query_raw(stmt, slice_iter(params))
+        self._query(stmt, params)
     }
 
     /// function the same as [`Client::query_raw`]
+    #[inline]
     pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: AsParams,
     {
-        self.try_conn()?
-            .client
-            .query_raw(stmt, params)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self._query_raw(stmt, params)
     }
 
     /// function the same as [`Client::query_simple`]
+    #[inline]
     pub fn query_simple(&mut self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self.try_conn()?
-            .client
-            .query_simple(stmt)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self._query_simple(stmt)
     }
 
     /// function the same as [`Client::execute`]
@@ -166,14 +163,8 @@ impl<'p> PoolConnection<'p> {
         stmt: &Statement,
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
-        // TODO: forward to execute_raw
-        let res = match self.try_conn() {
-            Ok(conn) => conn
-                .client
-                .send_encode(stmt, slice_iter(params))
-                .inspect_err(|e| self.try_drop_on_error(e)),
-            Err(e) => Err(e),
-        };
+        // TODO: forward to Query::_execute
+        let res = self._send_encode(stmt, slice_iter(params));
         async { res?.try_into_row_affected().await }
     }
 
@@ -182,25 +173,15 @@ impl<'p> PoolConnection<'p> {
     where
         I: AsParams,
     {
-        let res = match self.try_conn() {
-            Ok(conn) => conn
-                .client
-                .send_encode(stmt, params)
-                .inspect_err(|e| self.try_drop_on_error(e)),
-            Err(e) => Err(e),
-        };
+        // TODO: forward to Query::_execute_raw
+        let res = self._send_encode(stmt, params);
         async { res?.try_into_row_affected().await }
     }
 
     /// function the same as [`Client::execute_simple`]
     pub fn execute_simple(&mut self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        let res = match self.try_conn() {
-            Ok(conn) => conn
-                .client
-                .send_encode_simple(stmt)
-                .inspect_err(|e| self.try_drop_on_error(e)),
-            Err(e) => Err(e),
-        };
+        // TODO: forward to Query::_execute_simple
+        let res = self._send_encode_simple(stmt);
         async { res?.try_into_row_affected().await }
     }
 
@@ -302,6 +283,27 @@ impl<'p> PoolConnection<'p> {
 
     fn take(&mut self) -> Option<(PoolClient, SemaphorePermit<'p>)> {
         self.conn.take()
+    }
+}
+
+impl Query for PoolConnection<'_> {
+    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
+    where
+        I: AsParams,
+    {
+        self.try_conn()?
+            .client
+            ._send_encode(stmt, params)
+            .inspect_err(|e| self.try_drop_on_error(e))
+    }
+}
+
+impl QuerySimple for PoolConnection<'_> {
+    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
+        self.try_conn()?
+            .client
+            ._send_encode_simple(stmt)
+            .inspect_err(|e| self.try_drop_on_error(e))
     }
 }
 

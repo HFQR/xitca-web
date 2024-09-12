@@ -10,14 +10,11 @@ use crate::{
 
 use super::row_stream::GenericRowStream;
 
+// TODO: move to client module
 impl Client {
     #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self.send_encode_simple(stmt).map(|res| RowSimpleStream {
-            res,
-            col: Vec::new(),
-            ranges: Vec::new(),
-        })
+        (&mut &*self)._query_simple(stmt)
     }
 
     pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> {
@@ -25,9 +22,53 @@ impl Client {
         async { res?.try_into_row_affected().await }
     }
 
+    // TODO: remove and use QuerySimple trait across crate.
     pub(crate) fn send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
-        self.tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
+        (&mut &*self)._send_encode_simple(stmt)
     }
+}
+
+/// trait generic over api used for querying with non typed string query without preparing.
+///
+/// types like [Transaction] and [CopyIn] accept generic client type and they are able to use user supplied
+/// client new type to operate and therefore reduce less new types and methods boilerplate.
+///
+/// [Transaction]: crate::transaction::Transaction
+/// [CopyIn]: crate::copy::CopyIn
+pub trait QuerySimple {
+    #[inline]
+    fn _query_simple(&mut self, stmt: &str) -> Result<RowSimpleStream, Error> {
+        self._send_encode_simple(stmt).map(|res| RowSimpleStream {
+            res,
+            col: Vec::new(),
+            ranges: Vec::new(),
+        })
+    }
+
+    fn _execute_simple(&self, _: &str) -> impl Future<Output = Result<u64, Error>> {
+        async { todo!("Waiting for Rust 2024 Edition") }
+    }
+
+    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error>;
+}
+
+// TODO: move to client module
+impl QuerySimple for Client {
+    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
+        send_encode_simple(self, stmt)
+    }
+}
+
+// TODO: move to client module
+impl QuerySimple for &Client {
+    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
+        send_encode_simple(self, stmt)
+    }
+}
+
+// TODO: move to client module
+fn send_encode_simple(cli: &Client, stmt: &str) -> Result<Response, Error> {
+    cli.tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
 }
 
 /// A stream of simple query results.
