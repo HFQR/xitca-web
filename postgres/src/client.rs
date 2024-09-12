@@ -74,6 +74,7 @@ impl Client {
     /// # Panics
     ///
     /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
+    #[inline]
     pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: AsParams,
@@ -126,6 +127,7 @@ impl Client {
         (&mut &*self)._execute_simple(stmt)
     }
 
+    #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Client>, Error>> {
         Transaction::new(self)
     }

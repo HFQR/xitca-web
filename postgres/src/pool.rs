@@ -179,13 +179,13 @@ impl<'p> PoolConnection<'p> {
     }
 
     /// function the same as [`Client::execute_simple`]
+    #[inline]
     pub fn execute_simple(&mut self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        // TODO: forward to Query::_execute_simple
-        let res = self._send_encode_simple(stmt);
-        async { res?.try_into_row_affected().await }
+        self._execute_simple(stmt)
     }
 
     /// function the same as [`Client::transaction`]
+    #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> {
         Transaction::new(self)
     }
