@@ -16,6 +16,7 @@ use crate::{
 
 use super::row_stream::GenericRowStream;
 
+// TODO: move to client module
 impl Client {
     /// Executes a statement, returning a vector of the resulting rows.
     ///
@@ -30,7 +31,7 @@ impl Client {
     /// Panics if given params slice length does not match the length of [Statement::params].
     #[inline]
     pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
-        self.query_raw(stmt, slice_iter(params))
+        (&mut &*self)._query(stmt, params)
     }
 
     /// # Panics
@@ -40,11 +41,7 @@ impl Client {
     where
         I: AsParams,
     {
-        self.send_encode(stmt, params).map(|res| RowStream {
-            res,
-            col: stmt.columns(),
-            ranges: Vec::new(),
-        })
+        (&mut &*self)._query_raw(stmt, params)
     }
 
     /// Executes a statement, returning the number of rows modified.
@@ -82,11 +79,12 @@ impl Client {
         async { res?.try_into_row_affected().await }
     }
 
+    // TODO: remove and use Query trait across crate.
     pub(crate) fn send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: AsParams,
     {
-        self.tx.send(|buf| super::encode::encode(buf, stmt, params.into_iter()))
+        (&mut &*self)._send_encode(stmt, params)
     }
 }
 
@@ -140,4 +138,61 @@ impl<'a> AsyncLendingIterator for RowStream<'a> {
             }
         }
     }
+}
+
+/// trait generic over api used for querying with typed statement.
+pub trait Query {
+    /// query with statement and dynamic typed params
+    #[inline]
+    fn _query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+        self._query_raw(stmt, slice_iter(params))
+    }
+
+    /// query with statement and single typed params
+    #[inline]
+    fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    where
+        I: AsParams,
+    {
+        self._send_encode(stmt, params).map(|res| RowStream {
+            res,
+            col: stmt.columns(),
+            ranges: Vec::new(),
+        })
+    }
+
+    /// encode statement and params and send it to client driver
+    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
+    where
+        I: AsParams;
+}
+
+// TODO: move to client module
+impl Query for &Client {
+    #[inline]
+    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
+    where
+        I: AsParams,
+    {
+        send_encode(self, stmt, params)
+    }
+}
+
+// TODO: move to client module
+impl Query for Client {
+    #[inline]
+    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
+    where
+        I: AsParams,
+    {
+        send_encode(self, stmt, params)
+    }
+}
+
+// TODO: move to client module
+fn send_encode<I>(cli: &Client, stmt: &Statement, params: I) -> Result<Response, Error>
+where
+    I: AsParams,
+{
+    cli.tx.send(|buf| super::encode::encode(buf, stmt, params.into_iter()))
 }

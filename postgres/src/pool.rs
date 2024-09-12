@@ -11,10 +11,11 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     config::Config,
+    driver::codec::Response,
     error::{DriverDown, Error},
     iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
-    query::{AsParams, RowSimpleStream, RowStream},
+    query::{AsParams, Query, RowSimpleStream, RowStream},
     session::Session,
     statement::Statement,
     transaction::Transaction,
@@ -138,18 +139,16 @@ impl<'p> PoolConnection<'p> {
     /// function the same as [`Client::query`]
     #[inline]
     pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
-        self.query_raw(stmt, slice_iter(params))
+        self._query(stmt, params)
     }
 
     /// function the same as [`Client::query_raw`]
+    #[inline]
     pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: AsParams,
     {
-        self.try_conn()?
-            .client
-            .query_raw(stmt, params)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self._query_raw(stmt, params)
     }
 
     /// function the same as [`Client::query_simple`]
@@ -302,6 +301,18 @@ impl<'p> PoolConnection<'p> {
 
     fn take(&mut self) -> Option<(PoolClient, SemaphorePermit<'p>)> {
         self.conn.take()
+    }
+}
+
+impl Query for PoolConnection<'_> {
+    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
+    where
+        I: AsParams,
+    {
+        self.try_conn()?
+            .client
+            ._send_encode(stmt, params)
+            .inspect_err(|e| self.try_drop_on_error(e))
     }
 }
 

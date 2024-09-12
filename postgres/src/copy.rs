@@ -5,7 +5,7 @@ use xitca_io::bytes::{Buf, Bytes};
 
 use crate::AsyncLendingIterator;
 
-use super::{client::Client, driver::codec::Response, error::Error, statement::Statement};
+use super::{client::Client, driver::codec::Response, error::Error, query::Query, statement::Statement};
 
 pub struct CopyIn<'a, C>
 where
@@ -33,7 +33,7 @@ where
     C: r#Copy,
 {
     pub(crate) async fn new(client: &'a mut C, stmt: &Statement) -> Result<Self, Error> {
-        let mut res = client._encode_send(stmt)?;
+        let mut res = client._send_encode::<[i32; 0]>(stmt, [])?;
 
         match res.recv().await? {
             backend::Message::BindComplete => {}
@@ -66,7 +66,7 @@ where
     }
 }
 
-pub trait r#Copy {
+pub trait r#Copy: Query {
     fn copy_in<B>(&mut self, item: B) -> Result<(), Error>
     where
         B: Buf;
@@ -74,8 +74,6 @@ pub trait r#Copy {
     fn copy_in_finish(&mut self) -> Result<(), Error>;
 
     fn copy_in_cancel(&mut self);
-
-    fn _encode_send(&mut self, stmt: &Statement) -> Result<Response, Error>;
 }
 
 impl r#Copy for Client {
@@ -104,10 +102,6 @@ impl r#Copy for Client {
             frontend::sync(buf);
             Ok(())
         });
-    }
-
-    fn _encode_send(&mut self, stmt: &Statement) -> Result<Response, Error> {
-        self.send_encode::<[i32; 0]>(stmt, [])
     }
 }
 
