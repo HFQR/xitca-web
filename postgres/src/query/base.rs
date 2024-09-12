@@ -45,7 +45,7 @@ pub trait Query {
     /// query that don't return any row but number of rows affected by it
     #[inline]
     fn _execute(
-        &self,
+        &mut self,
         stmt: &Statement,
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
@@ -53,7 +53,7 @@ pub trait Query {
     }
 
     /// flexible version of [Query::_execute]
-    fn _execute_raw<I>(&self, _: &Statement, _: I) -> impl Future<Output = Result<u64, Error>> + Send
+    fn _execute_raw<I>(&mut self, _: &Statement, _: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
         I: AsParams,
     {

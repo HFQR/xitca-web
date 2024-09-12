@@ -48,7 +48,10 @@ impl Response {
 
     pub(crate) fn try_into_row_affected(mut self) -> impl Future<Output = Result<u64, Error>> + Send {
         let mut rows = 0;
-        poll_fn(move |cx| self.poll_try_into_row_affected(&mut rows, cx).map_ok(|_| rows))
+        poll_fn(move |cx| {
+            ready!(self.poll_try_into_row_affected(&mut rows, cx))?;
+            Poll::Ready(Ok(rows))
+        })
     }
 
     pub(crate) fn poll_try_into_row_affected(
