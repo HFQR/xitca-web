@@ -1,5 +1,9 @@
+use core::future::Future;
+
 use postgres_protocol::message::{backend, frontend};
-use xitca_io::bytes::Buf;
+use xitca_io::bytes::{Buf, Bytes};
+
+use crate::AsyncLendingIterator;
 
 use super::{client::Client, driver::codec::Response, error::Error, statement::Statement};
 
@@ -111,5 +115,45 @@ impl Client {
     /// start a copy in query
     pub async fn copy_in(&mut self, stmt: &Statement) -> Result<CopyIn<'_, Client>, Error> {
         CopyIn::new(self, stmt).await
+    }
+
+    /// start a copy out query
+    pub fn copy_out(&self, stmt: &Statement) -> impl Future<Output = Result<CopyOut, Error>> + Send {
+        let res = self.send_encode::<[i32; 0]>(stmt, []);
+
+        async {
+            let mut res = res?;
+
+            match res.recv().await? {
+                backend::Message::BindComplete => {}
+                _ => return Err(Error::unexpected()),
+            }
+
+            match res.recv().await? {
+                backend::Message::CopyOutResponse(_) => {}
+                _ => return Err(Error::unexpected()),
+            }
+
+            Ok(CopyOut { res })
+        }
+    }
+}
+
+pub struct CopyOut {
+    res: Response,
+}
+
+impl AsyncLendingIterator for CopyOut {
+    type Ok<'i> = Bytes
+        where
+            Self: 'i;
+    type Err = Error;
+
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
+        match self.res.recv().await? {
+            backend::Message::CopyData(body) => Ok(Some(body.into_bytes())),
+            backend::Message::CopyDone => Ok(None),
+            _ => Err(Error::unexpected()),
+        }
     }
 }
