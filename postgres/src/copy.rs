@@ -113,7 +113,7 @@ impl Client {
 
     /// start a copy out query
     pub fn copy_out(&self, stmt: &Statement) -> impl Future<Output = Result<CopyOut, Error>> + Send {
-        let res = self.send_encode::<[i32; 0]>(stmt, []);
+        let res = (&mut &*self)._send_encode::<[i32; 0]>(stmt, []);
 
         async {
             let mut res = res?;

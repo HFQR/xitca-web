@@ -1,32 +1,15 @@
-use core::future::Future;
-
-use fallible_iterator::FallibleIterator;
-use postgres_protocol::message::{backend, frontend};
-
-use crate::{
-    client::Client, column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple,
-    Type,
+use core::{
+    future::Future,
+    pin::Pin,
+    task::{ready, Context, Poll},
 };
 
+use fallible_iterator::FallibleIterator;
+use postgres_protocol::message::backend;
+
+use crate::{column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple, Type};
+
 use super::row_stream::GenericRowStream;
-
-// TODO: move to client module
-impl Client {
-    #[inline]
-    pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        (&mut &*self)._query_simple(stmt)
-    }
-
-    pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> {
-        let res = self.send_encode_simple(stmt);
-        async { res?.try_into_row_affected().await }
-    }
-
-    // TODO: remove and use QuerySimple trait across crate.
-    pub(crate) fn send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
-        (&mut &*self)._send_encode_simple(stmt)
-    }
-}
 
 /// trait generic over api used for querying with non typed string query without preparing.
 ///
@@ -45,30 +28,38 @@ pub trait QuerySimple {
         })
     }
 
-    fn _execute_simple(&self, _: &str) -> impl Future<Output = Result<u64, Error>> {
-        async { todo!("Waiting for Rust 2024 Edition") }
+    fn _execute_simple(&mut self, stmt: &str) -> ExecuteSimple {
+        let res = self._send_encode_simple(stmt);
+        // TODO:
+        // use async { res?.try_into_row_affected().await } with Rust 2024 edition
+        ExecuteSimple {
+            res: Some(res),
+            rows_affected: 0,
+        }
     }
 
     fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error>;
 }
 
-// TODO: move to client module
-impl QuerySimple for Client {
-    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
-        send_encode_simple(self, stmt)
-    }
+pub struct ExecuteSimple {
+    res: Option<Result<Response, Error>>,
+    rows_affected: u64,
 }
 
-// TODO: move to client module
-impl QuerySimple for &Client {
-    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
-        send_encode_simple(self, stmt)
-    }
-}
+impl Future for ExecuteSimple {
+    type Output = Result<u64, Error>;
 
-// TODO: move to client module
-fn send_encode_simple(cli: &Client, stmt: &str) -> Result<Response, Error> {
-    cli.tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        match this.res.as_mut().expect("ExecuteSimple is polled after finish") {
+            Ok(res) => {
+                ready!(res.poll_try_into_row_affected(&mut this.rows_affected, cx))?;
+                Poll::Ready(Ok(this.rows_affected))
+            }
+            Err(_) => Poll::Ready(this.res.take().unwrap().map(|_| 0)),
+        }
+    }
 }
 
 /// A stream of simple query results.
