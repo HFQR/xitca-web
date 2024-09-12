@@ -148,7 +148,7 @@ pub trait Query {
         self._query_raw(stmt, slice_iter(params))
     }
 
-    /// query with statement and single typed params
+    /// flexible version of [Query::_query]
     #[inline]
     fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
@@ -159,6 +159,24 @@ pub trait Query {
             col: stmt.columns(),
             ranges: Vec::new(),
         })
+    }
+
+    /// query that don't return any row but number of rows affected by it
+    #[inline]
+    fn _execute(
+        &self,
+        stmt: &Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> impl Future<Output = Result<u64, Error>> + Send {
+        self._execute_raw(stmt, slice_iter(params))
+    }
+
+    /// flexible version of [Query::_execute]
+    fn _execute_raw<I>(&self, _: &Statement, _: I) -> impl Future<Output = Result<u64, Error>> + Send
+    where
+        I: AsParams,
+    {
+        async { todo!("Waiting for Rust 2024 Edition") }
     }
 
     /// encode statement and params and send it to client driver

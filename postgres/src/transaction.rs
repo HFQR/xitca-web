@@ -162,6 +162,7 @@ where
     }
 }
 
+// TODO: remove this trait and use Query + QuerySimple traits constraint on Transaction's generic type param
 pub trait TransactionOps: Query {
     fn _execute_simple(&mut self, query: &str) -> impl Future<Output = Result<u64, Error>> + Send;
 }

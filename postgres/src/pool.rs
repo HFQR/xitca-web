@@ -15,7 +15,7 @@ use super::{
     error::{DriverDown, Error},
     iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
-    query::{AsParams, Query, RowSimpleStream, RowStream},
+    query::{AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
     statement::Statement,
     transaction::Transaction,
@@ -152,11 +152,9 @@ impl<'p> PoolConnection<'p> {
     }
 
     /// function the same as [`Client::query_simple`]
+    #[inline]
     pub fn query_simple(&mut self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self.try_conn()?
-            .client
-            .query_simple(stmt)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self._query_simple(stmt)
     }
 
     /// function the same as [`Client::execute`]
@@ -312,6 +310,15 @@ impl Query for PoolConnection<'_> {
         self.try_conn()?
             .client
             ._send_encode(stmt, params)
+            .inspect_err(|e| self.try_drop_on_error(e))
+    }
+}
+
+impl QuerySimple for PoolConnection<'_> {
+    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
+        self.try_conn()?
+            .client
+            ._send_encode_simple(stmt)
             .inspect_err(|e| self.try_drop_on_error(e))
     }
 }

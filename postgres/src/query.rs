@@ -6,6 +6,7 @@ pub(crate) mod decode;
 pub(crate) mod encode;
 
 pub(crate) use base::Query;
+pub(crate) use simple::QuerySimple;
 
 pub use base::RowStream;
 pub use simple::RowSimpleStream;
