@@ -140,7 +140,13 @@ impl<'a> AsyncLendingIterator for RowStream<'a> {
     }
 }
 
-/// trait generic over api used for querying with typed statement.
+/// trait generic over api used for querying with typed prepared statement.
+///
+/// types like [Transaction] and [CopyIn] accept generic client type and they are able to use user supplied
+/// client new type to operate and therefore reduce less new types and methods boilerplate.
+///
+/// [Transaction]: crate::transaction::Transaction
+/// [CopyIn]: crate::copy::CopyIn
 pub trait Query {
     /// query with statement and dynamic typed params
     #[inline]

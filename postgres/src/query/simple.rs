@@ -28,6 +28,13 @@ impl Client {
     }
 }
 
+/// trait generic over api used for querying with non typed string query without preparing.
+///
+/// types like [Transaction] and [CopyIn] accept generic client type and they are able to use user supplied
+/// client new type to operate and therefore reduce less new types and methods boilerplate.
+///
+/// [Transaction]: crate::transaction::Transaction
+/// [CopyIn]: crate::copy::CopyIn
 pub trait QuerySimple {
     #[inline]
     fn _query_simple(&mut self, stmt: &str) -> Result<RowSimpleStream, Error> {
