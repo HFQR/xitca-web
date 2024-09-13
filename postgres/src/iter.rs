@@ -1,6 +1,6 @@
 use core::future::Future;
 
-use super::ToSql;
+use super::types::ToSql;
 
 /// async streaming iterator with borrowed Item from Self.
 pub trait AsyncLendingIterator {

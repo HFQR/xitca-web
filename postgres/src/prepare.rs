@@ -5,14 +5,15 @@ use postgres_protocol::message::{backend, frontend};
 use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
-use crate::{
+use super::{
     client::Client,
     column::Column,
     driver::codec::Response,
     error::Error,
     iter::AsyncLendingIterator,
     statement::{Statement, StatementGuarded},
-    BoxedFuture, Type,
+    types::Type,
+    BoxedFuture,
 };
 
 impl Client {

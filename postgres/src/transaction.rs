@@ -2,7 +2,7 @@ use super::{
     error::Error,
     query::{AsParams, Query, QuerySimple, RowStream},
     statement::Statement,
-    ToSql,
+    types::ToSql,
 };
 
 pub struct Transaction<'a, C>

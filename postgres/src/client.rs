@@ -2,7 +2,6 @@ use core::future::Future;
 
 use std::{collections::HashMap, sync::Mutex};
 
-use postgres_protocol::message::frontend;
 use postgres_types::{Oid, Type};
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
@@ -16,7 +15,7 @@ use super::{
     session::Session,
     statement::Statement,
     transaction::Transaction,
-    ToSql,
+    types::ToSql,
 };
 
 pub struct Client {
@@ -152,6 +151,12 @@ impl Client {
         CopyOut::new(&mut &*self, stmt).await
     }
 
+    /// Constructs a cancellation token that can later be used to request cancellation of a query running on the
+    /// connection associated with this client.
+    pub fn cancel_token(&self) -> Session {
+        self.session.clone()
+    }
+
     /// a lossy hint of running state of io driver. an io driver shutdown can happen
     /// at the same time this api is called.
     pub fn closed(&self) -> bool {
@@ -219,7 +224,7 @@ impl Query for &Client {
     where
         I: AsParams,
     {
-        send_encode(self, stmt, params)
+        encode::send_encode(self, stmt, params)
     }
 }
 
@@ -229,33 +234,22 @@ impl Query for Client {
     where
         I: AsParams,
     {
-        send_encode(self, stmt, params)
+        encode::send_encode(self, stmt, params)
     }
-}
-
-fn send_encode<I>(cli: &Client, stmt: &Statement, params: I) -> Result<Response, Error>
-where
-    I: AsParams,
-{
-    cli.tx.send(|buf| encode::encode(buf, stmt, params.into_iter()))
 }
 
 impl QuerySimple for Client {
     #[inline]
     fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
-        send_encode_simple(self, stmt)
+        encode::send_encode_simple(self, stmt)
     }
 }
 
 impl QuerySimple for &Client {
     #[inline]
     fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
-        send_encode_simple(self, stmt)
+        encode::send_encode_simple(self, stmt)
     }
-}
-
-fn send_encode_simple(cli: &Client, stmt: &str) -> Result<Response, Error> {
-    cli.tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
 }
 
 impl r#Copy for Client {

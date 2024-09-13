@@ -3,15 +3,7 @@
 use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
-use super::{client::Client, error::Error, session::Session};
-
-impl Client {
-    /// Constructs a cancellation token that can later be used to request cancellation of a query running on the
-    /// connection associated with this client.
-    pub fn cancel_token(&self) -> Session {
-        self.session.clone()
-    }
-}
+use super::{error::Error, session::Session};
 
 impl Session {
     /// Attempts to cancel the in-progress query on the connection associated with Self.

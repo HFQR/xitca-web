@@ -7,7 +7,9 @@ use core::{
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
 
-use crate::{column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple, Type};
+use crate::{
+    column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple, types::Type,
+};
 
 use super::row_stream::GenericRowStream;
 

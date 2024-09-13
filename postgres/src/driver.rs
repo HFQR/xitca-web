@@ -212,10 +212,13 @@ impl AsyncLendingIterator for Driver {
 }
 
 impl IntoFuture for Driver {
-    type Output = ();
+    type Output = Result<(), Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(mut self) -> Self::IntoFuture {
-        Box::pin(async move { while self.try_next().await.ok().flatten().is_some() {} })
+        Box::pin(async move {
+            while self.try_next().await?.is_some() {}
+            Ok(())
+        })
     }
 }

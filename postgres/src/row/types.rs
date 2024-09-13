@@ -9,7 +9,7 @@ use crate::{
     column::Column,
     error::{Error, InvalidColumnIndex, WrongType},
     from_sql::FromSqlExt,
-    Type,
+    types::Type,
 };
 
 use super::traits::RowIndexAndType;

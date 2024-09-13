@@ -38,13 +38,12 @@ pub mod pipeline;
 pub mod pool;
 pub mod row;
 pub mod statement;
+pub mod types;
 
 #[cfg(feature = "quic")]
 pub mod proxy;
 #[cfg(feature = "quic")]
 pub use driver::quic::QuicStream;
-
-pub use postgres_types::{BorrowToSql, FromSql, ToSql, Type};
 
 pub use self::{
     client::Client,

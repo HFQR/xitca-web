@@ -22,7 +22,7 @@ use super::{
     query::AsParams,
     row::Row,
     statement::Statement,
-    ToSql,
+    types::ToSql,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it

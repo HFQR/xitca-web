@@ -10,7 +10,7 @@ use crate::{
     query::AsParams,
     row::Row,
     statement::Statement,
-    ToSql,
+    types::ToSql,
 };
 
 use super::row_stream::GenericRowStream;
