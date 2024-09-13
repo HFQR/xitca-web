@@ -2,17 +2,25 @@ use postgres_protocol::message::frontend;
 use postgres_types::{BorrowToSql, IsNull};
 use xitca_io::bytes::BytesMut;
 
+use super::AsParams;
+
 use crate::{
+    client::Client,
+    driver::codec::Response,
     error::{Error, InvalidParamCount},
     statement::Statement,
 };
 
-pub(crate) fn encode<I>(buf: &mut BytesMut, stmt: &Statement, params: I) -> Result<(), Error>
+pub(crate) fn send_encode<I>(cli: &Client, stmt: &Statement, params: I) -> Result<Response, Error>
 where
-    I: ExactSizeIterator,
-    I::Item: BorrowToSql,
+    I: AsParams,
 {
-    encode_maybe_sync::<I, true>(buf, stmt, params)
+    cli.tx
+        .send(|buf| encode_maybe_sync::<_, true>(buf, stmt, params.into_iter()))
+}
+
+pub(crate) fn send_encode_simple(cli: &Client, stmt: &str) -> Result<Response, Error> {
+    cli.tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
 }
 
 pub(crate) fn encode_maybe_sync<I, const SYNC_MODE: bool>(
