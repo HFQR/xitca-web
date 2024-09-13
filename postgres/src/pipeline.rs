@@ -245,10 +245,8 @@ where
     where
         I: AsParams,
     {
-        let params = params.into_iter();
-        stmt.params_assert(&params);
         let len = self.buf.len();
-        crate::query::encode::encode_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params)
+        crate::query::encode::encode_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params.into_iter())
             .map(|_| self.columns.push(stmt.columns()))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| self.buf.truncate(len))

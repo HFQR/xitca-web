@@ -69,16 +69,6 @@ impl Statement {
         }
     }
 
-    pub(crate) fn params_assert(&self, params: &impl ExactSizeIterator) {
-        assert_eq!(
-            self.params().len(),
-            params.len(),
-            "expected {} parameters but got {}",
-            self.params().len(),
-            params.len()
-        );
-    }
-
     pub(crate) fn name(&self) -> &str {
         &self.name
     }

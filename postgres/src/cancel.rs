@@ -6,7 +6,8 @@ use xitca_io::bytes::BytesMut;
 use super::{client::Client, error::Error, session::Session};
 
 impl Client {
-    /// obtain a session token from client. can be used to cancel queries associated to it.
+    /// Constructs a cancellation token that can later be used to request cancellation of a query running on the
+    /// connection associated with this client.
     pub fn cancel_token(&self) -> Session {
         self.session.clone()
     }

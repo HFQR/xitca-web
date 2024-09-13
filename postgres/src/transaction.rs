@@ -1,8 +1,6 @@
-use crate::query::QuerySimple;
-
 use super::{
     error::Error,
-    query::{AsParams, Query, RowStream},
+    query::{AsParams, Query, QuerySimple, RowStream},
     statement::Statement,
     ToSql,
 };

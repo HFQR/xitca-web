@@ -1,15 +1,19 @@
 use core::future::Future;
 
 use postgres_protocol::message::{backend, frontend};
-use xitca_io::bytes::{Buf, Bytes};
+use xitca_io::bytes::{Buf, Bytes, BytesMut};
 
-use crate::AsyncLendingIterator;
+use super::{driver::codec::Response, error::Error, iter::AsyncLendingIterator, query::Query, statement::Statement};
 
-use super::{client::Client, driver::codec::Response, error::Error, query::Query, statement::Statement};
+pub trait r#Copy: Query {
+    fn send_one_way<F>(&mut self, func: F) -> Result<(), Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>;
+}
 
 pub struct CopyIn<'a, C>
 where
-    C: r#Copy,
+    C: r#Copy + Send,
 {
     client: &'a mut C,
     res: Option<Response>,
@@ -17,35 +21,38 @@ where
 
 impl<C> Drop for CopyIn<'_, C>
 where
-    C: r#Copy,
+    C: r#Copy + Send,
 {
     fn drop(&mut self) {
         // when response is not taken on drop it means the progress is aborted before finish.
         // cancel the copy in this case
         if self.res.is_some() {
-            self.client.copy_in_cancel();
+            self.do_cancel();
         }
     }
 }
 
 impl<'a, C> CopyIn<'a, C>
 where
-    C: r#Copy,
+    C: r#Copy + Send,
 {
-    pub(crate) async fn new(client: &'a mut C, stmt: &Statement) -> Result<Self, Error> {
-        let mut res = client._send_encode::<[i32; 0]>(stmt, [])?;
+    pub(crate) fn new(client: &'a mut C, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
+        let res = client._send_encode::<[i32; 0]>(stmt, []);
 
-        match res.recv().await? {
-            backend::Message::BindComplete => {}
-            _ => return Err(Error::unexpected()),
+        async {
+            let mut res = res?;
+            match res.recv().await? {
+                backend::Message::BindComplete => {}
+                _ => return Err(Error::unexpected()),
+            }
+
+            match res.recv().await? {
+                backend::Message::CopyInResponse(_) => {}
+                _ => return Err(Error::unexpected()),
+            }
+
+            Ok(CopyIn { client, res: Some(res) })
         }
-
-        match res.recv().await? {
-            backend::Message::CopyInResponse(_) => {}
-            _ => return Err(Error::unexpected()),
-        }
-
-        Ok(CopyIn { client, res: Some(res) })
     }
 
     /// copy given buffer into [`Driver`] and send it to database in non blocking manner
@@ -56,48 +63,25 @@ where
     ///
     /// [`Driver`]: crate::driver::Driver
     pub fn copy(&mut self, item: impl Buf) -> Result<(), Error> {
-        self.client.copy_in(item)
-    }
-
-    /// finish copy in and return how many rows are affected
-    pub async fn finish(mut self) -> Result<u64, Error> {
-        self.client.copy_in_finish()?;
-        self.res.take().unwrap().try_into_row_affected().await
-    }
-}
-
-pub trait r#Copy: Query {
-    fn copy_in<B>(&mut self, item: B) -> Result<(), Error>
-    where
-        B: Buf;
-
-    fn copy_in_finish(&mut self) -> Result<(), Error>;
-
-    fn copy_in_cancel(&mut self);
-}
-
-impl r#Copy for Client {
-    fn copy_in<B>(&mut self, item: B) -> Result<(), Error>
-    where
-        B: Buf,
-    {
         let data = frontend::CopyData::new(item)?;
-        self.tx.send_one_way(|buf| {
+        self.client.send_one_way(|buf| {
             data.write(buf);
             Ok(())
         })
     }
 
-    fn copy_in_finish(&mut self) -> Result<(), Error> {
-        self.tx.send_one_way(|buf| {
+    /// finish copy in and return how many rows are affected
+    pub async fn finish(mut self) -> Result<u64, Error> {
+        self.client.send_one_way(|buf| {
             frontend::copy_done(buf);
             frontend::sync(buf);
             Ok(())
-        })
+        })?;
+        self.res.take().unwrap().try_into_row_affected().await
     }
 
-    fn copy_in_cancel(&mut self) {
-        let _ = self.tx.send_one_way(|buf| {
+    fn do_cancel(&mut self) {
+        let _ = self.client.send_one_way(|buf| {
             frontend::copy_fail("", buf)?;
             frontend::sync(buf);
             Ok(())
@@ -105,15 +89,13 @@ impl r#Copy for Client {
     }
 }
 
-impl Client {
-    /// start a copy in query
-    pub async fn copy_in(&mut self, stmt: &Statement) -> Result<CopyIn<'_, Client>, Error> {
-        CopyIn::new(self, stmt).await
-    }
+pub struct CopyOut {
+    res: Response,
+}
 
-    /// start a copy out query
-    pub fn copy_out(&self, stmt: &Statement) -> impl Future<Output = Result<CopyOut, Error>> + Send {
-        let res = (&mut &*self)._send_encode::<[i32; 0]>(stmt, []);
+impl CopyOut {
+    pub fn new(cli: &mut impl Query, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
+        let res = cli._send_encode::<[i32; 0]>(stmt, []);
 
         async {
             let mut res = res?;
@@ -131,10 +113,6 @@ impl Client {
             Ok(CopyOut { res })
         }
     }
-}
-
-pub struct CopyOut {
-    res: Response,
 }
 
 impl AsyncLendingIterator for CopyOut {

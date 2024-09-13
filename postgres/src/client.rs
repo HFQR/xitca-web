@@ -4,9 +4,11 @@ use std::{collections::HashMap, sync::Mutex};
 
 use postgres_protocol::message::frontend;
 use postgres_types::{Oid, Type};
+use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{
+    copy::{r#Copy, CopyIn, CopyOut},
     driver::{codec::Response, DriverTx},
     error::Error,
     iter::slice_iter,
@@ -42,38 +44,25 @@ struct CachedTypeInfo {
 }
 
 impl Client {
-    pub(crate) fn new(tx: DriverTx, session: Session) -> Self {
-        Self {
-            tx,
-            session,
-            cached_typeinfo: Mutex::new(CachedTypeInfo {
-                typeinfo: None,
-                typeinfo_composite: None,
-                typeinfo_enum: None,
-                types: HashMap::default(),
-            }),
-        }
-    }
-
-    /// Executes a statement, returning a vector of the resulting rows.
+    /// Executes a statement, returning an async stream of the resulting rows.
     ///
-    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the
-    /// parameter of the list provided, 1-indexed.
+    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
+    /// provided, 1-indexed.
     ///
-    /// If the same statement will be repeatedly executed (perhaps with different query parameters),
-    /// consider preparing the statement up front with the [Client::prepare] method.
-    ///
-    /// # Panics
-    ///
-    /// Panics if given params slice length does not match the length of [Statement::params].
+    /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
+    /// the statement up front with [Client::prepare].
     #[inline]
     pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         (&mut &*self)._query(stmt, params)
     }
 
-    /// # Panics
+    /// The maximally flexible version of [`Client::query`].
     ///
-    /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
+    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
+    /// provided, 1-indexed.
+    ///
+    /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
+    /// the statement up front with [`Client::prepare`].
     #[inline]
     pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
@@ -87,14 +76,10 @@ impl Client {
     /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
     /// provided, 1-indexed.
     ///
-    /// If the same statement will be repeatedly executed (perhaps with different query parameters),
-    /// consider preparing the statement up front with the [Client::prepare] method.
+    /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
+    /// the statement up front with [Client::prepare].
     ///
     /// If the statement does not modify any rows (e.g. `SELECT`), 0 is returned.
-    ///
-    /// # Panics
-    ///
-    /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
     pub fn execute(
         &self,
         stmt: &Statement,
@@ -105,9 +90,13 @@ impl Client {
         async { res?.try_into_row_affected().await }
     }
 
-    /// # Panics
+    /// The maximally flexible version of [`Client::execute`].
     ///
-    /// Panics if given params' [ExactSizeIterator::len] does not match the length of [Statement::params].
+    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
+    /// provided, 1-indexed.
+    ///
+    /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
+    /// the statement up front with [Client::prepare].
     #[inline]
     pub fn execute_raw<I>(&self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
@@ -117,19 +106,50 @@ impl Client {
         async { res?.try_into_row_affected().await }
     }
 
+    /// Executes a sequence of SQL statements using the simple query protocol, returning async stream of rows.
+    ///
+    /// Statements should be separated by semicolons. If an error occurs, execution of the sequence will stop at that
+    /// point. The simple query protocol returns the values in rows as strings rather than in their binary encodings,
+    /// so the associated row type doesn't work with the `FromSql` trait. Rather than simply returning a list of the
+    /// rows, this method returns a list of an enum which indicates either the completion of one of the commands,
+    /// or a row of data. This preserves the framing between the separate statements in the request.
+    ///
+    /// # Warning
+    ///
+    /// Prepared statements should be use for any query which contains user-specified data, as they provided the
+    /// functionality to safely embed that data in the request. Do not form statements via string concatenation and pass
+    /// them to this method!
     #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         (&mut &*self)._query_simple(stmt)
     }
 
     #[inline]
-    pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> {
+    pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
         (&mut &*self)._execute_simple(stmt)
     }
 
+    /// start a transaction
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Client>, Error>> {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Client>, Error>> + Send {
         Transaction::new(self)
+    }
+
+    /// Executes a `COPY FROM STDIN` statement, returning a sink used to write the copy data.
+    ///
+    /// PostgreSQL does not support parameters in `COPY` statements, so this method does not take any. The copy *must*
+    /// be explicitly completed via [`CopyIn::finish`]. If it is not, the copy will be aborted.
+    #[inline]
+    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<'_, Client>, Error>> + Send {
+        CopyIn::new(self, stmt)
+    }
+
+    /// Executes a `COPY TO STDOUT` statement, returning async stream of the resulting data.
+    ///
+    /// PostgreSQL does not support parameters in `COPY` statements, so this method does not take any.
+    #[inline]
+    pub async fn copy_out(&self, stmt: &Statement) -> Result<CopyOut, Error> {
+        CopyOut::new(&mut &*self, stmt).await
     }
 
     /// a lossy hint of running state of io driver. an io driver shutdown can happen
@@ -170,8 +190,26 @@ impl Client {
         self.cached_typeinfo.lock().unwrap().types.insert(oid, type_.clone());
     }
 
+    /// Clears the client's type information cache.
+    ///
+    /// When user-defined types are used in a query, the client loads their definitions from the database and caches
+    /// them for the lifetime of the client. If those definitions are changed in the database, this method can be used
+    /// to flush the local cache and allow the new, updated definitions to be loaded.
     pub fn clear_type_cache(&self) {
         self.cached_typeinfo.lock().unwrap().types.clear();
+    }
+
+    pub(crate) fn new(tx: DriverTx, session: Session) -> Self {
+        Self {
+            tx,
+            session,
+            cached_typeinfo: Mutex::new(CachedTypeInfo {
+                typeinfo: None,
+                typeinfo_composite: None,
+                typeinfo_enum: None,
+                types: HashMap::default(),
+            }),
+        }
     }
 }
 
@@ -218,6 +256,16 @@ impl QuerySimple for &Client {
 
 fn send_encode_simple(cli: &Client, stmt: &str) -> Result<Response, Error> {
     cli.tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
+}
+
+impl r#Copy for Client {
+    #[inline]
+    fn send_one_way<F>(&mut self, func: F) -> Result<(), Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
+        self.tx.send_one_way(func)
+    }
 }
 
 impl Drop for Client {

@@ -11,6 +11,7 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     config::Config,
+    copy::{r#Copy, CopyIn, CopyOut},
     driver::codec::Response,
     error::{DriverDown, Error},
     iter::{slice_iter, AsyncLendingIterator},
@@ -186,7 +187,7 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::transaction`]
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> + Send {
         Transaction::new(self)
     }
 
@@ -202,6 +203,18 @@ impl<'p> PoolConnection<'p> {
             .client
             .pipeline(pipe)
             .inspect_err(|e| self.try_drop_on_error(e))
+    }
+
+    /// function the same as [`Client::copy_in`]
+    #[inline]
+    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<'_, Self>, Error>> + Send {
+        CopyIn::new(self, stmt)
+    }
+
+    /// function the same as [`Client::copy_out`]
+    #[inline]
+    pub async fn copy_out(&mut self, stmt: &Statement) -> Result<CopyOut, Error> {
+        CopyOut::new(self, stmt).await
     }
 
     /// a shortcut to move and take ownership of self.
@@ -303,6 +316,18 @@ impl QuerySimple for PoolConnection<'_> {
         self.try_conn()?
             .client
             ._send_encode_simple(stmt)
+            .inspect_err(|e| self.try_drop_on_error(e))
+    }
+}
+
+impl r#Copy for PoolConnection<'_> {
+    fn send_one_way<F>(&mut self, func: F) -> Result<(), Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
+        self.try_conn()?
+            .client
+            .send_one_way(func)
             .inspect_err(|e| self.try_drop_on_error(e))
     }
 }
