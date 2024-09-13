@@ -20,7 +20,8 @@ use super::{
     session::Session,
     statement::Statement,
     transaction::Transaction,
-    BoxedFuture, Postgres, ToSql, Type,
+    types::{ToSql, Type},
+    BoxedFuture, Postgres,
 };
 
 /// builder type for connection pool

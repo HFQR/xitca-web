@@ -15,7 +15,7 @@ use super::{
     session::Session,
     statement::Statement,
     transaction::Transaction,
-    ToSql,
+    types::ToSql,
 };
 
 pub struct Client {

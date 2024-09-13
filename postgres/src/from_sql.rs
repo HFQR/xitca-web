@@ -3,7 +3,7 @@ use core::ops::Range;
 use xitca_io::bytes::Bytes;
 use xitca_unsafe_collection::bytes::BytesStr;
 
-use super::{FromSql, Type};
+use super::types::{FromSql, Type};
 
 pub type FromSqlError = Box<dyn std::error::Error + Sync + Send>;
 

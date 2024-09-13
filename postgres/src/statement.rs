@@ -4,7 +4,7 @@ use core::ops::Deref;
 
 use postgres_protocol::message::frontend;
 
-use super::{client::Client, column::Column, Type};
+use super::{client::Client, column::Column, types::Type};
 
 /// Guarded statement that would cancel itself when dropped.
 pub struct StatementGuarded<C>

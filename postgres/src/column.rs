@@ -1,6 +1,6 @@
 use core::fmt;
 
-use super::Type;
+use super::types::Type;
 
 /// Information about a column of a query.
 #[derive(Clone)]
