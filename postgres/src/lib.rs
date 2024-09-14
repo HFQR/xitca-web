@@ -62,6 +62,7 @@ pub mod compat {
 
     pub use crate::query::compat::RowStreamOwned;
     pub use crate::row::compat::RowOwned;
+    pub use crate::statement::compat::StatementGuarded;
 }
 
 pub mod dev {

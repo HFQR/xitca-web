@@ -17,7 +17,7 @@ use super::{
 };
 
 impl Client {
-    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<&'_ Self>, Error> {
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<&Self>, Error> {
         self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
     }
 }
