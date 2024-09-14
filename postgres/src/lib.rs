@@ -65,6 +65,8 @@ pub mod compat {
 }
 
 pub mod dev {
+    //! traits for extending functionalities through external crate
+
     pub use crate::client::ClientBorrowMut;
     pub use crate::query::{Query, QuerySimple};
 }

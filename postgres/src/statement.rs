@@ -7,6 +7,7 @@ use postgres_protocol::message::frontend;
 use super::{client::Client, column::Column, types::Type};
 
 /// Guarded statement that would cancel itself when dropped.
+#[derive(Clone)]
 pub struct StatementGuarded<C>
 where
     C: Deref<Target = Client>,
@@ -95,4 +96,9 @@ impl Statement {
             client,
         }
     }
+}
+
+fn _assert_clone() {
+    fn _assert_clone2<T: Clone>() {}
+    _assert_clone2::<StatementGuarded<std::sync::Arc<Client>>>();
 }
