@@ -88,7 +88,8 @@ impl Statement {
     }
 
     /// Convert self to a drop guarded statement which would cancel on drop.
-    pub fn into_guarded<C>(self, cli: &C) -> StatementGuarded<'_, C>
+    #[inline]
+    pub fn into_guarded<C>(self, cli: &C) -> StatementGuarded<C>
     where
         C: Prepare,
     {
