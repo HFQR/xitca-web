@@ -1,4 +1,5 @@
 use super::{
+    client::ClientBorrowMut,
     error::Error,
     query::{AsParams, Query, QuerySimple, RowStream},
     statement::Statement,
@@ -7,7 +8,7 @@ use super::{
 
 pub struct Transaction<'a, C>
 where
-    C: Query + QuerySimple,
+    C: Query + QuerySimple + ClientBorrowMut,
 {
     client: &'a mut C,
     save_point: SavePoint,
@@ -66,7 +67,7 @@ enum State {
 
 impl<C> Drop for Transaction<'_, C>
 where
-    C: Query + QuerySimple,
+    C: Query + QuerySimple + ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -78,9 +79,9 @@ where
 
 impl<C> Transaction<'_, C>
 where
-    C: Query + QuerySimple,
+    C: Query + QuerySimple + ClientBorrowMut,
 {
-    pub(crate) async fn new(client: &mut C) -> Result<Transaction<'_, C>, Error> {
+    pub async fn new(client: &mut C) -> Result<Transaction<'_, C>, Error> {
         client._execute_simple("BEGIN").await?;
         Ok(Transaction {
             client,
