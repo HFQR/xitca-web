@@ -1,6 +1,9 @@
 use core::future::Future;
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use postgres_types::{Oid, Type};
 use xitca_io::bytes::BytesMut;
@@ -267,6 +270,17 @@ impl Client {
 impl ClientBorrowMut for Client {
     fn _borrow_mut(&mut self) -> &mut Client {
         self
+    }
+}
+
+impl Prepare for Arc<Client> {
+    #[inline]
+    fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send {
+        Client::_prepare(self, query, types)
+    }
+
+    fn _cancel(&self, stmt: &Statement) {
+        Client::_cancel(self, stmt)
     }
 }
 
