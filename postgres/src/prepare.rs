@@ -20,16 +20,6 @@ pub trait Prepare {
     fn _cancel(&self, stmt: &Statement);
 }
 
-impl Prepare for &Client {
-    fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send {
-        Prepare::_prepare(*self, query, types)
-    }
-
-    fn _cancel(&self, stmt: &Statement) {
-        Prepare::_cancel(*self, stmt)
-    }
-}
-
 impl Prepare for Client {
     async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);

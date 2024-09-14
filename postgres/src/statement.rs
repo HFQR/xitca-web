@@ -5,15 +5,15 @@ use core::ops::Deref;
 use super::{column::Column, prepare::Prepare, types::Type};
 
 /// Guarded statement that would cancel itself when dropped.
-pub struct StatementGuarded<C>
+pub struct StatementGuarded<'a, C>
 where
     C: Prepare,
 {
     stmt: Option<Statement>,
-    cli: C,
+    cli: &'a C,
 }
 
-impl<C> AsRef<Statement> for StatementGuarded<C>
+impl<C> AsRef<Statement> for StatementGuarded<'_, C>
 where
     C: Prepare,
 {
@@ -23,7 +23,7 @@ where
     }
 }
 
-impl<C> Deref for StatementGuarded<C>
+impl<C> Deref for StatementGuarded<'_, C>
 where
     C: Prepare,
 {
@@ -34,7 +34,7 @@ where
     }
 }
 
-impl<C> Drop for StatementGuarded<C>
+impl<C> Drop for StatementGuarded<'_, C>
 where
     C: Prepare,
 {
@@ -45,7 +45,7 @@ where
     }
 }
 
-impl<C> StatementGuarded<C>
+impl<C> StatementGuarded<'_, C>
 where
     C: Prepare,
 {
@@ -88,7 +88,7 @@ impl Statement {
     }
 
     /// Convert self to a drop guarded statement which would cancel on drop.
-    pub fn into_guarded<C>(self, cli: C) -> StatementGuarded<C>
+    pub fn into_guarded<C>(self, cli: &C) -> StatementGuarded<'_, C>
     where
         C: Prepare,
     {
