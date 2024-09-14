@@ -2,6 +2,9 @@ mod base;
 mod row_stream;
 mod simple;
 
+#[cfg(feature = "compat")]
+pub(crate) mod compat;
+
 pub(crate) mod encode;
 
 pub use base::{Query, RowStream};

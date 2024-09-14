@@ -18,6 +18,47 @@ use super::{
     types::ToSql,
 };
 
+/// a marker trait to confirm a mut reference of Client can be borrowed from self.
+///
+/// this is necessary for custom [Client] new types who want to utilize [Transaction] and [CopyIn].
+/// these types and their functions only work properly when [Client] is exclusively borrowed.
+///
+/// # Examples
+/// ```rust
+/// use std::sync::Arc;
+///
+/// use xitca_postgres::{dev::ClientBorrowMut, Client};
+///
+/// // a client wrapper use reference counted smart pointer.
+/// // it's easy to create multiple instance of &mut SharedClient with help of cloning of smart pointer
+/// // and none of them can be used correctly with Transaction nor CopyIn
+/// #[derive(Clone)]
+/// struct SharedClient(Arc<Client>);
+///
+/// // client new type has to impl this trait to mark they can truly offer a mutable reference to Client
+/// impl ClientBorrowMut for SharedClient {
+///     fn _borrow_mut(&mut self) -> &mut Client {
+///         todo!("you can't safely implement this trait with SharedClient")
+///     }
+/// }
+///
+/// // another client wrapper without indirect
+/// struct ExclusiveClient(Client);
+///
+/// // trait can be implemented correctly. marking this new type can be accept by Transaction and CopyIn
+/// impl ClientBorrowMut for ExclusiveClient {
+///     fn _borrow_mut(&mut self) -> &mut Client {
+///         &mut self.0
+///     }
+/// }
+/// ```
+///
+/// [Transaction]: crate::transaction::Transaction
+/// [CopyIn]: crate::copy::CopyIn
+pub trait ClientBorrowMut {
+    fn _borrow_mut(&mut self) -> &mut Client;
+}
+
 pub struct Client {
     pub(crate) tx: DriverTx,
     pub(crate) session: Session,
@@ -215,6 +256,12 @@ impl Client {
                 types: HashMap::default(),
             }),
         }
+    }
+}
+
+impl ClientBorrowMut for Client {
+    fn _borrow_mut(&mut self) -> &mut Client {
+        self
     }
 }
 

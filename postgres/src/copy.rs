@@ -3,9 +3,12 @@ use core::future::Future;
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::{Buf, Bytes, BytesMut};
 
-use super::{driver::codec::Response, error::Error, iter::AsyncLendingIterator, query::Query, statement::Statement};
+use super::{
+    client::ClientBorrowMut, driver::codec::Response, error::Error, iter::AsyncLendingIterator, query::Query,
+    statement::Statement,
+};
 
-pub trait r#Copy: Query {
+pub trait r#Copy: Query + ClientBorrowMut {
     fn send_one_way<F>(&mut self, func: F) -> Result<(), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>;
@@ -36,7 +39,7 @@ impl<'a, C> CopyIn<'a, C>
 where
     C: r#Copy + Send,
 {
-    pub(crate) fn new(client: &'a mut C, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
+    pub fn new(client: &'a mut C, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
         let res = client._send_encode::<[i32; 0]>(stmt, []);
 
         async {

@@ -9,7 +9,7 @@ use tokio::sync::{Semaphore, SemaphorePermit};
 use xitca_io::bytes::BytesMut;
 
 use super::{
-    client::Client,
+    client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
     driver::codec::Response,
@@ -297,6 +297,12 @@ impl<'p> PoolConnection<'p> {
 
     fn take(&mut self) -> Option<(PoolClient, SemaphorePermit<'p>)> {
         self.conn.take()
+    }
+}
+
+impl ClientBorrowMut for PoolConnection<'_> {
+    fn _borrow_mut(&mut self) -> &mut Client {
+        &mut self.try_conn().unwrap().client
     }
 }
 

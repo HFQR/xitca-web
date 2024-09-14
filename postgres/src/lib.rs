@@ -24,20 +24,20 @@ mod cancel;
 mod client;
 mod column;
 mod config;
-mod copy;
 mod driver;
 mod from_sql;
 mod iter;
 mod prepare;
 mod query;
 mod session;
-mod transaction;
 
+pub mod copy;
 pub mod error;
 pub mod pipeline;
 pub mod pool;
 pub mod row;
 pub mod statement;
+pub mod transaction;
 pub mod types;
 
 #[cfg(feature = "quic")]
@@ -55,6 +55,22 @@ pub use self::{
     query::{RowSimpleStream, RowStream},
     session::Session,
 };
+
+#[cfg(feature = "compat")]
+pub mod compat {
+    //! compatibility mod to work with futures::Stream trait.
+
+    pub use crate::query::compat::RowStreamOwned;
+    pub use crate::row::compat::RowOwned;
+    pub use crate::statement::compat::StatementGuarded;
+}
+
+pub mod dev {
+    //! traits for extending functionalities through external crate
+
+    pub use crate::client::ClientBorrowMut;
+    pub use crate::query::{Query, QuerySimple};
+}
 
 use core::{future::Future, pin::Pin};
 

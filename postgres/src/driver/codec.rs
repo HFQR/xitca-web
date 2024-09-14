@@ -30,7 +30,7 @@ impl Response {
         poll_fn(|cx| self.poll_recv(cx))
     }
 
-    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
+    pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
         if self.buf.is_empty() {
             self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| DriverDownReceiving)?;
         }

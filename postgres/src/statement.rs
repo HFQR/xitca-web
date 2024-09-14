@@ -11,8 +11,8 @@ pub struct StatementGuarded<C>
 where
     C: Deref<Target = Client>,
 {
-    statement: Option<Statement>,
-    client: C,
+    stmt: Option<Statement>,
+    cli: C,
 }
 
 impl<C> AsRef<Statement> for StatementGuarded<C>
@@ -20,7 +20,7 @@ where
     C: Deref<Target = Client>,
 {
     fn as_ref(&self) -> &Statement {
-        self.statement.as_ref().unwrap()
+        self.stmt.as_ref().unwrap()
     }
 }
 
@@ -39,18 +39,22 @@ where
 {
     /// Leak the statement and it would not be cancelled for current connection.
     pub fn leak(mut self) -> Statement {
-        self.statement.take().unwrap()
+        self.stmt.take().unwrap()
     }
 
     fn cancel(&mut self) {
-        if let Some(statement) = self.statement.take() {
-            let _ = self.client.tx.send(|buf| {
-                frontend::close(b'S', &statement.name, buf)?;
-                frontend::sync(buf);
-                Ok(())
-            });
+        if let Some(stmt) = self.stmt.take() {
+            cancel(&self.cli, &stmt);
         }
     }
+}
+
+fn cancel(cli: &Client, stmt: &Statement) {
+    let _ = cli.tx.send(|buf| {
+        frontend::close(b'S', &stmt.name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    });
 }
 
 #[derive(Clone, Default)]
@@ -86,13 +90,60 @@ impl Statement {
     }
 
     /// Convert self to a drop guarded statement which would cancel on drop.
-    pub fn into_guarded<C>(self, client: C) -> StatementGuarded<C>
+    pub fn into_guarded<C>(self, cli: C) -> StatementGuarded<C>
     where
         C: Deref<Target = Client>,
     {
-        StatementGuarded {
-            statement: Some(self),
-            client,
+        StatementGuarded { stmt: Some(self), cli }
+    }
+}
+
+#[cfg(feature = "compat")]
+pub(crate) mod compat {
+    use core::ops::Deref;
+
+    use std::sync::Arc;
+
+    use crate::client::Client;
+
+    use super::Statement;
+
+    #[derive(Clone)]
+    pub struct StatementGuarded<C>
+    where
+        C: Deref<Target = Client>,
+    {
+        stmt: Arc<Statement>,
+        cli: C,
+    }
+
+    impl<C> AsRef<Statement> for StatementGuarded<C>
+    where
+        C: Deref<Target = Client>,
+    {
+        fn as_ref(&self) -> &Statement {
+            &self.stmt
+        }
+    }
+
+    impl<C> Drop for StatementGuarded<C>
+    where
+        C: Deref<Target = Client>,
+    {
+        fn drop(&mut self) {
+            super::cancel(&self.cli, &self.stmt);
+        }
+    }
+
+    impl<C> StatementGuarded<C>
+    where
+        C: Deref<Target = Client>,
+    {
+        pub fn new(stmt: Statement, cli: C) -> Self {
+            Self {
+                stmt: Arc::new(stmt),
+                cli,
+            }
         }
     }
 }
