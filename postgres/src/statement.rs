@@ -113,8 +113,24 @@ pub(crate) mod compat {
     where
         C: Deref<Target = Client>,
     {
-        stmt: Arc<Statement>,
+        inner: Arc<_StatementGuarded<C>>,
+    }
+
+    struct _StatementGuarded<C>
+    where
+        C: Deref<Target = Client>,
+    {
+        stmt: Statement,
         cli: C,
+    }
+
+    impl<C> Drop for _StatementGuarded<C>
+    where
+        C: Deref<Target = Client>,
+    {
+        fn drop(&mut self) {
+            super::cancel(&self.cli, &self.stmt);
+        }
     }
 
     impl<C> AsRef<Statement> for StatementGuarded<C>
@@ -122,16 +138,7 @@ pub(crate) mod compat {
         C: Deref<Target = Client>,
     {
         fn as_ref(&self) -> &Statement {
-            &self.stmt
-        }
-    }
-
-    impl<C> Drop for StatementGuarded<C>
-    where
-        C: Deref<Target = Client>,
-    {
-        fn drop(&mut self) {
-            super::cancel(&self.cli, &self.stmt);
+            &self.inner.stmt
         }
     }
 
@@ -141,8 +148,7 @@ pub(crate) mod compat {
     {
         pub fn new(stmt: Statement, cli: C) -> Self {
             Self {
-                stmt: Arc::new(stmt),
-                cli,
+                inner: Arc::new(_StatementGuarded { stmt, cli }),
             }
         }
     }
