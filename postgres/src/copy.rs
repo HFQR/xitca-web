@@ -9,7 +9,7 @@ use super::{
 };
 
 pub trait r#Copy: Query + ClientBorrowMut {
-    fn send_one_way<F>(&mut self, func: F) -> Result<(), Error>
+    fn send_one_way<F>(&self, func: F) -> Result<(), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>;
 }
@@ -97,7 +97,7 @@ pub struct CopyOut {
 }
 
 impl CopyOut {
-    pub fn new(cli: &mut impl Query, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
+    pub fn new(cli: &impl Query, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
         let res = cli._send_encode::<[i32; 0]>(stmt, []);
 
         async {

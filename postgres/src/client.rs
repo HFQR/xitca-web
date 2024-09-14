@@ -2,6 +2,7 @@ use core::future::Future;
 
 use std::{collections::HashMap, sync::Mutex};
 
+use postgres_protocol::message::frontend;
 use postgres_types::{Oid, Type};
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
@@ -13,7 +14,7 @@ use super::{
     iter::slice_iter,
     query::{encode, AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
-    statement::Statement,
+    statement::{CancelStatement, Statement},
     transaction::Transaction,
     types::ToSql,
 };
@@ -93,7 +94,7 @@ impl Client {
     /// the statement up front with [Client::prepare].
     #[inline]
     pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
-        (&mut &*self)._query(stmt, params)
+        self._query(stmt, params)
     }
 
     /// The maximally flexible version of [`Client::query`].
@@ -108,7 +109,7 @@ impl Client {
     where
         I: AsParams,
     {
-        (&mut &*self)._query_raw(stmt, params)
+        self._query_raw(stmt, params)
     }
 
     /// Executes a statement, returning the number of rows modified.
@@ -126,7 +127,7 @@ impl Client {
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
         // TODO: call execute_raw when Rust2024 edition capture rule is stabled.
-        let res = (&mut &*self)._send_encode(stmt, slice_iter(params));
+        let res = self._send_encode(stmt, slice_iter(params));
         async { res?.try_into_row_affected().await }
     }
 
@@ -142,7 +143,7 @@ impl Client {
     where
         I: AsParams,
     {
-        let res = (&mut &*self)._send_encode(stmt, params);
+        let res = self._send_encode(stmt, params);
         async { res?.try_into_row_affected().await }
     }
 
@@ -161,12 +162,12 @@ impl Client {
     /// them to this method!
     #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        (&mut &*self)._query_simple(stmt)
+        self._query_simple(stmt)
     }
 
     #[inline]
     pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        (&mut &*self)._execute_simple(stmt)
+        self._execute_simple(stmt)
     }
 
     /// start a transaction
@@ -180,7 +181,7 @@ impl Client {
     /// PostgreSQL does not support parameters in `COPY` statements, so this method does not take any. The copy *must*
     /// be explicitly completed via [`CopyIn::finish`]. If it is not, the copy will be aborted.
     #[inline]
-    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<'_, Client>, Error>> + Send {
+    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<Client>, Error>> + Send {
         CopyIn::new(self, stmt)
     }
 
@@ -189,7 +190,7 @@ impl Client {
     /// PostgreSQL does not support parameters in `COPY` statements, so this method does not take any.
     #[inline]
     pub async fn copy_out(&self, stmt: &Statement) -> Result<CopyOut, Error> {
-        CopyOut::new(&mut &*self, stmt).await
+        CopyOut::new(self, stmt).await
     }
 
     /// Constructs a cancellation token that can later be used to request cancellation of a query running on the
@@ -265,19 +266,19 @@ impl ClientBorrowMut for Client {
     }
 }
 
-impl Query for &Client {
-    #[inline]
-    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
-    where
-        I: AsParams,
-    {
-        encode::send_encode(self, stmt, params)
+impl CancelStatement for &Client {
+    fn cancel(&self, stmt: &Statement) {
+        let _ = self.tx.send(|buf| {
+            frontend::close(b'S', stmt.name(), buf)?;
+            frontend::sync(buf);
+            Ok(())
+        });
     }
 }
 
 impl Query for Client {
     #[inline]
-    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
+    fn _send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: AsParams,
     {
@@ -287,21 +288,14 @@ impl Query for Client {
 
 impl QuerySimple for Client {
     #[inline]
-    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
-        encode::send_encode_simple(self, stmt)
-    }
-}
-
-impl QuerySimple for &Client {
-    #[inline]
-    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
+    fn _send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
         encode::send_encode_simple(self, stmt)
     }
 }
 
 impl r#Copy for Client {
     #[inline]
-    fn send_one_way<F>(&mut self, func: F) -> Result<(), Error>
+    fn send_one_way<F>(&self, func: F) -> Result<(), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {

@@ -2,14 +2,20 @@
 
 use core::ops::Deref;
 
-use postgres_protocol::message::frontend;
+use super::{column::Column, types::Type};
 
-use super::{client::Client, column::Column, types::Type};
+/// trait for generic over the ability to cancel a statement.
+///
+/// when using new type with [StatementGuarded] the client type has to impl this trait
+/// to properly cancel a statement on drop of guard.
+pub trait CancelStatement {
+    fn cancel(&self, stmt: &Statement);
+}
 
 /// Guarded statement that would cancel itself when dropped.
 pub struct StatementGuarded<C>
 where
-    C: Deref<Target = Client>,
+    C: CancelStatement,
 {
     stmt: Option<Statement>,
     cli: C,
@@ -17,44 +23,44 @@ where
 
 impl<C> AsRef<Statement> for StatementGuarded<C>
 where
-    C: Deref<Target = Client>,
+    C: CancelStatement,
 {
+    #[inline]
     fn as_ref(&self) -> &Statement {
+        self
+    }
+}
+
+impl<C> Deref for StatementGuarded<C>
+where
+    C: CancelStatement,
+{
+    type Target = Statement;
+
+    fn deref(&self) -> &Self::Target {
         self.stmt.as_ref().unwrap()
     }
 }
 
 impl<C> Drop for StatementGuarded<C>
 where
-    C: Deref<Target = Client>,
+    C: CancelStatement,
 {
     fn drop(&mut self) {
-        self.cancel();
+        if let Some(stmt) = self.stmt.take() {
+            self.cli.cancel(&stmt);
+        }
     }
 }
 
 impl<C> StatementGuarded<C>
 where
-    C: Deref<Target = Client>,
+    C: CancelStatement,
 {
     /// Leak the statement and it would not be cancelled for current connection.
     pub fn leak(mut self) -> Statement {
         self.stmt.take().unwrap()
     }
-
-    fn cancel(&mut self) {
-        if let Some(stmt) = self.stmt.take() {
-            cancel(&self.cli, &stmt);
-        }
-    }
-}
-
-fn cancel(cli: &Client, stmt: &Statement) {
-    let _ = cli.tx.send(|buf| {
-        frontend::close(b'S', &stmt.name, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    });
 }
 
 #[derive(Clone, Default)]
@@ -92,7 +98,7 @@ impl Statement {
     /// Convert self to a drop guarded statement which would cancel on drop.
     pub fn into_guarded<C>(self, cli: C) -> StatementGuarded<C>
     where
-        C: Deref<Target = Client>,
+        C: CancelStatement,
     {
         StatementGuarded { stmt: Some(self), cli }
     }
@@ -100,25 +106,21 @@ impl Statement {
 
 #[cfg(feature = "compat")]
 pub(crate) mod compat {
-    use core::ops::Deref;
-
     use std::sync::Arc;
 
-    use crate::client::Client;
-
-    use super::Statement;
+    use super::{CancelStatement, Statement};
 
     #[derive(Clone)]
     pub struct StatementGuarded<C>
     where
-        C: Deref<Target = Client>,
+        C: CancelStatement,
     {
         inner: Arc<_StatementGuarded<C>>,
     }
 
     struct _StatementGuarded<C>
     where
-        C: Deref<Target = Client>,
+        C: CancelStatement,
     {
         stmt: Statement,
         cli: C,
@@ -126,16 +128,16 @@ pub(crate) mod compat {
 
     impl<C> Drop for _StatementGuarded<C>
     where
-        C: Deref<Target = Client>,
+        C: CancelStatement,
     {
         fn drop(&mut self) {
-            super::cancel(&self.cli, &self.stmt);
+            self.cli.cancel(&self.stmt)
         }
     }
 
     impl<C> AsRef<Statement> for StatementGuarded<C>
     where
-        C: Deref<Target = Client>,
+        C: CancelStatement,
     {
         fn as_ref(&self) -> &Statement {
             &self.inner.stmt
@@ -144,7 +146,7 @@ pub(crate) mod compat {
 
     impl<C> StatementGuarded<C>
     where
-        C: Deref<Target = Client>,
+        C: CancelStatement,
     {
         pub fn new(stmt: Statement, cli: C) -> Self {
             Self {
