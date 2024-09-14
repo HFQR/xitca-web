@@ -1,6 +1,7 @@
 use super::{
     client::ClientBorrowMut,
     error::Error,
+    prepare::Prepare,
     query::{AsParams, Query, QuerySimple, RowStream},
     statement::Statement,
     types::ToSql,
@@ -8,7 +9,7 @@ use super::{
 
 pub struct Transaction<'a, C>
 where
-    C: Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + Query + QuerySimple + ClientBorrowMut,
 {
     client: &'a mut C,
     save_point: SavePoint,
@@ -67,7 +68,7 @@ enum State {
 
 impl<C> Drop for Transaction<'_, C>
 where
-    C: Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + Query + QuerySimple + ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -79,7 +80,7 @@ where
 
 impl<C> Transaction<'_, C>
 where
-    C: Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + Query + QuerySimple + ClientBorrowMut,
 {
     pub async fn new(client: &mut C) -> Result<Transaction<'_, C>, Error> {
         client._execute_simple("BEGIN").await?;
@@ -90,15 +91,19 @@ where
         })
     }
 
-    /// [`Client::query`] for transaction.
+    /// function the same as [`Client::query`]
+    ///
+    /// [`Client::query`]: crate::client::Client::query
     #[inline]
-    pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+    pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         self.client._query(stmt, params)
     }
 
-    /// [`Client::query_raw`] for transaction.
+    /// function the same as [`Client::query_raw`]
+    ///
+    /// [`Client::query_raw`]: crate::client::Client::query_raw
     #[inline]
-    pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: AsParams,
     {

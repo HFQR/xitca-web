@@ -69,8 +69,8 @@ pub mod dev {
     //! traits for extending functionalities through external crate
 
     pub use crate::client::ClientBorrowMut;
+    pub use crate::prepare::Prepare;
     pub use crate::query::{Query, QuerySimple};
-    pub use crate::statement::CancelStatement;
 }
 
 use core::{future::Future, pin::Pin};

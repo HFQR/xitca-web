@@ -2,7 +2,6 @@ use core::future::Future;
 
 use std::{collections::HashMap, sync::Mutex};
 
-use postgres_protocol::message::frontend;
 use postgres_types::{Oid, Type};
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
@@ -12,9 +11,10 @@ use super::{
     driver::{codec::Response, DriverTx},
     error::Error,
     iter::slice_iter,
+    prepare::Prepare,
     query::{encode, AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
-    statement::{CancelStatement, Statement},
+    statement::{Statement, StatementGuarded},
     transaction::Transaction,
     types::ToSql,
 };
@@ -85,6 +85,10 @@ struct CachedTypeInfo {
 }
 
 impl Client {
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<&Self>, Error> {
+        self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
+    }
+
     /// Executes a statement, returning an async stream of the resulting rows.
     ///
     /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
@@ -263,16 +267,6 @@ impl Client {
 impl ClientBorrowMut for Client {
     fn _borrow_mut(&mut self) -> &mut Client {
         self
-    }
-}
-
-impl CancelStatement for &Client {
-    fn cancel(&self, stmt: &Statement) {
-        let _ = self.tx.send(|buf| {
-            frontend::close(b'S', stmt.name(), buf)?;
-            frontend::sync(buf);
-            Ok(())
-        });
     }
 }
 

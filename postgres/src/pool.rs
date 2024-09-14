@@ -1,8 +1,11 @@
-use core::{cell::Cell, future::Future, ops::DerefMut};
+use core::{future::Future, ops::DerefMut};
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -16,9 +19,10 @@ use super::{
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
+    prepare::Prepare,
     query::{AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
-    statement::{CancelStatement, Statement},
+    statement::Statement,
     transaction::Transaction,
     types::{ToSql, Type},
     BoxedFuture, Postgres,
@@ -86,7 +90,7 @@ impl Pool {
             pool: self,
             conn: Some(conn),
             _permit,
-            broken: Cell::new(false),
+            broken: AtomicBool::new(false),
         })
     }
 
@@ -110,7 +114,7 @@ pub struct PoolConnection<'a> {
     pool: &'a Pool,
     conn: Option<PoolClient>,
     _permit: SemaphorePermit<'a>,
-    broken: Cell<bool>,
+    broken: AtomicBool,
 }
 
 impl<'p> PoolConnection<'p> {
@@ -119,20 +123,18 @@ impl<'p> PoolConnection<'p> {
     pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
         match self.conn().statements.get(query) {
             Some(stmt) => Ok(stmt.clone()),
-            None => self._prepare(query, types).await,
+            None => self.prepare_slow(query, types).await,
         }
     }
 
     #[inline(never)]
-    fn _prepare<'a>(&'a mut self, query: &'a str, types: &'a [Type]) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
+    fn prepare_slow<'a>(
+        &'a mut self,
+        query: &'a str,
+        types: &'a [Type],
+    ) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
         Box::pin(async move {
-            let stmt = self
-                .conn()
-                .client
-                ._prepare(query, types)
-                .await
-                .map(Arc::new)
-                .inspect_err(|e| self.try_drop_on_error(e))?;
+            let stmt = self._prepare(query, types).await.map(Arc::new)?;
             self.conn_mut().statements.insert(Box::from(query), stmt.clone());
             Ok(stmt)
         })
@@ -292,7 +294,7 @@ impl<'p> PoolConnection<'p> {
     #[inline(never)]
     fn try_drop_on_error(&self, e: &Error) {
         if e.is_driver_down() {
-            self.broken.set(true);
+            self.broken.store(true, Ordering::Relaxed);
         }
     }
 }
@@ -303,9 +305,17 @@ impl ClientBorrowMut for PoolConnection<'_> {
     }
 }
 
-impl CancelStatement for &mut PoolConnection<'_> {
-    fn cancel(&self, stmt: &Statement) {
-        (&self.conn().client).cancel(stmt)
+impl Prepare for PoolConnection<'_> {
+    async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
+        self.conn()
+            .client
+            ._prepare(query, types)
+            .await
+            .inspect_err(|e| self.try_drop_on_error(e))
+    }
+
+    fn _cancel(&self, stmt: &Statement) {
+        self.conn().client._cancel(stmt);
     }
 }
 
@@ -344,7 +354,7 @@ impl r#Copy for PoolConnection<'_> {
 
 impl Drop for PoolConnection<'_> {
     fn drop(&mut self) {
-        if self.broken.get() {
+        if self.broken.load(Ordering::Relaxed) {
             return;
         }
         self.pool.conn.lock().unwrap().push_back(self.conn.take().unwrap());

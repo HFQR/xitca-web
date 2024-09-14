@@ -2,20 +2,12 @@
 
 use core::ops::Deref;
 
-use super::{column::Column, types::Type};
-
-/// trait for generic over the ability to cancel a statement.
-///
-/// when using new type with [StatementGuarded] the client type has to impl this trait
-/// to properly cancel a statement on drop of guard.
-pub trait CancelStatement {
-    fn cancel(&self, stmt: &Statement);
-}
+use super::{column::Column, prepare::Prepare, types::Type};
 
 /// Guarded statement that would cancel itself when dropped.
 pub struct StatementGuarded<C>
 where
-    C: CancelStatement,
+    C: Prepare,
 {
     stmt: Option<Statement>,
     cli: C,
@@ -23,7 +15,7 @@ where
 
 impl<C> AsRef<Statement> for StatementGuarded<C>
 where
-    C: CancelStatement,
+    C: Prepare,
 {
     #[inline]
     fn as_ref(&self) -> &Statement {
@@ -33,7 +25,7 @@ where
 
 impl<C> Deref for StatementGuarded<C>
 where
-    C: CancelStatement,
+    C: Prepare,
 {
     type Target = Statement;
 
@@ -44,18 +36,18 @@ where
 
 impl<C> Drop for StatementGuarded<C>
 where
-    C: CancelStatement,
+    C: Prepare,
 {
     fn drop(&mut self) {
         if let Some(stmt) = self.stmt.take() {
-            self.cli.cancel(&stmt);
+            self.cli._cancel(&stmt);
         }
     }
 }
 
 impl<C> StatementGuarded<C>
 where
-    C: CancelStatement,
+    C: Prepare,
 {
     /// Leak the statement and it would not be cancelled for current connection.
     pub fn leak(mut self) -> Statement {
@@ -98,7 +90,7 @@ impl Statement {
     /// Convert self to a drop guarded statement which would cancel on drop.
     pub fn into_guarded<C>(self, cli: C) -> StatementGuarded<C>
     where
-        C: CancelStatement,
+        C: Prepare,
     {
         StatementGuarded { stmt: Some(self), cli }
     }
@@ -108,19 +100,19 @@ impl Statement {
 pub(crate) mod compat {
     use std::sync::Arc;
 
-    use super::{CancelStatement, Statement};
+    use super::{Prepare, Statement};
 
     #[derive(Clone)]
     pub struct StatementGuarded<C>
     where
-        C: CancelStatement,
+        C: Prepare,
     {
         inner: Arc<_StatementGuarded<C>>,
     }
 
     struct _StatementGuarded<C>
     where
-        C: CancelStatement,
+        C: Prepare,
     {
         stmt: Statement,
         cli: C,
@@ -128,16 +120,16 @@ pub(crate) mod compat {
 
     impl<C> Drop for _StatementGuarded<C>
     where
-        C: CancelStatement,
+        C: Prepare,
     {
         fn drop(&mut self) {
-            self.cli.cancel(&self.stmt)
+            self.cli._cancel(&self.stmt)
         }
     }
 
     impl<C> AsRef<Statement> for StatementGuarded<C>
     where
-        C: CancelStatement,
+        C: Prepare,
     {
         fn as_ref(&self) -> &Statement {
             &self.inner.stmt
@@ -146,7 +138,7 @@ pub(crate) mod compat {
 
     impl<C> StatementGuarded<C>
     where
-        C: CancelStatement,
+        C: Prepare,
     {
         pub fn new(stmt: Statement, cli: C) -> Self {
             Self {
