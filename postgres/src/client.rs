@@ -62,7 +62,7 @@ pub trait ClientBorrowMut {
 
 pub struct Client {
     pub(crate) tx: DriverTx,
-    pub(crate) session: Session,
+    pub(crate) session: Box<Session>,
     cached_typeinfo: Mutex<CachedTypeInfo>,
 }
 
@@ -196,7 +196,7 @@ impl Client {
     /// Constructs a cancellation token that can later be used to request cancellation of a query running on the
     /// connection associated with this client.
     pub fn cancel_token(&self) -> Session {
-        self.session.clone()
+        Session::clone(&self.session)
     }
 
     /// a lossy hint of running state of io driver. an io driver shutdown can happen
@@ -249,7 +249,7 @@ impl Client {
     pub(crate) fn new(tx: DriverTx, session: Session) -> Self {
         Self {
             tx,
-            session,
+            session: Box::new(session),
             cached_typeinfo: Mutex::new(CachedTypeInfo {
                 typeinfo: None,
                 typeinfo_composite: None,
