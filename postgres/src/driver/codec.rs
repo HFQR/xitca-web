@@ -49,38 +49,22 @@ impl Response {
     pub(crate) fn try_into_row_affected(mut self) -> impl Future<Output = Result<u64, Error>> + Send {
         let mut rows = 0;
         poll_fn(move |cx| {
-            ready!(self.poll_try_into_row_affected(&mut rows, cx))?;
+            ready!(self.poll_try_into_ready(&mut rows, cx))?;
             Poll::Ready(Ok(rows))
         })
     }
 
-    pub(crate) fn poll_try_into_row_affected(
-        &mut self,
-        rows: &mut u64,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), Error>> {
+    pub(crate) fn poll_try_into_ready(&mut self, rows: &mut u64, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         loop {
             match ready!(self.poll_recv(cx))? {
-                backend::Message::RowDescription(_) | backend::Message::DataRow(_) => {}
+                backend::Message::BindComplete
+                | backend::Message::DataRow(_)
+                | backend::Message::EmptyQueryResponse => {}
                 backend::Message::CommandComplete(body) => {
                     *rows = body_to_affected_rows(&body)?;
                 }
-                backend::Message::EmptyQueryResponse => *rows = 0,
                 backend::Message::ReadyForQuery(_) => return Poll::Ready(Ok(())),
                 _ => return Poll::Ready(Err(Error::unexpected())),
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn try_into_ready(mut self) -> Result<(), Error> {
-        loop {
-            match self.recv().await? {
-                backend::Message::RowDescription(_)
-                | backend::Message::DataRow(_)
-                | backend::Message::EmptyQueryResponse => {}
-                backend::Message::ReadyForQuery(_) => return Ok(()),
-                _ => return Err(Error::unexpected()),
             }
         }
     }

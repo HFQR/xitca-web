@@ -56,7 +56,7 @@ impl Future for ExecuteSimple {
 
         match this.res.as_mut().expect("ExecuteSimple is polled after finish") {
             Ok(res) => {
-                ready!(res.poll_try_into_row_affected(&mut this.rows_affected, cx))?;
+                ready!(res.poll_try_into_ready(&mut this.rows_affected, cx))?;
                 Poll::Ready(Ok(this.rows_affected))
             }
             Err(_) => Poll::Ready(this.res.take().unwrap().map(|_| 0)),

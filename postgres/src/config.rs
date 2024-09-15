@@ -325,9 +325,8 @@ impl Config {
                 let target_session_attrs = match value {
                     "any" => TargetSessionAttrs::Any,
                     "read-write" => TargetSessionAttrs::ReadWrite,
-                    _ => {
-                        return Err(Error::todo());
-                    }
+                    "read-only" => TargetSessionAttrs::ReadOnly,
+                    _ => return Err(Error::todo()),
                 };
                 self.target_session_attrs(target_session_attrs);
             }
