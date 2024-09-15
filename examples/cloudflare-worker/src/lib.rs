@@ -8,8 +8,8 @@ mod file;
 
 use std::{cell::OnceCell, rc::Rc};
 
+use futures_util::{future::FutureExt, stream::Stream};
 use worker::{Context, Env};
-use xitca_unsafe_collection::futures::NowOrPanic;
 use xitca_web::{
     body::{BoxBody, RequestBody},
     bytes::Bytes,
@@ -40,7 +40,8 @@ fn get_router() -> AppService {
             .finish()
             .enclosed_fn(map_type)
             .call(())
-            .now_or_panic()
+            .now_or_never()
+            .unwrap()
             .unwrap();
         Rc::new(service) as _
     };
@@ -59,7 +60,7 @@ pub async fn fetch(req: Request, _: Env, _: Context) -> Result<Response, worker:
 async fn map_type<S, B>(service: &S, req: Request) -> Result<Response, worker::Error>
 where
     S: Service<WebRequest, Response = WebResponse<B>, Error = std::convert::Infallible>,
-    B: futures_core::Stream<Item = Result<Bytes, BodyError>> + 'static,
+    B: Stream<Item = Result<Bytes, BodyError>> + 'static,
 {
     // convert worker request type to xitca-web types.
     let (head, body) = req.into_parts();
