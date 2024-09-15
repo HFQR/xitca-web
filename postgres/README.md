@@ -7,5 +7,5 @@
     - zero copy row data parsing.
     - quic transport layer for remote lossy database connection.
 - Cons
-    - feature absence. no transaction portal etc.(being worked on)
+    - not completely feature parity to tokio-postgres
     - expose liftime in public type params.(harder to return from function or contained in new types)
