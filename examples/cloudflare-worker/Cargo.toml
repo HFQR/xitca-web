@@ -8,17 +8,14 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-# https://github.com/cloudflare/workers-rs/issues/617
-wasm-bindgen = "=0.2.92"
-
 xitca-web = { version = "0.6.2", default-features = false, features = ["file-raw"] }
-xitca-unsafe-collection = "0.2"
 
 console_error_panic_hook = { version = "0.1.1" }
 http-file = { version = "0.1", default-features = false }
-futures-core = "0.3"
+futures-util = { version = "0.3", default-features = false }
 rust-embed = "8"
-worker = { version = "0.3.0", features = ["http"] }
+wasm-bindgen = "0.2.92"
+worker = { version = "0.4.0", features = ["http"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
