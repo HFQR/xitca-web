@@ -2,10 +2,7 @@ use core::{future::Future, ops::DerefMut};
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -22,7 +19,7 @@ use super::{
     prepare::Prepare,
     query::{AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
-    statement::Statement,
+    statement::{Statement, StatementGuarded},
     transaction::Transaction,
     types::{ToSql, Type},
     BoxedFuture, Postgres,
@@ -90,7 +87,6 @@ impl Pool {
             pool: self,
             conn: Some(conn),
             _permit,
-            broken: AtomicBool::new(false),
         })
     }
 
@@ -114,13 +110,23 @@ pub struct PoolConnection<'a> {
     pool: &'a Pool,
     conn: Option<PoolClient>,
     _permit: SemaphorePermit<'a>,
-    broken: AtomicBool,
 }
 
 impl<'p> PoolConnection<'p> {
+    /// function the same as [`Client::prepare`]
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
+        self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
+    }
+
     /// function like [`Client::prepare`] with some behavior difference:
-    /// statement will be cached for future reuse and the return type is [`Arc<Statement>`] smart pointer
-    pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
+    /// - statement will be cached for future reuse.
+    /// - statement type is [`Arc<Statement>`] smart pointer
+    ///
+    /// * When to use cached prepare or plain prepare:
+    /// - query repeatedly called intensely can benefit from cached statement.
+    /// - query with low latency requirement can benefit from upfront cached statement.
+    /// - rare query can use plain prepare to reduce resource usage from the server side.
+    pub async fn prepare_cache(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
         match self.conn().statements.get(query) {
             Some(stmt) => Ok(stmt.clone()),
             None => self.prepare_slow(query, types).await,
@@ -202,10 +208,7 @@ impl<'p> PoolConnection<'p> {
     where
         B: DerefMut<Target = BytesMut>,
     {
-        self.conn()
-            .client
-            .pipeline(pipe)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self.conn().client.pipeline(pipe)
     }
 
     /// function the same as [`Client::copy_in`]
@@ -289,14 +292,6 @@ impl<'p> PoolConnection<'p> {
     fn conn_mut(&mut self) -> &mut PoolClient {
         self.conn.as_mut().unwrap()
     }
-
-    #[cold]
-    #[inline(never)]
-    fn try_drop_on_error(&self, e: &Error) {
-        if e.is_driver_down() {
-            self.broken.store(true, Ordering::Relaxed);
-        }
-    }
 }
 
 impl ClientBorrowMut for PoolConnection<'_> {
@@ -307,15 +302,11 @@ impl ClientBorrowMut for PoolConnection<'_> {
 
 impl Prepare for PoolConnection<'_> {
     async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
-        self.conn()
-            .client
-            ._prepare(query, types)
-            .await
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self.conn().client._prepare(query, types).await
     }
 
     fn _cancel(&self, stmt: &Statement) {
-        self.conn().client._cancel(stmt);
+        self.conn().client._cancel(stmt)
     }
 }
 
@@ -324,19 +315,13 @@ impl Query for PoolConnection<'_> {
     where
         I: AsParams,
     {
-        self.conn()
-            .client
-            ._send_encode(stmt, params)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self.conn().client._send_encode(stmt, params)
     }
 }
 
 impl QuerySimple for PoolConnection<'_> {
     fn _send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
-        self.conn()
-            .client
-            ._send_encode_simple(stmt)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self.conn().client._send_encode_simple(stmt)
     }
 }
 
@@ -345,19 +330,17 @@ impl r#Copy for PoolConnection<'_> {
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
-        self.conn()
-            .client
-            .send_one_way(func)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self.conn().client.send_one_way(func)
     }
 }
 
 impl Drop for PoolConnection<'_> {
     fn drop(&mut self) {
-        if self.broken.load(Ordering::Relaxed) {
+        let conn = self.conn.take().unwrap();
+        if conn.client.closed() {
             return;
         }
-        self.pool.conn.lock().unwrap().push_back(self.conn.take().unwrap());
+        self.pool.conn.lock().unwrap().push_back(conn);
     }
 }
 

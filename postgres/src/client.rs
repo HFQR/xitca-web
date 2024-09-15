@@ -42,7 +42,7 @@ use super::{
 /// // client new type has to impl this trait to mark they can truly offer a mutable reference to Client
 /// impl ClientBorrowMut for SharedClient {
 ///     fn _borrow_mut(&mut self) -> &mut Client {
-///         todo!("you can't safely implement this trait with SharedClient")
+///         panic!("you can't safely implement this trait with SharedClient. and Transaction::new will cause a panic with it")
 ///     }
 /// }
 ///
@@ -88,6 +88,10 @@ struct CachedTypeInfo {
 }
 
 impl Client {
+    /// Creates a new prepared statement.
+    ///
+    /// Prepared statements can be executed repeatedly, and may contain query parameters (indicated by `$1`, `$2`, etc),
+    /// which are set when executed. Prepared statements can only be used with the connection that created them.
     pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
         self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
     }

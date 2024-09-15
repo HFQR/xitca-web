@@ -83,6 +83,9 @@ where
     C: Prepare + Query + QuerySimple + ClientBorrowMut,
 {
     pub async fn new(client: &mut C) -> Result<Transaction<C>, Error> {
+        // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
+        let _c = client._borrow_mut();
+
         client._execute_simple("BEGIN").await?;
         Ok(Transaction {
             client,
@@ -91,6 +94,9 @@ where
         })
     }
 
+    /// function the same as [`Client::prepare`]
+    ///
+    /// [`Client::prepare`]: crate::client::Client::prepare
     pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<C>, Error> {
         self.client
             ._prepare(query, types)
