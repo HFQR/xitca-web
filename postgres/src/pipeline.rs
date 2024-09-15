@@ -16,10 +16,9 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     column::Column,
-    driver::codec::{body_to_affected_rows, Response},
+    driver::codec::{self, AsParams, Response},
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
-    query::AsParams,
     row::Row,
     statement::Statement,
     types::ToSql,
@@ -246,7 +245,7 @@ where
         I: AsParams,
     {
         let len = self.buf.len();
-        crate::query::encode::encode_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params.into_iter())
+        codec::encode_query_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params.into_iter())
             .map(|_| self.columns.push(stmt.columns()))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| self.buf.truncate(len))
@@ -392,7 +391,7 @@ impl PipelineItem<'_> {
                 backend::Message::DataRow(_) => {}
                 backend::Message::CommandComplete(body) => {
                     self.finished = true;
-                    return body_to_affected_rows(&body);
+                    return codec::body_to_affected_rows(&body);
                 }
                 _ => return Err(Error::unexpected()),
             }

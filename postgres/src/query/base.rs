@@ -4,10 +4,9 @@ use postgres_protocol::message::backend;
 
 use crate::{
     column::Column,
-    driver::codec::Response,
+    driver::codec::{AsParams, Response},
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
-    query::AsParams,
     row::Row,
     statement::Statement,
     types::ToSql,
@@ -35,7 +34,7 @@ pub trait Query {
     where
         I: AsParams,
     {
-        self._send_encode(stmt, params).map(|res| RowStream {
+        self._send_encode_query(stmt, params).map(|res| RowStream {
             res,
             col: stmt.columns(),
             ranges: Vec::new(),
@@ -61,7 +60,7 @@ pub trait Query {
     }
 
     /// encode statement and params and send it to client driver
-    fn _send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
+    fn _send_encode_query<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: AsParams;
 }

@@ -40,7 +40,7 @@ where
 {
     fn drop(&mut self) {
         if let Some(stmt) = self.stmt.take() {
-            self.cli._cancel(&stmt);
+            self.cli._send_encode_statement_cancel(&stmt);
         }
     }
 }
@@ -124,7 +124,7 @@ pub(crate) mod compat {
         C: Prepare,
     {
         fn drop(&mut self) {
-            self.cli._cancel(&self.stmt)
+            self.cli._send_encode_statement_cancel(&self.stmt)
         }
     }
 

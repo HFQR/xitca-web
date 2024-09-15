@@ -23,7 +23,7 @@ use super::row_stream::GenericRowStream;
 pub trait QuerySimple {
     #[inline]
     fn _query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self._send_encode_simple(stmt).map(|res| RowSimpleStream {
+        self._send_encode_query_simple(stmt).map(|res| RowSimpleStream {
             res,
             col: Vec::new(),
             ranges: Vec::new(),
@@ -31,7 +31,7 @@ pub trait QuerySimple {
     }
 
     fn _execute_simple(&self, stmt: &str) -> ExecuteSimple {
-        let res = self._send_encode_simple(stmt);
+        let res = self._send_encode_query_simple(stmt);
         // TODO:
         // use async { res?.try_into_row_affected().await } with Rust 2024 edition
         ExecuteSimple {
@@ -40,7 +40,7 @@ pub trait QuerySimple {
         }
     }
 
-    fn _send_encode_simple(&self, stmt: &str) -> Result<Response, Error>;
+    fn _send_encode_query_simple(&self, stmt: &str) -> Result<Response, Error>;
 }
 
 pub struct ExecuteSimple {
