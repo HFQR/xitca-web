@@ -24,6 +24,8 @@ pub enum TargetSessionAttrs {
     Any,
     /// The session must allow writes.
     ReadWrite,
+    /// The session only allows read.
+    ReadOnly,
 }
 
 /// information about session. used for canceling query
@@ -100,11 +102,14 @@ impl Session {
                     let _value = body.value()?;
                 }
                 backend::Message::ErrorResponse(body) => return Err(DbError::parse(&mut body.fields())?.into()),
+                backend::Message::NoticeResponse(_) => {
+                    // TODO: collect notice and let Driver emit it when polled?
+                }
                 _ => return Err(Error::unexpected()),
             }
         }
 
-        if matches!(cfg.get_target_session_attrs(), TargetSessionAttrs::ReadWrite) {
+        if !matches!(cfg.get_target_session_attrs(), TargetSessionAttrs::Any) {
             frontend::query("SHOW transaction_read_only", &mut buf)?;
             let msg = buf.split();
             drv.send(msg).await?;
@@ -114,8 +119,10 @@ impl Session {
                     backend::Message::DataRow(body) => {
                         let range = body.ranges().next()?.flatten().ok_or(Error::todo())?;
                         let slice = &body.buffer()[range.start..range.end];
-                        if slice == b"on" {
-                            return Err(Error::todo());
+                        match (slice, cfg.get_target_session_attrs()) {
+                            (b"on", TargetSessionAttrs::ReadWrite) => return Err(Error::todo()),
+                            (b"off", TargetSessionAttrs::ReadOnly) => return Err(Error::todo()),
+                            _ => {}
                         }
                     }
                     backend::Message::RowDescription(_) | backend::Message::CommandComplete(_) => {}
@@ -124,6 +131,7 @@ impl Session {
                 }
             }
         }
+
         Ok(session)
     }
 }
