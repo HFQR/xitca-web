@@ -65,8 +65,12 @@ pub trait ClientBorrowMut {
 
 pub struct Client {
     pub(crate) tx: DriverTx,
-    pub(crate) session: Box<Session>,
-    cached_typeinfo: Mutex<CachedTypeInfo>,
+    pub(crate) cache: Box<ClientCache>,
+}
+
+pub(crate) struct ClientCache {
+    session: Session,
+    type_info: Mutex<CachedTypeInfo>,
 }
 
 /// A cache of type info and prepared statements for fetching type info
@@ -207,7 +211,7 @@ impl Client {
     /// Constructs a cancellation token that can later be used to request cancellation of a query running on the
     /// connection associated with this client.
     pub fn cancel_token(&self) -> Session {
-        Session::clone(&self.session)
+        Session::clone(&self.cache.session)
     }
 
     /// a lossy hint of running state of io driver. an io driver shutdown can happen
@@ -217,35 +221,35 @@ impl Client {
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().unwrap().typeinfo.clone()
+        self.cache.type_info.lock().unwrap().typeinfo.clone()
     }
 
     pub fn set_typeinfo(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().unwrap().typeinfo = Some(statement.clone());
+        self.cache.type_info.lock().unwrap().typeinfo = Some(statement.clone());
     }
 
     pub fn typeinfo_composite(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().unwrap().typeinfo_composite.clone()
+        self.cache.type_info.lock().unwrap().typeinfo_composite.clone()
     }
 
     pub fn set_typeinfo_composite(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().unwrap().typeinfo_composite = Some(statement.clone());
+        self.cache.type_info.lock().unwrap().typeinfo_composite = Some(statement.clone());
     }
 
     pub fn typeinfo_enum(&self) -> Option<Statement> {
-        self.cached_typeinfo.lock().unwrap().typeinfo_enum.clone()
+        self.cache.type_info.lock().unwrap().typeinfo_enum.clone()
     }
 
     pub fn set_typeinfo_enum(&self, statement: &Statement) {
-        self.cached_typeinfo.lock().unwrap().typeinfo_enum = Some(statement.clone());
+        self.cache.type_info.lock().unwrap().typeinfo_enum = Some(statement.clone());
     }
 
     pub fn type_(&self, oid: Oid) -> Option<Type> {
-        self.cached_typeinfo.lock().unwrap().types.get(&oid).cloned()
+        self.cache.type_info.lock().unwrap().types.get(&oid).cloned()
     }
 
     pub fn set_type(&self, oid: Oid, type_: &Type) {
-        self.cached_typeinfo.lock().unwrap().types.insert(oid, type_.clone());
+        self.cache.type_info.lock().unwrap().types.insert(oid, type_.clone());
     }
 
     /// Clears the client's type information cache.
@@ -254,18 +258,20 @@ impl Client {
     /// them for the lifetime of the client. If those definitions are changed in the database, this method can be used
     /// to flush the local cache and allow the new, updated definitions to be loaded.
     pub fn clear_type_cache(&self) {
-        self.cached_typeinfo.lock().unwrap().types.clear();
+        self.cache.type_info.lock().unwrap().types.clear();
     }
 
     pub(crate) fn new(tx: DriverTx, session: Session) -> Self {
         Self {
             tx,
-            session: Box::new(session),
-            cached_typeinfo: Mutex::new(CachedTypeInfo {
-                typeinfo: None,
-                typeinfo_composite: None,
-                typeinfo_enum: None,
-                types: HashMap::default(),
+            cache: Box::new(ClientCache {
+                session,
+                type_info: Mutex::new(CachedTypeInfo {
+                    typeinfo: None,
+                    typeinfo_composite: None,
+                    typeinfo_enum: None,
+                    types: HashMap::default(),
+                }),
             }),
         }
     }
@@ -320,7 +326,7 @@ impl Drop for Client {
         // convert leaked statements to guarded statements.
         // this is to cancel the statement on client go away.
         let (type_info, typeinfo_composite, typeinfo_enum) = {
-            let cache = self.cached_typeinfo.get_mut().unwrap();
+            let cache = self.cache.type_info.get_mut().unwrap();
             (
                 cache.typeinfo.take(),
                 cache.typeinfo_composite.take(),
