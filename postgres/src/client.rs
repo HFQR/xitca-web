@@ -11,11 +11,15 @@ use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::{codec::Response, DriverTx},
+    driver::{
+        codec::{self, AsParams, Response},
+        DriverTx,
+    },
     error::Error,
     iter::slice_iter,
+    portal::PortalTrait,
     prepare::Prepare,
-    query::{encode, AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
+    query::{Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
     statement::{Statement, StatementGuarded},
     transaction::Transaction,
@@ -142,7 +146,7 @@ impl Client {
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
         // TODO: call execute_raw when Rust2024 edition capture rule is stabled.
-        let res = self._send_encode(stmt, slice_iter(params));
+        let res = self._send_encode_query(stmt, slice_iter(params));
         async { res?.try_into_row_affected().await }
     }
 
@@ -158,7 +162,7 @@ impl Client {
     where
         I: AsParams,
     {
-        let res = self._send_encode(stmt, params);
+        let res = self._send_encode_query(stmt, params);
         async { res?.try_into_row_affected().await }
     }
 
@@ -289,25 +293,42 @@ impl Prepare for Arc<Client> {
         Client::_prepare(self, query, types)
     }
 
-    fn _cancel(&self, stmt: &Statement) {
-        Client::_cancel(self, stmt)
+    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
+        Client::_send_encode_statement_cancel(self, stmt)
+    }
+}
+
+impl PortalTrait for Client {
+    fn _send_encode_portal_create<I>(&self, name: &str, stmt: &Statement, params: I) -> Result<Response, Error>
+    where
+        I: AsParams,
+    {
+        codec::send_encode_portal_create(&self.tx, name, stmt, params.into_iter())
+    }
+
+    fn _send_encode_portal_query(&self, name: &str, max_rows: i32) -> Result<Response, Error> {
+        codec::send_encode_portal_query(&self.tx, name, max_rows)
+    }
+
+    fn _send_encode_portal_cancel(&self, name: &str) {
+        let _ = codec::send_encode_portal_cancel(&self.tx, name);
     }
 }
 
 impl Query for Client {
     #[inline]
-    fn _send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
+    fn _send_encode_query<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: AsParams,
     {
-        encode::send_encode(self, stmt, params)
+        codec::send_encode_query(&self.tx, stmt, params)
     }
 }
 
 impl QuerySimple for Client {
     #[inline]
-    fn _send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
-        encode::send_encode_simple(self, stmt)
+    fn _send_encode_query_simple(&self, stmt: &str) -> Result<Response, Error> {
+        codec::send_encode_query_simple(&self.tx, stmt)
     }
 }
 

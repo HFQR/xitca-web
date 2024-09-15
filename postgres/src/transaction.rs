@@ -1,15 +1,20 @@
 use super::{
     client::ClientBorrowMut,
+    driver::codec::AsParams,
     error::Error,
+    iter::slice_iter,
+    portal::PortalTrait,
     prepare::Prepare,
-    query::{AsParams, Query, QuerySimple, RowStream},
+    query::{Query, QuerySimple, RowStream},
     statement::{Statement, StatementGuarded},
     types::{ToSql, Type},
 };
 
+pub use super::portal::Portal;
+
 pub struct Transaction<'a, C>
 where
-    C: Prepare + Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + PortalTrait + Query + QuerySimple + ClientBorrowMut,
 {
     client: &'a mut C,
     save_point: SavePoint,
@@ -68,7 +73,7 @@ enum State {
 
 impl<C> Drop for Transaction<'_, C>
 where
-    C: Prepare + Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + PortalTrait + Query + QuerySimple + ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -80,7 +85,7 @@ where
 
 impl<C> Transaction<'_, C>
 where
-    C: Prepare + Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + PortalTrait + Query + QuerySimple + ClientBorrowMut,
 {
     pub async fn new(client: &mut C) -> Result<Transaction<C>, Error> {
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
@@ -121,6 +126,26 @@ where
         I: AsParams,
     {
         self.client._query_raw(stmt, params)
+    }
+
+    /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.
+    ///
+    /// Portals only last for the duration of the transaction in which they are created, and can only be used on the
+    /// connection that created them.
+    pub async fn bind<'p>(
+        &'p self,
+        statement: &'p Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<Portal<'p, C>, Error> {
+        self.bind_raw(statement, slice_iter(params)).await
+    }
+
+    /// A maximally flexible version of [`Transaction::bind`].
+    pub async fn bind_raw<'p, I>(&'p self, statement: &'p Statement, params: I) -> Result<Portal<'p, C>, Error>
+    where
+        I: AsParams,
+    {
+        Portal::new(self.client, statement, params).await
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint.

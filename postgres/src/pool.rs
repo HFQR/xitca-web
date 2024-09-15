@@ -12,12 +12,13 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::Response,
+    driver::codec::{AsParams, Response},
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
+    portal::PortalTrait,
     prepare::Prepare,
-    query::{AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
+    query::{Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
     statement::{Statement, StatementGuarded},
     transaction::Transaction,
@@ -174,7 +175,7 @@ impl<'p> PoolConnection<'p> {
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
         // TODO: forward to Query::_execute
-        let res = self._send_encode(stmt, slice_iter(params));
+        let res = self._send_encode_query(stmt, slice_iter(params));
         async { res?.try_into_row_affected().await }
     }
 
@@ -184,7 +185,7 @@ impl<'p> PoolConnection<'p> {
         I: AsParams,
     {
         // TODO: forward to Query::_execute_raw
-        let res = self._send_encode(stmt, params);
+        let res = self._send_encode_query(stmt, params);
         async { res?.try_into_row_affected().await }
     }
 
@@ -305,23 +306,40 @@ impl Prepare for PoolConnection<'_> {
         self.conn().client._prepare(query, types).await
     }
 
-    fn _cancel(&self, stmt: &Statement) {
-        self.conn().client._cancel(stmt)
+    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
+        self.conn().client._send_encode_statement_cancel(stmt)
+    }
+}
+
+impl PortalTrait for PoolConnection<'_> {
+    fn _send_encode_portal_create<I>(&self, name: &str, stmt: &Statement, params: I) -> Result<Response, Error>
+    where
+        I: AsParams,
+    {
+        self.conn().client._send_encode_portal_create(name, stmt, params)
+    }
+
+    fn _send_encode_portal_query(&self, name: &str, max_rows: i32) -> Result<Response, Error> {
+        self.conn().client._send_encode_portal_query(name, max_rows)
+    }
+
+    fn _send_encode_portal_cancel(&self, name: &str) {
+        self.conn().client._send_encode_portal_cancel(name)
     }
 }
 
 impl Query for PoolConnection<'_> {
-    fn _send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
+    fn _send_encode_query<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: AsParams,
     {
-        self.conn().client._send_encode(stmt, params)
+        self.conn().client._send_encode_query(stmt, params)
     }
 }
 
 impl QuerySimple for PoolConnection<'_> {
-    fn _send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
-        self.conn().client._send_encode_simple(stmt)
+    fn _send_encode_query_simple(&self, stmt: &str) -> Result<Response, Error> {
+        self.conn().client._send_encode_query_simple(stmt)
     }
 }
 

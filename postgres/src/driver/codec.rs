@@ -3,11 +3,18 @@ use core::{
     task::{ready, Context, Poll},
 };
 
-use postgres_protocol::message::backend;
+use postgres_protocol::message::{backend, frontend};
+use postgres_types::{BorrowToSql, IsNull};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
-use crate::error::{DbError, DriverDownReceiving, Error};
+use crate::{
+    error::InvalidParamCount,
+    error::{DbError, DriverDownReceiving, Error},
+    statement::Statement,
+};
+
+use super::DriverTx;
 
 pub(super) fn request_pair(msg_count: usize) -> (ResponseSender, Response) {
     let (tx, rx) = unbounded_channel();
@@ -162,4 +169,121 @@ impl ResponseMessage {
             }))
         }
     }
+}
+
+/// super trait to constraint Self and associated types' trait bounds.
+pub trait AsParams: IntoIterator<IntoIter: ExactSizeIterator, Item: BorrowToSql> {}
+
+impl<I> AsParams for I
+where
+    I: IntoIterator,
+    I::IntoIter: ExactSizeIterator,
+    I::Item: BorrowToSql,
+{
+}
+
+pub(crate) fn send_encode_query<I>(tx: &DriverTx, stmt: &Statement, params: I) -> Result<Response, Error>
+where
+    I: AsParams,
+{
+    tx.send(|buf| encode_query_maybe_sync::<_, true>(buf, stmt, params.into_iter()))
+}
+
+pub(crate) fn send_encode_query_simple(tx: &DriverTx, stmt: &str) -> Result<Response, Error> {
+    tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
+}
+
+pub(crate) fn encode_query_maybe_sync<I, const SYNC_MODE: bool>(
+    buf: &mut BytesMut,
+    stmt: &Statement,
+    params: I,
+) -> Result<(), Error>
+where
+    I: ExactSizeIterator,
+    I::Item: BorrowToSql,
+{
+    encode_bind(stmt, params, "", buf)?;
+    frontend::execute("", 0, buf)?;
+    if SYNC_MODE {
+        frontend::sync(buf);
+    }
+    Ok(())
+}
+
+pub(crate) fn send_encode_portal_create<I>(
+    tx: &DriverTx,
+    name: &str,
+    stmt: &Statement,
+    params: I,
+) -> Result<Response, Error>
+where
+    I: ExactSizeIterator,
+    I::Item: BorrowToSql,
+{
+    tx.send(|buf| {
+        encode_bind(stmt, params, name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    })
+}
+
+pub(crate) fn send_encode_portal_query(tx: &DriverTx, name: &str, max_rows: i32) -> Result<Response, Error> {
+    tx.send(|buf| {
+        frontend::execute(name, max_rows, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    })
+}
+
+pub(crate) fn send_encode_portal_cancel(tx: &DriverTx, name: &str) -> Result<Response, Error> {
+    send_cancel(b'P', tx, name)
+}
+
+pub(crate) fn send_encode_statement_cancel(tx: &DriverTx, name: &str) -> Result<Response, Error> {
+    send_cancel(b'S', tx, name)
+}
+
+fn send_cancel(variant: u8, tx: &DriverTx, name: &str) -> Result<Response, Error> {
+    tx.send(|buf| {
+        frontend::close(variant, name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    })
+}
+
+fn encode_bind<I>(stmt: &Statement, params: I, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
+where
+    I: ExactSizeIterator,
+    I::Item: BorrowToSql,
+{
+    if params.len() != stmt.params().len() {
+        return Err(Error::from(InvalidParamCount {
+            expected: params.len(),
+            params: stmt.params().len(),
+        }));
+    }
+
+    let params = params.zip(stmt.params()).collect::<Vec<_>>();
+
+    frontend::bind(
+        portal,
+        stmt.name(),
+        params.iter().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),
+        params.iter(),
+        |(param, ty), buf| {
+            param
+                .borrow_to_sql()
+                .to_sql_checked(ty, buf)
+                .map(|is_null| match is_null {
+                    IsNull::No => postgres_protocol::IsNull::No,
+                    IsNull::Yes => postgres_protocol::IsNull::Yes,
+                })
+        },
+        Some(1),
+        buf,
+    )
+    .map_err(|e| match e {
+        frontend::BindError::Conversion(e) => Error::from(e),
+        frontend::BindError::Serialization(e) => Error::from(e),
+    })
 }

@@ -27,6 +27,7 @@ mod config;
 mod driver;
 mod from_sql;
 mod iter;
+mod portal;
 mod prepare;
 mod query;
 mod session;
@@ -69,13 +70,16 @@ pub mod dev {
     //! traits for extending functionalities through external crate
 
     pub use crate::client::ClientBorrowMut;
+    pub use crate::portal::PortalTrait;
     pub use crate::prepare::Prepare;
     pub use crate::query::{Query, QuerySimple};
 }
 
-use core::{future::Future, pin::Pin};
+use core::{future::Future, pin::Pin, sync::atomic::AtomicUsize};
 
 use xitca_io::io::AsyncIo;
+
+static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
 pub struct Postgres {

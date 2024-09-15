@@ -1,7 +1,4 @@
-use core::{
-    future::Future,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::{future::Future, sync::atomic::Ordering};
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend, frontend};
@@ -9,20 +6,26 @@ use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
 use super::{
-    client::Client, column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator,
-    statement::Statement, types::Type, BoxedFuture,
+    client::Client,
+    column::Column,
+    driver::codec::{self, Response},
+    error::Error,
+    iter::AsyncLendingIterator,
+    statement::Statement,
+    types::Type,
+    BoxedFuture,
 };
 
 /// trait generic over preparing statement and canceling of prepared statement
 pub trait Prepare {
     fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send;
 
-    fn _cancel(&self, stmt: &Statement);
+    fn _send_encode_statement_cancel(&self, stmt: &Statement);
 }
 
 impl Prepare for Client {
     async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let name = format!("s{id}");
 
         let mut res = self.send_prepare(name.as_str(), query, types)?;
@@ -63,12 +66,8 @@ impl Prepare for Client {
         Ok(Statement::new(name, parameters, columns))
     }
 
-    fn _cancel(&self, stmt: &Statement) {
-        let _ = self.tx.send(|buf| {
-            frontend::close(b'S', stmt.name(), buf)?;
-            frontend::sync(buf);
-            Ok(())
-        });
+    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
+        let _ = codec::send_encode_statement_cancel(&self.tx, stmt.name());
     }
 }
 
@@ -224,8 +223,6 @@ impl Client {
         })
     }
 }
-
-static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 const TYPEINFO_QUERY: &str = "\
 SELECT t.typname, t.typtype, t.typelem, r.rngsubtype, t.typbasetype, n.nspname, t.typrelid
