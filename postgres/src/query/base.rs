@@ -25,13 +25,13 @@ use super::row_stream::GenericRowStream;
 pub trait Query {
     /// query with statement and dynamic typed params
     #[inline]
-    fn _query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+    fn _query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         self._query_raw(stmt, slice_iter(params))
     }
 
     /// flexible version of [Query::_query]
     #[inline]
-    fn _query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    fn _query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: AsParams,
     {
@@ -45,7 +45,7 @@ pub trait Query {
     /// query that don't return any row but number of rows affected by it
     #[inline]
     fn _execute(
-        &mut self,
+        &self,
         stmt: &Statement,
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
@@ -53,7 +53,7 @@ pub trait Query {
     }
 
     /// flexible version of [Query::_execute]
-    fn _execute_raw<I>(&mut self, _: &Statement, _: I) -> impl Future<Output = Result<u64, Error>> + Send
+    fn _execute_raw<I>(&self, _: &Statement, _: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
         I: AsParams,
     {
@@ -61,7 +61,7 @@ pub trait Query {
     }
 
     /// encode statement and params and send it to client driver
-    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
+    fn _send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: AsParams;
 }

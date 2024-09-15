@@ -1,14 +1,15 @@
 use super::{
     client::ClientBorrowMut,
     error::Error,
+    prepare::Prepare,
     query::{AsParams, Query, QuerySimple, RowStream},
-    statement::Statement,
-    types::ToSql,
+    statement::{Statement, StatementGuarded},
+    types::{ToSql, Type},
 };
 
 pub struct Transaction<'a, C>
 where
-    C: Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + Query + QuerySimple + ClientBorrowMut,
 {
     client: &'a mut C,
     save_point: SavePoint,
@@ -67,7 +68,7 @@ enum State {
 
 impl<C> Drop for Transaction<'_, C>
 where
-    C: Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + Query + QuerySimple + ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -79,9 +80,12 @@ where
 
 impl<C> Transaction<'_, C>
 where
-    C: Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + Query + QuerySimple + ClientBorrowMut,
 {
-    pub async fn new(client: &mut C) -> Result<Transaction<'_, C>, Error> {
+    pub async fn new(client: &mut C) -> Result<Transaction<C>, Error> {
+        // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
+        let _c = client._borrow_mut();
+
         client._execute_simple("BEGIN").await?;
         Ok(Transaction {
             client,
@@ -90,15 +94,29 @@ where
         })
     }
 
-    /// [`Client::query`] for transaction.
+    /// function the same as [`Client::prepare`]
+    ///
+    /// [`Client::prepare`]: crate::client::Client::prepare
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<C>, Error> {
+        self.client
+            ._prepare(query, types)
+            .await
+            .map(|stmt| stmt.into_guarded(self.client))
+    }
+
+    /// function the same as [`Client::query`]
+    ///
+    /// [`Client::query`]: crate::client::Client::query
     #[inline]
-    pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+    pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         self.client._query(stmt, params)
     }
 
-    /// [`Client::query_raw`] for transaction.
+    /// function the same as [`Client::query_raw`]
+    ///
+    /// [`Client::query_raw`]: crate::client::Client::query_raw
     #[inline]
-    pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: AsParams,
     {
@@ -106,12 +124,12 @@ where
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint.
-    pub async fn transaction(&mut self) -> Result<Transaction<'_, C>, Error> {
+    pub async fn transaction(&mut self) -> Result<Transaction<C>, Error> {
         self._save_point(None).await
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint with the specified name.
-    pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<'_, C>, Error>
+    pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<C>, Error>
     where
         I: Into<String>,
     {
@@ -136,7 +154,7 @@ where
         Ok(())
     }
 
-    async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<'_, C>, Error> {
+    async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
         self.client._execute_simple(&save_point.save_point_query()).await?;
 

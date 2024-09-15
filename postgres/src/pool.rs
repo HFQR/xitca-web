@@ -13,12 +13,13 @@ use super::{
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
     driver::codec::Response,
-    error::{DriverDown, Error},
+    error::Error,
     iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
+    prepare::Prepare,
     query::{AsParams, Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
-    statement::Statement,
+    statement::{Statement, StatementGuarded},
     transaction::Transaction,
     types::{ToSql, Type},
     BoxedFuture, Postgres,
@@ -84,7 +85,8 @@ impl Pool {
         };
         Ok(PoolConnection {
             pool: self,
-            conn: Some((conn, _permit)),
+            conn: Some(conn),
+            _permit,
         })
     }
 
@@ -106,47 +108,53 @@ impl Pool {
 /// a set of public is exposed to interact with them.
 pub struct PoolConnection<'a> {
     pool: &'a Pool,
-    conn: Option<(PoolClient, SemaphorePermit<'a>)>,
+    conn: Option<PoolClient>,
+    _permit: SemaphorePermit<'a>,
 }
 
 impl<'p> PoolConnection<'p> {
+    /// function the same as [`Client::prepare`]
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
+        self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
+    }
+
     /// function like [`Client::prepare`] with some behavior difference:
-    /// statement will be cached for future reuse and the return type is [`Arc<Statement>`] smart pointer
-    pub async fn prepare(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
-        match self.try_conn()?.statements.get(query) {
+    /// - statement will be cached for future reuse.
+    /// - statement type is [`Arc<Statement>`] smart pointer
+    ///
+    /// * When to use cached prepare or plain prepare:
+    /// - query repeatedly called intensely can benefit from cached statement.
+    /// - query with low latency requirement can benefit from upfront cached statement.
+    /// - rare query can use plain prepare to reduce resource usage from the server side.
+    pub async fn prepare_cache(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
+        match self.conn().statements.get(query) {
             Some(stmt) => Ok(stmt.clone()),
-            None => self._prepare(query, types).await,
+            None => self.prepare_slow(query, types).await,
         }
     }
 
     #[inline(never)]
-    fn _prepare<'a>(&'a mut self, query: &'a str, types: &'a [Type]) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
+    fn prepare_slow<'a>(
+        &'a mut self,
+        query: &'a str,
+        types: &'a [Type],
+    ) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
         Box::pin(async move {
-            let stmt = self
-                .try_conn()
-                .unwrap()
-                .client
-                .prepare(query, types)
-                .await
-                .map(|stmt| Arc::new(stmt.leak()))
-                .inspect_err(|e| self.try_drop_on_error(e))?;
-            self.try_conn()
-                .unwrap()
-                .statements
-                .insert(Box::from(query), stmt.clone());
+            let stmt = self._prepare(query, types).await.map(Arc::new)?;
+            self.conn_mut().statements.insert(Box::from(query), stmt.clone());
             Ok(stmt)
         })
     }
 
     /// function the same as [`Client::query`]
     #[inline]
-    pub fn query<'a>(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+    pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
         self._query(stmt, params)
     }
 
     /// function the same as [`Client::query_raw`]
     #[inline]
-    pub fn query_raw<'a, I>(&mut self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
     where
         I: AsParams,
     {
@@ -155,13 +163,13 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::query_simple`]
     #[inline]
-    pub fn query_simple(&mut self, stmt: &str) -> Result<RowSimpleStream, Error> {
+    pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
         self._query_simple(stmt)
     }
 
     /// function the same as [`Client::execute`]
     pub fn execute(
-        &mut self,
+        &self,
         stmt: &Statement,
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
@@ -171,7 +179,7 @@ impl<'p> PoolConnection<'p> {
     }
 
     /// function the same as [`Client::execute_raw`]
-    pub fn execute_raw<I>(&mut self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
+    pub fn execute_raw<I>(&self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
         I: AsParams,
     {
@@ -182,39 +190,36 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::execute_simple`]
     #[inline]
-    pub fn execute_simple(&mut self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
+    pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
         self._execute_simple(stmt)
     }
 
     /// function the same as [`Client::transaction`]
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> + Send {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
         Transaction::new(self)
     }
 
     /// function the same as [`Client::pipeline`]
     pub fn pipeline<'a, B, const SYNC_MODE: bool>(
-        &mut self,
+        &self,
         pipe: Pipeline<'a, B, SYNC_MODE>,
     ) -> Result<PipelineStream<'a>, Error>
     where
         B: DerefMut<Target = BytesMut>,
     {
-        self.try_conn()?
-            .client
-            .pipeline(pipe)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self.conn().client.pipeline(pipe)
     }
 
     /// function the same as [`Client::copy_in`]
     #[inline]
-    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<'_, Self>, Error>> + Send {
+    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<Self>, Error>> + Send {
         CopyIn::new(self, stmt)
     }
 
     /// function the same as [`Client::copy_out`]
     #[inline]
-    pub async fn copy_out(&mut self, stmt: &Statement) -> Result<CopyOut, Error> {
+    pub async fn copy_out(&self, stmt: &Statement) -> Result<CopyOut, Error> {
         CopyOut::new(self, stmt).await
     }
 
@@ -276,74 +281,66 @@ impl<'p> PoolConnection<'p> {
     }
 
     /// function the same as [`Client::cancel_token`]
-    pub fn cancel_token(&mut self) -> Result<Session, Error> {
-        self.try_conn().map(|conn| conn.client.cancel_token())
+    pub fn cancel_token(&self) -> Session {
+        self.conn().client.cancel_token()
     }
 
-    fn try_conn(&mut self) -> Result<&mut PoolClient, Error> {
-        match self.conn {
-            Some((ref mut conn, _)) => Ok(conn),
-            None => Err(DriverDown.into()),
-        }
+    fn conn(&self) -> &PoolClient {
+        self.conn.as_ref().unwrap()
     }
 
-    #[cold]
-    #[inline(never)]
-    fn try_drop_on_error(&mut self, e: &Error) {
-        if e.is_driver_down() {
-            let _ = self.take();
-        }
-    }
-
-    fn take(&mut self) -> Option<(PoolClient, SemaphorePermit<'p>)> {
-        self.conn.take()
+    fn conn_mut(&mut self) -> &mut PoolClient {
+        self.conn.as_mut().unwrap()
     }
 }
 
 impl ClientBorrowMut for PoolConnection<'_> {
     fn _borrow_mut(&mut self) -> &mut Client {
-        &mut self.try_conn().unwrap().client
+        &mut self.conn_mut().client
+    }
+}
+
+impl Prepare for PoolConnection<'_> {
+    async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
+        self.conn().client._prepare(query, types).await
+    }
+
+    fn _cancel(&self, stmt: &Statement) {
+        self.conn().client._cancel(stmt)
     }
 }
 
 impl Query for PoolConnection<'_> {
-    fn _send_encode<I>(&mut self, stmt: &Statement, params: I) -> Result<Response, Error>
+    fn _send_encode<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
     where
         I: AsParams,
     {
-        self.try_conn()?
-            .client
-            ._send_encode(stmt, params)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self.conn().client._send_encode(stmt, params)
     }
 }
 
 impl QuerySimple for PoolConnection<'_> {
-    fn _send_encode_simple(&mut self, stmt: &str) -> Result<Response, Error> {
-        self.try_conn()?
-            .client
-            ._send_encode_simple(stmt)
-            .inspect_err(|e| self.try_drop_on_error(e))
+    fn _send_encode_simple(&self, stmt: &str) -> Result<Response, Error> {
+        self.conn().client._send_encode_simple(stmt)
     }
 }
 
 impl r#Copy for PoolConnection<'_> {
-    fn send_one_way<F>(&mut self, func: F) -> Result<(), Error>
+    fn send_one_way<F>(&self, func: F) -> Result<(), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
-        self.try_conn()?
-            .client
-            .send_one_way(func)
-            .inspect_err(|e| self.try_drop_on_error(e))
+        self.conn().client.send_one_way(func)
     }
 }
 
 impl Drop for PoolConnection<'_> {
     fn drop(&mut self) {
-        if let Some((conn, _permit)) = self.take() {
-            self.pool.conn.lock().unwrap().push_back(conn);
+        let conn = self.conn.take().unwrap();
+        if conn.client.closed() {
+            return;
         }
+        self.pool.conn.lock().unwrap().push_back(conn);
     }
 }
 
