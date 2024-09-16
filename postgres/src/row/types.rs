@@ -15,40 +15,45 @@ use crate::{
 use super::traits::RowIndexAndType;
 
 /// A row of data returned from the database by a query.
-pub type Row<'r> = GenericRow<'r, marker::Typed>;
+pub type Row<'r> = GenericRow<&'r [Column], &'r mut Vec<Range<usize>>, marker::Typed>;
 
 /// A row of data returned from the database by a simple query.
-pub type RowSimple<'r> = GenericRow<'r, marker::NoTyped>;
+pub type RowSimple<'r> = GenericRow<&'r [Column], &'r mut Vec<Range<usize>>, marker::NoTyped>;
 
 /// Marker types for specialized impl on [GenericRow].
-mod marker {
+pub(super) mod marker {
     pub struct Typed;
     pub struct NoTyped;
 }
 
-pub struct GenericRow<'a, M> {
-    columns: &'a [Column],
+pub struct GenericRow<C, R, M> {
+    columns: C,
     body: DataRowBody,
-    ranges: &'a mut Vec<Range<usize>>,
+    ranges: R,
     _marker: PhantomData<M>,
 }
 
-impl<M> fmt::Debug for GenericRow<'_, M> {
+impl<C, R, M> fmt::Debug for GenericRow<C, R, M>
+where
+    C: AsRef<[Column]>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Row").field("columns", &self.columns).finish()
+        f.debug_struct("Row").field("columns", &self.columns.as_ref()).finish()
     }
 }
 
-impl<'a, C> GenericRow<'a, C> {
-    pub(crate) fn try_new(
-        columns: &'a [Column],
-        body: DataRowBody,
-        ranges: &'a mut Vec<Range<usize>>,
-    ) -> Result<Self, Error> {
+impl<C, R, M> GenericRow<C, R, M>
+where
+    C: AsRef<[Column]>,
+    R: AsRef<[Range<usize>]> + AsMut<Vec<Range<usize>>>,
+{
+    pub(crate) fn try_new(columns: C, body: DataRowBody, mut ranges: R) -> Result<Self, Error> {
         let mut iter = body.ranges();
 
-        ranges.clear();
-        ranges.reserve(iter.size_hint().0);
+        let ranges_mut = ranges.as_mut();
+
+        ranges_mut.clear();
+        ranges_mut.reserve(iter.size_hint().0);
 
         while let Some(range) = iter.next()? {
             /*
@@ -59,7 +64,7 @@ impl<'a, C> GenericRow<'a, C> {
                 pg value.
                 this saves 8 bytes per range storage
             */
-            ranges.push(range.unwrap_or(Range { start: 1, end: 0 }));
+            ranges_mut.push(range.unwrap_or(Range { start: 1, end: 0 }));
         }
 
         Ok(Self {
@@ -73,7 +78,7 @@ impl<'a, C> GenericRow<'a, C> {
     /// Returns information about the columns of data in the row.
     #[inline]
     pub fn columns(&self) -> &[Column] {
-        self.columns
+        self.columns.as_ref()
     }
 
     /// Determines if the row contains no values.
@@ -90,7 +95,7 @@ impl<'a, C> GenericRow<'a, C> {
 
     // Get the raw bytes for the column at the given range.
     fn col_buffer(&self, idx: usize) -> (&Range<usize>, &Bytes) {
-        (&self.ranges[idx], self.body.buffer_bytes())
+        (&self.ranges.as_ref()[idx], self.body.buffer_bytes())
     }
 
     fn get_idx_ty<T>(
@@ -99,7 +104,7 @@ impl<'a, C> GenericRow<'a, C> {
         ty_check: impl FnOnce(&Type) -> bool,
     ) -> Result<(usize, &Type), Error> {
         let (idx, ty) = idx
-            ._from_columns(self.columns)
+            ._from_columns(self.columns.as_ref())
             .ok_or_else(|| InvalidColumnIndex(idx.to_string()))?;
 
         if !ty_check(ty) {
@@ -110,7 +115,11 @@ impl<'a, C> GenericRow<'a, C> {
     }
 }
 
-impl Row<'_> {
+impl<C, R> GenericRow<C, R, marker::Typed>
+where
+    C: AsRef<[Column]>,
+    R: AsRef<[Range<usize>]> + AsMut<Vec<Range<usize>>>,
+{
     /// Deserializes a value from the row.
     ///
     /// The value can be specified either by its numeric index in the row, or by its column name.
@@ -153,7 +162,7 @@ impl Row<'_> {
         T: FromSql<'s>,
     {
         let (idx, ty) = self.get_idx_ty::<T>(idx, T::accepts)?;
-        FromSql::from_sql_nullable(ty, self.body.buffer().get(self.ranges[idx].clone())).map_err(Into::into)
+        FromSql::from_sql_nullable(ty, self.body.buffer().get(self.ranges.as_ref()[idx].clone())).map_err(Into::into)
     }
 }
 
