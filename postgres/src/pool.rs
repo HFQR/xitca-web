@@ -14,14 +14,13 @@ use super::{
     copy::{r#Copy, CopyIn, CopyOut},
     driver::codec::{AsParams, Response},
     error::Error,
-    iter::{slice_iter, AsyncLendingIterator},
+    iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
-    portal::PortalTrait,
     prepare::Prepare,
     query::{Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
     statement::{Statement, StatementGuarded},
-    transaction::Transaction,
+    transaction::{PortalTrait, Transaction},
     types::{ToSql, Type},
     BoxedFuture, Postgres,
 };
@@ -169,24 +168,22 @@ impl<'p> PoolConnection<'p> {
     }
 
     /// function the same as [`Client::execute`]
+    #[inline]
     pub fn execute(
         &self,
         stmt: &Statement,
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
-        // TODO: forward to Query::_execute
-        let res = self._send_encode_query(stmt, slice_iter(params));
-        async { res?.try_into_row_affected().await }
+        self._execute(stmt, params)
     }
 
     /// function the same as [`Client::execute_raw`]
+    #[inline]
     pub fn execute_raw<I>(&self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
         I: AsParams,
     {
-        // TODO: forward to Query::_execute_raw
-        let res = self._send_encode_query(stmt, params);
-        async { res?.try_into_row_affected().await }
+        self._execute_raw(stmt, params)
     }
 
     /// function the same as [`Client::execute_simple`]

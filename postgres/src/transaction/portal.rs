@@ -2,7 +2,7 @@ use core::sync::atomic::Ordering;
 
 use postgres_protocol::message::backend;
 
-use super::{
+use crate::{
     driver::codec::{AsParams, Response},
     error::Error,
     query::RowStream,

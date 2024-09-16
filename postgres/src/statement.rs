@@ -4,7 +4,11 @@ use core::ops::Deref;
 
 use super::{column::Column, prepare::Prepare, types::Type};
 
-/// Guarded statement that would cancel itself when dropped.
+/// a statement guard contains a prepared postgres statement.
+/// the guard can be dereferenced or borrowed as [`Statement`] which can be used for query apis.
+///
+/// the guard would cancel it's statement when dropped. generic C type must be a client type impl
+/// [`Prepare`] trait to instruct the cancellation.
 pub struct StatementGuarded<'a, C>
 where
     C: Prepare,
@@ -50,6 +54,7 @@ where
     C: Prepare,
 {
     /// Leak the statement and it would not be cancelled for current connection.
+    /// does not cause memory leak.
     pub fn leak(mut self) -> Statement {
         self.stmt.take().unwrap()
     }
@@ -99,10 +104,17 @@ impl Statement {
 
 #[cfg(feature = "compat")]
 pub(crate) mod compat {
+    use core::ops::Deref;
+
     use std::sync::Arc;
 
     use super::{Prepare, Statement};
 
+    /// functions the same as [`StatementGuarded`]
+    ///
+    /// instead of work with a reference this guard offers ownership without named lifetime constraint.
+    ///
+    /// [`StatementGuarded`]: super::StatementGuarded
     #[derive(Clone)]
     pub struct StatementGuarded<C>
     where
@@ -128,6 +140,17 @@ pub(crate) mod compat {
         }
     }
 
+    impl<C> Deref for StatementGuarded<C>
+    where
+        C: Prepare,
+    {
+        type Target = Statement;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner.stmt
+        }
+    }
+
     impl<C> AsRef<Statement> for StatementGuarded<C>
     where
         C: Prepare,
@@ -141,6 +164,7 @@ pub(crate) mod compat {
     where
         C: Prepare,
     {
+        /// construct a new statement guard with raw statement and client
         pub fn new(stmt: Statement, cli: C) -> Self {
             Self {
                 inner: Arc::new(_StatementGuarded { stmt, cli }),

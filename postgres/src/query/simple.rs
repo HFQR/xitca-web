@@ -1,9 +1,3 @@
-use core::{
-    future::Future,
-    pin::Pin,
-    task::{ready, Context, Poll},
-};
-
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
 
@@ -11,7 +5,7 @@ use crate::{
     column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple, types::Type,
 };
 
-use super::row_stream::GenericRowStream;
+use super::{row_stream::GenericRowStream, ExecuteFuture};
 
 /// trait generic over api used for querying with non typed string query without preparing.
 ///
@@ -30,38 +24,17 @@ pub trait QuerySimple {
         })
     }
 
-    fn _execute_simple(&self, stmt: &str) -> ExecuteSimple {
+    fn _execute_simple(&self, stmt: &str) -> ExecuteFuture {
         let res = self._send_encode_query_simple(stmt);
         // TODO:
         // use async { res?.try_into_row_affected().await } with Rust 2024 edition
-        ExecuteSimple {
-            res: Some(res),
+        ExecuteFuture {
+            res: res.map_err(Some),
             rows_affected: 0,
         }
     }
 
     fn _send_encode_query_simple(&self, stmt: &str) -> Result<Response, Error>;
-}
-
-pub struct ExecuteSimple {
-    res: Option<Result<Response, Error>>,
-    rows_affected: u64,
-}
-
-impl Future for ExecuteSimple {
-    type Output = Result<u64, Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-
-        match this.res.as_mut().expect("ExecuteSimple is polled after finish") {
-            Ok(res) => {
-                ready!(res.poll_try_into_ready(&mut this.rows_affected, cx))?;
-                Poll::Ready(Ok(this.rows_affected))
-            }
-            Err(_) => Poll::Ready(this.res.take().unwrap().map(|_| 0)),
-        }
-    }
 }
 
 /// A stream of simple query results.

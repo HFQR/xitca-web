@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use postgres_protocol::message::backend;
 
 use crate::{
@@ -12,7 +10,7 @@ use crate::{
     types::ToSql,
 };
 
-use super::row_stream::GenericRowStream;
+use super::{row_stream::GenericRowStream, ExecuteFuture};
 
 /// trait generic over api used for querying with typed prepared statement.
 ///
@@ -43,20 +41,22 @@ pub trait Query {
 
     /// query that don't return any row but number of rows affected by it
     #[inline]
-    fn _execute(
-        &self,
-        stmt: &Statement,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> impl Future<Output = Result<u64, Error>> + Send {
+    fn _execute(&self, stmt: &Statement, params: &[&(dyn ToSql + Sync)]) -> ExecuteFuture {
         self._execute_raw(stmt, slice_iter(params))
     }
 
     /// flexible version of [Query::_execute]
-    fn _execute_raw<I>(&self, _: &Statement, _: I) -> impl Future<Output = Result<u64, Error>> + Send
+    fn _execute_raw<I>(&self, stmt: &Statement, params: I) -> ExecuteFuture
     where
         I: AsParams,
     {
-        async { todo!("Waiting for Rust 2024 Edition") }
+        let res = self._send_encode_query(stmt, params);
+        // TODO:
+        // use async { res?.try_into_row_affected().await } with Rust 2024 edition
+        ExecuteFuture {
+            res: res.map_err(Some),
+            rows_affected: 0,
+        }
     }
 
     /// encode statement and params and send it to client driver

@@ -1,3 +1,5 @@
+//! client driver module.
+
 pub(crate) mod codec;
 pub(crate) mod generic;
 
@@ -134,12 +136,12 @@ async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterato
     Ok(addrs)
 }
 
-/// async driver of [Client](crate::Client).
+/// async driver of [Client](crate::client::Client).
 /// it handles IO and emit server sent message that do not belong to any query with [AsyncLendingIterator]
 /// trait impl.
 ///
 /// # Examples:
-/// ```rust
+/// ```
 /// use std::future::IntoFuture;
 /// use xitca_postgres::{AsyncLendingIterator, Driver};
 ///

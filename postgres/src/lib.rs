@@ -27,7 +27,6 @@ mod config;
 mod driver;
 mod from_sql;
 mod iter;
-mod portal;
 mod prepare;
 mod query;
 mod session;
@@ -59,7 +58,43 @@ pub use self::{
 
 #[cfg(feature = "compat")]
 pub mod compat {
-    //! compatibility mod to work with futures::Stream trait.
+    //! compatibility mod to work with [`futures::Stream`] trait.
+    //!
+    //! by default this crate uses an async lending iterator to enable zero copy database row handling when possible.
+    //! but this approach can be difficult to hook into existing libraries and crates. In case a traditional async iterator
+    //! is needed this module offers types as adapters.
+    //!
+    //! # Examples
+    //! ```
+    //! # use xitca_postgres::{Client, Error};
+    //! # async fn convert(client: Client) -> Result<(), Error> {
+    //! // prepare a statement and query for rows.
+    //! let stmt = client.prepare("SELECT * from users", &[]).await?;
+    //! let mut stream = client.query(&stmt, &[])?;
+    //!
+    //! // assuming we want to spawn a tokio async task and handle the stream inside it.
+    //! // but code below would not work as stream is a borrowed type with lending iterator implements.
+    //! // tokio::spawn(async move {
+    //! //    let stream = stream;
+    //! // })
+    //!
+    //! // in order to remove lifetime constraint we can do following:
+    //!
+    //! // convert borrowed stream to owned stream where lifetime constraints are lifted.
+    //! let mut stream = xitca_postgres::compat::RowStreamOwned::from(stream);
+    //!
+    //! // spawn async task and move stream into it.
+    //! tokio::spawn(async move {
+    //!     // use async iterator to handle rows.
+    //!     use futures::stream::TryStreamExt;
+    //!     while let Some(row) = stream.try_next().await? {
+    //!         // handle row
+    //!     }
+    //!     Ok::<_, Error>(())
+    //! });
+    //! # Ok(())
+    //! # }
+    //! ```
 
     pub use crate::query::compat::RowStreamOwned;
     pub use crate::row::compat::RowOwned;
@@ -71,9 +106,9 @@ pub mod dev {
 
     pub use crate::client::ClientBorrowMut;
     pub use crate::driver::codec::AsParams;
-    pub use crate::portal::PortalTrait;
     pub use crate::prepare::Prepare;
     pub use crate::query::{Query, QuerySimple};
+    pub use crate::transaction::PortalTrait;
 }
 
 use core::{future::Future, pin::Pin, sync::atomic::AtomicUsize};
@@ -159,7 +194,7 @@ fn _assert_send<F: Send>(_: F) {}
 fn _assert_send2<F: Send>() {}
 
 fn _assert_connect_send() {
-    _assert_send(crate::Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
+    _assert_send(Postgres::new("postgres://postgres:postgres@localhost/postgres").connect());
 }
 
 fn _assert_driver_send() {

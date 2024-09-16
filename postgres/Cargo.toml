@@ -42,5 +42,6 @@ rustls-pemfile = { version = "2", optional = true }
 futures-core = { version = "0.3", default-features = false, optional = true }
 
 [dev-dependencies]
+futures = { version = "0.3", default-features = false }
 rcgen = "0.13"
 tokio = { version = "1.30", features = ["macros", "rt"] }
