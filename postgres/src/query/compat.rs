@@ -33,7 +33,9 @@ impl Stream for RowStreamOwned {
         let this = self.get_mut();
         loop {
             match ready!(this.res.poll_recv(cx))? {
-                backend::Message::DataRow(body) => return Poll::Ready(Some(RowOwned::try_new(this.col.clone(), body))),
+                backend::Message::DataRow(body) => {
+                    return Poll::Ready(Some(RowOwned::try_new(this.col.clone(), body, Vec::new())))
+                }
                 backend::Message::BindComplete
                 | backend::Message::EmptyQueryResponse
                 | backend::Message::CommandComplete(_)

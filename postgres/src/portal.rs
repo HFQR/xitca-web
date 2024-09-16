@@ -49,7 +49,7 @@ where
     where
         I: AsParams,
     {
-        let name = format!("p{}", crate::NEXT_ID.fetch_add(1, Ordering::SeqCst));
+        let name = format!("p{}", crate::NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
         let mut res = cli._send_encode_portal_create(&name, stmt, params)?;
 
