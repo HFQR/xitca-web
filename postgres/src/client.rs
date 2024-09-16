@@ -16,7 +16,6 @@ use super::{
         DriverTx,
     },
     error::Error,
-    iter::slice_iter,
     prepare::Prepare,
     query::{Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
@@ -139,14 +138,13 @@ impl Client {
     /// the statement up front with [Client::prepare].
     ///
     /// If the statement does not modify any rows (e.g. `SELECT`), 0 is returned.
+    #[inline]
     pub fn execute(
         &self,
         stmt: &Statement,
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send {
-        // TODO: call execute_raw when Rust2024 edition capture rule is stabled.
-        let res = self._send_encode_query(stmt, slice_iter(params));
-        async { res?.try_into_row_affected().await }
+        self._execute(stmt, params)
     }
 
     /// The maximally flexible version of [`Client::execute`].
@@ -161,8 +159,7 @@ impl Client {
     where
         I: AsParams,
     {
-        let res = self._send_encode_query(stmt, params);
-        async { res?.try_into_row_affected().await }
+        self._execute_raw(stmt, params)
     }
 
     /// Executes a sequence of SQL statements using the simple query protocol, returning async stream of rows.
