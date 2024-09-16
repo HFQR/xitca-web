@@ -62,11 +62,12 @@ where
     }
 
     pub fn query_portal(&self, max_rows: i32) -> Result<RowStream<'_>, Error> {
-        let res = self.cli._send_encode_portal_query(&self.name, max_rows)?;
-        Ok(RowStream {
-            res,
-            col: self.stmt.columns(),
-            ranges: Vec::new(),
-        })
+        self.cli
+            ._send_encode_portal_query(&self.name, max_rows)
+            .map(|res| RowStream {
+                res,
+                col: self.stmt.columns(),
+                ranges: Vec::new(),
+            })
     }
 }

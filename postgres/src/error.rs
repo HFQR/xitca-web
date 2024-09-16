@@ -12,14 +12,14 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use std::{error, io};
+use std::{backtrace::Backtrace, error, io};
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend::ErrorFields;
 
 use super::from_sql::FromSqlError;
 
-use self::sql_state::SqlState;
+pub use self::sql_state::SqlState;
 
 /// public facing error type. providing basic format and display based error handling.
 ///
@@ -47,7 +47,9 @@ impl Error {
     }
 
     pub(crate) fn unexpected() -> Self {
-        Self(Box::new(UnexpectedMessage))
+        Self(Box::new(UnexpectedMessage {
+            back_trace: Backtrace::capture(),
+        }))
     }
 }
 
@@ -273,12 +275,17 @@ impl From<FeatureError> for Error {
     }
 }
 
+/// error for database returning backend message type that is not expected.
+/// it indicates there might be protocol error on either side of the connection.
 #[derive(Debug)]
-pub struct UnexpectedMessage;
+pub struct UnexpectedMessage {
+    back_trace: Backtrace,
+}
 
 impl fmt::Display for UnexpectedMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("unexpected message from database")
+        f.write_str("Unexpected message from database with stack trace:\r\n")?;
+        write!(f, "{}", self.back_trace)
     }
 }
 

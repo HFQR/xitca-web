@@ -4,14 +4,13 @@ use core::{
 };
 
 use postgres_protocol::message::{backend, frontend};
-use postgres_types::{BorrowToSql, IsNull};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
-    error::InvalidParamCount,
-    error::{DbError, DriverDownReceiving, Error},
+    error::{DbError, DriverDownReceiving, Error, InvalidParamCount},
     statement::Statement,
+    types::{BorrowToSql, IsNull, Type},
 };
 
 use super::DriverTx;
@@ -237,6 +236,20 @@ pub(crate) fn send_encode_portal_query(tx: &DriverTx, name: &str, max_rows: i32)
 
 pub(crate) fn send_encode_portal_cancel(tx: &DriverTx, name: &str) -> Result<Response, Error> {
     send_cancel(b'P', tx, name)
+}
+
+pub(crate) fn send_encode_statement_create(
+    tx: &DriverTx,
+    name: &str,
+    query: &str,
+    types: &[Type],
+) -> Result<Response, Error> {
+    tx.send(|buf| {
+        frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
+        frontend::describe(b'S', name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    })
 }
 
 pub(crate) fn send_encode_statement_cancel(tx: &DriverTx, name: &str) -> Result<Response, Error> {
