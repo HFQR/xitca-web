@@ -1,16 +1,17 @@
+mod portal;
+
 use super::{
     client::ClientBorrowMut,
     driver::codec::AsParams,
     error::Error,
     iter::slice_iter,
-    portal::PortalTrait,
     prepare::Prepare,
     query::{Query, QuerySimple, RowStream},
     statement::{Statement, StatementGuarded},
     types::{ToSql, Type},
 };
 
-pub use super::portal::Portal;
+pub use portal::{Portal, PortalTrait};
 
 pub struct Transaction<'a, C>
 where

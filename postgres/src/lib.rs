@@ -27,7 +27,6 @@ mod config;
 mod driver;
 mod from_sql;
 mod iter;
-mod portal;
 mod prepare;
 mod query;
 mod session;
@@ -107,9 +106,9 @@ pub mod dev {
 
     pub use crate::client::ClientBorrowMut;
     pub use crate::driver::codec::AsParams;
-    pub use crate::portal::PortalTrait;
     pub use crate::prepare::Prepare;
     pub use crate::query::{Query, QuerySimple};
+    pub use crate::transaction::PortalTrait;
 }
 
 use core::{future::Future, pin::Pin, sync::atomic::AtomicUsize};

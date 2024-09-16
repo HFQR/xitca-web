@@ -17,12 +17,11 @@ use super::{
     },
     error::Error,
     iter::slice_iter,
-    portal::PortalTrait,
     prepare::Prepare,
     query::{Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
     statement::{Statement, StatementGuarded},
-    transaction::Transaction,
+    transaction::{PortalTrait, Transaction},
     types::ToSql,
 };
 

@@ -16,12 +16,11 @@ use super::{
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
     pipeline::{Pipeline, PipelineStream},
-    portal::PortalTrait,
     prepare::Prepare,
     query::{Query, QuerySimple, RowSimpleStream, RowStream},
     session::Session,
     statement::{Statement, StatementGuarded},
-    transaction::Transaction,
+    transaction::{PortalTrait, Transaction},
     types::{ToSql, Type},
     BoxedFuture, Postgres,
 };
