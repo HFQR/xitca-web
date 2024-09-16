@@ -149,11 +149,15 @@ where
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint.
+    ///     
+    /// [`Client::transaction`]: crate::client::Client::transaction
     pub async fn transaction(&mut self) -> Result<Transaction<C>, Error> {
         self._save_point(None).await
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint with the specified name.
+    ///
+    /// [`Client::transaction`]: crate::client::Client::transaction
     pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<C>, Error>
     where
         I: Into<String>,

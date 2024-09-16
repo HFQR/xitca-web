@@ -1,19 +1,13 @@
 use core::{future::Future, sync::atomic::Ordering};
 
 use fallible_iterator::FallibleIterator;
-use postgres_protocol::message::{backend, frontend};
+use postgres_protocol::message::backend;
 use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
 use super::{
-    client::Client,
-    column::Column,
-    driver::codec::{self, Response},
-    error::Error,
-    iter::AsyncLendingIterator,
-    statement::Statement,
-    types::Type,
-    BoxedFuture,
+    client::Client, column::Column, driver::codec, error::Error, iter::AsyncLendingIterator, statement::Statement,
+    types::Type, BoxedFuture,
 };
 
 /// trait generic over preparing statement and canceling of prepared statement
@@ -28,7 +22,13 @@ impl Prepare for Client {
         let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let name = format!("s{id}");
 
-        let mut res = self.send_prepare(name.as_str(), query, types)?;
+        if types.is_empty() {
+            debug!("preparing query {}: {}", name, query);
+        } else {
+            debug!("preparing query {} with types {:?}: {}", name, types, query);
+        }
+
+        let mut res = codec::send_encode_statement_create(&self.tx, &name, query, types)?;
 
         match res.recv().await? {
             backend::Message::ParseComplete => {}
@@ -206,21 +206,6 @@ impl Client {
         self.set_typeinfo_composite(&stmt);
 
         Ok(stmt)
-    }
-
-    fn send_prepare(&self, name: &str, query: &str, types: &[Type]) -> Result<Response, Error> {
-        if types.is_empty() {
-            debug!("preparing query {}: {}", name, query);
-        } else {
-            debug!("preparing query {} with types {:?}: {}", name, types, query);
-        }
-
-        self.tx.send(|buf| {
-            frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
-            frontend::describe(b'S', name, buf)?;
-            frontend::sync(buf);
-            Ok(())
-        })
     }
 }
 
