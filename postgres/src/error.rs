@@ -200,6 +200,31 @@ impl From<FromSqlError> for Error {
     }
 }
 
+/// error happens when [`Config`] fail to provide necessary information.
+#[derive(Debug)]
+pub enum ConfigError {
+    EmptyHost,
+    EmptyPort,
+}
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Config error: ")?;
+        match self {
+            Self::EmptyHost => f.write_str("no available host name is found"),
+            Self::EmptyPort => f.write_str("no available host port is found"),
+        }
+    }
+}
+
+impl error::Error for ConfigError {}
+
+impl From<ConfigError> for Error {
+    fn from(e: ConfigError) -> Self {
+        Self(Box::new(e))
+    }
+}
+
 /// error happens when library user failed to provide valid authentication info to database server.
 #[derive(Debug)]
 pub enum AuthenticationError {

@@ -31,7 +31,7 @@ use xitca_io::{
 use super::{
     client::Client,
     config::{Config, SslMode},
-    error::{unexpected_eof_err, Error},
+    error::{unexpected_eof_err, ConfigError, Error},
     iter::AsyncLendingIterator,
     session::{ConnectInfo, Session},
 };
@@ -45,6 +45,14 @@ use xitca_tls::rustls::{ClientConnection, TlsStream};
 use xitca_io::net::UnixStream;
 
 pub(super) async fn connect(cfg: &mut Config) -> Result<(Client, Driver), Error> {
+    if cfg.get_hosts().is_empty() {
+        return Err(ConfigError::EmptyHost.into());
+    }
+
+    if cfg.get_ports().is_empty() {
+        return Err(ConfigError::EmptyPort.into());
+    }
+
     let mut err = None;
     let hosts = cfg.get_hosts().to_vec();
     for host in hosts {

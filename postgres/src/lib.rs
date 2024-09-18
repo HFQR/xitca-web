@@ -258,3 +258,43 @@ fn _assert_driver_send() {
 //         handle.await.unwrap();
 //     }
 // }
+
+#[cfg(test)]
+mod test {
+    use core::future::IntoFuture;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn config_error() {
+        let mut cfg = Config::new();
+
+        cfg.dbname("postgres").user("postgres").password("postgres");
+
+        let mut cfg1 = cfg.clone();
+        cfg1.host("localhost");
+        Postgres::new(cfg1).connect().await.err().unwrap();
+
+        cfg.port(5432);
+        Postgres::new(cfg).connect().await.err().unwrap();
+    }
+
+    #[tokio::test]
+    async fn client_shutdown() {
+        let mut cfg = Config::new();
+
+        cfg.dbname("postgres")
+            .user("postgres")
+            .password("postgres")
+            .host("localhost")
+            .port(5432);
+
+        let (cli, drv) = Postgres::new(cfg).connect().await.unwrap();
+
+        let handle = tokio::spawn(drv.into_future());
+
+        drop(cli);
+
+        handle.await.unwrap().unwrap();
+    }
+}
