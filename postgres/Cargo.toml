@@ -2,6 +2,13 @@
 name = "xitca-postgres"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "an async postgres client"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["xitca", "xitca-web", "database", "postgres", "postgresql", "sql", "async"]
+categories = ["database"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+readme= "README.md"
 
 [lints]
 workspace = true
