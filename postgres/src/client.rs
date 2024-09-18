@@ -75,6 +75,7 @@ pub trait ClientBorrowMut {
 /// From Client side it's in the form of dropping ownership.
 /// ## Examples
 /// ```
+/// # use core::future::IntoFuture;
 /// # use xitca_postgres::{error::Error, Config, Postgres};
 /// # async fn shut_down(cfg: Config) -> Result<(), Error> {
 /// // connect to a database and spawn driver as async task
@@ -89,7 +90,7 @@ pub trait ClientBorrowMut {
 /// let _ = handle.await.unwrap();
 ///
 /// # Ok(())
-/// #}
+/// # }
 /// ```
 ///
 /// [`Driver`]: crate::driver::Driver
