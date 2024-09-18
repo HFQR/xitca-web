@@ -148,7 +148,7 @@ async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterato
 /// it handles IO and emit server sent message that do not belong to any query with [AsyncLendingIterator]
 /// trait impl.
 ///
-/// # Examples:
+/// # Examples
 /// ```
 /// use std::future::IntoFuture;
 /// use xitca_postgres::{AsyncLendingIterator, Driver};

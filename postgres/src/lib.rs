@@ -95,6 +95,8 @@ pub mod compat {
     //! # Ok(())
     //! # }
     //! ```
+    //!
+    //! [`futures::Stream`]: futures_core::stream::Stream
 
     pub use crate::query::compat::RowStreamOwned;
     pub use crate::row::compat::RowOwned;
@@ -135,8 +137,7 @@ impl Postgres {
 }
 
 impl Postgres {
-    /// Connect to database. The returned values are [Client] and a detached async task
-    /// that drives the client communication to db and it needs to spawn on an async runtime.
+    /// Connect to database, returning [Client] and [Driver] on success
     ///
     /// # Examples:
     /// ```rust

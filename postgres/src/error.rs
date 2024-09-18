@@ -103,7 +103,7 @@ impl fmt::Debug for DriverDown {
 
 impl fmt::Display for DriverDown {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Driver is dropped and unaccessible. Associated query has not been sent to database.")
+        f.write_str("Client's Driver is dropped and unaccessible. Associated query has not been sent to database.")
     }
 }
 
@@ -128,7 +128,7 @@ pub struct DriverDownReceiving;
 
 impl fmt::Display for DriverDownReceiving {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Driver is dropped and unaccessible. Associated query has been sent to database.")
+        f.write_str("Client's Driver is dropped and unaccessible. Associated query MAY have been sent to database.")
     }
 }
 
@@ -201,6 +201,8 @@ impl From<FromSqlError> for Error {
 }
 
 /// error happens when [`Config`] fail to provide necessary information.
+///
+/// [`Config`]: crate::config::Config
 #[derive(Debug)]
 pub enum ConfigError {
     EmptyHost,
@@ -211,8 +213,8 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Config error: ")?;
         match self {
-            Self::EmptyHost => f.write_str("no available host name is found"),
-            Self::EmptyPort => f.write_str("no available host port is found"),
+            Self::EmptyHost => f.write_str("no available host name found"),
+            Self::EmptyPort => f.write_str("no available host port found"),
         }
     }
 }

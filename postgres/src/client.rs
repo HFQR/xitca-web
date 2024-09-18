@@ -65,6 +65,34 @@ pub trait ClientBorrowMut {
     fn _borrow_mut(&mut self) -> &mut Client;
 }
 
+/// Client is a handler type for [`Driver`]. it interacts with latter using channel and message for IO operation
+/// and de/encoding of postgres protocol in byte format.
+///
+/// Client expose a set of high level API to make the interaction represented in Rust function and types.
+///
+/// # Lifetime
+/// Client and [`Driver`] have a dependent lifetime where either side can trigger the other part to shutdown.
+/// From Client side it's in the form of dropping ownership.
+/// ## Examples
+/// ```
+/// # use xitca_postgres::{error::Error, Config, Postgres};
+/// # async fn shut_down(cfg: Config) -> Result<(), Error> {
+/// // connect to a database and spawn driver as async task
+/// let (cli, drv) = Postgres::new(cfg).connect().await?;
+/// let handle = tokio::spawn(drv.into_future());
+///
+/// // drop client after finished usage
+/// drop(cli);
+///
+/// // client would notify driver to shutdown when it's dropped.
+/// // await on the handle would return a Result of the shutdown outcome from driver side.  
+/// let _ = handle.await.unwrap();
+///
+/// # Ok(())
+/// #}
+/// ```
+///
+/// [`Driver`]: crate::driver::Driver
 pub struct Client {
     pub(crate) tx: DriverTx,
     pub(crate) cache: Box<ClientCache>,
