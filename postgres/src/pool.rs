@@ -195,7 +195,7 @@ impl<'p> PoolConnection<'p> {
     /// function the same as [`Client::transaction`]
     #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
-        Transaction::new(self)
+        Transaction::<Self>::builder().begin(self)
     }
 
     /// function the same as [`Client::pipeline`]

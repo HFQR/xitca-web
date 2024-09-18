@@ -1,3 +1,4 @@
+mod builder;
 mod portal;
 
 use super::{
@@ -11,6 +12,7 @@ use super::{
     types::{ToSql, Type},
 };
 
+pub use builder::TransactionBuilder;
 pub use portal::{Portal, PortalTrait};
 
 pub struct Transaction<'a, C>
@@ -88,16 +90,8 @@ impl<C> Transaction<'_, C>
 where
     C: Prepare + PortalTrait + Query + QuerySimple + ClientBorrowMut,
 {
-    pub async fn new(client: &mut C) -> Result<Transaction<C>, Error> {
-        // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
-        let _c = client._borrow_mut();
-
-        client._execute_simple("BEGIN").await?;
-        Ok(Transaction {
-            client,
-            save_point: SavePoint::None,
-            state: State::WantRollback,
-        })
+    pub fn builder() -> TransactionBuilder {
+        TransactionBuilder::new()
     }
 
     /// function the same as [`Client::prepare`]
@@ -182,6 +176,14 @@ where
         let query = self.save_point.rollback_query();
         self.client._execute_simple(&query).await?;
         Ok(())
+    }
+
+    fn new(client: &mut C) -> Transaction<C> {
+        Transaction {
+            client,
+            save_point: SavePoint::None,
+            state: State::WantRollback,
+        }
     }
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
