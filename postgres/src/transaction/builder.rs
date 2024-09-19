@@ -1,9 +1,4 @@
-use crate::{
-    client::ClientBorrowMut,
-    error::Error,
-    prepare::Prepare,
-    query::{Query, QuerySimple},
-};
+use crate::{client::ClientBorrowMut, error::Error, prepare::Prepare, query::Query};
 
 use super::{portal::PortalTrait, Transaction};
 
@@ -85,7 +80,7 @@ impl TransactionBuilder {
     /// The transaction will roll back by default - use the `commit` method to commit it.
     pub async fn begin<C>(self, cli: &mut C) -> Result<Transaction<C>, Error>
     where
-        C: Prepare + PortalTrait + Query + QuerySimple + ClientBorrowMut,
+        C: Prepare + PortalTrait + Query + ClientBorrowMut,
     {
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
         let _c = cli._borrow_mut();
@@ -116,6 +111,6 @@ impl TransactionBuilder {
             query.pop();
         }
 
-        cli._execute_simple(&query).await.map(|_| Transaction::new(cli))
+        cli._execute(&query, &[]).await.map(|_| Transaction::new(cli))
     }
 }

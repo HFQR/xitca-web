@@ -9,7 +9,9 @@ use xitca_io::bytes::BytesMut;
 
 use crate::{
     error::{DbError, DriverDownReceiving, Error, InvalidParamCount},
-    statement::Statement,
+    prepare::Prepare,
+    query::{RowSimpleStream, RowStream},
+    statement::{Statement, StatementGuarded},
     types::{BorrowToSql, IsNull, Type},
 };
 
@@ -181,32 +183,148 @@ where
 {
 }
 
-pub(crate) fn send_encode_query<I>(tx: &DriverTx, stmt: &Statement, params: I) -> Result<Response, Error>
+#[allow(dead_code)]
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// trait for generic over how to encode a query.
+/// this trait can not be implement by library user.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not impl Encode trait",
+    label = "query statement argument must be types implement Encode trait",
+    note = "consider using the types listed below that implementing Encode trait"
+)]
+pub trait Encode {
+    type RowStream<'r>
+    where
+        Self: 'r;
+
+    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams;
+
+    fn row_stream(&self, res: Response) -> Self::RowStream<'_>;
+}
+
+impl sealed::Sealed for Statement {}
+
+impl Encode for Statement {
+    type RowStream<'r> = RowStream<'r> where Self: 'r;
+
+    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        encode_bind(self.name(), self.params(), params, "", buf)?;
+        frontend::execute("", 0, buf)?;
+
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+        RowStream::new(res, self.columns())
+    }
+}
+
+impl<C> sealed::Sealed for StatementGuarded<'_, C> where C: Prepare {}
+
+impl<C> Encode for StatementGuarded<'_, C>
 where
+    C: Prepare,
+{
+    type RowStream<'r> = RowStream<'r> where Self: 'r;
+
+    #[inline]
+    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        Statement::encode::<_, SYNC_MODE>(self, params, buf)
+    }
+
+    #[inline]
+    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+        Statement::row_stream(self, res)
+    }
+}
+
+impl sealed::Sealed for str {}
+
+impl Encode for str {
+    type RowStream<'r> = RowSimpleStream where Self: 'r;
+
+    #[inline]
+    fn encode<I, const SYNC_MODE: bool>(&self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        frontend::query(self, buf).map_err(Into::into)
+    }
+
+    #[inline]
+    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+        RowSimpleStream::new(res, Vec::new())
+    }
+}
+
+impl sealed::Sealed for String {}
+
+impl Encode for String {
+    type RowStream<'r> = RowSimpleStream where Self: 'r;
+
+    #[inline]
+    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        self.as_str().encode::<_, SYNC_MODE>(params, buf)
+    }
+
+    #[inline]
+    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+        self.as_str().row_stream(res)
+    }
+}
+
+#[cfg(feature = "compat")]
+const _: () = {
+    use crate::statement::compat::StatementGuarded;
+
+    impl<C> sealed::Sealed for StatementGuarded<C> where C: Prepare {}
+
+    impl<C> Encode for StatementGuarded<C>
+    where
+        C: Prepare,
+    {
+        type RowStream<'r> = RowStream<'r> where Self: 'r;
+
+        #[inline]
+        fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+        where
+            I: AsParams,
+        {
+            Statement::encode::<_, SYNC_MODE>(self, params, buf)
+        }
+
+        #[inline]
+        fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+            Statement::row_stream(self, res)
+        }
+    }
+};
+
+pub(crate) fn send_encode_query<S, I>(tx: &DriverTx, stmt: &S, params: I) -> Result<Response, Error>
+where
+    S: Encode + ?Sized,
     I: AsParams,
 {
-    tx.send(|buf| encode_query_maybe_sync::<_, true>(buf, stmt, params.into_iter()))
-}
-
-pub(crate) fn send_encode_query_simple(tx: &DriverTx, stmt: &str) -> Result<Response, Error> {
-    tx.send(|buf| frontend::query(stmt, buf).map_err(Into::into))
-}
-
-pub(crate) fn encode_query_maybe_sync<I, const SYNC_MODE: bool>(
-    buf: &mut BytesMut,
-    stmt: &Statement,
-    params: I,
-) -> Result<(), Error>
-where
-    I: ExactSizeIterator,
-    I::Item: BorrowToSql,
-{
-    encode_bind(stmt, params, "", buf)?;
-    frontend::execute("", 0, buf)?;
-    if SYNC_MODE {
-        frontend::sync(buf);
-    }
-    Ok(())
+    tx.send(|buf| stmt.encode::<_, true>(params, buf))
 }
 
 pub(crate) fn send_encode_portal_create<I>(
@@ -220,7 +338,7 @@ where
     I::Item: BorrowToSql,
 {
     tx.send(|buf| {
-        encode_bind(stmt, params, name, buf)?;
+        encode_bind(stmt.name(), stmt.params(), params, name, buf)?;
         frontend::sync(buf);
         Ok(())
     })
@@ -264,23 +382,23 @@ fn send_cancel(variant: u8, tx: &DriverTx, name: &str) -> Result<Response, Error
     })
 }
 
-fn encode_bind<I>(stmt: &Statement, params: I, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
+fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
 where
-    I: ExactSizeIterator,
-    I::Item: BorrowToSql,
+    P: AsParams,
 {
-    if params.len() != stmt.params().len() {
+    let params = params.into_iter();
+    if params.len() != types.len() {
         return Err(Error::from(InvalidParamCount {
-            expected: params.len(),
-            params: stmt.params().len(),
+            expected: types.len(),
+            params: params.len(),
         }));
     }
 
-    let params = params.zip(stmt.params()).collect::<Vec<_>>();
+    let params = params.zip(types).collect::<Vec<_>>();
 
     frontend::bind(
         portal,
-        stmt.name(),
+        stmt,
         params.iter().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),
         params.iter(),
         |(param, ty), buf| {

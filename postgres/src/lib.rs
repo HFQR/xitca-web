@@ -109,7 +109,7 @@ pub mod dev {
     pub use crate::client::ClientBorrowMut;
     pub use crate::driver::codec::AsParams;
     pub use crate::prepare::Prepare;
-    pub use crate::query::{Query, QuerySimple};
+    pub use crate::query::Query;
     pub use crate::transaction::PortalTrait;
 }
 
@@ -290,12 +290,35 @@ mod test {
             .host("localhost")
             .port(5432);
 
-        let (cli, drv) = Postgres::new(cfg).connect().await.unwrap();
+        let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
+            .connect()
+            .await
+            .unwrap();
 
         let handle = tokio::spawn(drv.into_future());
 
         drop(cli);
 
         handle.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn driver_shutdown() {
+        let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
+            .connect()
+            .await
+            .unwrap();
+
+        let handle = tokio::spawn(drv.into_future());
+
+        let _ = cli.query_simple("SELECT 1").unwrap().try_next().await;
+
+        // yield to execute the abort of driver task. this depends on single thread
+        // tokio runtime's behavior specifically.
+        handle.abort();
+        tokio::task::yield_now().await;
+
+        let e = cli.query_simple("SELECT 1").err().unwrap();
+        assert!(e.is_driver_down());
     }
 }

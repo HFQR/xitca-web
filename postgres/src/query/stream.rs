@@ -1,40 +1,53 @@
+use core::ops::Range;
+
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
 
 use crate::{
-    column::Column, driver::codec::Response, error::Error, iter::AsyncLendingIterator, row::RowSimple, types::Type,
+    column::Column,
+    driver::codec::Response,
+    error::Error,
+    iter::AsyncLendingIterator,
+    row::{Row, RowSimple},
+    types::Type,
 };
 
-use super::{row_stream::GenericRowStream, ExecuteFuture};
+pub struct GenericRowStream<C> {
+    pub(crate) res: Response,
+    pub(crate) col: C,
+    pub(crate) ranges: Vec<Range<usize>>,
+}
 
-/// trait generic over api used for querying with non typed string query without preparing.
-///
-/// types like [Transaction] and [CopyIn] accept generic client type and they are able to use user supplied
-/// client new type to operate and therefore reduce less new types and methods boilerplate.
-///
-/// [Transaction]: crate::transaction::Transaction
-/// [CopyIn]: crate::copy::CopyIn
-pub trait QuerySimple {
-    #[inline]
-    fn _query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self._send_encode_query_simple(stmt).map(|res| RowSimpleStream {
+impl<C> GenericRowStream<C> {
+    pub(crate) fn new(res: Response, col: C) -> Self {
+        Self {
             res,
-            col: Vec::new(),
+            col,
             ranges: Vec::new(),
-        })
-    }
-
-    fn _execute_simple(&self, stmt: &str) -> ExecuteFuture {
-        let res = self._send_encode_query_simple(stmt);
-        // TODO:
-        // use async { res?.try_into_row_affected().await } with Rust 2024 edition
-        ExecuteFuture {
-            res: res.map_err(Some),
-            rows_affected: 0,
         }
     }
+}
 
-    fn _send_encode_query_simple(&self, stmt: &str) -> Result<Response, Error>;
+/// A stream of table rows.
+pub type RowStream<'a> = GenericRowStream<&'a [Column]>;
+
+impl<'a> AsyncLendingIterator for RowStream<'a> {
+    type Ok<'i> = Row<'i> where Self: 'i;
+    type Err = Error;
+
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
+        loop {
+            match self.res.recv().await? {
+                backend::Message::DataRow(body) => return Row::try_new(self.col, body, &mut self.ranges).map(Some),
+                backend::Message::BindComplete
+                | backend::Message::EmptyQueryResponse
+                | backend::Message::CommandComplete(_)
+                | backend::Message::PortalSuspended => {}
+                backend::Message::ReadyForQuery(_) => return Ok(None),
+                _ => return Err(Error::unexpected()),
+            }
+        }
+    }
 }
 
 /// A stream of simple query results.
