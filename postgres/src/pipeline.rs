@@ -16,7 +16,7 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     column::Column,
-    driver::codec::{self, AsParams, Response},
+    driver::codec::{self, AsParams, Encode, Response},
     error::Error,
     iter::{slice_iter, AsyncLendingIterator},
     row::Row,
@@ -245,7 +245,7 @@ where
         I: AsParams,
     {
         let len = self.buf.len();
-        codec::encode_query_maybe_sync::<_, SYNC_MODE>(&mut self.buf, stmt, params.into_iter())
+        stmt.encode::<_, SYNC_MODE>(params, &mut self.buf)
             .map(|_| self.columns.push(stmt.columns()))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| self.buf.truncate(len))

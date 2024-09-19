@@ -7,7 +7,7 @@ use super::{
     error::Error,
     iter::slice_iter,
     prepare::Prepare,
-    query::{Query, QuerySimple, RowStream},
+    query::{Query, RowStream},
     statement::{Statement, StatementGuarded},
     types::{ToSql, Type},
 };
@@ -17,7 +17,7 @@ pub use portal::{Portal, PortalTrait};
 
 pub struct Transaction<'a, C>
 where
-    C: Prepare + PortalTrait + Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + PortalTrait + Query + ClientBorrowMut,
 {
     client: &'a mut C,
     save_point: SavePoint,
@@ -76,7 +76,7 @@ enum State {
 
 impl<C> Drop for Transaction<'_, C>
 where
-    C: Prepare + PortalTrait + Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + PortalTrait + Query + ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -88,7 +88,7 @@ where
 
 impl<C> Transaction<'_, C>
 where
-    C: Prepare + PortalTrait + Query + QuerySimple + ClientBorrowMut,
+    C: Prepare + PortalTrait + Query + ClientBorrowMut,
 {
     pub fn builder() -> TransactionBuilder {
         TransactionBuilder::new()
@@ -164,7 +164,7 @@ where
     pub async fn commit(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         let query = self.save_point.commit_query();
-        self.client._execute_simple(&query).await?;
+        self.client._execute(&query, &[]).await?;
         Ok(())
     }
 
@@ -174,7 +174,7 @@ where
     pub async fn rollback(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         let query = self.save_point.rollback_query();
-        self.client._execute_simple(&query).await?;
+        self.client._execute(&query, &[]).await?;
         Ok(())
     }
 
@@ -188,7 +188,7 @@ where
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        self.client._execute_simple(&save_point.save_point_query()).await?;
+        self.client._execute(&save_point.save_point_query(), &[]).await?;
 
         Ok(Transaction {
             client: self.client,
@@ -199,6 +199,6 @@ where
 
     fn do_rollback(&mut self) {
         let query = self.save_point.rollback_query();
-        drop(self.client._execute_simple(&query));
+        drop(self.client._execute(&query, &[]));
     }
 }

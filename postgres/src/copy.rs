@@ -40,7 +40,7 @@ where
     C: r#Copy + Send,
 {
     pub fn new(client: &'a mut C, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
-        let res = client._send_encode_query::<[i32; 0]>(stmt, []);
+        let res = client._send_encode_query::<_, [i32; 0]>(stmt, []);
 
         async {
             let mut res = res?;
@@ -98,7 +98,7 @@ pub struct CopyOut {
 
 impl CopyOut {
     pub fn new(cli: &impl Query, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
-        let res = cli._send_encode_query::<[i32; 0]>(stmt, []);
+        let res = cli._send_encode_query::<_, [i32; 0]>(stmt, []);
 
         async {
             let mut res = res?;

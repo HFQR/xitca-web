@@ -12,16 +12,16 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{AsParams, Response},
+    driver::codec::{AsParams, Encode, Response},
     error::Error,
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
     prepare::Prepare,
-    query::{Query, QuerySimple, RowSimpleStream, RowStream},
+    query::Query,
     session::Session,
-    statement::{Statement, StatementGuarded},
+    statement::{Statement, StatementGuarded, StatementUnnamed},
     transaction::{PortalTrait, Transaction},
-    types::{ToSql, Type},
+    types::{Oid, ToSql, Type},
     BoxedFuture, Postgres,
 };
 
@@ -148,48 +148,63 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::query`]
     #[inline]
-    pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+    pub fn query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
+    where
+        S: Encode + 'a,
+    {
         self._query(stmt, params)
     }
 
     /// function the same as [`Client::query_raw`]
     #[inline]
-    pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
     where
+        S: Encode + 'a,
         I: AsParams,
     {
         self._query_raw(stmt, params)
     }
 
-    /// function the same as [`Client::query_simple`]
-    #[inline]
-    pub fn query_simple(&self, stmt: &str) -> Result<RowSimpleStream, Error> {
-        self._query_simple(stmt)
-    }
-
     /// function the same as [`Client::execute`]
     #[inline]
-    pub fn execute(
-        &self,
-        stmt: &Statement,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> impl Future<Output = Result<u64, Error>> + Send {
+    pub fn execute<S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> impl Future<Output = Result<u64, Error>> + Send
+    where
+        S: Encode,
+    {
         self._execute(stmt, params)
     }
 
     /// function the same as [`Client::execute_raw`]
     #[inline]
-    pub fn execute_raw<I>(&self, stmt: &Statement, params: I) -> impl Future<Output = Result<u64, Error>> + Send
+    pub fn execute_raw<S, I>(&self, stmt: S, params: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
+        S: Encode,
         I: AsParams,
     {
         self._execute_raw(stmt, params)
     }
 
+    /// function the same as [`Client::query_simple`]
+    #[inline]
+    pub fn query_simple(&self, stmt: &str) -> Result<<&str as Encode>::RowStream<'_>, Error> {
+        self._query_raw::<_, [i32; 0]>(stmt, [])
+    }
+
     /// function the same as [`Client::execute_simple`]
     #[inline]
     pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        self._execute_simple(stmt)
+        self._execute_raw::<_, [i32; 0]>(stmt, [])
+    }
+
+    /// function the same as [`Client::query_unnamed`]
+    #[inline]
+    pub fn query_unnamed<'a>(
+        &'a self,
+        stmt: &'a str,
+        types: &'a [Type],
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<<StatementUnnamed<'a, Self> as Encode>::RowStream<'a>, Error> {
+        self.query(Statement::unnamed(self, stmt, types), params)
     }
 
     /// function the same as [`Client::transaction`]
@@ -303,6 +318,10 @@ impl Prepare for PoolConnection<'_> {
         self.conn().client._prepare(query, types).await
     }
 
+    fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
+        self.conn().client._get_type(oid)
+    }
+
     fn _send_encode_statement_cancel(&self, stmt: &Statement) {
         self.conn().client._send_encode_statement_cancel(stmt)
     }
@@ -326,17 +345,12 @@ impl PortalTrait for PoolConnection<'_> {
 }
 
 impl Query for PoolConnection<'_> {
-    fn _send_encode_query<I>(&self, stmt: &Statement, params: I) -> Result<Response, Error>
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
     where
+        S: Encode,
         I: AsParams,
     {
         self.conn().client._send_encode_query(stmt, params)
-    }
-}
-
-impl QuerySimple for PoolConnection<'_> {
-    fn _send_encode_query_simple(&self, stmt: &str) -> Result<Response, Error> {
-        self.conn().client._send_encode_query_simple(stmt)
     }
 }
 

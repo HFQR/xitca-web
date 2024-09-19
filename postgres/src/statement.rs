@@ -80,6 +80,10 @@ impl Statement {
         &self.name
     }
 
+    pub fn unnamed<'a, C>(cli: &'a C, stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a, C> {
+        StatementUnnamed { stmt, types, cli }
+    }
+
     /// Returns the expected types of the statement's parameters.
     #[inline]
     pub fn params(&self) -> &[Type] {
@@ -101,6 +105,20 @@ impl Statement {
         StatementGuarded { stmt: Some(self), cli }
     }
 }
+
+pub struct StatementUnnamed<'a, C> {
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
+    pub(crate) cli: &'a C,
+}
+
+impl<C> Clone for StatementUnnamed<'_, C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<C> Copy for StatementUnnamed<'_, C> {}
 
 #[cfg(feature = "compat")]
 pub(crate) mod compat {

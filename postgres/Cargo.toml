@@ -5,7 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 description = "an async postgres client"
 repository = "https://github.com/HFQR/xitca-web"
-keywords = ["xitca", "xitca-web", "database", "postgres", "postgresql", "sql", "async"]
+keywords = ["xitca-web", "database", "postgres", "sql", "async"]
 categories = ["database"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
@@ -51,4 +51,4 @@ futures-core = { version = "0.3", default-features = false, optional = true }
 [dev-dependencies]
 futures = { version = "0.3", default-features = false }
 rcgen = "0.13"
-tokio = { version = "1.30", features = ["macros", "rt"] }
+tokio = { version = "1.30", features = ["macros", "rt", "time"] }

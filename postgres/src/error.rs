@@ -43,7 +43,9 @@ impl Error {
     }
 
     pub(crate) fn todo() -> Self {
-        Self("WIP error type placeholder".to_string().into())
+        Self(Box::new(ToDo {
+            back_trace: Backtrace::capture(),
+        }))
     }
 
     pub(crate) fn unexpected() -> Self {
@@ -84,6 +86,21 @@ impl error::Error for Error {
         self.0.source()
     }
 }
+
+/// work in progress error type with thread backtrace.
+/// use `RUST_BACKTRACE=1` env when starting your program to enable capture and format
+#[derive(Debug)]
+pub struct ToDo {
+    back_trace: Backtrace,
+}
+
+impl fmt::Display for ToDo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "WIP error type with thread backtrace: {}", self.back_trace)
+    }
+}
+
+impl error::Error for ToDo {}
 
 /// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when sending request to driver.
 ///
