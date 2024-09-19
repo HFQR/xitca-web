@@ -69,6 +69,7 @@ impl Response {
             match ready!(self.poll_recv(cx))? {
                 backend::Message::BindComplete
                 | backend::Message::DataRow(_)
+                | backend::Message::RowDescription(_)
                 | backend::Message::EmptyQueryResponse => {}
                 backend::Message::CommandComplete(body) => {
                     *rows = body_to_affected_rows(&body)?;
