@@ -119,11 +119,13 @@ where
                     }
                 }
                 backend::Message::DataRow(body) => return Row::try_new(&self.col, body, &mut self.ranges).map(Some),
-                backend::Message::BindComplete
+                backend::Message::ParseComplete
+                | backend::Message::BindComplete
+                | backend::Message::ParameterDescription(_)
                 | backend::Message::EmptyQueryResponse
                 | backend::Message::CommandComplete(_)
                 | backend::Message::PortalSuspended => {}
-                backend::Message::ReadyForQuery(_) => return Ok(None),
+                backend::Message::NoData | backend::Message::ReadyForQuery(_) => return Ok(None),
                 _ => return Err(Error::unexpected()),
             }
         }

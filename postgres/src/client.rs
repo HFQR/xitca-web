@@ -16,7 +16,7 @@ use super::{
     },
     error::Error,
     prepare::Prepare,
-    query::Query,
+    query::{ExecuteFuture, Query},
     session::Session,
     statement::{Statement, StatementGuarded, StatementUnnamed},
     transaction::{PortalTrait, Transaction},
@@ -171,7 +171,7 @@ impl Client {
     ///
     /// If the statement does not modify any rows (e.g. `SELECT`), 0 is returned.
     #[inline]
-    pub fn execute<S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> impl Future<Output = Result<u64, Error>> + Send
+    pub fn execute<S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> ExecuteFuture
     where
         S: Encode,
     {
@@ -186,7 +186,7 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [Client::prepare].
     #[inline]
-    pub fn execute_raw<S, I>(&self, stmt: S, params: I) -> impl Future<Output = Result<u64, Error>> + Send
+    pub fn execute_raw<S, I>(&self, stmt: S, params: I) -> ExecuteFuture
     where
         S: Encode,
         I: AsParams,
@@ -209,12 +209,12 @@ impl Client {
     /// them to this method!
     #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<<&str as Encode>::RowStream<'_>, Error> {
-        self.query(stmt, &[])
+        self.query_raw::<_, [i32; 0]>(stmt, [])
     }
 
     #[inline]
-    pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        self._execute(stmt, &[])
+    pub fn execute_simple(&self, stmt: &str) -> ExecuteFuture {
+        self.execute_raw::<_, [i32; 0]>(stmt, [])
     }
 
     /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.

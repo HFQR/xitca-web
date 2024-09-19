@@ -17,7 +17,7 @@ use super::{
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
     prepare::Prepare,
-    query::Query,
+    query::{ExecuteFuture, Query},
     session::Session,
     statement::{Statement, StatementGuarded, StatementUnnamed},
     transaction::{PortalTrait, Transaction},
@@ -167,7 +167,7 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::execute`]
     #[inline]
-    pub fn execute<S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> impl Future<Output = Result<u64, Error>> + Send
+    pub fn execute<S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> ExecuteFuture
     where
         S: Encode,
     {
@@ -176,7 +176,7 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::execute_raw`]
     #[inline]
-    pub fn execute_raw<S, I>(&self, stmt: S, params: I) -> impl Future<Output = Result<u64, Error>> + Send
+    pub fn execute_raw<S, I>(&self, stmt: S, params: I) -> ExecuteFuture
     where
         S: Encode,
         I: AsParams,
@@ -192,7 +192,7 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::execute_simple`]
     #[inline]
-    pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
+    pub fn execute_simple(&self, stmt: &str) -> ExecuteFuture {
         self._execute_raw::<_, [i32; 0]>(stmt, [])
     }
 
