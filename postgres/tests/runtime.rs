@@ -29,17 +29,17 @@ async fn smoke_test(s: &str) {
 
 #[tokio::test]
 async fn tcp() {
-    smoke_test("host=localhost port=5432 user=postgres").await;
+    smoke_test("host=localhost port=5432 user=postgres password=postgres").await;
 }
 
 #[tokio::test]
 async fn multiple_hosts_one_port() {
-    smoke_test("host=foobar.invalid,localhost port=5432 user=postgres").await;
+    smoke_test("host=foobar.invalid,localhost port=5432 user=postgres password=postgres").await;
 }
 
 #[tokio::test]
 async fn multiple_hosts_multiple_ports() {
-    smoke_test("host=foobar.invalid,localhost port=5432,5432 user=postgres").await;
+    smoke_test("host=foobar.invalid,localhost port=5432,5432 user=postgres password=postgres").await;
 }
 
 // #[tokio::test]
@@ -53,7 +53,7 @@ async fn multiple_hosts_multiple_ports() {
 
 #[tokio::test]
 async fn target_session_attrs_ok() {
-    smoke_test("host=localhost port=5432 user=postgres target_session_attrs=read-write").await;
+    smoke_test("host=localhost port=5432 user=postgres password=postgres target_session_attrs=read-write").await;
 }
 
 #[tokio::test]
@@ -118,7 +118,7 @@ async fn hostaddr_host_both_missing() {
 
 #[tokio::test]
 async fn cancel_query() {
-    let client = connect("host=localhost port=5432 user=postgres").await;
+    let client = connect("host=localhost port=5432 user=postgres password=postgres").await;
 
     let cancel_token = client.cancel_token();
 
