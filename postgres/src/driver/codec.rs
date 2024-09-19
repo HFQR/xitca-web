@@ -3,6 +3,8 @@ use core::{
     task::{ready, Context, Poll},
 };
 
+use std::sync::Arc;
+
 use postgres_protocol::message::{backend, frontend};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
@@ -232,13 +234,32 @@ impl Encode for Statement {
     }
 }
 
+impl sealed::Sealed for Arc<Statement> {}
+
+impl Encode for Arc<Statement> {
+    type RowStream<'r> = <Statement as Encode>::RowStream<'r> where Self: 'r;
+
+    #[inline]
+    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        Statement::encode::<_, SYNC_MODE>(self, params, buf)
+    }
+
+    #[inline]
+    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+        Statement::row_stream(self, res)
+    }
+}
+
 impl<C> sealed::Sealed for StatementGuarded<'_, C> where C: Prepare {}
 
 impl<C> Encode for StatementGuarded<'_, C>
 where
     C: Prepare,
 {
-    type RowStream<'r> = RowStream<'r> where Self: 'r;
+    type RowStream<'r> = <Statement as Encode>::RowStream<'r> where Self: 'r;
 
     #[inline]
     fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
@@ -276,7 +297,7 @@ impl Encode for str {
 impl sealed::Sealed for String {}
 
 impl Encode for String {
-    type RowStream<'r> = RowSimpleStream where Self: 'r;
+    type RowStream<'r> = <str as Encode>::RowStream<'r> where Self: 'r;
 
     #[inline]
     fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
