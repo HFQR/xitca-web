@@ -14,6 +14,9 @@ use super::{
 pub trait Prepare {
     fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send;
 
+    // get type is called recursively so a boxed future is needed.
+    fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>>;
+
     fn _send_encode_statement_cancel(&self, stmt: &Statement);
 }
 
@@ -49,7 +52,7 @@ impl Prepare for Client {
         let mut parameters = Vec::new();
         let mut it = parameter_description.parameters();
         while let Some(oid) = it.next().map_err(|_| Error::todo())? {
-            let ty = self.get_type(oid).await?;
+            let ty = self._get_type(oid).await?;
             parameters.push(ty);
         }
 
@@ -57,7 +60,7 @@ impl Prepare for Client {
         if let Some(row_description) = row_description {
             let mut it = row_description.fields();
             while let Some(field) = it.next().map_err(|_| Error::todo())? {
-                let type_ = self.get_type(field.type_oid()).await?;
+                let type_ = self._get_type(field.type_oid()).await?;
                 let column = Column::new(field.name(), type_);
                 columns.push(column);
             }
@@ -66,15 +69,9 @@ impl Prepare for Client {
         Ok(Statement::new(name, parameters, columns))
     }
 
-    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
-        let _ = codec::send_encode_statement_cancel(&self.tx, stmt.name());
-    }
-}
-
-impl Client {
     // get type is called recursively so a boxed future is needed.
     #[inline(never)]
-    fn get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
+    fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         Box::pin(async move {
             if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
                 return Ok(ty);
@@ -99,16 +96,16 @@ impl Client {
             } else if type_ == b'p' as i8 {
                 Kind::Pseudo
             } else if basetype != 0 {
-                let type_ = self.get_type(basetype).await?;
+                let type_ = self._get_type(basetype).await?;
                 Kind::Domain(type_)
             } else if elem_oid != 0 {
-                let type_ = self.get_type(elem_oid).await?;
+                let type_ = self._get_type(elem_oid).await?;
                 Kind::Array(type_)
             } else if relid != 0 {
                 let fields = self.get_composite_fields(relid).await?;
                 Kind::Composite(fields)
             } else if let Some(rngsubtype) = rngsubtype {
-                let type_ = self.get_type(rngsubtype).await?;
+                let type_ = self._get_type(rngsubtype).await?;
                 Kind::Range(type_)
             } else {
                 Kind::Simple
@@ -121,6 +118,12 @@ impl Client {
         })
     }
 
+    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
+        let _ = codec::send_encode_statement_cancel(&self.tx, stmt.name());
+    }
+}
+
+impl Client {
     #[inline(never)]
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
@@ -148,7 +151,7 @@ impl Client {
         while let Some(row) = rows.try_next().await? {
             let name = row.try_get(0)?;
             let oid = row.try_get(1)?;
-            let type_ = self.get_type(oid).await?;
+            let type_ = self._get_type(oid).await?;
             fields.push(Field::new(name, type_));
         }
 

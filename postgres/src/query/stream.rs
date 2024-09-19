@@ -8,6 +8,7 @@ use crate::{
     driver::codec::Response,
     error::Error,
     iter::AsyncLendingIterator,
+    prepare::Prepare,
     row::{Row, RowSimple},
     types::Type,
 };
@@ -76,6 +77,53 @@ impl AsyncLendingIterator for RowSimpleStream {
                 backend::Message::CommandComplete(_)
                 | backend::Message::EmptyQueryResponse
                 | backend::Message::ReadyForQuery(_) => return Ok(None),
+                _ => return Err(Error::unexpected()),
+            }
+        }
+    }
+}
+
+pub struct RowStreamGuarded<'a, C> {
+    pub(crate) res: Response,
+    pub(crate) col: Vec<Column>,
+    pub(crate) ranges: Vec<Range<usize>>,
+    pub(crate) cli: &'a C,
+}
+
+impl<'a, C> RowStreamGuarded<'a, C> {
+    pub(crate) fn new(res: Response, cli: &'a C) -> Self {
+        Self {
+            res,
+            col: Vec::new(),
+            ranges: Vec::new(),
+            cli,
+        }
+    }
+}
+
+impl<C> AsyncLendingIterator for RowStreamGuarded<'_, C>
+where
+    C: Prepare + Sync,
+{
+    type Ok<'i> = Row<'i> where Self: 'i;
+    type Err = Error;
+
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
+        loop {
+            match self.res.recv().await? {
+                backend::Message::RowDescription(body) => {
+                    let mut it = body.fields();
+                    while let Some(field) = it.next()? {
+                        let ty = self.cli._get_type(field.type_oid()).await?;
+                        self.col.push(Column::new(field.name(), ty));
+                    }
+                }
+                backend::Message::DataRow(body) => return Row::try_new(&self.col, body, &mut self.ranges).map(Some),
+                backend::Message::BindComplete
+                | backend::Message::EmptyQueryResponse
+                | backend::Message::CommandComplete(_)
+                | backend::Message::PortalSuspended => {}
+                backend::Message::ReadyForQuery(_) => return Ok(None),
                 _ => return Err(Error::unexpected()),
             }
         }

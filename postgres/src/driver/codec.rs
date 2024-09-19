@@ -12,8 +12,8 @@ use xitca_io::bytes::BytesMut;
 use crate::{
     error::{DbError, DriverDownReceiving, Error, InvalidParamCount},
     prepare::Prepare,
-    query::{RowSimpleStream, RowStream},
-    statement::{Statement, StatementGuarded},
+    query::{RowSimpleStream, RowStream, RowStreamGuarded},
+    statement::{Statement, StatementGuarded, StatementUnnamed},
     types::{BorrowToSql, IsNull, Type},
 };
 
@@ -185,7 +185,6 @@ where
 {
 }
 
-#[allow(dead_code)]
 mod sealed {
     pub trait Sealed {}
 }
@@ -197,24 +196,26 @@ mod sealed {
     label = "query statement argument must be types implement Encode trait",
     note = "consider using the types listed below that implementing Encode trait"
 )]
-pub trait Encode {
+pub trait Encode: sealed::Sealed + Sized + Copy {
     type RowStream<'r>
     where
         Self: 'r;
 
-    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
         I: AsParams;
 
-    fn row_stream(&self, res: Response) -> Self::RowStream<'_>;
+    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r;
 }
 
-impl sealed::Sealed for Statement {}
+impl sealed::Sealed for &Statement {}
 
-impl Encode for Statement {
+impl Encode for &Statement {
     type RowStream<'r> = RowStream<'r> where Self: 'r;
 
-    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
         I: AsParams,
     {
@@ -229,59 +230,101 @@ impl Encode for Statement {
     }
 
     #[inline]
-    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
         RowStream::new(res, self.columns())
     }
 }
 
-impl sealed::Sealed for Arc<Statement> {}
+impl sealed::Sealed for &Arc<Statement> {}
 
-impl Encode for Arc<Statement> {
-    type RowStream<'r> = <Statement as Encode>::RowStream<'r> where Self: 'r;
+impl Encode for &Arc<Statement> {
+    type RowStream<'r> = <&'r Statement as Encode>::RowStream<'r> where Self: 'r;
 
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
         I: AsParams,
     {
-        Statement::encode::<_, SYNC_MODE>(self, params, buf)
+        <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
     }
 
     #[inline]
-    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
-        Statement::row_stream(self, res)
+    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
+        <&Statement>::row_stream(self, res)
     }
 }
 
-impl<C> sealed::Sealed for StatementGuarded<'_, C> where C: Prepare {}
+impl<C> sealed::Sealed for &StatementGuarded<'_, C> where C: Prepare {}
 
-impl<C> Encode for StatementGuarded<'_, C>
+impl<C> Encode for &StatementGuarded<'_, C>
 where
     C: Prepare,
 {
-    type RowStream<'r> = <Statement as Encode>::RowStream<'r> where Self: 'r;
+    type RowStream<'r> = <&'r Statement as Encode>::RowStream<'r> where Self: 'r;
 
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
         I: AsParams,
     {
-        Statement::encode::<_, SYNC_MODE>(self, params, buf)
+        <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
     }
 
     #[inline]
-    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
-        Statement::row_stream(self, res)
+    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
+        <&Statement>::row_stream(self, res)
     }
 }
 
-impl sealed::Sealed for str {}
+impl<C> sealed::Sealed for StatementUnnamed<'_, C> where C: Prepare {}
 
-impl Encode for str {
+impl<'a, C> Encode for StatementUnnamed<'a, C>
+where
+    C: Prepare,
+{
+    type RowStream<'r> = RowStreamGuarded<'r, C> where 'a: 'r;
+
+    #[inline]
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        let Self { stmt, types, .. } = self;
+        frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
+        encode_bind("", types, params, "", buf)?;
+        frontend::describe(b'S', "", buf)?;
+        frontend::execute("", 0, buf)?;
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
+        RowStreamGuarded::new(res, self.cli)
+    }
+}
+
+impl sealed::Sealed for &str {}
+
+impl Encode for &str {
     type RowStream<'r> = RowSimpleStream where Self: 'r;
 
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(&self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
     where
         I: AsParams,
     {
@@ -289,18 +332,21 @@ impl Encode for str {
     }
 
     #[inline]
-    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
         RowSimpleStream::new(res, Vec::new())
     }
 }
 
-impl sealed::Sealed for String {}
+impl sealed::Sealed for &String {}
 
-impl Encode for String {
-    type RowStream<'r> = <str as Encode>::RowStream<'r> where Self: 'r;
+impl Encode for &String {
+    type RowStream<'r> = <&'r str as Encode>::RowStream<'r> where Self: 'r;
 
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
         I: AsParams,
     {
@@ -308,7 +354,10 @@ impl Encode for String {
     }
 
     #[inline]
-    fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
+    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
         self.as_str().row_stream(res)
     }
 }
@@ -317,32 +366,35 @@ impl Encode for String {
 const _: () = {
     use crate::statement::compat::StatementGuarded;
 
-    impl<C> sealed::Sealed for StatementGuarded<C> where C: Prepare {}
+    impl<C> sealed::Sealed for &StatementGuarded<C> where C: Prepare {}
 
-    impl<C> Encode for StatementGuarded<C>
+    impl<C> Encode for &StatementGuarded<C>
     where
         C: Prepare,
     {
         type RowStream<'r> = RowStream<'r> where Self: 'r;
 
         #[inline]
-        fn encode<I, const SYNC_MODE: bool>(&self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+        fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
         where
             I: AsParams,
         {
-            Statement::encode::<_, SYNC_MODE>(self, params, buf)
+            <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
         }
 
         #[inline]
-        fn row_stream(&self, res: Response) -> Self::RowStream<'_> {
-            Statement::row_stream(self, res)
+        fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+        where
+            Self: 'r,
+        {
+            <&Statement>::row_stream(self, res)
         }
     }
 };
 
-pub(crate) fn send_encode_query<S, I>(tx: &DriverTx, stmt: &S, params: I) -> Result<Response, Error>
+pub(crate) fn send_encode_query<S, I>(tx: &DriverTx, stmt: S, params: I) -> Result<Response, Error>
 where
-    S: Encode + ?Sized,
+    S: Encode,
     I: AsParams,
 {
     tx.send(|buf| stmt.encode::<_, true>(params, buf))

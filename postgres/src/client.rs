@@ -5,7 +5,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use postgres_types::{Oid, Type};
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
@@ -19,9 +18,9 @@ use super::{
     prepare::Prepare,
     query::Query,
     session::Session,
-    statement::{Statement, StatementGuarded},
+    statement::{Statement, StatementGuarded, StatementUnnamed},
     transaction::{PortalTrait, Transaction},
-    types::ToSql,
+    types::{Oid, ToSql, Type},
 };
 
 /// a marker trait to confirm a mut reference of Client can be borrowed from self.
@@ -139,9 +138,9 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [Client::prepare].
     #[inline]
-    pub fn query<'a, S>(&self, stmt: &'a S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
+    pub fn query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
     where
-        S: Encode + ?Sized,
+        S: Encode + 'a,
     {
         self._query(stmt, params)
     }
@@ -154,9 +153,9 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [`Client::prepare`].
     #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: &'a S, params: I) -> Result<S::RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
     where
-        S: Encode + ?Sized,
+        S: Encode + 'a,
         I: AsParams,
     {
         self._query_raw(stmt, params)
@@ -172,13 +171,9 @@ impl Client {
     ///
     /// If the statement does not modify any rows (e.g. `SELECT`), 0 is returned.
     #[inline]
-    pub fn execute<S>(
-        &self,
-        stmt: &S,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> impl Future<Output = Result<u64, Error>> + Send
+    pub fn execute<S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> impl Future<Output = Result<u64, Error>> + Send
     where
-        S: Encode + ?Sized,
+        S: Encode,
     {
         self._execute(stmt, params)
     }
@@ -191,9 +186,9 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [Client::prepare].
     #[inline]
-    pub fn execute_raw<S, I>(&self, stmt: &S, params: I) -> impl Future<Output = Result<u64, Error>> + Send
+    pub fn execute_raw<S, I>(&self, stmt: S, params: I) -> impl Future<Output = Result<u64, Error>> + Send
     where
-        S: Encode + ?Sized,
+        S: Encode,
         I: AsParams,
     {
         self._execute_raw(stmt, params)
@@ -213,13 +208,26 @@ impl Client {
     /// functionality to safely embed that data in the request. Do not form statements via string concatenation and pass
     /// them to this method!
     #[inline]
-    pub fn query_simple(&self, stmt: &str) -> Result<<str as Encode>::RowStream<'_>, Error> {
+    pub fn query_simple(&self, stmt: &str) -> Result<<&str as Encode>::RowStream<'_>, Error> {
         self.query(stmt, &[])
     }
 
     #[inline]
     pub fn execute_simple(&self, stmt: &str) -> impl Future<Output = Result<u64, Error>> + Send {
-        self.execute(stmt, &[])
+        self._execute(stmt, &[])
+    }
+
+    /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.
+    /// However it should also be noted that the client type must be referenced during the whole progress and associated
+    /// client must be kept around util streaming is finished.
+    #[inline]
+    pub fn query_unnamed<'a>(
+        &'a self,
+        stmt: &'a str,
+        types: &'a [Type],
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<<StatementUnnamed<'a, Self> as Encode>::RowStream<'a>, Error> {
+        self.query(Statement::unnamed(self, stmt, types), params)
     }
 
     /// start a transaction
@@ -326,6 +334,10 @@ impl Prepare for Arc<Client> {
         Client::_prepare(self, query, types)
     }
 
+    fn _get_type(&self, oid: Oid) -> crate::BoxedFuture<'_, Result<Type, Error>> {
+        Client::_get_type(self, oid)
+    }
+
     fn _send_encode_statement_cancel(&self, stmt: &Statement) {
         Client::_send_encode_statement_cancel(self, stmt)
     }
@@ -350,9 +362,9 @@ impl PortalTrait for Client {
 
 impl Query for Client {
     #[inline]
-    fn _send_encode_query<S, I>(&self, stmt: &S, params: I) -> Result<Response, Error>
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
     where
-        S: Encode + ?Sized,
+        S: Encode,
         I: AsParams,
     {
         codec::send_encode_query(&self.tx, stmt, params)
