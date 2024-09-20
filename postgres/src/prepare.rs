@@ -6,15 +6,8 @@ use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
 use super::{
-    client::Client,
-    column::Column,
-    driver::codec::{StatementCancel, StatementCreate},
-    error::Error,
-    iter::AsyncLendingIterator,
-    query::Query,
-    statement::Statement,
-    types::Type,
-    BoxedFuture,
+    client::Client, column::Column, driver::codec::StatementCreate, error::Error, iter::AsyncLendingIterator,
+    query::Query, statement::Statement, types::Type, BoxedFuture,
 };
 
 /// trait generic over preparing statement and canceling of prepared statement
@@ -32,7 +25,7 @@ pub trait Prepare: Query + Sync {
             debug!("preparing query {} with types {:?}: {}", name, types, query);
         }
 
-        let res = self._send_encode_query::<_, [i32; 0]>(
+        let res = self._send_encode_query::<_, crate::ZeroParam>(
             StatementCreate {
                 name: &name,
                 query,
@@ -79,10 +72,6 @@ pub trait Prepare: Query + Sync {
 
             Ok(Statement::new(name, params, columns))
         }
-    }
-
-    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
-        let _ = self._send_encode_query::<_, [i32; 0]>(StatementCancel { name: stmt.name() }, []);
     }
 }
 

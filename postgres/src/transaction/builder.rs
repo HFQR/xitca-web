@@ -1,6 +1,6 @@
 use crate::{client::ClientBorrowMut, error::Error, prepare::Prepare, query::Query};
 
-use super::{portal::PortalTrait, Transaction};
+use super::Transaction;
 
 /// The isolation level of a database transaction.
 #[derive(Debug, Copy, Clone)]
@@ -80,7 +80,7 @@ impl TransactionBuilder {
     /// The transaction will roll back by default - use the `commit` method to commit it.
     pub async fn begin<C>(self, cli: &mut C) -> Result<Transaction<C>, Error>
     where
-        C: Prepare + PortalTrait + Query + ClientBorrowMut,
+        C: Prepare + Query + ClientBorrowMut,
     {
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
         let _c = cli._borrow_mut();

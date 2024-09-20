@@ -108,10 +108,9 @@ pub mod dev {
 
     pub use crate::client::ClientBorrowMut;
     pub use crate::copy::r#Copy;
-    pub use crate::driver::codec::AsParams;
+    pub use crate::driver::codec::{AsParams, Encode};
     pub use crate::prepare::Prepare;
     pub use crate::query::Query;
-    pub use crate::transaction::PortalTrait;
 }
 
 use core::{future::Future, pin::Pin, sync::atomic::AtomicUsize};
@@ -119,6 +118,8 @@ use core::{future::Future, pin::Pin, sync::atomic::AtomicUsize};
 use xitca_io::io::AsyncIo;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+
+type ZeroParam = [i32; 0];
 
 #[derive(Debug)]
 pub struct Postgres {

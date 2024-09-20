@@ -19,7 +19,7 @@ use super::{
     query::{ExecuteFuture, Query},
     session::Session,
     statement::{Statement, StatementGuarded, StatementUnnamed},
-    transaction::{PortalTrait, Transaction},
+    transaction::Transaction,
     types::{Oid, ToSql, Type},
 };
 
@@ -209,12 +209,12 @@ impl Client {
     /// them to this method!
     #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<<&str as IntoStream>::RowStream<'_>, Error> {
-        self.query_raw::<_, [i32; 0]>(stmt, [])
+        self.query_raw::<_, crate::ZeroParam>(stmt, [])
     }
 
     #[inline]
     pub fn execute_simple(&self, stmt: &str) -> ExecuteFuture {
-        self.execute_raw::<_, [i32; 0]>(stmt, [])
+        self.execute_raw::<_, crate::ZeroParam>(stmt, [])
     }
 
     /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.
@@ -342,23 +342,6 @@ impl Query for Arc<Client> {
         I: AsParams,
     {
         Client::_send_encode_query(self, stmt, params)
-    }
-}
-
-impl PortalTrait for Client {
-    fn _send_encode_portal_create<I>(&self, name: &str, stmt: &Statement, params: I) -> Result<Response, Error>
-    where
-        I: AsParams,
-    {
-        codec::send_encode_portal_create(&self.tx, name, stmt, params.into_iter())
-    }
-
-    fn _send_encode_portal_query(&self, name: &str, max_rows: i32) -> Result<Response, Error> {
-        codec::send_encode_portal_query(&self.tx, name, max_rows)
-    }
-
-    fn _send_encode_portal_cancel(&self, name: &str) {
-        let _ = codec::send_encode_portal_cancel(&self.tx, name);
     }
 }
 

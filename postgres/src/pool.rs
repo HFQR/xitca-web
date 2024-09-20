@@ -20,7 +20,7 @@ use super::{
     query::{ExecuteFuture, Query},
     session::Session,
     statement::{Statement, StatementGuarded, StatementUnnamed},
-    transaction::{PortalTrait, Transaction},
+    transaction::Transaction,
     types::{Oid, ToSql, Type},
     BoxedFuture, Postgres,
 };
@@ -187,13 +187,13 @@ impl<'p> PoolConnection<'p> {
     /// function the same as [`Client::query_simple`]
     #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<<&str as IntoStream>::RowStream<'_>, Error> {
-        self.query_raw::<_, [i32; 0]>(stmt, [])
+        self.query_raw::<_, crate::ZeroParam>(stmt, [])
     }
 
     /// function the same as [`Client::execute_simple`]
     #[inline]
     pub fn execute_simple(&self, stmt: &str) -> ExecuteFuture {
-        self.execute_raw::<_, [i32; 0]>(stmt, [])
+        self.execute_raw::<_, crate::ZeroParam>(stmt, [])
     }
 
     /// function the same as [`Client::query_unnamed`]
@@ -316,23 +316,6 @@ impl ClientBorrowMut for PoolConnection<'_> {
 impl Prepare for PoolConnection<'_> {
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         self.conn().client._get_type(oid)
-    }
-}
-
-impl PortalTrait for PoolConnection<'_> {
-    fn _send_encode_portal_create<I>(&self, name: &str, stmt: &Statement, params: I) -> Result<Response, Error>
-    where
-        I: AsParams,
-    {
-        self.conn().client._send_encode_portal_create(name, stmt, params)
-    }
-
-    fn _send_encode_portal_query(&self, name: &str, max_rows: i32) -> Result<Response, Error> {
-        self.conn().client._send_encode_portal_query(name, max_rows)
-    }
-
-    fn _send_encode_portal_cancel(&self, name: &str) {
-        self.conn().client._send_encode_portal_cancel(name)
     }
 }
 

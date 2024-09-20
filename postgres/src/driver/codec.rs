@@ -10,6 +10,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
+    column::Column,
     error::{DbError, DriverDownReceiving, Error, InvalidParamCount},
     prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded},
@@ -458,49 +459,82 @@ impl Encode for StatementCancel<'_> {
     }
 }
 
+pub(crate) struct PortalCreate<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
+}
+
+impl sealed::Sealed for PortalCreate<'_> {}
+
+impl Encode for PortalCreate<'_> {
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        let Self { name, stmt, types } = self;
+        encode_bind(stmt, types, params, name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    }
+}
+
+pub(crate) struct PortalCancel<'a> {
+    pub(crate) name: &'a str,
+}
+
+impl sealed::Sealed for PortalCancel<'_> {}
+
+impl Encode for PortalCancel<'_> {
+    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        frontend::close(b'P', self.name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PortalQuery<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) columns: &'a [Column],
+    pub(crate) max_rows: i32,
+}
+
+impl sealed::Sealed for PortalQuery<'_> {}
+
+impl Encode for PortalQuery<'_> {
+    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        let Self { name, max_rows, .. } = self;
+        frontend::execute(name, max_rows, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    }
+}
+
+impl IntoStream for PortalQuery<'_> {
+    type RowStream<'r> = RowStream<'r> where Self: 'r;
+
+    #[inline]
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
+        RowStream::new(res, self.columns)
+    }
+}
+
 pub(crate) fn send_encode_query<S, I>(tx: &DriverTx, stmt: S, params: I) -> Result<Response, Error>
 where
     S: Encode,
     I: AsParams,
 {
     tx.send(|buf| stmt.encode::<_, true>(params, buf))
-}
-
-pub(crate) fn send_encode_portal_create<I>(
-    tx: &DriverTx,
-    name: &str,
-    stmt: &Statement,
-    params: I,
-) -> Result<Response, Error>
-where
-    I: ExactSizeIterator,
-    I::Item: BorrowToSql,
-{
-    tx.send(|buf| {
-        encode_bind(stmt.name(), stmt.params(), params, name, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    })
-}
-
-pub(crate) fn send_encode_portal_query(tx: &DriverTx, name: &str, max_rows: i32) -> Result<Response, Error> {
-    tx.send(|buf| {
-        frontend::execute(name, max_rows, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    })
-}
-
-pub(crate) fn send_encode_portal_cancel(tx: &DriverTx, name: &str) -> Result<Response, Error> {
-    send_cancel(b'P', tx, name)
-}
-
-fn send_cancel(variant: u8, tx: &DriverTx, name: &str) -> Result<Response, Error> {
-    tx.send(|buf| {
-        frontend::close(variant, name, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    })
 }
 
 fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
