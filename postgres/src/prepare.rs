@@ -6,22 +6,16 @@ use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
 use super::{
-    client::Client, column::Column, driver::codec, error::Error, iter::AsyncLendingIterator, statement::Statement,
-    types::Type, BoxedFuture,
+    client::Client, column::Column, driver::codec::StatementCreate, error::Error, iter::AsyncLendingIterator,
+    query::Query, statement::Statement, types::Type, BoxedFuture,
 };
 
 /// trait generic over preparing statement and canceling of prepared statement
-pub trait Prepare {
-    fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send;
-
+pub trait Prepare: Query + Sync {
     // get type is called recursively so a boxed future is needed.
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>>;
 
-    fn _send_encode_statement_cancel(&self, stmt: &Statement);
-}
-
-impl Prepare for Client {
-    async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
+    fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send {
         let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let name = format!("s{id}");
 
@@ -31,44 +25,57 @@ impl Prepare for Client {
             debug!("preparing query {} with types {:?}: {}", name, types, query);
         }
 
-        let mut res = codec::send_encode_statement_create(&self.tx, &name, query, types)?;
+        let res = self._send_encode_query::<_, crate::ZeroParam>(
+            StatementCreate {
+                name: &name,
+                query,
+                types,
+            },
+            [],
+        );
 
-        match res.recv().await? {
-            backend::Message::ParseComplete => {}
-            _ => return Err(Error::unexpected()),
-        }
+        async {
+            let mut res = res?;
 
-        let parameter_description = match res.recv().await? {
-            backend::Message::ParameterDescription(body) => body,
-            _ => return Err(Error::unexpected()),
-        };
-
-        let row_description = match res.recv().await? {
-            backend::Message::RowDescription(body) => Some(body),
-            backend::Message::NoData => None,
-            _ => return Err(Error::unexpected()),
-        };
-
-        let mut parameters = Vec::new();
-        let mut it = parameter_description.parameters();
-        while let Some(oid) = it.next().map_err(|_| Error::todo())? {
-            let ty = self._get_type(oid).await?;
-            parameters.push(ty);
-        }
-
-        let mut columns = Vec::new();
-        if let Some(row_description) = row_description {
-            let mut it = row_description.fields();
-            while let Some(field) = it.next().map_err(|_| Error::todo())? {
-                let type_ = self._get_type(field.type_oid()).await?;
-                let column = Column::new(field.name(), type_);
-                columns.push(column);
+            match res.recv().await? {
+                backend::Message::ParseComplete => {}
+                _ => return Err(Error::unexpected()),
             }
+
+            let parameter_description = match res.recv().await? {
+                backend::Message::ParameterDescription(body) => body,
+                _ => return Err(Error::unexpected()),
+            };
+
+            let row_description = match res.recv().await? {
+                backend::Message::RowDescription(body) => Some(body),
+                backend::Message::NoData => None,
+                _ => return Err(Error::unexpected()),
+            };
+
+            let mut params = Vec::new();
+            let mut it = parameter_description.parameters();
+            while let Some(oid) = it.next()? {
+                let ty = self._get_type(oid).await?;
+                params.push(ty);
+            }
+
+            let mut columns = Vec::new();
+            if let Some(row_description) = row_description {
+                let mut it = row_description.fields();
+                while let Some(field) = it.next()? {
+                    let type_ = self._get_type(field.type_oid()).await?;
+                    let column = Column::new(field.name(), type_);
+                    columns.push(column);
+                }
+            }
+
+            Ok(Statement::new(name, params, columns))
         }
-
-        Ok(Statement::new(name, parameters, columns))
     }
+}
 
+impl Prepare for Client {
     // get type is called recursively so a boxed future is needed.
     #[inline(never)]
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
@@ -116,10 +123,6 @@ impl Prepare for Client {
 
             Ok(type_)
         })
-    }
-
-    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
-        let _ = codec::send_encode_statement_cancel(&self.tx, stmt.name());
     }
 }
 

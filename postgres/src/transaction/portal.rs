@@ -3,21 +3,11 @@ use core::sync::atomic::Ordering;
 use postgres_protocol::message::backend;
 
 use crate::{
-    driver::codec::{AsParams, Response},
+    driver::codec::{AsParams, IntoStream, PortalCancel, PortalCreate, PortalQuery},
     error::Error,
-    query::RowStream,
+    query::Query,
     statement::Statement,
 };
-
-pub trait PortalTrait {
-    fn _send_encode_portal_create<I>(&self, name: &str, stmt: &Statement, params: I) -> Result<Response, Error>
-    where
-        I: AsParams;
-
-    fn _send_encode_portal_query(&self, name: &str, max_rows: i32) -> Result<Response, Error>;
-
-    fn _send_encode_portal_cancel(&self, name: &str);
-}
 
 /// A portal.
 ///
@@ -25,7 +15,7 @@ pub trait PortalTrait {
 /// in which they were created.
 pub struct Portal<'a, C>
 where
-    C: PortalTrait,
+    C: Query,
 {
     cli: &'a C,
     name: String,
@@ -34,16 +24,18 @@ where
 
 impl<C> Drop for Portal<'_, C>
 where
-    C: PortalTrait,
+    C: Query,
 {
     fn drop(&mut self) {
-        PortalTrait::_send_encode_portal_cancel(self.cli, &self.name);
+        let _ = self
+            .cli
+            ._send_encode_query::<_, crate::ZeroParam>(PortalCancel { name: &self.name }, []);
     }
 }
 
 impl<C> Portal<'_, C>
 where
-    C: PortalTrait,
+    C: Query,
 {
     pub(crate) async fn new<'p, I>(cli: &'p C, stmt: &'p Statement, params: I) -> Result<Portal<'p, C>, Error>
     where
@@ -51,7 +43,14 @@ where
     {
         let name = format!("p{}", crate::NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
-        let mut res = cli._send_encode_portal_create(&name, stmt, params)?;
+        let mut res = cli._send_encode_query(
+            PortalCreate {
+                name: &name,
+                stmt: stmt.name(),
+                types: stmt.params(),
+            },
+            params,
+        )?;
 
         match res.recv().await? {
             backend::Message::BindComplete => {}
@@ -61,13 +60,14 @@ where
         Ok(Portal { cli, name, stmt })
     }
 
-    pub fn query_portal(&self, max_rows: i32) -> Result<RowStream<'_>, Error> {
-        self.cli
-            ._send_encode_portal_query(&self.name, max_rows)
-            .map(|res| RowStream {
-                res,
-                col: self.stmt.columns(),
-                ranges: Vec::new(),
-            })
+    pub fn query_portal(&self, max_rows: i32) -> Result<<PortalQuery<'_> as IntoStream>::RowStream<'_>, Error> {
+        self.cli._query_raw::<_, crate::ZeroParam>(
+            PortalQuery {
+                name: &self.name,
+                columns: self.stmt.columns(),
+                max_rows,
+            },
+            [],
+        )
     }
 }

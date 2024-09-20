@@ -2,7 +2,7 @@
 
 use core::ops::Deref;
 
-use super::{column::Column, prepare::Prepare, types::Type};
+use super::{column::Column, driver::codec::StatementCancel, prepare::Prepare, types::Type};
 
 /// a statement guard contains a prepared postgres statement.
 /// the guard can be dereferenced or borrowed as [`Statement`] which can be used for query apis.
@@ -44,7 +44,9 @@ where
 {
     fn drop(&mut self) {
         if let Some(stmt) = self.stmt.take() {
-            self.cli._send_encode_statement_cancel(&stmt);
+            let _ = self
+                .cli
+                ._send_encode_query::<_, crate::ZeroParam>(StatementCancel { name: stmt.name() }, []);
         }
     }
 }
@@ -126,7 +128,7 @@ pub(crate) mod compat {
 
     use std::sync::Arc;
 
-    use super::{Prepare, Statement};
+    use super::{Prepare, Statement, StatementCancel};
 
     /// functions the same as [`StatementGuarded`]
     ///
@@ -154,7 +156,9 @@ pub(crate) mod compat {
         C: Prepare,
     {
         fn drop(&mut self) {
-            self.cli._send_encode_statement_cancel(&self.stmt)
+            let _ = self
+                .cli
+                ._send_encode_query::<_, crate::ZeroParam>(StatementCancel { name: self.stmt.name() }, []);
         }
     }
 

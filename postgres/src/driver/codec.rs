@@ -10,6 +10,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
+    column::Column,
     error::{DbError, DriverDownReceiving, Error, InvalidParamCount},
     prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded},
@@ -198,16 +199,18 @@ mod sealed {
     label = "query statement argument must be types implement Encode trait",
     note = "consider using the types listed below that implementing Encode trait"
 )]
-pub trait Encode: sealed::Sealed + Sized + Copy {
+pub trait Encode: sealed::Sealed + Sized {
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams;
+}
+
+pub trait IntoStream: sealed::Sealed + Sized + Copy {
     type RowStream<'r>
     where
         Self: 'r;
 
-    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
-    where
-        I: AsParams;
-
-    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
     where
         Self: 'r;
 }
@@ -215,8 +218,6 @@ pub trait Encode: sealed::Sealed + Sized + Copy {
 impl sealed::Sealed for &Statement {}
 
 impl Encode for &Statement {
-    type RowStream<'r> = RowStream<'r> where Self: 'r;
-
     fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
         I: AsParams,
@@ -230,9 +231,13 @@ impl Encode for &Statement {
 
         Ok(())
     }
+}
+
+impl IntoStream for &Statement {
+    type RowStream<'r> = RowStream<'r> where Self: 'r;
 
     #[inline]
-    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
     where
         Self: 'r,
     {
@@ -243,8 +248,6 @@ impl Encode for &Statement {
 impl sealed::Sealed for &Arc<Statement> {}
 
 impl Encode for &Arc<Statement> {
-    type RowStream<'r> = <&'r Statement as Encode>::RowStream<'r> where Self: 'r;
-
     #[inline]
     fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
@@ -252,13 +255,17 @@ impl Encode for &Arc<Statement> {
     {
         <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
     }
+}
+
+impl IntoStream for &Arc<Statement> {
+    type RowStream<'r> = <&'r Statement as IntoStream>::RowStream<'r> where Self: 'r;
 
     #[inline]
-    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
     where
         Self: 'r,
     {
-        <&Statement>::row_stream(self, res)
+        <&Statement>::into_stream(self, res)
     }
 }
 
@@ -268,8 +275,6 @@ impl<C> Encode for &StatementGuarded<'_, C>
 where
     C: Prepare,
 {
-    type RowStream<'r> = <&'r Statement as Encode>::RowStream<'r> where Self: 'r;
-
     #[inline]
     fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
@@ -277,24 +282,29 @@ where
     {
         <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
     }
+}
+
+impl<C> IntoStream for &StatementGuarded<'_, C>
+where
+    C: Prepare,
+{
+    type RowStream<'r> = <&'r Statement as IntoStream>::RowStream<'r> where Self: 'r;
 
     #[inline]
-    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
     where
         Self: 'r,
     {
-        <&Statement>::row_stream(self, res)
+        <&Statement>::into_stream(self, res)
     }
 }
 
 impl<C> sealed::Sealed for StatementUnnamed<'_, C> where C: Prepare {}
 
-impl<'a, C> Encode for StatementUnnamed<'a, C>
+impl<C> Encode for StatementUnnamed<'_, C>
 where
     C: Prepare,
 {
-    type RowStream<'r> = RowStreamGuarded<'r, C> where 'a: 'r;
-
     #[inline]
     fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
@@ -310,9 +320,16 @@ where
         }
         Ok(())
     }
+}
+
+impl<'a, C> IntoStream for StatementUnnamed<'a, C>
+where
+    C: Prepare,
+{
+    type RowStream<'r> = RowStreamGuarded<'r, C> where 'a: 'r;
 
     #[inline]
-    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
     where
         Self: 'r,
     {
@@ -323,8 +340,6 @@ where
 impl sealed::Sealed for &str {}
 
 impl Encode for &str {
-    type RowStream<'r> = RowSimpleStream where Self: 'r;
-
     #[inline]
     fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
     where
@@ -332,9 +347,13 @@ impl Encode for &str {
     {
         frontend::query(self, buf).map_err(Into::into)
     }
+}
+
+impl IntoStream for &str {
+    type RowStream<'r> = RowSimpleStream where Self: 'r;
 
     #[inline]
-    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
     where
         Self: 'r,
     {
@@ -345,8 +364,6 @@ impl Encode for &str {
 impl sealed::Sealed for &String {}
 
 impl Encode for &String {
-    type RowStream<'r> = <&'r str as Encode>::RowStream<'r> where Self: 'r;
-
     #[inline]
     fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
     where
@@ -354,13 +371,17 @@ impl Encode for &String {
     {
         self.as_str().encode::<_, SYNC_MODE>(params, buf)
     }
+}
+
+impl IntoStream for &String {
+    type RowStream<'r> = <&'r str as IntoStream>::RowStream<'r> where Self: 'r;
 
     #[inline]
-    fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
     where
         Self: 'r,
     {
-        self.as_str().row_stream(res)
+        self.as_str().into_stream(res)
     }
 }
 
@@ -374,8 +395,6 @@ const _: () = {
     where
         C: Prepare,
     {
-        type RowStream<'r> = RowStream<'r> where Self: 'r;
-
         #[inline]
         fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
         where
@@ -383,16 +402,132 @@ const _: () = {
         {
             <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
         }
+    }
+
+    impl<C> IntoStream for &StatementGuarded<C>
+    where
+        C: Prepare,
+    {
+        type RowStream<'r> = <&'r Statement as IntoStream>::RowStream<'r> where Self: 'r;
 
         #[inline]
-        fn row_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+        fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
         where
             Self: 'r,
         {
-            <&Statement>::row_stream(self, res)
+            <&Statement>::into_stream(self, res)
         }
     }
 };
+
+pub(crate) struct StatementCreate<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) query: &'a str,
+    pub(crate) types: &'a [Type],
+}
+
+impl sealed::Sealed for StatementCreate<'_> {}
+
+impl Encode for StatementCreate<'_> {
+    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        let Self { name, query, types } = self;
+        frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
+        frontend::describe(b'S', name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    }
+}
+
+pub(crate) struct StatementCancel<'a> {
+    pub(crate) name: &'a str,
+}
+
+impl sealed::Sealed for StatementCancel<'_> {}
+
+impl Encode for StatementCancel<'_> {
+    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        let Self { name } = self;
+        frontend::close(b'S', name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    }
+}
+
+pub(crate) struct PortalCreate<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
+}
+
+impl sealed::Sealed for PortalCreate<'_> {}
+
+impl Encode for PortalCreate<'_> {
+    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        let Self { name, stmt, types } = self;
+        encode_bind(stmt, types, params, name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    }
+}
+
+pub(crate) struct PortalCancel<'a> {
+    pub(crate) name: &'a str,
+}
+
+impl sealed::Sealed for PortalCancel<'_> {}
+
+impl Encode for PortalCancel<'_> {
+    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        frontend::close(b'P', self.name, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PortalQuery<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) columns: &'a [Column],
+    pub(crate) max_rows: i32,
+}
+
+impl sealed::Sealed for PortalQuery<'_> {}
+
+impl Encode for PortalQuery<'_> {
+    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    where
+        I: AsParams,
+    {
+        let Self { name, max_rows, .. } = self;
+        frontend::execute(name, max_rows, buf)?;
+        frontend::sync(buf);
+        Ok(())
+    }
+}
+
+impl IntoStream for PortalQuery<'_> {
+    type RowStream<'r> = RowStream<'r> where Self: 'r;
+
+    #[inline]
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
+        RowStream::new(res, self.columns)
+    }
+}
 
 pub(crate) fn send_encode_query<S, I>(tx: &DriverTx, stmt: S, params: I) -> Result<Response, Error>
 where
@@ -400,61 +535,6 @@ where
     I: AsParams,
 {
     tx.send(|buf| stmt.encode::<_, true>(params, buf))
-}
-
-pub(crate) fn send_encode_portal_create<I>(
-    tx: &DriverTx,
-    name: &str,
-    stmt: &Statement,
-    params: I,
-) -> Result<Response, Error>
-where
-    I: ExactSizeIterator,
-    I::Item: BorrowToSql,
-{
-    tx.send(|buf| {
-        encode_bind(stmt.name(), stmt.params(), params, name, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    })
-}
-
-pub(crate) fn send_encode_portal_query(tx: &DriverTx, name: &str, max_rows: i32) -> Result<Response, Error> {
-    tx.send(|buf| {
-        frontend::execute(name, max_rows, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    })
-}
-
-pub(crate) fn send_encode_portal_cancel(tx: &DriverTx, name: &str) -> Result<Response, Error> {
-    send_cancel(b'P', tx, name)
-}
-
-pub(crate) fn send_encode_statement_create(
-    tx: &DriverTx,
-    name: &str,
-    query: &str,
-    types: &[Type],
-) -> Result<Response, Error> {
-    tx.send(|buf| {
-        frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
-        frontend::describe(b'S', name, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    })
-}
-
-pub(crate) fn send_encode_statement_cancel(tx: &DriverTx, name: &str) -> Result<Response, Error> {
-    send_cancel(b'S', tx, name)
-}
-
-fn send_cancel(variant: u8, tx: &DriverTx, name: &str) -> Result<Response, Error> {
-    tx.send(|buf| {
-        frontend::close(variant, name, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    })
 }
 
 fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>

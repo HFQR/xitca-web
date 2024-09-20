@@ -12,7 +12,7 @@ use core::{
 };
 
 use super::{
-    driver::codec::{AsParams, Encode, Response},
+    driver::codec::{AsParams, Encode, IntoStream, Response},
     error::Error,
     iter::slice_iter,
     types::ToSql,
@@ -84,7 +84,7 @@ pub trait Query {
     #[inline]
     fn _query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
     where
-        S: Encode + 'a,
+        S: Encode + IntoStream + 'a,
     {
         self._query_raw(stmt, slice_iter(params))
     }
@@ -93,10 +93,10 @@ pub trait Query {
     #[inline]
     fn _query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
     where
-        S: Encode + 'a,
+        S: Encode + IntoStream + 'a,
         I: AsParams,
     {
-        self._send_encode_query(stmt, params).map(|res| stmt.row_stream(res))
+        self._send_encode_query(stmt, params).map(|res| stmt.into_stream(res))
     }
 
     /// query that don't return any row but number of rows affected by it

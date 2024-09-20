@@ -13,11 +13,11 @@ use super::{
 };
 
 pub use builder::TransactionBuilder;
-pub use portal::{Portal, PortalTrait};
+pub use portal::Portal;
 
 pub struct Transaction<'a, C>
 where
-    C: Prepare + PortalTrait + Query + ClientBorrowMut,
+    C: Prepare + Query + ClientBorrowMut,
 {
     client: &'a mut C,
     save_point: SavePoint,
@@ -76,7 +76,7 @@ enum State {
 
 impl<C> Drop for Transaction<'_, C>
 where
-    C: Prepare + PortalTrait + Query + ClientBorrowMut,
+    C: Prepare + Query + ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -88,7 +88,7 @@ where
 
 impl<C> Transaction<'_, C>
 where
-    C: Prepare + PortalTrait + Query + ClientBorrowMut,
+    C: Prepare + Query + ClientBorrowMut,
 {
     pub fn builder() -> TransactionBuilder {
         TransactionBuilder::new()

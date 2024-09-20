@@ -11,7 +11,7 @@ use xitca_unsafe_collection::no_hash::NoHashBuilder;
 use super::{
     copy::{r#Copy, CopyIn, CopyOut},
     driver::{
-        codec::{self, AsParams, Encode, Response},
+        codec::{self, AsParams, Encode, IntoStream, Response},
         DriverTx,
     },
     error::Error,
@@ -19,7 +19,7 @@ use super::{
     query::{ExecuteFuture, Query},
     session::Session,
     statement::{Statement, StatementGuarded, StatementUnnamed},
-    transaction::{PortalTrait, Transaction},
+    transaction::Transaction,
     types::{Oid, ToSql, Type},
 };
 
@@ -140,7 +140,7 @@ impl Client {
     #[inline]
     pub fn query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
     where
-        S: Encode + 'a,
+        S: Encode + IntoStream + 'a,
     {
         self._query(stmt, params)
     }
@@ -155,7 +155,7 @@ impl Client {
     #[inline]
     pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
     where
-        S: Encode + 'a,
+        S: Encode + IntoStream + 'a,
         I: AsParams,
     {
         self._query_raw(stmt, params)
@@ -208,13 +208,13 @@ impl Client {
     /// functionality to safely embed that data in the request. Do not form statements via string concatenation and pass
     /// them to this method!
     #[inline]
-    pub fn query_simple(&self, stmt: &str) -> Result<<&str as Encode>::RowStream<'_>, Error> {
-        self.query_raw::<_, [i32; 0]>(stmt, [])
+    pub fn query_simple(&self, stmt: &str) -> Result<<&str as IntoStream>::RowStream<'_>, Error> {
+        self.query_raw::<_, crate::ZeroParam>(stmt, [])
     }
 
     #[inline]
     pub fn execute_simple(&self, stmt: &str) -> ExecuteFuture {
-        self.execute_raw::<_, [i32; 0]>(stmt, [])
+        self.execute_raw::<_, crate::ZeroParam>(stmt, [])
     }
 
     /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.
@@ -226,7 +226,7 @@ impl Client {
         stmt: &'a str,
         types: &'a [Type],
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<StatementUnnamed<'a, Self> as Encode>::RowStream<'a>, Error> {
+    ) -> Result<<StatementUnnamed<'a, Self> as IntoStream>::RowStream<'a>, Error> {
         self.query(Statement::unnamed(self, stmt, types), params)
     }
 
@@ -329,34 +329,19 @@ impl ClientBorrowMut for Client {
 }
 
 impl Prepare for Arc<Client> {
-    #[inline]
-    fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send {
-        Client::_prepare(self, query, types)
-    }
-
     fn _get_type(&self, oid: Oid) -> crate::BoxedFuture<'_, Result<Type, Error>> {
         Client::_get_type(self, oid)
     }
-
-    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
-        Client::_send_encode_statement_cancel(self, stmt)
-    }
 }
 
-impl PortalTrait for Client {
-    fn _send_encode_portal_create<I>(&self, name: &str, stmt: &Statement, params: I) -> Result<Response, Error>
+impl Query for Arc<Client> {
+    #[inline]
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
     where
+        S: Encode,
         I: AsParams,
     {
-        codec::send_encode_portal_create(&self.tx, name, stmt, params.into_iter())
-    }
-
-    fn _send_encode_portal_query(&self, name: &str, max_rows: i32) -> Result<Response, Error> {
-        codec::send_encode_portal_query(&self.tx, name, max_rows)
-    }
-
-    fn _send_encode_portal_cancel(&self, name: &str) {
-        let _ = codec::send_encode_portal_cancel(&self.tx, name);
+        Client::_send_encode_query(self, stmt, params)
     }
 }
 
