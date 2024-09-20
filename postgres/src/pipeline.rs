@@ -262,33 +262,24 @@ impl Client {
         B: DerefMut<Target = BytesMut>,
     {
         let Pipeline { columns, ref mut buf } = pipe;
-        self._pipeline::<SYNC_MODE, true>(&columns, buf)
-            .map(|res| PipelineStream::new(res, columns))
-    }
-
-    pub(crate) fn _pipeline<const SYNC_MODE: bool, const ENCODE_SYNC: bool>(
-        &self,
-        columns: &[&[Column]],
-        buf: &mut BytesMut,
-    ) -> Result<Response, Error> {
         assert!(!buf.is_empty());
 
         let sync_count = if SYNC_MODE {
             columns.len()
         } else {
-            if ENCODE_SYNC {
-                frontend::sync(buf);
-            }
+            frontend::sync(buf);
             1
         };
 
-        self.tx.send_multi(
-            |b| {
-                b.extend_from_slice(buf);
-                Ok(())
-            },
-            sync_count,
-        )
+        self.tx
+            .send_multi(
+                |b| {
+                    b.extend_from_slice(buf);
+                    Ok(())
+                },
+                sync_count,
+            )
+            .map(|res| PipelineStream::new(res, columns))
     }
 }
 

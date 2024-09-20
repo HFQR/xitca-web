@@ -164,7 +164,7 @@ where
     pub async fn commit(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         let query = self.save_point.commit_query();
-        self.client._execute(&query, &[]).await?;
+        self.client._execute_raw::<_, crate::ZeroParam>(&query, []).await?;
         Ok(())
     }
 
@@ -174,7 +174,7 @@ where
     pub async fn rollback(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         let query = self.save_point.rollback_query();
-        self.client._execute(&query, &[]).await?;
+        self.client._execute_raw::<_, crate::ZeroParam>(&query, []).await?;
         Ok(())
     }
 
@@ -188,7 +188,9 @@ where
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        self.client._execute(&save_point.save_point_query(), &[]).await?;
+        self.client
+            ._execute_raw::<_, crate::ZeroParam>(&save_point.save_point_query(), [])
+            .await?;
 
         Ok(Transaction {
             client: self.client,
@@ -199,6 +201,6 @@ where
 
     fn do_rollback(&mut self) {
         let query = self.save_point.rollback_query();
-        drop(self.client._execute(&query, &[]));
+        drop(self.client._execute_raw::<_, crate::ZeroParam>(&query, []));
     }
 }
