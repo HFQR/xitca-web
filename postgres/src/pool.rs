@@ -187,13 +187,13 @@ impl<'p> PoolConnection<'p> {
     /// function the same as [`Client::query_simple`]
     #[inline]
     pub fn query_simple(&self, stmt: &str) -> Result<<&str as Encode>::RowStream<'_>, Error> {
-        self._query_raw::<_, [i32; 0]>(stmt, [])
+        self.query_raw::<_, [i32; 0]>(stmt, [])
     }
 
     /// function the same as [`Client::execute_simple`]
     #[inline]
     pub fn execute_simple(&self, stmt: &str) -> ExecuteFuture {
-        self._execute_raw::<_, [i32; 0]>(stmt, [])
+        self.execute_raw::<_, [i32; 0]>(stmt, [])
     }
 
     /// function the same as [`Client::query_unnamed`]
