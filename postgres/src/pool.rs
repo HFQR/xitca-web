@@ -12,7 +12,7 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{AsParams, Encode, Response},
+    driver::codec::{AsParams, Encode, IntoStream, Response},
     error::Error,
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
@@ -150,7 +150,7 @@ impl<'p> PoolConnection<'p> {
     #[inline]
     pub fn query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
     where
-        S: Encode + 'a,
+        S: Encode + IntoStream + 'a,
     {
         self._query(stmt, params)
     }
@@ -159,7 +159,7 @@ impl<'p> PoolConnection<'p> {
     #[inline]
     pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
     where
-        S: Encode + 'a,
+        S: Encode + IntoStream + 'a,
         I: AsParams,
     {
         self._query_raw(stmt, params)
@@ -186,7 +186,7 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::query_simple`]
     #[inline]
-    pub fn query_simple(&self, stmt: &str) -> Result<<&str as Encode>::RowStream<'_>, Error> {
+    pub fn query_simple(&self, stmt: &str) -> Result<<&str as IntoStream>::RowStream<'_>, Error> {
         self.query_raw::<_, [i32; 0]>(stmt, [])
     }
 
@@ -203,7 +203,7 @@ impl<'p> PoolConnection<'p> {
         stmt: &'a str,
         types: &'a [Type],
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<StatementUnnamed<'a, Self> as Encode>::RowStream<'a>, Error> {
+    ) -> Result<<StatementUnnamed<'a, Self> as IntoStream>::RowStream<'a>, Error> {
         self.query(Statement::unnamed(self, stmt, types), params)
     }
 
@@ -314,16 +314,8 @@ impl ClientBorrowMut for PoolConnection<'_> {
 }
 
 impl Prepare for PoolConnection<'_> {
-    async fn _prepare(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
-        self.conn().client._prepare(query, types).await
-    }
-
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         self.conn().client._get_type(oid)
-    }
-
-    fn _send_encode_statement_cancel(&self, stmt: &Statement) {
-        self.conn().client._send_encode_statement_cancel(stmt)
     }
 }
 

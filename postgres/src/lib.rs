@@ -107,6 +107,7 @@ pub mod dev {
     //! traits for extending functionalities through external crate
 
     pub use crate::client::ClientBorrowMut;
+    pub use crate::copy::r#Copy;
     pub use crate::driver::codec::AsParams;
     pub use crate::prepare::Prepare;
     pub use crate::query::Query;

@@ -40,6 +40,9 @@ where
     C: r#Copy + Send,
 {
     pub fn new(client: &'a mut C, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
+        // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
+        let _cli = client._borrow_mut();
+
         let res = client._send_encode_query::<_, [i32; 0]>(stmt, []);
 
         async {
