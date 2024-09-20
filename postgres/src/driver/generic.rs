@@ -1,6 +1,7 @@
 use core::{
     future::{poll_fn, Future},
     pin::Pin,
+    task::Poll,
 };
 
 use std::{
@@ -9,8 +10,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use futures_core::task::__internal::AtomicWaker;
 use postgres_protocol::message::backend;
-use tokio::sync::Notify;
 use xitca_io::{
     bytes::{Buf, BufRead, BytesMut},
     io::{AsyncIo, Interest},
@@ -28,7 +29,7 @@ pub(crate) struct DriverTx(Arc<SharedState>);
 impl Drop for DriverTx {
     fn drop(&mut self) {
         self.0.guarded.lock().unwrap().closed = true;
-        self.0.notify.notify_one();
+        self.0.waker.wake();
     }
 }
 
@@ -79,7 +80,7 @@ impl DriverTx {
 
         let res = on_send(&mut inner);
 
-        self.0.notify.notify_one();
+        self.0.waker.wake();
 
         Ok(res)
     }
@@ -87,7 +88,22 @@ impl DriverTx {
 
 pub(crate) struct SharedState {
     guarded: Mutex<State>,
-    notify: Notify,
+    waker: AtomicWaker,
+}
+
+impl SharedState {
+    async fn wait(&self) {
+        poll_fn(|cx| {
+            let inner = self.guarded.lock().unwrap();
+            if inner.buf.is_empty() {
+                self.waker.register(cx.waker());
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await
+    }
 }
 
 struct State {
@@ -133,7 +149,7 @@ where
                 buf: BytesMut::new(),
                 res: VecDeque::new(),
             }),
-            notify: Notify::new(),
+            waker: AtomicWaker::new(),
         });
 
         (
@@ -182,13 +198,7 @@ where
 
             let ready = match self.state {
                 DriverState::Running => 'inner: loop {
-                    match self
-                        .shared_state
-                        .notify
-                        .notified()
-                        .select(self.io.ready(interest))
-                        .await
-                    {
+                    match self.shared_state.wait().select(self.io.ready(interest)).await {
                         SelectOutput::A(_) => {
                             self.write_state = WriteState::WantWrite;
                             interest = interest.add(Interest::WRITABLE);
