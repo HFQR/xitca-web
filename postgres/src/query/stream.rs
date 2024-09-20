@@ -13,6 +13,7 @@ use crate::{
     types::Type,
 };
 
+#[derive(Debug)]
 pub struct GenericRowStream<C> {
     pub(crate) res: Response,
     pub(crate) col: C,

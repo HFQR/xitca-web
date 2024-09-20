@@ -144,8 +144,9 @@ async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterato
     Ok(addrs)
 }
 
-/// async driver of [Client](crate::client::Client).
-/// it handles IO and emit server sent message that do not belong to any query with [AsyncLendingIterator]
+/// async driver of [`Client`]
+///
+/// it handles IO and emit server sent message that do not belong to any query with [`AsyncLendingIterator`]
 /// trait impl.
 ///
 /// # Examples
@@ -168,6 +169,29 @@ async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterato
 ///     tokio::spawn(drv.into_future());
 /// }
 /// ```
+///
+/// # Lifetime
+/// Driver and [`Client`] have a dependent lifetime where either side can trigger the other part to shutdown.
+/// From Driver side it's in the form of dropping ownership.
+/// ## Examples
+/// ```
+/// # use xitca_postgres::{error::Error, Config, Postgres};
+/// # async fn shut_down(cfg: Config) -> Result<(), Error> {
+/// // connect to a database
+/// let (cli, drv) = Postgres::new(cfg).connect().await?;
+///
+/// // drop driver
+/// drop(drv);
+///
+/// // client will always return error when it's driver is gone.
+/// let e = cli.query_simple("SELECT 1").unwrap_err();
+/// // a shortcut method can be used to determine if the error is caused by a shutdown driver.
+/// assert!(e.is_driver_down());
+///
+/// # Ok(())
+/// # }
+/// ```
+///
 // TODO: use Box<dyn AsyncIterator> when life time GAT is object safe.
 pub enum Driver {
     Tcp(GenericDriver<TcpStream>),

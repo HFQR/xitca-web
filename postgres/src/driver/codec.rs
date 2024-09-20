@@ -30,6 +30,7 @@ pub(super) fn request_pair(msg_count: usize) -> (ResponseSender, Response) {
     )
 }
 
+#[derive(Debug)]
 pub struct Response {
     rx: ResponseReceiver,
     buf: BytesMut,
