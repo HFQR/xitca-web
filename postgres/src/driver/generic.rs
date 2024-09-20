@@ -92,18 +92,25 @@ pub(crate) struct SharedState {
 }
 
 impl SharedState {
-    async fn wait(&self) {
+    async fn wait(&self) -> WaitState {
         poll_fn(|cx| {
             let inner = self.guarded.lock().unwrap();
-            if inner.buf.is_empty() {
+            if !inner.buf.is_empty() {
+                Poll::Ready(WaitState::WantWrite)
+            } else if inner.closed {
+                Poll::Ready(WaitState::WantClose)
+            } else {
                 self.waker.register(cx.waker());
                 Poll::Pending
-            } else {
-                Poll::Ready(())
             }
         })
         .await
     }
+}
+
+enum WaitState {
+    WantWrite,
+    WantClose,
 }
 
 struct State {
@@ -113,10 +120,10 @@ struct State {
 }
 
 pub struct GenericDriver<Io> {
-    pub(crate) io: Io,
-    pub(crate) read_buf: PagedBytesMut,
-    pub(crate) state: DriverState,
-    pub(crate) shared_state: Arc<SharedState>,
+    io: Io,
+    read_buf: PagedBytesMut,
+    shared_state: Arc<SharedState>,
+    driver_state: DriverState,
     write_state: WriteState,
 }
 
@@ -133,7 +140,7 @@ enum WriteState {
     WantFlush,
 }
 
-pub(crate) enum DriverState {
+enum DriverState {
     Running,
     Closing(Option<io::Error>),
 }
@@ -156,8 +163,8 @@ where
             Self {
                 io,
                 read_buf: PagedBytesMut::new(),
-                state: DriverState::Running,
                 shared_state: state.clone(),
+                driver_state: DriverState::Running,
                 write_state: WriteState::Waiting,
             },
             DriverTx(state),
@@ -196,13 +203,17 @@ where
                 Interest::READABLE
             };
 
-            let ready = match self.state {
+            let ready = match self.driver_state {
                 DriverState::Running => match self.shared_state.wait().select(self.io.ready(interest)).await {
-                    SelectOutput::A(_) => {
+                    SelectOutput::A(WaitState::WantWrite) => {
                         self.write_state = WriteState::WantWrite;
                         self.io
                             .ready(const { Interest::READABLE.add(Interest::WRITABLE) })
                             .await?
+                    }
+                    SelectOutput::A(WaitState::WantClose) => {
+                        self.driver_state = DriverState::Closing(None);
+                        continue;
                     }
                     SelectOutput::B(ready) => ready?,
                 },
@@ -233,7 +244,7 @@ where
                     // close shared state early so driver tx can observe the shutdown in first hand
                     inner.closed = true;
                     self.write_state = WriteState::Waiting;
-                    self.state = DriverState::Closing(Some(e));
+                    self.driver_state = DriverState::Closing(Some(e));
                 }
             }
         }
@@ -270,29 +281,8 @@ where
                 WriteState::WantWrite => {
                     let mut inner = self.shared_state.guarded.lock().unwrap();
 
-                    if inner.closed {
-                        if matches!(self.state, DriverState::Running) {
-                            self.state = DriverState::Closing(None);
-                        }
-
-                        if inner.buf.is_empty() {
-                            self.write_state = WriteState::WantFlush;
-                            continue;
-                        }
-                    }
-
                     match io::Write::write(&mut self.io, &inner.buf) {
-                        Ok(0) => {
-                            // spurious write can happen if ClientTx release locked buffer before writer
-                            // obtain it's lock. The buffer can be written to IO before Notified get polled.
-                            // Notified will cause another write and at that point the buffer could be emptied
-                            // already.
-                            if inner.buf.is_empty() {
-                                break;
-                            }
-
-                            return Err(io::ErrorKind::WriteZero.into());
-                        }
+                        Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                         Ok(n) => {
                             inner.buf.advance(n);
 
