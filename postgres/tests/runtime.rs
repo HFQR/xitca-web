@@ -18,7 +18,7 @@ async fn smoke_test(s: &str) {
     let stmt = client.prepare("SELECT $1::INT", &[]).await.unwrap();
     let mut stream = client.query(&stmt, &[&1i32]).unwrap();
     let row = stream.try_next().await.unwrap().unwrap();
-    assert_eq!(row.get_raw::<i32>(0), 1i32);
+    assert_eq!(row.get::<i32>(0), 1i32);
 }
 
 // #[tokio::test]

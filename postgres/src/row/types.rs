@@ -120,24 +120,19 @@ where
     C: AsRef<[Column]>,
     R: AsRef<[Range<usize>]> + AsMut<Vec<Range<usize>>>,
 {
-    /// Deserializes a value from the row.
+    /// zero copy version of [`Self::get`]
     ///
-    /// The value can be specified either by its numeric index in the row, or by its column name.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the index is out of bounds or if the value cannot be converted to the specified type.
-    #[inline]
-    pub fn get<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> T
+    /// see [`FromSqlExt`] trait for explanation
+    pub fn get_zc<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> T
     where
         T: FromSqlExt<'s>,
     {
-        self.try_get(idx)
+        self.try_get_zc(idx)
             .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
     }
 
-    /// Like `Row::get`, but returns a `Result` rather than panicking.
-    pub fn try_get<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> Result<T, Error>
+    /// Like [`Self::get_zc`], but returns a `Result` rather than panicking.
+    pub fn try_get_zc<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> Result<T, Error>
     where
         T: FromSqlExt<'s>,
     {
@@ -145,19 +140,23 @@ where
         FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
     }
 
-    #[doc(hidden)]
-    /// hidden api for get row data with [FromSql] trait implementation.
-    pub fn get_raw<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> T
+    /// Deserializes a value from the row.
+    ///
+    /// The value can be specified either by its numeric index in the row, or by its column name.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds or if the value cannot be converted to the specified type.
+    pub fn get<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> T
     where
         T: FromSql<'s>,
     {
-        self.try_get_raw(idx)
+        self.try_get(idx)
             .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
     }
 
-    #[doc(hidden)]
-    /// hidden api for get row data with [FromSql] trait implementation.
-    pub fn try_get_raw<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> Result<T, Error>
+    /// Like [`Self::get`], but returns a `Result` rather than panicking.
+    pub fn try_get<'s, T>(&'s self, idx: impl RowIndexAndType + fmt::Display) -> Result<T, Error>
     where
         T: FromSql<'s>,
     {
@@ -187,7 +186,7 @@ impl RowSimple<'_> {
 }
 
 fn _try_get_usize(row: Row) {
-    let _ = row.try_get::<u32>(0);
-    let _ = row.try_get::<&str>("test");
-    let _ = row.try_get_raw::<String>(String::from("get_raw").as_str());
+    let _ = row.try_get_zc::<u32>(0);
+    let _ = row.try_get_zc::<&str>("test");
+    let _ = row.try_get::<String>(String::from("get_raw").as_str());
 }
