@@ -190,22 +190,21 @@ where
                 return Ok(Some(msg));
             }
 
-            let mut interest = if self.want_write() {
+            let interest = if self.want_write() {
                 const { Interest::READABLE.add(Interest::WRITABLE) }
             } else {
                 Interest::READABLE
             };
 
             let ready = match self.state {
-                DriverState::Running => 'inner: loop {
-                    match self.shared_state.wait().select(self.io.ready(interest)).await {
-                        SelectOutput::A(_) => {
-                            self.write_state = WriteState::WantWrite;
-                            interest = interest.add(Interest::WRITABLE);
-                            continue 'inner;
-                        }
-                        SelectOutput::B(ready) => break ready?,
+                DriverState::Running => match self.shared_state.wait().select(self.io.ready(interest)).await {
+                    SelectOutput::A(_) => {
+                        self.write_state = WriteState::WantWrite;
+                        self.io
+                            .ready(const { Interest::READABLE.add(Interest::WRITABLE) })
+                            .await?
                     }
+                    SelectOutput::B(ready) => ready?,
                 },
                 DriverState::Closing(ref mut e) => {
                     if !interest.is_writable() && self.shared_state.guarded.lock().unwrap().res.is_empty() {
