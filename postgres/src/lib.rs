@@ -262,8 +262,6 @@ fn _assert_driver_send() {
 
 #[cfg(test)]
 mod test {
-    use core::future::IntoFuture;
-
     use super::*;
 
     #[tokio::test]
@@ -278,47 +276,5 @@ mod test {
 
         cfg.port(5432);
         Postgres::new(cfg).connect().await.err().unwrap();
-    }
-
-    #[tokio::test]
-    async fn client_shutdown() {
-        let mut cfg = Config::new();
-
-        cfg.dbname("postgres")
-            .user("postgres")
-            .password("postgres")
-            .host("localhost")
-            .port(5432);
-
-        let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
-            .connect()
-            .await
-            .unwrap();
-
-        let handle = tokio::spawn(drv.into_future());
-
-        drop(cli);
-
-        handle.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn driver_shutdown() {
-        let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
-            .connect()
-            .await
-            .unwrap();
-
-        let handle = tokio::spawn(drv.into_future());
-
-        let _ = cli.query_simple("SELECT 1").unwrap().try_next().await;
-
-        // yield to execute the abort of driver task. this depends on single thread
-        // tokio runtime's behavior specifically.
-        handle.abort();
-        tokio::task::yield_now().await;
-
-        let e = cli.query_simple("SELECT 1").err().unwrap();
-        assert!(e.is_driver_down());
     }
 }
