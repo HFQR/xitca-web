@@ -177,7 +177,10 @@ mod dumb {
     }
 
     impl ChunkRead for DumbFile {
-        type SeekFuture<'f> = Ready<io::Result<()>> where Self: 'f;
+        type SeekFuture<'f>
+            = Ready<io::Result<()>>
+        where
+            Self: 'f;
         type Future = Ready<io::Result<Option<(Self, BytesMut, usize)>>>;
 
         fn seek(&mut self, _: io::SeekFrom) -> Self::SeekFuture<'_> {

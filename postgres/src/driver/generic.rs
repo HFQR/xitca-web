@@ -1,6 +1,7 @@
 use core::{
     future::{poll_fn, Future},
     pin::Pin,
+    task::Poll,
 };
 
 use std::{
@@ -9,8 +10,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use futures_core::task::__internal::AtomicWaker;
 use postgres_protocol::message::backend;
-use tokio::sync::Notify;
 use xitca_io::{
     bytes::{Buf, BufRead, BytesMut},
     io::{AsyncIo, Interest},
@@ -28,7 +29,7 @@ pub(crate) struct DriverTx(Arc<SharedState>);
 impl Drop for DriverTx {
     fn drop(&mut self) {
         self.0.guarded.lock().unwrap().closed = true;
-        self.0.notify.notify_one();
+        self.0.waker.wake();
     }
 }
 
@@ -79,7 +80,7 @@ impl DriverTx {
 
         let res = on_send(&mut inner);
 
-        self.0.notify.notify_one();
+        self.0.waker.wake();
 
         Ok(res)
     }
@@ -87,7 +88,29 @@ impl DriverTx {
 
 pub(crate) struct SharedState {
     guarded: Mutex<State>,
-    notify: Notify,
+    waker: AtomicWaker,
+}
+
+impl SharedState {
+    async fn wait(&self) -> WaitState {
+        poll_fn(|cx| {
+            let inner = self.guarded.lock().unwrap();
+            if !inner.buf.is_empty() {
+                Poll::Ready(WaitState::WantWrite)
+            } else if inner.closed {
+                Poll::Ready(WaitState::WantClose)
+            } else {
+                self.waker.register(cx.waker());
+                Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
+enum WaitState {
+    WantWrite,
+    WantClose,
 }
 
 struct State {
@@ -97,10 +120,10 @@ struct State {
 }
 
 pub struct GenericDriver<Io> {
-    pub(crate) io: Io,
-    pub(crate) read_buf: PagedBytesMut,
-    pub(crate) state: DriverState,
-    pub(crate) shared_state: Arc<SharedState>,
+    io: Io,
+    read_buf: PagedBytesMut,
+    shared_state: Arc<SharedState>,
+    driver_state: DriverState,
     write_state: WriteState,
 }
 
@@ -117,7 +140,7 @@ enum WriteState {
     WantFlush,
 }
 
-pub(crate) enum DriverState {
+enum DriverState {
     Running,
     Closing(Option<io::Error>),
 }
@@ -133,15 +156,15 @@ where
                 buf: BytesMut::new(),
                 res: VecDeque::new(),
             }),
-            notify: Notify::new(),
+            waker: AtomicWaker::new(),
         });
 
         (
             Self {
                 io,
                 read_buf: PagedBytesMut::new(),
-                state: DriverState::Running,
                 shared_state: state.clone(),
+                driver_state: DriverState::Running,
                 write_state: WriteState::Waiting,
             },
             DriverTx(state),
@@ -174,28 +197,25 @@ where
                 return Ok(Some(msg));
             }
 
-            let mut interest = if self.want_write() {
+            let interest = if self.want_write() {
                 const { Interest::READABLE.add(Interest::WRITABLE) }
             } else {
                 Interest::READABLE
             };
 
-            let ready = match self.state {
-                DriverState::Running => 'inner: loop {
-                    match self
-                        .shared_state
-                        .notify
-                        .notified()
-                        .select(self.io.ready(interest))
-                        .await
-                    {
-                        SelectOutput::A(_) => {
-                            self.write_state = WriteState::WantWrite;
-                            interest = interest.add(Interest::WRITABLE);
-                            continue 'inner;
-                        }
-                        SelectOutput::B(ready) => break ready?,
+            let ready = match self.driver_state {
+                DriverState::Running => match self.shared_state.wait().select(self.io.ready(interest)).await {
+                    SelectOutput::A(WaitState::WantWrite) => {
+                        self.write_state = WriteState::WantWrite;
+                        self.io
+                            .ready(const { Interest::READABLE.add(Interest::WRITABLE) })
+                            .await?
                     }
+                    SelectOutput::A(WaitState::WantClose) => {
+                        self.driver_state = DriverState::Closing(None);
+                        continue;
+                    }
+                    SelectOutput::B(ready) => ready?,
                 },
                 DriverState::Closing(ref mut e) => {
                     if !interest.is_writable() && self.shared_state.guarded.lock().unwrap().res.is_empty() {
@@ -216,15 +236,7 @@ where
 
             if ready.is_writable() {
                 if let Err(e) = self.try_write() {
-                    // when write error occur the driver would go into half close state(read only).
-                    // clearing write_buf would drop all pending requests in it and hint the driver
-                    // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
-                    let mut inner = self.shared_state.guarded.lock().unwrap();
-                    inner.buf.clear();
-                    // close shared state early so driver tx can observe the shutdown in first hand
-                    inner.closed = true;
-                    self.write_state = WriteState::Waiting;
-                    self.state = DriverState::Closing(Some(e));
+                    self.on_write_err(e);
                 }
             }
         }
@@ -261,29 +273,8 @@ where
                 WriteState::WantWrite => {
                     let mut inner = self.shared_state.guarded.lock().unwrap();
 
-                    if inner.closed {
-                        if matches!(self.state, DriverState::Running) {
-                            self.state = DriverState::Closing(None);
-                        }
-
-                        if inner.buf.is_empty() {
-                            self.write_state = WriteState::WantFlush;
-                            continue;
-                        }
-                    }
-
                     match io::Write::write(&mut self.io, &inner.buf) {
-                        Ok(0) => {
-                            // spurious write can happen if ClientTx release locked buffer before writer
-                            // obtain it's lock. The buffer can be written to IO before Notified get polled.
-                            // Notified will cause another write and at that point the buffer could be emptied
-                            // already.
-                            if inner.buf.is_empty() {
-                                break;
-                            }
-
-                            return Err(io::ErrorKind::WriteZero.into());
-                        }
+                        Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
                         Ok(n) => {
                             inner.buf.advance(n);
 
@@ -300,6 +291,21 @@ where
         }
 
         Ok(())
+    }
+
+    #[cold]
+    fn on_write_err(&mut self, e: io::Error) {
+        {
+            // when write error occur the driver would go into half close state(read only).
+            // clearing write_buf would drop all pending requests in it and hint the driver
+            // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
+            let mut inner = self.shared_state.guarded.lock().unwrap();
+            inner.buf.clear();
+            // close shared state early so driver tx can observe the shutdown in first hand
+            inner.closed = true;
+        }
+        self.write_state = WriteState::Waiting;
+        self.driver_state = DriverState::Closing(Some(e));
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {

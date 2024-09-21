@@ -262,33 +262,24 @@ impl Client {
         B: DerefMut<Target = BytesMut>,
     {
         let Pipeline { columns, ref mut buf } = pipe;
-        self._pipeline::<SYNC_MODE, true>(&columns, buf)
-            .map(|res| PipelineStream::new(res, columns))
-    }
-
-    pub(crate) fn _pipeline<const SYNC_MODE: bool, const ENCODE_SYNC: bool>(
-        &self,
-        columns: &[&[Column]],
-        buf: &mut BytesMut,
-    ) -> Result<Response, Error> {
         assert!(!buf.is_empty());
 
         let sync_count = if SYNC_MODE {
             columns.len()
         } else {
-            if ENCODE_SYNC {
-                frontend::sync(buf);
-            }
+            frontend::sync(buf);
             1
         };
 
-        self.tx.send_multi(
-            |b| {
-                b.extend_from_slice(buf);
-                Ok(())
-            },
-            sync_count,
-        )
+        self.tx
+            .send_multi(
+                |b| {
+                    b.extend_from_slice(buf);
+                    Ok(())
+                },
+                sync_count,
+            )
+            .map(|res| PipelineStream::new(res, columns))
     }
 }
 
@@ -336,7 +327,10 @@ impl<'a> Columns<'a> {
 }
 
 impl<'a> AsyncLendingIterator for PipelineStream<'a> {
-    type Ok<'i> = PipelineItem<'i> where Self: 'i;
+    type Ok<'i>
+        = PipelineItem<'i>
+    where
+        Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
@@ -400,7 +394,10 @@ impl PipelineItem<'_> {
 }
 
 impl AsyncLendingIterator for PipelineItem<'_> {
-    type Ok<'i> = Row<'i> where Self: 'i;
+    type Ok<'i>
+        = Row<'i>
+    where
+        Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {

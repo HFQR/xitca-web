@@ -122,9 +122,10 @@ impl CopyOut {
 }
 
 impl AsyncLendingIterator for CopyOut {
-    type Ok<'i> = Bytes
-        where
-            Self: 'i;
+    type Ok<'i>
+        = Bytes
+    where
+        Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {

@@ -22,13 +22,14 @@ tls = ["dep:xitca-tls", "xitca-tls/rustls-ring-crypto", "dep:sha2", "dep:webpki-
 quic = ["dep:quinn", "dep:rustls-pemfile", "tls"]
 
 # compatibility feature to enable implements with `futures` crate
-compat = ["dep:futures-core"]
+compat = []
 
 [dependencies]
 xitca-io = { version = "0.4.1", features = ["runtime"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
 fallible-iterator = "0.2"
+futures-core = { version = "0.3", default-features = false }
 percent-encoding = "2"
 phf = "0.11"
 postgres-protocol = "0.6.5"
@@ -44,9 +45,6 @@ xitca-tls = { version = "0.4.0", optional = true }
 # quic
 quinn = { version = "0.11", features = ["ring"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
-
-# compat
-futures-core = { version = "0.3", default-features = false, optional = true }
 
 [dev-dependencies]
 futures = { version = "0.3", default-features = false }
