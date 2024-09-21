@@ -236,15 +236,7 @@ where
 
             if ready.is_writable() {
                 if let Err(e) = self.try_write() {
-                    // when write error occur the driver would go into half close state(read only).
-                    // clearing write_buf would drop all pending requests in it and hint the driver
-                    // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
-                    let mut inner = self.shared_state.guarded.lock().unwrap();
-                    inner.buf.clear();
-                    // close shared state early so driver tx can observe the shutdown in first hand
-                    inner.closed = true;
-                    self.write_state = WriteState::Waiting;
-                    self.driver_state = DriverState::Closing(Some(e));
+                    self.on_write_err(e);
                 }
             }
         }
@@ -299,6 +291,21 @@ where
         }
 
         Ok(())
+    }
+
+    #[cold]
+    fn on_write_err(&mut self, e: io::Error) {
+        {
+            // when write error occur the driver would go into half close state(read only).
+            // clearing write_buf would drop all pending requests in it and hint the driver
+            // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
+            let mut inner = self.shared_state.guarded.lock().unwrap();
+            inner.buf.clear();
+            // close shared state early so driver tx can observe the shutdown in first hand
+            inner.closed = true;
+        }
+        self.write_state = WriteState::Waiting;
+        self.driver_state = DriverState::Closing(Some(e));
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
