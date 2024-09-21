@@ -6,8 +6,15 @@ use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
 use super::{
-    client::Client, column::Column, driver::codec::StatementCreate, error::Error, iter::AsyncLendingIterator,
-    query::Query, statement::Statement, types::Type, BoxedFuture,
+    client::Client,
+    column::Column,
+    driver::codec::StatementCreate,
+    error::{DbError, Error, SqlState},
+    iter::AsyncLendingIterator,
+    query::Query,
+    statement::Statement,
+    types::Type,
+    BoxedFuture,
 };
 
 /// trait generic over preparing statement and canceling of prepared statement
@@ -127,7 +134,6 @@ impl Prepare for Client {
 }
 
 impl Client {
-    #[inline(never)]
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
@@ -143,7 +149,6 @@ impl Client {
         Ok(res)
     }
 
-    #[inline(never)]
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
@@ -161,7 +166,6 @@ impl Client {
         Ok(fields)
     }
 
-    #[inline(never)]
     async fn typeinfo_statement(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
@@ -169,11 +173,16 @@ impl Client {
 
         let stmt = match self._prepare(TYPEINFO_QUERY, &[]).await {
             Ok(stmt) => stmt,
-            Err(_) => self._prepare(TYPEINFO_FALLBACK_QUERY, &[]).await?,
-            // Err(ref e) if e.code() == Some(&SqlState::UNDEFINED_TABLE) => {
-            //     self._prepare_boxed(TYPEINFO_FALLBACK_QUERY, &[]).await?
-            // }
-            // Err(e) => return Err(e),
+            Err(e) => {
+                return if e
+                    .downcast_ref::<DbError>()
+                    .is_some_and(|e| SqlState::UNDEFINED_TABLE.eq(e.code()))
+                {
+                    self._prepare(TYPEINFO_FALLBACK_QUERY, &[]).await
+                } else {
+                    Err(e)
+                }
+            }
         };
 
         self.set_typeinfo(&stmt);
@@ -181,7 +190,6 @@ impl Client {
         Ok(stmt)
     }
 
-    #[inline(never)]
     async fn typeinfo_enum_statement(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
@@ -189,11 +197,16 @@ impl Client {
 
         let stmt = match self._prepare(TYPEINFO_ENUM_QUERY, &[]).await {
             Ok(stmt) => stmt,
-            Err(_) => self._prepare(TYPEINFO_ENUM_FALLBACK_QUERY, &[]).await?,
-            // Err(ref e) if e.code() == Some(&SqlState::UNDEFINED_COLUMN) => {
-            //     prepare_rec(client, TYPEINFO_ENUM_FALLBACK_QUERY, &[]).await?
-            // }
-            // Err(e) => return Err(e),
+            Err(e) => {
+                return if e
+                    .downcast_ref::<DbError>()
+                    .is_some_and(|e| SqlState::UNDEFINED_COLUMN.eq(e.code()))
+                {
+                    self._prepare(TYPEINFO_ENUM_FALLBACK_QUERY, &[]).await
+                } else {
+                    Err(e)
+                }
+            }
         };
 
         self.set_typeinfo_enum(&stmt);
@@ -201,7 +214,6 @@ impl Client {
         Ok(stmt)
     }
 
-    #[inline(never)]
     async fn typeinfo_composite_statement(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo_composite() {
             return Ok(stmt);
