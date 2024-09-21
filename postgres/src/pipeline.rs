@@ -327,7 +327,10 @@ impl<'a> Columns<'a> {
 }
 
 impl<'a> AsyncLendingIterator for PipelineStream<'a> {
-    type Ok<'i> = PipelineItem<'i> where Self: 'i;
+    type Ok<'i>
+        = PipelineItem<'i>
+    where
+        Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
@@ -391,7 +394,10 @@ impl PipelineItem<'_> {
 }
 
 impl AsyncLendingIterator for PipelineItem<'_> {
-    type Ok<'i> = Row<'i> where Self: 'i;
+    type Ok<'i>
+        = Row<'i>
+    where
+        Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {

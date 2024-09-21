@@ -108,7 +108,10 @@ mod tokio_impl {
     }
 
     impl ChunkRead for TokioFile {
-        type SeekFuture<'f> = impl Future<Output = io::Result<()>> + Send + 'f where Self: 'f;
+        type SeekFuture<'f>
+            = impl Future<Output = io::Result<()>> + Send + 'f
+        where
+            Self: 'f;
 
         type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>> + Send;
 
@@ -192,7 +195,10 @@ mod tokio_uring_impl {
     }
 
     impl ChunkRead for TokioUringFile {
-        type SeekFuture<'f> = impl Future<Output = io::Result<()>> + 'f where Self: 'f;
+        type SeekFuture<'f>
+            = impl Future<Output = io::Result<()>> + 'f
+        where
+            Self: 'f;
 
         type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
 

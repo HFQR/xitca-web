@@ -225,7 +225,10 @@ impl Driver {
 }
 
 impl AsyncLendingIterator for Driver {
-    type Ok<'i> = backend::Message where Self: 'i;
+    type Ok<'i>
+        = backend::Message
+    where
+        Self: 'i;
     type Err = Error;
 
     #[inline]

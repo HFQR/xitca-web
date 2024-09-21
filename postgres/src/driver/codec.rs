@@ -234,7 +234,10 @@ impl Encode for &Statement {
 }
 
 impl IntoStream for &Statement {
-    type RowStream<'r> = RowStream<'r> where Self: 'r;
+    type RowStream<'r>
+        = RowStream<'r>
+    where
+        Self: 'r;
 
     #[inline]
     fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
@@ -258,7 +261,10 @@ impl Encode for &Arc<Statement> {
 }
 
 impl IntoStream for &Arc<Statement> {
-    type RowStream<'r> = <&'r Statement as IntoStream>::RowStream<'r> where Self: 'r;
+    type RowStream<'r>
+        = <&'r Statement as IntoStream>::RowStream<'r>
+    where
+        Self: 'r;
 
     #[inline]
     fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
@@ -288,7 +294,10 @@ impl<C> IntoStream for &StatementGuarded<'_, C>
 where
     C: Prepare,
 {
-    type RowStream<'r> = <&'r Statement as IntoStream>::RowStream<'r> where Self: 'r;
+    type RowStream<'r>
+        = <&'r Statement as IntoStream>::RowStream<'r>
+    where
+        Self: 'r;
 
     #[inline]
     fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
@@ -326,7 +335,10 @@ impl<'a, C> IntoStream for StatementUnnamed<'a, C>
 where
     C: Prepare,
 {
-    type RowStream<'r> = RowStreamGuarded<'r, C> where 'a: 'r;
+    type RowStream<'r>
+        = RowStreamGuarded<'r, C>
+    where
+        'a: 'r;
 
     #[inline]
     fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
@@ -350,7 +362,10 @@ impl Encode for &str {
 }
 
 impl IntoStream for &str {
-    type RowStream<'r> = RowSimpleStream where Self: 'r;
+    type RowStream<'r>
+        = RowSimpleStream
+    where
+        Self: 'r;
 
     #[inline]
     fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
@@ -374,7 +389,10 @@ impl Encode for &String {
 }
 
 impl IntoStream for &String {
-    type RowStream<'r> = <&'r str as IntoStream>::RowStream<'r> where Self: 'r;
+    type RowStream<'r>
+        = <&'r str as IntoStream>::RowStream<'r>
+    where
+        Self: 'r;
 
     #[inline]
     fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
@@ -408,7 +426,10 @@ const _: () = {
     where
         C: Prepare,
     {
-        type RowStream<'r> = <&'r Statement as IntoStream>::RowStream<'r> where Self: 'r;
+        type RowStream<'r>
+            = <&'r Statement as IntoStream>::RowStream<'r>
+        where
+            Self: 'r;
 
         #[inline]
         fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
@@ -518,7 +539,10 @@ impl Encode for PortalQuery<'_> {
 }
 
 impl IntoStream for PortalQuery<'_> {
-    type RowStream<'r> = RowStream<'r> where Self: 'r;
+    type RowStream<'r>
+        = RowStream<'r>
+    where
+        Self: 'r;
 
     #[inline]
     fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>

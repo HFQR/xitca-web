@@ -34,7 +34,10 @@ impl<C> GenericRowStream<C> {
 pub type RowStream<'a> = GenericRowStream<&'a [Column]>;
 
 impl<'a> AsyncLendingIterator for RowStream<'a> {
-    type Ok<'i> = Row<'i> where Self: 'i;
+    type Ok<'i>
+        = Row<'i>
+    where
+        Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
@@ -56,7 +59,10 @@ impl<'a> AsyncLendingIterator for RowStream<'a> {
 pub type RowSimpleStream = GenericRowStream<Vec<Column>>;
 
 impl AsyncLendingIterator for RowSimpleStream {
-    type Ok<'i> = RowSimple<'i> where Self: 'i;
+    type Ok<'i>
+        = RowSimple<'i>
+    where
+        Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
@@ -106,7 +112,10 @@ impl<C> AsyncLendingIterator for RowStreamGuarded<'_, C>
 where
     C: Prepare + Sync,
 {
-    type Ok<'i> = Row<'i> where Self: 'i;
+    type Ok<'i>
+        = Row<'i>
+    where
+        Self: 'i;
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
