@@ -11,7 +11,7 @@ use xitca_io::bytes::BytesMut;
 
 use crate::{
     column::Column,
-    error::{DbError, DriverDownReceiving, Error, InvalidParamCount},
+    error::{DriverDownReceiving, Error, InvalidParamCount},
     prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{Statement, StatementGuarded, StatementUnnamed},
@@ -48,10 +48,7 @@ impl Response {
         }
 
         let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.") {
-            backend::Message::ErrorResponse(body) => {
-                let e = DbError::parse(&mut body.fields())?;
-                Err(e.into())
-            }
+            backend::Message::ErrorResponse(body) => Err(Error::db(body.fields())),
             msg => Ok(msg),
         };
 

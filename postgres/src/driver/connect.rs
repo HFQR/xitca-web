@@ -101,7 +101,7 @@ pub(super) async fn connect_host(host: Host, cfg: &mut Config) -> Result<(Driver
 
 #[cold]
 #[inline(never)]
-pub(super) async fn connect_info(info: ConnectInfo) -> Result<Driver, Error> {
+pub(super) async fn connect_info(info: ConnectInfo) -> Result<(DriverTx, Driver), Error> {
     let ConnectInfo { addr, ssl_mode } = info;
     match addr {
         Addr::Tcp(_host, addr) => {
@@ -112,14 +112,16 @@ pub(super) async fn connect_info(info: ConnectInfo) -> Result<Driver, Error> {
                 #[cfg(feature = "tls")]
                 {
                     let io = super::tls::connect_tls(io, &_host, &mut Config::default()).await?;
-                    Ok(Driver::Tls(GenericDriver::new(io).0))
+                    let (io, tx) = GenericDriver::new(io);
+                    Ok((tx, Driver::Tls(io)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(crate::error::FeatureError::Tls.into())
                 }
             } else {
-                Ok(Driver::Tcp(GenericDriver::new(io).0))
+                let (io, tx) = GenericDriver::new(io);
+                Ok((tx, Driver::Tcp(io)))
             }
         }
         #[cfg(unix)]
@@ -129,20 +131,23 @@ pub(super) async fn connect_info(info: ConnectInfo) -> Result<Driver, Error> {
                 #[cfg(feature = "tls")]
                 {
                     let io = super::tls::connect_tls(io, &_host, &mut Config::default()).await?;
-                    Ok(Driver::UnixTls(GenericDriver::new(io).0))
+                    let (io, tx) = GenericDriver::new(io);
+                    Ok((tx, Driver::UnixTls(io)))
                 }
                 #[cfg(not(feature = "tls"))]
                 {
                     Err(crate::error::FeatureError::Tls.into())
                 }
             } else {
-                Ok(Driver::Unix(GenericDriver::new(io).0))
+                let (io, tx) = GenericDriver::new(io);
+                Ok((tx, Driver::Unix(io)))
             }
         }
         #[cfg(feature = "quic")]
         Addr::Quic(host, addr) => {
             let io = super::quic::connect_quic_addr(&host, addr).await?;
-            Ok(Driver::Quic(GenericDriver::new(io).0))
+            let (io, tx) = GenericDriver::new(io);
+            Ok((tx, Driver::Quic(io)))
         }
         Addr::None => Err(Error::todo()),
     }

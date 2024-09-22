@@ -12,7 +12,6 @@ use xitca_io::{bytes::BytesMut, io::AsyncIo};
 use super::{
     config::{Config, SslMode},
     driver::generic::GenericDriver,
-    error::DbError,
     error::{AuthenticationError, Error},
 };
 
@@ -101,7 +100,7 @@ impl Session {
                     let _name = body.name()?;
                     let _value = body.value()?;
                 }
-                backend::Message::ErrorResponse(body) => return Err(DbError::parse(&mut body.fields())?.into()),
+                backend::Message::ErrorResponse(body) => return Err(Error::db(body.fields())),
                 backend::Message::NoticeResponse(_) => {
                     // TODO: collect notice and let Driver emit it when polled?
                 }

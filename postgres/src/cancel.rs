@@ -15,7 +15,7 @@ impl Session {
     /// before the query terminates normally, or that the connection associated with this token is still active.
     pub async fn query_cancel(self) -> Result<(), Error> {
         let Session { id, key, info } = self;
-        let mut drv = super::driver::connect_info(info).await?;
+        let (_tx, mut drv) = super::driver::connect_info(info).await?;
         let mut buf = BytesMut::new();
         frontend::cancel_request(id, key, &mut buf);
         drv.send(buf).await
