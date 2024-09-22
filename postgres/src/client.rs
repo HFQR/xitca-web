@@ -266,27 +266,45 @@ impl Client {
     }
 
     pub fn typeinfo(&self) -> Option<Statement> {
-        self.cache.type_info.lock().unwrap().typeinfo.clone()
+        self.cache
+            .type_info
+            .lock()
+            .unwrap()
+            .typeinfo
+            .as_ref()
+            .map(Statement::duplicate)
     }
 
     pub fn set_typeinfo(&self, statement: &Statement) {
-        self.cache.type_info.lock().unwrap().typeinfo = Some(statement.clone());
+        self.cache.type_info.lock().unwrap().typeinfo = Some(statement.duplicate());
     }
 
     pub fn typeinfo_composite(&self) -> Option<Statement> {
-        self.cache.type_info.lock().unwrap().typeinfo_composite.clone()
+        self.cache
+            .type_info
+            .lock()
+            .unwrap()
+            .typeinfo_composite
+            .as_ref()
+            .map(Statement::duplicate)
     }
 
     pub fn set_typeinfo_composite(&self, statement: &Statement) {
-        self.cache.type_info.lock().unwrap().typeinfo_composite = Some(statement.clone());
+        self.cache.type_info.lock().unwrap().typeinfo_composite = Some(statement.duplicate());
     }
 
     pub fn typeinfo_enum(&self) -> Option<Statement> {
-        self.cache.type_info.lock().unwrap().typeinfo_enum.clone()
+        self.cache
+            .type_info
+            .lock()
+            .unwrap()
+            .typeinfo_enum
+            .as_ref()
+            .map(Statement::duplicate)
     }
 
     pub fn set_typeinfo_enum(&self, statement: &Statement) {
-        self.cache.type_info.lock().unwrap().typeinfo_enum = Some(statement.clone());
+        self.cache.type_info.lock().unwrap().typeinfo_enum = Some(statement.duplicate());
     }
 
     pub fn type_(&self, oid: Oid) -> Option<Type> {

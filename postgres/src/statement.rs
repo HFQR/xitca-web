@@ -55,14 +55,25 @@ impl<C> StatementGuarded<'_, C>
 where
     C: Prepare,
 {
-    /// Leak the statement and it would not be cancelled for current connection.
-    /// does not cause memory leak.
+    /// leak the statement and it will lose automatic management
+    /// **DOES NOT** cause memory leak
     pub fn leak(mut self) -> Statement {
         self.stmt.take().unwrap()
     }
 }
 
-#[derive(Clone, Default)]
+/// named prepared postgres statement without information of which [`Client`] it belongs to and lifetime
+/// cycle management
+///
+/// used for statement caching where owner of it is tasked with manual management of it's association
+/// and lifetime
+///
+/// [`Client`]: crate::client::Client
+// Statement must not implement Clone trait. use `Statement::duplicate` if needed.
+// StatementGuarded impls Deref trait and with Clone trait it will be possible to copy Statement out of a
+// StatementGuarded. This is not a desired behavior and obtaining a Statement from it's guard should only
+// be possible with StatementGuarded::leak API.
+#[derive(Default)]
 pub struct Statement {
     name: Box<str>,
     params: Box<[Type]>,
@@ -75,6 +86,14 @@ impl Statement {
             name: name.into_boxed_str(),
             params: params.into_boxed_slice(),
             columns: columns.into_boxed_slice(),
+        }
+    }
+
+    pub(crate) fn duplicate(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            params: self.params.clone(),
+            columns: self.columns.clone(),
         }
     }
 
@@ -192,5 +211,51 @@ pub(crate) mod compat {
                 inner: Arc::new(_StatementGuarded { stmt, cli }),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use core::future::IntoFuture;
+
+    use crate::{
+        error::{DbError, SqlState},
+        iter::AsyncLendingIterator,
+        Postgres,
+    };
+
+    #[tokio::test]
+    async fn cancel_statement() {
+        let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
+            .connect()
+            .await
+            .unwrap();
+
+        tokio::task::spawn(drv.into_future());
+
+        cli.execute_simple(
+            "CREATE TEMPORARY TABLE foo (
+            id SERIAL,
+            name TEXT
+        );
+
+        INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
+        )
+        .await
+        .unwrap();
+
+        let stmt = cli.prepare("SELECT id, name FROM foo ORDER BY id", &[]).await.unwrap();
+
+        let stmt_raw = stmt.duplicate();
+
+        drop(stmt);
+
+        let mut stream = cli.query(&stmt_raw, &[]).unwrap();
+
+        let e = stream.try_next().await.err().unwrap();
+
+        let e = e.downcast_ref::<DbError>().unwrap();
+
+        assert_eq!(e.code(), &SqlState::INVALID_SQL_STATEMENT_NAME);
     }
 }
