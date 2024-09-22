@@ -24,6 +24,8 @@ use super::codec::{Response, ResponseMessage, ResponseSender, SenderState};
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
+const INTEREST_READ_WRITE: Interest = Interest::READABLE.add(Interest::WRITABLE);
+
 pub(crate) struct DriverTx(Arc<SharedState>);
 
 impl Drop for DriverTx {
@@ -198,7 +200,7 @@ where
             }
 
             let interest = if self.want_write() {
-                const { Interest::READABLE.add(Interest::WRITABLE) }
+                INTEREST_READ_WRITE
             } else {
                 Interest::READABLE
             };
@@ -207,9 +209,7 @@ where
                 DriverState::Running => match self.shared_state.wait().select(self.io.ready(interest)).await {
                     SelectOutput::A(WaitState::WantWrite) => {
                         self.write_state = WriteState::WantWrite;
-                        self.io
-                            .ready(const { Interest::READABLE.add(Interest::WRITABLE) })
-                            .await?
+                        self.io.ready(INTEREST_READ_WRITE).await?
                     }
                     SelectOutput::A(WaitState::WantClose) => {
                         self.driver_state = DriverState::Closing(None);

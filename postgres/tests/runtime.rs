@@ -2,13 +2,13 @@ use core::future::IntoFuture;
 
 use xitca_postgres::{
     error::{DbError, SqlState},
+    types::Type,
     AsyncLendingIterator, Client, Postgres,
 };
 
 async fn connect(s: &str) -> Client {
     let (client, driver) = Postgres::new(s).connect().await.unwrap();
     tokio::spawn(driver.into_future());
-
     client
 }
 
@@ -157,13 +157,126 @@ async fn driver_shutdown() {
 
     let handle = tokio::spawn(drv.into_future());
 
-    let _ = cli.query_simple("SELECT 1").unwrap().try_next().await;
+    cli.execute_simple("SELECT 1").await.unwrap();
 
     // yield to execute the abort of driver task. this depends on single thread
     // tokio runtime's behavior specifically.
     handle.abort();
     tokio::task::yield_now().await;
 
-    let e = cli.query_simple("SELECT 1").err().unwrap();
+    let e = cli.execute_simple("SELECT 1").await.err().unwrap();
     assert!(e.is_driver_down());
+}
+
+#[tokio::test]
+async fn query_portal() {
+    let mut client = connect("postgres://postgres:postgres@localhost:5432").await;
+
+    client
+        .execute_simple(
+            "CREATE TEMPORARY TABLE foo (
+                id SERIAL,
+                name TEXT
+            );
+
+            INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
+        )
+        .await
+        .unwrap();
+
+    let transaction = client.transaction().await.unwrap();
+
+    let stmt = transaction
+        .prepare("SELECT id, name FROM foo ORDER BY id", &[])
+        .await
+        .unwrap()
+        .leak();
+
+    let portal = transaction.bind(&stmt, &[]).await.unwrap();
+    let mut stream1 = portal.query_portal(2).unwrap();
+    let mut stream2 = portal.query_portal(2).unwrap();
+    let mut stream3 = portal.query_portal(2).unwrap();
+
+    let row = stream1.try_next().await.unwrap().unwrap();
+    assert_eq!(row.get::<i32>(0), 1);
+    assert_eq!(row.get::<&str>(1), "alice");
+    let row = stream1.try_next().await.unwrap().unwrap();
+    assert_eq!(row.get::<i32>(0), 2);
+    assert_eq!(row.get::<&str>(1), "bob");
+    assert!(stream1.try_next().await.unwrap().is_none());
+
+    let row = stream2.try_next().await.unwrap().unwrap();
+    assert_eq!(row.get::<i32>(0), 3);
+    assert_eq!(row.get::<&str>(1), "charlie");
+    assert!(stream2.try_next().await.unwrap().is_none());
+
+    assert!(stream3.try_next().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn query_unnamed_with_transaction() {
+    let mut client = connect("postgres://postgres:postgres@localhost:5432").await;
+
+    client
+        .execute_simple(
+            "
+            CREATE TEMPORARY TABLE foo (
+                name TEXT,
+                age INT
+            );
+        ",
+        )
+        .await
+        .unwrap();
+
+    let transaction = client.transaction().await.unwrap();
+
+    let mut stream = transaction
+        .query_unnamed(
+            "INSERT INTO foo (name, age) VALUES ($1, $2), ($3, $4), ($5, $6) returning name, age",
+            &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
+            &[&"alice", &20i32, &"bob", &30i32, &"carol", &40i32],
+        )
+        .unwrap();
+
+    let mut inserted_values = Vec::new();
+
+    while let Some(row) = stream.try_next().await.unwrap() {
+        inserted_values.push((row.get::<String>(0), row.get::<i32>(1)));
+    }
+
+    assert_eq!(
+        inserted_values,
+        [
+            ("alice".to_string(), 20),
+            ("bob".to_string(), 30),
+            ("carol".to_string(), 40)
+        ]
+    );
+
+    let mut stream = transaction
+        .query_unnamed(
+            "SELECT name, age, 'literal', 5 FROM foo WHERE name <> $1 AND age < $2 ORDER BY age",
+            &[Type::TEXT, Type::INT4],
+            &[&"alice", &50i32],
+        )
+        .unwrap();
+
+    let row = stream.try_next().await.unwrap().unwrap();
+    assert_eq!(row.get::<&str>(0), "bob");
+    assert_eq!(row.get::<i32>(1), 30);
+    assert_eq!(row.get::<&str>(2), "literal");
+    assert_eq!(row.get::<i32>(3), 5);
+
+    let row = stream.try_next().await.unwrap().unwrap();
+    assert_eq!(row.get::<&str>(0), "carol");
+    assert_eq!(row.get::<i32>(1), 40);
+    assert_eq!(row.get::<&str>(2), "literal");
+    assert_eq!(row.get::<i32>(3), 5);
+
+    assert!(stream.try_next().await.unwrap().is_none());
+
+    // Test for UPDATE that returns no data
+    let mut stream = transaction.query_unnamed("UPDATE foo set age = 33", &[], &[]).unwrap();
+    assert!(stream.try_next().await.unwrap().is_none());
 }

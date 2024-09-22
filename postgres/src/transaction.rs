@@ -3,12 +3,12 @@ mod portal;
 
 use super::{
     client::ClientBorrowMut,
-    driver::codec::AsParams,
+    driver::codec::{AsParams, Encode, IntoStream},
     error::Error,
     iter::slice_iter,
     prepare::Prepare,
-    query::{Query, RowStream},
-    statement::{Statement, StatementGuarded},
+    query::Query,
+    statement::{Statement, StatementGuarded, StatementUnnamed},
     types::{ToSql, Type},
 };
 
@@ -108,7 +108,10 @@ where
     ///
     /// [`Client::query`]: crate::client::Client::query
     #[inline]
-    pub fn query<'a>(&self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<RowStream<'a>, Error> {
+    pub fn query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
+    where
+        S: Encode + IntoStream + 'a,
+    {
         self.client._query(stmt, params)
     }
 
@@ -116,11 +119,25 @@ where
     ///
     /// [`Client::query_raw`]: crate::client::Client::query_raw
     #[inline]
-    pub fn query_raw<'a, I>(&self, stmt: &'a Statement, params: I) -> Result<RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
     where
+        S: Encode + IntoStream + 'a,
         I: AsParams,
     {
         self.client._query_raw(stmt, params)
+    }
+
+    /// function the same as [`Client::query_unnamed`]
+    ///
+    /// [`Client::query_unnamed`]: crate::client::Client::query_unnamed
+    #[inline]
+    pub fn query_unnamed<'a>(
+        &'a self,
+        stmt: &'a str,
+        types: &'a [Type],
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<<StatementUnnamed<'a, C> as IntoStream>::RowStream<'a>, Error> {
+        self.query(Statement::unnamed(self.client, stmt, types), params)
     }
 
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.
@@ -201,6 +218,7 @@ where
 
     fn do_rollback(&mut self) {
         let query = self.save_point.rollback_query();
+        println!("doing rollback");
         drop(self.client._execute_raw::<_, crate::ZeroParam>(&query, []));
     }
 }
