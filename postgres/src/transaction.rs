@@ -218,7 +218,6 @@ where
 
     fn do_rollback(&mut self) {
         let query = self.save_point.rollback_query();
-        println!("doing rollback");
         drop(self.client._execute_raw::<_, crate::ZeroParam>(&query, []));
     }
 }
