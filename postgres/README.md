@@ -7,5 +7,5 @@
     - zero copy row data parsing
     - quic transport layer for lossy database connection
 - Cons
-    - not completely feature parity to tokio-postgres
-    - expose liftime in public type params.(harder to return from function or contained in new types)
+    - no built in back pressure mechanism. possible to cause excessive memory usage if database requests are unbounded or not rate limited
+    - expose lifetime in public type params.(hard to return from function or contained in new types)

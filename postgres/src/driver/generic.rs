@@ -11,7 +11,7 @@ use std::{
 };
 
 use futures_core::task::__internal::AtomicWaker;
-use postgres_protocol::message::backend;
+use postgres_protocol::message::{backend, frontend};
 use xitca_io::{
     bytes::{Buf, BufRead, BytesMut},
     io::{AsyncIo, Interest},
@@ -30,7 +30,9 @@ pub(crate) struct DriverTx(Arc<SharedState>);
 
 impl Drop for DriverTx {
     fn drop(&mut self) {
-        self.0.guarded.lock().unwrap().closed = true;
+        let mut state = self.0.guarded.lock().unwrap();
+        frontend::terminate(&mut state.buf);
+        state.closed = true;
         self.0.waker.wake();
     }
 }
@@ -311,9 +313,9 @@ where
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
-                ResponseMessage::Normal { buf, complete } => {
+                ResponseMessage::Normal { mut buf, complete } => {
                     let mut inner = self.shared_state.guarded.lock().unwrap();
-                    let front = inner.res.front_mut().expect("server respond out of bound");
+                    let front = inner.res.front_mut().ok_or_else(|| parse_error(&mut buf))?;
                     match front.send(buf, complete) {
                         SenderState::Finish => {
                             inner.res.pop_front();
@@ -325,5 +327,15 @@ where
             }
         }
         Ok(None)
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn parse_error(buf: &mut BytesMut) -> Error {
+    match backend::Message::parse(buf) {
+        Err(e) => Error::from(e),
+        Ok(Some(backend::Message::ErrorResponse(body))) => Error::db(body.fields()),
+        _ => Error::unexpected(),
     }
 }

@@ -48,6 +48,15 @@ impl Error {
         }))
     }
 
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn db(mut fields: ErrorFields<'_>) -> Error {
+        match DbError::parse(&mut fields) {
+            Ok(e) => Error::from(e),
+            Err(e) => Error::from(e),
+        }
+    }
+
     pub(crate) fn unexpected() -> Self {
         Self(Box::new(UnexpectedMessage {
             back_trace: Backtrace::capture(),
@@ -372,9 +381,7 @@ pub struct DbError {
 }
 
 impl DbError {
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn parse(fields: &mut ErrorFields<'_>) -> io::Result<DbError> {
+    fn parse(fields: &mut ErrorFields<'_>) -> io::Result<DbError> {
         let mut severity = None;
         let mut parsed_severity = None;
         let mut code = None;
