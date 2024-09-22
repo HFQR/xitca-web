@@ -73,7 +73,7 @@ where
     Ok((Client::new(tx, session), Driver::Dynamic(drv)))
 }
 
-pub(super) async fn connect_info(info: ConnectInfo) -> Result<Driver, Error> {
+pub(super) async fn connect_info(info: ConnectInfo) -> Result<(DriverTx, Driver), Error> {
     self::connect::connect_info(info).await
 }
 

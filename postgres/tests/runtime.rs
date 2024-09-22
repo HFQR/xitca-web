@@ -122,7 +122,7 @@ async fn cancel_query() {
 
     let cancel_token = client.cancel_token();
 
-    let sleep = client.execute_simple("SELECT pg_sleep(100)");
+    let sleep = client.execute_simple("SELECT pg_sleep(10)");
 
     tokio::task::yield_now().await;
 
