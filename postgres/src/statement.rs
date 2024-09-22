@@ -234,12 +234,7 @@ mod test {
         tokio::task::spawn(drv.into_future());
 
         cli.execute_simple(
-            "CREATE TEMPORARY TABLE foo (
-            id SERIAL,
-            name TEXT
-        );
-
-        INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
+            "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT); INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
         )
         .await
         .unwrap();

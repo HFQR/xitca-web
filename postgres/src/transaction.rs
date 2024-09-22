@@ -3,13 +3,14 @@ mod portal;
 
 use super::{
     client::ClientBorrowMut,
-    driver::codec::{AsParams, Encode, IntoStream},
+    driver::codec::{AsParams, Encode, IntoStream, Response},
     error::Error,
     iter::slice_iter,
     prepare::Prepare,
     query::Query,
     statement::{Statement, StatementGuarded, StatementUnnamed},
-    types::{ToSql, Type},
+    types::{Oid, ToSql, Type},
+    BoxedFuture,
 };
 
 pub use builder::TransactionBuilder;
@@ -97,11 +98,8 @@ where
     /// function the same as [`Client::prepare`]
     ///
     /// [`Client::prepare`]: crate::client::Client::prepare
-    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<C>, Error> {
-        self.client
-            ._prepare(query, types)
-            .await
-            .map(|stmt| stmt.into_guarded(self.client))
+    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
+        self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
     }
 
     /// function the same as [`Client::query`]
@@ -112,7 +110,7 @@ where
     where
         S: Encode + IntoStream + 'a,
     {
-        self.client._query(stmt, params)
+        self._query(stmt, params)
     }
 
     /// function the same as [`Client::query_raw`]
@@ -124,7 +122,7 @@ where
         S: Encode + IntoStream + 'a,
         I: AsParams,
     {
-        self.client._query_raw(stmt, params)
+        self._query_raw(stmt, params)
     }
 
     /// function the same as [`Client::query_unnamed`]
@@ -181,7 +179,7 @@ where
     pub async fn commit(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         let query = self.save_point.commit_query();
-        self.client._execute_raw::<_, crate::ZeroParam>(&query, []).await?;
+        self._execute_raw::<_, crate::ZeroParam>(&query, []).await?;
         Ok(())
     }
 
@@ -191,7 +189,7 @@ where
     pub async fn rollback(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         let query = self.save_point.rollback_query();
-        self.client._execute_raw::<_, crate::ZeroParam>(&query, []).await?;
+        self._execute_raw::<_, crate::ZeroParam>(&query, []).await?;
         Ok(())
     }
 
@@ -205,8 +203,7 @@ where
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        self.client
-            ._execute_raw::<_, crate::ZeroParam>(&save_point.save_point_query(), [])
+        self._execute_raw::<_, crate::ZeroParam>(&save_point.save_point_query(), [])
             .await?;
 
         Ok(Transaction {
@@ -218,6 +215,29 @@ where
 
     fn do_rollback(&mut self) {
         let query = self.save_point.rollback_query();
-        drop(self.client._execute_raw::<_, crate::ZeroParam>(&query, []));
+        drop(self._execute_raw::<_, crate::ZeroParam>(&query, []));
+    }
+}
+
+impl<C> Prepare for Transaction<'_, C>
+where
+    C: Prepare + Query + ClientBorrowMut,
+{
+    fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
+        self.client._get_type(oid)
+    }
+}
+
+impl<C> Query for Transaction<'_, C>
+where
+    C: Prepare + Query + ClientBorrowMut,
+{
+    #[inline]
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
+    where
+        S: Encode,
+        I: AsParams,
+    {
+        self.client._send_encode_query(stmt, params)
     }
 }
