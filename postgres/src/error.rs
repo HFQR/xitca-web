@@ -48,6 +48,15 @@ impl Error {
         }))
     }
 
+    pub(crate) fn driver_io(read: Option<io::Error>, write: Option<io::Error>) -> Self {
+        match (read, write) {
+            (Some(read), Some(write)) => Self::from(DriverIoErrorMulti { read, write }),
+            (Some(read), None) => Self::from(read),
+            (None, Some(write)) => Self::from(write),
+            _ => unreachable!("Driver must not report error when it doesn't produce any"),
+        }
+    }
+
     #[cold]
     #[inline(never)]
     pub(crate) fn db(mut fields: ErrorFields<'_>) -> Error {
@@ -96,6 +105,16 @@ impl error::Error for Error {
     }
 }
 
+macro_rules! from_impl {
+    ($i: ty) => {
+        impl From<$i> for Error {
+            fn from(e: $i) -> Self {
+                Self(Box::new(e))
+            }
+        }
+    };
+}
+
 /// work in progress error type with thread backtrace.
 /// use `RUST_BACKTRACE=1` env when starting your program to enable capture and format
 #[derive(Debug)]
@@ -111,13 +130,41 @@ impl fmt::Display for ToDo {
 
 impl error::Error for ToDo {}
 
-/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when sending request to driver.
+/// error indicate [`Client`]'s [`Driver`] is dropped and can't be accessed anymore when sending request to driver.
 ///
 /// database query related to this error has not been sent to database and it's safe to retry operation if
 /// desired.
 ///
-/// [Client]: crate::client::Client
-/// [Driver]: crate::driver::Driver
+/// # Error source
+/// detailed reason of driver shutdown can be obtained from output of [`Driver`]'s [`AsyncLendingIterator`] or
+/// [`IntoFuture`] trait impl method
+/// ## Examples
+/// ```
+/// # use std::future::IntoFuture;
+/// # use xitca_postgres::{Error, Postgres};
+/// # async fn driver_error() -> Result<(), Error> {
+/// // start a connection and spawn driver task
+/// let (cli, drv) = Postgres::new("<db_confg>").connect().await?;
+/// // keep the driver task's join handle for later use
+/// let handle = tokio::spawn(drv.into_future());
+///
+/// // when query returns error immediately we check if the driver is gone.
+/// if let Err(e) = cli.query("", &[]) {
+///     if e.is_driver_down() {
+///         // driver is gone and we want to know detail reason in this case.
+///         // await on the join handle will return the output of Driver task.
+///         let opt = handle.await.unwrap();
+///         println!("{opt:?}");
+///     }
+/// }
+/// # Ok(())
+/// # }
+/// ```
+///
+/// [`Client`]: crate::client::Client
+/// [`Driver`]: crate::driver::Driver
+/// [`AsyncLendingIterator`]: crate::iter::AsyncLendingIterator
+/// [`IntoFuture`]: core::future::IntoFuture
 #[derive(Default)]
 pub struct DriverDown;
 
@@ -135,11 +182,7 @@ impl fmt::Display for DriverDown {
 
 impl error::Error for DriverDown {}
 
-impl From<DriverDown> for Error {
-    fn from(e: DriverDown) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(DriverDown);
 
 /// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when receiving response
 /// from server.
@@ -160,11 +203,28 @@ impl fmt::Display for DriverDownReceiving {
 
 impl error::Error for DriverDownReceiving {}
 
-impl From<DriverDownReceiving> for Error {
-    fn from(e: DriverDownReceiving) -> Self {
-        Self(Box::new(e))
+from_impl!(DriverDownReceiving);
+
+/// driver shutdown outcome can contain multiple io error for detailed read/write errors.
+#[derive(Debug)]
+pub struct DriverIoErrorMulti {
+    read: io::Error,
+    write: io::Error,
+}
+
+impl fmt::Display for DriverIoErrorMulti {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Multiple IO error from driver {{ read error: {}, write error: {} }}",
+            self.read, self.write
+        )
     }
 }
+
+impl error::Error for DriverIoErrorMulti {}
+
+from_impl!(DriverIoErrorMulti);
 
 pub struct InvalidColumnIndex(pub String);
 
@@ -182,11 +242,7 @@ impl fmt::Display for InvalidColumnIndex {
 
 impl error::Error for InvalidColumnIndex {}
 
-impl From<InvalidColumnIndex> for Error {
-    fn from(e: InvalidColumnIndex) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(InvalidColumnIndex);
 
 #[derive(Debug)]
 pub struct InvalidParamCount {
@@ -202,11 +258,7 @@ impl fmt::Display for InvalidParamCount {
 
 impl error::Error for InvalidParamCount {}
 
-impl From<InvalidParamCount> for Error {
-    fn from(e: InvalidParamCount) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(InvalidParamCount);
 
 impl From<Infallible> for Error {
     fn from(e: Infallible) -> Self {
@@ -214,11 +266,7 @@ impl From<Infallible> for Error {
     }
 }
 
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(io::Error);
 
 impl From<FromSqlError> for Error {
     fn from(e: FromSqlError) -> Self {
@@ -247,11 +295,7 @@ impl fmt::Display for ConfigError {
 
 impl error::Error for ConfigError {}
 
-impl From<ConfigError> for Error {
-    fn from(e: ConfigError) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(ConfigError);
 
 /// error happens when library user failed to provide valid authentication info to database server.
 #[derive(Debug)]
@@ -274,11 +318,7 @@ impl fmt::Display for AuthenticationError {
 
 impl error::Error for AuthenticationError {}
 
-impl From<AuthenticationError> for Error {
-    fn from(e: AuthenticationError) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(AuthenticationError);
 
 #[non_exhaustive]
 #[derive(Debug)]
@@ -297,11 +337,7 @@ impl fmt::Display for SystemError {
 
 impl error::Error for SystemError {}
 
-impl From<SystemError> for Error {
-    fn from(e: SystemError) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(SystemError);
 
 #[non_exhaustive]
 #[derive(Debug)]
@@ -322,11 +358,7 @@ impl fmt::Display for FeatureError {
 
 impl error::Error for FeatureError {}
 
-impl From<FeatureError> for Error {
-    fn from(e: FeatureError) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(FeatureError);
 
 /// error for database returning backend message type that is not expected.
 /// it indicates there might be protocol error on either side of the connection.
@@ -353,11 +385,7 @@ pub(crate) fn unexpected_eof_err() -> io::Error {
     )
 }
 
-impl From<WrongType> for Error {
-    fn from(e: WrongType) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(WrongType);
 
 /// A Postgres error or notice.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -600,11 +628,7 @@ impl fmt::Display for DbError {
 
 impl error::Error for DbError {}
 
-impl From<DbError> for Error {
-    fn from(e: DbError) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(DbError);
 
 /// The severity of a Postgres error or notice.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

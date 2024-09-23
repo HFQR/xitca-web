@@ -127,7 +127,7 @@ pub struct GenericDriver<Io> {
     io: Io,
     read_buf: PagedBytesMut,
     shared_state: Arc<SharedState>,
-    driver_state: DriverState,
+    read_state: ReadState,
     write_state: WriteState,
 }
 
@@ -142,11 +142,12 @@ enum WriteState {
     Waiting,
     WantWrite,
     WantFlush,
+    Closed(Option<io::Error>),
 }
 
-enum DriverState {
-    Running,
-    Closing(Option<io::Error>),
+enum ReadState {
+    WantRead,
+    Closed(Option<io::Error>),
 }
 
 impl<Io> GenericDriver<Io>
@@ -168,15 +169,11 @@ where
                 io,
                 read_buf: PagedBytesMut::new(),
                 shared_state: state.clone(),
-                driver_state: DriverState::Running,
+                read_state: ReadState::WantRead,
                 write_state: WriteState::Waiting,
             },
             DriverTx(state),
         )
-    }
-
-    fn want_write(&self) -> bool {
-        !matches!(self.write_state, WriteState::Waiting)
     }
 
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
@@ -184,7 +181,7 @@ where
         self.write_state = WriteState::WantWrite;
         loop {
             self.try_write()?;
-            if !self.want_write() {
+            if matches!(self.write_state, WriteState::Waiting) {
                 return Ok(());
             }
             self.io.ready(Interest::WRITABLE).await?;
@@ -201,39 +198,55 @@ where
                 return Ok(Some(msg));
             }
 
-            let interest = if self.want_write() {
-                INTEREST_READ_WRITE
-            } else {
-                Interest::READABLE
-            };
-
-            let ready = match self.driver_state {
-                DriverState::Running => match self.shared_state.wait().select(self.io.ready(interest)).await {
-                    SelectOutput::A(WaitState::WantWrite) => {
-                        self.write_state = WriteState::WantWrite;
-                        self.io.ready(INTEREST_READ_WRITE).await?
+            let ready = match (&mut self.read_state, &mut self.write_state) {
+                (ReadState::WantRead, WriteState::Waiting) => {
+                    match self.shared_state.wait().select(self.io.ready(Interest::READABLE)).await {
+                        SelectOutput::A(WaitState::WantWrite) => {
+                            self.write_state = WriteState::WantWrite;
+                            self.io.ready(INTEREST_READ_WRITE).await?
+                        }
+                        SelectOutput::A(WaitState::WantClose) => {
+                            self.write_state = WriteState::Closed(None);
+                            continue;
+                        }
+                        SelectOutput::B(ready) => ready?,
                     }
-                    SelectOutput::A(WaitState::WantClose) => {
-                        self.driver_state = DriverState::Closing(None);
+                }
+                (ReadState::WantRead, WriteState::WantWrite) => self.io.ready(INTEREST_READ_WRITE).await?,
+                (ReadState::WantRead, WriteState::WantFlush) => {
+                    // before flush io do a quick buffer check and go into write io state if possible.
+                    if !self.shared_state.guarded.lock().unwrap().buf.is_empty() {
+                        self.write_state = WriteState::WantWrite;
+                    }
+                    self.io.ready(INTEREST_READ_WRITE).await?
+                }
+                (ReadState::WantRead, WriteState::Closed(_)) => self.io.ready(Interest::READABLE).await?,
+                (ReadState::Closed(_), WriteState::WantFlush | WriteState::WantWrite) => {
+                    self.io.ready(Interest::WRITABLE).await?
+                }
+                (ReadState::Closed(_), WriteState::Waiting) => match self.shared_state.wait().await {
+                    WaitState::WantWrite => {
+                        self.write_state = WriteState::WantWrite;
+                        self.io.ready(Interest::WRITABLE).await?
+                    }
+                    WaitState::WantClose => {
+                        self.write_state = WriteState::Closed(None);
                         continue;
                     }
-                    SelectOutput::B(ready) => ready?,
                 },
-                DriverState::Closing(ref mut e) => {
-                    if !interest.is_writable() && self.shared_state.guarded.lock().unwrap().res.is_empty() {
-                        // no interest to write to io and all response have been finished so
-                        // shutdown io and exit.
-                        // if there is a better way to exhaust potential remaining backend message
-                        // please file an issue.
-                        poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
-                        return e.take().map(|e| Err(e.into())).transpose();
-                    }
-                    self.io.ready(interest).await?
+                (ReadState::Closed(None), WriteState::Closed(None)) => {
+                    poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
+                    return Ok(None);
+                }
+                (ReadState::Closed(read_err), WriteState::Closed(write_err)) => {
+                    return Err(Error::driver_io(read_err.take(), write_err.take()))
                 }
             };
 
             if ready.is_readable() {
-                self.try_read()?;
+                if let Err(e) = self.try_read() {
+                    self.on_read_err(e);
+                };
             }
 
             if ready.is_writable() {
@@ -257,8 +270,8 @@ where
         }
     }
 
-    fn try_read(&mut self) -> Result<(), Error> {
-        self.read_buf.do_io(&mut self.io).map_err(Into::into)
+    fn try_read(&mut self) -> io::Result<()> {
+        self.read_buf.do_io(&mut self.io)
     }
 
     fn try_write(&mut self) -> io::Result<()> {
@@ -288,11 +301,17 @@ where
                         Err(e) => return Err(e),
                     }
                 }
-                WriteState::Waiting => unreachable!("try_write must be called when WriteState is waiting"),
+                _ => unreachable!("try_write must be called when WriteState is waiting"),
             }
         }
 
         Ok(())
+    }
+
+    #[cold]
+    fn on_read_err(&mut self, e: io::Error) {
+        let reason = (e.kind() != io::ErrorKind::UnexpectedEof).then_some(e);
+        self.read_state = ReadState::Closed(reason);
     }
 
     #[cold]
@@ -306,8 +325,7 @@ where
             // close shared state early so driver tx can observe the shutdown in first hand
             inner.closed = true;
         }
-        self.write_state = WriteState::Waiting;
-        self.driver_state = DriverState::Closing(Some(e));
+        self.write_state = WriteState::Closed(Some(e));
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
