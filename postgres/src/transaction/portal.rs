@@ -3,7 +3,7 @@ use core::sync::atomic::Ordering;
 use postgres_protocol::message::backend;
 
 use crate::{
-    driver::codec::{AsParams, IntoStream, PortalCancel, PortalCreate, PortalQuery},
+    driver::codec::{AsParams, Encode, IntoStream, PortalCancel, PortalCreate, PortalQuery},
     error::Error,
     query::Query,
     statement::Statement,
@@ -43,7 +43,7 @@ where
     {
         let name = format!("p{}", crate::NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
-        let mut res = cli._send_encode_query(
+        let (_, mut res) = cli._send_encode_query(
             PortalCreate {
                 name: &name,
                 stmt: stmt.name(),
@@ -60,7 +60,10 @@ where
         Ok(Portal { cli, name, stmt })
     }
 
-    pub fn query_portal(&self, max_rows: i32) -> Result<<PortalQuery<'_> as IntoStream>::RowStream<'_>, Error> {
+    pub fn query_portal(
+        &self,
+        max_rows: i32,
+    ) -> Result<<<PortalQuery<'_> as Encode>::Output<'_> as IntoStream>::RowStream<'_>, Error> {
         self.cli._query_raw::<_, crate::ZeroParam>(
             PortalQuery {
                 name: &self.name,

@@ -279,7 +279,7 @@ impl Client {
                 },
                 sync_count,
             )
-            .map(|res| PipelineStream::new(res, columns))
+            .map(|(_, res)| PipelineStream::new(res, columns))
     }
 }
 

@@ -82,21 +82,26 @@ pub trait Query {
     /// [`Statement`]: crate::statement::Statement
     /// [`StatementUnnamed`]: crate::statement::StatementUnnamed
     #[inline]
-    fn _query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
+    fn _query<'a, S>(
+        &self,
+        stmt: S,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
-        S: Encode + IntoStream + 'a,
+        S: Encode + 'a,
     {
         self._query_raw(stmt, slice_iter(params))
     }
 
     /// flexible version of [Query::_query]
     #[inline]
-    fn _query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
+    fn _query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
-        S: Encode + IntoStream + 'a,
+        S: Encode + 'a,
         I: AsParams,
     {
-        self._send_encode_query(stmt, params).map(|res| stmt.into_stream(res))
+        self._send_encode_query(stmt, params)
+            .map(|(stream, res)| stream.into_stream(res))
     }
 
     /// query that don't return any row but number of rows affected by it
@@ -114,19 +119,16 @@ pub trait Query {
         S: Encode,
         I: AsParams,
     {
-        let res = self._send_encode_query(stmt, params);
+        let res = self._send_encode_query(stmt, params).map(|(_, res)| res).map_err(Some);
         // TODO:
         // use async { res?.try_into_row_affected().await } with Rust 2024 edition
-        ExecuteFuture {
-            res: res.map_err(Some),
-            rows_affected: 0,
-        }
+        ExecuteFuture { res, rows_affected: 0 }
     }
 
     /// encode statement and params and send it to client driver
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
+    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
     where
-        S: Encode,
+        S: Encode + 'a,
         I: AsParams;
 }
 
