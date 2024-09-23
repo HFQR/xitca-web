@@ -30,9 +30,11 @@ pub(crate) struct DriverTx(Arc<SharedState>);
 
 impl Drop for DriverTx {
     fn drop(&mut self) {
-        let mut state = self.0.guarded.lock().unwrap();
-        frontend::terminate(&mut state.buf);
-        state.closed = true;
+        {
+            let mut state = self.0.guarded.lock().unwrap();
+            frontend::terminate(&mut state.buf);
+            state.closed = true;
+        }
         self.0.waker.wake();
     }
 }
