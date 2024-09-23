@@ -152,7 +152,7 @@ impl<'p> PoolConnection<'p> {
         &self,
         stmt: S,
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
+    ) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
     {
@@ -161,7 +161,7 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::query_raw`]
     #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
         I: AsParams,
@@ -327,9 +327,9 @@ impl Prepare for PoolConnection<'_> {
 }
 
 impl Query for PoolConnection<'_> {
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
+    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
     where
-        S: Encode,
+        S: Encode + 'a,
         I: AsParams,
     {
         self.conn().client._send_encode_query(stmt, params)

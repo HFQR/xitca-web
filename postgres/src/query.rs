@@ -86,7 +86,7 @@ pub trait Query {
         &self,
         stmt: S,
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
+    ) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
     {
@@ -95,7 +95,7 @@ pub trait Query {
 
     /// flexible version of [Query::_query]
     #[inline]
-    fn _query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
+    fn _query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
         I: AsParams,
@@ -126,9 +126,9 @@ pub trait Query {
     }
 
     /// encode statement and params and send it to client driver
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
+    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
     where
-        S: Encode,
+        S: Encode + 'a,
         I: AsParams;
 }
 

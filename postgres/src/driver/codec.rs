@@ -587,9 +587,9 @@ impl Encode for PortalQuery<'_> {
     }
 }
 
-pub(crate) fn send_encode_query<S, I>(tx: &DriverTx, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
+pub(crate) fn send_encode_query<'a, S, I>(tx: &DriverTx, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
 where
-    S: Encode,
+    S: Encode + 'a,
     I: AsParams,
 {
     tx.send(|buf| stmt.encode::<_, true>(params, buf))

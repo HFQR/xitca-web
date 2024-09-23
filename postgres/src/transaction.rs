@@ -110,7 +110,7 @@ where
         &self,
         stmt: S,
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
+    ) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
     {
@@ -121,7 +121,7 @@ where
     ///
     /// [`Client::query_raw`]: crate::client::Client::query_raw
     #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + IntoStream + 'a,
         I: AsParams,
@@ -237,9 +237,9 @@ where
     C: Prepare + Query + ClientBorrowMut,
 {
     #[inline]
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
+    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
     where
-        S: Encode,
+        S: Encode + 'a,
         I: AsParams,
     {
         self.client._send_encode_query(stmt, params)

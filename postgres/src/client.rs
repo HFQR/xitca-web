@@ -142,7 +142,7 @@ impl Client {
         &self,
         stmt: S,
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
+    ) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
     {
@@ -157,7 +157,7 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [`Client::prepare`].
     #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
         I: AsParams,
@@ -361,9 +361,9 @@ impl Prepare for Arc<Client> {
 
 impl Query for Arc<Client> {
     #[inline]
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
+    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
     where
-        S: Encode,
+        S: Encode + 'a,
         I: AsParams,
     {
         Client::_send_encode_query(self, stmt, params)
@@ -372,9 +372,9 @@ impl Query for Arc<Client> {
 
 impl Query for Client {
     #[inline]
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
+    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
     where
-        S: Encode,
+        S: Encode + 'a,
         I: AsParams,
     {
         codec::send_encode_query(&self.tx, stmt, params)
