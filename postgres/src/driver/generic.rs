@@ -82,9 +82,9 @@ impl DriverTx {
         let len = inner.buf.len();
 
         let o = func(&mut inner.buf).inspect_err(|_| inner.buf.truncate(len))?;
-
         let t = on_send(&mut inner);
 
+        drop(inner);
         self.0.waker.wake();
 
         Ok((o, t))
@@ -105,6 +105,7 @@ impl SharedState {
             } else if inner.closed {
                 Poll::Ready(WaitState::WantClose)
             } else {
+                drop(inner);
                 self.waker.register(cx.waker());
                 Poll::Pending
             }
