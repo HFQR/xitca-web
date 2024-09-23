@@ -138,9 +138,13 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [Client::prepare].
     #[inline]
-    pub fn query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
+    pub fn query<'a, S>(
+        &self,
+        stmt: S,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
     where
-        S: Encode + IntoStream + 'a,
+        S: Encode + 'a,
     {
         self._query(stmt, params)
     }
@@ -153,9 +157,9 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [`Client::prepare`].
     #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
     where
-        S: Encode + IntoStream + 'a,
+        S: Encode + 'a,
         I: AsParams,
     {
         self._query_raw(stmt, params)
@@ -208,7 +212,10 @@ impl Client {
     /// functionality to safely embed that data in the request. Do not form statements via string concatenation and pass
     /// them to this method!
     #[inline]
-    pub fn query_simple(&self, stmt: &str) -> Result<<&str as IntoStream>::RowStream<'_>, Error> {
+    pub fn query_simple(
+        &self,
+        stmt: &str,
+    ) -> Result<<<&str as Encode>::Output<'_> as IntoStream>::RowStream<'_>, Error> {
         self.query_raw::<_, crate::ZeroParam>(stmt, [])
     }
 
@@ -226,7 +233,7 @@ impl Client {
         stmt: &'a str,
         types: &'a [Type],
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<StatementUnnamed<'a, Self> as IntoStream>::RowStream<'a>, Error> {
+    ) -> Result<<<StatementUnnamed<'a, Self> as Encode>::Output<'a> as IntoStream>::RowStream<'a>, Error> {
         self.query(Statement::unnamed(self, stmt, types), params)
     }
 
@@ -354,7 +361,7 @@ impl Prepare for Arc<Client> {
 
 impl Query for Arc<Client> {
     #[inline]
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
     where
         S: Encode,
         I: AsParams,
@@ -365,7 +372,7 @@ impl Query for Arc<Client> {
 
 impl Query for Client {
     #[inline]
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
     where
         S: Encode,
         I: AsParams,

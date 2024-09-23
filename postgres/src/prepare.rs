@@ -32,14 +32,16 @@ pub trait Prepare: Query + Sync {
             debug!("preparing query {} with types {:?}: {}", name, types, query);
         }
 
-        let res = self._send_encode_query::<_, crate::ZeroParam>(
-            StatementCreate {
-                name: &name,
-                query,
-                types,
-            },
-            [],
-        );
+        let res = self
+            ._send_encode_query::<_, crate::ZeroParam>(
+                StatementCreate {
+                    name: &name,
+                    query,
+                    types,
+                },
+                [],
+            )
+            .map(|(_, res)| res);
 
         async {
             let mut res = res?;

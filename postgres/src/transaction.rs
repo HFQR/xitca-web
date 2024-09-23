@@ -106,9 +106,13 @@ where
     ///
     /// [`Client::query`]: crate::client::Client::query
     #[inline]
-    pub fn query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
+    pub fn query<'a, S>(
+        &self,
+        stmt: S,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
     where
-        S: Encode + IntoStream + 'a,
+        S: Encode + 'a,
     {
         self._query(stmt, params)
     }
@@ -117,7 +121,7 @@ where
     ///
     /// [`Client::query_raw`]: crate::client::Client::query_raw
     #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + IntoStream + 'a,
         I: AsParams,
@@ -134,7 +138,7 @@ where
         stmt: &'a str,
         types: &'a [Type],
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<StatementUnnamed<'a, C> as IntoStream>::RowStream<'a>, Error> {
+    ) -> Result<<<StatementUnnamed<'a, C> as Encode>::Output<'a> as IntoStream>::RowStream<'a>, Error> {
         self.query(Statement::unnamed(self.client, stmt, types), params)
     }
 
@@ -233,7 +237,7 @@ where
     C: Prepare + Query + ClientBorrowMut,
 {
     #[inline]
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
     where
         S: Encode,
         I: AsParams,

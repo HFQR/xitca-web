@@ -197,12 +197,20 @@ mod sealed {
     note = "consider using the types listed below that implementing Encode trait"
 )]
 pub trait Encode: sealed::Sealed + Sized {
-    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    /// output type defines how a potential async row streaming type should be constructed.
+    /// certain state from the encode type may need to be passed for constructing the stream
+    type Output<'o>: IntoStream
     where
-        I: AsParams;
+        Self: 'o;
+
+    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    where
+        I: AsParams,
+        Self: 'o;
 }
 
-pub trait IntoStream: sealed::Sealed + Sized + Copy {
+/// trait for generic over how to construct an async stream rows
+pub trait IntoStream: sealed::Sealed + Sized {
     type RowStream<'r>
     where
         Self: 'r;
@@ -215,9 +223,15 @@ pub trait IntoStream: sealed::Sealed + Sized + Copy {
 impl sealed::Sealed for &Statement {}
 
 impl Encode for &Statement {
-    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    type Output<'o>
+        = &'o [Column]
+    where
+        Self: 'o;
+
+    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         encode_bind(self.name(), self.params(), params, "", buf)?;
         frontend::execute("", 0, buf)?;
@@ -226,11 +240,13 @@ impl Encode for &Statement {
             frontend::sync(buf);
         }
 
-        Ok(())
+        Ok(self.columns())
     }
 }
 
-impl IntoStream for &Statement {
+impl sealed::Sealed for &[Column] {}
+
+impl IntoStream for &[Column] {
     type RowStream<'r>
         = RowStream<'r>
     where
@@ -241,34 +257,25 @@ impl IntoStream for &Statement {
     where
         Self: 'r,
     {
-        RowStream::new(res, self.columns())
+        RowStream::new(res, self)
     }
 }
 
 impl sealed::Sealed for &Arc<Statement> {}
 
 impl Encode for &Arc<Statement> {
+    type Output<'o>
+        = &'o [Column]
+    where
+        Self: 'o;
+
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
-    }
-}
-
-impl IntoStream for &Arc<Statement> {
-    type RowStream<'r>
-        = <&'r Statement as IntoStream>::RowStream<'r>
-    where
-        Self: 'r;
-
-    #[inline]
-    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
-    where
-        Self: 'r,
-    {
-        <&Statement>::into_stream(self, res)
     }
 }
 
@@ -278,30 +285,18 @@ impl<C> Encode for &StatementGuarded<'_, C>
 where
     C: Prepare,
 {
+    type Output<'o>
+        = &'o [Column]
+    where
+        Self: 'o;
+
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
-    }
-}
-
-impl<C> IntoStream for &StatementGuarded<'_, C>
-where
-    C: Prepare,
-{
-    type RowStream<'r>
-        = <&'r Statement as IntoStream>::RowStream<'r>
-    where
-        Self: 'r;
-
-    #[inline]
-    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
-    where
-        Self: 'r,
-    {
-        <&Statement>::into_stream(self, res)
     }
 }
 
@@ -311,10 +306,16 @@ impl<C> Encode for StatementUnnamed<'_, C>
 where
     C: Prepare,
 {
+    type Output<'o>
+        = IntoRowStreamGuard<'o, C>
+    where
+        Self: 'o;
+
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         let Self { stmt, types, .. } = self;
         frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
@@ -324,41 +325,54 @@ where
         if SYNC_MODE {
             frontend::sync(buf);
         }
-        Ok(())
+        Ok(IntoRowStreamGuard(self.cli))
     }
 }
 
-impl<'a, C> IntoStream for StatementUnnamed<'a, C>
+pub struct IntoRowStreamGuard<'a, C>(&'a C);
+
+impl<C> sealed::Sealed for IntoRowStreamGuard<'_, C> {}
+
+impl<C> IntoStream for IntoRowStreamGuard<'_, C>
 where
     C: Prepare,
 {
     type RowStream<'r>
         = RowStreamGuarded<'r, C>
     where
-        'a: 'r;
+        Self: 'r;
 
     #[inline]
     fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
     where
         Self: 'r,
     {
-        RowStreamGuarded::new(res, self.cli)
+        RowStreamGuarded::new(res, self.0)
     }
 }
 
 impl sealed::Sealed for &str {}
 
 impl Encode for &str {
+    type Output<'o>
+        = Vec<Column>
+    where
+        Self: 'o;
+
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
-        frontend::query(self, buf).map_err(Into::into)
+        frontend::query(self, buf)?;
+        Ok(Vec::new())
     }
 }
 
-impl IntoStream for &str {
+impl sealed::Sealed for Vec<Column> {}
+
+impl IntoStream for Vec<Column> {
     type RowStream<'r>
         = RowSimpleStream
     where
@@ -369,34 +383,25 @@ impl IntoStream for &str {
     where
         Self: 'r,
     {
-        RowSimpleStream::new(res, Vec::new())
+        RowSimpleStream::new(res, self)
     }
 }
 
 impl sealed::Sealed for &String {}
 
 impl Encode for &String {
+    type Output<'o>
+        = Vec<Column>
+    where
+        Self: 'o;
+
     #[inline]
-    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         self.as_str().encode::<_, SYNC_MODE>(params, buf)
-    }
-}
-
-impl IntoStream for &String {
-    type RowStream<'r>
-        = <&'r str as IntoStream>::RowStream<'r>
-    where
-        Self: 'r;
-
-    #[inline]
-    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
-    where
-        Self: 'r,
-    {
-        self.as_str().into_stream(res)
     }
 }
 
@@ -410,33 +415,41 @@ const _: () = {
     where
         C: Prepare,
     {
+        type Output<'o>
+            = &'o [Column]
+        where
+            Self: 'o;
+
         #[inline]
-        fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+        fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
         where
             I: AsParams,
+            Self: 'o,
         {
             <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
         }
     }
-
-    impl<C> IntoStream for &StatementGuarded<C>
-    where
-        C: Prepare,
-    {
-        type RowStream<'r>
-            = <&'r Statement as IntoStream>::RowStream<'r>
-        where
-            Self: 'r;
-
-        #[inline]
-        fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
-        where
-            Self: 'r,
-        {
-            <&Statement>::into_stream(self, res)
-        }
-    }
 };
+
+/// type for case where no row stream can be created.
+/// the api caller should never call into_stream method from this type.
+pub struct NoOpIntoRowStream;
+
+impl sealed::Sealed for NoOpIntoRowStream {}
+
+impl IntoStream for NoOpIntoRowStream {
+    type RowStream<'r>
+        = RowStream<'r>
+    where
+        Self: 'r;
+
+    fn into_stream<'r>(self, _: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
+        unreachable!("no row stream can be generated from no op row stream constructor")
+    }
+}
 
 pub(crate) struct StatementCreate<'a> {
     pub(crate) name: &'a str,
@@ -447,15 +460,22 @@ pub(crate) struct StatementCreate<'a> {
 impl sealed::Sealed for StatementCreate<'_> {}
 
 impl Encode for StatementCreate<'_> {
-    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    type Output<'o>
+        = NoOpIntoRowStream
+    where
+        Self: 'o;
+
+    #[inline]
+    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         let Self { name, query, types } = self;
         frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
         frontend::describe(b'S', name, buf)?;
         frontend::sync(buf);
-        Ok(())
+        Ok(NoOpIntoRowStream)
     }
 }
 
@@ -466,14 +486,21 @@ pub(crate) struct StatementCancel<'a> {
 impl sealed::Sealed for StatementCancel<'_> {}
 
 impl Encode for StatementCancel<'_> {
-    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    type Output<'o>
+        = NoOpIntoRowStream
+    where
+        Self: 'o;
+
+    #[inline]
+    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         let Self { name } = self;
         frontend::close(b'S', name, buf)?;
         frontend::sync(buf);
-        Ok(())
+        Ok(NoOpIntoRowStream)
     }
 }
 
@@ -486,14 +513,21 @@ pub(crate) struct PortalCreate<'a> {
 impl sealed::Sealed for PortalCreate<'_> {}
 
 impl Encode for PortalCreate<'_> {
-    fn encode<I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<(), Error>
+    type Output<'o>
+        = NoOpIntoRowStream
+    where
+        Self: 'o;
+
+    #[inline]
+    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         let Self { name, stmt, types } = self;
         encode_bind(stmt, types, params, name, buf)?;
         frontend::sync(buf);
-        Ok(())
+        Ok(NoOpIntoRowStream)
     }
 }
 
@@ -504,13 +538,20 @@ pub(crate) struct PortalCancel<'a> {
 impl sealed::Sealed for PortalCancel<'_> {}
 
 impl Encode for PortalCancel<'_> {
-    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    type Output<'o>
+        = NoOpIntoRowStream
+    where
+        Self: 'o;
+
+    #[inline]
+    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         I: AsParams,
+        Self: 'o,
     {
         frontend::close(b'P', self.name, buf)?;
         frontend::sync(buf);
-        Ok(())
+        Ok(NoOpIntoRowStream)
     }
 }
 
@@ -524,33 +565,29 @@ pub struct PortalQuery<'a> {
 impl sealed::Sealed for PortalQuery<'_> {}
 
 impl Encode for PortalQuery<'_> {
-    fn encode<I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<(), Error>
+    type Output<'o>
+        = &'o [Column]
     where
-        I: AsParams,
-    {
-        let Self { name, max_rows, .. } = self;
-        frontend::execute(name, max_rows, buf)?;
-        frontend::sync(buf);
-        Ok(())
-    }
-}
-
-impl IntoStream for PortalQuery<'_> {
-    type RowStream<'r>
-        = RowStream<'r>
-    where
-        Self: 'r;
+        Self: 'o;
 
     #[inline]
-    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        Self: 'r,
+        I: AsParams,
+        Self: 'o,
     {
-        RowStream::new(res, self.columns)
+        let Self {
+            name,
+            max_rows,
+            columns,
+        } = self;
+        frontend::execute(name, max_rows, buf)?;
+        frontend::sync(buf);
+        Ok(columns)
     }
 }
 
-pub(crate) fn send_encode_query<S, I>(tx: &DriverTx, stmt: S, params: I) -> Result<Response, Error>
+pub(crate) fn send_encode_query<S, I>(tx: &DriverTx, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
 where
     S: Encode,
     I: AsParams,

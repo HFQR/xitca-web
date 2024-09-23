@@ -148,18 +148,22 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::query`]
     #[inline]
-    pub fn query<'a, S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> Result<S::RowStream<'a>, Error>
+    pub fn query<'a, S>(
+        &self,
+        stmt: S,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
     where
-        S: Encode + IntoStream + 'a,
+        S: Encode + 'a,
     {
         self._query(stmt, params)
     }
 
     /// function the same as [`Client::query_raw`]
     #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<S::RowStream<'a>, Error>
+    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'_> as IntoStream>::RowStream<'a>, Error>
     where
-        S: Encode + IntoStream + 'a,
+        S: Encode + 'a,
         I: AsParams,
     {
         self._query_raw(stmt, params)
@@ -186,7 +190,10 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::query_simple`]
     #[inline]
-    pub fn query_simple(&self, stmt: &str) -> Result<<&str as IntoStream>::RowStream<'_>, Error> {
+    pub fn query_simple(
+        &self,
+        stmt: &str,
+    ) -> Result<<<&str as Encode>::Output<'_> as IntoStream>::RowStream<'_>, Error> {
         self.query_raw::<_, crate::ZeroParam>(stmt, [])
     }
 
@@ -203,7 +210,7 @@ impl<'p> PoolConnection<'p> {
         stmt: &'a str,
         types: &'a [Type],
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<StatementUnnamed<'a, Self> as IntoStream>::RowStream<'a>, Error> {
+    ) -> Result<<<StatementUnnamed<'a, Self> as Encode>::Output<'a> as IntoStream>::RowStream<'a>, Error> {
         self.query(Statement::unnamed(self, stmt, types), params)
     }
 
@@ -320,7 +327,7 @@ impl Prepare for PoolConnection<'_> {
 }
 
 impl Query for PoolConnection<'_> {
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
     where
         S: Encode,
         I: AsParams,

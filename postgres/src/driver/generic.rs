@@ -46,19 +46,20 @@ impl DriverTx {
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
-        self._send(func, |_| {})
+        self._send(func, |_| {})?;
+        Ok(())
     }
 
-    pub(crate) fn send<F>(&self, func: F) -> Result<Response, Error>
+    pub(crate) fn send<F, O>(&self, func: F) -> Result<(O, Response), Error>
     where
-        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+        F: FnOnce(&mut BytesMut) -> Result<O, Error>,
     {
         self.send_multi(func, 1)
     }
 
-    pub(crate) fn send_multi<F>(&self, func: F, msg_count: usize) -> Result<Response, Error>
+    pub(crate) fn send_multi<F, O>(&self, func: F, msg_count: usize) -> Result<(O, Response), Error>
     where
-        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+        F: FnOnce(&mut BytesMut) -> Result<O, Error>,
     {
         self._send(func, |inner| {
             let (tx, rx) = super::codec::request_pair(msg_count);
@@ -67,9 +68,9 @@ impl DriverTx {
         })
     }
 
-    fn _send<F, F2, T>(&self, func: F, on_send: F2) -> Result<T, Error>
+    fn _send<F, F2, O, T>(&self, func: F, on_send: F2) -> Result<(O, T), Error>
     where
-        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+        F: FnOnce(&mut BytesMut) -> Result<O, Error>,
         F2: FnOnce(&mut State) -> T,
     {
         let mut inner = self.0.guarded.lock().unwrap();
@@ -80,13 +81,13 @@ impl DriverTx {
 
         let len = inner.buf.len();
 
-        func(&mut inner.buf).inspect_err(|_| inner.buf.truncate(len))?;
+        let o = func(&mut inner.buf).inspect_err(|_| inner.buf.truncate(len))?;
 
-        let res = on_send(&mut inner);
+        let t = on_send(&mut inner);
 
         self.0.waker.wake();
 
-        Ok(res)
+        Ok((o, t))
     }
 }
 

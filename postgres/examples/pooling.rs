@@ -79,7 +79,7 @@ impl Prepare for PoolConnection {
 
 // trait for how a query is sent.
 impl Query for PoolConnection {
-    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<Response, Error>
+    fn _send_encode_query<S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'_>, Response), Error>
     where
         S: Encode,
         I: AsParams,
