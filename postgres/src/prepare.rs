@@ -8,7 +8,7 @@ use tracing::debug;
 use super::{
     client::Client,
     column::Column,
-    driver::codec::StatementCreate,
+    driver::codec::encode::StatementCreate,
     error::{DbError, Error, SqlState},
     iter::AsyncLendingIterator,
     query::Query,
@@ -92,7 +92,7 @@ impl Prepare for Client {
 
             let stmt = self.typeinfo_statement().await?;
 
-            let mut rows = self.query((&stmt, [&oid]))?;
+            let mut rows = self.query(stmt.bind([oid]))?;
             let row = rows.try_next().await?.ok_or_else(Error::unexpected)?;
 
             let name = row.try_get::<String>(0)?;
@@ -136,7 +136,7 @@ impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
-        let mut rows = self.query((&stmt, [&oid]))?;
+        let mut rows = self.query(stmt.bind([oid]))?;
 
         let mut res = Vec::new();
 
@@ -151,7 +151,7 @@ impl Client {
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
-        let mut rows = self.query((&stmt, [&oid]))?;
+        let mut rows = self.query(stmt.bind([oid]))?;
 
         let mut fields = Vec::new();
 

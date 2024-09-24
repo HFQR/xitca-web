@@ -12,7 +12,7 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{Encode, IntoStream, Response},
+    driver::codec::{encode::Encode, into_stream::IntoStream, Response},
     error::Error,
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
@@ -172,7 +172,7 @@ impl<'p> PoolConnection<'p> {
         types: &'a [Type],
         params: &'a [&(dyn ToSql + Sync)],
     ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query((Statement::unnamed(self, stmt, types), params.iter().cloned()))
+        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
     }
 
     /// function the same as [`Client::transaction`]

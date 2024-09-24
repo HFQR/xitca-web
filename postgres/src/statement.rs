@@ -4,8 +4,7 @@ use core::ops::Deref;
 
 use super::{
     column::Column,
-    driver::codec::AsParams,
-    driver::codec::StatementCancel,
+    driver::codec::{encode::StatementCancel, AsParams},
     prepare::Prepare,
     types::{ToSql, Type},
 };
@@ -106,8 +105,16 @@ impl Statement {
     }
 
     #[inline]
-    pub fn unnamed<'a, C>(cli: &'a C, stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a, C> {
-        StatementUnnamed { stmt, types, cli }
+    pub fn unnamed<'a, C, P>(cli: &'a C, stmt: &'a str, types: &'a [Type], params: P) -> StatementUnnamed<'a, P, C>
+    where
+        P: AsParams,
+    {
+        StatementUnnamed {
+            stmt,
+            types,
+            cli,
+            params,
+        }
     }
 
     /// bind self to typed value parameters where they are encoded into a valid sql query in binary format
@@ -126,11 +133,11 @@ impl Statement {
     /// # }
     /// ```
     #[inline]
-    pub fn bind<I>(&self, params: I) -> (&Self, I)
+    pub fn bind<P>(&self, params: P) -> StatementQuery<'_, P>
     where
-        I: AsParams,
+        P: AsParams,
     {
-        (self, params)
+        StatementQuery { stmt: self, params }
     }
 
     /// [Statement::bind] for dynamic typed parameters
@@ -143,10 +150,10 @@ impl Statement {
     /// # }
     /// ```
     #[inline]
-    pub fn bind_dyn<'s, 'p, 't>(
-        &'s self,
+    pub fn bind_dyn<'p, 't>(
+        &self,
         params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> (&'s Self, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + 'p) {
+    ) -> StatementQuery<'_, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + 'p> {
         self.bind(params.iter().cloned())
     }
 
@@ -172,19 +179,19 @@ impl Statement {
     }
 }
 
-pub struct StatementUnnamed<'a, C> {
+/// a named statement with it's query params
+pub struct StatementQuery<'a, P> {
+    pub(crate) stmt: &'a Statement,
+    pub(crate) params: P,
+}
+
+/// an unnamed statement with it's query params
+pub struct StatementUnnamed<'a, P, C> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
+    pub(crate) params: P,
     pub(crate) cli: &'a C,
 }
-
-impl<C> Clone for StatementUnnamed<'_, C> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<C> Copy for StatementUnnamed<'_, C> {}
 
 #[cfg(feature = "compat")]
 pub(crate) mod compat {

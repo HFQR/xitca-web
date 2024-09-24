@@ -11,7 +11,11 @@ use xitca_unsafe_collection::no_hash::NoHashBuilder;
 use super::{
     copy::{r#Copy, CopyIn, CopyOut},
     driver::{
-        codec::{self, Encode, IntoStream, Response},
+        codec::{
+            encode::{self, Encode},
+            into_stream::IntoStream,
+            Response,
+        },
         DriverTx,
     },
     error::Error,
@@ -172,7 +176,7 @@ impl Client {
         types: &'a [Type],
         params: &'a [&(dyn ToSql + Sync)],
     ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query((Statement::unnamed(self, stmt, types), params.iter().cloned()))
+        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
     }
 
     /// start a transaction
@@ -313,7 +317,7 @@ impl Query for Client {
     where
         S: Encode + 'a,
     {
-        codec::send_encode_query(&self.tx, stmt)
+        encode::send_encode_query(&self.tx, stmt)
     }
 }
 

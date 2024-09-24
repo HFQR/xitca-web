@@ -3,7 +3,7 @@ mod portal;
 
 use super::{
     client::ClientBorrowMut,
-    driver::codec::{AsParams, Encode, IntoStream, Response},
+    driver::codec::{encode::Encode, into_stream::IntoStream, AsParams, Response},
     error::Error,
     prepare::Prepare,
     query::{Query, RowStreamGuarded},
@@ -122,7 +122,7 @@ where
         types: &'a [Type],
         params: &'a [&(dyn ToSql + Sync)],
     ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query((Statement::unnamed(self, stmt, types), params.iter().cloned()))
+        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
     }
 
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.

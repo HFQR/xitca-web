@@ -12,7 +12,7 @@ use core::{
 };
 
 use super::{
-    driver::codec::{Encode, IntoStream, Response},
+    driver::codec::{encode::Encode, into_stream::IntoStream, Response},
     error::Error,
 };
 
@@ -54,10 +54,10 @@ pub trait Query {
     /// # use xitca_postgres::{dev::{Prepare, Query}, statement::Statement, types::Type, AsyncLendingIterator, Client, Error};
     /// # async fn prepare_and_query(client: &Client) -> Result<(), Error> {
     /// // construct an unnamed statement.
-    /// let stmt = Statement::unnamed(client, "SELECT id from users", &[Type::INT4]);
+    /// let stmt = Statement::unnamed(client, "SELECT * FROM users WHERE id = $1", &[Type::INT4], [&996i32]);
     /// // query with the unnamed statement.
     /// // under the hood the statement is prepared in background and used for query and stream row parsing
-    /// let mut stream = client._query((stmt, [&996i32]))?;
+    /// let mut stream = client._query(stmt)?;
     /// // obtain the first row and get user id.
     /// let row = stream.try_next().await?.unwrap();      
     /// let _id: i32 = row.try_get("id")?;

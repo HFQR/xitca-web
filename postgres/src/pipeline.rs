@@ -16,7 +16,7 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     column::Column,
-    driver::codec::{self, Encode, Response},
+    driver::codec::{self, encode::Encode, Response},
     error::Error,
     iter::AsyncLendingIterator,
     row::Row,
