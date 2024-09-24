@@ -4,7 +4,7 @@ use core::ops::Deref;
 
 use super::{
     column::Column,
-    driver::codec::IntoParams,
+    driver::codec::AsParams,
     driver::codec::StatementCancel,
     prepare::Prepare,
     types::{ToSql, Type},
@@ -128,7 +128,7 @@ impl Statement {
     #[inline]
     pub fn bind<I>(&self, params: I) -> (&Self, I)
     where
-        I: IntoParams,
+        I: AsParams,
     {
         (self, params)
     }
@@ -146,8 +146,8 @@ impl Statement {
     pub fn bind_dyn<'s, 'p, 't>(
         &'s self,
         params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> (&'s Self, &'p [&'t (dyn ToSql + Sync)]) {
-        self.bind(params)
+    ) -> (&'s Self, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + 'p) {
+        self.bind(params.iter().cloned())
     }
 
     /// Returns the expected types of the statement's parameters.

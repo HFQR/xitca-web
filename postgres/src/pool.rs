@@ -172,7 +172,7 @@ impl<'p> PoolConnection<'p> {
         types: &'a [Type],
         params: &'a [&(dyn ToSql + Sync)],
     ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query((Statement::unnamed(self, stmt, types), params))
+        self.query((Statement::unnamed(self, stmt, types), params.iter().cloned()))
     }
 
     /// function the same as [`Client::transaction`]

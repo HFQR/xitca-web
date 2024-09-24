@@ -15,7 +15,7 @@ use crate::{
     prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{Statement, StatementGuarded, StatementUnnamed},
-    types::{BorrowToSql, IsNull, ToSql, Type},
+    types::{BorrowToSql, IsNull, Type},
 };
 
 use super::DriverTx;
@@ -176,36 +176,9 @@ impl ResponseMessage {
 
 /// traits for converting typed parameters into exact sized iterator where it yields
 /// item can be converted in binary format of postgres type.
-pub trait IntoParams {
-    fn into_params(self) -> impl ExactSizeIterator<Item: BorrowToSql>;
-}
+pub trait AsParams: IntoIterator<IntoIter: ExactSizeIterator<Item: BorrowToSql>> {}
 
-impl<I, const N: usize> IntoParams for [I; N]
-where
-    I: ToSql,
-{
-    #[inline]
-    fn into_params(self) -> impl ExactSizeIterator<Item: BorrowToSql> {
-        self.into_iter()
-    }
-}
-
-impl<I> IntoParams for Vec<I>
-where
-    I: ToSql,
-{
-    #[inline]
-    fn into_params(self) -> impl ExactSizeIterator<Item: BorrowToSql> {
-        self.into_iter()
-    }
-}
-
-impl IntoParams for &[&(dyn ToSql + Sync)] {
-    #[inline]
-    fn into_params(self) -> impl ExactSizeIterator<Item: BorrowToSql> {
-        self.iter().cloned()
-    }
-}
+impl<I> AsParams for I where I: IntoIterator<IntoIter: ExactSizeIterator<Item: BorrowToSql>> {}
 
 mod sealed {
     pub trait Sealed {}
@@ -322,7 +295,7 @@ impl<I> sealed::Sealed for (&Statement, I) {}
 
 impl<I> Encode for (&Statement, I)
 where
-    I: IntoParams,
+    I: AsParams,
 {
     type Output<'o>
         = &'o [Column]
@@ -349,7 +322,7 @@ impl<I> sealed::Sealed for (&Arc<Statement>, I) {}
 
 impl<I> Encode for (&Arc<Statement>, I)
 where
-    I: IntoParams,
+    I: AsParams,
 {
     type Output<'o>
         = &'o [Column]
@@ -371,7 +344,7 @@ impl<C, I> sealed::Sealed for (&StatementGuarded<'_, C>, I) where C: Prepare {}
 impl<C, I> Encode for (&StatementGuarded<'_, C>, I)
 where
     C: Prepare,
-    I: IntoParams,
+    I: AsParams,
 {
     type Output<'o>
         = &'o [Column]
@@ -393,7 +366,7 @@ impl<C, I> sealed::Sealed for (StatementUnnamed<'_, C>, I) where C: Prepare {}
 impl<C, I> Encode for (StatementUnnamed<'_, C>, I)
 where
     C: Prepare,
-    I: IntoParams,
+    I: AsParams,
 {
     type Output<'o>
         = IntoRowStreamGuard<'o, C>
@@ -500,7 +473,7 @@ const _: () = {
     impl<C, I> Encode for (&StatementGuarded<C>, I)
     where
         C: Prepare,
-        I: IntoParams,
+        I: AsParams,
     {
         type Output<'o>
             = &'o [Column]
@@ -599,7 +572,7 @@ impl<I> sealed::Sealed for (PortalCreate<'_>, I) {}
 
 impl<I> Encode for (PortalCreate<'_>, I)
 where
-    I: IntoParams,
+    I: AsParams,
 {
     type Output<'o>
         = NoOpIntoRowStream
@@ -681,9 +654,9 @@ where
 
 fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
 where
-    P: IntoParams,
+    P: AsParams,
 {
-    let params = params.into_params();
+    let params = params.into_iter();
     if params.len() != types.len() {
         return Err(Error::from(InvalidParamCount {
             expected: types.len(),
