@@ -9,3 +9,58 @@
 - Cons
     - no built in back pressure mechanism. possible to cause excessive memory usage if database requests are unbounded or not rate limited
     - expose lifetime in public type params.(hard to return from function or contained in new types)
+
+## Quick Start
+```rust
+use std::future::IntoFuture;
+
+use xitca_postgres::{types::Type, AsyncLendingIterator, Postgres};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // connect to database and spawn driver as tokio task.
+    let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
+        .connect()
+        .await?;
+    tokio::spawn(drv.into_future());
+
+    // execute raw sql queries with client type. multiple sql queries are separated by ;
+    cli.execute(
+        "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT);
+        INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
+    )
+    .await?;
+
+    // prepare statement with type parameters. multiple params can be annotate as $1, $2 .. $n
+    // following the sql query is a slice of potential postgres type for each param in the same order.
+    // in this case we declare for $1 param's value has to be INT4 type. it's according Rust type representation is i32
+    // and $2 param's value has to be TEXT type. it's according Rust type can be String/&str or other types that can represent a text string
+    let stmt = cli
+        .prepare(
+            "SELECT id, name FROM foo WHERE id = $1 AND name = $2",
+            &[Type::INT4, Type::TEXT],
+        )
+        .await?;
+
+    // bind the prepared statement to parameter values it declared. the value's Rust type representation must match the postgres Type we declared.
+    let bind = stmt.bind_dyn(&[&1i32, &"alice"]);
+
+    // query with the bind and get an async streaming for database rows on success
+    let mut stream = cli.query(bind)?;
+
+    // use async iterator to visit rows
+    let row = stream.try_next().await?.ok_or("no row found")?;
+
+    // parse column value from row to rust types
+    let id = row.get::<i32>(0); // column's numeric index can be used for slicing the row and parse column.
+    assert_eq!(id, 1);
+
+    let name = row.get::<&str>("name"); // column's string name index can be used for parsing too.
+    assert_eq!(name, "alice");
+
+    // when all rows are visited the stream would yield Ok(None) to indicate it has ended.
+    assert!(stream.try_next().await?.is_none());
+
+    Ok(())
+}
+```
