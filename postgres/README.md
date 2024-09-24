@@ -12,7 +12,6 @@
 
 ## Quick Start
 ```rust
-
 use std::future::IntoFuture;
 
 use xitca_postgres::{types::Type, AsyncLendingIterator, Postgres};
@@ -79,6 +78,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // when all rows are visited the stream would yield Ok(None) to indicate it has ended.
     assert!(stream.try_next().await?.is_none());
+
+    // like execute method. query can be used with raw sql string.
+    let mut stream = cli.query("SELECT id, name FROM foo WHERE name = 'david'")?;
+    let row = stream.try_next().await?.ok_or("no row found")?;
+    // unlike query with prepared statement. raw sql query would return rows that can only be parsed to Rust string
+    // types.
+    let id = row.get(0).ok_or("no id found")?;
+    assert_eq!(id, "4");
+    let name = row.get("name").ok_or("no name found")?;
+    assert_eq!(name, "david");
 
     Ok(())
 }
