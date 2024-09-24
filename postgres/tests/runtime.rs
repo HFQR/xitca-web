@@ -16,7 +16,7 @@ async fn smoke_test(s: &str) {
     let client = connect(s).await;
 
     let stmt = client.prepare("SELECT $1::INT", &[]).await.unwrap();
-    let mut stream = client.query(&stmt, &[&1i32]).unwrap();
+    let mut stream = client.query(stmt.bind([1i32])).unwrap();
     let row = stream.try_next().await.unwrap().unwrap();
     assert_eq!(row.get::<i32>(0), 1i32);
 }
@@ -122,7 +122,7 @@ async fn cancel_query() {
 
     let cancel_token = client.cancel_token();
 
-    let sleep = client.execute_simple("SELECT pg_sleep(10)");
+    let sleep = client.execute("SELECT pg_sleep(10)");
 
     tokio::task::yield_now().await;
 
@@ -157,14 +157,14 @@ async fn driver_shutdown() {
 
     let handle = tokio::spawn(drv.into_future());
 
-    cli.execute_simple("SELECT 1").await.unwrap();
+    cli.execute("SELECT 1").await.unwrap();
 
     // yield to execute the abort of driver task. this depends on single thread
     // tokio runtime's behavior specifically.
     handle.abort();
     tokio::task::yield_now().await;
 
-    let e = cli.execute_simple("SELECT 1").await.err().unwrap();
+    let e = cli.execute("SELECT 1").await.err().unwrap();
     assert!(e.is_driver_down());
 }
 
@@ -173,7 +173,7 @@ async fn query_portal() {
     let mut client = connect("postgres://postgres:postgres@localhost:5432").await;
 
     client
-        .execute_simple(
+        .execute(
             "CREATE TEMPORARY TABLE foo (
                 id SERIAL,
                 name TEXT
@@ -218,14 +218,7 @@ async fn query_unnamed_with_transaction() {
     let mut client = connect("postgres://postgres:postgres@localhost:5432").await;
 
     client
-        .execute_simple(
-            "
-            CREATE TEMPORARY TABLE foo (
-                name TEXT,
-                age INT
-            );
-        ",
-        )
+        .execute("CREATE TEMPORARY TABLE foo (name TEXT, age INT);")
         .await
         .unwrap();
 

@@ -149,7 +149,7 @@ impl error::Error for ToDo {}
 /// let handle = tokio::spawn(drv.into_future());
 ///
 /// // when query returns error immediately we check if the driver is gone.
-/// if let Err(e) = cli.query("", &[]) {
+/// if let Err(e) = cli.query("") {
 ///     if e.is_driver_down() {
 ///         // driver is gone and we want to know detail reason in this case.
 ///         // await on the join handle will return the output of Driver task.
@@ -252,7 +252,12 @@ pub struct InvalidParamCount {
 
 impl fmt::Display for InvalidParamCount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "expected {} parameters but got {}", self.expected, self.params)
+        write!(
+            f,
+            "expected Statement bind to {} parameters but got {}.\r\n",
+            self.expected, self.params
+        )?;
+        f.write_str("note: consider use `Statement::bind` or check the parameter values count if already used")
     }
 }
 

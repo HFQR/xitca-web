@@ -111,6 +111,6 @@ impl TransactionBuilder {
             query.pop();
         }
 
-        cli._execute(&query, &[]).await.map(|_| Transaction::new(cli))
+        cli._execute(&query).await.map(|_| Transaction::new(cli))
     }
 }

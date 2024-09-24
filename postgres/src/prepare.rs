@@ -33,14 +33,11 @@ pub trait Prepare: Query + Sync {
         }
 
         let res = self
-            ._send_encode_query::<_, crate::ZeroParam>(
-                StatementCreate {
-                    name: &name,
-                    query,
-                    types,
-                },
-                [],
-            )
+            ._send_encode_query(StatementCreate {
+                name: &name,
+                query,
+                types,
+            })
             .map(|(_, res)| res);
 
         async {
@@ -95,7 +92,7 @@ impl Prepare for Client {
 
             let stmt = self.typeinfo_statement().await?;
 
-            let mut rows = self.query_raw(&stmt, &[&oid])?;
+            let mut rows = self.query((&stmt, [&oid]))?;
             let row = rows.try_next().await?.ok_or_else(Error::unexpected)?;
 
             let name = row.try_get::<String>(0)?;
@@ -139,7 +136,7 @@ impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
 
-        let mut rows = self.query_raw(&stmt, &[&oid])?;
+        let mut rows = self.query((&stmt, [&oid]))?;
 
         let mut res = Vec::new();
 
@@ -154,7 +151,7 @@ impl Client {
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
 
-        let mut rows = self.query_raw(&stmt, &[&oid])?;
+        let mut rows = self.query((&stmt, [&oid]))?;
 
         let mut fields = Vec::new();
 

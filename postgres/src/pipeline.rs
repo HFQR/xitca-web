@@ -16,12 +16,10 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     column::Column,
-    driver::codec::{self, AsParams, Encode, Response},
+    driver::codec::{self, Encode, Response},
     error::Error,
-    iter::{slice_iter, AsyncLendingIterator},
+    iter::AsyncLendingIterator,
     row::Row,
-    statement::Statement,
-    types::ToSql,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
@@ -40,8 +38,8 @@ use super::{
 ///     let mut pipe = Pipeline::new();
 ///
 ///     // pipeline can encode multiple queries.
-///     pipe.query(statement.as_ref(), &[])?;
-///     pipe.query_raw::<[i32; 0]>(statement.as_ref(), [])?;
+///     pipe.query(statement.bind([] as [i32; 0]))?;
+///     pipe.query(statement.bind([] as [i32; 0]))?;
 ///
 ///     // execute the pipeline and on success a streaming response will be returned.
 ///     let mut res = client.pipeline(pipe)?;
@@ -233,20 +231,15 @@ impl<'a, B, const SYNC_MODE: bool> Pipeline<'a, B, SYNC_MODE>
 where
     B: DerefMut<Target = BytesMut>,
 {
-    /// pipelined version of [Client::query] and [Client::execute]
-    #[inline]
-    pub fn query(&mut self, stmt: &'a Statement, params: &[&(dyn ToSql + Sync)]) -> Result<(), Error> {
-        self.query_raw(stmt, slice_iter(params))
-    }
-
-    /// pipelined version of [Client::query_raw] and [Client::execute_raw]
-    pub fn query_raw<I>(&mut self, stmt: &'a Statement, params: I) -> Result<(), Error>
+    /// pipelined version of [Client::query] with strict input requirement where it only accepts reference
+    /// of raw statement and it's associated type parameters.
+    pub fn query<S>(&mut self, stmt: S) -> Result<(), Error>
     where
-        I: AsParams,
+        S: Encode<Output<'a> = &'a [Column]> + 'a,
     {
         let len = self.buf.len();
-        stmt.encode::<_, SYNC_MODE>(params, &mut self.buf)
-            .map(|_| self.columns.push(stmt.columns()))
+        stmt.encode::<SYNC_MODE>(&mut self.buf)
+            .map(|columns| self.columns.push(columns))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| self.buf.truncate(len))
     }

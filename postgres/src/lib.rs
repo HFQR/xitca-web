@@ -70,7 +70,7 @@ pub mod compat {
     //! # async fn convert(client: Client) -> Result<(), Error> {
     //! // prepare a statement and query for rows.
     //! let stmt = client.prepare("SELECT * from users", &[]).await?;
-    //! let mut stream = client.query(&stmt, &[])?;
+    //! let mut stream = client.query(&stmt)?;
     //!
     //! // assuming we want to spawn a tokio async task and handle the stream inside it.
     //! // but code below would not work as stream is a borrowed type with lending iterator implements.
@@ -108,7 +108,7 @@ pub mod dev {
 
     pub use crate::client::ClientBorrowMut;
     pub use crate::copy::r#Copy;
-    pub use crate::driver::codec::{AsParams, Encode, Response};
+    pub use crate::driver::codec::{Encode, Response};
     pub use crate::prepare::Prepare;
     pub use crate::query::Query;
 }
@@ -118,8 +118,6 @@ use core::{future::Future, pin::Pin, sync::atomic::AtomicUsize};
 use xitca_io::io::AsyncIo;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
-
-type ZeroParam = [i32; 0];
 
 #[derive(Debug)]
 pub struct Postgres {

@@ -27,9 +27,7 @@ where
     C: Query,
 {
     fn drop(&mut self) {
-        let _ = self
-            .cli
-            ._send_encode_query::<_, crate::ZeroParam>(PortalCancel { name: &self.name }, []);
+        let _ = self.cli._send_encode_query(PortalCancel { name: &self.name });
     }
 }
 
@@ -43,14 +41,14 @@ where
     {
         let name = format!("p{}", crate::NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
-        let (_, mut res) = cli._send_encode_query(
+        let (_, mut res) = cli._send_encode_query((
             PortalCreate {
                 name: &name,
                 stmt: stmt.name(),
                 types: stmt.params(),
             },
             params,
-        )?;
+        ))?;
 
         match res.recv().await? {
             backend::Message::BindComplete => {}
@@ -64,13 +62,10 @@ where
         &self,
         max_rows: i32,
     ) -> Result<<<PortalQuery<'_> as Encode>::Output<'_> as IntoStream>::RowStream<'_>, Error> {
-        self.cli._query_raw::<_, crate::ZeroParam>(
-            PortalQuery {
-                name: &self.name,
-                columns: self.stmt.columns(),
-                max_rows,
-            },
-            [],
-        )
+        self.cli._query(PortalQuery {
+            name: &self.name,
+            columns: self.stmt.columns(),
+            max_rows,
+        })
     }
 }
