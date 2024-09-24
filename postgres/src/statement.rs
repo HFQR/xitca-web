@@ -4,8 +4,7 @@ use core::ops::Deref;
 
 use super::{
     column::Column,
-    driver::codec::AsParams,
-    driver::codec::StatementCancel,
+    driver::codec::{AsParams, StatementCancel, StatementQuery},
     prepare::Prepare,
     types::{ToSql, Type},
 };
@@ -134,11 +133,11 @@ impl Statement {
     /// # }
     /// ```
     #[inline]
-    pub fn bind<I>(&self, params: I) -> (&Self, I)
+    pub fn bind<P>(&self, params: P) -> StatementQuery<'_, P>
     where
-        I: AsParams,
+        P: AsParams,
     {
-        (self, params)
+        StatementQuery { stmt: self, params }
     }
 
     /// [Statement::bind] for dynamic typed parameters
@@ -151,10 +150,10 @@ impl Statement {
     /// # }
     /// ```
     #[inline]
-    pub fn bind_dyn<'s, 'p, 't>(
-        &'s self,
+    pub fn bind_dyn<'p, 't>(
+        &self,
         params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> (&'s Self, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + 'p) {
+    ) -> StatementQuery<'_, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + 'p> {
         self.bind(params.iter().cloned())
     }
 

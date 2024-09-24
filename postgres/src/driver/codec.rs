@@ -291,11 +291,16 @@ where
     }
 }
 
-impl<I> sealed::Sealed for (&Statement, I) {}
+pub struct StatementQuery<'a, P> {
+    pub(crate) stmt: &'a Statement,
+    pub(crate) params: P,
+}
 
-impl<I> Encode for (&Statement, I)
+impl<P> sealed::Sealed for StatementQuery<'_, P> {}
+
+impl<'a, P> Encode for StatementQuery<'a, P>
 where
-    I: AsParams,
+    P: AsParams,
 {
     type Output<'o>
         = &'o [Column]
@@ -306,7 +311,7 @@ where
     where
         Self: 'o,
     {
-        let (stmt, params) = self;
+        let Self { stmt, params } = self;
         encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
         frontend::execute("", 0, buf)?;
 
@@ -315,49 +320,6 @@ where
         }
 
         Ok(stmt.columns())
-    }
-}
-
-impl<I> sealed::Sealed for (&Arc<Statement>, I) {}
-
-impl<I> Encode for (&Arc<Statement>, I)
-where
-    I: AsParams,
-{
-    type Output<'o>
-        = &'o [Column]
-    where
-        Self: 'o;
-
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        let (stmt, params) = self;
-        <(&Statement, I)>::encode::<SYNC_MODE>((stmt, params), buf)
-    }
-}
-
-impl<C, I> sealed::Sealed for (&StatementGuarded<'_, C>, I) where C: Prepare {}
-
-impl<C, I> Encode for (&StatementGuarded<'_, C>, I)
-where
-    C: Prepare,
-    I: AsParams,
-{
-    type Output<'o>
-        = &'o [Column]
-    where
-        Self: 'o;
-
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        let (stmt, params) = self;
-        <(&Statement, I)>::encode::<SYNC_MODE>((stmt, params), buf)
     }
 }
 
@@ -468,33 +430,6 @@ impl Encode for &String {
         self.as_str().encode::<SYNC_MODE>(buf)
     }
 }
-
-#[cfg(feature = "compat")]
-const _: () = {
-    use crate::statement::compat::StatementGuarded;
-
-    impl<C, I> sealed::Sealed for (&StatementGuarded<C>, I) where C: Prepare {}
-
-    impl<C, I> Encode for (&StatementGuarded<C>, I)
-    where
-        C: Prepare,
-        I: AsParams,
-    {
-        type Output<'o>
-            = &'o [Column]
-        where
-            Self: 'o;
-
-        #[inline]
-        fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-        where
-            Self: 'o,
-        {
-            let (stmt, params) = self;
-            <(&Statement, I)>::encode::<SYNC_MODE>((stmt, params), buf)
-        }
-    }
-};
 
 /// type for case where no row stream can be created.
 /// the api caller should never call into_stream method from this type.
