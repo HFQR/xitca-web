@@ -139,7 +139,7 @@ impl Statement {
     /// ```
     /// # fn bind_dyn(statement: xitca_postgres::statement::Statement) {
     /// // bind to a dynamic typed slice where items have it's own concrete type.
-    /// statement.bind_dyn(&[&9527i32, &"nobody"]);
+    /// let bind = statement.bind_dyn(&[&9527i32, &"nobody"]);
     /// # }
     /// ```
     #[inline]
@@ -148,6 +148,24 @@ impl Statement {
         params: &'p [&'t (dyn ToSql + Sync)],
     ) -> (&'s Self, &'p [&'t (dyn ToSql + Sync)]) {
         self.bind(params)
+    }
+
+    /// [Statement::bind] when there is no typed value parameters
+    ///
+    /// # Examples
+    /// ```
+    /// fn bind_none(statement: xitca_postgres::statement::Statement)  {
+    /// // bind statement to no value
+    /// let bind = statement.bind_none();
+    ///
+    /// // equivalent of bind_none if doing manually.
+    /// // an empty parameter would still need a type annotation.
+    /// let bind = statement.bind([] as [i32; 0]);
+    /// # }
+    /// ```
+    #[inline]
+    pub fn bind_none(&self) -> (&Self, [i32; 0]) {
+        self.bind([])
     }
 
     /// Returns the expected types of the statement's parameters.
@@ -288,7 +306,7 @@ mod test {
 
         drop(stmt);
 
-        let mut stream = cli.query((&stmt_raw, crate::zero_params())).unwrap();
+        let mut stream = cli.query(stmt_raw.bind_none()).unwrap();
 
         let e = stream.try_next().await.err().unwrap();
 
