@@ -39,8 +39,8 @@ use super::{
 ///     let mut pipe = Pipeline::new();
 ///
 ///     // pipeline can encode multiple queries.
-///     pipe.query((&statement, [] as [i32; 0]))?;
-///     pipe.query((&statement, [] as [i32; 0]))?;
+///     pipe.query(statement.bind([] as [i32; 0]))?;
+///     pipe.query(statement.bind([] as [i32; 0]))?;
 ///
 ///     // execute the pipeline and on success a streaming response will be returned.
 ///     let mut res = client.pipeline(pipe)?;
