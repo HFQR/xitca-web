@@ -122,7 +122,7 @@ where
         types: &'a [Type],
         params: &'a [&(dyn ToSql + Sync)],
     ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query((Statement::unnamed(self, stmt, types), params.iter().cloned()))
+        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
     }
 
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.

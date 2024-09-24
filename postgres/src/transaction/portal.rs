@@ -41,14 +41,12 @@ where
     {
         let name = format!("p{}", crate::NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
-        let (_, mut res) = cli._send_encode_query((
-            PortalCreate {
-                name: &name,
-                stmt: stmt.name(),
-                types: stmt.params(),
-            },
+        let (_, mut res) = cli._send_encode_query(PortalCreate {
+            name: &name,
+            stmt: stmt.name(),
+            types: stmt.params(),
             params,
-        ))?;
+        })?;
 
         match res.recv().await? {
             backend::Message::BindComplete => {}

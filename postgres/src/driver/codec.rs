@@ -361,12 +361,12 @@ where
     }
 }
 
-impl<C, I> sealed::Sealed for (StatementUnnamed<'_, C>, I) where C: Prepare {}
+impl<C, P> sealed::Sealed for StatementUnnamed<'_, P, C> where C: Prepare {}
 
-impl<C, I> Encode for (StatementUnnamed<'_, C>, I)
+impl<C, P> Encode for StatementUnnamed<'_, P, C>
 where
     C: Prepare,
-    I: AsParams,
+    P: AsParams,
 {
     type Output<'o>
         = IntoRowStreamGuard<'o, C>
@@ -378,7 +378,12 @@ where
     where
         Self: 'o,
     {
-        let (StatementUnnamed { stmt, types, cli }, params) = self;
+        let StatementUnnamed {
+            stmt,
+            types,
+            cli,
+            params,
+        } = self;
         frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
         encode_bind("", types, params, "", buf)?;
         frontend::describe(b'S', "", buf)?;
@@ -562,17 +567,18 @@ impl Encode for StatementCancel<'_> {
     }
 }
 
-pub(crate) struct PortalCreate<'a> {
+pub(crate) struct PortalCreate<'a, P> {
     pub(crate) name: &'a str,
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
+    pub(crate) params: P,
 }
 
-impl<I> sealed::Sealed for (PortalCreate<'_>, I) {}
+impl<P> sealed::Sealed for PortalCreate<'_, P> {}
 
-impl<I> Encode for (PortalCreate<'_>, I)
+impl<P> Encode for PortalCreate<'_, P>
 where
-    I: AsParams,
+    P: AsParams,
 {
     type Output<'o>
         = NoOpIntoRowStream
@@ -584,7 +590,12 @@ where
     where
         Self: 'o,
     {
-        let (PortalCreate { name, stmt, types }, params) = self;
+        let PortalCreate {
+            name,
+            stmt,
+            types,
+            params,
+        } = self;
         encode_bind(stmt, types, params, name, buf)?;
         frontend::sync(buf);
         Ok(NoOpIntoRowStream)

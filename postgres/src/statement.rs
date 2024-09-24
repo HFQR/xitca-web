@@ -106,8 +106,16 @@ impl Statement {
     }
 
     #[inline]
-    pub fn unnamed<'a, C>(cli: &'a C, stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a, C> {
-        StatementUnnamed { stmt, types, cli }
+    pub fn unnamed<'a, C, P>(cli: &'a C, stmt: &'a str, types: &'a [Type], params: P) -> StatementUnnamed<'a, P, C>
+    where
+        P: AsParams,
+    {
+        StatementUnnamed {
+            stmt,
+            types,
+            cli,
+            params,
+        }
     }
 
     /// bind self to typed value parameters where they are encoded into a valid sql query in binary format
@@ -172,19 +180,12 @@ impl Statement {
     }
 }
 
-pub struct StatementUnnamed<'a, C> {
+pub struct StatementUnnamed<'a, P, C> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
+    pub(crate) params: P,
     pub(crate) cli: &'a C,
 }
-
-impl<C> Clone for StatementUnnamed<'_, C> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<C> Copy for StatementUnnamed<'_, C> {}
 
 #[cfg(feature = "compat")]
 pub(crate) mod compat {

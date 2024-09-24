@@ -24,7 +24,8 @@
     let stmt = cli.prepare("SELECT * FROM users", &[]).await?;
     // statement have no value params and can be used for query.
     let stream = cli.query(&stmt)?;
-    ```    
+    ```
+- `statement::Statement::unnamed` method takes extra argument for type value parameters. After construction it can be queried directly with `query` APIs    
 - `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output<'_>, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
 - `Encode` and `IntoStream` traits implementation detail change
 
