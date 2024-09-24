@@ -3,12 +3,11 @@ mod portal;
 
 use super::{
     client::ClientBorrowMut,
-    driver::codec::{AsParams, Encode, IntoStream, Response},
+    driver::codec::{Encode, IntoParams, IntoStream, Response},
     error::Error,
-    iter::slice_iter,
     prepare::Prepare,
-    query::Query,
-    statement::{Statement, StatementGuarded, StatementUnnamed},
+    query::{Query, RowStreamGuarded},
+    statement::{Statement, StatementGuarded},
     types::{Oid, ToSql, Type},
     BoxedFuture,
 };
@@ -106,27 +105,11 @@ where
     ///
     /// [`Client::query`]: crate::client::Client::query
     #[inline]
-    pub fn query<'a, S>(
-        &self,
-        stmt: S,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
+    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
     {
-        self._query(stmt, params)
-    }
-
-    /// function the same as [`Client::query_raw`]
-    ///
-    /// [`Client::query_raw`]: crate::client::Client::query_raw
-    #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
-    where
-        S: Encode + IntoStream + 'a,
-        I: AsParams,
-    {
-        self._query_raw(stmt, params)
+        self._query(stmt)
     }
 
     /// function the same as [`Client::query_unnamed`]
@@ -137,9 +120,9 @@ where
         &'a self,
         stmt: &'a str,
         types: &'a [Type],
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<<StatementUnnamed<'a, C> as Encode>::Output<'a> as IntoStream>::RowStream<'a>, Error> {
-        self.query(Statement::unnamed(self.client, stmt, types), params)
+        params: &'a [&(dyn ToSql + Sync)],
+    ) -> Result<RowStreamGuarded<'a, Self>, Error> {
+        self.query((Statement::unnamed(self, stmt, types), params))
     }
 
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.
@@ -151,13 +134,13 @@ where
         statement: &'p Statement,
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Portal<'p, C>, Error> {
-        self.bind_raw(statement, slice_iter(params)).await
+        self.bind_raw(statement, params).await
     }
 
     /// A maximally flexible version of [`Transaction::bind`].
     pub async fn bind_raw<'p, I>(&'p self, statement: &'p Statement, params: I) -> Result<Portal<'p, C>, Error>
     where
-        I: AsParams,
+        I: IntoParams,
     {
         Portal::new(self.client, statement, params).await
     }
@@ -183,7 +166,7 @@ where
     pub async fn commit(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         let query = self.save_point.commit_query();
-        self._execute_raw::<_, crate::ZeroParam>(&query, []).await?;
+        self._execute(&query).await?;
         Ok(())
     }
 
@@ -193,7 +176,7 @@ where
     pub async fn rollback(mut self) -> Result<(), Error> {
         self.state = State::Finish;
         let query = self.save_point.rollback_query();
-        self._execute_raw::<_, crate::ZeroParam>(&query, []).await?;
+        self._execute(&query).await?;
         Ok(())
     }
 
@@ -207,8 +190,7 @@ where
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        self._execute_raw::<_, crate::ZeroParam>(&save_point.save_point_query(), [])
-            .await?;
+        self._execute(&save_point.save_point_query()).await?;
 
         Ok(Transaction {
             client: self.client,
@@ -219,7 +201,7 @@ where
 
     fn do_rollback(&mut self) {
         let query = self.save_point.rollback_query();
-        drop(self._execute_raw::<_, crate::ZeroParam>(&query, []));
+        drop(self._execute(&query));
     }
 }
 
@@ -237,11 +219,10 @@ where
     C: Prepare + Query + ClientBorrowMut,
 {
     #[inline]
-    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
     where
         S: Encode + 'a,
-        I: AsParams,
     {
-        self.client._send_encode_query(stmt, params)
+        self.client._send_encode_query(stmt)
     }
 }

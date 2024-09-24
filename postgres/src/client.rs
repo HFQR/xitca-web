@@ -11,14 +11,14 @@ use xitca_unsafe_collection::no_hash::NoHashBuilder;
 use super::{
     copy::{r#Copy, CopyIn, CopyOut},
     driver::{
-        codec::{self, AsParams, Encode, IntoStream, Response},
+        codec::{self, Encode, IntoStream, Response},
         DriverTx,
     },
     error::Error,
     prepare::Prepare,
-    query::{ExecuteFuture, Query},
+    query::{ExecuteFuture, Query, RowStreamGuarded},
     session::Session,
-    statement::{Statement, StatementGuarded, StatementUnnamed},
+    statement::{Statement, StatementGuarded},
     transaction::Transaction,
     types::{Oid, ToSql, Type},
 };
@@ -138,31 +138,11 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [Client::prepare].
     #[inline]
-    pub fn query<'a, S>(
-        &self,
-        stmt: S,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
+    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
     {
-        self._query(stmt, params)
-    }
-
-    /// The maximally flexible version of [`Client::query`].
-    ///
-    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
-    /// provided, 1-indexed.
-    ///
-    /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
-    /// the statement up front with [`Client::prepare`].
-    #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
-    where
-        S: Encode + 'a,
-        I: AsParams,
-    {
-        self._query_raw(stmt, params)
+        self._query(stmt)
     }
 
     /// Executes a statement, returning the number of rows modified.
@@ -175,53 +155,11 @@ impl Client {
     ///
     /// If the statement does not modify any rows (e.g. `SELECT`), 0 is returned.
     #[inline]
-    pub fn execute<S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> ExecuteFuture
+    pub fn execute<S>(&self, stmt: S) -> ExecuteFuture
     where
         S: Encode,
     {
-        self._execute(stmt, params)
-    }
-
-    /// The maximally flexible version of [`Client::execute`].
-    ///
-    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
-    /// provided, 1-indexed.
-    ///
-    /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
-    /// the statement up front with [Client::prepare].
-    #[inline]
-    pub fn execute_raw<S, I>(&self, stmt: S, params: I) -> ExecuteFuture
-    where
-        S: Encode,
-        I: AsParams,
-    {
-        self._execute_raw(stmt, params)
-    }
-
-    /// Executes a sequence of SQL statements using the simple query protocol, returning async stream of rows.
-    ///
-    /// Statements should be separated by semicolons. If an error occurs, execution of the sequence will stop at that
-    /// point. The simple query protocol returns the values in rows as strings rather than in their binary encodings,
-    /// so the associated row type doesn't work with the `FromSql` trait. Rather than simply returning a list of the
-    /// rows, this method returns a list of an enum which indicates either the completion of one of the commands,
-    /// or a row of data. This preserves the framing between the separate statements in the request.
-    ///
-    /// # Warning
-    ///
-    /// Prepared statements should be use for any query which contains user-specified data, as they provided the
-    /// functionality to safely embed that data in the request. Do not form statements via string concatenation and pass
-    /// them to this method!
-    #[inline]
-    pub fn query_simple(
-        &self,
-        stmt: &str,
-    ) -> Result<<<&str as Encode>::Output<'_> as IntoStream>::RowStream<'_>, Error> {
-        self.query_raw::<_, crate::ZeroParam>(stmt, [])
-    }
-
-    #[inline]
-    pub fn execute_simple(&self, stmt: &str) -> ExecuteFuture {
-        self.execute_raw::<_, crate::ZeroParam>(stmt, [])
+        self._execute(stmt)
     }
 
     /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.
@@ -232,9 +170,9 @@ impl Client {
         &'a self,
         stmt: &'a str,
         types: &'a [Type],
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<<StatementUnnamed<'a, Self> as Encode>::Output<'a> as IntoStream>::RowStream<'a>, Error> {
-        self.query(Statement::unnamed(self, stmt, types), params)
+        params: &'a [&(dyn ToSql + Sync)],
+    ) -> Result<RowStreamGuarded<'a, Self>, Error> {
+        self.query((Statement::unnamed(self, stmt, types), params))
     }
 
     /// start a transaction
@@ -361,23 +299,21 @@ impl Prepare for Arc<Client> {
 
 impl Query for Arc<Client> {
     #[inline]
-    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
     where
         S: Encode + 'a,
-        I: AsParams,
     {
-        Client::_send_encode_query(self, stmt, params)
+        Client::_send_encode_query(self, stmt)
     }
 }
 
 impl Query for Client {
     #[inline]
-    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
     where
         S: Encode + 'a,
-        I: AsParams,
     {
-        codec::send_encode_query(&self.tx, stmt, params)
+        codec::send_encode_query(&self.tx, stmt)
     }
 }
 

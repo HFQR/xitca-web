@@ -149,7 +149,7 @@ impl error::Error for ToDo {}
 /// let handle = tokio::spawn(drv.into_future());
 ///
 /// // when query returns error immediately we check if the driver is gone.
-/// if let Err(e) = cli.query("", &[]) {
+/// if let Err(e) = cli.query("") {
 ///     if e.is_driver_down() {
 ///         // driver is gone and we want to know detail reason in this case.
 ///         // await on the join handle will return the output of Driver task.

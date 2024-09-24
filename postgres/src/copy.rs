@@ -44,7 +44,7 @@ where
         let _cli = client._borrow_mut();
 
         let res = client
-            ._send_encode_query::<_, crate::ZeroParam>(stmt, [])
+            ._send_encode_query((stmt, crate::zero_params()))
             .map(|(_, res)| res);
 
         async {
@@ -103,9 +103,7 @@ pub struct CopyOut {
 
 impl CopyOut {
     pub fn new(cli: &impl Query, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
-        let res = cli
-            ._send_encode_query::<_, crate::ZeroParam>(stmt, [])
-            .map(|(_, res)| res);
+        let res = cli._send_encode_query((stmt, crate::zero_params())).map(|(_, res)| res);
 
         async {
             let mut res = res?;

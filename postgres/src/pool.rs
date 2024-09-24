@@ -12,14 +12,14 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{AsParams, Encode, IntoStream, Response},
+    driver::codec::{Encode, IntoStream, Response},
     error::Error,
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
     prepare::Prepare,
-    query::{ExecuteFuture, Query},
+    query::{ExecuteFuture, Query, RowStreamGuarded},
     session::Session,
-    statement::{Statement, StatementGuarded, StatementUnnamed},
+    statement::{Statement, StatementGuarded},
     transaction::Transaction,
     types::{Oid, ToSql, Type},
     BoxedFuture, Postgres,
@@ -148,59 +148,20 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::query`]
     #[inline]
-    pub fn query<'a, S>(
-        &self,
-        stmt: S,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
+    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
     where
         S: Encode + 'a,
     {
-        self._query(stmt, params)
-    }
-
-    /// function the same as [`Client::query_raw`]
-    #[inline]
-    pub fn query_raw<'a, S, I>(&self, stmt: S, params: I) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
-    where
-        S: Encode + 'a,
-        I: AsParams,
-    {
-        self._query_raw(stmt, params)
+        self._query(stmt)
     }
 
     /// function the same as [`Client::execute`]
     #[inline]
-    pub fn execute<S>(&self, stmt: S, params: &[&(dyn ToSql + Sync)]) -> ExecuteFuture
+    pub fn execute<S>(&self, stmt: S) -> ExecuteFuture
     where
         S: Encode,
     {
-        self._execute(stmt, params)
-    }
-
-    /// function the same as [`Client::execute_raw`]
-    #[inline]
-    pub fn execute_raw<S, I>(&self, stmt: S, params: I) -> ExecuteFuture
-    where
-        S: Encode,
-        I: AsParams,
-    {
-        self._execute_raw(stmt, params)
-    }
-
-    /// function the same as [`Client::query_simple`]
-    #[inline]
-    pub fn query_simple(
-        &self,
-        stmt: &str,
-    ) -> Result<<<&str as Encode>::Output<'_> as IntoStream>::RowStream<'_>, Error> {
-        self.query_raw::<_, crate::ZeroParam>(stmt, [])
-    }
-
-    /// function the same as [`Client::execute_simple`]
-    #[inline]
-    pub fn execute_simple(&self, stmt: &str) -> ExecuteFuture {
-        self.execute_raw::<_, crate::ZeroParam>(stmt, [])
+        self._execute(stmt)
     }
 
     /// function the same as [`Client::query_unnamed`]
@@ -209,9 +170,9 @@ impl<'p> PoolConnection<'p> {
         &'a self,
         stmt: &'a str,
         types: &'a [Type],
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<<<StatementUnnamed<'a, Self> as Encode>::Output<'a> as IntoStream>::RowStream<'a>, Error> {
-        self.query(Statement::unnamed(self, stmt, types), params)
+        params: &'a [&(dyn ToSql + Sync)],
+    ) -> Result<RowStreamGuarded<'a, Self>, Error> {
+        self.query((Statement::unnamed(self, stmt, types), params))
     }
 
     /// function the same as [`Client::transaction`]
@@ -255,7 +216,7 @@ impl<'p> PoolConnection<'p> {
     ///     // get a connection from pool and start a query.
     ///     let mut conn = pool.get().await?;
     ///
-    ///     conn.execute_simple("SELECT *").await?;
+    ///     conn.execute("SELECT *").await?;
     ///     
     ///     // connection is kept across await point. making it unusable to other concurrent
     ///     // callers to example function. and no pipelining will happen until it's released.
@@ -263,22 +224,22 @@ impl<'p> PoolConnection<'p> {
     ///
     ///     // start another query but this time consume ownership and when res is returned
     ///     // connection is dropped and went back to pool.
-    ///     let res = conn.consume().execute_simple("SELECT *");
+    ///     let res = conn.consume().execute("SELECT *");
     ///
     ///     // connection can't be used anymore in this scope but other concurrent callers
     ///     // to example function is able to use it and if they follow the same calling
     ///     // convention pipelining could happen and reduce syscall overhead.
     ///     //
-    ///     // let res = conn.consume().execute_simple("SELECT *");
+    ///     // let res = conn.consume().execute("SELECT *");
     ///
     ///     // without connection the response can still be collected asynchronously
     ///     res.await?;
     ///
     ///     // therefore a good calling convention for independent queries could be:
     ///     let mut conn = pool.get().await?;
-    ///     let res1 = conn.execute_simple("SELECT *");
-    ///     let res2 = conn.execute_simple("SELECT *");
-    ///     let res3 = conn.consume().execute_simple("SELECT *");
+    ///     let res1 = conn.execute("SELECT *");
+    ///     let res2 = conn.execute("SELECT *");
+    ///     let res3 = conn.consume().execute("SELECT *");
     ///
     ///     // all three queries can be pipelined into a single write syscall. and possibly
     ///     // even more can be pipelined after conn.consume() is called if there are concurrent
@@ -327,12 +288,11 @@ impl Prepare for PoolConnection<'_> {
 }
 
 impl Query for PoolConnection<'_> {
-    fn _send_encode_query<'a, S, I>(&self, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
     where
         S: Encode + 'a,
-        I: AsParams,
     {
-        self.conn().client._send_encode_query(stmt, params)
+        self.conn().client._send_encode_query(stmt)
     }
 }
 

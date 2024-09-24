@@ -2,7 +2,13 @@
 
 use core::ops::Deref;
 
-use super::{column::Column, driver::codec::StatementCancel, prepare::Prepare, types::Type};
+use super::{
+    column::Column,
+    driver::codec::IntoParams,
+    driver::codec::StatementCancel,
+    prepare::Prepare,
+    types::{ToSql, Type},
+};
 
 /// a statement guard contains a prepared postgres statement.
 /// the guard can be dereferenced or borrowed as [`Statement`] which can be used for query apis.
@@ -44,9 +50,7 @@ where
 {
     fn drop(&mut self) {
         if let Some(stmt) = self.stmt.take() {
-            let _ = self
-                .cli
-                ._send_encode_query::<_, crate::ZeroParam>(StatementCancel { name: stmt.name() }, []);
+            let _ = self.cli._send_encode_query(StatementCancel { name: stmt.name() });
         }
     }
 }
@@ -101,8 +105,49 @@ impl Statement {
         &self.name
     }
 
+    #[inline]
     pub fn unnamed<'a, C>(cli: &'a C, stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a, C> {
         StatementUnnamed { stmt, types, cli }
+    }
+
+    /// bind self to typed value parameters where they are encoded into a valid sql query in binary format
+    ///
+    /// # Examples
+    /// ```
+    /// # use xitca_postgres::{types::Type, Client, Error};
+    /// # async fn bind(cli: &Client) -> Result<(), Error> {
+    /// // prepare a statement with typed parameters.
+    /// let stmt = cli.prepare("SELECT * FROM users WHERE id = $1, age = $2", &[Type::INT4, Type::INT4]).await?;
+    /// // bind statement to typed value parameters.
+    /// let bind = stmt.bind([9527_i32, 18]);
+    /// // query with the bind.
+    /// let row_stream = cli.query(bind)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    pub fn bind<I>(&self, params: I) -> (&Self, I)
+    where
+        I: IntoParams,
+    {
+        (self, params)
+    }
+
+    /// [Statement::bind] for dynamic typed parameters
+    ///
+    /// # Examples
+    /// ```
+    /// # fn bind_dyn(statement: xitca_postgres::statement::Statement) {
+    /// // bind to a dynamic typed slice where items have it's own concrete type.
+    /// statement.bind_dyn(&[&9527i32, &"nobody"]);
+    /// # }
+    /// ```
+    #[inline]
+    pub fn bind_dyn<'s, 'p, 't>(
+        &'s self,
+        params: &'p [&'t (dyn ToSql + Sync)],
+    ) -> (&'s Self, &'p [&'t (dyn ToSql + Sync)]) {
+        self.bind(params)
     }
 
     /// Returns the expected types of the statement's parameters.
@@ -175,9 +220,7 @@ pub(crate) mod compat {
         C: Prepare,
     {
         fn drop(&mut self) {
-            let _ = self
-                .cli
-                ._send_encode_query::<_, crate::ZeroParam>(StatementCancel { name: self.stmt.name() }, []);
+            let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
         }
     }
 
@@ -233,7 +276,7 @@ mod test {
 
         tokio::task::spawn(drv.into_future());
 
-        cli.execute_simple(
+        cli.execute(
             "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT); INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
         )
         .await
@@ -245,7 +288,7 @@ mod test {
 
         drop(stmt);
 
-        let mut stream = cli.query(&stmt_raw, &[]).unwrap();
+        let mut stream = cli.query((&stmt_raw, crate::zero_params())).unwrap();
 
         let e = stream.try_next().await.err().unwrap();
 

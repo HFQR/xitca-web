@@ -15,7 +15,7 @@ use crate::{
     prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{Statement, StatementGuarded, StatementUnnamed},
-    types::{BorrowToSql, IsNull, Type},
+    types::{BorrowToSql, IsNull, ToSql, Type},
 };
 
 use super::DriverTx;
@@ -174,15 +174,37 @@ impl ResponseMessage {
     }
 }
 
-/// super trait to constraint Self and associated types' trait bounds.
-pub trait AsParams: IntoIterator<IntoIter: ExactSizeIterator, Item: BorrowToSql> {}
+/// traits for converting typed parameters into exact sized iterator where it yields
+/// item can be converted in binary format of postgres type.
+pub trait IntoParams {
+    fn into_params(self) -> impl ExactSizeIterator<Item: BorrowToSql>;
+}
 
-impl<I> AsParams for I
+impl<I, const N: usize> IntoParams for [I; N]
 where
-    I: IntoIterator,
-    I::IntoIter: ExactSizeIterator,
-    I::Item: BorrowToSql,
+    I: ToSql,
 {
+    #[inline]
+    fn into_params(self) -> impl ExactSizeIterator<Item: BorrowToSql> {
+        self.into_iter()
+    }
+}
+
+impl<I> IntoParams for Vec<I>
+where
+    I: ToSql,
+{
+    #[inline]
+    fn into_params(self) -> impl ExactSizeIterator<Item: BorrowToSql> {
+        self.into_iter()
+    }
+}
+
+impl IntoParams for &[&(dyn ToSql + Sync)] {
+    #[inline]
+    fn into_params(self) -> impl ExactSizeIterator<Item: BorrowToSql> {
+        self.iter().cloned()
+    }
 }
 
 mod sealed {
@@ -203,9 +225,8 @@ pub trait Encode: sealed::Sealed + Sized {
     where
         Self: 'o;
 
-    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o;
 }
 
@@ -220,27 +241,30 @@ pub trait IntoStream: sealed::Sealed + Sized {
         Self: 'r;
 }
 
-impl sealed::Sealed for &Statement {}
+impl<I> sealed::Sealed for (&Statement, I) {}
 
-impl Encode for &Statement {
+impl<I> Encode for (&Statement, I)
+where
+    I: IntoParams,
+{
     type Output<'o>
         = &'o [Column]
     where
         Self: 'o;
 
-    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
-        encode_bind(self.name(), self.params(), params, "", buf)?;
+        let (stmt, params) = self;
+        encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
         frontend::execute("", 0, buf)?;
 
         if SYNC_MODE {
             frontend::sync(buf);
         }
 
-        Ok(self.columns())
+        Ok(stmt.columns())
     }
 }
 
@@ -261,29 +285,11 @@ impl IntoStream for &[Column] {
     }
 }
 
-impl sealed::Sealed for &Arc<Statement> {}
+impl<I> sealed::Sealed for (&Arc<Statement>, I) {}
 
-impl Encode for &Arc<Statement> {
-    type Output<'o>
-        = &'o [Column]
-    where
-        Self: 'o;
-
-    #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        I: AsParams,
-        Self: 'o,
-    {
-        <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
-    }
-}
-
-impl<C> sealed::Sealed for &StatementGuarded<'_, C> where C: Prepare {}
-
-impl<C> Encode for &StatementGuarded<'_, C>
+impl<I> Encode for (&Arc<Statement>, I)
 where
-    C: Prepare,
+    I: IntoParams,
 {
     type Output<'o>
         = &'o [Column]
@@ -291,20 +297,43 @@ where
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
-        <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
+        let (stmt, params) = self;
+        <(&Statement, I)>::encode::<SYNC_MODE>((stmt, params), buf)
     }
 }
 
-impl<C> sealed::Sealed for StatementUnnamed<'_, C> where C: Prepare {}
+impl<C, I> sealed::Sealed for (&StatementGuarded<'_, C>, I) where C: Prepare {}
 
-impl<C> Encode for StatementUnnamed<'_, C>
+impl<C, I> Encode for (&StatementGuarded<'_, C>, I)
 where
     C: Prepare,
+    I: IntoParams,
+{
+    type Output<'o>
+        = &'o [Column]
+    where
+        Self: 'o;
+
+    #[inline]
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    where
+        Self: 'o,
+    {
+        let (stmt, params) = self;
+        <(&Statement, I)>::encode::<SYNC_MODE>((stmt, params), buf)
+    }
+}
+
+impl<C, I> sealed::Sealed for (StatementUnnamed<'_, C>, I) where C: Prepare {}
+
+impl<C, I> Encode for (StatementUnnamed<'_, C>, I)
+where
+    C: Prepare,
+    I: IntoParams,
 {
     type Output<'o>
         = IntoRowStreamGuard<'o, C>
@@ -312,12 +341,11 @@ where
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
-        let Self { stmt, types, .. } = self;
+        let (StatementUnnamed { stmt, types, cli }, params) = self;
         frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
         encode_bind("", types, params, "", buf)?;
         frontend::describe(b'S', "", buf)?;
@@ -325,7 +353,7 @@ where
         if SYNC_MODE {
             frontend::sync(buf);
         }
-        Ok(IntoRowStreamGuard(self.cli))
+        Ok(IntoRowStreamGuard(cli))
     }
 }
 
@@ -360,9 +388,8 @@ impl Encode for &str {
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
         frontend::query(self, buf)?;
@@ -396,12 +423,11 @@ impl Encode for &String {
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
-        self.as_str().encode::<_, SYNC_MODE>(params, buf)
+        self.as_str().encode::<SYNC_MODE>(buf)
     }
 }
 
@@ -409,11 +435,12 @@ impl Encode for &String {
 const _: () = {
     use crate::statement::compat::StatementGuarded;
 
-    impl<C> sealed::Sealed for &StatementGuarded<C> where C: Prepare {}
+    impl<C, I> sealed::Sealed for (&StatementGuarded<C>, I) where C: Prepare {}
 
-    impl<C> Encode for &StatementGuarded<C>
+    impl<C, I> Encode for (&StatementGuarded<C>, I)
     where
         C: Prepare,
+        I: IntoParams,
     {
         type Output<'o>
             = &'o [Column]
@@ -421,12 +448,12 @@ const _: () = {
             Self: 'o;
 
         #[inline]
-        fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+        fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
         where
-            I: AsParams,
             Self: 'o,
         {
-            <&Statement>::encode::<_, SYNC_MODE>(self, params, buf)
+            let (stmt, params) = self;
+            <(&Statement, I)>::encode::<SYNC_MODE>((stmt, params), buf)
         }
     }
 };
@@ -466,9 +493,8 @@ impl Encode for StatementCreate<'_> {
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
         let Self { name, query, types } = self;
@@ -492,9 +518,8 @@ impl Encode for StatementCancel<'_> {
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
         let Self { name } = self;
@@ -510,21 +535,23 @@ pub(crate) struct PortalCreate<'a> {
     pub(crate) types: &'a [Type],
 }
 
-impl sealed::Sealed for PortalCreate<'_> {}
+impl<I> sealed::Sealed for (PortalCreate<'_>, I) {}
 
-impl Encode for PortalCreate<'_> {
+impl<I> Encode for (PortalCreate<'_>, I)
+where
+    I: IntoParams,
+{
     type Output<'o>
         = NoOpIntoRowStream
     where
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, params: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
-        let Self { name, stmt, types } = self;
+        let (PortalCreate { name, stmt, types }, params) = self;
         encode_bind(stmt, types, params, name, buf)?;
         frontend::sync(buf);
         Ok(NoOpIntoRowStream)
@@ -544,9 +571,8 @@ impl Encode for PortalCancel<'_> {
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
         frontend::close(b'P', self.name, buf)?;
@@ -571,9 +597,8 @@ impl Encode for PortalQuery<'_> {
         Self: 'o;
 
     #[inline]
-    fn encode<'o, I, const SYNC_MODE: bool>(self, _: I, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
-        I: AsParams,
         Self: 'o,
     {
         let Self {
@@ -587,19 +612,18 @@ impl Encode for PortalQuery<'_> {
     }
 }
 
-pub(crate) fn send_encode_query<'a, S, I>(tx: &DriverTx, stmt: S, params: I) -> Result<(S::Output<'a>, Response), Error>
+pub(crate) fn send_encode_query<'a, S>(tx: &DriverTx, stmt: S) -> Result<(S::Output<'a>, Response), Error>
 where
     S: Encode + 'a,
-    I: AsParams,
 {
-    tx.send(|buf| stmt.encode::<_, true>(params, buf))
+    tx.send(|buf| stmt.encode::<true>(buf))
 }
 
 fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
 where
-    P: AsParams,
+    P: IntoParams,
 {
-    let params = params.into_iter();
+    let params = params.into_params();
     if params.len() != types.len() {
         return Err(Error::from(InvalidParamCount {
             expected: types.len(),
