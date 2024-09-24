@@ -124,7 +124,7 @@ impl Statement {
     /// # use xitca_postgres::{types::Type, Client, Error};
     /// # async fn bind(cli: &Client) -> Result<(), Error> {
     /// // prepare a statement with typed parameters.
-    /// let stmt = cli.prepare("SELECT * FROM users WHERE id = $1, age = $2", &[Type::INT4, Type::INT4]).await?;
+    /// let stmt = cli.prepare("SELECT * FROM users WHERE id = $1 AND age = $2", &[Type::INT4, Type::INT4]).await?;
     /// // bind statement to typed value parameters.
     /// let bind = stmt.bind([9527_i32, 18]);
     /// // query with the bind.

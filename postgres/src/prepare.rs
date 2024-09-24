@@ -82,8 +82,6 @@ pub trait Prepare: Query + Sync {
 }
 
 impl Prepare for Client {
-    // get type is called recursively so a boxed future is needed.
-    #[inline(never)]
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         Box::pin(async move {
             if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
