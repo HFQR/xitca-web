@@ -16,11 +16,10 @@ use xitca_io::bytes::BytesMut;
 use super::{
     client::Client,
     column::Column,
-    driver::codec::{self, Encode, IntoParams, Response},
+    driver::codec::{self, Encode, Response},
     error::Error,
     iter::AsyncLendingIterator,
     row::Row,
-    statement::Statement,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
@@ -234,14 +233,13 @@ where
 {
     /// pipelined version of [Client::query] with strict input requirement where it only accepts reference
     /// of raw statement and it's associated type parameters.
-    pub fn query<I>(&mut self, (stmt, params): (&'a Statement, I)) -> Result<(), Error>
+    pub fn query<S>(&mut self, stmt: S) -> Result<(), Error>
     where
-        I: IntoParams,
+        S: Encode<Output<'a> = &'a [Column]> + 'a,
     {
         let len = self.buf.len();
-        (stmt, params)
-            .encode::<SYNC_MODE>(&mut self.buf)
-            .map(|_| self.columns.push(stmt.columns()))
+        stmt.encode::<SYNC_MODE>(&mut self.buf)
+            .map(|columns| self.columns.push(columns))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| self.buf.truncate(len))
     }
