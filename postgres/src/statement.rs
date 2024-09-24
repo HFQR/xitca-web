@@ -150,24 +150,6 @@ impl Statement {
         self.bind(params)
     }
 
-    /// [Statement::bind] when there is no typed value parameters
-    ///
-    /// # Examples
-    /// ```
-    /// fn bind_none(statement: xitca_postgres::statement::Statement)  {
-    /// // bind statement to no value
-    /// let bind = statement.bind_none();
-    ///
-    /// // equivalent of bind_none if doing manually.
-    /// // an empty parameter would still need a type annotation.
-    /// let bind = statement.bind([] as [i32; 0]);
-    /// # }
-    /// ```
-    #[inline]
-    pub fn bind_none(&self) -> (&Self, [i32; 0]) {
-        self.bind([])
-    }
-
     /// Returns the expected types of the statement's parameters.
     #[inline]
     pub fn params(&self) -> &[Type] {
@@ -306,7 +288,7 @@ mod test {
 
         drop(stmt);
 
-        let mut stream = cli.query(stmt_raw.bind_none()).unwrap();
+        let mut stream = cli.query(&stmt_raw).unwrap();
 
         let e = stream.try_next().await.err().unwrap();
 

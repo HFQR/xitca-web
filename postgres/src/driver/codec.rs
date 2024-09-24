@@ -241,6 +241,83 @@ pub trait IntoStream: sealed::Sealed + Sized {
         Self: 'r;
 }
 
+impl sealed::Sealed for &[Column] {}
+
+impl IntoStream for &[Column] {
+    type RowStream<'r>
+        = RowStream<'r>
+    where
+        Self: 'r;
+
+    #[inline]
+    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
+    where
+        Self: 'r,
+    {
+        RowStream::new(res, self)
+    }
+}
+
+impl sealed::Sealed for &Statement {}
+
+impl Encode for &Statement {
+    type Output<'o>
+        = &'o [Column]
+    where
+        Self: 'o;
+
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    where
+        Self: 'o,
+    {
+        encode_bind(self.name(), self.params(), [] as [i32; 0], "", buf)?;
+        frontend::execute("", 0, buf)?;
+
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+
+        Ok(self.columns())
+    }
+}
+
+impl sealed::Sealed for &Arc<Statement> {}
+
+impl Encode for &Arc<Statement> {
+    type Output<'o>
+        = &'o [Column]
+    where
+        Self: 'o;
+
+    #[inline]
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    where
+        Self: 'o,
+    {
+        <&Statement>::encode::<SYNC_MODE>(self, buf)
+    }
+}
+
+impl<C> sealed::Sealed for &StatementGuarded<'_, C> where C: Prepare {}
+
+impl<C> Encode for &StatementGuarded<'_, C>
+where
+    C: Prepare,
+{
+    type Output<'o>
+        = &'o [Column]
+    where
+        Self: 'o;
+
+    #[inline]
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    where
+        Self: 'o,
+    {
+        <&Statement>::encode::<SYNC_MODE>(self, buf)
+    }
+}
+
 impl<I> sealed::Sealed for (&Statement, I) {}
 
 impl<I> Encode for (&Statement, I)
@@ -265,23 +342,6 @@ where
         }
 
         Ok(stmt.columns())
-    }
-}
-
-impl sealed::Sealed for &[Column] {}
-
-impl IntoStream for &[Column] {
-    type RowStream<'r>
-        = RowStream<'r>
-    where
-        Self: 'r;
-
-    #[inline]
-    fn into_stream<'r>(self, res: Response) -> Self::RowStream<'r>
-    where
-        Self: 'r,
-    {
-        RowStream::new(res, self)
     }
 }
 

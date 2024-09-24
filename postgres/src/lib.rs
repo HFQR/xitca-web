@@ -70,7 +70,7 @@ pub mod compat {
     //! # async fn convert(client: Client) -> Result<(), Error> {
     //! // prepare a statement and query for rows.
     //! let stmt = client.prepare("SELECT * from users", &[]).await?;
-    //! let mut stream = client.query(stmt.bind_none())?;
+    //! let mut stream = client.query(&stmt)?;
     //!
     //! // assuming we want to spawn a tokio async task and handle the stream inside it.
     //! // but code below would not work as stream is a borrowed type with lending iterator implements.

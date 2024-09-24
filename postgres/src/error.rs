@@ -252,7 +252,12 @@ pub struct InvalidParamCount {
 
 impl fmt::Display for InvalidParamCount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "expected {} parameters but got {}", self.expected, self.params)
+        write!(
+            f,
+            "expected Statement bind to {} parameters but got {}.\r\n",
+            self.expected, self.params
+        )?;
+        f.write_str("note: consider use `Statement::bind` or check the parameter values count if already used")
     }
 }
 

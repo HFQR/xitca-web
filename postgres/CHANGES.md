@@ -18,6 +18,13 @@
     // query with the bind
     let stream = cli.query(bind)?;
     ```
+- query without parameter value can be queried with `Statement` alone.
+    ```rust
+    // prepare a statement.
+    let stmt = cli.prepare("SELECT * FROM users", &[]).await?;
+    // statement have no value params and can be used for query.
+    let stream = cli.query(&stmt)?;
+    ```    
 - `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output<'_>, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
 - `Encode` and `IntoStream` traits implementation detail change
 
