@@ -12,7 +12,7 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{Encode, IntoStream, Response},
+    driver::codec::{encode::Encode, into_stream::IntoStream, Response},
     error::Error,
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},

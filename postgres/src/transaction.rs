@@ -3,7 +3,7 @@ mod portal;
 
 use super::{
     client::ClientBorrowMut,
-    driver::codec::{AsParams, Encode, IntoStream, Response},
+    driver::codec::{encode::Encode, into_stream::IntoStream, AsParams, Response},
     error::Error,
     prepare::Prepare,
     query::{Query, RowStreamGuarded},

@@ -12,7 +12,7 @@ use core::{
 };
 
 use super::{
-    driver::codec::{Encode, IntoStream, Response},
+    driver::codec::{encode::Encode, into_stream::IntoStream, Response},
     error::Error,
 };
 

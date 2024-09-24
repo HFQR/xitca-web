@@ -108,7 +108,7 @@ pub mod dev {
 
     pub use crate::client::ClientBorrowMut;
     pub use crate::copy::r#Copy;
-    pub use crate::driver::codec::{Encode, Response};
+    pub use crate::driver::codec::{encode::Encode, Response};
     pub use crate::prepare::Prepare;
     pub use crate::query::Query;
 }

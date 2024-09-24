@@ -4,7 +4,7 @@ use core::ops::Deref;
 
 use super::{
     column::Column,
-    driver::codec::{AsParams, StatementCancel, StatementQuery},
+    driver::codec::{encode::StatementCancel, AsParams},
     prepare::Prepare,
     types::{ToSql, Type},
 };
@@ -179,6 +179,13 @@ impl Statement {
     }
 }
 
+/// a named statement with it's query params
+pub struct StatementQuery<'a, P> {
+    pub(crate) stmt: &'a Statement,
+    pub(crate) params: P,
+}
+
+/// an unnamed statement with it's query params
 pub struct StatementUnnamed<'a, P, C> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],

@@ -8,7 +8,7 @@ use tracing::debug;
 use super::{
     client::Client,
     column::Column,
-    driver::codec::StatementCreate,
+    driver::codec::encode::StatementCreate,
     error::{DbError, Error, SqlState},
     iter::AsyncLendingIterator,
     query::Query,

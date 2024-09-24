@@ -3,7 +3,11 @@ use core::sync::atomic::Ordering;
 use postgres_protocol::message::backend;
 
 use crate::{
-    driver::codec::{AsParams, Encode, IntoStream, PortalCancel, PortalCreate, PortalQuery},
+    driver::codec::{
+        encode::{Encode, PortalCancel, PortalCreate, PortalQuery},
+        into_stream::IntoStream,
+        AsParams,
+    },
     error::Error,
     query::Query,
     statement::Statement,
