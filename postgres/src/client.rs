@@ -174,6 +174,10 @@ impl Client {
         self._execute(stmt)
     }
 
+    /// blocking version of [`Client::execute`]. enable Client to execute query inside sync context
+    ///
+    /// # Panics
+    /// must be called outside the context of tokio 1.x. preferably outside of any async context.
     #[inline]
     pub fn execute_blocking<S>(&self, stmt: S) -> Result<u64, Error>
     where
