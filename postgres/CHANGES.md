@@ -32,7 +32,7 @@
 - `Encode` and `IntoStream` traits implementation detail change
 
 ## Add
-- add `Client::prepare_blocking`
+- add `Client::{execute_blocking, prepare_blocking}`
 - add `Prepare::{_prepare_blocking, _get_type_blocking}`
 - add `iter::AsyncLendingIteratorExt` for extending async iterator APIs
 - add `statement::Statement::{bind, bind_dyn}` methods for binding value parameters to a prepared statement for query
