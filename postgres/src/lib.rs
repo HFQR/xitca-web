@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+#[doc = include_str!("../README.md")]
 mod cancel;
 mod client;
 mod column;

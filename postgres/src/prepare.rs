@@ -130,51 +130,6 @@ where
 }
 
 impl Prepare for Client {
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
-            return Ok(ty);
-        }
-
-        let stmt = self.typeinfo_statement_blocking()?;
-
-        let rows = self.query(stmt.bind([oid]))?;
-        let row = rows.into_iter().next().ok_or_else(Error::unexpected)??;
-
-        let name = row.try_get::<String>(0)?;
-        let type_ = row.try_get::<i8>(1)?;
-        let elem_oid = row.try_get::<Oid>(2)?;
-        let rngsubtype = row.try_get::<Option<Oid>>(3)?;
-        let basetype = row.try_get::<Oid>(4)?;
-        let schema = row.try_get::<String>(5)?;
-        let relid = row.try_get::<Oid>(6)?;
-
-        let kind = if type_ == b'e' as i8 {
-            let variants = self.get_enum_variants_blocking(oid)?;
-            Kind::Enum(variants)
-        } else if type_ == b'p' as i8 {
-            Kind::Pseudo
-        } else if basetype != 0 {
-            let type_ = self._get_type_blocking(basetype)?;
-            Kind::Domain(type_)
-        } else if elem_oid != 0 {
-            let type_ = self._get_type_blocking(elem_oid)?;
-            Kind::Array(type_)
-        } else if relid != 0 {
-            let fields = self.get_composite_fields_blocking(relid)?;
-            Kind::Composite(fields)
-        } else if let Some(rngsubtype) = rngsubtype {
-            let type_ = self._get_type_blocking(rngsubtype)?;
-            Kind::Range(type_)
-        } else {
-            Kind::Simple
-        };
-
-        let type_ = Type::new(name, oid, kind, schema);
-        self.set_type(oid, &type_);
-
-        Ok(type_)
-    }
-
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         Box::pin(async move {
             if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
@@ -221,38 +176,75 @@ impl Prepare for Client {
             Ok(type_)
         })
     }
+
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
+            return Ok(ty);
+        }
+
+        let stmt = self.typeinfo_statement_blocking()?;
+
+        let rows = self.query(stmt.bind([oid]))?;
+        let row = rows.into_iter().next().ok_or_else(Error::unexpected)??;
+
+        let name = row.try_get::<String>(0)?;
+        let type_ = row.try_get::<i8>(1)?;
+        let elem_oid = row.try_get::<Oid>(2)?;
+        let rngsubtype = row.try_get::<Option<Oid>>(3)?;
+        let basetype = row.try_get::<Oid>(4)?;
+        let schema = row.try_get::<String>(5)?;
+        let relid = row.try_get::<Oid>(6)?;
+
+        let kind = if type_ == b'e' as i8 {
+            let variants = self.get_enum_variants_blocking(oid)?;
+            Kind::Enum(variants)
+        } else if type_ == b'p' as i8 {
+            Kind::Pseudo
+        } else if basetype != 0 {
+            let type_ = self._get_type_blocking(basetype)?;
+            Kind::Domain(type_)
+        } else if elem_oid != 0 {
+            let type_ = self._get_type_blocking(elem_oid)?;
+            Kind::Array(type_)
+        } else if relid != 0 {
+            let fields = self.get_composite_fields_blocking(relid)?;
+            Kind::Composite(fields)
+        } else if let Some(rngsubtype) = rngsubtype {
+            let type_ = self._get_type_blocking(rngsubtype)?;
+            Kind::Range(type_)
+        } else {
+            Kind::Simple
+        };
+
+        let type_ = Type::new(name, oid, kind, schema);
+        self.set_type(oid, &type_);
+
+        Ok(type_)
+    }
 }
 
 impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
-
         let mut rows = self.query(stmt.bind([oid]))?;
-
         let mut res = Vec::new();
-
         while let Some(row) = rows.try_next().await? {
             let variant = row.try_get(0)?;
             res.push(variant);
         }
-
         Ok(res)
     }
 
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
-
         let mut rows = self.query(stmt.bind([oid]))?;
-
         let mut fields = Vec::new();
-
         while let Some(row) = rows.try_next().await? {
             let name = row.try_get(0)?;
             let oid = row.try_get(1)?;
             let type_ = self._get_type(oid).await?;
             fields.push(Field::new(name, type_));
         }
-
         Ok(fields)
     }
 
@@ -260,7 +252,6 @@ impl Client {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
         }
-
         let stmt = match self._prepare(TYPEINFO_QUERY, &[]).await {
             Ok(stmt) => stmt,
             Err(e) => {
@@ -274,9 +265,7 @@ impl Client {
                 }
             }
         };
-
         self.set_typeinfo(&stmt);
-
         Ok(stmt)
     }
 
@@ -284,7 +273,6 @@ impl Client {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
         }
-
         let stmt = match self._prepare(TYPEINFO_ENUM_QUERY, &[]).await {
             Ok(stmt) => stmt,
             Err(e) => {
@@ -298,9 +286,7 @@ impl Client {
                 }
             }
         };
-
         self.set_typeinfo_enum(&stmt);
-
         Ok(stmt)
     }
 
@@ -308,53 +294,39 @@ impl Client {
         if let Some(stmt) = self.typeinfo_composite() {
             return Ok(stmt);
         }
-
         let stmt = self._prepare(TYPEINFO_COMPOSITE_QUERY, &[]).await?;
-
         self.set_typeinfo_composite(&stmt);
-
         Ok(stmt)
     }
+}
 
+impl Client {
     fn get_enum_variants_blocking(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement_blocking()?;
-
-        let rows = self.query(stmt.bind([oid]))?.into_iter();
-
-        let mut res = Vec::new();
-
-        for row in rows {
-            let row = row?;
-            let variant = row.try_get(0)?;
-            res.push(variant);
-        }
-
-        Ok(res)
+        self.query(stmt.bind([oid]))?
+            .into_iter()
+            .map(|row| row?.try_get(0))
+            .collect()
     }
 
     fn get_composite_fields_blocking(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement_blocking()?;
-
-        let rows = self.query(stmt.bind([oid]))?.into_iter();
-
-        let mut fields = Vec::new();
-
-        for row in rows {
-            let row = row?;
-            let name = row.try_get(0)?;
-            let oid = row.try_get(1)?;
-            let type_ = self._get_type_blocking(oid)?;
-            fields.push(Field::new(name, type_));
-        }
-
-        Ok(fields)
+        self.query(stmt.bind([oid]))?
+            .into_iter()
+            .map(|row| {
+                let row = row?;
+                let name = row.try_get(0)?;
+                let oid = row.try_get(1)?;
+                let type_ = self._get_type_blocking(oid)?;
+                Ok(Field::new(name, type_))
+            })
+            .collect()
     }
 
     fn typeinfo_statement_blocking(&self) -> Result<Statement, Error> {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
         }
-
         let stmt = match self._prepare_blocking(TYPEINFO_QUERY, &[]) {
             Ok(stmt) => stmt,
             Err(e) => {
@@ -368,9 +340,7 @@ impl Client {
                 }
             }
         };
-
         self.set_typeinfo(&stmt);
-
         Ok(stmt)
     }
 
@@ -378,7 +348,6 @@ impl Client {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
         }
-
         let stmt = match self._prepare_blocking(TYPEINFO_ENUM_QUERY, &[]) {
             Ok(stmt) => stmt,
             Err(e) => {
@@ -392,9 +361,7 @@ impl Client {
                 }
             }
         };
-
         self.set_typeinfo_enum(&stmt);
-
         Ok(stmt)
     }
 
@@ -402,11 +369,8 @@ impl Client {
         if let Some(stmt) = self.typeinfo_composite() {
             return Ok(stmt);
         }
-
         let stmt = self._prepare_blocking(TYPEINFO_COMPOSITE_QUERY, &[])?;
-
         self.set_typeinfo_composite(&stmt);
-
         Ok(stmt)
     }
 }

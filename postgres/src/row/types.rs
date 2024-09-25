@@ -14,7 +14,7 @@ use crate::{
     types::Type,
 };
 
-use super::traits::RowIndexAndType;
+use super::{marker, traits::RowIndexAndType};
 
 /// A row of data returned from the database by a query.
 pub type Row<'r> = GenericRow<&'r [Column], &'r mut Vec<Range<usize>>, marker::Typed>;
@@ -25,11 +25,8 @@ pub type RowSimple<'r> = GenericRow<&'r [Column], &'r mut Vec<Range<usize>>, mar
 /// [`Row`] with static lifetime bound
 pub type RowOwned = GenericRow<Arc<[Column]>, Vec<Range<usize>>, marker::Typed>;
 
-/// Marker types for specialized impl on [GenericRow].
-pub(super) mod marker {
-    pub struct Typed;
-    pub struct NoTyped;
-}
+/// [`RowSimple`] with static lifetime bound
+pub type RowSimpleOwned = GenericRow<Arc<[Column]>, Vec<Range<usize>>, marker::NoTyped>;
 
 pub struct GenericRow<C, R, M> {
     columns: C,
@@ -170,7 +167,11 @@ where
     }
 }
 
-impl RowSimple<'_> {
+impl<C, R> GenericRow<C, R, marker::NoTyped>
+where
+    C: AsRef<[Column]>,
+    R: AsRef<[Range<usize>]> + AsMut<Vec<Range<usize>>>,
+{
     /// Returns a value from the row.
     ///
     /// The value can be specified either by its numeric index in the row, or by its column name.

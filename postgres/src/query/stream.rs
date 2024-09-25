@@ -1,4 +1,4 @@
-use core::{future::Future, ops::Range};
+use core::{future::Future, marker::PhantomData, ops::Range};
 
 use std::sync::Arc;
 
@@ -11,29 +11,31 @@ use crate::{
     error::Error,
     iter::AsyncLendingIterator,
     prepare::Prepare,
-    row::{Row, RowOwned, RowSimple},
+    row::{marker, Row, RowOwned, RowSimple, RowSimpleOwned},
     types::Type,
 };
 
 #[derive(Debug)]
-pub struct GenericRowStream<C> {
+pub struct GenericRowStream<C, M> {
     pub(crate) res: Response,
     pub(crate) col: C,
     pub(crate) ranges: Vec<Range<usize>>,
+    pub(crate) _marker: PhantomData<M>,
 }
 
-impl<C> GenericRowStream<C> {
+impl<C, M> GenericRowStream<C, M> {
     pub(crate) fn new(res: Response, col: C) -> Self {
         Self {
             res,
             col,
             ranges: Vec::new(),
+            _marker: PhantomData,
         }
     }
 }
 
 /// A stream of table rows.
-pub type RowStream<'a> = GenericRowStream<&'a [Column]>;
+pub type RowStream<'a> = GenericRowStream<&'a [Column], marker::Typed>;
 
 impl<'a> AsyncLendingIterator for RowStream<'a> {
     type Ok<'i>
@@ -97,7 +99,7 @@ async fn try_next<'r>(
 /// # Ok(())
 /// # }
 /// ```
-pub type RowStreamOwned = GenericRowStream<Arc<[Column]>>;
+pub type RowStreamOwned = GenericRowStream<Arc<[Column]>, marker::Typed>;
 
 impl From<RowStream<'_>> for RowStreamOwned {
     fn from(stream: RowStream<'_>) -> Self {
@@ -105,6 +107,7 @@ impl From<RowStream<'_>> for RowStreamOwned {
             res: stream.res,
             col: Arc::from(stream.col),
             ranges: stream.ranges,
+            _marker: PhantomData,
         }
     }
 }
@@ -155,7 +158,7 @@ impl Iterator for RowStreamOwned {
 }
 
 /// A stream of simple query results.
-pub type RowSimpleStream = GenericRowStream<Vec<Column>>;
+pub type RowSimpleStream = GenericRowStream<Vec<Column>, marker::NoTyped>;
 
 impl AsyncLendingIterator for RowSimpleStream {
     type Ok<'i>
@@ -184,6 +187,58 @@ impl AsyncLendingIterator for RowSimpleStream {
                 | backend::Message::EmptyQueryResponse
                 | backend::Message::ReadyForQuery(_) => return Ok(None),
                 _ => return Err(Error::unexpected()),
+            }
+        }
+    }
+}
+
+/// [`RowSimpleStreamOwned`] with static lifetime
+pub type RowSimpleStreamOwned = GenericRowStream<Arc<[Column]>, marker::NoTyped>;
+
+impl From<RowSimpleStream> for RowSimpleStreamOwned {
+    fn from(stream: RowSimpleStream) -> Self {
+        Self {
+            res: stream.res,
+            col: stream.col.into(),
+            ranges: stream.ranges,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl IntoIterator for RowSimpleStream {
+    type IntoIter = RowSimpleStreamOwned;
+    type Item = Result<RowSimpleOwned, Error>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        RowSimpleStreamOwned::from(self)
+    }
+}
+
+impl Iterator for RowSimpleStreamOwned {
+    type Item = Result<RowSimpleOwned, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.res.blocking_recv() {
+                Ok(msg) => match msg {
+                    backend::Message::RowDescription(body) => match body
+                        .fields()
+                        .map(|f| Ok(Column::new(f.name(), Type::TEXT)))
+                        .collect::<Vec<_>>()
+                    {
+                        Ok(col) => self.col = col.into(),
+                        Err(e) => return Some(Err(Error::from(e))),
+                    },
+                    backend::Message::DataRow(body) => {
+                        return Some(RowSimpleOwned::try_new(self.col.clone(), body, Vec::new()));
+                    }
+                    backend::Message::CommandComplete(_)
+                    | backend::Message::EmptyQueryResponse
+                    | backend::Message::ReadyForQuery(_) => return None,
+                    _ => return Some(Err(Error::unexpected())),
+                },
+                Err(e) => return Some(Err(e)),
             }
         }
     }
