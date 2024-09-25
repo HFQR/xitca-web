@@ -7,9 +7,10 @@ use bb8::{ManageConnection, Pool};
 use xitca_postgres::{
     dev::{ClientBorrowMut, Encode, Prepare, Query, Response},
     error::{DriverDown, Error},
+    iter::AsyncLendingIterator,
     transaction::Transaction,
     types::{Oid, Type},
-    AsyncLendingIterator, Client, Config, Postgres,
+    Client, Config, Postgres,
 };
 
 // type alias for reduce type naming complexity

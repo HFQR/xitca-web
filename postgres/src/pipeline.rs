@@ -27,7 +27,7 @@ use super::{
 ///
 /// # Examples
 /// ```rust
-/// use xitca_postgres::{AsyncLendingIterator, Client, pipeline::Pipeline};
+/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client};
 ///
 /// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     // prepare a statement that will be called repeatedly.

@@ -3,7 +3,7 @@ mod stream;
 #[cfg(feature = "compat")]
 pub(crate) mod compat;
 
-pub use stream::{RowSimpleStream, RowStream, RowStreamGuarded};
+pub use stream::{RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned};
 
 use core::{
     future::Future,
@@ -32,7 +32,7 @@ pub trait Query {
     /// This category includes multiple types that can be dereferenced/borrowed as [`Statement`]
     /// ## Examples
     /// ```rust
-    /// # use xitca_postgres::{dev::{Prepare, Query}, types::Type, AsyncLendingIterator, Client, Error};
+    /// # use xitca_postgres::{dev::{Prepare, Query}, iter::AsyncLendingIterator, types::Type, Client, Error};
     /// # async fn prepare_and_query(client: &Client) -> Result<(), Error> {
     /// // prepare a statement with client type.
     /// let stmt = client._prepare("SELECT id from users", &[Type::INT4]).await?;
@@ -51,7 +51,7 @@ pub trait Query {
     /// the whole progress and associated client must be kept around util streaming is finished.
     /// ## Examples
     /// ```rust
-    /// # use xitca_postgres::{dev::{Prepare, Query}, statement::Statement, types::Type, AsyncLendingIterator, Client, Error};
+    /// # use xitca_postgres::{dev::{Prepare, Query}, iter::AsyncLendingIterator, statement::Statement, types::Type, Client, Error};
     /// # async fn prepare_and_query(client: &Client) -> Result<(), Error> {
     /// // construct an unnamed statement.
     /// let stmt = Statement::unnamed(client, "SELECT * FROM users WHERE id = $1", &[Type::INT4], [&996i32]);
@@ -69,7 +69,7 @@ pub trait Query {
     /// This category includes multiple types that can be dereferenced/borrowed as [`str`]
     /// ## Examples
     /// ```rust
-    /// # use xitca_postgres::{dev::{Prepare, Query}, statement::Statement, types::Type, AsyncLendingIterator, Client, Error};
+    /// # use xitca_postgres::{dev::{Prepare, Query}, iter::AsyncLendingIterator, statement::Statement, types::Type, Client, Error};
     /// # async fn simple_query(client: &Client) -> Result<(), Error> {
     /// // query with a string. the string can contain multiple sql query and they have to be separated by semicolons
     /// let mut stream = client._query("SELECT 1;SELECT 1")?;

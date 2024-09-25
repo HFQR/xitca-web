@@ -124,11 +124,11 @@ pub enum ResponseMessage {
 
 impl ResponseMessage {
     pub(crate) fn try_from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
-        let mut idx = 0;
+        let mut tail = 0;
         let mut complete = false;
 
         loop {
-            let slice = &buf[idx..];
+            let slice = &buf[tail..];
             let Some(header) = backend::Header::parse(slice)? else {
                 break;
             };
@@ -140,18 +140,15 @@ impl ResponseMessage {
 
             match header.tag() {
                 backend::NOTICE_RESPONSE_TAG | backend::NOTIFICATION_RESPONSE_TAG | backend::PARAMETER_STATUS_TAG => {
-                    if idx == 0 {
-                        // TODO:
-                        // PagedBytesMut should never expose underlying BytesMut type as reference.
-                        // this is needed because postgres-protocol is an external crate.
-                        let message = backend::Message::parse(buf)?.unwrap();
-                        return Ok(Some(ResponseMessage::Async(message)));
+                    if tail > 0 {
+                        break;
                     }
-
-                    break;
+                    let message = backend::Message::parse(buf)?
+                        .expect("buffer contains at least one Message. parser must produce Some");
+                    return Ok(Some(ResponseMessage::Async(message)));
                 }
                 tag => {
-                    idx += len;
+                    tail += len;
                     if matches!(tag, backend::READY_FOR_QUERY_TAG) {
                         complete = true;
                         break;
@@ -160,11 +157,11 @@ impl ResponseMessage {
             }
         }
 
-        if idx == 0 {
+        if tail == 0 {
             Ok(None)
         } else {
             Ok(Some(ResponseMessage::Normal {
-                buf: buf.split_to(idx),
+                buf: buf.split_to(tail),
                 complete,
             }))
         }

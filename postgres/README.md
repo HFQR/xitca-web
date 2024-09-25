@@ -1,4 +1,4 @@
-# async postgresql client deeply integrated with [xitca-web](https://github.com/HFQR/xitca-web). Inspired and depend on [rust-postgres](https://github.com/sfackler/rust-postgres)
+# async postgresql client integrated with [xitca-web](https://github.com/HFQR/xitca-web). Inspired and depend on [rust-postgres](https://github.com/sfackler/rust-postgres)
 
 ## Compare to tokio-postgres
 - Pros
@@ -14,7 +14,7 @@
 ```rust
 use std::future::IntoFuture;
 
-use xitca_postgres::{types::Type, AsyncLendingIterator, Postgres};
+use xitca_postgres::{iter::AsyncLendingIterator, types::Type, Postgres};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -22,6 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
         .connect()
         .await?;
+
     tokio::spawn(drv.into_future());
 
     // execute raw sql queries with client type. multiple sql queries are separated by ;
