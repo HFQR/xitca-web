@@ -5,8 +5,6 @@ use postgres_protocol::message::backend;
 use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
-use crate::RowStreamOwned;
-
 use super::{
     client::Client,
     column::Column,
@@ -24,7 +22,7 @@ pub trait Prepare: Query + Sync {
     // get type is called recursively so a boxed future is needed.
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>>;
 
-    // blocking version of [`Prepare::_get_type``].
+    // blocking version of [`Prepare::_get_type`].
     fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error>;
 
     fn _prepare_blocking(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
@@ -140,8 +138,7 @@ impl Prepare for Client {
         let stmt = self.typeinfo_statement_blocking()?;
 
         let rows = self.query(stmt.bind([oid]))?;
-        let mut rows = RowStreamOwned::from(rows);
-        let row = rows.next().ok_or_else(Error::unexpected)??;
+        let row = rows.into_iter().next().ok_or_else(Error::unexpected)??;
 
         let name = row.try_get::<String>(0)?;
         let type_ = row.try_get::<i8>(1)?;
@@ -322,8 +319,7 @@ impl Client {
     fn get_enum_variants_blocking(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement_blocking()?;
 
-        let rows = self.query(stmt.bind([oid]))?;
-        let rows = RowStreamOwned::from(rows);
+        let rows = self.query(stmt.bind([oid]))?.into_iter();
 
         let mut res = Vec::new();
 
@@ -339,8 +335,7 @@ impl Client {
     fn get_composite_fields_blocking(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement_blocking()?;
 
-        let rows = self.query(stmt.bind([oid]))?;
-        let rows = RowStreamOwned::from(rows);
+        let rows = self.query(stmt.bind([oid]))?.into_iter();
 
         let mut fields = Vec::new();
 

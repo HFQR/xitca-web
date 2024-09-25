@@ -128,7 +128,7 @@ impl Future for ExecuteFuture {
 }
 
 impl ExecuteFuture {
-    pub fn wait(self) -> Result<u64, Error> {
+    pub(crate) fn wait(self) -> Result<u64, Error> {
         match self.res {
             Ok(res) => res.try_into_row_affected_blocking(),
             Err(mut e) => Err(e.take().expect(RESUME_MSG)),

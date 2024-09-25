@@ -20,19 +20,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // keep tokio running in a background thread
     std::thread::spawn(move || rt.block_on(pending::<()>()));
 
-    // execute api needs a special suffix to be called inside sync context.
-    cli.execute(
+    // execute sql with blocking api.
+    cli.execute_blocking(
         "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT);
         INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
-    )
-    .wait()?;
+    )?;
 
     // use blocking api to prepare statement
     let stmt = cli.prepare_blocking("INSERT INTO foo (name) VALUES ($1)", &[Type::TEXT])?;
     let bind = stmt.bind(["david"]);
 
-    // execute statement
-    let row_affected = cli.execute(bind).wait()?;
+    // execute statement and obtain rows affected by insert statement.
+    let row_affected = cli.execute_blocking(bind)?;
     assert_eq!(row_affected, 1);
 
     // retrieve the row just inserted
@@ -41,9 +40,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &[Type::INT4, Type::TEXT],
     )?;
     let bind = stmt.bind_dyn(&[&4i32, &"david"]);
+
+    // query api shares the same convention no matter the context.
     let stream = cli.query(bind)?;
 
-    // convert async row stream to iterator and visit rows
+    // convert async row stream to iterator and visit rows.
     for item in stream.into_iter() {
         let row = item?;
         assert_eq!(row.get::<i32>("id"), 4);

@@ -174,6 +174,14 @@ impl Client {
         self._execute(stmt)
     }
 
+    #[inline]
+    pub fn execute_blocking<S>(&self, stmt: S) -> Result<u64, Error>
+    where
+        S: Encode,
+    {
+        self.execute(stmt).wait()
+    }
+
     /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.
     /// However it should also be noted that the client type must be referenced during the whole progress and associated
     /// client must be kept around util streaming is finished.
