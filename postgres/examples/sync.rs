@@ -1,55 +1,56 @@
 //! example of running client in non async environment.
 
-use std::future::{pending, IntoFuture};
-use xitca_postgres::{types::Type, Error, Postgres};
+use std::future::IntoFuture;
+use xitca_postgres::{types::Type, Postgres};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // prepare a tokio runtime for client's Driver.
     // can be shared with existing runtime if any.
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
-    // start client and spawn driver inside runtime.
-    let cli = rt.block_on(async {
-        let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
-            .connect()
-            .await?;
-        tokio::spawn(drv.into_future());
-        Ok::<_, Error>(cli)
-    })?;
+    // start client and driver with help of tokio runtime.
+    let (cli, drv) = rt.block_on(Postgres::new("postgres://postgres:postgres@localhost:5432").connect())?;
 
-    // keep tokio running in a background thread
-    std::thread::spawn(move || rt.block_on(pending::<()>()));
+    // keep tokio running in a background thread by spawn driver inside
+    let handle = std::thread::spawn(move || rt.block_on(drv.into_future()));
 
-    // execute sql with blocking api.
-    cli.execute_blocking(
-        "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT);
-        INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
-    )?;
+    {
+        // execute sql with blocking api.
+        cli.execute_blocking("CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT)")?;
+        cli.execute_blocking("INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');")?;
 
-    // use blocking api to prepare statement
-    let stmt = cli.prepare_blocking("INSERT INTO foo (name) VALUES ($1)", &[Type::TEXT])?;
-    let bind = stmt.bind(["david"]);
+        // use blocking api to prepare statement
+        let stmt = cli.prepare_blocking("INSERT INTO foo (name) VALUES ($1)", &[Type::TEXT])?;
+        let bind = stmt.bind(["david"]);
 
-    // execute statement and obtain rows affected by insert statement.
-    let row_affected = cli.execute_blocking(bind)?;
-    assert_eq!(row_affected, 1);
+        // execute statement and obtain rows affected by insert statement.
+        let row_affected = cli.execute_blocking(bind)?;
+        assert_eq!(row_affected, 1);
 
-    // retrieve the row just inserted
-    let stmt = cli.prepare_blocking(
-        "SELECT id, name FROM foo WHERE id = $1 AND name = $2",
-        &[Type::INT4, Type::TEXT],
-    )?;
-    let bind = stmt.bind_dyn(&[&4i32, &"david"]);
+        // retrieve the row just inserted
+        let stmt = cli.prepare_blocking(
+            "SELECT id, name FROM foo WHERE id = $1 AND name = $2",
+            &[Type::INT4, Type::TEXT],
+        )?;
+        let bind = stmt.bind_dyn(&[&4i32, &"david"]);
 
-    // query api shares the same convention no matter the context.
-    let stream = cli.query(bind)?;
+        // query api shares the same convention no matter the context.
+        let stream = cli.query(bind)?;
 
-    // convert async row stream to iterator and visit rows.
-    for item in stream.into_iter() {
-        let row = item?;
-        assert_eq!(row.get::<i32>("id"), 4);
-        assert_eq!(row.get::<&str>("name"), "david");
+        // async row stream implement IntoIterator trait to convert stream into a sync iterator.
+        for item in stream {
+            let row = item?;
+            assert_eq!(row.get::<i32>("id"), 4);
+            assert_eq!(row.get::<&str>("name"), "david");
+        }
     }
+
+    // drop client after usage
+    drop(cli);
+
+    // client drop signal Driver to shutdown. which would result in the shutdown of tokio runtime
+    // and the thread it runs on will be able to be joined.
+    handle.join().unwrap()?;
 
     Ok(())
 }
