@@ -5,10 +5,12 @@ use postgres_protocol::message::backend;
 use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
+use crate::RowStreamOwned;
+
 use super::{
     client::Client,
     column::Column,
-    driver::codec::encode::StatementCreate,
+    driver::codec::{encode::StatementCreate, Response},
     error::{DbError, Error, SqlState},
     iter::AsyncLendingIterator,
     query::Query,
@@ -22,26 +24,53 @@ pub trait Prepare: Query + Sync {
     // get type is called recursively so a boxed future is needed.
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>>;
 
-    fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send {
-        let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let name = format!("s{id}");
+    // blocking version of [`Prepare::_get_type``].
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error>;
 
-        if types.is_empty() {
-            debug!("preparing query {}: {}", name, query);
-        } else {
-            debug!("preparing query {} with types {:?}: {}", name, types, query);
+    fn _prepare_blocking(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
+        let (name, mut res) = send_encode(self, query, types)?;
+
+        match res.blocking_recv()? {
+            backend::Message::ParseComplete => {}
+            _ => return Err(Error::unexpected()),
         }
 
-        let res = self
-            ._send_encode_query(StatementCreate {
-                name: &name,
-                query,
-                types,
-            })
-            .map(|(_, res)| res);
+        let parameter_description = match res.blocking_recv()? {
+            backend::Message::ParameterDescription(body) => body,
+            _ => return Err(Error::unexpected()),
+        };
+
+        let row_description = match res.blocking_recv()? {
+            backend::Message::RowDescription(body) => Some(body),
+            backend::Message::NoData => None,
+            _ => return Err(Error::unexpected()),
+        };
+
+        let mut params = Vec::new();
+        let mut it = parameter_description.parameters();
+        while let Some(oid) = it.next()? {
+            let ty = self._get_type_blocking(oid)?;
+            params.push(ty);
+        }
+
+        let mut columns = Vec::new();
+        if let Some(row_description) = row_description {
+            let mut it = row_description.fields();
+            while let Some(field) = it.next()? {
+                let type_ = self._get_type_blocking(field.type_oid())?;
+                let column = Column::new(field.name(), type_);
+                columns.push(column);
+            }
+        }
+
+        Ok(Statement::new(name, params, columns))
+    }
+
+    fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send {
+        let res = send_encode(self, query, types);
 
         async {
-            let mut res = res?;
+            let (name, mut res) = res?;
 
             match res.recv().await? {
                 backend::Message::ParseComplete => {}
@@ -81,7 +110,74 @@ pub trait Prepare: Query + Sync {
     }
 }
 
+fn send_encode<C>(cli: &C, query: &str, types: &[Type]) -> Result<(String, Response), Error>
+where
+    C: Query + ?Sized,
+{
+    let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let name = format!("s{id}");
+
+    if types.is_empty() {
+        debug!("preparing query {}: {}", name, query);
+    } else {
+        debug!("preparing query {} with types {:?}: {}", name, types, query);
+    }
+
+    cli._send_encode_query(StatementCreate {
+        name: &name,
+        query,
+        types,
+    })
+    .map(|(_, res)| (name, res))
+}
+
 impl Prepare for Client {
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
+            return Ok(ty);
+        }
+
+        let stmt = self.typeinfo_statement_blocking()?;
+
+        let rows = self.query(stmt.bind([oid]))?;
+        let mut rows = RowStreamOwned::from(rows);
+        let row = rows.next().ok_or_else(Error::unexpected)??;
+
+        let name = row.try_get::<String>(0)?;
+        let type_ = row.try_get::<i8>(1)?;
+        let elem_oid = row.try_get::<Oid>(2)?;
+        let rngsubtype = row.try_get::<Option<Oid>>(3)?;
+        let basetype = row.try_get::<Oid>(4)?;
+        let schema = row.try_get::<String>(5)?;
+        let relid = row.try_get::<Oid>(6)?;
+
+        let kind = if type_ == b'e' as i8 {
+            let variants = self.get_enum_variants_blocking(oid)?;
+            Kind::Enum(variants)
+        } else if type_ == b'p' as i8 {
+            Kind::Pseudo
+        } else if basetype != 0 {
+            let type_ = self._get_type_blocking(basetype)?;
+            Kind::Domain(type_)
+        } else if elem_oid != 0 {
+            let type_ = self._get_type_blocking(elem_oid)?;
+            Kind::Array(type_)
+        } else if relid != 0 {
+            let fields = self.get_composite_fields_blocking(relid)?;
+            Kind::Composite(fields)
+        } else if let Some(rngsubtype) = rngsubtype {
+            let type_ = self._get_type_blocking(rngsubtype)?;
+            Kind::Range(type_)
+        } else {
+            Kind::Simple
+        };
+
+        let type_ = Type::new(name, oid, kind, schema);
+        self.set_type(oid, &type_);
+
+        Ok(type_)
+    }
+
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         Box::pin(async move {
             if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
@@ -217,6 +313,102 @@ impl Client {
         }
 
         let stmt = self._prepare(TYPEINFO_COMPOSITE_QUERY, &[]).await?;
+
+        self.set_typeinfo_composite(&stmt);
+
+        Ok(stmt)
+    }
+
+    fn get_enum_variants_blocking(&self, oid: Oid) -> Result<Vec<String>, Error> {
+        let stmt = self.typeinfo_enum_statement_blocking()?;
+
+        let rows = self.query(stmt.bind([oid]))?;
+        let rows = RowStreamOwned::from(rows);
+
+        let mut res = Vec::new();
+
+        for row in rows {
+            let row = row?;
+            let variant = row.try_get(0)?;
+            res.push(variant);
+        }
+
+        Ok(res)
+    }
+
+    fn get_composite_fields_blocking(&self, oid: Oid) -> Result<Vec<Field>, Error> {
+        let stmt = self.typeinfo_composite_statement_blocking()?;
+
+        let rows = self.query(stmt.bind([oid]))?;
+        let rows = RowStreamOwned::from(rows);
+
+        let mut fields = Vec::new();
+
+        for row in rows {
+            let row = row?;
+            let name = row.try_get(0)?;
+            let oid = row.try_get(1)?;
+            let type_ = self._get_type_blocking(oid)?;
+            fields.push(Field::new(name, type_));
+        }
+
+        Ok(fields)
+    }
+
+    fn typeinfo_statement_blocking(&self) -> Result<Statement, Error> {
+        if let Some(stmt) = self.typeinfo() {
+            return Ok(stmt);
+        }
+
+        let stmt = match self._prepare_blocking(TYPEINFO_QUERY, &[]) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                return if e
+                    .downcast_ref::<DbError>()
+                    .is_some_and(|e| SqlState::UNDEFINED_TABLE.eq(e.code()))
+                {
+                    self._prepare_blocking(TYPEINFO_FALLBACK_QUERY, &[])
+                } else {
+                    Err(e)
+                }
+            }
+        };
+
+        self.set_typeinfo(&stmt);
+
+        Ok(stmt)
+    }
+
+    fn typeinfo_enum_statement_blocking(&self) -> Result<Statement, Error> {
+        if let Some(stmt) = self.typeinfo_enum() {
+            return Ok(stmt);
+        }
+
+        let stmt = match self._prepare_blocking(TYPEINFO_ENUM_QUERY, &[]) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                return if e
+                    .downcast_ref::<DbError>()
+                    .is_some_and(|e| SqlState::UNDEFINED_COLUMN.eq(e.code()))
+                {
+                    self._prepare_blocking(TYPEINFO_ENUM_FALLBACK_QUERY, &[])
+                } else {
+                    Err(e)
+                }
+            }
+        };
+
+        self.set_typeinfo_enum(&stmt);
+
+        Ok(stmt)
+    }
+
+    fn typeinfo_composite_statement_blocking(&self) -> Result<Statement, Error> {
+        if let Some(stmt) = self.typeinfo_composite() {
+            return Ok(stmt);
+        }
+
+        let stmt = self._prepare_blocking(TYPEINFO_COMPOSITE_QUERY, &[])?;
 
         self.set_typeinfo_composite(&stmt);
 

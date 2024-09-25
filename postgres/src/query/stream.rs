@@ -11,7 +11,7 @@ use crate::{
     error::Error,
     iter::AsyncLendingIterator,
     prepare::Prepare,
-    row::{Row, RowSimple},
+    row::{Row, RowOwned, RowSimple},
     types::Type,
 };
 
@@ -119,6 +119,38 @@ impl AsyncLendingIterator for RowStreamOwned {
     #[inline]
     fn try_next(&mut self) -> impl Future<Output = Result<Option<Self::Ok<'_>>, Self::Err>> + Send {
         try_next(&mut self.res, &self.col, &mut self.ranges)
+    }
+}
+
+impl IntoIterator for RowStream<'_> {
+    type Item = Result<RowOwned, Error>;
+    type IntoIter = RowStreamOwned;
+
+    fn into_iter(self) -> Self::IntoIter {
+        RowStreamOwned::from(self)
+    }
+}
+
+impl Iterator for RowStreamOwned {
+    type Item = Result<RowOwned, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.res.blocking_recv() {
+                Ok(msg) => match msg {
+                    backend::Message::DataRow(body) => {
+                        return Some(RowOwned::try_new(self.col.clone(), body, Vec::new()))
+                    }
+                    backend::Message::BindComplete
+                    | backend::Message::EmptyQueryResponse
+                    | backend::Message::CommandComplete(_)
+                    | backend::Message::PortalSuspended => {}
+                    backend::Message::ReadyForQuery(_) => return None,
+                    _ => return Some(Err(Error::unexpected())),
+                },
+                Err(e) => return Some(Err(e)),
+            }
+        }
     }
 }
 

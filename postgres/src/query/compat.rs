@@ -6,7 +6,7 @@ use core::{
 use futures_core::Stream;
 use postgres_protocol::message::backend;
 
-use crate::{error::Error, row::compat::RowOwned};
+use crate::{error::Error, row::RowOwned};
 
 use super::RowStreamOwned;
 

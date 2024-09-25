@@ -209,8 +209,14 @@ impl<C> Prepare for Transaction<'_, C>
 where
     C: Prepare + Query + ClientBorrowMut,
 {
+    #[inline]
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         self.client._get_type(oid)
+    }
+
+    #[inline]
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        self.client._get_type_blocking(oid)
     }
 }
 

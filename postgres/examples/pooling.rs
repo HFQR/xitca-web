@@ -76,6 +76,10 @@ impl Prepare for PoolConnection {
     fn _get_type(&self, oid: Oid) -> BoxFuture<'_, Result<Type, Error>> {
         self.conn._get_type(oid)
     }
+
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        self.conn._get_type_blocking(oid)
+    }
 }
 
 // trait for how a query is sent.

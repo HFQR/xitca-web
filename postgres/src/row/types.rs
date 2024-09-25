@@ -1,5 +1,7 @@
 use core::{fmt, marker::PhantomData, ops::Range};
 
+use std::sync::Arc;
+
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend::DataRowBody;
 use postgres_types::FromSql;
@@ -19,6 +21,9 @@ pub type Row<'r> = GenericRow<&'r [Column], &'r mut Vec<Range<usize>>, marker::T
 
 /// A row of data returned from the database by a simple query.
 pub type RowSimple<'r> = GenericRow<&'r [Column], &'r mut Vec<Range<usize>>, marker::NoTyped>;
+
+/// [`Row`] with static lifetime bound
+pub type RowOwned = GenericRow<Arc<[Column]>, Vec<Range<usize>>, marker::Typed>;
 
 /// Marker types for specialized impl on [GenericRow].
 pub(super) mod marker {

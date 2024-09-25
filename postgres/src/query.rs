@@ -122,7 +122,18 @@ impl Future for ExecuteFuture {
                 ready!(res.poll_try_into_ready(&mut this.rows_affected, cx))?;
                 Poll::Ready(Ok(this.rows_affected))
             }
-            Err(ref mut e) => Poll::Ready(Err(e.take().expect("ExecuteFuture polled after finish"))),
+            Err(ref mut e) => Poll::Ready(Err(e.take().expect(RESUME_MSG))),
         }
     }
 }
+
+impl ExecuteFuture {
+    pub fn wait(self) -> Result<u64, Error> {
+        match self.res {
+            Ok(res) => res.try_into_row_affected_blocking(),
+            Err(mut e) => Err(e.take().expect(RESUME_MSG)),
+        }
+    }
+}
+
+const RESUME_MSG: &str = "ExecuteFuture resumed after finish";
