@@ -26,13 +26,13 @@ mod column;
 mod config;
 mod driver;
 mod from_sql;
-mod iter;
 mod prepare;
 mod query;
 mod session;
 
 pub mod copy;
 pub mod error;
+pub mod iter;
 pub mod pipeline;
 pub mod pool;
 pub mod row;
@@ -51,8 +51,7 @@ pub use self::{
     driver::Driver,
     error::Error,
     from_sql::FromSqlExt,
-    iter::AsyncLendingIterator,
-    query::{RowSimpleStream, RowStream},
+    query::{RowSimpleStream, RowStream, RowStreamOwned},
     session::Session,
 };
 
@@ -81,7 +80,7 @@ pub mod compat {
     //! // in order to remove lifetime constraint we can do following:
     //!
     //! // convert borrowed stream to owned stream where lifetime constraints are lifted.
-    //! let mut stream = xitca_postgres::compat::RowStreamOwned::from(stream);
+    //! let mut stream = xitca_postgres::RowStreamOwned::from(stream);
     //!
     //! // spawn async task and move stream into it.
     //! tokio::spawn(async move {
@@ -98,7 +97,6 @@ pub mod compat {
     //!
     //! [`futures::Stream`]: futures_core::stream::Stream
 
-    pub use crate::query::compat::RowStreamOwned;
     pub use crate::row::compat::RowOwned;
     pub use crate::statement::compat::StatementGuarded;
 }

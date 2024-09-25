@@ -3,28 +3,12 @@ use core::{
     task::{ready, Context, Poll},
 };
 
-use std::sync::Arc;
-
 use futures_core::Stream;
 use postgres_protocol::message::backend;
 
-use crate::{column::Column, driver::codec::Response, error::Error, row::compat::RowOwned};
+use crate::{error::Error, row::compat::RowOwned};
 
-use super::RowStream;
-
-pub struct RowStreamOwned {
-    pub(crate) res: Response,
-    pub(crate) col: Arc<[Column]>,
-}
-
-impl From<RowStream<'_>> for RowStreamOwned {
-    fn from(RowStream { res, col, .. }: RowStream<'_>) -> Self {
-        Self {
-            res,
-            col: Arc::from(col),
-        }
-    }
-}
+use super::RowStreamOwned;
 
 impl Stream for RowStreamOwned {
     type Item = Result<RowOwned, Error>;

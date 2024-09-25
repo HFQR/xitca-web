@@ -152,7 +152,7 @@ async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterato
 /// # Examples
 /// ```
 /// use std::future::IntoFuture;
-/// use xitca_postgres::{AsyncLendingIterator, Driver};
+/// use xitca_postgres::{iter::AsyncLendingIterator, Driver};
 ///
 /// // drive the client and listen to server notify at the same time.
 /// fn drive_with_server_notify(mut drv: Driver) {

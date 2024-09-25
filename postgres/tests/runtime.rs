@@ -2,8 +2,9 @@ use core::future::IntoFuture;
 
 use xitca_postgres::{
     error::{DbError, SqlState},
+    iter::AsyncLendingIterator,
     types::Type,
-    AsyncLendingIterator, Client, Postgres,
+    Client, Postgres,
 };
 
 async fn connect(s: &str) -> Client {
