@@ -1,41 +1,47 @@
 # unreleased 0.2.0
 ## Remove
-- remove `query_raw`, `execute_raw`, `query_simple` and `execute_simple` methods from all types. Leave only `query` and `execute` as sole API. 
+- remove `query`, `execute`, `query_raw`, `execute_raw`, `query_simple` and `execute_simple` methods from all types. Leave only `Execute` trait as sole query API  
     ```rust
-    // query and execute is able to handle raw string query.
-    let stream = cli.query("SELECT 1; SELECT 1")?;
-    let row_affected = cli.execute("SELECT 1; SELECT 1");
+    use xitca_postgres::Execute;
+    let stream = "SELECT 1; SELECT 1".query(&client)?;
+    let row_affected = "SELECT 1; SELECT 1".execute(&client).await?;
     ```
 - remove `dev::AsParams` trait export. It's not needed for implementing `Query` trait anymore    
 
 ## Change
-- query with parameter value arguments must be bind to it's `Statement` before received by `query` and `execute` APIs.
+- query with parameter value arguments must be bind to it's `Statement` before calling `Execute` methods.
     ```rust
+    use xitca_postgres::Execute;
     // prepare a statement.
-    let stmt = cli.prepare("SELECT * FROM users WHERE id = $1, age = $2", &[Type::INT4, Type::INT4]).await?;
-    // bind statement to typed value.
-    let bind = stmt.bind([9527, 42]);
-    // query with the bind
-    let stream = cli.query(bind)?;
+    let stmt = client.prepare("SELECT * FROM users WHERE id = $1 AND age = $2", &[Type::INT4, Type::INT4]).await?;
+    // bind statement to typed value and start query
+    let stream = stmt.bind([9527, 42]).query(&client)?;
     ```
 - query without parameter value can be queried with `Statement` alone.
     ```rust
+    use xitca_postgres::Execute;
     // prepare a statement.
-    let stmt = cli.prepare("SELECT * FROM users", &[]).await?;
+    let stmt = client.prepare("SELECT * FROM users", &[]).await?;
     // statement have no value params and can be used for query.
-    let stream = cli.query(&stmt)?;
+    let stream = stmt.query(&client)?;
     ```
 - `AsyncLendingIterator` is no longer exported from crate's root path. use `iter::AsyncLendingIterator` instead
-- `RowStreamOwned` is no long behind `compat` crate feature anymore
-- `statement::Statement::unnamed` method takes extra argument for type value parameters. After construction it can be queried directly with `query` APIs    
+- `query::RowStreamOwned` and `row::RowOwned` are no longer behind `compat` crate feature anymore
+- `statement::Statement::unnamed` must bind to value parameters with `bind` or `bind_dyn` and bind to a client type with `into_guarded` before calling `Execute` methods.
+    ```rust
+    let stmt = Statement::unnamed("SELECT * FROM users WHERE id = $1", &[Type::INT4]);
+    let row_stream = stmt.bind([9527]).into_guarded(&client).query(&client);
+    ```
 - `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output<'_>, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
 - `Encode` and `IntoStream` traits implementation detail change
 
 ## Add
-- add `Client::{execute_blocking, prepare_blocking}`
+- add `Execute` trait for extending query customization
+- add `Client::prepare_blocking`
 - add `Prepare::{_prepare_blocking, _get_type_blocking}`
 - add `iter::AsyncLendingIteratorExt` for extending async iterator APIs
 - add `statement::Statement::{bind, bind_dyn}` methods for binding value parameters to a prepared statement for query
+- add `query::RowSimpleStreamOwned`
 - add `error::DriverIoErrorMulti` type for outputting read and write IO errors at the same time
 
 ## Fix

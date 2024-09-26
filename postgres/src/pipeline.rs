@@ -231,8 +231,10 @@ impl<'a, B, const SYNC_MODE: bool> Pipeline<'a, B, SYNC_MODE>
 where
     B: DerefMut<Target = BytesMut>,
 {
-    /// pipelined version of [Client::query] with strict input requirement where it only accepts reference
+    /// pipelined version of [`Execute::query`] with strict input requirement where it only accepts reference
     /// of raw statement and it's associated type parameters.
+    ///
+    /// [`Execute::query`]: crate::execute::Execute::query
     pub fn query<S>(&mut self, stmt: S) -> Result<(), Error>
     where
         S: Encode<Output<'a> = &'a [Column]> + 'a,

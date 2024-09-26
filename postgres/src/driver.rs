@@ -175,7 +175,7 @@ async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterato
 /// From Driver side it's in the form of dropping ownership.
 /// ## Examples
 /// ```
-/// # use xitca_postgres::{error::Error, Config, Postgres};
+/// # use xitca_postgres::{error::Error, Config, Execute, Postgres};
 /// # async fn shut_down(cfg: Config) -> Result<(), Error> {
 /// // connect to a database
 /// let (cli, drv) = Postgres::new(cfg).connect().await?;
@@ -184,7 +184,7 @@ async fn dns_resolve<'p>(host: &'p str, ports: &'p [u16]) -> Result<impl Iterato
 /// drop(drv);
 ///
 /// // client will always return error when it's driver is gone.
-/// let e = cli.query("SELECT 1").unwrap_err();
+/// let e = "SELECT 1".query(&cli).unwrap_err();
 /// // a shortcut method can be used to determine if the error is caused by a shutdown driver.
 /// assert!(e.is_driver_down());
 ///

@@ -104,31 +104,22 @@ impl Statement {
         &self.name
     }
 
+    /// construct a new unnamed statement
     #[inline]
-    pub fn unnamed<'a, C, P>(cli: &'a C, stmt: &'a str, types: &'a [Type], params: P) -> StatementUnnamed<'a, P, C>
-    where
-        P: AsParams,
-    {
-        StatementUnnamed {
-            stmt,
-            types,
-            cli,
-            params,
-        }
+    pub fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a> {
+        StatementUnnamed { stmt, types }
     }
 
     /// bind self to typed value parameters where they are encoded into a valid sql query in binary format
     ///
     /// # Examples
     /// ```
-    /// # use xitca_postgres::{types::Type, Client, Error};
-    /// # async fn bind(cli: &Client) -> Result<(), Error> {
+    /// # use xitca_postgres::{types::Type, Client, Error, Execute};
+    /// # async fn bind(cli: Client) -> Result<(), Error> {
     /// // prepare a statement with typed parameters.
     /// let stmt = cli.prepare("SELECT * FROM users WHERE id = $1 AND age = $2", &[Type::INT4, Type::INT4]).await?;
-    /// // bind statement to typed value parameters.
-    /// let bind = stmt.bind([9527_i32, 18]);
-    /// // query with the bind.
-    /// let row_stream = cli.query(bind)?;
+    /// // bind statement to typed value parameters and start query
+    /// let row_stream = stmt.bind([9527_i32, 18]).query(&cli)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -179,6 +170,35 @@ impl Statement {
     }
 }
 
+/// an unnamed statement that is not prepared by calling [`Client::prepare`]
+///
+/// [`Client::prepare`]: crate::client::Client::prepare
+pub struct StatementUnnamed<'a> {
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
+}
+
+impl<'a> StatementUnnamed<'a> {
+    /// function the same as [`Statement::bind`]
+    #[inline]
+    pub fn bind<P>(self, params: P) -> StatementUnnamedBind<'a, P> {
+        StatementUnnamedBind {
+            stmt: self.stmt,
+            types: self.types,
+            params,
+        }
+    }
+
+    /// function the same as [`Statement::bind_dyn`]
+    #[inline]
+    pub fn bind_dyn<'p, 't>(
+        self,
+        params: &'p [&'t (dyn ToSql + Sync)],
+    ) -> StatementUnnamedBind<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + 'p> {
+        self.bind(params.iter().cloned())
+    }
+}
+
 /// a named statement with it's query params
 pub struct StatementQuery<'a, P> {
     pub(crate) stmt: &'a Statement,
@@ -186,7 +206,27 @@ pub struct StatementQuery<'a, P> {
 }
 
 /// an unnamed statement with it's query params
-pub struct StatementUnnamed<'a, P, C> {
+pub struct StatementUnnamedBind<'a, P> {
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
+    pub(crate) params: P,
+}
+
+impl<'a, P> StatementUnnamedBind<'a, P> {
+    /// add a reference of client type to unnamed statement.
+    /// client is needed for possible delayed postgres type lookup
+    pub fn into_guarded<C>(self, cli: &'a C) -> StatementUnnamedQuery<'a, P, C> {
+        StatementUnnamedQuery {
+            stmt: self.stmt,
+            types: self.types,
+            params: self.params,
+            cli,
+        }
+    }
+}
+
+/// an unnamed statement with it's query params and reference of a client
+pub struct StatementUnnamedQuery<'a, P, C> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
     pub(crate) params: P,
@@ -270,6 +310,7 @@ mod test {
 
     use crate::{
         error::{DbError, SqlState},
+        execute::Execute,
         iter::AsyncLendingIterator,
         Postgres,
     };
@@ -283,11 +324,10 @@ mod test {
 
         tokio::task::spawn(drv.into_future());
 
-        cli.execute(
-            "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT); INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
-        )
-        .await
-        .unwrap();
+        "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT); INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');"
+            .execute(&cli)
+            .await
+            .unwrap();
 
         let stmt = cli.prepare("SELECT id, name FROM foo ORDER BY id", &[]).await.unwrap();
 
@@ -295,7 +335,7 @@ mod test {
 
         drop(stmt);
 
-        let mut stream = cli.query(&stmt_raw).unwrap();
+        let mut stream = stmt_raw.query(&cli).unwrap();
 
         let e = stream.try_next().await.err().unwrap();
 

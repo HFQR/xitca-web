@@ -1,31 +1,12 @@
-//! A postgresql client on top of [`rust-postgres`](https://github.com/sfackler/rust-postgres/)
-//!
-//! This crate shares a similar feature set and public API with [`tokio-postgres`](https://docs.rs/tokio-postgres/latest/tokio_postgres/) with some differences:
-//!
-//! # Pipelining
-//!
-//! offer both "implicit" and explicit API. support for more relaxed pipeline.
-//!
-//! # SSL/TLS support
-//!
-//! powered by `rustls`
-//!
-//! # QUIC transport layer
-//!
-//! offer transparent QUIC transport layer and proxy for lossy remote database connection
-//!
-//! # Connection Pool
-//!
-//! built in connection pool with pipelining support enabled
-
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
-#[doc = include_str!("../README.md")]
 mod cancel;
 mod client;
 mod column;
 mod config;
 mod driver;
+mod execute;
 mod from_sql;
 mod prepare;
 mod query;
@@ -51,6 +32,7 @@ pub use self::{
     config::Config,
     driver::Driver,
     error::Error,
+    execute::Execute,
     from_sql::FromSqlExt,
     query::{RowSimpleStream, RowStream, RowStreamOwned},
     session::Session,
@@ -66,11 +48,11 @@ pub mod compat {
     //!
     //! # Examples
     //! ```
-    //! # use xitca_postgres::{Client, Error};
+    //! # use xitca_postgres::{Client, Error, Execute};
     //! # async fn convert(client: Client) -> Result<(), Error> {
     //! // prepare a statement and query for rows.
     //! let stmt = client.prepare("SELECT * from users", &[]).await?;
-    //! let mut stream = client.query(&stmt)?;
+    //! let mut stream = stmt.query(&client)?;
     //!
     //! // assuming we want to spawn a tokio async task and handle the stream inside it.
     //! // but code below would not work as stream is a borrowed type with lending iterator implements.
@@ -106,7 +88,7 @@ pub mod dev {
 
     pub use crate::client::ClientBorrowMut;
     pub use crate::copy::r#Copy;
-    pub use crate::driver::codec::{encode::Encode, Response};
+    pub use crate::driver::codec::{encode::Encode, into_stream::IntoStream, Response};
     pub use crate::prepare::Prepare;
     pub use crate::query::Query;
 }

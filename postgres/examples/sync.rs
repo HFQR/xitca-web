@@ -1,7 +1,7 @@
 //! example of running client in non async environment.
 
 use std::future::IntoFuture;
-use xitca_postgres::{types::Type, Postgres};
+use xitca_postgres::{types::Type, Execute, Postgres};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // prepare a tokio runtime for client's Driver.
@@ -15,16 +15,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handle = std::thread::spawn(move || rt.block_on(drv.into_future()));
 
     {
-        // execute sql with blocking api.
-        cli.execute_blocking("CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT)")?;
-        cli.execute_blocking("INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');")?;
+        // execute sql with blocking api
+        "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT)".execute_blocking(&cli)?;
+        "INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');".execute_blocking(&cli)?;
 
         // use blocking api to prepare statement
         let stmt = cli.prepare_blocking("INSERT INTO foo (name) VALUES ($1)", &[Type::TEXT])?;
-        let bind = stmt.bind(["david"]);
-
         // execute statement and obtain rows affected by insert statement.
-        let row_affected = cli.execute_blocking(bind)?;
+        let row_affected = stmt.bind(["david"]).execute_blocking(&cli)?;
         assert_eq!(row_affected, 1);
 
         // retrieve the row just inserted
@@ -32,10 +30,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "SELECT id, name FROM foo WHERE id = $1 AND name = $2",
             &[Type::INT4, Type::TEXT],
         )?;
-        let bind = stmt.bind_dyn(&[&4i32, &"david"]);
-
         // query api shares the same convention no matter the context.
-        let stream = cli.query(bind)?;
+        let stream = stmt.bind_dyn(&[&4i32, &"david"]).query(&cli)?;
 
         // async row stream implement IntoIterator trait to convert stream into a sync iterator.
         for item in stream {

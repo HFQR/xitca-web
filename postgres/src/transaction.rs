@@ -1,12 +1,15 @@
 mod builder;
 mod portal;
 
+use std::borrow::Cow;
+
 use super::{
     client::ClientBorrowMut,
-    driver::codec::{encode::Encode, into_stream::IntoStream, AsParams, Response},
+    driver::codec::{encode::Encode, AsParams, Response},
     error::Error,
+    execute::Execute,
     prepare::Prepare,
-    query::{Query, RowStreamGuarded},
+    query::Query,
     statement::{Statement, StatementGuarded},
     types::{Oid, ToSql, Type},
     BoxedFuture,
@@ -44,27 +47,27 @@ impl SavePoint {
         }
     }
 
-    fn save_point_query(&self) -> String {
+    fn save_point_query(&self) -> Cow<'static, str> {
         match self {
-            Self::None => "SAVEPOINT".to_string(),
-            Self::Auto { depth } => format!("SAVEPOINT sp_{depth}"),
-            Self::Custom { name, .. } => format!("SAVEPOINT {name}"),
+            Self::None => Cow::Borrowed("SAVEPOINT"),
+            Self::Auto { depth } => Cow::Owned(format!("SAVEPOINT sp_{depth}")),
+            Self::Custom { name, .. } => Cow::Owned(format!("SAVEPOINT {name}")),
         }
     }
 
-    fn commit_query(&self) -> String {
+    fn commit_query(&self) -> Cow<'static, str> {
         match self {
-            Self::None => "COMMIT".to_string(),
-            Self::Auto { depth } => format!("RELEASE sp_{depth}"),
-            Self::Custom { name, .. } => format!("RELEASE {name}"),
+            Self::None => Cow::Borrowed("COMMIT"),
+            Self::Auto { depth } => Cow::Owned(format!("RELEASE sp_{depth}")),
+            Self::Custom { name, .. } => Cow::Owned(format!("RELEASE {name}")),
         }
     }
 
-    fn rollback_query(&self) -> String {
+    fn rollback_query(&self) -> Cow<'static, str> {
         match self {
-            Self::None => "ROLLBACK".to_string(),
-            Self::Auto { depth } => format!("ROLLBACK TO sp_{depth}"),
-            Self::Custom { name, .. } => format!("ROLLBACK TO {name}"),
+            Self::None => Cow::Borrowed("ROLLBACK"),
+            Self::Auto { depth } => Cow::Owned(format!("ROLLBACK TO sp_{depth}")),
+            Self::Custom { name, .. } => Cow::Owned(format!("ROLLBACK TO {name}")),
         }
     }
 }
@@ -99,30 +102,6 @@ where
     /// [`Client::prepare`]: crate::client::Client::prepare
     pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
         self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
-    }
-
-    /// function the same as [`Client::query`]
-    ///
-    /// [`Client::query`]: crate::client::Client::query
-    #[inline]
-    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
-    where
-        S: Encode + 'a,
-    {
-        self._query(stmt)
-    }
-
-    /// function the same as [`Client::query_unnamed`]
-    ///
-    /// [`Client::query_unnamed`]: crate::client::Client::query_unnamed
-    #[inline]
-    pub fn query_unnamed<'a>(
-        &'a self,
-        stmt: &'a str,
-        types: &'a [Type],
-        params: &'a [&(dyn ToSql + Sync)],
-    ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
     }
 
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.
@@ -165,8 +144,7 @@ where
     /// Consumes the transaction, committing all changes made within it.
     pub async fn commit(mut self) -> Result<(), Error> {
         self.state = State::Finish;
-        let query = self.save_point.commit_query();
-        self._execute(&query).await?;
+        self.save_point.commit_query().execute(&self).await?;
         Ok(())
     }
 
@@ -175,8 +153,7 @@ where
     /// This is equivalent to [`Transaction`]'s [`Drop`] implementation, but provides any error encountered to the caller.
     pub async fn rollback(mut self) -> Result<(), Error> {
         self.state = State::Finish;
-        let query = self.save_point.rollback_query();
-        self._execute(&query).await?;
+        self.save_point.rollback_query().execute(&self).await?;
         Ok(())
     }
 
@@ -190,7 +167,7 @@ where
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        self._execute(&save_point.save_point_query()).await?;
+        save_point.save_point_query().execute(self).await?;
 
         Ok(Transaction {
             client: self.client,
@@ -200,8 +177,7 @@ where
     }
 
     fn do_rollback(&mut self) {
-        let query = self.save_point.rollback_query();
-        drop(self._execute(&query));
+        drop(self.save_point.rollback_query().execute(self));
     }
 }
 

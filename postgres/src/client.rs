@@ -13,18 +13,17 @@ use super::{
     driver::{
         codec::{
             encode::{self, Encode},
-            into_stream::IntoStream,
             Response,
         },
         DriverTx,
     },
     error::Error,
     prepare::Prepare,
-    query::{ExecuteFuture, Query, RowStreamGuarded},
+    query::Query,
     session::Session,
     statement::{Statement, StatementGuarded},
     transaction::Transaction,
-    types::{Oid, ToSql, Type},
+    types::{Oid, Type},
 };
 
 /// a marker trait to confirm a mut reference of Client can be borrowed from self.
@@ -140,63 +139,6 @@ impl Client {
     /// must be called outside the context of tokio 1.x. preferably outside of any async context.
     pub fn prepare_blocking(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
         self._prepare_blocking(query, types).map(|stmt| stmt.into_guarded(self))
-    }
-
-    /// Executes a statement, returning an async stream of the resulting rows.
-    ///
-    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
-    /// provided, 1-indexed.
-    ///
-    /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
-    /// the statement up front with [Client::prepare].
-    #[inline]
-    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
-    where
-        S: Encode + 'a,
-    {
-        self._query(stmt)
-    }
-
-    /// Executes a statement, returning the number of rows modified.
-    ///
-    /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
-    /// provided, 1-indexed.
-    ///
-    /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
-    /// the statement up front with [Client::prepare].
-    ///
-    /// If the statement does not modify any rows (e.g. `SELECT`), 0 is returned.
-    #[inline]
-    pub fn execute<S>(&self, stmt: S) -> ExecuteFuture
-    where
-        S: Encode,
-    {
-        self._execute(stmt)
-    }
-
-    /// blocking version of [`Client::execute`]. enable Client to execute query inside sync context
-    ///
-    /// # Panics
-    /// must be called outside the context of tokio 1.x. preferably outside of any async context.
-    #[inline]
-    pub fn execute_blocking<S>(&self, stmt: S) -> Result<u64, Error>
-    where
-        S: Encode,
-    {
-        self.execute(stmt).wait()
-    }
-
-    /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.
-    /// However it should also be noted that the client type must be referenced during the whole progress and associated
-    /// client must be kept around util streaming is finished.
-    #[inline]
-    pub fn query_unnamed<'a>(
-        &'a self,
-        stmt: &'a str,
-        types: &'a [Type],
-        params: &'a [&(dyn ToSql + Sync)],
-    ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
     }
 
     /// start a transaction

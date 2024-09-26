@@ -12,16 +12,16 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{encode::Encode, into_stream::IntoStream, Response},
+    driver::codec::{encode::Encode, Response},
     error::Error,
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
     prepare::Prepare,
-    query::{ExecuteFuture, Query, RowStreamGuarded},
+    query::Query,
     session::Session,
     statement::{Statement, StatementGuarded},
     transaction::Transaction,
-    types::{Oid, ToSql, Type},
+    types::{Oid, Type},
     BoxedFuture, Postgres,
 };
 
@@ -146,35 +146,6 @@ impl<'p> PoolConnection<'p> {
         })
     }
 
-    /// function the same as [`Client::query`]
-    #[inline]
-    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
-    where
-        S: Encode + 'a,
-    {
-        self._query(stmt)
-    }
-
-    /// function the same as [`Client::execute`]
-    #[inline]
-    pub fn execute<S>(&self, stmt: S) -> ExecuteFuture
-    where
-        S: Encode,
-    {
-        self._execute(stmt)
-    }
-
-    /// function the same as [`Client::query_unnamed`]
-    #[inline]
-    pub fn query_unnamed<'a>(
-        &'a self,
-        stmt: &'a str,
-        types: &'a [Type],
-        params: &'a [&(dyn ToSql + Sync)],
-    ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
-    }
-
     /// function the same as [`Client::transaction`]
     #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
@@ -210,36 +181,36 @@ impl<'p> PoolConnection<'p> {
     ///
     /// # Examples
     /// ```rust
-    /// use xitca_postgres::{pool::Pool, Error};
+    /// use xitca_postgres::{pool::Pool, Error, Execute};
     ///
     /// async fn example(pool: &Pool) -> Result<(), Error> {
     ///     // get a connection from pool and start a query.
     ///     let mut conn = pool.get().await?;
     ///
-    ///     conn.execute("SELECT *").await?;
+    ///     "SELECT *".execute(&conn).await?;
     ///     
     ///     // connection is kept across await point. making it unusable to other concurrent
     ///     // callers to example function. and no pipelining will happen until it's released.
-    ///     let conn = conn;
+    ///     conn = conn;
     ///
     ///     // start another query but this time consume ownership and when res is returned
     ///     // connection is dropped and went back to pool.
-    ///     let res = conn.consume().execute("SELECT *");
+    ///     let res = "SELECT *".execute(&conn.consume());
     ///
     ///     // connection can't be used anymore in this scope but other concurrent callers
     ///     // to example function is able to use it and if they follow the same calling
     ///     // convention pipelining could happen and reduce syscall overhead.
-    ///     //
-    ///     // let res = conn.consume().execute("SELECT *");
+    ///
+    ///     // let res = "SELECT *".execute(&conn);
     ///
     ///     // without connection the response can still be collected asynchronously
     ///     res.await?;
     ///
     ///     // therefore a good calling convention for independent queries could be:
-    ///     let mut conn = pool.get().await?;
-    ///     let res1 = conn.execute("SELECT *");
-    ///     let res2 = conn.execute("SELECT *");
-    ///     let res3 = conn.consume().execute("SELECT *");
+    ///     let conn = pool.get().await?;
+    ///     let res1 = "SELECT *".execute(&conn);
+    ///     let res2 = "SELECT *".execute(&conn);
+    ///     let res3 = "SELECT *".execute(&conn.consume());
     ///
     ///     // all three queries can be pipelined into a single write syscall. and possibly
     ///     // even more can be pipelined after conn.consume() is called if there are concurrent
