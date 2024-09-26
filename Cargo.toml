@@ -49,4 +49,5 @@ unreachable_patterns = "allow"
 
 [workspace.lints.clippy]
 await_holding_lock = "allow"
+needless_return = "allow"
 new_without_default = "allow"
