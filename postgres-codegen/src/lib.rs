@@ -2,7 +2,11 @@
 //! it doesn't have any usability beyond as tutorial material.
 
 use quote::quote;
-use syn::{parse::{Parse, ParseStream}, token::Comma, Expr, ExprReference, Lit, LitStr};
+use syn::{
+    parse::{Parse, ParseStream},
+    token::Comma,
+    Expr, ExprReference, Lit, LitStr,
+};
 
 #[proc_macro]
 pub fn sql(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -10,13 +14,14 @@ pub fn sql(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     quote! {
         ::xitca_postgres::statement::Statement::unnamed(#sql, &[#(#types),*])
             .bind_dyn(&[#(#exprs),*])
-    }.into()
+    }
+    .into()
 }
 
 struct Query {
     sql: LitStr,
     exprs: Vec<ExprReference>,
-    types: Vec<proc_macro2::TokenStream>
+    types: Vec<proc_macro2::TokenStream>,
 }
 
 impl Parse for Query {
@@ -27,20 +32,18 @@ impl Parse for Query {
 
         while input.parse::<Comma>().is_ok() {
             let expr = input.parse::<ExprReference>()?;
-            let Expr::Lit(lit) = expr.expr.as_ref() else { unimplemented!("example macro can only handle literal references") };
+            let Expr::Lit(lit) = expr.expr.as_ref() else {
+                unimplemented!("example macro can only handle literal references")
+            };
             let ty = match lit.lit {
                 Lit::Str(_) => quote! { ::xitca_postgres::types::Type::TEXT },
                 Lit::Int(_) => quote! { ::xitca_postgres::types::Type::INT4 },
-                _ => unimplemented!("example macro only supports string and i32 as query parameters")
+                _ => unimplemented!("example macro only supports string and i32 as query parameters"),
             };
             types.push(ty);
             exprs.push(expr);
-        } 
+        }
 
-        Ok(Self {
-            sql,
-            exprs,
-            types
-        })
+        Ok(Self { sql, exprs, types })
     }
 }
