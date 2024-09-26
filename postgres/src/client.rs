@@ -134,6 +134,14 @@ impl Client {
         self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
     }
 
+    /// blocking version of [`Client::prepare`]. enable Client to prepare statement inside sync context
+    ///
+    /// # Panics
+    /// must be called outside the context of tokio 1.x. preferably outside of any async context.
+    pub fn prepare_blocking(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
+        self._prepare_blocking(query, types).map(|stmt| stmt.into_guarded(self))
+    }
+
     /// Executes a statement, returning an async stream of the resulting rows.
     ///
     /// A statement may contain parameters, specified by `$n`, where `n` is the index of the parameter of the list
@@ -164,6 +172,18 @@ impl Client {
         S: Encode,
     {
         self._execute(stmt)
+    }
+
+    /// blocking version of [`Client::execute`]. enable Client to execute query inside sync context
+    ///
+    /// # Panics
+    /// must be called outside the context of tokio 1.x. preferably outside of any async context.
+    #[inline]
+    pub fn execute_blocking<S>(&self, stmt: S) -> Result<u64, Error>
+    where
+        S: Encode,
+    {
+        self.execute(stmt).wait()
     }
 
     /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.
@@ -290,14 +310,21 @@ impl Client {
 }
 
 impl ClientBorrowMut for Client {
+    #[inline]
     fn _borrow_mut(&mut self) -> &mut Client {
         self
     }
 }
 
 impl Prepare for Arc<Client> {
+    #[inline]
     fn _get_type(&self, oid: Oid) -> crate::BoxedFuture<'_, Result<Type, Error>> {
         Client::_get_type(self, oid)
+    }
+
+    #[inline]
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        Client::_get_type_blocking(self, oid)
     }
 }
 

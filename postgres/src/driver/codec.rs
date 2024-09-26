@@ -35,6 +35,13 @@ pub struct Response {
 }
 
 impl Response {
+    pub(crate) fn blocking_recv(&mut self) -> Result<backend::Message, Error> {
+        if self.buf.is_empty() {
+            self.buf = self.rx.blocking_recv().ok_or(DriverDownReceiving)?;
+        }
+        self.parse_message()
+    }
+
     pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send + '_ {
         poll_fn(|cx| self.poll_recv(cx))
     }
@@ -43,13 +50,7 @@ impl Response {
         if self.buf.is_empty() {
             self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| DriverDownReceiving)?;
         }
-
-        let res = match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.") {
-            backend::Message::ErrorResponse(body) => Err(Error::db(body.fields())),
-            msg => Ok(msg),
-        };
-
-        Poll::Ready(res)
+        Poll::Ready(self.parse_message())
     }
 
     pub(crate) fn try_into_row_affected(mut self) -> impl Future<Output = Result<u64, Error>> + Send {
@@ -58,6 +59,23 @@ impl Response {
             ready!(self.poll_try_into_ready(&mut rows, cx))?;
             Poll::Ready(Ok(rows))
         })
+    }
+
+    pub(crate) fn try_into_row_affected_blocking(mut self) -> Result<u64, Error> {
+        let mut rows = 0;
+        loop {
+            match self.blocking_recv()? {
+                backend::Message::BindComplete
+                | backend::Message::DataRow(_)
+                | backend::Message::RowDescription(_)
+                | backend::Message::EmptyQueryResponse => {}
+                backend::Message::CommandComplete(body) => {
+                    rows = body_to_affected_rows(&body)?;
+                }
+                backend::Message::ReadyForQuery(_) => return Ok(rows),
+                _ => return Err(Error::unexpected()),
+            }
+        }
     }
 
     pub(crate) fn poll_try_into_ready(&mut self, rows: &mut u64, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
@@ -73,6 +91,14 @@ impl Response {
                 backend::Message::ReadyForQuery(_) => return Poll::Ready(Ok(())),
                 _ => return Poll::Ready(Err(Error::unexpected())),
             }
+        }
+    }
+
+    #[inline]
+    fn parse_message(&mut self) -> Result<backend::Message, Error> {
+        match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.") {
+            backend::Message::ErrorResponse(body) => Err(Error::db(body.fields())),
+            msg => Ok(msg),
         }
     }
 }

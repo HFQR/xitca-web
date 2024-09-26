@@ -276,18 +276,26 @@ impl<'p> PoolConnection<'p> {
 }
 
 impl ClientBorrowMut for PoolConnection<'_> {
+    #[inline]
     fn _borrow_mut(&mut self) -> &mut Client {
         &mut self.conn_mut().client
     }
 }
 
 impl Prepare for PoolConnection<'_> {
+    #[inline]
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
         self.conn().client._get_type(oid)
+    }
+
+    #[inline]
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        self.conn().client._get_type_blocking(oid)
     }
 }
 
 impl Query for PoolConnection<'_> {
+    #[inline]
     fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
     where
         S: Encode + 'a,
@@ -297,6 +305,7 @@ impl Query for PoolConnection<'_> {
 }
 
 impl r#Copy for PoolConnection<'_> {
+    #[inline]
     fn send_one_way<F>(&self, func: F) -> Result<(), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,

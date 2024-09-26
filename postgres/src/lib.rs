@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+#[doc = include_str!("../README.md")]
 mod cancel;
 mod client;
 mod column;
@@ -97,7 +98,6 @@ pub mod compat {
     //!
     //! [`futures::Stream`]: futures_core::stream::Stream
 
-    pub use crate::row::compat::RowOwned;
     pub use crate::statement::compat::StatementGuarded;
 }
 
