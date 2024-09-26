@@ -1,26 +1,6 @@
-//! A postgresql client on top of [`rust-postgres`](https://github.com/sfackler/rust-postgres/)
-//!
-//! This crate shares a similar feature set and public API with [`tokio-postgres`](https://docs.rs/tokio-postgres/latest/tokio_postgres/) with some differences:
-//!
-//! # Pipelining
-//!
-//! offer both "implicit" and explicit API. support for more relaxed pipeline.
-//!
-//! # SSL/TLS support
-//!
-//! powered by `rustls`
-//!
-//! # QUIC transport layer
-//!
-//! offer transparent QUIC transport layer and proxy for lossy remote database connection
-//!
-//! # Connection Pool
-//!
-//! built in connection pool with pipelining support enabled
-
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
-#[doc = include_str!("../README.md")]
 mod cancel;
 mod client;
 mod column;

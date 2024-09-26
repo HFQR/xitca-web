@@ -10,6 +10,19 @@
     - no built in back pressure mechanism. possible to cause excessive memory usage if database requests are unbounded or not rate limited
     - expose lifetime in public type params.(hard to return from function or contained in new types)
 
+## Features
+- Pipelining:
+    - offer both "implicit" and explicit API. 
+    - support for more relaxed pipeline.
+
+- SSL/TLS support:
+
+    - powered by `rustls`
+    - QUIC transport layer: offer transparent QUIC transport layer and proxy for lossy remote database connection
+
+- Connection Pool:
+    - built in connection pool with pipelining support enabled
+
 ## Quick Start
 ```rust
 use std::future::IntoFuture;
@@ -83,6 +96,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     assert_eq!(id, "4");
     let name = row.get("name").ok_or("no name found")?;
     assert_eq!(name, "david");
+
+    Ok(())
+}
+```
+
+## Synchronous API
+`xitca_postgres::Client` can run outside of tokio async runtime and using blocking API to interact with database 
+```rust
+use xitca_postgres::{Client, Error, Execute};
+
+fn query(client: &Client) -> Result<(), Error> {
+    // execute sql query with blocking api
+    "SELECT 1".execute_blocking(client)?;
+
+    let stream = "SELECT 1".query(client)?;
+
+    // use sync iterator to visit streaming rows
+    for item in stream {
+        let row = item?;
+        let one = row.get(0).expect("database must return 1");
+        assert_eq!(one, "1")
+    }
 
     Ok(())
 }
