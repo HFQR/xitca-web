@@ -3,6 +3,9 @@ name = "xitca-test"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [features]
 io-uring = ["xitca-http/io-uring", "xitca-server/io-uring"]
 

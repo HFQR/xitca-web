@@ -296,3 +296,73 @@ where
         }
     }
 }
+
+pub struct RowStreamGuardedOwned<'a, C> {
+    res: Response,
+    col: Arc<[Column]>,
+    cli: &'a C,
+}
+
+impl<'a, C> From<RowStreamGuarded<'a, C>> for RowStreamGuardedOwned<'a, C> {
+    fn from(stream: RowStreamGuarded<'a, C>) -> Self {
+        Self {
+            res: stream.res,
+            col: stream.col.into(),
+            cli: stream.cli,
+        }
+    }
+}
+
+impl<'a, C> IntoIterator for RowStreamGuarded<'a, C>
+where
+    C: Prepare,
+{
+    type Item = Result<RowOwned, Error>;
+    type IntoIter = RowStreamGuardedOwned<'a, C>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        RowStreamGuardedOwned::from(self)
+    }
+}
+
+impl<C> Iterator for RowStreamGuardedOwned<'_, C>
+where
+    C: Prepare,
+{
+    type Item = Result<RowOwned, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.res.blocking_recv() {
+                Ok(msg) => match msg {
+                    backend::Message::RowDescription(body) => {
+                        match body
+                            .fields()
+                            .map_err(Error::from)
+                            .map(|f| {
+                                let ty = self.cli._get_type_blocking(f.type_oid())?;
+                                Ok(Column::new(f.name(), ty))
+                            })
+                            .collect::<Vec<_>>()
+                        {
+                            Ok(col) => self.col = col.into(),
+                            Err(e) => return Some(Err(e)),
+                        }
+                    }
+                    backend::Message::DataRow(body) => {
+                        return Some(RowOwned::try_new(self.col.clone(), body, Vec::new()))
+                    }
+                    backend::Message::ParseComplete
+                    | backend::Message::BindComplete
+                    | backend::Message::ParameterDescription(_)
+                    | backend::Message::EmptyQueryResponse
+                    | backend::Message::CommandComplete(_)
+                    | backend::Message::PortalSuspended => {}
+                    backend::Message::NoData | backend::Message::ReadyForQuery(_) => return None,
+                    _ => return Some(Err(Error::unexpected())),
+                },
+                Err(e) => return Some(Err(e)),
+            }
+        }
+    }
+}
