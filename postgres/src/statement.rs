@@ -104,6 +104,7 @@ impl Statement {
         &self.name
     }
 
+    /// construct a new unnamed statement
     #[inline]
     pub fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a> {
         StatementUnnamed { stmt, types }
@@ -181,7 +182,11 @@ impl<'a> StatementUnnamed<'a> {
     /// function the same as [`Statement::bind`]
     #[inline]
     pub fn bind<P>(self, params: P) -> StatementUnnamedBind<'a, P> {
-        StatementUnnamedBind { stmt: self, params }
+        StatementUnnamedBind {
+            stmt: self.stmt,
+            types: self.types,
+            params,
+        }
     }
 
     /// function the same as [`Statement::bind_dyn`]
@@ -202,12 +207,25 @@ pub struct StatementQuery<'a, P> {
 
 /// an unnamed statement with it's query params
 pub struct StatementUnnamedBind<'a, P> {
-    pub(crate) stmt: StatementUnnamed<'a>,
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
     pub(crate) params: P,
 }
 
-/// [`StatementUnnamedBind`] with reference to client and pg type look up can happen at the same
-/// time as collecting database rows
+impl<'a, P> StatementUnnamedBind<'a, P> {
+    /// add a reference of client type to unnamed statement.
+    /// client is needed for possible delayed postgres type lookup
+    pub fn into_guarded<C>(self, cli: &'a C) -> StatementUnnamedQuery<'a, P, C> {
+        StatementUnnamedQuery {
+            stmt: self.stmt,
+            types: self.types,
+            params: self.params,
+            cli,
+        }
+    }
+}
+
+/// an unnamed statement with it's query params and reference of a client
 pub struct StatementUnnamedQuery<'a, P, C> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],

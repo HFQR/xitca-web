@@ -78,7 +78,7 @@ async fn try_next<'r>(
 /// # Examples
 /// ```
 /// # use xitca_postgres::{iter::{AsyncLendingIterator, AsyncLendingIteratorExt}, Client, Error, Execute, RowStreamOwned};
-/// # async fn collect(cli: &Client) -> Result<(), Error> {
+/// # async fn collect(cli: Client) -> Result<(), Error> {
 /// // prepare statement and query for some users from database.
 /// let stmt = cli.prepare("SELECT * FROM users", &[]).await?;
 /// let mut stream = stmt.query(&cli)?;
