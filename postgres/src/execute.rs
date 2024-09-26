@@ -48,53 +48,38 @@ where
     }
 }
 
-impl<C> Execute<C> for &String
-where
-    C: Query,
-{
-    type Encode<'e>
-        = &'e str
-    where
-        Self: 'e,
-        C: 'e;
-    type RowStream<'r>
-        = RowSimpleStream
-    where
-        C: 'r,
-        Self: 'r;
+macro_rules! execute_str {
+    ($ty: path) => {
+        impl<C> Execute<C> for &$ty
+        where
+            C: Query,
+        {
+            type Encode<'e>
+                = &'e str
+            where
+                Self: 'e,
+                C: 'e;
+            type RowStream<'r>
+                = RowSimpleStream
+            where
+                C: 'r,
+                Self: 'r;
 
-    #[inline(always)]
-    fn into_encode<'c>(self, _: &'c C) -> Self::Encode<'c>
-    where
-        Self: 'c,
-    {
-        self
-    }
+            #[inline(always)]
+            fn into_encode<'c>(self, _: &'c C) -> Self::Encode<'c>
+            where
+                Self: 'c,
+            {
+                self
+            }
+        }
+    };
 }
 
-impl<C> Execute<C> for &str
-where
-    C: Query,
-{
-    type Encode<'e>
-        = &'e str
-    where
-        Self: 'e,
-        C: 'e;
-    type RowStream<'r>
-        = RowSimpleStream
-    where
-        C: 'r,
-        Self: 'r;
-
-    #[inline(always)]
-    fn into_encode<'c>(self, _: &'c C) -> Self::Encode<'c>
-    where
-        Self: 'c,
-    {
-        self
-    }
-}
+execute_str!(str);
+execute_str!(String);
+execute_str!(Box<str>);
+execute_str!(std::borrow::Cow<'_, str>);
 
 impl<C, P> Execute<C> for StatementQuery<'_, P>
 where

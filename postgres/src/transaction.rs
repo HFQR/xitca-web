@@ -1,13 +1,15 @@
 mod builder;
 mod portal;
 
+use std::borrow::Cow;
+
 use super::{
     client::ClientBorrowMut,
     driver::codec::{encode::Encode, AsParams, Response},
     error::Error,
     execute::Execute,
     prepare::Prepare,
-    query::{Query, RowStreamGuarded},
+    query::Query,
     statement::{Statement, StatementGuarded},
     types::{Oid, ToSql, Type},
     BoxedFuture,
@@ -45,27 +47,27 @@ impl SavePoint {
         }
     }
 
-    fn save_point_query(&self) -> String {
+    fn save_point_query(&self) -> Cow<'static, str> {
         match self {
-            Self::None => "SAVEPOINT".to_string(),
-            Self::Auto { depth } => format!("SAVEPOINT sp_{depth}"),
-            Self::Custom { name, .. } => format!("SAVEPOINT {name}"),
+            Self::None => Cow::Borrowed("SAVEPOINT"),
+            Self::Auto { depth } => Cow::Owned(format!("SAVEPOINT sp_{depth}")),
+            Self::Custom { name, .. } => Cow::Owned(format!("SAVEPOINT {name}")),
         }
     }
 
-    fn commit_query(&self) -> String {
+    fn commit_query(&self) -> Cow<'static, str> {
         match self {
-            Self::None => "COMMIT".to_string(),
-            Self::Auto { depth } => format!("RELEASE sp_{depth}"),
-            Self::Custom { name, .. } => format!("RELEASE {name}"),
+            Self::None => Cow::Borrowed("COMMIT"),
+            Self::Auto { depth } => Cow::Owned(format!("RELEASE sp_{depth}")),
+            Self::Custom { name, .. } => Cow::Owned(format!("RELEASE {name}")),
         }
     }
 
-    fn rollback_query(&self) -> String {
+    fn rollback_query(&self) -> Cow<'static, str> {
         match self {
-            Self::None => "ROLLBACK".to_string(),
-            Self::Auto { depth } => format!("ROLLBACK TO sp_{depth}"),
-            Self::Custom { name, .. } => format!("ROLLBACK TO {name}"),
+            Self::None => Cow::Borrowed("ROLLBACK"),
+            Self::Auto { depth } => Cow::Owned(format!("ROLLBACK TO sp_{depth}")),
+            Self::Custom { name, .. } => Cow::Owned(format!("ROLLBACK TO {name}")),
         }
     }
 }
@@ -100,30 +102,6 @@ where
     /// [`Client::prepare`]: crate::client::Client::prepare
     pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
         self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
-    }
-
-    /// function the same as [`Client::query`]
-    ///
-    /// [`Client::query`]: crate::client::Client::query
-    #[inline]
-    pub fn query<S>(&self, stmt: S) -> Result<S::RowStream<'_>, Error>
-    where
-        S: Execute<Self>,
-    {
-        stmt.query(self)
-    }
-
-    /// function the same as [`Client::query_unnamed`]
-    ///
-    /// [`Client::query_unnamed`]: crate::client::Client::query_unnamed
-    #[inline]
-    pub fn query_unnamed<'a>(
-        &'a self,
-        stmt: &'a str,
-        types: &'a [Type],
-        params: &'a [&(dyn ToSql + Sync)],
-    ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        Statement::unnamed(stmt, types).bind_dyn(params).query(self)
     }
 
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.

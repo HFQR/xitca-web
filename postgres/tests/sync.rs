@@ -17,7 +17,8 @@ fn connect() -> Client {
 #[test]
 fn query_unnamed() {
     let cli = connect();
-    cli.execute_blocking("CREATE TEMPORARY TABLE foo (name TEXT, age INT);")
+    "CREATE TEMPORARY TABLE foo (name TEXT, age INT);"
+        .execute_blocking(&cli)
         .unwrap();
 
     let mut stream = Statement::unnamed(

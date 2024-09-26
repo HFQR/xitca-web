@@ -141,7 +141,7 @@ impl error::Error for ToDo {}
 /// ## Examples
 /// ```
 /// # use std::future::IntoFuture;
-/// # use xitca_postgres::{Error, Postgres};
+/// # use xitca_postgres::{Error, Execute, Postgres};
 /// # async fn driver_error() -> Result<(), Error> {
 /// // start a connection and spawn driver task
 /// let (cli, drv) = Postgres::new("<db_confg>").connect().await?;
@@ -149,7 +149,7 @@ impl error::Error for ToDo {}
 /// let handle = tokio::spawn(drv.into_future());
 ///
 /// // when query returns error immediately we check if the driver is gone.
-/// if let Err(e) = cli.query("") {
+/// if let Err(e) = "".query(&cli) {
 ///     if e.is_driver_down() {
 ///         // driver is gone and we want to know detail reason in this case.
 ///         // await on the join handle will return the output of Driver task.

@@ -3,6 +3,7 @@ use core::future::IntoFuture;
 use xitca_postgres::{
     error::{DbError, SqlState},
     iter::AsyncLendingIterator,
+    statement::Statement,
     types::Type,
     Client, Execute, Postgres,
 };
@@ -122,7 +123,7 @@ async fn cancel_query() {
 
     let cancel_token = client.cancel_token();
 
-    let sleep = client.execute("SELECT pg_sleep(10)");
+    let sleep = "SELECT pg_sleep(10)".execute(&client);
 
     tokio::task::yield_now().await;
 
@@ -157,14 +158,14 @@ async fn driver_shutdown() {
 
     let handle = tokio::spawn(drv.into_future());
 
-    cli.execute("SELECT 1").await.unwrap();
+    "SELECT 1".execute(&cli).await.unwrap();
 
     // yield to execute the abort of driver task. this depends on single thread
     // tokio runtime's behavior specifically.
     handle.abort();
     tokio::task::yield_now().await;
 
-    let e = cli.execute("SELECT 1").await.err().unwrap();
+    let e = "SELECT 1".execute(&cli).await.err().unwrap();
     assert!(e.is_driver_down());
 }
 
@@ -172,15 +173,9 @@ async fn driver_shutdown() {
 async fn query_portal() {
     let mut client = connect("postgres://postgres:postgres@localhost:5432").await;
 
-    client
-        .execute(
-            "CREATE TEMPORARY TABLE foo (
-                id SERIAL,
-                name TEXT
-            );
-
-            INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');",
-        )
+    "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT);
+    INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');"
+        .execute(&client)
         .await
         .unwrap();
 
@@ -217,20 +212,20 @@ async fn query_portal() {
 async fn query_unnamed_with_transaction() {
     let mut client = connect("postgres://postgres:postgres@localhost:5432").await;
 
-    client
-        .execute("CREATE TEMPORARY TABLE foo (name TEXT, age INT);")
+    "CREATE TEMPORARY TABLE foo (name TEXT, age INT);"
+        .execute(&client)
         .await
         .unwrap();
 
     let transaction = client.transaction().await.unwrap();
 
-    let mut stream = transaction
-        .query_unnamed(
-            "INSERT INTO foo (name, age) VALUES ($1, $2), ($3, $4), ($5, $6) returning name, age",
-            &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
-            &[&"alice", &20i32, &"bob", &30i32, &"carol", &40i32],
-        )
-        .unwrap();
+    let mut stream = Statement::unnamed(
+        "INSERT INTO foo (name, age) VALUES ($1, $2), ($3, $4), ($5, $6) returning name, age",
+        &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
+    )
+    .bind_dyn(&[&"alice", &20i32, &"bob", &30i32, &"carol", &40i32])
+    .query(&transaction)
+    .unwrap();
 
     let mut inserted_values = Vec::new();
 
@@ -247,13 +242,13 @@ async fn query_unnamed_with_transaction() {
         ]
     );
 
-    let mut stream = transaction
-        .query_unnamed(
-            "SELECT name, age, 'literal', 5 FROM foo WHERE name <> $1 AND age < $2 ORDER BY age",
-            &[Type::TEXT, Type::INT4],
-            &[&"alice", &50i32],
-        )
-        .unwrap();
+    let mut stream = Statement::unnamed(
+        "SELECT name, age, 'literal', 5 FROM foo WHERE name <> $1 AND age < $2 ORDER BY age",
+        &[Type::TEXT, Type::INT4],
+    )
+    .bind_dyn(&[&"alice", &50i32])
+    .query(&transaction)
+    .unwrap();
 
     let row = stream.try_next().await.unwrap().unwrap();
     assert_eq!(row.get::<&str>(0), "bob");
@@ -270,6 +265,9 @@ async fn query_unnamed_with_transaction() {
     assert!(stream.try_next().await.unwrap().is_none());
 
     // Test for UPDATE that returns no data
-    let mut stream = transaction.query_unnamed("UPDATE foo set age = 33", &[], &[]).unwrap();
+    let mut stream = Statement::unnamed("UPDATE foo set age = 33", &[])
+        .bind_dyn(&[])
+        .query(&transaction)
+        .unwrap();
     assert!(stream.try_next().await.unwrap().is_none());
 }

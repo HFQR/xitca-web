@@ -5,6 +5,8 @@ use postgres_protocol::message::backend;
 use postgres_types::{Field, Kind, Oid};
 use tracing::debug;
 
+use crate::Execute;
+
 use super::{
     client::Client,
     column::Column,
@@ -138,7 +140,7 @@ impl Prepare for Client {
 
             let stmt = self.typeinfo_statement().await?;
 
-            let mut rows = self.query(stmt.bind([oid]))?;
+            let mut rows = stmt.bind([oid]).query(self)?;
             let row = rows.try_next().await?.ok_or_else(Error::unexpected)?;
 
             let name = row.try_get::<String>(0)?;
@@ -184,7 +186,7 @@ impl Prepare for Client {
 
         let stmt = self.typeinfo_statement_blocking()?;
 
-        let rows = self.query(stmt.bind([oid]))?;
+        let rows = stmt.bind([oid]).query(self)?;
         let row = rows.into_iter().next().ok_or_else(Error::unexpected)??;
 
         let name = row.try_get::<String>(0)?;
@@ -226,7 +228,7 @@ impl Prepare for Client {
 impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
-        let mut rows = self.query(stmt.bind([oid]))?;
+        let mut rows = stmt.bind([oid]).query(self)?;
         let mut res = Vec::new();
         while let Some(row) = rows.try_next().await? {
             let variant = row.try_get(0)?;
@@ -237,7 +239,7 @@ impl Client {
 
     async fn get_composite_fields(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement().await?;
-        let mut rows = self.query(stmt.bind([oid]))?;
+        let mut rows = stmt.bind([oid]).query(self)?;
         let mut fields = Vec::new();
         while let Some(row) = rows.try_next().await? {
             let name = row.try_get(0)?;
@@ -303,7 +305,8 @@ impl Client {
 impl Client {
     fn get_enum_variants_blocking(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement_blocking()?;
-        self.query(stmt.bind([oid]))?
+        stmt.bind([oid])
+            .query(self)?
             .into_iter()
             .map(|row| row?.try_get(0))
             .collect()
@@ -311,7 +314,8 @@ impl Client {
 
     fn get_composite_fields_blocking(&self, oid: Oid) -> Result<Vec<Field>, Error> {
         let stmt = self.typeinfo_composite_statement_blocking()?;
-        self.query(stmt.bind([oid]))?
+        stmt.bind([oid])
+            .query(self)?
             .into_iter()
             .map(|row| {
                 let row = row?;
