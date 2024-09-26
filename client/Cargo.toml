@@ -3,6 +3,9 @@ name = "xitca-client"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [features]
 # default feature includes http/1 clear text client
 default = ["http1"]

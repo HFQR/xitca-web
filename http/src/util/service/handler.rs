@@ -109,7 +109,6 @@ where
 /// assert_eq!(extract.0, input.as_str());
 /// # }
 /// ```
-
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not impl FromRequest trait",
     label = "handler function arguments must impl FromRequest trait",
