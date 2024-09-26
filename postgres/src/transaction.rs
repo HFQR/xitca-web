@@ -3,8 +3,9 @@ mod portal;
 
 use super::{
     client::ClientBorrowMut,
-    driver::codec::{encode::Encode, into_stream::IntoStream, AsParams, Response},
+    driver::codec::{encode::Encode, AsParams, Response},
     error::Error,
+    execute::Execute,
     prepare::Prepare,
     query::{Query, RowStreamGuarded},
     statement::{Statement, StatementGuarded},
@@ -105,11 +106,11 @@ where
     ///
     /// [`Client::query`]: crate::client::Client::query
     #[inline]
-    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
+    pub fn query<S>(&self, stmt: S) -> Result<S::RowStream<'_>, Error>
     where
-        S: Encode + 'a,
+        S: Execute<Self>,
     {
-        self._query(stmt)
+        stmt.query(self)
     }
 
     /// function the same as [`Client::query_unnamed`]
@@ -122,7 +123,7 @@ where
         types: &'a [Type],
         params: &'a [&(dyn ToSql + Sync)],
     ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
+        Statement::unnamed(stmt, types).bind_dyn(params).query(self)
     }
 
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.
@@ -165,8 +166,7 @@ where
     /// Consumes the transaction, committing all changes made within it.
     pub async fn commit(mut self) -> Result<(), Error> {
         self.state = State::Finish;
-        let query = self.save_point.commit_query();
-        self._execute(&query).await?;
+        self.save_point.commit_query().execute(&self).await?;
         Ok(())
     }
 
@@ -175,8 +175,7 @@ where
     /// This is equivalent to [`Transaction`]'s [`Drop`] implementation, but provides any error encountered to the caller.
     pub async fn rollback(mut self) -> Result<(), Error> {
         self.state = State::Finish;
-        let query = self.save_point.rollback_query();
-        self._execute(&query).await?;
+        self.save_point.rollback_query().execute(&self).await?;
         Ok(())
     }
 
@@ -190,7 +189,7 @@ where
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        self._execute(&save_point.save_point_query()).await?;
+        save_point.save_point_query().execute(self).await?;
 
         Ok(Transaction {
             client: self.client,
@@ -200,8 +199,7 @@ where
     }
 
     fn do_rollback(&mut self) {
-        let query = self.save_point.rollback_query();
-        drop(self._execute(&query));
+        drop(self.save_point.rollback_query().execute(self));
     }
 }
 

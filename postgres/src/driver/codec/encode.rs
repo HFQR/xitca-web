@@ -7,7 +7,7 @@ use crate::{
     column::Column,
     error::{Error, InvalidParamCount},
     prepare::Prepare,
-    statement::{Statement, StatementGuarded, StatementQuery, StatementUnnamed},
+    statement::{Statement, StatementGuarded, StatementQuery, StatementUnnamedQuery},
     types::{BorrowToSql, IsNull, Type},
 };
 
@@ -208,9 +208,9 @@ where
     }
 }
 
-impl<C, P> sealed::Sealed for StatementUnnamed<'_, P, C> where C: Prepare {}
+impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, P, C> where C: Prepare {}
 
-impl<C, P> Encode for StatementUnnamed<'_, P, C>
+impl<C, P> Encode for StatementUnnamedQuery<'_, P, C>
 where
     C: Prepare,
     P: AsParams,
@@ -225,7 +225,7 @@ where
     where
         Self: 'o,
     {
-        let StatementUnnamed {
+        let StatementUnnamedQuery {
             stmt,
             types,
             cli,

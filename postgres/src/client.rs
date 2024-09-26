@@ -13,12 +13,12 @@ use super::{
     driver::{
         codec::{
             encode::{self, Encode},
-            into_stream::IntoStream,
             Response,
         },
         DriverTx,
     },
     error::Error,
+    execute::Execute,
     prepare::Prepare,
     query::{ExecuteFuture, Query, RowStreamGuarded},
     session::Session,
@@ -150,11 +150,11 @@ impl Client {
     /// If the same statement will be repeatedly executed (perhaps with different query parameters), consider preparing
     /// the statement up front with [Client::prepare].
     #[inline]
-    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
+    pub fn query<S>(&self, stmt: S) -> Result<S::RowStream<'_>, Error>
     where
-        S: Encode + 'a,
+        S: Execute<Self>,
     {
-        self._query(stmt)
+        stmt.query(self)
     }
 
     /// Executes a statement, returning the number of rows modified.
@@ -169,9 +169,9 @@ impl Client {
     #[inline]
     pub fn execute<S>(&self, stmt: S) -> ExecuteFuture
     where
-        S: Encode,
+        S: Execute<Self>,
     {
-        self._execute(stmt)
+        stmt.execute(self)
     }
 
     /// blocking version of [`Client::execute`]. enable Client to execute query inside sync context
@@ -181,9 +181,9 @@ impl Client {
     #[inline]
     pub fn execute_blocking<S>(&self, stmt: S) -> Result<u64, Error>
     where
-        S: Encode,
+        S: Execute<Self>,
     {
-        self.execute(stmt).wait()
+        stmt.execute(self).wait()
     }
 
     /// Embed prepare statement to the query request itself. Meaning query would finish in one round trip to database.
@@ -196,7 +196,7 @@ impl Client {
         types: &'a [Type],
         params: &'a [&(dyn ToSql + Sync)],
     ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
+        Statement::unnamed(stmt, types).bind_dyn(params).query(self)
     }
 
     /// start a transaction

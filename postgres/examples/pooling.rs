@@ -10,7 +10,7 @@ use xitca_postgres::{
     iter::AsyncLendingIterator,
     transaction::Transaction,
     types::{Oid, Type},
-    Client, Config, Postgres,
+    Client, Config, Execute, Postgres,
 };
 
 // type alias for reduce type naming complexity
@@ -121,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // you can forward query to xitca-postgres's client completely.
     let transaction = conn.conn.transaction().await?;
-    let mut res = transaction.query("SELECT 1")?;
+    let mut res = "SELECT 1".query(&transaction)?;
     let row = res.try_next().await?.ok_or("row not found")?;
     assert_eq!(Some("1"), row.get(0));
     transaction.rollback().await?;

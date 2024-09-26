@@ -26,6 +26,7 @@ mod client;
 mod column;
 mod config;
 mod driver;
+mod execute;
 mod from_sql;
 mod prepare;
 mod query;
@@ -51,6 +52,7 @@ pub use self::{
     config::Config,
     driver::Driver,
     error::Error,
+    execute::Execute,
     from_sql::FromSqlExt,
     query::{RowSimpleStream, RowStream, RowStreamOwned},
     session::Session,

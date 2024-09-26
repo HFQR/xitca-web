@@ -12,8 +12,9 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{encode::Encode, into_stream::IntoStream, Response},
+    driver::codec::{encode::Encode, Response},
     error::Error,
+    execute::Execute,
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
     prepare::Prepare,
@@ -148,20 +149,20 @@ impl<'p> PoolConnection<'p> {
 
     /// function the same as [`Client::query`]
     #[inline]
-    pub fn query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoStream>::RowStream<'a>, Error>
+    pub fn query<S>(&self, stmt: S) -> Result<S::RowStream<'_>, Error>
     where
-        S: Encode + 'a,
+        S: Execute<Self>,
     {
-        self._query(stmt)
+        stmt.query(self)
     }
 
     /// function the same as [`Client::execute`]
     #[inline]
     pub fn execute<S>(&self, stmt: S) -> ExecuteFuture
     where
-        S: Encode,
+        S: Execute<Self>,
     {
-        self._execute(stmt)
+        stmt.execute(self)
     }
 
     /// function the same as [`Client::query_unnamed`]
@@ -172,7 +173,7 @@ impl<'p> PoolConnection<'p> {
         types: &'a [Type],
         params: &'a [&(dyn ToSql + Sync)],
     ) -> Result<RowStreamGuarded<'a, Self>, Error> {
-        self.query(Statement::unnamed(self, stmt, types, params.iter().cloned()))
+        Statement::unnamed(stmt, types).bind_dyn(params).query(self)
     }
 
     /// function the same as [`Client::transaction`]

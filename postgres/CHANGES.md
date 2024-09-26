@@ -26,16 +26,18 @@
     let stream = cli.query(&stmt)?;
     ```
 - `AsyncLendingIterator` is no longer exported from crate's root path. use `iter::AsyncLendingIterator` instead
-- `RowStreamOwned` is no long behind `compat` crate feature anymore
+- `query::RowStreamOwned` and `row::RowOwned` are no long behind `compat` crate feature anymore
 - `statement::Statement::unnamed` method takes extra argument for type value parameters. After construction it can be queried directly with `query` APIs    
 - `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output<'_>, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
 - `Encode` and `IntoStream` traits implementation detail change
 
 ## Add
+- add `Execute` trait for extending query customization
 - add `Client::{execute_blocking, prepare_blocking}`
 - add `Prepare::{_prepare_blocking, _get_type_blocking}`
 - add `iter::AsyncLendingIteratorExt` for extending async iterator APIs
 - add `statement::Statement::{bind, bind_dyn}` methods for binding value parameters to a prepared statement for query
+- add `query::RowSimpleStreamOwned`
 - add `error::DriverIoErrorMulti` type for outputting read and write IO errors at the same time
 
 ## Fix

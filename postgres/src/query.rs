@@ -54,10 +54,10 @@ pub trait Query {
     /// # use xitca_postgres::{dev::{Prepare, Query}, iter::AsyncLendingIterator, statement::Statement, types::Type, Client, Error};
     /// # async fn prepare_and_query(client: &Client) -> Result<(), Error> {
     /// // construct an unnamed statement.
-    /// let stmt = Statement::unnamed(client, "SELECT * FROM users WHERE id = $1", &[Type::INT4], [&996i32]);
+    /// let stmt = Statement::unnamed("SELECT * FROM users WHERE id = $1", &[Type::INT4]).bind([&996i32]);
     /// // query with the unnamed statement.
     /// // under the hood the statement is prepared in background and used for query and stream row parsing
-    /// let mut stream = client._query(stmt)?;
+    /// let mut stream = client.query(stmt)?;
     /// // obtain the first row and get user id.
     /// let row = stream.try_next().await?.unwrap();      
     /// let _id: i32 = row.try_get("id")?;

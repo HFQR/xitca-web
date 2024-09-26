@@ -1,0 +1,16 @@
+[package]
+name = "xitca-postgres-codegen"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "proc macro example for xitca-postgres"
+repository = "https://github.com/HFQR/xitca-web"
+readme= "README.md"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+syn = { version = "2", features = ["full"] }
+quote = "1.0"
