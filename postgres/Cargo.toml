@@ -31,7 +31,6 @@ xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 fallible-iterator = "0.2"
 futures-core = { version = "0.3", default-features = false }
 percent-encoding = "2"
-phf = "0.11"
 postgres-protocol = "0.6.5"
 postgres-types = "0.2"
 tokio = { version = "1.30", features = ["rt", "sync"] }
