@@ -84,12 +84,12 @@ impl Encode for ExecuteEncode<&Statement> {
     where
         Self: 'o;
 
+    #[inline]
     fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         Self: 'o,
     {
-        let stmt = self.0;
-        encode_statement::<SYNC_MODE>(stmt, buf).map(|_| IntoRowAffected)
+        encode_statement::<SYNC_MODE>(self.0, buf).map(|_| IntoRowAffected)
     }
 }
 
@@ -99,6 +99,7 @@ impl Encode for QueryEncode<&Statement> {
     where
         Self: 'o;
 
+    #[inline]
     fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         Self: 'o,
@@ -199,6 +200,7 @@ where
     where
         Self: 'o;
 
+    #[inline]
     fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         Self: 'o,
@@ -217,6 +219,7 @@ where
     where
         Self: 'o;
 
+    #[inline]
     fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         Self: 'o,

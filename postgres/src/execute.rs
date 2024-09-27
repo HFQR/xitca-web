@@ -69,7 +69,7 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteFuture {
-        ResultFuture(cli._query(ExecuteEncode(self)).map_err(Some))
+        cli._query(ExecuteEncode(self)).into()
     }
 
     #[inline]
@@ -92,7 +92,7 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteFuture {
-        ResultFuture(cli._query(ExecuteEncode(self)).map_err(Some))
+        cli._query(ExecuteEncode(self)).into()
     }
 
     #[inline]
@@ -103,22 +103,6 @@ where
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
         cli._query(ExecuteEncode(self))?.wait()
-    }
-}
-
-pub struct ResultFuture<F>(Result<F, Option<Error>>);
-
-impl<F, T> Future for ResultFuture<F>
-where
-    F: Future<Output = Result<T, Error>> + Unpin,
-{
-    type Output = F::Output;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.get_mut().0 {
-            Ok(ref mut res) => Pin::new(res).poll(cx),
-            Err(ref mut e) => Poll::Ready(Err(e.take().unwrap())),
-        }
     }
 }
 
@@ -133,16 +117,9 @@ where
 
     #[inline]
     fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
-        ResultFuture(
-            cli._query(StatementCreate {
-                name: self.name,
-                stmt: self.stmt,
-                types: self.types,
-                cli,
-            })
+        cli._query(StatementCreate::from((self, cli)))
             .map(|fut| Box::pin(async { fut.await.map(|stmt| stmt.into_guarded(cli)) }) as _)
-            .map_err(Some),
-        )
+            .into()
     }
 
     #[inline]
@@ -152,13 +129,8 @@ where
 
     #[inline]
     fn execute_blocking(self, cli: &'c C) -> Result<StatementGuarded<'c, C>, Error> {
-        cli._query(StatementCreateBlocking {
-            name: self.name,
-            stmt: self.stmt,
-            types: self.types,
-            cli,
-        })?
-        .map(|stmt| stmt.into_guarded(cli))
+        let stmt = cli._query(StatementCreateBlocking::from((self, cli)))??;
+        Ok(stmt.into_guarded(cli))
     }
 }
 
@@ -172,7 +144,7 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteFuture {
-        ResultFuture(cli._query(ExecuteEncode(self)).map_err(Some))
+        cli._query(ExecuteEncode(self)).into()
     }
 
     #[inline]
@@ -197,10 +169,8 @@ where
 
     #[inline]
     fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
-        ResultFuture(
-            cli._query(ExecuteEncode(StatementUnnamedQuery::from((self, cli))))
-                .map_err(Some),
-        )
+        cli._query(ExecuteEncode(StatementUnnamedQuery::from((self, cli))))
+            .into()
     }
 
     #[inline]
@@ -212,6 +182,28 @@ where
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
         cli._query(ExecuteEncode(StatementUnnamedQuery::from((self, cli))))?
             .wait()
+    }
+}
+
+pub struct ResultFuture<F>(Result<F, Option<Error>>);
+
+impl<F> From<Result<F, Error>> for ResultFuture<F> {
+    fn from(res: Result<F, Error>) -> Self {
+        Self(res.map_err(Some))
+    }
+}
+
+impl<F, T> Future for ResultFuture<F>
+where
+    F: Future<Output = Result<T, Error>> + Unpin,
+{
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.get_mut().0 {
+            Ok(ref mut res) => Pin::new(res).poll(cx),
+            Err(ref mut e) => Poll::Ready(Err(e.take().unwrap())),
+        }
     }
 }
 

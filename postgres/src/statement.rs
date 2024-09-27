@@ -197,11 +197,33 @@ pub(crate) struct StatementCreate<'a, C> {
     pub(crate) cli: &'a C,
 }
 
+impl<'a, C> From<(StatementNamed<'a>, &'a C)> for StatementCreate<'a, C> {
+    fn from((stmt, cli): (StatementNamed<'a>, &'a C)) -> Self {
+        Self {
+            name: stmt.name,
+            stmt: stmt.stmt,
+            types: stmt.types,
+            cli,
+        }
+    }
+}
+
 pub(crate) struct StatementCreateBlocking<'a, C> {
     pub(crate) name: String,
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
     pub(crate) cli: &'a C,
+}
+
+impl<'a, C> From<(StatementNamed<'a>, &'a C)> for StatementCreateBlocking<'a, C> {
+    fn from((stmt, cli): (StatementNamed<'a>, &'a C)) -> Self {
+        Self {
+            name: stmt.name,
+            stmt: stmt.stmt,
+            types: stmt.types,
+            cli,
+        }
+    }
 }
 
 /// an unnamed statement that don't need to be prepared separately
