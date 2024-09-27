@@ -43,7 +43,7 @@ where
     fn execute_blocking(self, cli: &C) -> Result<u64, Error>;
 }
 
-impl<'s, 'c, C> Execute<'c, C> for &'s Statement
+impl<'s, C> Execute<'_, C> for &'s Statement
 where
     C: Query,
 {
@@ -51,12 +51,12 @@ where
     type RowStream = RowStream<'s>;
 
     #[inline]
-    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteFuture {
         cli._execute(self)
     }
 
     #[inline]
-    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
         cli._query(self)
     }
 
@@ -66,7 +66,7 @@ where
     }
 }
 
-impl<'s, 'c, C> Execute<'c, C> for &'s str
+impl<'s, C> Execute<'_, C> for &'s str
 where
     C: Query,
 {
@@ -74,12 +74,12 @@ where
     type RowStream = RowSimpleStream;
 
     #[inline]
-    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteFuture {
         cli._execute(self)
     }
 
     #[inline]
-    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
         cli._query(self)
     }
 
@@ -89,7 +89,7 @@ where
     }
 }
 
-impl<'s, 'c, C, P> Execute<'c, C> for StatementQuery<'s, P>
+impl<'s, C, P> Execute<'_, C> for StatementQuery<'s, P>
 where
     C: Query + Prepare,
     P: AsParams + 's,
@@ -98,12 +98,12 @@ where
     type RowStream = RowStream<'s>;
 
     #[inline]
-    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteFuture {
         cli._execute(self)
     }
 
     #[inline]
-    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
         cli._query(self)
     }
 
