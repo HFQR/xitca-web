@@ -106,22 +106,12 @@ where
 
     #[inline]
     fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
-        cli._execute(StatementUnnamedQuery {
-            stmt: self.stmt,
-            types: self.types,
-            params: self.params,
-            cli,
-        })
+        cli._execute(StatementUnnamedQuery::from((self, cli)))
     }
 
     #[inline]
     fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
-        cli._query(StatementUnnamedQuery {
-            stmt: self.stmt,
-            types: self.types,
-            params: self.params,
-            cli,
-        })
+        cli._query(StatementUnnamedQuery::from((self, cli)))
     }
 
     #[inline]

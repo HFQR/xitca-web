@@ -27,10 +27,10 @@
     ```
 - `AsyncLendingIterator` is no longer exported from crate's root path. use `iter::AsyncLendingIterator` instead
 - `query::RowStreamOwned` and `row::RowOwned` are no longer behind `compat` crate feature anymore
-- `statement::Statement::unnamed` must bind to value parameters with `bind` or `bind_dyn` and bind to a client type with `into_guarded` before calling `Execute` methods.
+- `statement::Statement::unnamed` must bind to value parameters with `bind` or `bind_dyn` before calling `Execute` methods.
     ```rust
     let stmt = Statement::unnamed("SELECT * FROM users WHERE id = $1", &[Type::INT4]);
-    let row_stream = stmt.bind([9527]).into_guarded(&client).query(&client);
+    let row_stream = stmt.bind([9527]).query(&client);
     ```
 - `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output<'_>, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
 - `Encode` and `IntoStream` traits implementation detail change

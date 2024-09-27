@@ -207,9 +207,9 @@ pub struct StatementQuery<'a, P> {
 
 /// an unnamed statement with it's query param binding
 pub struct StatementUnnamedBind<'a, P> {
-    pub(crate) stmt: &'a str,
-    pub(crate) types: &'a [Type],
-    pub(crate) params: P,
+    stmt: &'a str,
+    types: &'a [Type],
+    params: P,
 }
 
 pub(crate) struct StatementUnnamedQuery<'a, P, C> {
@@ -217,6 +217,17 @@ pub(crate) struct StatementUnnamedQuery<'a, P, C> {
     pub(crate) types: &'a [Type],
     pub(crate) params: P,
     pub(crate) cli: &'a C,
+}
+
+impl<'a, P, C> From<(StatementUnnamedBind<'a, P>, &'a C)> for StatementUnnamedQuery<'a, P, C> {
+    fn from((bind, cli): (StatementUnnamedBind<'a, P>, &'a C)) -> Self {
+        Self {
+            stmt: bind.stmt,
+            types: bind.types,
+            params: bind.params,
+            cli,
+        }
+    }
 }
 
 #[cfg(feature = "compat")]
