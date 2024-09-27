@@ -112,7 +112,7 @@ fn query(client: &Client) -> Result<(), Error> {
 
     let stream = "SELECT 1".query(client)?;
 
-    // use sync iterator to visit streaming rows
+    // use iterator to visit streaming rows
     for item in stream {
         let row = item?;
         let one = row.get(0).expect("database must return 1");

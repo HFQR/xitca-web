@@ -224,7 +224,6 @@ async fn query_unnamed_with_transaction() {
         &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
     )
     .bind_dyn(&[&"alice", &20i32, &"bob", &30i32, &"carol", &40i32])
-    .into_guarded(&transaction)
     .query(&transaction)
     .unwrap();
 
@@ -248,7 +247,6 @@ async fn query_unnamed_with_transaction() {
         &[Type::TEXT, Type::INT4],
     )
     .bind_dyn(&[&"alice", &50i32])
-    .into_guarded(&transaction)
     .query(&transaction)
     .unwrap();
 
@@ -269,7 +267,6 @@ async fn query_unnamed_with_transaction() {
     // Test for UPDATE that returns no data
     let mut stream = Statement::unnamed("UPDATE foo set age = 33", &[])
         .bind_dyn(&[])
-        .into_guarded(&transaction)
         .query(&transaction)
         .unwrap();
     assert!(stream.try_next().await.unwrap().is_none());
