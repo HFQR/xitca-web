@@ -36,6 +36,7 @@ pub use self::{
     from_sql::FromSqlExt,
     query::{RowSimpleStream, RowStream, RowStreamOwned},
     session::Session,
+    statement::Statement,
 };
 
 #[cfg(feature = "compat")]
@@ -48,10 +49,10 @@ pub mod compat {
     //!
     //! # Examples
     //! ```
-    //! # use xitca_postgres::{Client, Error, Execute};
+    //! # use xitca_postgres::{Client, Error, Execute, Statement};
     //! # async fn convert(client: Client) -> Result<(), Error> {
     //! // prepare a statement and query for rows.
-    //! let stmt = client.prepare("SELECT * from users", &[]).await?;
+    //! let stmt = Statement::named("SELECT * from users", &[]).execute(&client).await?;
     //! let mut stream = stmt.query(&client)?;
     //!
     //! // assuming we want to spawn a tokio async task and handle the stream inside it.
@@ -88,7 +89,7 @@ pub mod dev {
 
     pub use crate::client::ClientBorrowMut;
     pub use crate::copy::r#Copy;
-    pub use crate::driver::codec::{encode::Encode, into_stream::IntoStream, Response};
+    pub use crate::driver::codec::{encode::Encode, response::IntoResponse, Response};
     pub use crate::prepare::Prepare;
     pub use crate::query::Query;
 }
@@ -122,7 +123,7 @@ impl Postgres {
     /// # Examples:
     /// ```rust
     /// use std::future::IntoFuture;
-    /// use xitca_postgres::Postgres;
+    /// use xitca_postgres::{Execute, Postgres};
     ///
     /// # async fn connect() {
     /// let cfg = String::from("postgres://user:pass@localhost/db");
@@ -132,7 +133,7 @@ impl Postgres {
     /// tokio::spawn(driver.into_future());
     ///
     /// // use client for query.
-    /// let stmt = client.prepare("SELECT *", &[]).await.unwrap();
+    /// "SELECT 1".execute(&client).await.unwrap();
     /// # }
     ///
     /// ```

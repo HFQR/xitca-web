@@ -1,17 +1,9 @@
-use core::{future::Future, sync::atomic::Ordering};
-
-use fallible_iterator::FallibleIterator;
-use postgres_protocol::message::backend;
 use postgres_types::{Field, Kind, Oid};
-use tracing::debug;
-
-use crate::Execute;
 
 use super::{
     client::Client,
-    column::Column,
-    driver::codec::{encode::StatementCreate, Response},
     error::{DbError, Error, SqlState},
+    execute::Execute,
     iter::AsyncLendingIterator,
     query::Query,
     statement::Statement,
@@ -26,109 +18,6 @@ pub trait Prepare: Query + Sync {
 
     // blocking version of [`Prepare::_get_type`].
     fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error>;
-
-    fn _prepare_blocking(&self, query: &str, types: &[Type]) -> Result<Statement, Error> {
-        let (name, mut res) = send_encode(self, query, types)?;
-
-        match res.blocking_recv()? {
-            backend::Message::ParseComplete => {}
-            _ => return Err(Error::unexpected()),
-        }
-
-        let parameter_description = match res.blocking_recv()? {
-            backend::Message::ParameterDescription(body) => body,
-            _ => return Err(Error::unexpected()),
-        };
-
-        let row_description = match res.blocking_recv()? {
-            backend::Message::RowDescription(body) => Some(body),
-            backend::Message::NoData => None,
-            _ => return Err(Error::unexpected()),
-        };
-
-        let mut params = Vec::new();
-        let mut it = parameter_description.parameters();
-        while let Some(oid) = it.next()? {
-            let ty = self._get_type_blocking(oid)?;
-            params.push(ty);
-        }
-
-        let mut columns = Vec::new();
-        if let Some(row_description) = row_description {
-            let mut it = row_description.fields();
-            while let Some(field) = it.next()? {
-                let type_ = self._get_type_blocking(field.type_oid())?;
-                let column = Column::new(field.name(), type_);
-                columns.push(column);
-            }
-        }
-
-        Ok(Statement::new(name, params, columns))
-    }
-
-    fn _prepare(&self, query: &str, types: &[Type]) -> impl Future<Output = Result<Statement, Error>> + Send {
-        let res = send_encode(self, query, types);
-
-        async {
-            let (name, mut res) = res?;
-
-            match res.recv().await? {
-                backend::Message::ParseComplete => {}
-                _ => return Err(Error::unexpected()),
-            }
-
-            let parameter_description = match res.recv().await? {
-                backend::Message::ParameterDescription(body) => body,
-                _ => return Err(Error::unexpected()),
-            };
-
-            let row_description = match res.recv().await? {
-                backend::Message::RowDescription(body) => Some(body),
-                backend::Message::NoData => None,
-                _ => return Err(Error::unexpected()),
-            };
-
-            let mut params = Vec::new();
-            let mut it = parameter_description.parameters();
-            while let Some(oid) = it.next()? {
-                let ty = self._get_type(oid).await?;
-                params.push(ty);
-            }
-
-            let mut columns = Vec::new();
-            if let Some(row_description) = row_description {
-                let mut it = row_description.fields();
-                while let Some(field) = it.next()? {
-                    let type_ = self._get_type(field.type_oid()).await?;
-                    let column = Column::new(field.name(), type_);
-                    columns.push(column);
-                }
-            }
-
-            Ok(Statement::new(name, params, columns))
-        }
-    }
-}
-
-fn send_encode<C>(cli: &C, query: &str, types: &[Type]) -> Result<(String, Response), Error>
-where
-    C: Query + ?Sized,
-{
-    let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let name = format!("s{id}");
-
-    if types.is_empty() {
-        debug!("preparing query {}: {}", name, query);
-    } else {
-        debug!("preparing query {} with types {:?}: {}", name, types, query);
-    }
-
-    cli._send_encode_query(StatementCreate {
-        name: &name,
-        query,
-        types,
-    })
-    .map(|(_, res)| (name, res))
 }
 
 impl Prepare for Client {
@@ -254,14 +143,21 @@ impl Client {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
         }
-        let stmt = match self._prepare(TYPEINFO_QUERY, &[]).await {
+        let stmt = match Statement::named(TYPEINFO_QUERY, &[])
+            .execute(self)
+            .await
+            .map(|stmt| stmt.leak())
+        {
             Ok(stmt) => stmt,
             Err(e) => {
                 return if e
                     .downcast_ref::<DbError>()
                     .is_some_and(|e| SqlState::UNDEFINED_TABLE.eq(e.code()))
                 {
-                    self._prepare(TYPEINFO_FALLBACK_QUERY, &[]).await
+                    Statement::named(TYPEINFO_FALLBACK_QUERY, &[])
+                        .execute(self)
+                        .await
+                        .map(|stmt| stmt.leak())
                 } else {
                     Err(e)
                 }
@@ -275,14 +171,17 @@ impl Client {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
         }
-        let stmt = match self._prepare(TYPEINFO_ENUM_QUERY, &[]).await {
-            Ok(stmt) => stmt,
+        let stmt = match Statement::named(TYPEINFO_ENUM_QUERY, &[]).execute(self).await {
+            Ok(stmt) => stmt.leak(),
             Err(e) => {
                 return if e
                     .downcast_ref::<DbError>()
                     .is_some_and(|e| SqlState::UNDEFINED_COLUMN.eq(e.code()))
                 {
-                    self._prepare(TYPEINFO_ENUM_FALLBACK_QUERY, &[]).await
+                    Statement::named(TYPEINFO_ENUM_FALLBACK_QUERY, &[])
+                        .execute(self)
+                        .await
+                        .map(|stmt| stmt.leak())
                 } else {
                     Err(e)
                 }
@@ -296,7 +195,10 @@ impl Client {
         if let Some(stmt) = self.typeinfo_composite() {
             return Ok(stmt);
         }
-        let stmt = self._prepare(TYPEINFO_COMPOSITE_QUERY, &[]).await?;
+        let stmt = Statement::named(TYPEINFO_COMPOSITE_QUERY, &[])
+            .execute(self)
+            .await?
+            .leak();
         self.set_typeinfo_composite(&stmt);
         Ok(stmt)
     }
@@ -331,14 +233,16 @@ impl Client {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
         }
-        let stmt = match self._prepare_blocking(TYPEINFO_QUERY, &[]) {
-            Ok(stmt) => stmt,
+        let stmt = match Statement::named(TYPEINFO_QUERY, &[]).execute_blocking(self) {
+            Ok(stmt) => stmt.leak(),
             Err(e) => {
                 return if e
                     .downcast_ref::<DbError>()
                     .is_some_and(|e| SqlState::UNDEFINED_TABLE.eq(e.code()))
                 {
-                    self._prepare_blocking(TYPEINFO_FALLBACK_QUERY, &[])
+                    Statement::named(TYPEINFO_FALLBACK_QUERY, &[])
+                        .execute_blocking(self)
+                        .map(|stmt| stmt.leak())
                 } else {
                     Err(e)
                 }
@@ -352,14 +256,16 @@ impl Client {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
         }
-        let stmt = match self._prepare_blocking(TYPEINFO_ENUM_QUERY, &[]) {
-            Ok(stmt) => stmt,
+        let stmt = match Statement::named(TYPEINFO_ENUM_QUERY, &[]).execute_blocking(self) {
+            Ok(stmt) => stmt.leak(),
             Err(e) => {
                 return if e
                     .downcast_ref::<DbError>()
                     .is_some_and(|e| SqlState::UNDEFINED_COLUMN.eq(e.code()))
                 {
-                    self._prepare_blocking(TYPEINFO_ENUM_FALLBACK_QUERY, &[])
+                    Statement::named(TYPEINFO_ENUM_FALLBACK_QUERY, &[])
+                        .execute_blocking(self)
+                        .map(|stmt| stmt.leak())
                 } else {
                     Err(e)
                 }
@@ -373,7 +279,9 @@ impl Client {
         if let Some(stmt) = self.typeinfo_composite() {
             return Ok(stmt);
         }
-        let stmt = self._prepare_blocking(TYPEINFO_COMPOSITE_QUERY, &[])?;
+        let stmt = Statement::named(TYPEINFO_COMPOSITE_QUERY, &[])
+            .execute_blocking(self)?
+            .leak();
         self.set_typeinfo_composite(&stmt);
         Ok(stmt)
     }

@@ -27,7 +27,7 @@
 ```rust
 use std::future::IntoFuture;
 
-use xitca_postgres::{iter::AsyncLendingIterator, types::Type, Execute, Postgres};
+use xitca_postgres::{iter::AsyncLendingIterator, types::Type, Execute, Postgres, Statement};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     //
     // in this case we declare for $1 param's value has to be TEXT type. it's according Rust type can be String/&str
     // or other types that can represent a text string
-    let stmt = cli.prepare("INSERT INTO foo (name) VALUES ($1)", &[Type::TEXT]).await?;
+    let stmt = Statement::named("INSERT INTO foo (name) VALUES ($1)", &[Type::TEXT]).execute(&cli).await?;
 
     // bind the prepared statement to parameter values. the value's Rust type representation must match the postgres 
     // Type we declared.
@@ -64,11 +64,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     //
     // in this case we declare for $1 param's value has to be INT4 type. it's according Rust type representation is i32 
     // and $2 is TEXT type mentioned before.
-    let stmt = cli
-        .prepare(
+    let stmt = Statement::named(
             "SELECT id, name FROM foo WHERE id = $1 AND name = $2",
             &[Type::INT4, Type::TEXT],
         )
+        .execute(&cli)
         .await?;
 
     // bind the prepared statement to parameter values it declared.

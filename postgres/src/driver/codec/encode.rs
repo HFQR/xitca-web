@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
@@ -7,12 +5,14 @@ use crate::{
     column::Column,
     error::{Error, InvalidParamCount},
     prepare::Prepare,
-    statement::{Statement, StatementGuarded, StatementQuery, StatementUnnamedQuery},
+    statement::{Statement, StatementCreate, StatementCreateBlocking, StatementQuery, StatementUnnamedQuery},
     types::{BorrowToSql, IsNull, Type},
 };
 
 use super::{
-    into_stream::{IntoRowStreamGuard, IntoStream, NoOpIntoRowStream},
+    response::{
+        IntoResponse, IntoRowStreamGuard, NoOpIntoRowStream, StatementCreateResponse, StatementCreateResponseBlocking,
+    },
     sealed, AsParams, DriverTx, Response,
 };
 
@@ -26,7 +26,7 @@ use super::{
 pub trait Encode: sealed::Sealed + Sized {
     /// output type defines how a potential async row streaming type should be constructed.
     /// certain state from the encode type may need to be passed for constructing the stream
-    type Output<'o>: IntoStream
+    type Output<'o>: IntoResponse
     where
         Self: 'o;
 
@@ -53,23 +53,6 @@ impl Encode for &str {
     }
 }
 
-impl sealed::Sealed for &String {}
-
-impl Encode for &String {
-    type Output<'o>
-        = Vec<Column>
-    where
-        Self: 'o;
-
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        self.as_str().encode::<SYNC_MODE>(buf)
-    }
-}
-
 impl sealed::Sealed for &Statement {}
 
 impl Encode for &Statement {
@@ -78,46 +61,28 @@ impl Encode for &Statement {
     where
         Self: 'o;
 
+    #[inline]
     fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         Self: 'o,
     {
         encode_bind(self.name(), self.params(), [] as [i32; 0], "", buf)?;
         frontend::execute("", 0, buf)?;
-
         if SYNC_MODE {
             frontend::sync(buf);
         }
-
         Ok(self.columns())
     }
 }
 
-impl sealed::Sealed for &Arc<Statement> {}
+impl<C> sealed::Sealed for StatementCreate<'_, C> {}
 
-impl Encode for &Arc<Statement> {
-    type Output<'o>
-        = &'o [Column]
-    where
-        Self: 'o;
-
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        <&Statement>::encode::<SYNC_MODE>(self, buf)
-    }
-}
-
-impl<C> sealed::Sealed for &StatementGuarded<'_, C> where C: Prepare {}
-
-impl<C> Encode for &StatementGuarded<'_, C>
+impl<C> Encode for StatementCreate<'_, C>
 where
     C: Prepare,
 {
     type Output<'o>
-        = &'o [Column]
+        = StatementCreateResponse<'o, C>
     where
         Self: 'o;
 
@@ -126,21 +91,19 @@ where
     where
         Self: 'o,
     {
-        <&Statement>::encode::<SYNC_MODE>(self, buf)
+        let Self { name, stmt, types, cli } = self;
+        encode_statement_create(&name, stmt, types, buf).map(|_| StatementCreateResponse { name, cli })
     }
 }
 
-pub(crate) struct StatementCreate<'a> {
-    pub(crate) name: &'a str,
-    pub(crate) query: &'a str,
-    pub(crate) types: &'a [Type],
-}
+impl<C> sealed::Sealed for StatementCreateBlocking<'_, C> {}
 
-impl sealed::Sealed for StatementCreate<'_> {}
-
-impl Encode for StatementCreate<'_> {
+impl<C> Encode for StatementCreateBlocking<'_, C>
+where
+    C: Prepare,
+{
     type Output<'o>
-        = NoOpIntoRowStream
+        = StatementCreateResponseBlocking<'o, C>
     where
         Self: 'o;
 
@@ -149,12 +112,16 @@ impl Encode for StatementCreate<'_> {
     where
         Self: 'o,
     {
-        let Self { name, query, types } = self;
-        frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
-        frontend::describe(b'S', name, buf)?;
-        frontend::sync(buf);
-        Ok(NoOpIntoRowStream)
+        let Self { name, stmt, types, cli } = self;
+        encode_statement_create(&name, stmt, types, buf).map(|_| StatementCreateResponseBlocking { name, cli })
     }
+}
+
+fn encode_statement_create(name: &str, stmt: &str, types: &[Type], buf: &mut BytesMut) -> Result<(), Error> {
+    frontend::parse(name, stmt, types.iter().map(Type::oid), buf)?;
+    frontend::describe(b'S', name, buf)?;
+    frontend::sync(buf);
+    Ok(())
 }
 
 pub(crate) struct StatementCancel<'a> {
@@ -192,23 +159,22 @@ where
     where
         Self: 'o;
 
+    #[inline]
     fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         Self: 'o,
     {
-        let Self { stmt, params } = self;
+        let StatementQuery { stmt, params } = self;
         encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
         frontend::execute("", 0, buf)?;
-
         if SYNC_MODE {
             frontend::sync(buf);
         }
-
         Ok(stmt.columns())
     }
 }
 
-impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, P, C> where C: Prepare {}
+impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, P, C> {}
 
 impl<C, P> Encode for StatementUnnamedQuery<'_, P, C>
 where
@@ -225,7 +191,7 @@ where
     where
         Self: 'o,
     {
-        let StatementUnnamedQuery {
+        let Self {
             stmt,
             types,
             cli,

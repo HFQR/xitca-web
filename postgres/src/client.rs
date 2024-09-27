@@ -21,7 +21,7 @@ use super::{
     prepare::Prepare,
     query::Query,
     session::Session,
-    statement::{Statement, StatementGuarded},
+    statement::Statement,
     transaction::Transaction,
     types::{Oid, Type},
 };
@@ -125,22 +125,6 @@ struct CachedTypeInfo {
 }
 
 impl Client {
-    /// Creates a new prepared statement.
-    ///
-    /// Prepared statements can be executed repeatedly, and may contain query parameters (indicated by `$1`, `$2`, etc),
-    /// which are set when executed. Prepared statements can only be used with the connection that created them.
-    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
-        self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
-    }
-
-    /// blocking version of [`Client::prepare`]. enable Client to prepare statement inside sync context
-    ///
-    /// # Panics
-    /// must be called outside the context of tokio 1.x. preferably outside of any async context.
-    pub fn prepare_blocking(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
-        self._prepare_blocking(query, types).map(|stmt| stmt.into_guarded(self))
-    }
-
     /// start a transaction
     #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {

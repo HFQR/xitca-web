@@ -1,5 +1,5 @@
 pub(crate) mod encode;
-pub(crate) mod into_stream;
+pub(crate) mod response;
 
 use core::{
     future::{poll_fn, Future},

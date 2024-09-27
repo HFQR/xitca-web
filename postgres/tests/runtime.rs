@@ -16,7 +16,7 @@ async fn connect(s: &str) -> Client {
 
 async fn smoke_test(s: &str) {
     let client = connect(s).await;
-    let stmt = client.prepare("SELECT $1::INT", &[]).await.unwrap();
+    let stmt = Statement::named("SELECT $1::INT", &[]).execute(&client).await.unwrap();
     let mut stream = stmt.bind([1i32]).query(&client).unwrap();
     let row = stream.try_next().await.unwrap().unwrap();
     assert_eq!(row.get::<i32>(0), 1i32);
@@ -181,11 +181,10 @@ async fn query_portal() {
 
     let transaction = client.transaction().await.unwrap();
 
-    let stmt = transaction
-        .prepare("SELECT id, name FROM foo ORDER BY id", &[])
+    let stmt = Statement::named("SELECT id, name FROM foo ORDER BY id", &[])
+        .execute(&transaction)
         .await
-        .unwrap()
-        .leak();
+        .unwrap();
 
     let portal = transaction.bind(&stmt, &[]).await.unwrap();
     let mut stream1 = portal.query_portal(2).unwrap();

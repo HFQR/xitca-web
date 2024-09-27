@@ -27,12 +27,12 @@ use super::{
 ///
 /// # Examples
 /// ```rust
-/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client};
+/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client, Execute, Statement};
 ///
 /// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     // prepare a statement that will be called repeatedly.
 ///     // it can be a collection of statements that will be called in iteration.
-///     let statement = client.prepare("SELECT * FROM public.users", &[]).await?;
+///     let statement = Statement::named("SELECT * FROM public.users", &[]).execute(client).await?;
 ///
 ///     // create a new pipeline.
 ///     let mut pipe = Pipeline::new();

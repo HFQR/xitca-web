@@ -5,7 +5,7 @@ use postgres_protocol::message::backend;
 use crate::{
     driver::codec::{
         encode::{Encode, PortalCancel, PortalCreate, PortalQuery},
-        into_stream::IntoStream,
+        response::IntoResponse,
         AsParams,
     },
     error::Error,
@@ -63,7 +63,7 @@ where
     pub fn query_portal(
         &self,
         max_rows: i32,
-    ) -> Result<<<PortalQuery<'_> as Encode>::Output<'_> as IntoStream>::RowStream<'_>, Error> {
+    ) -> Result<<<PortalQuery<'_> as Encode>::Output<'_> as IntoResponse>::Response<'_>, Error> {
         self.cli._query(PortalQuery {
             name: &self.name,
             columns: self.stmt.columns(),

@@ -14,12 +14,13 @@ use super::{
     copy::{r#Copy, CopyIn, CopyOut},
     driver::codec::{encode::Encode, Response},
     error::Error,
+    execute::Execute,
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
     prepare::Prepare,
     query::Query,
     session::Session,
-    statement::{Statement, StatementGuarded},
+    statement::Statement,
     transaction::Transaction,
     types::{Oid, Type},
     BoxedFuture, Postgres,
@@ -113,12 +114,7 @@ pub struct PoolConnection<'a> {
 }
 
 impl<'p> PoolConnection<'p> {
-    /// function the same as [`Client::prepare`]
-    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
-        self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
-    }
-
-    /// function like [`Client::prepare`] with some behavior difference:
+    /// function like [`Statement::named`] with some behavior difference:
     /// - statement will be cached for future reuse.
     /// - statement type is [`Arc<Statement>`] smart pointer
     ///
@@ -140,7 +136,8 @@ impl<'p> PoolConnection<'p> {
         types: &'a [Type],
     ) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
         Box::pin(async move {
-            let stmt = self._prepare(query, types).await.map(Arc::new)?;
+            let stmt = Statement::named(query, types).execute(self).await?.leak();
+            let stmt = Arc::new(stmt);
             self.conn_mut().statements.insert(Box::from(query), stmt.clone());
             Ok(stmt)
         })

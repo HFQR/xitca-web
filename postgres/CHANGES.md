@@ -1,10 +1,16 @@
 # unreleased 0.2.0
 ## Remove
-- remove `query`, `execute`, `query_raw`, `execute_raw`, `query_simple` and `execute_simple` methods from all types. Leave only `Execute` trait as sole query API  
+- remove `prepare`, `query`, `execute`, `query_raw`, `execute_raw`, `query_simple` and `execute_simple` methods from all types. Leave only `Execute` trait as sole query API  
     ```rust
-    use xitca_postgres::Execute;
-    let stream = "SELECT 1; SELECT 1".query(&client)?;
-    let row_affected = "SELECT 1; SELECT 1".execute(&client).await?;
+    use xitca_postgres::{Client, Execute, RowSimpleStream, RowStream, Statement};
+    // create a named statement and execute it. on success returns a prepared statement
+    let stmt: StatementGuarded<'_, Client> = Statement::named("SELECT 1").execute(&client).await?;
+    // query with the prepared statement. on success returns an async row stream.
+    let stream: RowStream<'_> = stmt.query(&client)?;
+    // query with raw string sql.
+    let stream: RowSimpleStream<'_> = "SELECT 1; SELECT 1".query(&client)?;
+    // execute raw string sql.
+    let row_affected: u64 = "SELECT 1; SELECT 1".execute(&client).await?;
     ```
 - remove `dev::AsParams` trait export. It's not needed for implementing `Query` trait anymore    
 
@@ -13,7 +19,7 @@
     ```rust
     use xitca_postgres::Execute;
     // prepare a statement.
-    let stmt = client.prepare("SELECT * FROM users WHERE id = $1 AND age = $2", &[Type::INT4, Type::INT4]).await?;
+    let stmt = Statement::named("SELECT * FROM users WHERE id = $1 AND age = $2", &[Type::INT4, Type::INT4]).execute(&client).await?;
     // bind statement to typed value and start query
     let stream = stmt.bind([9527, 42]).query(&client)?;
     ```
@@ -21,7 +27,7 @@
     ```rust
     use xitca_postgres::Execute;
     // prepare a statement.
-    let stmt = client.prepare("SELECT * FROM users", &[]).await?;
+    let stmt = Statement::named("SELECT * FROM users", &[]).execute(&client).await?;
     // statement have no value params and can be used for query.
     let stream = stmt.query(&client)?;
     ```
@@ -33,7 +39,8 @@
     let row_stream = stmt.bind([9527]).query(&client);
     ```
 - `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output<'_>, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
-- `Encode` and `IntoStream` traits implementation detail change
+- `Encode` trait implementation detail change.
+- `IntoStream` trait is renamed to `IntoResponse`
 
 ## Add
 - add `Execute` trait for extending query customization
