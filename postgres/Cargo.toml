@@ -46,6 +46,7 @@ quinn = { version = "0.11", features = ["ring"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
 
 [dev-dependencies]
+xitca-postgres-codegen = "0.1"
 bb8 = "0.8.5"
 futures = { version = "0.3", default-features = false }
 rcgen = "0.13"
