@@ -205,28 +205,14 @@ pub struct StatementQuery<'a, P> {
     pub(crate) params: P,
 }
 
-/// an unnamed statement with it's query params
+/// an unnamed statement with it's query param binding
 pub struct StatementUnnamedBind<'a, P> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
     pub(crate) params: P,
 }
 
-impl<'a, P> StatementUnnamedBind<'a, P> {
-    /// add a reference of client type to unnamed statement.
-    /// client is needed for possible delayed postgres type lookup
-    pub fn into_guarded<C>(self, cli: &'a C) -> StatementUnnamedQuery<'a, P, C> {
-        StatementUnnamedQuery {
-            stmt: self.stmt,
-            types: self.types,
-            params: self.params,
-            cli,
-        }
-    }
-}
-
-/// an unnamed statement with it's query params and reference of a client
-pub struct StatementUnnamedQuery<'a, P, C> {
+pub(crate) struct StatementUnnamedQuery<'a, P, C> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
     pub(crate) params: P,

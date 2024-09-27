@@ -3,122 +3,129 @@ use super::{
     error::Error,
     prepare::Prepare,
     query::{ExecuteFuture, Query, RowSimpleStream, RowStream, RowStreamGuarded},
-    statement::{Statement, StatementQuery, StatementUnnamedQuery},
+    statement::{Statement, StatementQuery, StatementUnnamedBind, StatementUnnamedQuery},
 };
 
 /// trait defining how a query is executed.
-pub trait Execute<C>
+pub trait Execute<'c, C>
 where
     C: Query,
     Self: Sized,
 {
-    type RowStream<'r>
-    where
-        Self: 'r;
+    type ExecuteFuture;
+    type RowStream;
 
     /// define how a query is executed with async outcome of how many rows has been affected
-    fn execute(self, cli: &C) -> ExecuteFuture;
+    fn execute(self, cli: &'c C) -> Self::ExecuteFuture;
 
     /// define how a query is executed with async streaming of database rows as return type
-    fn query<'r>(self, cli: &C) -> Result<Self::RowStream<'r>, Error>;
+    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error>;
 
-    /// define how a query is executed is blocking manner.
+    /// blocking version of [`Execute::execute`]
+    fn execute_blocking(self, cli: &C) -> Result<u64, Error>;
+}
+
+impl<'s, 'c, C> Execute<'c, C> for &'s Statement
+where
+    C: Query,
+{
+    type ExecuteFuture = ExecuteFuture;
+    type RowStream = RowStream<'s>;
+
+    #[inline]
+    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
+        cli._execute(self)
+    }
+
+    #[inline]
+    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
+        cli._query(self)
+    }
+
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
         self.execute(cli).wait()
     }
 }
 
-impl<C> Execute<C> for &Statement
+impl<'s, 'c, C> Execute<'c, C> for &'s str
 where
     C: Query,
 {
-    type RowStream<'r>
-        = RowStream<'r>
-    where
-        Self: 'r;
+    type ExecuteFuture = ExecuteFuture;
+    type RowStream = RowSimpleStream;
 
     #[inline]
-    fn execute(self, cli: &C) -> ExecuteFuture {
+    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
         cli._execute(self)
     }
 
     #[inline]
-    fn query<'r>(self, cli: &C) -> Result<Self::RowStream<'r>, Error>
-    where
-        Self: 'r,
-    {
+    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
         cli._query(self)
-    }
-}
-
-impl<C> Execute<C> for &str
-where
-    C: Query,
-{
-    type RowStream<'r>
-        = RowSimpleStream
-    where
-        Self: 'r;
-
-    #[inline]
-    fn execute(self, cli: &C) -> ExecuteFuture {
-        cli._execute(self)
     }
 
     #[inline]
-    fn query<'r>(self, cli: &C) -> Result<Self::RowStream<'r>, Error>
-    where
-        Self: 'r,
-    {
-        cli._query(self)
+    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
+        self.execute(cli).wait()
     }
 }
 
-impl<'a, C, P> Execute<C> for StatementQuery<'a, P>
+impl<'s, 'c, C, P> Execute<'c, C> for StatementQuery<'s, P>
 where
     C: Query + Prepare,
-    P: AsParams,
+    P: AsParams + 's,
 {
-    type RowStream<'r>
-        = RowStream<'r>
-    where
-        Self: 'r;
+    type ExecuteFuture = ExecuteFuture;
+    type RowStream = RowStream<'s>;
 
     #[inline]
-    fn execute(self, cli: &C) -> ExecuteFuture {
+    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
         cli._execute(self)
     }
 
     #[inline]
-    fn query<'r>(self, cli: &C) -> Result<Self::RowStream<'r>, Error>
-    where
-        Self: 'r,
-    {
+    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
         cli._query(self)
+    }
+
+    #[inline]
+    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
+        self.execute(cli).wait()
     }
 }
 
-impl<'a, C, P> Execute<C> for StatementUnnamedQuery<'a, P, C>
+impl<'s, 'c, C, P> Execute<'c, C> for StatementUnnamedBind<'s, P>
 where
-    C: Query + Prepare,
-    P: AsParams,
+    C: Query + Prepare + 'c,
+    P: AsParams + 's + 'c,
+    's: 'c,
 {
-    type RowStream<'r>
-        = RowStreamGuarded<'r, C>
-    where
-        Self: 'r;
+    type ExecuteFuture = ExecuteFuture;
+    type RowStream = RowStreamGuarded<'c, C>;
 
     #[inline]
-    fn execute(self, cli: &C) -> ExecuteFuture {
-        cli._execute(self)
+    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
+        cli._execute(StatementUnnamedQuery {
+            stmt: self.stmt,
+            types: self.types,
+            params: self.params,
+            cli,
+        })
     }
 
     #[inline]
-    fn query<'r>(self, cli: &C) -> Result<Self::RowStream<'r>, Error>
-    where
-        Self: 'r,
-    {
-        cli._query(self)
+    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
+        cli._query(StatementUnnamedQuery {
+            stmt: self.stmt,
+            types: self.types,
+            params: self.params,
+            cli,
+        })
+    }
+
+    #[inline]
+    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
+        self.execute(cli).wait()
     }
 }
