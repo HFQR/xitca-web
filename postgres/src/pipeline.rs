@@ -13,8 +13,6 @@ use core::ops::{Deref, DerefMut, Range};
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
 
-use crate::driver::codec::encode::QueryEncode;
-
 use super::{
     client::Client,
     column::Column,
@@ -239,11 +237,10 @@ where
     /// [`Execute::query`]: crate::execute::Execute::query
     pub fn query<S>(&mut self, stmt: S) -> Result<(), Error>
     where
-        QueryEncode<S>: Encode<Output<'a> = &'a [Column]> + 'a,
+        S: Encode<Output<'a> = &'a [Column]> + 'a,
     {
         let len = self.buf.len();
-        QueryEncode(stmt)
-            .encode::<SYNC_MODE>(&mut self.buf)
+        stmt.encode::<SYNC_MODE>(&mut self.buf)
             .map(|columns| self.columns.push(columns))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| self.buf.truncate(len))

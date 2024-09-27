@@ -12,7 +12,7 @@ use super::{
 };
 
 /// trait generic over preparing statement and canceling of prepared statement
-pub trait Prepare: Query + Sync + Sized {
+pub trait Prepare: Query + Sync {
     // get type is called recursively so a boxed future is needed.
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>>;
 

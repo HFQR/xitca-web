@@ -3,7 +3,7 @@ mod stream;
 #[cfg(feature = "compat")]
 pub(crate) mod compat;
 
-pub use stream::{RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned};
+pub use stream::{RowAffected, RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned};
 
 use super::{
     driver::codec::{encode::Encode, response::IntoResponse, Response},

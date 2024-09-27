@@ -1,8 +1,4 @@
-use core::{
-    future::Future,
-    pin::Pin,
-    task::{ready, Context, Poll},
-};
+use core::{future::Future, pin::Pin};
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
@@ -101,46 +97,6 @@ impl IntoResponse for NoOpIntoRowStream {
         Self: 'r,
     {
         unreachable!("no row stream can be generated from no op row stream constructor")
-    }
-}
-
-pub struct IntoRowAffected;
-
-impl sealed::Sealed for IntoRowAffected {}
-
-impl IntoResponse for IntoRowAffected {
-    type Response<'r>
-        = RowAffected
-    where
-        Self: 'r;
-
-    #[inline]
-    fn into_response<'r>(self, res: Response) -> Self::Response<'r>
-    where
-        Self: 'r,
-    {
-        RowAffected { res, rows_affected: 0 }
-    }
-}
-
-pub struct RowAffected {
-    res: Response,
-    rows_affected: u64,
-}
-
-impl Future for RowAffected {
-    type Output = Result<u64, Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        ready!(this.res.poll_try_into_ready(&mut this.rows_affected, cx))?;
-        Poll::Ready(Ok(this.rows_affected))
-    }
-}
-
-impl RowAffected {
-    pub(crate) fn wait(self) -> Result<u64, Error> {
-        self.res.try_into_row_affected_blocking()
     }
 }
 

@@ -11,8 +11,7 @@ use crate::{
 
 use super::{
     response::{
-        IntoResponse, IntoRowAffected, IntoRowStreamGuard, NoOpIntoRowStream, StatementCreateResponse,
-        StatementCreateResponseBlocking,
+        IntoResponse, IntoRowStreamGuard, NoOpIntoRowStream, StatementCreateResponse, StatementCreateResponseBlocking,
     },
     sealed, AsParams, DriverTx, Response,
 };
@@ -36,33 +35,9 @@ pub trait Encode: sealed::Sealed + Sized {
         Self: 'o;
 }
 
-/// helper type for specialized Encode impl
-pub struct ExecuteEncode<T>(pub T);
+impl sealed::Sealed for &str {}
 
-impl<T> sealed::Sealed for ExecuteEncode<T> {}
-
-/// helper type for specialized Encode impl
-pub struct QueryEncode<T>(pub T);
-
-impl<T> sealed::Sealed for QueryEncode<T> {}
-
-impl Encode for ExecuteEncode<&str> {
-    type Output<'o>
-        = IntoRowAffected
-    where
-        Self: 'o;
-
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        frontend::query(self.0, buf)?;
-        Ok(IntoRowAffected)
-    }
-}
-
-impl Encode for QueryEncode<&str> {
+impl Encode for &str {
     type Output<'o>
         = Vec<Column>
     where
@@ -73,27 +48,14 @@ impl Encode for QueryEncode<&str> {
     where
         Self: 'o,
     {
-        frontend::query(self.0, buf)?;
+        frontend::query(self, buf)?;
         Ok(Vec::new())
     }
 }
 
-impl Encode for ExecuteEncode<&Statement> {
-    type Output<'o>
-        = IntoRowAffected
-    where
-        Self: 'o;
+impl sealed::Sealed for &Statement {}
 
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        encode_statement::<SYNC_MODE>(self.0, buf).map(|_| IntoRowAffected)
-    }
-}
-
-impl Encode for QueryEncode<&Statement> {
+impl Encode for &Statement {
     type Output<'o>
         = &'o [Column]
     where
@@ -104,18 +66,13 @@ impl Encode for QueryEncode<&Statement> {
     where
         Self: 'o,
     {
-        let stmt = self.0;
-        encode_statement::<SYNC_MODE>(stmt, buf).map(|_| stmt.columns())
+        encode_bind(self.name(), self.params(), [] as [i32; 0], "", buf)?;
+        frontend::execute("", 0, buf)?;
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+        Ok(self.columns())
     }
-}
-
-fn encode_statement<const SYNC_MODE: bool>(stmt: &Statement, buf: &mut BytesMut) -> Result<(), Error> {
-    encode_bind(stmt.name(), stmt.params(), [] as [i32; 0], "", buf)?;
-    frontend::execute("", 0, buf)?;
-    if SYNC_MODE {
-        frontend::sync(buf);
-    }
-    Ok(())
 }
 
 impl<C> sealed::Sealed for StatementCreate<'_, C> {}
@@ -191,26 +148,9 @@ impl Encode for StatementCancel<'_> {
     }
 }
 
-impl<'a, P> Encode for ExecuteEncode<StatementQuery<'a, P>>
-where
-    P: AsParams,
-{
-    type Output<'o>
-        = IntoRowAffected
-    where
-        Self: 'o;
+impl<P> sealed::Sealed for StatementQuery<'_, P> {}
 
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        let StatementQuery { stmt, params } = self.0;
-        encode_statement_query::<P, SYNC_MODE>(stmt, params, buf).map(|_| IntoRowAffected)
-    }
-}
-
-impl<'a, P> Encode for QueryEncode<StatementQuery<'a, P>>
+impl<'a, P> Encode for StatementQuery<'a, P>
 where
     P: AsParams,
 {
@@ -224,49 +164,19 @@ where
     where
         Self: 'o,
     {
-        let StatementQuery { stmt, params } = self.0;
-        encode_statement_query::<P, SYNC_MODE>(stmt, params, buf).map(|_| stmt.columns())
+        let StatementQuery { stmt, params } = self;
+        encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
+        frontend::execute("", 0, buf)?;
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+        Ok(stmt.columns())
     }
 }
 
-fn encode_statement_query<P, const SYNC_MODE: bool>(
-    stmt: &Statement,
-    params: P,
-    buf: &mut BytesMut,
-) -> Result<(), Error>
-where
-    P: AsParams,
-{
-    encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
-    frontend::execute("", 0, buf)?;
-    if SYNC_MODE {
-        frontend::sync(buf);
-    }
-    Ok(())
-}
+impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, P, C> {}
 
-impl<P, C> Encode for ExecuteEncode<StatementUnnamedQuery<'_, P, C>>
-where
-    P: AsParams,
-{
-    type Output<'o>
-        = IntoRowAffected
-    where
-        Self: 'o;
-
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        let StatementUnnamedQuery {
-            stmt, types, params, ..
-        } = self.0;
-        encode_statement_unnamed::<P, SYNC_MODE>(stmt, types, params, buf).map(|_| IntoRowAffected)
-    }
-}
-
-impl<C, P> Encode for QueryEncode<StatementUnnamedQuery<'_, P, C>>
+impl<C, P> Encode for StatementUnnamedQuery<'_, P, C>
 where
     C: Prepare,
     P: AsParams,
@@ -281,33 +191,21 @@ where
     where
         Self: 'o,
     {
-        let StatementUnnamedQuery {
+        let Self {
             stmt,
             types,
             cli,
             params,
-        } = self.0;
-        encode_statement_unnamed::<P, SYNC_MODE>(stmt, types, params, buf).map(|_| IntoRowStreamGuard(cli))
+        } = self;
+        frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
+        encode_bind("", types, params, "", buf)?;
+        frontend::describe(b'S', "", buf)?;
+        frontend::execute("", 0, buf)?;
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+        Ok(IntoRowStreamGuard(cli))
     }
-}
-
-fn encode_statement_unnamed<P, const SYNC_MODE: bool>(
-    stmt: &str,
-    types: &[Type],
-    params: P,
-    buf: &mut BytesMut,
-) -> Result<(), Error>
-where
-    P: AsParams,
-{
-    frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
-    encode_bind("", types, params, "", buf)?;
-    frontend::describe(b'S', "", buf)?;
-    frontend::execute("", 0, buf)?;
-    if SYNC_MODE {
-        frontend::sync(buf);
-    }
-    Ok(())
 }
 
 pub(crate) struct PortalCreate<'a, P> {

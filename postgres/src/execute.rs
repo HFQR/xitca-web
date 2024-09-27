@@ -4,18 +4,14 @@ use core::{
     task::{Context, Poll},
 };
 
-use crate::{
-    driver::codec::encode::{ExecuteEncode, QueryEncode},
-    statement::{StatementCreate, StatementGuarded},
-};
-
 use super::{
-    driver::codec::{response::RowAffected, AsParams},
+    driver::codec::AsParams,
     error::Error,
     prepare::Prepare,
-    query::{Query, RowSimpleStream, RowStream, RowStreamGuarded},
+    query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{
-        Statement, StatementCreateBlocking, StatementNamed, StatementQuery, StatementUnnamedBind, StatementUnnamedQuery,
+        Statement, StatementCreate, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementQuery,
+        StatementUnnamedBind, StatementUnnamedQuery,
     },
 };
 
@@ -69,17 +65,18 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteFuture {
-        cli._query(ExecuteEncode(self)).into()
+        self.query(cli).map(RowAffected::from).into()
     }
 
     #[inline]
     fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
-        cli._query(QueryEncode(self))
+        cli._query(self)
     }
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        cli._query(ExecuteEncode(self))?.wait()
+        let stream = self.query(cli)?;
+        RowAffected::from(stream).wait()
     }
 }
 
@@ -92,17 +89,18 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteFuture {
-        cli._query(ExecuteEncode(self)).into()
+        self.query(cli).map(RowAffected::from).into()
     }
 
     #[inline]
     fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
-        cli._query(QueryEncode(self))
+        cli._query(self)
     }
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        cli._query(ExecuteEncode(self))?.wait()
+        let stream = self.query(cli)?;
+        RowAffected::from(stream).wait()
     }
 }
 
@@ -144,17 +142,18 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteFuture {
-        cli._query(ExecuteEncode(self)).into()
+        self.query(cli).map(RowAffected::from).into()
     }
 
     #[inline]
     fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
-        cli._query(QueryEncode(self))
+        cli._query(self)
     }
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        cli._query(ExecuteEncode(self))?.wait()
+        let stream = self.query(cli)?;
+        RowAffected::from(stream).wait()
     }
 }
 
@@ -169,19 +168,18 @@ where
 
     #[inline]
     fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
-        cli._query(ExecuteEncode(StatementUnnamedQuery::from((self, cli))))
-            .into()
+        self.query(cli).map(RowAffected::from).into()
     }
 
     #[inline]
     fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
-        cli._query(QueryEncode(StatementUnnamedQuery::from((self, cli))))
+        cli._query(StatementUnnamedQuery::from((self, cli)))
     }
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        cli._query(ExecuteEncode(StatementUnnamedQuery::from((self, cli))))?
-            .wait()
+        let stream = self.query(cli)?;
+        RowAffected::from(stream).wait()
     }
 }
 
