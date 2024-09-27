@@ -10,7 +10,7 @@ use super::{
     execute::Execute,
     prepare::Prepare,
     query::Query,
-    statement::{Statement, StatementGuarded},
+    statement::Statement,
     types::{Oid, ToSql, Type},
     BoxedFuture,
 };
@@ -95,13 +95,6 @@ where
 {
     pub fn builder() -> TransactionBuilder {
         TransactionBuilder::new()
-    }
-
-    /// function the same as [`Client::prepare`]
-    ///
-    /// [`Client::prepare`]: crate::client::Client::prepare
-    pub async fn prepare(&self, query: &str, types: &[Type]) -> Result<StatementGuarded<Self>, Error> {
-        self._prepare(query, types).await.map(|stmt| stmt.into_guarded(self))
     }
 
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.

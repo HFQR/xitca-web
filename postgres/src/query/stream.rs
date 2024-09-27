@@ -77,10 +77,10 @@ async fn try_next<'r>(
 ///
 /// # Examples
 /// ```
-/// # use xitca_postgres::{iter::{AsyncLendingIterator, AsyncLendingIteratorExt}, Client, Error, Execute, RowStreamOwned};
+/// # use xitca_postgres::{iter::{AsyncLendingIterator, AsyncLendingIteratorExt}, Client, Error, Execute, RowStreamOwned, Statement};
 /// # async fn collect(cli: Client) -> Result<(), Error> {
 /// // prepare statement and query for some users from database.
-/// let stmt = cli.prepare("SELECT * FROM users", &[]).await?;
+/// let stmt = Statement::named("SELECT * FROM users", &[]).execute(&cli).await?;
 /// let mut stream = stmt.query(&cli)?;
 ///
 /// // assuming users contain name column where it can be parsed to string.

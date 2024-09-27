@@ -13,6 +13,8 @@ use core::ops::{Deref, DerefMut, Range};
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
 
+use crate::driver::codec::encode::QueryEncode;
+
 use super::{
     client::Client,
     column::Column,
@@ -27,12 +29,12 @@ use super::{
 ///
 /// # Examples
 /// ```rust
-/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client};
+/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client, Execute, Statement};
 ///
 /// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     // prepare a statement that will be called repeatedly.
 ///     // it can be a collection of statements that will be called in iteration.
-///     let statement = client.prepare("SELECT * FROM public.users", &[]).await?;
+///     let statement = Statement::named("SELECT * FROM public.users", &[]).execute(client).await?;
 ///
 ///     // create a new pipeline.
 ///     let mut pipe = Pipeline::new();
@@ -237,10 +239,11 @@ where
     /// [`Execute::query`]: crate::execute::Execute::query
     pub fn query<S>(&mut self, stmt: S) -> Result<(), Error>
     where
-        S: Encode<Output<'a> = &'a [Column]> + 'a,
+        QueryEncode<S>: Encode<Output<'a> = &'a [Column]> + 'a,
     {
         let len = self.buf.len();
-        stmt.encode::<SYNC_MODE>(&mut self.buf)
+        QueryEncode(stmt)
+            .encode::<SYNC_MODE>(&mut self.buf)
             .map(|columns| self.columns.push(columns))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| self.buf.truncate(len))

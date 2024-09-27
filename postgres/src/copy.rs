@@ -4,7 +4,11 @@ use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::{Buf, Bytes, BytesMut};
 
 use super::{
-    client::ClientBorrowMut, driver::codec::Response, error::Error, iter::AsyncLendingIterator, query::Query,
+    client::ClientBorrowMut,
+    driver::codec::{encode::QueryEncode, Response},
+    error::Error,
+    iter::AsyncLendingIterator,
+    query::Query,
     statement::Statement,
 };
 
@@ -43,7 +47,7 @@ where
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
         let _cli = client._borrow_mut();
 
-        let res = client._send_encode_query(stmt).map(|(_, res)| res);
+        let res = client._send_encode_query(QueryEncode(stmt)).map(|(_, res)| res);
 
         async {
             let mut res = res?;
@@ -101,7 +105,7 @@ pub struct CopyOut {
 
 impl CopyOut {
     pub fn new(cli: &impl Query, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
-        let res = cli._send_encode_query(stmt).map(|(_, res)| res);
+        let res = cli._send_encode_query(QueryEncode(stmt)).map(|(_, res)| res);
 
         async {
             let mut res = res?;

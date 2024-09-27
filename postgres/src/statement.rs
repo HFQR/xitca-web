@@ -1,6 +1,6 @@
 //! Statement module is mostly copy/paste from `tokio_postgres::statement`
 
-use core::ops::Deref;
+use core::{ops::Deref, sync::atomic::Ordering};
 
 use super::{
     column::Column,
@@ -68,8 +68,9 @@ where
 /// named prepared postgres statement without information of which [`Client`] it belongs to and lifetime
 /// cycle management
 ///
-/// used for statement caching where owner of it is tasked with manual management of it's association
-/// and lifetime
+/// this type is used as entry point for other statement types like [`StatementGuarded`] and [`StatementUnnamed`].
+/// itself is rarely directly used and main direct usage is for statement caching where owner of it is tasked
+/// with manual management of it's association and lifetime
 ///
 /// [`Client`]: crate::client::Client
 // Statement must not implement Clone trait. use `Statement::duplicate` if needed.
@@ -104,7 +105,19 @@ impl Statement {
         &self.name
     }
 
-    /// construct a new unnamed statement
+    /// construct a new named statement.
+    /// must be called with [`Execute::execute`] method for making a prepared statement.
+    ///
+    /// [`Execute::execute`]: crate::execute::Execute::execute
+    #[inline]
+    pub fn named<'a>(stmt: &'a str, types: &'a [Type]) -> StatementNamed<'a> {
+        let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let name = format!("s{id}");
+        StatementNamed { name, stmt, types }
+    }
+
+    /// construct a new unnamed statement.
+    /// unnamed statement can bind to it's parameter values without being prepared by database.
     #[inline]
     pub fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a> {
         StatementUnnamed { stmt, types }
@@ -114,10 +127,11 @@ impl Statement {
     ///
     /// # Examples
     /// ```
-    /// # use xitca_postgres::{types::Type, Client, Error, Execute};
+    /// # use xitca_postgres::{types::Type, Client, Error, Execute, Statement};
     /// # async fn bind(cli: Client) -> Result<(), Error> {
     /// // prepare a statement with typed parameters.
-    /// let stmt = cli.prepare("SELECT * FROM users WHERE id = $1 AND age = $2", &[Type::INT4, Type::INT4]).await?;
+    /// let stmt = Statement::named("SELECT * FROM users WHERE id = $1 AND age = $2", &[Type::INT4, Type::INT4])
+    ///     .execute(&cli).await?;
     /// // bind statement to typed value parameters and start query
     /// let row_stream = stmt.bind([9527_i32, 18]).query(&cli)?;
     /// # Ok(())
@@ -170,9 +184,29 @@ impl Statement {
     }
 }
 
-/// an unnamed statement that is not prepared by calling [`Client::prepare`]
-///
-/// [`Client::prepare`]: crate::client::Client::prepare
+pub struct StatementNamed<'a> {
+    pub(crate) name: String,
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
+}
+
+pub(crate) struct StatementCreate<'a, C> {
+    pub(crate) name: String,
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
+    pub(crate) cli: &'a C,
+}
+
+pub(crate) struct StatementCreateBlocking<'a, C> {
+    pub(crate) name: String,
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
+    pub(crate) cli: &'a C,
+}
+
+/// an unnamed statement that don't need to be prepared separately
+/// it's bundled together with database query it associated that can be processed
+/// with at least one-round-trip to database
 pub struct StatementUnnamed<'a> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
@@ -309,6 +343,7 @@ mod test {
         error::{DbError, SqlState},
         execute::Execute,
         iter::AsyncLendingIterator,
+        statement::Statement,
         Postgres,
     };
 
@@ -326,7 +361,10 @@ mod test {
             .await
             .unwrap();
 
-        let stmt = cli.prepare("SELECT id, name FROM foo ORDER BY id", &[]).await.unwrap();
+        let stmt = Statement::named("SELECT id, name FROM foo ORDER BY id", &[])
+            .execute(&cli)
+            .await
+            .unwrap();
 
         let stmt_raw = stmt.duplicate();
 

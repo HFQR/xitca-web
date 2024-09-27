@@ -5,7 +5,7 @@ use std::{
     pin::Pin,
 };
 
-use xitca_postgres::{dev::Prepare, types::Type, Client, Error, Execute, Postgres, RowStream};
+use xitca_postgres::{types::Type, Client, Error, Execute, Postgres, RowStream, Statement};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::spawn(drv.into_future());
 
     // prepare a statement and then execute.
-    let stmt = cli.prepare("SELECT 1", &[]).await?;
+    let stmt = Statement::named("SELECT 1", &[]).execute(&cli).await?;
     let row_affected = stmt.execute(&cli).await?;
     assert_eq!(row_affected, 1);
 
@@ -49,8 +49,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // move PrepareAndExecute<'p> and &'c Client into an async block.
             // inside it we use the state and client to prepare a statement and execute it.
             Box::pin(async move {
-                let stmt = cli.prepare(self.stmt, self.types).await?;
-                stmt.execute(cli).await
+                Statement::named(self.stmt, self.types)
+                    .execute(cli)
+                    .await?
+                    .execute(cli)
+                    .await
             })
         }
 
@@ -60,8 +63,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         // blocking version execute method. it's much simpler to implement than it's async variant.
         fn execute_blocking(self, cli: &Client) -> Result<u64, Error> {
-            let stmt = cli._prepare_blocking(self.stmt, self.types)?;
-            stmt.execute_blocking(cli)
+            Statement::named(self.stmt, self.types)
+                .execute_blocking(cli)?
+                .execute_blocking(cli)
         }
     }
 

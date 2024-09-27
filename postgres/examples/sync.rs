@@ -1,7 +1,7 @@
 //! example of running client in non async environment.
 
 use std::future::IntoFuture;
-use xitca_postgres::{types::Type, Execute, Postgres};
+use xitca_postgres::{types::Type, Execute, Postgres, Statement};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // prepare a tokio runtime for client's Driver.
@@ -20,16 +20,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');".execute_blocking(&cli)?;
 
         // use blocking api to prepare statement
-        let stmt = cli.prepare_blocking("INSERT INTO foo (name) VALUES ($1)", &[Type::TEXT])?;
+        let stmt = Statement::named("INSERT INTO foo (name) VALUES ($1)", &[Type::TEXT]).execute_blocking(&cli)?;
         // execute statement and obtain rows affected by insert statement.
         let row_affected = stmt.bind(["david"]).execute_blocking(&cli)?;
         assert_eq!(row_affected, 1);
 
         // retrieve the row just inserted
-        let stmt = cli.prepare_blocking(
+        let stmt = Statement::named(
             "SELECT id, name FROM foo WHERE id = $1 AND name = $2",
             &[Type::INT4, Type::TEXT],
-        )?;
+        )
+        .execute_blocking(&cli)?;
         // query api shares the same convention no matter the context.
         let stream = stmt.bind_dyn(&[&4i32, &"david"]).query(&cli)?;
 

@@ -1,4 +1,6 @@
-use crate::{client::ClientBorrowMut, error::Error, prepare::Prepare, query::Query};
+use crate::{
+    client::ClientBorrowMut, driver::codec::encode::ExecuteEncode, error::Error, prepare::Prepare, query::Query,
+};
 
 use super::Transaction;
 
@@ -111,6 +113,8 @@ impl TransactionBuilder {
             query.pop();
         }
 
-        cli._execute(&query).await.map(|_| Transaction::new(cli))
+        cli._query(ExecuteEncode(query.as_str()))?
+            .await
+            .map(|_| Transaction::new(cli))
     }
 }

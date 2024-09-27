@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
@@ -7,12 +5,15 @@ use crate::{
     column::Column,
     error::{Error, InvalidParamCount},
     prepare::Prepare,
-    statement::{Statement, StatementGuarded, StatementQuery, StatementUnnamedQuery},
+    statement::{Statement, StatementCreate, StatementCreateBlocking, StatementQuery, StatementUnnamedQuery},
     types::{BorrowToSql, IsNull, Type},
 };
 
 use super::{
-    into_stream::{IntoRowStreamGuard, IntoStream, NoOpIntoRowStream},
+    response::{
+        IntoResponse, IntoRowAffected, IntoRowStreamGuard, NoOpIntoRowStream, StatementCreateResponse,
+        StatementCreateResponseBlocking,
+    },
     sealed, AsParams, DriverTx, Response,
 };
 
@@ -26,7 +27,7 @@ use super::{
 pub trait Encode: sealed::Sealed + Sized {
     /// output type defines how a potential async row streaming type should be constructed.
     /// certain state from the encode type may need to be passed for constructing the stream
-    type Output<'o>: IntoStream
+    type Output<'o>: IntoResponse
     where
         Self: 'o;
 
@@ -35,9 +36,33 @@ pub trait Encode: sealed::Sealed + Sized {
         Self: 'o;
 }
 
-impl sealed::Sealed for &str {}
+/// helper type for specialized Encode impl
+pub struct ExecuteEncode<T>(pub T);
 
-impl Encode for &str {
+impl<T> sealed::Sealed for ExecuteEncode<T> {}
+
+/// helper type for specialized Encode impl
+pub struct QueryEncode<T>(pub T);
+
+impl<T> sealed::Sealed for QueryEncode<T> {}
+
+impl Encode for ExecuteEncode<&str> {
+    type Output<'o>
+        = IntoRowAffected
+    where
+        Self: 'o;
+
+    #[inline]
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    where
+        Self: 'o,
+    {
+        frontend::query(self.0, buf)?;
+        Ok(IntoRowAffected)
+    }
+}
+
+impl Encode for QueryEncode<&str> {
     type Output<'o>
         = Vec<Column>
     where
@@ -48,33 +73,14 @@ impl Encode for &str {
     where
         Self: 'o,
     {
-        frontend::query(self, buf)?;
+        frontend::query(self.0, buf)?;
         Ok(Vec::new())
     }
 }
 
-impl sealed::Sealed for &String {}
-
-impl Encode for &String {
+impl Encode for ExecuteEncode<&Statement> {
     type Output<'o>
-        = Vec<Column>
-    where
-        Self: 'o;
-
-    #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
-        self.as_str().encode::<SYNC_MODE>(buf)
-    }
-}
-
-impl sealed::Sealed for &Statement {}
-
-impl Encode for &Statement {
-    type Output<'o>
-        = &'o [Column]
+        = IntoRowAffected
     where
         Self: 'o;
 
@@ -82,42 +88,48 @@ impl Encode for &Statement {
     where
         Self: 'o,
     {
-        encode_bind(self.name(), self.params(), [] as [i32; 0], "", buf)?;
+        let stmt = self.0;
+        encode_bind(stmt.name(), stmt.params(), [] as [i32; 0], "", buf)?;
         frontend::execute("", 0, buf)?;
 
         if SYNC_MODE {
             frontend::sync(buf);
         }
 
-        Ok(self.columns())
+        Ok(IntoRowAffected)
     }
 }
 
-impl sealed::Sealed for &Arc<Statement> {}
-
-impl Encode for &Arc<Statement> {
+impl Encode for QueryEncode<&Statement> {
     type Output<'o>
         = &'o [Column]
     where
         Self: 'o;
 
-    #[inline]
     fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
     where
         Self: 'o,
     {
-        <&Statement>::encode::<SYNC_MODE>(self, buf)
+        let stmt = self.0;
+        encode_bind(stmt.name(), stmt.params(), [] as [i32; 0], "", buf)?;
+        frontend::execute("", 0, buf)?;
+
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+
+        Ok(stmt.columns())
     }
 }
 
-impl<C> sealed::Sealed for &StatementGuarded<'_, C> where C: Prepare {}
+impl<C> sealed::Sealed for StatementCreate<'_, C> {}
 
-impl<C> Encode for &StatementGuarded<'_, C>
+impl<C> Encode for StatementCreate<'_, C>
 where
     C: Prepare,
 {
     type Output<'o>
-        = &'o [Column]
+        = StatementCreateResponse<'o, C>
     where
         Self: 'o;
 
@@ -126,21 +138,22 @@ where
     where
         Self: 'o,
     {
-        <&Statement>::encode::<SYNC_MODE>(self, buf)
+        let Self { name, stmt, types, cli } = self;
+        frontend::parse(&name, stmt, types.iter().map(Type::oid), buf)?;
+        frontend::describe(b'S', &name, buf)?;
+        frontend::sync(buf);
+        Ok(StatementCreateResponse { name, cli })
     }
 }
 
-pub(crate) struct StatementCreate<'a> {
-    pub(crate) name: &'a str,
-    pub(crate) query: &'a str,
-    pub(crate) types: &'a [Type],
-}
+impl<C> sealed::Sealed for StatementCreateBlocking<'_, C> {}
 
-impl sealed::Sealed for StatementCreate<'_> {}
-
-impl Encode for StatementCreate<'_> {
+impl<C> Encode for StatementCreateBlocking<'_, C>
+where
+    C: Prepare,
+{
     type Output<'o>
-        = NoOpIntoRowStream
+        = StatementCreateResponseBlocking<'o, C>
     where
         Self: 'o;
 
@@ -149,11 +162,11 @@ impl Encode for StatementCreate<'_> {
     where
         Self: 'o,
     {
-        let Self { name, query, types } = self;
-        frontend::parse(name, query, types.iter().map(Type::oid), buf)?;
-        frontend::describe(b'S', name, buf)?;
+        let Self { name, stmt, types, cli } = self;
+        frontend::parse(&name, stmt, types.iter().map(Type::oid), buf)?;
+        frontend::describe(b'S', &name, buf)?;
         frontend::sync(buf);
-        Ok(NoOpIntoRowStream)
+        Ok(StatementCreateResponseBlocking { name, cli })
     }
 }
 
@@ -181,9 +194,32 @@ impl Encode for StatementCancel<'_> {
     }
 }
 
-impl<P> sealed::Sealed for StatementQuery<'_, P> {}
+impl<'a, P> Encode for ExecuteEncode<StatementQuery<'a, P>>
+where
+    P: AsParams,
+{
+    type Output<'o>
+        = IntoRowAffected
+    where
+        Self: 'o;
 
-impl<'a, P> Encode for StatementQuery<'a, P>
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    where
+        Self: 'o,
+    {
+        let StatementQuery { stmt, params } = self.0;
+        encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
+        frontend::execute("", 0, buf)?;
+
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+
+        Ok(IntoRowAffected)
+    }
+}
+
+impl<'a, P> Encode for QueryEncode<StatementQuery<'a, P>>
 where
     P: AsParams,
 {
@@ -196,7 +232,7 @@ where
     where
         Self: 'o,
     {
-        let Self { stmt, params } = self;
+        let StatementQuery { stmt, params } = self.0;
         encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
         frontend::execute("", 0, buf)?;
 
@@ -208,9 +244,36 @@ where
     }
 }
 
-impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, P, C> where C: Prepare {}
+impl<C, P> Encode for ExecuteEncode<StatementUnnamedQuery<'_, P, C>>
+where
+    C: Prepare,
+    P: AsParams,
+{
+    type Output<'o>
+        = IntoRowAffected
+    where
+        Self: 'o;
 
-impl<C, P> Encode for StatementUnnamedQuery<'_, P, C>
+    #[inline]
+    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
+    where
+        Self: 'o,
+    {
+        let StatementUnnamedQuery {
+            stmt, types, params, ..
+        } = self.0;
+        frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
+        encode_bind("", types, params, "", buf)?;
+        frontend::describe(b'S', "", buf)?;
+        frontend::execute("", 0, buf)?;
+        if SYNC_MODE {
+            frontend::sync(buf);
+        }
+        Ok(IntoRowAffected)
+    }
+}
+
+impl<C, P> Encode for QueryEncode<StatementUnnamedQuery<'_, P, C>>
 where
     C: Prepare,
     P: AsParams,
@@ -230,7 +293,7 @@ where
             types,
             cli,
             params,
-        } = self;
+        } = self.0;
         frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
         encode_bind("", types, params, "", buf)?;
         frontend::describe(b'S', "", buf)?;
