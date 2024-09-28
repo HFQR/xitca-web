@@ -56,6 +56,22 @@ where
     fn execute_blocking(self, cli: &'c C) -> <Self::ExecuteFuture as Future>::Output;
 }
 
+/// mutable version of [`Execute`] trait where C type is mutably borrowed
+pub trait ExecuteMut<'c, C>
+where
+    C: Query,
+    Self: Execute<'c, C>,
+{
+    type ExecuteMutFuture: Future;
+    type RowStreamMut;
+
+    fn execute_mut(self, cli: &'c mut C) -> Self::ExecuteMutFuture;
+
+    fn query_mut(self, cli: &'c mut C) -> Result<Self::RowStreamMut, Error>;
+
+    fn execute_mut_blocking(self, cli: &'c mut C) -> <Self::ExecuteMutFuture as Future>::Output;
+}
+
 impl<'s, C> Execute<'_, C> for &'s Statement
 where
     C: Query,
@@ -160,14 +176,14 @@ where
 impl<'s, 'c, C, P> Execute<'c, C> for StatementUnnamedBind<'s, P>
 where
     C: Query + Prepare + 'c,
-    P: AsParams + 's + 'c,
+    P: AsParams + 'c,
     's: 'c,
 {
     type ExecuteFuture = ResultFuture<RowAffected>;
     type RowStream = RowStreamGuarded<'c, C>;
 
     #[inline]
-    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteFuture {
         self.query(cli).map(RowAffected::from).into()
     }
 
