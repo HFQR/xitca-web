@@ -110,16 +110,14 @@ impl Statement {
     ///
     /// [`Execute::execute`]: crate::execute::Execute::execute
     #[inline]
-    pub fn named<'a>(stmt: &'a str, types: &'a [Type]) -> StatementNamed<'a> {
-        let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let name = format!("s{id}");
-        StatementNamed { name, stmt, types }
+    pub const fn named<'a>(stmt: &'a str, types: &'a [Type]) -> StatementNamed<'a> {
+        StatementNamed { stmt, types }
     }
 
     /// construct a new unnamed statement.
     /// unnamed statement can bind to it's parameter values without being prepared by database.
     #[inline]
-    pub fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a> {
+    pub const fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a> {
         StatementUnnamed { stmt, types }
     }
 
@@ -185,9 +183,15 @@ impl Statement {
 }
 
 pub struct StatementNamed<'a> {
-    pub(crate) name: String,
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
+}
+
+impl StatementNamed<'_> {
+    fn name() -> String {
+        let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        format!("s{id}")
+    }
 }
 
 pub(crate) struct StatementCreate<'a, C> {
@@ -200,7 +204,7 @@ pub(crate) struct StatementCreate<'a, C> {
 impl<'a, C> From<(StatementNamed<'a>, &'a C)> for StatementCreate<'a, C> {
     fn from((stmt, cli): (StatementNamed<'a>, &'a C)) -> Self {
         Self {
-            name: stmt.name,
+            name: StatementNamed::name(),
             stmt: stmt.stmt,
             types: stmt.types,
             cli,
@@ -218,7 +222,7 @@ pub(crate) struct StatementCreateBlocking<'a, C> {
 impl<'a, C> From<(StatementNamed<'a>, &'a C)> for StatementCreateBlocking<'a, C> {
     fn from((stmt, cli): (StatementNamed<'a>, &'a C)) -> Self {
         Self {
-            name: stmt.name,
+            name: StatementNamed::name(),
             stmt: stmt.stmt,
             types: stmt.types,
             cli,

@@ -20,7 +20,7 @@ use super::{
     prepare::Prepare,
     query::Query,
     session::Session,
-    statement::Statement,
+    statement::{Statement, StatementNamed},
     transaction::Transaction,
     types::{Oid, Type},
     BoxedFuture, Postgres,
@@ -122,25 +122,36 @@ impl<'p> PoolConnection<'p> {
     /// - query repeatedly called intensely can benefit from cached statement.
     /// - query with low latency requirement can benefit from upfront cached statement.
     /// - rare query can use plain prepare to reduce resource usage from the server side.
-    pub async fn prepare_cache(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
-        match self.conn().statements.get(query) {
+    pub async fn prepare_cache(&mut self, named: StatementNamed<'_>) -> Result<Arc<Statement>, Error> {
+        match self.conn().statements.get(named.stmt) {
             Some(stmt) => Ok(stmt.clone()),
-            None => self.prepare_slow(query, types).await,
+            None => self.prepare_slow(named).await,
+        }
+    }
+
+    /// blocking version of [`PoolConnection::prepare_cache`]
+    pub fn prepare_cache_blocking(&mut self, named: StatementNamed<'_>) -> Result<Arc<Statement>, Error> {
+        match self.conn().statements.get(named.stmt) {
+            Some(stmt) => Ok(stmt.clone()),
+            None => {
+                let stmt = Statement::named(named.stmt, named.types).execute_blocking(self)?.leak();
+                Ok(self.insert_cache(named.stmt, stmt))
+            }
         }
     }
 
     #[inline(never)]
-    fn prepare_slow<'a>(
-        &'a mut self,
-        query: &'a str,
-        types: &'a [Type],
-    ) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
+    fn prepare_slow<'a>(&'a mut self, named: StatementNamed<'a>) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
         Box::pin(async move {
-            let stmt = Statement::named(query, types).execute(self).await?.leak();
-            let stmt = Arc::new(stmt);
-            self.conn_mut().statements.insert(Box::from(query), stmt.clone());
-            Ok(stmt)
+            let stmt = Statement::named(named.stmt, named.types).execute(self).await?.leak();
+            Ok(self.insert_cache(named.stmt, stmt))
         })
+    }
+
+    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Arc<Statement> {
+        let stmt = Arc::new(stmt);
+        self.conn_mut().statements.insert(Box::from(named), stmt.clone());
+        stmt
     }
 
     /// function the same as [`Client::transaction`]
