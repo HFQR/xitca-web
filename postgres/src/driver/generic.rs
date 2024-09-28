@@ -298,7 +298,7 @@ where
                         Err(e) => return Err(e),
                     }
                 }
-                _ => unreachable!("try_write must be called when WriteState is waiting"),
+                _ => unreachable!("try_write must not be called when WriteState is wait or closed"),
             }
         }
 

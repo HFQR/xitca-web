@@ -24,6 +24,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // it's also possible to utilize xitca-postgres's Execute traits for more customizable macro usage
     let mut stream = sql!("SELECT * FROM foo WHERE id = $1 AND name = $2", &1i32, &"alice").query(&cli)?;
 
+    // the macro also have basic function for sql validation check. try uncomment below to see compile error.
+    // let _ = sql!("SELECT * FRO foo WHERR id = $1 AN name = $2", &1i32, &"alice");
+
     let row = stream.try_next().await?.ok_or("row not found")?;
 
     assert_eq!(row.get::<&str>("name"), "alice");
