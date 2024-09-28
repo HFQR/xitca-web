@@ -52,14 +52,7 @@ impl DriverTx {
         Ok(())
     }
 
-    pub(crate) fn send<F, O>(&self, func: F) -> Result<(O, Response), Error>
-    where
-        F: FnOnce(&mut BytesMut) -> Result<O, Error>,
-    {
-        self.send_multi(func, 1)
-    }
-
-    pub(crate) fn send_multi<F, O>(&self, func: F, msg_count: usize) -> Result<(O, Response), Error>
+    pub(crate) fn send<F, O>(&self, func: F, msg_count: usize) -> Result<(O, Response), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<O, Error>,
     {

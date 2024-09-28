@@ -63,7 +63,7 @@ where
     pub fn query_portal(
         &self,
         max_rows: i32,
-    ) -> Result<<<PortalQuery<'_> as Encode>::Output<'_> as IntoResponse>::Response<'_>, Error> {
+    ) -> Result<<<PortalQuery<'_> as Encode>::Output as IntoResponse>::Response, Error> {
         self.cli._query(PortalQuery {
             name: &self.name,
             columns: self.stmt.columns(),

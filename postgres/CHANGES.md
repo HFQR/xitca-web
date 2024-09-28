@@ -12,6 +12,7 @@
     // execute raw string sql.
     let row_affected: u64 = "SELECT 1; SELECT 1".execute(&client).await?;
     ```
+- remove `Client::pipeline` and `Pool::pipeline`. `pipeline::Pipeline` type can be execute with `Execute::query` method
 - remove `dev::AsParams` trait export. It's not needed for implementing `Query` trait anymore    
 
 ## Change
@@ -38,9 +39,9 @@
     let stmt = Statement::unnamed("SELECT * FROM users WHERE id = $1", &[Type::INT4]);
     let row_stream = stmt.bind([9527]).query(&client);
     ```
-- `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output<'_>, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
-- `Encode` trait implementation detail change.
-- `IntoStream` trait is renamed to `IntoResponse`
+- `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
+- `Encode` trait implementation detail change
+- `IntoStream` trait is renamed to `IntoResponse` with implementation detail change
 
 ## Add
 - add `Execute` trait for extending query customization

@@ -1,42 +1,32 @@
-use core::{future::Future, pin::Pin};
-
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
 
 use crate::{
     column::Column,
     error::Error,
+    pipeline::PipelineStream,
     prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded},
     statement::Statement,
+    BoxedFuture,
 };
 
 use super::{sealed, Response};
 
 /// trait for generic over how to construct an async stream rows
 pub trait IntoResponse: sealed::Sealed + Sized {
-    type Response<'r>
-    where
-        Self: 'r;
+    type Response;
 
-    fn into_response<'r>(self, res: Response) -> Self::Response<'r>
-    where
-        Self: 'r;
+    fn into_response(self, res: Response) -> Self::Response;
 }
 
 impl sealed::Sealed for &[Column] {}
 
-impl IntoResponse for &[Column] {
-    type Response<'r>
-        = RowStream<'r>
-    where
-        Self: 'r;
+impl<'c> IntoResponse for &'c [Column] {
+    type Response = RowStream<'c>;
 
     #[inline]
-    fn into_response<'r>(self, res: Response) -> Self::Response<'r>
-    where
-        Self: 'r,
-    {
+    fn into_response(self, res: Response) -> Self::Response {
         RowStream::new(res, self)
     }
 }
@@ -44,17 +34,22 @@ impl IntoResponse for &[Column] {
 impl sealed::Sealed for Vec<Column> {}
 
 impl IntoResponse for Vec<Column> {
-    type Response<'r>
-        = RowSimpleStream
-    where
-        Self: 'r;
+    type Response = RowSimpleStream;
 
     #[inline]
-    fn into_response<'r>(self, res: Response) -> Self::Response<'r>
-    where
-        Self: 'r,
-    {
+    fn into_response(self, res: Response) -> Self::Response {
         RowSimpleStream::new(res, self)
+    }
+}
+
+impl sealed::Sealed for Vec<&[Column]> {}
+
+impl<'c> IntoResponse for Vec<&'c [Column]> {
+    type Response = PipelineStream<'c>;
+
+    #[inline]
+    fn into_response(self, res: Response) -> Self::Response {
+        PipelineStream::new(res, self)
     }
 }
 
@@ -62,20 +57,14 @@ pub struct IntoRowStreamGuard<'a, C>(pub &'a C);
 
 impl<C> sealed::Sealed for IntoRowStreamGuard<'_, C> {}
 
-impl<C> IntoResponse for IntoRowStreamGuard<'_, C>
+impl<'c, C> IntoResponse for IntoRowStreamGuard<'c, C>
 where
     C: Prepare,
 {
-    type Response<'r>
-        = RowStreamGuarded<'r, C>
-    where
-        Self: 'r;
+    type Response = RowStreamGuarded<'c, C>;
 
     #[inline]
-    fn into_response<'r>(self, res: Response) -> Self::Response<'r>
-    where
-        Self: 'r,
-    {
+    fn into_response(self, res: Response) -> Self::Response {
         RowStreamGuarded::new(res, self.0)
     }
 }
@@ -87,15 +76,9 @@ pub struct NoOpIntoRowStream;
 impl sealed::Sealed for NoOpIntoRowStream {}
 
 impl IntoResponse for NoOpIntoRowStream {
-    type Response<'r>
-        = RowStream<'r>
-    where
-        Self: 'r;
+    type Response = RowStream<'static>;
 
-    fn into_response<'r>(self, _: Response) -> Self::Response<'r>
-    where
-        Self: 'r,
-    {
+    fn into_response(self, _: Response) -> Self::Response {
         unreachable!("no row stream can be generated from no op row stream constructor")
     }
 }
@@ -107,19 +90,13 @@ pub struct StatementCreateResponse<'a, C> {
 
 impl<C> sealed::Sealed for StatementCreateResponse<'_, C> {}
 
-impl<C> IntoResponse for StatementCreateResponse<'_, C>
+impl<'s, C> IntoResponse for StatementCreateResponse<'s, C>
 where
     C: Prepare,
 {
-    type Response<'r>
-        = Pin<Box<dyn Future<Output = Result<Statement, Error>> + Send + 'r>>
-    where
-        Self: 'r;
+    type Response = BoxedFuture<'s, Result<Statement, Error>>;
 
-    fn into_response<'r>(self, mut res: Response) -> Self::Response<'r>
-    where
-        Self: 'r,
-    {
+    fn into_response(self, mut res: Response) -> Self::Response {
         Box::pin(async move {
             let Self { name, cli } = self;
 
@@ -172,15 +149,9 @@ impl<C> IntoResponse for StatementCreateResponseBlocking<'_, C>
 where
     C: Prepare,
 {
-    type Response<'r>
-        = Result<Statement, Error>
-    where
-        Self: 'r;
+    type Response = Result<Statement, Error>;
 
-    fn into_response<'r>(self, mut res: Response) -> Self::Response<'r>
-    where
-        Self: 'r,
-    {
+    fn into_response(self, mut res: Response) -> Self::Response {
         let Self { name, cli } = self;
 
         match res.blocking_recv()? {

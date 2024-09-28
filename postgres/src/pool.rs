@@ -1,4 +1,4 @@
-use core::{future::Future, ops::DerefMut};
+use core::future::Future;
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -16,7 +16,6 @@ use super::{
     error::Error,
     execute::{Execute, ExecuteMut},
     iter::AsyncLendingIterator,
-    pipeline::{Pipeline, PipelineStream},
     prepare::Prepare,
     query::Query,
     session::Session,
@@ -153,17 +152,6 @@ impl<'p> PoolConnection<'p> {
         Transaction::<Self>::builder().begin(self)
     }
 
-    /// function the same as [`Client::pipeline`]
-    pub fn pipeline<'a, B, const SYNC_MODE: bool>(
-        &self,
-        pipe: Pipeline<'a, B, SYNC_MODE>,
-    ) -> Result<PipelineStream<'a>, Error>
-    where
-        B: DerefMut<Target = BytesMut>,
-    {
-        self.conn().client.pipeline(pipe)
-    }
-
     /// function the same as [`Client::copy_in`]
     #[inline]
     pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<Self>, Error>> + Send {
@@ -268,9 +256,9 @@ impl Prepare for PoolConnection<'_> {
 
 impl Query for PoolConnection<'_> {
     #[inline]
-    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
     where
-        S: Encode + 'a,
+        S: Encode,
     {
         self.conn().client._send_encode_query(stmt)
     }

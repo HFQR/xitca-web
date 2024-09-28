@@ -116,7 +116,7 @@ fn query(client: &Client) -> Result<(), Error> {
     for item in stream {
         let row = item?;
         let one = row.get(0).expect("database must return 1");
-        assert_eq!(one, "1")
+        assert_eq!(one, "1");
     }
 
     Ok(())

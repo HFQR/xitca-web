@@ -194,9 +194,9 @@ where
     C: Prepare + Query + ClientBorrowMut,
 {
     #[inline]
-    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
     where
-        S: Encode + 'a,
+        S: Encode,
     {
         self.client._send_encode_query(stmt)
     }
