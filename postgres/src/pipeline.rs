@@ -257,7 +257,7 @@ pub struct PipelineQuery<'a, 'b> {
 impl<'p, C, B, const SYNC_MODE: bool> Execute<'_, C> for Pipeline<'p, B, SYNC_MODE>
 where
     C: Query,
-    B: DerefMut<Target = BytesMut> + 'p,
+    B: DerefMut<Target = BytesMut>,
 {
     type ExecuteFuture = RowAffected;
     type RowStream = PipelineStream<'p>;
