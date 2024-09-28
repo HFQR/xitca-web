@@ -256,9 +256,9 @@ impl Prepare for Arc<Client> {
 
 impl Query for Arc<Client> {
     #[inline]
-    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
     where
-        S: Encode + 'a,
+        S: Encode,
     {
         Client::_send_encode_query(self, stmt)
     }
@@ -266,9 +266,9 @@ impl Query for Arc<Client> {
 
 impl Query for Client {
     #[inline]
-    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
     where
-        S: Encode + 'a,
+        S: Encode,
     {
         encode::send_encode_query(&self.tx, stmt)
     }

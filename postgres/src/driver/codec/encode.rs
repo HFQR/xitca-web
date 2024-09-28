@@ -4,6 +4,7 @@ use xitca_io::bytes::BytesMut;
 use crate::{
     column::Column,
     error::{Error, InvalidParamCount},
+    pipeline::PipelineQuery,
     prepare::Prepare,
     statement::{Statement, StatementCreate, StatementCreateBlocking, StatementQuery, StatementUnnamedQuery},
     types::{BorrowToSql, IsNull, Type},
@@ -26,28 +27,30 @@ use super::{
 pub trait Encode: sealed::Sealed + Sized {
     /// output type defines how a potential async row streaming type should be constructed.
     /// certain state from the encode type may need to be passed for constructing the stream
-    type Output<'o>: IntoResponse
-    where
-        Self: 'o;
+    type Output: IntoResponse;
 
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o;
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error>;
+
+    #[doc(hidden)]
+    /// Hinting how many response messages will be contained by this encode type.
+    /// It **MUST** be correct count if you override this method. It determine how [`Driver`] observe boundaries
+    /// between database response messages. A wrong count will kill the driver and cause [`Client`] shutdown.
+    ///
+    /// [`Driver`]: crate::driver::Driver
+    /// [`Client`]: crate::client::Client
+    #[inline(always)]
+    fn count_hint(&self) -> usize {
+        1
+    }
 }
 
 impl sealed::Sealed for &str {}
 
 impl Encode for &str {
-    type Output<'o>
-        = Vec<Column>
-    where
-        Self: 'o;
+    type Output = Vec<Column>;
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         frontend::query(self, buf)?;
         Ok(Vec::new())
     }
@@ -55,17 +58,11 @@ impl Encode for &str {
 
 impl sealed::Sealed for &Statement {}
 
-impl Encode for &Statement {
-    type Output<'o>
-        = &'o [Column]
-    where
-        Self: 'o;
+impl<'s> Encode for &'s Statement {
+    type Output = &'s [Column];
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         encode_bind(self.name(), self.params(), [] as [i32; 0], "", buf)?;
         frontend::execute("", 0, buf)?;
         if SYNC_MODE {
@@ -77,20 +74,14 @@ impl Encode for &Statement {
 
 impl<C> sealed::Sealed for StatementCreate<'_, C> {}
 
-impl<C> Encode for StatementCreate<'_, C>
+impl<'s, C> Encode for StatementCreate<'s, C>
 where
     C: Prepare,
 {
-    type Output<'o>
-        = StatementCreateResponse<'o, C>
-    where
-        Self: 'o;
+    type Output = StatementCreateResponse<'s, C>;
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let Self { name, stmt, types, cli } = self;
         encode_statement_create(&name, stmt, types, buf).map(|_| StatementCreateResponse { name, cli })
     }
@@ -98,20 +89,14 @@ where
 
 impl<C> sealed::Sealed for StatementCreateBlocking<'_, C> {}
 
-impl<C> Encode for StatementCreateBlocking<'_, C>
+impl<'s, C> Encode for StatementCreateBlocking<'s, C>
 where
     C: Prepare,
 {
-    type Output<'o>
-        = StatementCreateResponseBlocking<'o, C>
-    where
-        Self: 'o;
+    type Output = StatementCreateResponseBlocking<'s, C>;
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let Self { name, stmt, types, cli } = self;
         encode_statement_create(&name, stmt, types, buf).map(|_| StatementCreateResponseBlocking { name, cli })
     }
@@ -131,16 +116,10 @@ pub(crate) struct StatementCancel<'a> {
 impl sealed::Sealed for StatementCancel<'_> {}
 
 impl Encode for StatementCancel<'_> {
-    type Output<'o>
-        = NoOpIntoRowStream
-    where
-        Self: 'o;
+    type Output = NoOpIntoRowStream;
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let Self { name } = self;
         frontend::close(b'S', name, buf)?;
         frontend::sync(buf);
@@ -150,20 +129,14 @@ impl Encode for StatementCancel<'_> {
 
 impl<P> sealed::Sealed for StatementQuery<'_, P> {}
 
-impl<'a, P> Encode for StatementQuery<'a, P>
+impl<'s, P> Encode for StatementQuery<'s, P>
 where
     P: AsParams,
 {
-    type Output<'o>
-        = &'o [Column]
-    where
-        Self: 'o;
+    type Output = &'s [Column];
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let StatementQuery { stmt, params } = self;
         encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
         frontend::execute("", 0, buf)?;
@@ -176,21 +149,15 @@ where
 
 impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, P, C> {}
 
-impl<C, P> Encode for StatementUnnamedQuery<'_, P, C>
+impl<'s, C, P> Encode for StatementUnnamedQuery<'s, P, C>
 where
     C: Prepare,
     P: AsParams,
 {
-    type Output<'o>
-        = IntoRowStreamGuard<'o, C>
-    where
-        Self: 'o;
+    type Output = IntoRowStreamGuard<'s, C>;
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let Self {
             stmt,
             types,
@@ -221,16 +188,10 @@ impl<P> Encode for PortalCreate<'_, P>
 where
     P: AsParams,
 {
-    type Output<'o>
-        = NoOpIntoRowStream
-    where
-        Self: 'o;
+    type Output = NoOpIntoRowStream;
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let PortalCreate {
             name,
             stmt,
@@ -250,16 +211,10 @@ pub(crate) struct PortalCancel<'a> {
 impl sealed::Sealed for PortalCancel<'_> {}
 
 impl Encode for PortalCancel<'_> {
-    type Output<'o>
-        = NoOpIntoRowStream
-    where
-        Self: 'o;
+    type Output = NoOpIntoRowStream;
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         frontend::close(b'P', self.name, buf)?;
         frontend::sync(buf);
         Ok(NoOpIntoRowStream)
@@ -274,17 +229,11 @@ pub struct PortalQuery<'a> {
 
 impl sealed::Sealed for PortalQuery<'_> {}
 
-impl Encode for PortalQuery<'_> {
-    type Output<'o>
-        = &'o [Column]
-    where
-        Self: 'o;
+impl<'s> Encode for PortalQuery<'s> {
+    type Output = &'s [Column];
 
     #[inline]
-    fn encode<'o, const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output<'o>, Error>
-    where
-        Self: 'o,
-    {
+    fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let Self {
             name,
             max_rows,
@@ -296,11 +245,30 @@ impl Encode for PortalQuery<'_> {
     }
 }
 
-pub(crate) fn send_encode_query<'a, S>(tx: &DriverTx, stmt: S) -> Result<(S::Output<'a>, Response), Error>
+impl sealed::Sealed for PipelineQuery<'_, '_> {}
+
+impl<'s> Encode for PipelineQuery<'s, '_> {
+    type Output = Vec<&'s [Column]>;
+
+    #[inline]
+    fn encode<const SYNC_MODE: bool>(self, buf_drv: &mut BytesMut) -> Result<Self::Output, Error> {
+        let Self { columns, buf, .. } = self;
+        buf_drv.extend_from_slice(buf);
+        Ok(columns)
+    }
+
+    #[inline(always)]
+    fn count_hint(&self) -> usize {
+        self.count
+    }
+}
+
+pub(crate) fn send_encode_query<S>(tx: &DriverTx, stmt: S) -> Result<(S::Output, Response), Error>
 where
-    S: Encode + 'a,
+    S: Encode,
 {
-    tx.send(|buf| stmt.encode::<true>(buf))
+    let msg_count = stmt.count_hint();
+    tx.send(|buf| stmt.encode::<true>(buf), msg_count)
 }
 
 fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>

@@ -14,11 +14,12 @@ use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
 
 use super::{
-    client::Client,
     column::Column,
     driver::codec::{self, encode::Encode, Response},
     error::Error,
+    execute::Execute,
     iter::AsyncLendingIterator,
+    query::{Query, RowAffected},
     row::Row,
 };
 
@@ -38,11 +39,11 @@ use super::{
 ///     let mut pipe = Pipeline::new();
 ///
 ///     // pipeline can encode multiple queries.
-///     pipe.query(statement.bind([] as [i32; 0]))?;
-///     pipe.query(statement.bind([] as [i32; 0]))?;
+///     pipe.pipe_query(statement.bind([] as [i32; 0]))?;
+///     pipe.pipe_query(statement.bind([] as [i32; 0]))?;
 ///
 ///     // execute the pipeline and on success a streaming response will be returned.
-///     let mut res = client.pipeline(pipe)?;
+///     let mut res = pipe.query(client)?;
 ///
 ///     // iterate through the query responses. the response order is the same as the order of
 ///     // queries encoded into pipeline with Pipeline::query_xxx api.
@@ -235,9 +236,9 @@ where
     /// of raw statement and it's associated type parameters.
     ///
     /// [`Execute::query`]: crate::execute::Execute::query
-    pub fn query<S>(&mut self, stmt: S) -> Result<(), Error>
+    pub fn pipe_query<S>(&mut self, stmt: S) -> Result<(), Error>
     where
-        S: Encode<Output<'a> = &'a [Column]> + 'a,
+        S: Encode<Output = &'a [Column]>,
     {
         let len = self.buf.len();
         stmt.encode::<SYNC_MODE>(&mut self.buf)
@@ -247,34 +248,44 @@ where
     }
 }
 
-impl Client {
-    /// execute the pipeline.
-    pub fn pipeline<'a, B, const SYNC_MODE: bool>(
-        &self,
-        mut pipe: Pipeline<'a, B, SYNC_MODE>,
-    ) -> Result<PipelineStream<'a>, Error>
-    where
-        B: DerefMut<Target = BytesMut>,
-    {
-        let Pipeline { columns, ref mut buf } = pipe;
+pub struct PipelineQuery<'a, 'b> {
+    pub(crate) count: usize,
+    pub(crate) columns: Vec<&'a [Column]>,
+    pub(crate) buf: &'b [u8],
+}
+
+impl<'p, C, B, const SYNC_MODE: bool> Execute<'_, C> for Pipeline<'p, B, SYNC_MODE>
+where
+    C: Query,
+    B: DerefMut<Target = BytesMut>,
+{
+    type ExecuteFuture = RowAffected;
+    type RowStream = PipelineStream<'p>;
+
+    fn execute(self, _: &C) -> Self::ExecuteFuture {
+        unimplemented!("Pipeline does not support sql execution")
+    }
+
+    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
+        let Pipeline { columns, mut buf } = self;
         assert!(!buf.is_empty());
 
-        let sync_count = if SYNC_MODE {
+        let count = if SYNC_MODE {
             columns.len()
         } else {
-            frontend::sync(buf);
+            frontend::sync(&mut buf);
             1
         };
 
-        self.tx
-            .send_multi(
-                |b| {
-                    b.extend_from_slice(buf);
-                    Ok(())
-                },
-                sync_count,
-            )
-            .map(|(_, res)| PipelineStream::new(res, columns))
+        cli._query(PipelineQuery {
+            count,
+            columns,
+            buf: buf.as_ref(),
+        })
+    }
+
+    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
+        self.execute(cli).wait()
     }
 }
 

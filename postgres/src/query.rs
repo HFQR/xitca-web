@@ -22,16 +22,16 @@ pub trait Query {
     ///
     /// statement must be a type impl [`Encode`] trait
     #[inline]
-    fn _query<'a, S>(&self, stmt: S) -> Result<<S::Output<'a> as IntoResponse>::Response<'a>, Error>
+    fn _query<S>(&self, stmt: S) -> Result<<S::Output as IntoResponse>::Response, Error>
     where
-        S: Encode + 'a,
+        S: Encode,
     {
         self._send_encode_query(stmt)
             .map(|(stream, res)| stream.into_response(res))
     }
 
     /// encode statement and params and send it to client driver
-    fn _send_encode_query<'a, S>(&self, stmt: S) -> Result<(S::Output<'a>, Response), Error>
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
     where
-        S: Encode + 'a;
+        S: Encode;
 }
