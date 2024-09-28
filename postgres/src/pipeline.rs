@@ -19,8 +19,9 @@ use super::{
     error::Error,
     execute::Execute,
     iter::AsyncLendingIterator,
-    query::{Query, RowAffected},
+    query::Query,
     row::Row,
+    BoxedFuture,
 };
 
 /// A pipelined sql query type. It lazily batch queries into local buffer and try to send it
@@ -259,11 +260,19 @@ where
     C: Query,
     B: DerefMut<Target = BytesMut>,
 {
-    type ExecuteFuture = RowAffected;
+    type ExecuteFuture = BoxedFuture<'p, Result<u64, Error>>;
     type RowStream = PipelineStream<'p>;
 
-    fn execute(self, _: &C) -> Self::ExecuteFuture {
-        unimplemented!("Pipeline does not support sql execution")
+    fn execute(self, cli: &C) -> Self::ExecuteFuture {
+        let res = self.query(cli);
+        Box::pin(async move {
+            let mut row_affected = 0;
+            let mut res = res?;
+            while let Some(item) = res.try_next().await? {
+                row_affected += item.row_affected().await?;
+            }
+            Ok(row_affected)
+        })
     }
 
     fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
@@ -285,7 +294,26 @@ where
     }
 
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        self.execute(cli).wait()
+        let mut res = self.query(cli)?;
+        let mut row_affected = 0;
+
+        while !res.columns.is_empty() {
+            match res.res.blocking_recv()? {
+                backend::Message::BindComplete => {
+                    let item = PipelineItem {
+                        finished: false,
+                        res: &mut res.res,
+                        ranges: &mut res.ranges,
+                        columns: res.columns.pop_front(),
+                    };
+                    row_affected += item.row_affected_blocking()?;
+                }
+                backend::Message::ReadyForQuery(_) => {}
+                _ => return Err(Error::unexpected()),
+            }
+        }
+
+        Ok(row_affected)
     }
 }
 
@@ -388,6 +416,20 @@ impl PipelineItem<'_> {
         assert!(!self.finished, "PipelineItem has already finished");
         loop {
             match self.res.recv().await? {
+                backend::Message::DataRow(_) => {}
+                backend::Message::CommandComplete(body) => {
+                    self.finished = true;
+                    return codec::body_to_affected_rows(&body);
+                }
+                _ => return Err(Error::unexpected()),
+            }
+        }
+    }
+
+    fn row_affected_blocking(mut self) -> Result<u64, Error> {
+        assert!(!self.finished, "PipelineItem has already finished");
+        loop {
+            match self.res.blocking_recv()? {
                 backend::Message::DataRow(_) => {}
                 backend::Message::CommandComplete(body) => {
                     self.finished = true;
