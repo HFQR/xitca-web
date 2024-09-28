@@ -122,3 +122,43 @@ fn query(client: &Client) -> Result<(), Error> {
     Ok(())
 }
 ```
+
+## Zero Copy Row Parse
+Row data in `xitca-postgres` is stored as atomic reference counted byte buffer. enabling cheap slicing and smart 
+pointer based zero copy parsing
+```rust
+use std::ops::Range;
+use xitca_io::bytes::{Bytes, BytesStr};
+use xitca_postgres::{row::Row, types::Type, FromSqlExt};
+
+fn parse(row: Row<'_>) {
+    // parse column foo to Bytes. it's a reference counted byte slice. 
+    // can be roughly seen as Arc<[u8]>. it references Row's internal buffer
+    // which is also a reference counted byte slice.
+    let bytes: Bytes = row.get_zc("foo");    
+
+    // parse column bar to BytesStr. it's also a reference counted slice but for String.
+    // can be roughly seen as Arc<str>.
+    let str: BytesStr = row.get_zc("bar");
+
+    // implement FromSqlExt trait for your own type for extended zero copy parsing.
+    struct Baz;
+
+    // please see doc for implementation detail
+    impl<'a> FromSqlExt<'a> for Baz {
+        fn from_sql_nullable_ext(
+            ty: &Type, 
+            (range, buf): (&Range<usize>, &'a Bytes)
+        ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+            Ok(Baz)
+        }
+
+        fn accepts(ty: &Type) -> bool {
+            true
+        }
+    }
+
+    // any type implement FromSqlExt trait will be parsable by get_zc API.
+    let foo: Baz = row.get_zc("baz");
+}
+``` 

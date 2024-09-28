@@ -5,7 +5,7 @@ use std::sync::Arc;
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend::DataRowBody;
 use postgres_types::FromSql;
-use xitca_io::bytes::Bytes;
+use xitca_io::bytes::{Bytes, BytesStr};
 
 use crate::{
     column::Column,
@@ -172,6 +172,20 @@ where
     C: AsRef<[Column]>,
     R: AsRef<[Range<usize>]> + AsMut<Vec<Range<usize>>>,
 {
+    /// zero copy version of [`Self::get`]
+    ///
+    /// see [`FromSqlExt`] trait for explanation
+    pub fn get_zc(&self, idx: impl RowIndexAndType + fmt::Display) -> Option<BytesStr> {
+        self.try_get_zc(idx)
+            .unwrap_or_else(|e| panic!("error retrieving column {idx}: {e}"))
+    }
+
+    /// Like [`Self::get_zc`], but returns a `Result` rather than panicking.
+    pub fn try_get_zc(&self, idx: impl RowIndexAndType + fmt::Display) -> Result<Option<BytesStr>, Error> {
+        let (idx, ty) = self.get_idx_ty::<BytesStr>(idx, BytesStr::accepts)?;
+        FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
+    }
+
     /// Returns a value from the row.
     ///
     /// The value can be specified either by its numeric index in the row, or by its column name.
@@ -187,12 +201,18 @@ where
     /// Like `RowSimple::get`, but returns a `Result` rather than panicking.
     pub fn try_get(&self, idx: impl RowIndexAndType + fmt::Display) -> Result<Option<&str>, Error> {
         let (idx, ty) = self.get_idx_ty::<&str>(idx, <&str as FromSql>::accepts)?;
-        FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
+        FromSql::from_sql_nullable(ty, self.body.buffer().get(self.ranges.as_ref()[idx].clone())).map_err(Into::into)
     }
 }
 
-fn _try_get_usize(row: Row) {
-    let _ = row.try_get_zc::<u32>(0);
-    let _ = row.try_get_zc::<&str>("test");
-    let _ = row.try_get::<String>(String::from("get_raw").as_str());
+fn _try_get(row: Row) {
+    let _ = row.try_get::<u32>(0);
+    let _ = row.try_get_zc::<BytesStr>("test");
+    let _ = row.try_get_zc::<Bytes>(String::from("get_raw").as_str());
+}
+
+fn _try_get_simple(row: RowSimple) {
+    let _ = row.try_get_zc(0);
+    let _ = row.get_zc("test");
+    let _ = row.try_get(String::from("get_raw").as_str());
 }
