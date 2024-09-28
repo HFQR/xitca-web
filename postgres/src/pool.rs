@@ -14,13 +14,13 @@ use super::{
     copy::{r#Copy, CopyIn, CopyOut},
     driver::codec::{encode::Encode, Response},
     error::Error,
-    execute::Execute,
+    execute::{Execute, ExecuteMut},
     iter::AsyncLendingIterator,
     pipeline::{Pipeline, PipelineStream},
     prepare::Prepare,
     query::Query,
     session::Session,
-    statement::Statement,
+    statement::{Statement, StatementNamed},
     transaction::Transaction,
     types::{Oid, Type},
     BoxedFuture, Postgres,
@@ -105,8 +105,22 @@ impl Pool {
     }
 }
 
-/// a RAII type for connection. it manages the lifetime of connection and it's [Statement] cache.
+/// a RAII type for connection. it manages the lifetime of connection and it's [`Statement`] cache.
 /// a set of public is exposed to interact with them.
+///
+/// # Caching
+/// PoolConnection contains cache set of [`Statement`] to speed up regular used sql queries. By default
+/// when calling [`Execute::execute`] on a [`StatementNamed`] the pool connection does nothing and function
+/// the same as a regular [`Client`]. In order to utilize the cache caller must execute the named statement
+/// through [`ExecuteMut::execute_mut`]. This method call will look up local statement cache hand out a copy
+/// of in the type of [`Arc<Statement>`]. If no copy is found in the cache pool connection will prepare a
+/// new statement and insert it into the cache.
+///
+/// * When to use caching or not:
+/// - query statement repeatedly called intensely can benefit from cache.
+/// - query statement with low latency requirement can benefit from upfront cached.
+/// - rare query statement can benefit from no caching by reduce resource usage from the server side. For low
+///   latency of rare query consider use [`Statement::unnamed`] as alternative.
 pub struct PoolConnection<'a> {
     pool: &'a Pool,
     conn: Option<PoolClient>,
@@ -114,33 +128,23 @@ pub struct PoolConnection<'a> {
 }
 
 impl<'p> PoolConnection<'p> {
-    /// function like [`Statement::named`] with some behavior difference:
-    /// - statement will be cached for future reuse.
-    /// - statement type is [`Arc<Statement>`] smart pointer
-    ///
-    /// * When to use cached prepare or plain prepare:
-    /// - query repeatedly called intensely can benefit from cached statement.
-    /// - query with low latency requirement can benefit from upfront cached statement.
-    /// - rare query can use plain prepare to reduce resource usage from the server side.
-    pub async fn prepare_cache(&mut self, query: &str, types: &[Type]) -> Result<Arc<Statement>, Error> {
-        match self.conn().statements.get(query) {
-            Some(stmt) => Ok(stmt.clone()),
-            None => self.prepare_slow(query, types).await,
-        }
+    #[inline(never)]
+    fn prepare_slow<'a>(&'a mut self, named: StatementNamed<'a>) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
+        Box::pin(async move {
+            let stmt = Statement::named(named.stmt, named.types).execute(self).await?.leak();
+            Ok(self.insert_cache(named.stmt, stmt))
+        })
     }
 
-    #[inline(never)]
-    fn prepare_slow<'a>(
-        &'a mut self,
-        query: &'a str,
-        types: &'a [Type],
-    ) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
-        Box::pin(async move {
-            let stmt = Statement::named(query, types).execute(self).await?.leak();
-            let stmt = Arc::new(stmt);
-            self.conn_mut().statements.insert(Box::from(query), stmt.clone());
-            Ok(stmt)
-        })
+    fn prepare_slow_blocking(&mut self, named: StatementNamed<'_>) -> Result<Arc<Statement>, Error> {
+        let stmt = Statement::named(named.stmt, named.types).execute_blocking(self)?.leak();
+        Ok(self.insert_cache(named.stmt, stmt))
+    }
+
+    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Arc<Statement> {
+        let stmt = Arc::new(stmt);
+        self.conn_mut().statements.insert(Box::from(named), stmt.clone());
+        stmt
     }
 
     /// function the same as [`Client::transaction`]
@@ -302,6 +306,35 @@ impl PoolClient {
         Self {
             client,
             statements: HashMap::new(),
+        }
+    }
+}
+
+impl<'c, 'p, 's> ExecuteMut<'c, PoolConnection<'p>> for StatementNamed<'s>
+where
+    's: 'c,
+    'p: 'c,
+{
+    type ExecuteMutFuture = BoxedFuture<'c, Result<Arc<Statement>, Error>>;
+    type RowStreamMut = Self::ExecuteMutFuture;
+
+    fn execute_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::ExecuteMutFuture {
+        Box::pin(async move {
+            match cli.conn().statements.get(self.stmt) {
+                Some(stmt) => Ok(stmt.clone()),
+                None => cli.prepare_slow(self).await,
+            }
+        })
+    }
+
+    fn query_mut(self, cli: &'c mut PoolConnection<'p>) -> Result<Self::RowStreamMut, Error> {
+        Ok(self.execute_mut(cli))
+    }
+
+    fn execute_mut_blocking(self, cli: &mut PoolConnection) -> <Self::ExecuteMutFuture as Future>::Output {
+        match cli.conn().statements.get(self.stmt) {
+            Some(stmt) => Ok(stmt.clone()),
+            None => cli.prepare_slow_blocking(self),
         }
     }
 }
