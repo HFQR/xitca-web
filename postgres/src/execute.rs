@@ -13,6 +13,7 @@ use super::{
         Statement, StatementCreate, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementQuery,
         StatementUnnamedBind, StatementUnnamedQuery,
     },
+    BoxedFuture,
 };
 
 /// Defining how a query is executed. can be used for customizing encoding, executing and database
@@ -120,19 +121,40 @@ where
     }
 }
 
+type IntoGuardedFuture<'c, C> = IntoGuarded<'c, BoxedFuture<'c, Result<Statement, Error>>, C>;
+
+pub struct IntoGuarded<'a, F, C> {
+    fut: F,
+    cli: &'a C,
+}
+
+impl<'a, F, C> Future for IntoGuarded<'a, F, C>
+where
+    F: Future<Output = Result<Statement, Error>> + Unpin,
+    C: Prepare,
+{
+    type Output = Result<StatementGuarded<'a, C>, Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        Pin::new(&mut this.fut)
+            .poll(cx)
+            .map_ok(|stmt| stmt.into_guarded(this.cli))
+    }
+}
+
 impl<'c, 's, C> Execute<'c, C> for StatementNamed<'s>
 where
     C: Query + Prepare + 'c,
     's: 'c,
 {
-    type ExecuteFuture =
-        ResultFuture<Pin<Box<dyn Future<Output = Result<StatementGuarded<'c, C>, Error>> + Send + 'c>>>;
+    type ExecuteFuture = ResultFuture<IntoGuardedFuture<'c, C>>;
     type RowStream = Self::ExecuteFuture;
 
     #[inline]
     fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
         cli._query(StatementCreate::from((self, cli)))
-            .map(|fut| Box::pin(async { fut.await.map(|stmt| stmt.into_guarded(cli)) }) as _)
+            .map(|fut| IntoGuarded { fut, cli })
             .into()
     }
 
