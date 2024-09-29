@@ -1,10 +1,12 @@
 //! module for canceling ongoing queries
 
 use postgres_protocol::message::frontend;
-use tracing::warn;
 use xitca_io::bytes::BytesMut;
 
-use super::{error::Error, session::Session};
+use super::{
+    error::{Error, RuntimeError},
+    session::Session,
+};
 
 impl Session {
     /// Attempts to cancel the in-progress query on the connection associated with Self.
@@ -25,10 +27,7 @@ impl Session {
     /// blocking version of [`Session::query_cancel`]
     pub fn query_cancel_blocking(self) -> Result<(), Error> {
         match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                warn!("running blocking query cancellation inside tokio context. consider use Session::query_cancel instead");
-                handle.block_on(self.query_cancel())
-            }
+            Ok(_) => Err(RuntimeError::RequireNoTokio.into()),
             Err(_) => tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?

@@ -1,7 +1,7 @@
 use core::future::IntoFuture;
 
 use xitca_postgres::{
-    error::{DbError, SqlState},
+    error::{DbError, RuntimeError, SqlState},
     pipeline::Pipeline,
     statement::Statement,
     types::Type,
@@ -67,6 +67,27 @@ fn cancel_query_blocking() {
 
     let e = e.downcast_ref::<DbError>().unwrap();
     assert_eq!(e.code(), &SqlState::QUERY_CANCELED);
+}
+
+// this test will cause deadlock if run with single threaded tokio runtime
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_query_blocking_in_tokio() {
+    let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
+        .connect()
+        .await
+        .unwrap();
+    tokio::spawn(drv.into_future());
+
+    let cancel_token = cli.cancel_token();
+
+    std::thread::spawn(move || "SELECT pg_sleep(10)".execute_blocking(&cli));
+
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    let e = cancel_token.query_cancel_blocking().unwrap_err();
+
+    let e = e.downcast_ref::<RuntimeError>().unwrap();
+    assert_eq!(e, &RuntimeError::RequireNoTokio);
 }
 
 #[test]

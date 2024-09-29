@@ -144,11 +144,7 @@ impl fmt::Display for Completed {
 
 impl error::Error for Completed {}
 
-impl From<Completed> for Error {
-    fn from(e: Completed) -> Self {
-        Self(Box::new(e))
-    }
-}
+from_impl!(Completed);
 
 /// error indicate [`Client`]'s [`Driver`] is dropped and can't be accessed anymore when sending request to driver.
 ///
@@ -384,6 +380,23 @@ impl fmt::Display for FeatureError {
 impl error::Error for FeatureError {}
 
 from_impl!(FeatureError);
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RuntimeError {
+    RequireNoTokio,
+}
+
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::RequireNoTokio => f.write_str("Tokio runtime detected. Must be called from outside of tokio"),
+        }
+    }
+}
+
+impl error::Error for RuntimeError {}
+
+from_impl!(RuntimeError);
 
 /// error for database returning backend message type that is not expected.
 /// it indicates there might be protocol error on either side of the connection.
