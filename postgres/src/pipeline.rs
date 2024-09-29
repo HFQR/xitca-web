@@ -382,12 +382,14 @@ impl<'a> AsyncLendingIterator for PipelineStream<'a> {
                     // last PipelineItem dropped before finish. do some catch up until next
                     // item arrives.
                 }
-                backend::Message::ReadyForQuery(_) => break,
+                backend::Message::ReadyForQuery(_) => {
+                    if self.columns.is_empty() {
+                        return Ok(None);
+                    }
+                }
                 _ => return Err(Error::unexpected()),
             }
         }
-
-        Ok(None)
     }
 
     #[inline]

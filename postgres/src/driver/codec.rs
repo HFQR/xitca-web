@@ -70,9 +70,13 @@ impl Response {
         loop {
             match self.blocking_recv()? {
                 backend::Message::BindComplete
-                | backend::Message::DataRow(_)
+                | backend::Message::NoData
+                | backend::Message::ParseComplete
+                | backend::Message::ParameterDescription(_)
                 | backend::Message::RowDescription(_)
-                | backend::Message::EmptyQueryResponse => {}
+                | backend::Message::DataRow(_)
+                | backend::Message::EmptyQueryResponse
+                | backend::Message::PortalSuspended => {}
                 backend::Message::CommandComplete(body) => {
                     rows = body_to_affected_rows(&body)?;
                 }
@@ -86,9 +90,13 @@ impl Response {
         loop {
             match ready!(self.poll_recv(cx))? {
                 backend::Message::BindComplete
-                | backend::Message::DataRow(_)
+                | backend::Message::NoData
+                | backend::Message::ParseComplete
+                | backend::Message::ParameterDescription(_)
                 | backend::Message::RowDescription(_)
-                | backend::Message::EmptyQueryResponse => {}
+                | backend::Message::DataRow(_)
+                | backend::Message::EmptyQueryResponse
+                | backend::Message::PortalSuspended => {}
                 backend::Message::CommandComplete(body) => {
                     *rows = body_to_affected_rows(&body)?;
                 }

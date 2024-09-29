@@ -2,6 +2,7 @@ use core::future::IntoFuture;
 
 use xitca_postgres::{
     error::{DbError, SqlState},
+    pipeline::Pipeline,
     statement::Statement,
     types::Type,
     Client, Execute, Postgres,
@@ -66,4 +67,33 @@ fn cancel_query_blocking() {
 
     let e = e.downcast_ref::<DbError>().unwrap();
     assert_eq!(e.code(), &SqlState::QUERY_CANCELED);
+}
+
+#[test]
+fn pipeline_blocking() {
+    let cli = connect();
+
+    "CREATE TEMPORARY TABLE foo (name TEXT, age INT);"
+        .execute_blocking(&cli)
+        .unwrap();
+
+    Statement::unnamed(
+        "INSERT INTO foo (name, age) VALUES ($1, $2), ($3, $4), ($5, $6);",
+        &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
+    )
+    .bind_dyn(&[&"alice", &20i32, &"bob", &30i32, &"charlie", &40i32])
+    .execute_blocking(&cli)
+    .unwrap();
+
+    let stmt = Statement::named("UPDATE foo SET age = 30 WHERE name = $1", &[])
+        .execute_blocking(&cli)
+        .unwrap();
+
+    let mut pipe = Pipeline::new();
+
+    pipe.pipe_query(stmt.bind(["alice"])).unwrap();
+    pipe.pipe_query(stmt.bind(["bob"])).unwrap();
+
+    let rows_affected = pipe.execute_blocking(&cli).unwrap();
+    assert_eq!(rows_affected, 2);
 }
