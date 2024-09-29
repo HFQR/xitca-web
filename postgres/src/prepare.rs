@@ -6,7 +6,7 @@ use super::{
     execute::Execute,
     iter::AsyncLendingIterator,
     query::Query,
-    statement::Statement,
+    statement::{Statement, StatementNamed},
     types::Type,
     BoxedFuture,
 };
@@ -114,6 +114,51 @@ impl Prepare for Client {
     }
 }
 
+const TYPEINFO_QUERY: StatementNamed = Statement::named(
+    "SELECT t.typname, t.typtype, t.typelem, r.rngsubtype, t.typbasetype, n.nspname, t.typrelid \
+    FROM pg_catalog.pg_type t \
+    LEFT OUTER JOIN pg_catalog.pg_range r ON r.rngtypid = t.oid \
+    INNER JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid \
+    WHERE t.oid = $1",
+    &[],
+);
+
+// Range types weren't added until Postgres 9.2, so pg_range may not exist
+const TYPEINFO_FALLBACK_QUERY: StatementNamed = Statement::named(
+    "SELECT t.typname, t.typtype, t.typelem, NULL::OID, t.typbasetype, n.nspname, t.typrelid \
+    FROM pg_catalog.pg_type t \
+    INNER JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid \
+    WHERE t.oid = $1",
+    &[],
+);
+
+const TYPEINFO_ENUM_QUERY: StatementNamed = Statement::named(
+    "SELECT enumlabel \
+    FROM pg_catalog.pg_enum \
+    WHERE enumtypid = $1 \
+    ORDER BY enumsortorder",
+    &[],
+);
+
+// Postgres 9.0 didn't have enumsortorder
+const TYPEINFO_ENUM_FALLBACK_QUERY: StatementNamed = Statement::named(
+    "SELECT enumlabel \
+    FROM pg_catalog.pg_enum \
+    WHERE enumtypid = $1 \
+    ORDER BY oid",
+    &[],
+);
+
+const TYPEINFO_COMPOSITE_QUERY: StatementNamed = Statement::named(
+    "SELECT attname, atttypid \
+    FROM pg_catalog.pg_attribute \
+    WHERE attrelid = $1 \
+    AND NOT attisdropped \
+    AND attnum > 0 \
+    ORDER BY attnum",
+    &[],
+);
+
 impl Client {
     async fn get_enum_variants(&self, oid: Oid) -> Result<Vec<String>, Error> {
         let stmt = self.typeinfo_enum_statement().await?;
@@ -143,21 +188,14 @@ impl Client {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
         }
-        let stmt = match Statement::named(TYPEINFO_QUERY, &[])
-            .execute(self)
-            .await
-            .map(|stmt| stmt.leak())
-        {
+        let stmt = match TYPEINFO_QUERY.execute(self).await.map(|stmt| stmt.leak()) {
             Ok(stmt) => stmt,
             Err(e) => {
                 return if e
                     .downcast_ref::<DbError>()
                     .is_some_and(|e| SqlState::UNDEFINED_TABLE.eq(e.code()))
                 {
-                    Statement::named(TYPEINFO_FALLBACK_QUERY, &[])
-                        .execute(self)
-                        .await
-                        .map(|stmt| stmt.leak())
+                    TYPEINFO_FALLBACK_QUERY.execute(self).await.map(|stmt| stmt.leak())
                 } else {
                     Err(e)
                 }
@@ -171,17 +209,14 @@ impl Client {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
         }
-        let stmt = match Statement::named(TYPEINFO_ENUM_QUERY, &[]).execute(self).await {
+        let stmt = match TYPEINFO_ENUM_QUERY.execute(self).await {
             Ok(stmt) => stmt.leak(),
             Err(e) => {
                 return if e
                     .downcast_ref::<DbError>()
                     .is_some_and(|e| SqlState::UNDEFINED_COLUMN.eq(e.code()))
                 {
-                    Statement::named(TYPEINFO_ENUM_FALLBACK_QUERY, &[])
-                        .execute(self)
-                        .await
-                        .map(|stmt| stmt.leak())
+                    TYPEINFO_ENUM_FALLBACK_QUERY.execute(self).await.map(|stmt| stmt.leak())
                 } else {
                     Err(e)
                 }
@@ -195,10 +230,7 @@ impl Client {
         if let Some(stmt) = self.typeinfo_composite() {
             return Ok(stmt);
         }
-        let stmt = Statement::named(TYPEINFO_COMPOSITE_QUERY, &[])
-            .execute(self)
-            .await?
-            .leak();
+        let stmt = TYPEINFO_COMPOSITE_QUERY.execute(self).await?.leak();
         self.set_typeinfo_composite(&stmt);
         Ok(stmt)
     }
@@ -233,16 +265,14 @@ impl Client {
         if let Some(stmt) = self.typeinfo() {
             return Ok(stmt);
         }
-        let stmt = match Statement::named(TYPEINFO_QUERY, &[]).execute_blocking(self) {
+        let stmt = match TYPEINFO_QUERY.execute_blocking(self) {
             Ok(stmt) => stmt.leak(),
             Err(e) => {
                 return if e
                     .downcast_ref::<DbError>()
                     .is_some_and(|e| SqlState::UNDEFINED_TABLE.eq(e.code()))
                 {
-                    Statement::named(TYPEINFO_FALLBACK_QUERY, &[])
-                        .execute_blocking(self)
-                        .map(|stmt| stmt.leak())
+                    TYPEINFO_FALLBACK_QUERY.execute_blocking(self).map(|stmt| stmt.leak())
                 } else {
                     Err(e)
                 }
@@ -256,14 +286,14 @@ impl Client {
         if let Some(stmt) = self.typeinfo_enum() {
             return Ok(stmt);
         }
-        let stmt = match Statement::named(TYPEINFO_ENUM_QUERY, &[]).execute_blocking(self) {
+        let stmt = match TYPEINFO_ENUM_QUERY.execute_blocking(self) {
             Ok(stmt) => stmt.leak(),
             Err(e) => {
                 return if e
                     .downcast_ref::<DbError>()
                     .is_some_and(|e| SqlState::UNDEFINED_COLUMN.eq(e.code()))
                 {
-                    Statement::named(TYPEINFO_ENUM_FALLBACK_QUERY, &[])
+                    TYPEINFO_ENUM_FALLBACK_QUERY
                         .execute_blocking(self)
                         .map(|stmt| stmt.leak())
                 } else {
@@ -279,50 +309,8 @@ impl Client {
         if let Some(stmt) = self.typeinfo_composite() {
             return Ok(stmt);
         }
-        let stmt = Statement::named(TYPEINFO_COMPOSITE_QUERY, &[])
-            .execute_blocking(self)?
-            .leak();
+        let stmt = TYPEINFO_COMPOSITE_QUERY.execute_blocking(self)?.leak();
         self.set_typeinfo_composite(&stmt);
         Ok(stmt)
     }
 }
-
-const TYPEINFO_QUERY: &str = "\
-SELECT t.typname, t.typtype, t.typelem, r.rngsubtype, t.typbasetype, n.nspname, t.typrelid
-FROM pg_catalog.pg_type t
-LEFT OUTER JOIN pg_catalog.pg_range r ON r.rngtypid = t.oid
-INNER JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid
-WHERE t.oid = $1
-";
-
-// Range types weren't added until Postgres 9.2, so pg_range may not exist
-const TYPEINFO_FALLBACK_QUERY: &str = "\
-SELECT t.typname, t.typtype, t.typelem, NULL::OID, t.typbasetype, n.nspname, t.typrelid
-FROM pg_catalog.pg_type t
-INNER JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid
-WHERE t.oid = $1
-";
-
-const TYPEINFO_ENUM_QUERY: &str = "\
-SELECT enumlabel
-FROM pg_catalog.pg_enum
-WHERE enumtypid = $1
-ORDER BY enumsortorder
-";
-
-// Postgres 9.0 didn't have enumsortorder
-const TYPEINFO_ENUM_FALLBACK_QUERY: &str = "\
-SELECT enumlabel
-FROM pg_catalog.pg_enum
-WHERE enumtypid = $1
-ORDER BY oid
-";
-
-const TYPEINFO_COMPOSITE_QUERY: &str = "\
-SELECT attname, atttypid
-FROM pg_catalog.pg_attribute
-WHERE attrelid = $1
-AND NOT attisdropped
-AND attnum > 0
-ORDER BY attnum
-";
