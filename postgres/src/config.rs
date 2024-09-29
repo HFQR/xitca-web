@@ -9,15 +9,27 @@ use std::{
 
 use super::{error::Error, session::TargetSessionAttrs};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SslMode {
     /// Do not use TLS.
     Disable,
     /// Attempt to connect with TLS but allow sessions without.
+    #[default]
     Prefer,
     /// Require the use of TLS.
     Require,
+}
+
+/// TLS negotiation configuration
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SslNegotiation {
+    /// Use PostgreSQL SslRequest for Ssl negotiation
+    #[default]
+    Postgres,
+    /// Start Ssl handshake without negotiation, only works for PostgreSQL 17+
+    Direct,
 }
 
 /// A host specification.
@@ -38,6 +50,7 @@ pub struct Config {
     pub(crate) options: Option<Box<str>>,
     pub(crate) application_name: Option<Box<str>>,
     pub(crate) ssl_mode: SslMode,
+    pub(crate) ssl_negotiation: SslNegotiation,
     pub(crate) host: Vec<Host>,
     pub(crate) port: Vec<u16>,
     target_session_attrs: TargetSessionAttrs,
@@ -60,6 +73,7 @@ impl Config {
             options: None,
             application_name: None,
             ssl_mode: SslMode::Prefer,
+            ssl_negotiation: SslNegotiation::Postgres,
             host: Vec::new(),
             port: Vec::new(),
             target_session_attrs: TargetSessionAttrs::Any,
@@ -145,6 +159,19 @@ impl Config {
     /// Gets the SSL configuration.
     pub fn get_ssl_mode(&self) -> SslMode {
         self.ssl_mode
+    }
+
+    /// Sets the SSL negotiation method.
+    ///
+    /// Defaults to `postgres`.
+    pub fn ssl_negotiation(&mut self, ssl_negotiation: SslNegotiation) -> &mut Config {
+        self.ssl_negotiation = ssl_negotiation;
+        self
+    }
+
+    /// Gets the SSL negotiation method.
+    pub fn get_ssl_negotiation(&self) -> SslNegotiation {
+        self.ssl_negotiation
     }
 
     pub fn host(&mut self, host: &str) -> &mut Config {
@@ -305,6 +332,14 @@ impl Config {
                     _ => return Err(Error::todo()),
                 };
                 self.ssl_mode(mode);
+            }
+            "sslnegotiation" => {
+                let mode = match value {
+                    "postgres" => SslNegotiation::Postgres,
+                    "direct" => SslNegotiation::Direct,
+                    _ => return Err(Error::todo()),
+                };
+                self.ssl_negotiation(mode);
             }
             "host" => {
                 for host in value.split(',') {

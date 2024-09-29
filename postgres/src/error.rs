@@ -130,6 +130,22 @@ impl fmt::Display for ToDo {
 
 impl error::Error for ToDo {}
 
+/// [`Response`] has already finished. Polling it afterwards will cause this error.
+///
+/// [`Response`]: crate::driver::codec::Response
+#[derive(Debug)]
+pub struct Completed;
+
+impl fmt::Display for Completed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Response has already finished. No more database response available")
+    }
+}
+
+impl error::Error for Completed {}
+
+from_impl!(Completed);
+
 /// error indicate [`Client`]'s [`Driver`] is dropped and can't be accessed anymore when sending request to driver.
 ///
 /// database query related to this error has not been sent to database and it's safe to retry operation if
@@ -364,6 +380,23 @@ impl fmt::Display for FeatureError {
 impl error::Error for FeatureError {}
 
 from_impl!(FeatureError);
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RuntimeError {
+    RequireNoTokio,
+}
+
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::RequireNoTokio => f.write_str("Tokio runtime detected. Must be called from outside of tokio"),
+        }
+    }
+}
+
+impl error::Error for RuntimeError {}
+
+from_impl!(RuntimeError);
 
 /// error for database returning backend message type that is not expected.
 /// it indicates there might be protocol error on either side of the connection.

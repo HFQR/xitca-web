@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
-    error::{DriverDownReceiving, Error},
+    error::{Completed, DriverDownReceiving, Error},
     types::BorrowToSql,
 };
 
@@ -24,6 +24,7 @@ pub(super) fn request_pair(msg_count: usize) -> (ResponseSender, Response) {
         Response {
             rx,
             buf: BytesMut::new(),
+            complete: false,
         },
     )
 }
@@ -32,12 +33,14 @@ pub(super) fn request_pair(msg_count: usize) -> (ResponseSender, Response) {
 pub struct Response {
     rx: ResponseReceiver,
     buf: BytesMut,
+    complete: bool,
 }
 
 impl Response {
     pub(crate) fn blocking_recv(&mut self) -> Result<backend::Message, Error> {
         if self.buf.is_empty() {
-            self.buf = self.rx.blocking_recv().ok_or(DriverDownReceiving)?;
+            let res = self.rx.blocking_recv();
+            self.on_recv(res)?;
         }
         self.parse_message()
     }
@@ -48,7 +51,8 @@ impl Response {
 
     pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
         if self.buf.is_empty() {
-            self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| DriverDownReceiving)?;
+            let res = ready!(self.rx.poll_recv(cx));
+            self.on_recv(res)?;
         }
         Poll::Ready(self.parse_message())
     }
@@ -66,9 +70,13 @@ impl Response {
         loop {
             match self.blocking_recv()? {
                 backend::Message::BindComplete
-                | backend::Message::DataRow(_)
+                | backend::Message::NoData
+                | backend::Message::ParseComplete
+                | backend::Message::ParameterDescription(_)
                 | backend::Message::RowDescription(_)
-                | backend::Message::EmptyQueryResponse => {}
+                | backend::Message::DataRow(_)
+                | backend::Message::EmptyQueryResponse
+                | backend::Message::PortalSuspended => {}
                 backend::Message::CommandComplete(body) => {
                     rows = body_to_affected_rows(&body)?;
                 }
@@ -82,9 +90,13 @@ impl Response {
         loop {
             match ready!(self.poll_recv(cx))? {
                 backend::Message::BindComplete
-                | backend::Message::DataRow(_)
+                | backend::Message::NoData
+                | backend::Message::ParseComplete
+                | backend::Message::ParameterDescription(_)
                 | backend::Message::RowDescription(_)
-                | backend::Message::EmptyQueryResponse => {}
+                | backend::Message::DataRow(_)
+                | backend::Message::EmptyQueryResponse
+                | backend::Message::PortalSuspended => {}
                 backend::Message::CommandComplete(body) => {
                     *rows = body_to_affected_rows(&body)?;
                 }
@@ -94,7 +106,23 @@ impl Response {
         }
     }
 
-    #[inline]
+    fn on_recv(&mut self, res: Option<BytesMessage>) -> Result<(), Error> {
+        match res {
+            Some(msg) => {
+                self.complete = msg.complete;
+                self.buf = msg.buf;
+                Ok(())
+            }
+            None => {
+                return if self.complete {
+                    Err(Completed.into())
+                } else {
+                    Err(DriverDownReceiving.into())
+                }
+            }
+        }
+    }
+
     fn parse_message(&mut self) -> Result<backend::Message, Error> {
         match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.") {
             backend::Message::ErrorResponse(body) => Err(Error::db(body.fields())),
@@ -112,7 +140,7 @@ pub(crate) fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Resu
 
 #[derive(Debug)]
 pub(crate) struct ResponseSender {
-    tx: UnboundedSender<BytesMut>,
+    tx: UnboundedSender<BytesMessage>,
     msg_count: usize,
 }
 
@@ -122,14 +150,14 @@ pub(super) enum SenderState {
 }
 
 impl ResponseSender {
-    pub(super) fn send(&mut self, msg: BytesMut, complete: bool) -> SenderState {
+    pub(super) fn send(&mut self, msg: BytesMessage) -> SenderState {
         debug_assert!(self.msg_count > 0);
 
-        let _ = self.tx.send(msg);
-
-        if complete {
+        if msg.complete {
             self.msg_count -= 1;
         }
+
+        let _ = self.tx.send(msg);
 
         if self.msg_count == 0 {
             SenderState::Finish
@@ -141,10 +169,27 @@ impl ResponseSender {
 
 // TODO: remove this lint.
 #[allow(dead_code)]
-pub(super) type ResponseReceiver = UnboundedReceiver<BytesMut>;
+pub(super) type ResponseReceiver = UnboundedReceiver<BytesMessage>;
 
-pub enum ResponseMessage {
-    Normal { buf: BytesMut, complete: bool },
+pub(super) struct BytesMessage {
+    buf: BytesMut,
+    complete: bool,
+}
+
+impl BytesMessage {
+    #[cold]
+    #[inline(never)]
+    pub(super) fn parse_error(&mut self) -> Error {
+        match backend::Message::parse(&mut self.buf) {
+            Err(e) => Error::from(e),
+            Ok(Some(backend::Message::ErrorResponse(body))) => Error::db(body.fields()),
+            _ => Error::unexpected(),
+        }
+    }
+}
+
+pub(super) enum ResponseMessage {
+    Normal(BytesMessage),
     Async(backend::Message),
 }
 
@@ -186,10 +231,10 @@ impl ResponseMessage {
         if tail == 0 {
             Ok(None)
         } else {
-            Ok(Some(ResponseMessage::Normal {
+            Ok(Some(ResponseMessage::Normal(BytesMessage {
                 buf: buf.split_to(tail),
                 complete,
-            }))
+            })))
         }
     }
 }

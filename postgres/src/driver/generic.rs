@@ -328,10 +328,10 @@ where
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
-                ResponseMessage::Normal { mut buf, complete } => {
+                ResponseMessage::Normal(mut msg) => {
                     let mut inner = self.shared_state.guarded.lock().unwrap();
-                    let front = inner.res.front_mut().ok_or_else(|| parse_error(&mut buf))?;
-                    match front.send(buf, complete) {
+                    let front = inner.res.front_mut().ok_or_else(|| msg.parse_error())?;
+                    match front.send(msg) {
                         SenderState::Finish => {
                             inner.res.pop_front();
                         }
@@ -342,15 +342,5 @@ where
             }
         }
         Ok(None)
-    }
-}
-
-#[cold]
-#[inline(never)]
-fn parse_error(buf: &mut BytesMut) -> Error {
-    match backend::Message::parse(buf) {
-        Err(e) => Error::from(e),
-        Ok(Some(backend::Message::ErrorResponse(body))) => Error::db(body.fields()),
-        _ => Error::unexpected(),
     }
 }

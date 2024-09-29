@@ -3,7 +3,10 @@
 use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
-use super::{error::Error, session::Session};
+use super::{
+    error::{Error, RuntimeError},
+    session::Session,
+};
 
 impl Session {
     /// Attempts to cancel the in-progress query on the connection associated with Self.
@@ -19,5 +22,16 @@ impl Session {
         let mut buf = BytesMut::new();
         frontend::cancel_request(id, key, &mut buf);
         drv.send(buf).await
+    }
+
+    /// blocking version of [`Session::query_cancel`]
+    pub fn query_cancel_blocking(self) -> Result<(), Error> {
+        match tokio::runtime::Handle::try_current() {
+            Ok(_) => Err(RuntimeError::RequireNoTokio.into()),
+            Err(_) => tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?
+                .block_on(self.query_cancel()),
+        }
     }
 }

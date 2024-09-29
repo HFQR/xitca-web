@@ -10,7 +10,10 @@ use xitca_tls::rustls::{
     ClientConfig, ClientConnection, DigitallySignedStruct, RootCertStore, TlsStream,
 };
 
-use crate::{config::Config, error::Error};
+use crate::{
+    config::{Config, SslNegotiation},
+    error::Error,
+};
 
 pub(super) async fn connect_tls<Io>(
     io: Io,
@@ -21,7 +24,12 @@ where
     Io: AsyncIo,
 {
     let name = ServerName::try_from(host).map_err(|_| Error::todo())?.to_owned();
-    let config = dangerous_config(Vec::new());
+    let mut config = dangerous_config(Vec::new());
+
+    if cfg.get_ssl_negotiation() == SslNegotiation::Direct {
+        config.alpn_protocols = vec![b"postgresql".to_vec()];
+    }
+
     let config = Arc::new(config);
     let session = ClientConnection::new(config, name).map_err(|_| Error::todo())?;
 
