@@ -1,6 +1,11 @@
-use std::future::IntoFuture;
+use core::future::IntoFuture;
 
-use xitca_postgres::{statement::Statement, types::Type, Client, Execute, Postgres};
+use xitca_postgres::{
+    error::{DbError, SqlState},
+    statement::Statement,
+    types::Type,
+    Client, Execute, Postgres,
+};
 
 fn connect() -> Client {
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -43,4 +48,22 @@ fn query_unnamed() {
     assert_eq!(row.get::<i32>("age"), 40);
 
     assert!(stream.next().is_none());
+}
+
+#[test]
+fn cancel_query_blocking() {
+    let cli = connect();
+
+    let cancel_token = cli.cancel_token();
+
+    let sleep = std::thread::spawn(move || "SELECT pg_sleep(10)".execute_blocking(&cli));
+
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    cancel_token.query_cancel_blocking().unwrap();
+
+    let e = sleep.join().unwrap().unwrap_err();
+
+    let e = e.downcast_ref::<DbError>().unwrap();
+    assert_eq!(e.code(), &SqlState::QUERY_CANCELED);
 }

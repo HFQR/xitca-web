@@ -189,9 +189,8 @@ impl AsyncLendingIterator for RowSimpleStream {
                 backend::Message::DataRow(body) => {
                     return RowSimple::try_new(&self.col, body, &mut self.ranges).map(Some);
                 }
-                backend::Message::CommandComplete(_)
-                | backend::Message::EmptyQueryResponse
-                | backend::Message::ReadyForQuery(_) => return Ok(None),
+                backend::Message::CommandComplete(_) | backend::Message::EmptyQueryResponse => {}
+                backend::Message::ReadyForQuery(_) => return Ok(None),
                 _ => return Err(Error::unexpected()),
             }
         }
@@ -295,8 +294,9 @@ where
                 | backend::Message::ParameterDescription(_)
                 | backend::Message::EmptyQueryResponse
                 | backend::Message::CommandComplete(_)
-                | backend::Message::PortalSuspended => {}
-                backend::Message::NoData | backend::Message::ReadyForQuery(_) => return Ok(None),
+                | backend::Message::PortalSuspended
+                | backend::Message::NoData => {}
+                backend::Message::ReadyForQuery(_) => return Ok(None),
                 _ => return Err(Error::unexpected()),
             }
         }

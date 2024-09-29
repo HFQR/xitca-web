@@ -368,7 +368,7 @@ impl<'a> AsyncLendingIterator for PipelineStream<'a> {
     type Err = Error;
 
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
-        while !self.columns.is_empty() {
+        loop {
             match self.res.recv().await? {
                 backend::Message::BindComplete => {
                     return Ok(Some(PipelineItem {
@@ -382,7 +382,7 @@ impl<'a> AsyncLendingIterator for PipelineStream<'a> {
                     // last PipelineItem dropped before finish. do some catch up until next
                     // item arrives.
                 }
-                backend::Message::ReadyForQuery(_) => {}
+                backend::Message::ReadyForQuery(_) => break,
                 _ => return Err(Error::unexpected()),
             }
         }

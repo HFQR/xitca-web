@@ -1,7 +1,7 @@
 use core::future::IntoFuture;
 
 use xitca_postgres::{
-    error::{DbError, SqlState},
+    error::{Completed, DbError, SqlState},
     iter::AsyncLendingIterator,
     statement::Statement,
     types::Type,
@@ -167,6 +167,26 @@ async fn driver_shutdown() {
 
     let e = "SELECT 1".execute(&cli).await.err().unwrap();
     assert!(e.is_driver_down());
+}
+
+#[tokio::test]
+async fn poll_after_response_finish() {
+    let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
+        .connect()
+        .await
+        .unwrap();
+
+    tokio::spawn(drv.into_future());
+
+    let mut stream = "SELECT 1".query(&cli).unwrap();
+
+    stream.try_next().await.unwrap().unwrap();
+
+    assert!(stream.try_next().await.unwrap().is_none());
+
+    let e = stream.try_next().await.unwrap_err();
+
+    assert!(e.downcast_ref::<Completed>().is_some());
 }
 
 #[tokio::test]

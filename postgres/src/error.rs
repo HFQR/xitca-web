@@ -130,6 +130,26 @@ impl fmt::Display for ToDo {
 
 impl error::Error for ToDo {}
 
+/// [`Response`] has already finished. Polling it afterwards will cause this error.
+///
+/// [`Response`]: crate::driver::codec::Response
+#[derive(Debug)]
+pub struct Completed;
+
+impl fmt::Display for Completed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Response has already finished. No more database response available")
+    }
+}
+
+impl error::Error for Completed {}
+
+impl From<Completed> for Error {
+    fn from(e: Completed) -> Self {
+        Self(Box::new(e))
+    }
+}
+
 /// error indicate [`Client`]'s [`Driver`] is dropped and can't be accessed anymore when sending request to driver.
 ///
 /// database query related to this error has not been sent to database and it's safe to retry operation if
