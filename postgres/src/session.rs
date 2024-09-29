@@ -10,7 +10,7 @@ use postgres_protocol::{
 use xitca_io::{bytes::BytesMut, io::AsyncIo};
 
 use super::{
-    config::{Config, SslMode},
+    config::{Config, SslMode, SslNegotiation},
     driver::generic::GenericDriver,
     error::{AuthenticationError, Error},
 };
@@ -35,25 +35,24 @@ pub struct Session {
     pub(crate) info: ConnectInfo,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct ConnectInfo {
     pub(crate) addr: Addr,
     pub(crate) ssl_mode: SslMode,
-}
-
-impl Default for ConnectInfo {
-    fn default() -> Self {
-        Self::new(Addr::None, SslMode::Disable)
-    }
+    pub(crate) ssl_negotiation: SslNegotiation,
 }
 
 impl ConnectInfo {
-    pub(crate) fn new(addr: Addr, ssl_mode: SslMode) -> Self {
-        Self { addr, ssl_mode }
+    pub(crate) fn new(addr: Addr, ssl_mode: SslMode, ssl_negotiation: SslNegotiation) -> Self {
+        Self {
+            addr,
+            ssl_mode,
+            ssl_negotiation,
+        }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) enum Addr {
     Tcp(Box<str>, SocketAddr),
     #[cfg(unix)]
@@ -61,6 +60,7 @@ pub(crate) enum Addr {
     #[cfg(feature = "quic")]
     Quic(Box<str>, SocketAddr),
     // case for where io is supplied by user and no connectivity can be done from this crate
+    #[default]
     None,
 }
 

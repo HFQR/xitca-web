@@ -30,7 +30,7 @@ use xitca_io::{
 
 use super::{
     client::Client,
-    config::{Config, SslMode},
+    config::{Config, SslMode, SslNegotiation},
     error::{unexpected_eof_err, ConfigError, Error},
     iter::AsyncLendingIterator,
     session::{ConnectInfo, Session},
@@ -90,7 +90,7 @@ where
     Ok((tx, session, drv))
 }
 
-async fn should_connect_tls<Io>(io: &mut Io, ssl_mode: SslMode) -> Result<bool, Error>
+async fn should_connect_tls<Io>(io: &mut Io, ssl_mode: SslMode, ssl_negotiation: SslNegotiation) -> Result<bool, Error>
 where
     Io: AsyncIo,
 {
@@ -127,6 +127,7 @@ where
 
     match ssl_mode {
         SslMode::Disable => Ok(false),
+        _ if matches!(ssl_negotiation, SslNegotiation::Direct) => Ok(true),
         mode => match (query_tls_availability(io).await?, mode) {
             (false, SslMode::Require) => Err(Error::todo()),
             (bool, _) => Ok(bool),
