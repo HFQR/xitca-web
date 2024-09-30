@@ -5,7 +5,7 @@ use core::{ops::Deref, sync::atomic::Ordering};
 use super::{
     column::Column,
     driver::codec::{encode::StatementCancel, AsParams},
-    prepare::Prepare,
+    query::Query,
     types::{ToSql, Type},
 };
 
@@ -13,10 +13,10 @@ use super::{
 /// the guard can be dereferenced or borrowed as [`Statement`] which can be used for query apis.
 ///
 /// the guard would cancel it's statement when dropped. generic C type must be a client type impl
-/// [`Prepare`] trait to instruct the cancellation.
+/// [`Query`] trait to instruct the cancellation.
 pub struct StatementGuarded<'a, C>
 where
-    C: Prepare,
+    C: Query,
 {
     stmt: Option<Statement>,
     cli: &'a C,
@@ -24,7 +24,7 @@ where
 
 impl<C> AsRef<Statement> for StatementGuarded<'_, C>
 where
-    C: Prepare,
+    C: Query,
 {
     #[inline]
     fn as_ref(&self) -> &Statement {
@@ -34,7 +34,7 @@ where
 
 impl<C> Deref for StatementGuarded<'_, C>
 where
-    C: Prepare,
+    C: Query,
 {
     type Target = Statement;
 
@@ -45,7 +45,7 @@ where
 
 impl<C> Drop for StatementGuarded<'_, C>
 where
-    C: Prepare,
+    C: Query,
 {
     fn drop(&mut self) {
         if let Some(stmt) = self.stmt.take() {
@@ -56,7 +56,7 @@ where
 
 impl<C> StatementGuarded<'_, C>
 where
-    C: Prepare,
+    C: Query,
 {
     /// leak the statement and it will lose automatic management
     /// **DOES NOT** cause memory leak
@@ -176,7 +176,7 @@ impl Statement {
     #[inline]
     pub fn into_guarded<C>(self, cli: &C) -> StatementGuarded<C>
     where
-        C: Prepare,
+        C: Query,
     {
         StatementGuarded { stmt: Some(self), cli }
     }
@@ -296,7 +296,7 @@ pub(crate) mod compat {
 
     use std::sync::Arc;
 
-    use super::{Prepare, Statement, StatementCancel};
+    use super::{Query, Statement, StatementCancel};
 
     /// functions the same as [`StatementGuarded`]
     ///
@@ -306,14 +306,14 @@ pub(crate) mod compat {
     #[derive(Clone)]
     pub struct StatementGuarded<C>
     where
-        C: Prepare,
+        C: Query,
     {
         inner: Arc<_StatementGuarded<C>>,
     }
 
     struct _StatementGuarded<C>
     where
-        C: Prepare,
+        C: Query,
     {
         stmt: Statement,
         cli: C,
@@ -321,7 +321,7 @@ pub(crate) mod compat {
 
     impl<C> Drop for _StatementGuarded<C>
     where
-        C: Prepare,
+        C: Query,
     {
         fn drop(&mut self) {
             let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
@@ -330,7 +330,7 @@ pub(crate) mod compat {
 
     impl<C> Deref for StatementGuarded<C>
     where
-        C: Prepare,
+        C: Query,
     {
         type Target = Statement;
 
@@ -341,7 +341,7 @@ pub(crate) mod compat {
 
     impl<C> AsRef<Statement> for StatementGuarded<C>
     where
-        C: Prepare,
+        C: Query,
     {
         fn as_ref(&self) -> &Statement {
             &self.inner.stmt
@@ -350,7 +350,7 @@ pub(crate) mod compat {
 
     impl<C> StatementGuarded<C>
     where
-        C: Prepare,
+        C: Query,
     {
         /// construct a new statement guard with raw statement and client
         pub fn new(stmt: Statement, cli: C) -> Self {

@@ -20,7 +20,7 @@ pub use portal::Portal;
 
 pub struct Transaction<'a, C>
 where
-    C: Prepare + Query + ClientBorrowMut,
+    C: Prepare + ClientBorrowMut,
 {
     client: &'a mut C,
     save_point: SavePoint,
@@ -79,7 +79,7 @@ enum State {
 
 impl<C> Drop for Transaction<'_, C>
 where
-    C: Prepare + Query + ClientBorrowMut,
+    C: Prepare + ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -91,7 +91,7 @@ where
 
 impl<C> Transaction<'_, C>
 where
-    C: Prepare + Query + ClientBorrowMut,
+    C: Prepare + ClientBorrowMut,
 {
     pub fn builder() -> TransactionBuilder {
         TransactionBuilder::new()
@@ -176,7 +176,7 @@ where
 
 impl<C> Prepare for Transaction<'_, C>
 where
-    C: Prepare + Query + ClientBorrowMut,
+    C: Prepare + ClientBorrowMut,
 {
     #[inline]
     fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
@@ -191,7 +191,7 @@ where
 
 impl<C> Query for Transaction<'_, C>
 where
-    C: Prepare + Query + ClientBorrowMut,
+    C: Prepare + ClientBorrowMut,
 {
     #[inline]
     fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>

@@ -6,7 +6,7 @@ use xitca_postgres::{
     pipeline::Pipeline,
     statement::Statement,
     types::Type,
-    Client, Execute, Postgres,
+    Client, Execute, ExecuteMut, Postgres,
 };
 
 async fn connect(s: &str) -> Client {
@@ -126,7 +126,7 @@ async fn cancel_query() {
 
     let sleep = "SELECT pg_sleep(10)".execute(&client);
 
-    tokio::task::yield_now().await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     cancel_token.query_cancel().await.unwrap();
 
@@ -314,8 +314,8 @@ async fn pipeline() {
 
     let mut pipe = Pipeline::new();
 
-    pipe.pipe_query(&*stmt).unwrap();
-    pipe.pipe_query(&*stmt).unwrap();
+    stmt.query_mut(&mut pipe).unwrap();
+    stmt.query_mut(&mut pipe).unwrap();
 
     let mut res = pipe.query(&cli).unwrap();
 

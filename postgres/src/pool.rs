@@ -1,4 +1,9 @@
-use core::future::Future;
+use core::{
+    future::Future,
+    mem,
+    pin::Pin,
+    task::{ready, Context, Poll},
+};
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -303,26 +308,52 @@ where
     's: 'c,
     'p: 'c,
 {
-    type ExecuteMutFuture = BoxedFuture<'c, Result<Arc<Statement>, Error>>;
-    type RowStreamMut = Self::ExecuteMutFuture;
+    type ExecuteMutOutput = StatementCacheFuture<'c>;
+    type QueryMutOutput = Self::ExecuteMutOutput;
 
-    fn execute_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::ExecuteMutFuture {
-        Box::pin(async move {
-            match cli.conn().statements.get(self.stmt) {
-                Some(stmt) => Ok(stmt.clone()),
-                None => cli.prepare_slow(self).await,
-            }
-        })
+    fn execute_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::ExecuteMutOutput {
+        match cli.conn().statements.get(self.stmt) {
+            Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
+            None => StatementCacheFuture::Prepared(cli.prepare_slow(self)),
+        }
     }
 
-    fn query_mut(self, cli: &'c mut PoolConnection<'p>) -> Result<Self::RowStreamMut, Error> {
-        Ok(self.execute_mut(cli))
+    fn query_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::QueryMutOutput {
+        self.execute_mut(cli)
     }
 
-    fn execute_mut_blocking(self, cli: &mut PoolConnection) -> <Self::ExecuteMutFuture as Future>::Output {
+    fn execute_mut_blocking(self, cli: &mut PoolConnection) -> <Self::ExecuteMutOutput as Future>::Output {
         match cli.conn().statements.get(self.stmt) {
             Some(stmt) => Ok(stmt.clone()),
             None => cli.prepare_slow_blocking(self),
+        }
+    }
+}
+
+pub enum StatementCacheFuture<'c> {
+    Cached(Arc<Statement>),
+    Prepared(BoxedFuture<'c, Result<Arc<Statement>, Error>>),
+    Done,
+}
+
+impl Future for StatementCacheFuture<'_> {
+    type Output = Result<Arc<Statement>, Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        match this {
+            Self::Cached(_) => {
+                let Self::Cached(stmt) = mem::replace(this, Self::Done) else {
+                    unreachable!("")
+                };
+                Poll::Ready(Ok(stmt))
+            }
+            Self::Prepared(ref mut fut) => {
+                let res = ready!(fut.as_mut().poll(cx));
+                drop(mem::replace(this, Self::Done));
+                Poll::Ready(res)
+            }
+            Self::Done => panic!("StatementCacheFuture polled after finish"),
         }
     }
 }

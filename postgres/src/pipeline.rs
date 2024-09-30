@@ -8,7 +8,10 @@
 //! - ordered response handling with a single stream type. reduce memory footprint and possibility of deadlock
 //!
 //! [`tokio-postgres`]: https://docs.rs/tokio-postgres/latest/tokio_postgres/#pipelining
-use core::ops::{Deref, DerefMut, Range};
+use core::{
+    future::{ready, Ready},
+    ops::{Deref, DerefMut, Range},
+};
 
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
@@ -17,7 +20,7 @@ use super::{
     column::Column,
     driver::codec::{self, encode::Encode, Response},
     error::Error,
-    execute::Execute,
+    execute::{Execute, ExecuteMut},
     iter::AsyncLendingIterator,
     query::Query,
     row::Row,
@@ -29,7 +32,7 @@ use super::{
 ///
 /// # Examples
 /// ```rust
-/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client, Execute, Statement};
+/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client, Execute, ExecuteMut, Statement};
 ///
 /// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     // prepare a statement that will be called repeatedly.
@@ -39,11 +42,13 @@ use super::{
 ///     // create a new pipeline.
 ///     let mut pipe = Pipeline::new();
 ///
-///     // pipeline can encode multiple queries.
-///     pipe.pipe_query(statement.bind([] as [i32; 0]))?;
-///     pipe.pipe_query(statement.bind([] as [i32; 0]))?;
+///     // bind value param to statement and query with the pipeline.
+///     // pipeline can encode multiple queries locally before send it to database.
+///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
+///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
+///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
 ///
-///     // execute the pipeline and on success a streaming response will be returned.
+///     // query the pipeline and on success a streaming response will be returned.
 ///     let mut res = pipe.query(client)?;
 ///
 ///     // iterate through the query responses. the response order is the same as the order of
@@ -229,23 +234,28 @@ impl<'b, const SYNC_MODE: bool> Pipeline<'_, Borrowed<'b>, SYNC_MODE> {
     }
 }
 
-impl<'a, B, const SYNC_MODE: bool> Pipeline<'a, B, SYNC_MODE>
+impl<'a, B, E, const SYNC_MODE: bool> ExecuteMut<'_, Pipeline<'a, B, SYNC_MODE>> for E
 where
     B: DerefMut<Target = BytesMut>,
+    E: Encode<Output = &'a [Column]>,
 {
-    /// pipelined version of [`Execute::query`] with strict input requirement where it only accepts reference
-    /// of raw statement and it's associated type parameters.
-    ///
-    /// [`Execute::query`]: crate::execute::Execute::query
-    pub fn pipe_query<S>(&mut self, stmt: S) -> Result<(), Error>
-    where
-        S: Encode<Output = &'a [Column]>,
-    {
-        let len = self.buf.len();
-        stmt.encode::<SYNC_MODE>(&mut self.buf)
-            .map(|columns| self.columns.push(columns))
+    type ExecuteMutOutput = Ready<Self::QueryMutOutput>;
+    type QueryMutOutput = Result<(), Error>;
+
+    fn execute_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::ExecuteMutOutput {
+        ready(self.query_mut(pipe))
+    }
+
+    fn query_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
+        let len = pipe.buf.len();
+        self.encode::<SYNC_MODE>(&mut pipe.buf)
+            .map(|columns| pipe.columns.push(columns))
             // revert back to last pipelined query when encoding error occurred.
-            .inspect_err(|_| self.buf.truncate(len))
+            .inspect_err(|_| pipe.buf.truncate(len))
+    }
+
+    fn execute_mut_blocking(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
+        self.query_mut(pipe)
     }
 }
 
@@ -260,10 +270,10 @@ where
     C: Query,
     B: DerefMut<Target = BytesMut>,
 {
-    type ExecuteFuture = BoxedFuture<'p, Result<u64, Error>>;
-    type RowStream = PipelineStream<'p>;
+    type ExecuteOutput = BoxedFuture<'p, Result<u64, Error>>;
+    type QueryOutput = Result<PipelineStream<'p>, Error>;
 
-    fn execute(self, cli: &C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
         let res = self.query(cli);
         Box::pin(async move {
             let mut row_affected = 0;
@@ -275,7 +285,7 @@ where
         })
     }
 
-    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &C) -> Self::QueryOutput {
         let Pipeline { columns, mut buf } = self;
         assert!(!buf.is_empty());
 
@@ -297,7 +307,7 @@ where
         let mut res = self.query(cli)?;
         let mut row_affected = 0;
 
-        while !res.columns.is_empty() {
+        loop {
             match res.res.blocking_recv()? {
                 backend::Message::BindComplete => {
                     let item = PipelineItem {
@@ -308,12 +318,14 @@ where
                     };
                     row_affected += item.row_affected_blocking()?;
                 }
-                backend::Message::ReadyForQuery(_) => {}
+                backend::Message::ReadyForQuery(_) => {
+                    if res.columns.is_empty() {
+                        return Ok(row_affected);
+                    }
+                }
                 _ => return Err(Error::unexpected()),
             }
         }
-
-        Ok(row_affected)
     }
 }
 
