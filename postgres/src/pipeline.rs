@@ -13,13 +13,15 @@ use core::{
     ops::{Deref, DerefMut, Range},
 };
 
+use std::sync::Arc;
+
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
 
 use super::{
     column::Column,
     driver::codec::{self, encode::Encode, Response},
-    error::Error,
+    error::{Completed, Error},
     execute::{Execute, ExecuteMut},
     iter::AsyncLendingIterator,
     query::Query,
@@ -64,7 +66,7 @@ use super::{
 /// }
 /// ```
 pub struct Pipeline<'a, B = Owned, const SYNC_MODE: bool = true> {
-    pub(crate) columns: Vec<&'a [Column]>,
+    pub(crate) columns: Vec<&'a Arc<[Column]>>,
     // type for either owned or borrowed bytes buffer.
     pub(crate) buf: B,
 }
@@ -142,6 +144,7 @@ impl Pipeline<'_, Owned, true> {
     /// start a new pipeline with given capacity.
     /// capacity represent how many queries will be contained by a single pipeline. a determined cap
     /// can possibly reduce memory reallocation when constructing the pipeline.
+    #[inline]
     pub fn with_capacity(cap: usize) -> Self {
         Self::_with_capacity(cap)
     }
@@ -163,6 +166,7 @@ impl Pipeline<'_, Owned, false> {
     /// start a new un-sync pipeline with given capacity.
     /// capacity represent how many queries will be contained by a single pipeline. a determined cap
     /// can possibly reduce memory reallocation when constructing the pipeline.
+    #[inline]
     pub fn unsync_with_capacity(cap: usize) -> Self {
         Self::_with_capacity(cap)
     }
@@ -237,11 +241,12 @@ impl<'b, const SYNC_MODE: bool> Pipeline<'_, Borrowed<'b>, SYNC_MODE> {
 impl<'a, B, E, const SYNC_MODE: bool> ExecuteMut<'_, Pipeline<'a, B, SYNC_MODE>> for E
 where
     B: DerefMut<Target = BytesMut>,
-    E: Encode<Output = &'a [Column]>,
+    E: Encode<Output = &'a Arc<[Column]>>,
 {
     type ExecuteMutOutput = Ready<Self::QueryMutOutput>;
     type QueryMutOutput = Result<(), Error>;
 
+    #[inline]
     fn execute_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::ExecuteMutOutput {
         ready(self.query_mut(pipe))
     }
@@ -254,6 +259,7 @@ where
             .inspect_err(|_| pipe.buf.truncate(len))
     }
 
+    #[inline]
     fn execute_mut_blocking(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
         self.query_mut(pipe)
     }
@@ -261,7 +267,7 @@ where
 
 pub struct PipelineQuery<'a, 'b> {
     pub(crate) count: usize,
-    pub(crate) columns: Vec<&'a [Column]>,
+    pub(crate) columns: Vec<&'a Arc<[Column]>>,
     pub(crate) buf: &'b [u8],
 }
 
@@ -338,7 +344,7 @@ pub struct PipelineStream<'a> {
 }
 
 impl<'a> PipelineStream<'a> {
-    pub(crate) const fn new(res: Response, columns: Vec<&'a [Column]>) -> Self {
+    pub(crate) const fn new(res: Response, columns: Vec<&'a Arc<[Column]>>) -> Self {
         Self {
             res,
             columns: Columns { columns, next: 0 },
@@ -350,7 +356,7 @@ impl<'a> PipelineStream<'a> {
 type Ranges = Vec<Range<usize>>;
 
 struct Columns<'a> {
-    columns: Vec<&'a [Column]>,
+    columns: Vec<&'a Arc<[Column]>>,
     next: usize,
 }
 
@@ -427,7 +433,10 @@ impl PipelineItem<'_> {
     /// calling this method on an already finished PipelineItem will cause panic. PipelineItem is marked as finished
     /// when its [AsyncLendingIterator::try_next] method returns [Option::None]
     pub async fn row_affected(mut self) -> Result<u64, Error> {
-        assert!(!self.finished, "PipelineItem has already finished");
+        if self.finished {
+            return Err(Completed.into());
+        }
+
         loop {
             match self.res.recv().await? {
                 backend::Message::DataRow(_) => {}
@@ -441,7 +450,10 @@ impl PipelineItem<'_> {
     }
 
     fn row_affected_blocking(mut self) -> Result<u64, Error> {
-        assert!(!self.finished, "PipelineItem has already finished");
+        if self.finished {
+            return Err(Completed.into());
+        }
+
         loop {
             match self.res.blocking_recv()? {
                 backend::Message::DataRow(_) => {}

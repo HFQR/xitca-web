@@ -66,7 +66,7 @@ where
     ) -> Result<<<PortalQuery<'_> as Encode>::Output as IntoResponse>::Response, Error> {
         self.cli._query(PortalQuery {
             name: &self.name,
-            columns: self.stmt.columns(),
+            columns: self.stmt.columns_arc(),
             max_rows,
         })
     }

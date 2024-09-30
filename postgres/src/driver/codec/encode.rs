@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
@@ -59,7 +61,7 @@ impl Encode for &str {
 impl sealed::Sealed for &Statement {}
 
 impl<'s> Encode for &'s Statement {
-    type Output = &'s [Column];
+    type Output = &'s Arc<[Column]>;
 
     #[inline]
     fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
@@ -68,7 +70,7 @@ impl<'s> Encode for &'s Statement {
         if SYNC_MODE {
             frontend::sync(buf);
         }
-        Ok(self.columns())
+        Ok(self.columns_arc())
     }
 }
 
@@ -133,7 +135,7 @@ impl<'s, P> Encode for StatementQuery<'s, P>
 where
     P: AsParams,
 {
-    type Output = &'s [Column];
+    type Output = &'s Arc<[Column]>;
 
     #[inline]
     fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
@@ -143,7 +145,7 @@ where
         if SYNC_MODE {
             frontend::sync(buf);
         }
-        Ok(stmt.columns())
+        Ok(stmt.columns_arc())
     }
 }
 
@@ -223,14 +225,14 @@ impl Encode for PortalCancel<'_> {
 
 pub struct PortalQuery<'a> {
     pub(crate) name: &'a str,
-    pub(crate) columns: &'a [Column],
+    pub(crate) columns: &'a Arc<[Column]>,
     pub(crate) max_rows: i32,
 }
 
 impl sealed::Sealed for PortalQuery<'_> {}
 
 impl<'s> Encode for PortalQuery<'s> {
-    type Output = &'s [Column];
+    type Output = &'s Arc<[Column]>;
 
     #[inline]
     fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
@@ -248,7 +250,7 @@ impl<'s> Encode for PortalQuery<'s> {
 impl sealed::Sealed for PipelineQuery<'_, '_> {}
 
 impl<'s> Encode for PipelineQuery<'s, '_> {
-    type Output = Vec<&'s [Column]>;
+    type Output = Vec<&'s Arc<[Column]>>;
 
     #[inline]
     fn encode<const SYNC_MODE: bool>(self, buf_drv: &mut BytesMut) -> Result<Self::Output, Error> {

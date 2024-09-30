@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
 
@@ -20,9 +22,9 @@ pub trait IntoResponse: sealed::Sealed + Sized {
     fn into_response(self, res: Response) -> Self::Response;
 }
 
-impl sealed::Sealed for &[Column] {}
+impl sealed::Sealed for &Arc<[Column]> {}
 
-impl<'c> IntoResponse for &'c [Column] {
+impl<'c> IntoResponse for &'c Arc<[Column]> {
     type Response = RowStream<'c>;
 
     #[inline]
@@ -42,9 +44,9 @@ impl IntoResponse for Vec<Column> {
     }
 }
 
-impl sealed::Sealed for Vec<&[Column]> {}
+impl sealed::Sealed for Vec<&Arc<[Column]>> {}
 
-impl<'c> IntoResponse for Vec<&'c [Column]> {
+impl<'c> IntoResponse for Vec<&'c Arc<[Column]>> {
     type Response = PipelineStream<'c>;
 
     #[inline]

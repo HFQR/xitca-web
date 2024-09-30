@@ -49,7 +49,6 @@ impl PoolBuilder {
     /// try convert builder to a connection pool instance.
     pub fn build(self) -> Result<Pool, Error> {
         let config = self.config?;
-
         Ok(Pool {
             conn: Mutex::new(VecDeque::with_capacity(self.capacity)),
             permits: Semaphore::new(self.capacity),
@@ -104,7 +103,10 @@ impl Pool {
                     // TODO: add notify listen callback to Pool
                 }
             });
-            Ok(PoolClient::new(client))
+            Ok(PoolClient {
+                client,
+                statements: HashMap::new(),
+            })
         })
     }
 }
@@ -132,25 +134,6 @@ pub struct PoolConnection<'a> {
 }
 
 impl<'p> PoolConnection<'p> {
-    #[inline(never)]
-    fn prepare_slow<'a>(&'a mut self, named: StatementNamed<'a>) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
-        Box::pin(async move {
-            let stmt = Statement::named(named.stmt, named.types).execute(self).await?.leak();
-            Ok(self.insert_cache(named.stmt, stmt))
-        })
-    }
-
-    fn prepare_slow_blocking(&mut self, named: StatementNamed<'_>) -> Result<Arc<Statement>, Error> {
-        let stmt = Statement::named(named.stmt, named.types).execute_blocking(self)?.leak();
-        Ok(self.insert_cache(named.stmt, stmt))
-    }
-
-    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Arc<Statement> {
-        let stmt = Arc::new(stmt);
-        self.conn_mut().statements.insert(Box::from(named), stmt.clone());
-        stmt
-    }
-
     /// function the same as [`Client::transaction`]
     #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
@@ -231,6 +214,25 @@ impl<'p> PoolConnection<'p> {
         self.conn().client.cancel_token()
     }
 
+    #[inline(never)]
+    fn prepare_slow<'a>(&'a mut self, named: StatementNamed<'a>) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
+        Box::pin(async move {
+            let stmt = Statement::named(named.stmt, named.types).execute(self).await?.leak();
+            Ok(self.insert_cache(named.stmt, stmt))
+        })
+    }
+
+    fn prepare_slow_blocking(&mut self, named: StatementNamed<'_>) -> Result<Arc<Statement>, Error> {
+        let stmt = Statement::named(named.stmt, named.types).execute_blocking(self)?.leak();
+        Ok(self.insert_cache(named.stmt, stmt))
+    }
+
+    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Arc<Statement> {
+        let stmt = Arc::new(stmt);
+        self.conn_mut().statements.insert(Box::from(named), stmt.clone());
+        stmt
+    }
+
     fn conn(&self) -> &PoolClient {
         self.conn.as_ref().unwrap()
     }
@@ -294,15 +296,6 @@ struct PoolClient {
     statements: HashMap<Box<str>, Arc<Statement>>,
 }
 
-impl PoolClient {
-    fn new(client: Client) -> Self {
-        Self {
-            client,
-            statements: HashMap::new(),
-        }
-    }
-}
-
 impl<'c, 'p, 's> ExecuteMut<'c, PoolConnection<'p>> for StatementNamed<'s>
 where
     's: 'c,
@@ -318,6 +311,7 @@ where
         }
     }
 
+    #[inline]
     fn query_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::QueryMutOutput {
         self.execute_mut(cli)
     }

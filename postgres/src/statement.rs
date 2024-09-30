@@ -2,6 +2,8 @@
 
 use core::{ops::Deref, sync::atomic::Ordering};
 
+use std::sync::Arc;
+
 use super::{
     column::Column,
     driver::codec::{encode::StatementCancel, AsParams},
@@ -81,7 +83,7 @@ where
 pub struct Statement {
     name: Box<str>,
     params: Box<[Type]>,
-    columns: Box<[Column]>,
+    columns: Arc<[Column]>,
 }
 
 impl Statement {
@@ -89,7 +91,7 @@ impl Statement {
         Self {
             name: name.into_boxed_str(),
             params: params.into_boxed_slice(),
-            columns: columns.into_boxed_slice(),
+            columns: columns.into(),
         }
     }
 
@@ -103,6 +105,11 @@ impl Statement {
 
     pub(crate) fn name(&self) -> &str {
         &self.name
+    }
+
+    #[inline]
+    pub(crate) fn columns_arc(&self) -> &Arc<[Column]> {
+        &self.columns
     }
 
     /// construct a new named statement.

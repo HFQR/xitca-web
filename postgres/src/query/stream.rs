@@ -41,7 +41,7 @@ impl<C, M> GenericRowStream<C, M> {
 }
 
 /// A stream of table rows.
-pub type RowStream<'a> = GenericRowStream<&'a [Column], marker::Typed>;
+pub type RowStream<'a> = GenericRowStream<&'a Arc<[Column]>, marker::Typed>;
 
 impl<'a> AsyncLendingIterator for RowStream<'a> {
     type Ok<'i>
@@ -111,7 +111,7 @@ impl From<RowStream<'_>> for RowStreamOwned {
     fn from(stream: RowStream<'_>) -> Self {
         Self {
             res: stream.res,
-            col: Arc::from(stream.col),
+            col: stream.col.clone(),
             ranges: stream.ranges,
             _marker: PhantomData,
         }
