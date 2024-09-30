@@ -297,7 +297,7 @@ where
         let mut res = self.query(cli)?;
         let mut row_affected = 0;
 
-        while !res.columns.is_empty() {
+        loop {
             match res.res.blocking_recv()? {
                 backend::Message::BindComplete => {
                     let item = PipelineItem {
@@ -308,12 +308,14 @@ where
                     };
                     row_affected += item.row_affected_blocking()?;
                 }
-                backend::Message::ReadyForQuery(_) => {}
+                backend::Message::ReadyForQuery(_) => {
+                    if res.columns.is_empty() {
+                        return Ok(row_affected);
+                    }
+                }
                 _ => return Err(Error::unexpected()),
             }
         }
-
-        Ok(row_affected)
     }
 }
 

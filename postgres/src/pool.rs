@@ -1,4 +1,9 @@
-use core::future::Future;
+use core::{
+    future::Future,
+    mem,
+    pin::Pin,
+    task::{ready, Context, Poll},
+};
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -303,16 +308,14 @@ where
     's: 'c,
     'p: 'c,
 {
-    type ExecuteMutOutput = BoxedFuture<'c, Result<Arc<Statement>, Error>>;
+    type ExecuteMutOutput = StatementCacheFuture<'c>;
     type QueryMutOutput = Self::ExecuteMutOutput;
 
     fn execute_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::ExecuteMutOutput {
-        Box::pin(async move {
-            match cli.conn().statements.get(self.stmt) {
-                Some(stmt) => Ok(stmt.clone()),
-                None => cli.prepare_slow(self).await,
-            }
-        })
+        match cli.conn().statements.get(self.stmt) {
+            Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
+            None => StatementCacheFuture::Prepared(cli.prepare_slow(self)),
+        }
     }
 
     fn query_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::QueryMutOutput {
@@ -323,6 +326,34 @@ where
         match cli.conn().statements.get(self.stmt) {
             Some(stmt) => Ok(stmt.clone()),
             None => cli.prepare_slow_blocking(self),
+        }
+    }
+}
+
+pub enum StatementCacheFuture<'c> {
+    Cached(Arc<Statement>),
+    Prepared(BoxedFuture<'c, Result<Arc<Statement>, Error>>),
+    Done,
+}
+
+impl Future for StatementCacheFuture<'_> {
+    type Output = Result<Arc<Statement>, Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        match this {
+            Self::Cached(_) => {
+                let Self::Cached(stmt) = mem::replace(this, Self::Done) else {
+                    unreachable!("")
+                };
+                Poll::Ready(Ok(stmt))
+            }
+            Self::Prepared(ref mut fut) => {
+                let res = ready!(fut.as_mut().poll(cx));
+                drop(mem::replace(this, Self::Done));
+                Poll::Ready(res)
+            }
+            Self::Done => panic!("StatementCacheFuture polled after finish"),
         }
     }
 }
