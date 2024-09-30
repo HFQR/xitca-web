@@ -13,6 +13,22 @@
     let row_affected: u64 = "SELECT 1; SELECT 1".execute(&client).await?;
     ```
 - remove `Client::pipeline` and `Pool::pipeline`. `pipeline::Pipeline` type can be execute with `Execute::query` method
+    
+  remove `pipeline::Pipeline::query` and `pipeline::Pipeline` can be queried with `ExecuteMut::query_mut` method
+    ```rust
+    use xitca_postgres::Execute;
+    // prepare statement and create a pipeline
+    let stmt = Statement::named("SELECT 1", &[]).execute(&client).await?;
+    let mut pipe = Pipeline::new();
+    
+    // use ExecuteMut trait to add query to pipeline
+    use xitca_postgres::ExecuteMut;
+    stmt.query(&mut pipe)?;
+    stmt.query(&mut pipe)?;
+
+    // use Execute trait to start pipeline query
+    let pipe_stream = pipe.query(&client)?;
+    ```
 - remove `dev::AsParams` trait export. It's not needed for implementing `Query` trait anymore    
 
 ## Change
@@ -32,7 +48,6 @@
     // statement have no value params and can be used for query.
     let stream = stmt.query(&client)?;
     ```
-- rename `Pipeline::query` to `Pipeline::pipe_query` to avoid naming collision with `Execute::query`   
 - `AsyncLendingIterator` is no longer exported from crate's root path. use `iter::AsyncLendingIterator` instead
 - `query::RowStreamOwned` and `row::RowOwned` are no longer behind `compat` crate feature anymore
 - `statement::Statement::unnamed` must bind to value parameters with `bind` or `bind_dyn` before calling `Execute` methods.

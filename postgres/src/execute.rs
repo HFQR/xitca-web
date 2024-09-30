@@ -129,7 +129,7 @@ pub struct IntoGuarded<'a, F, C> {
 impl<'a, F, C> Future for IntoGuarded<'a, F, C>
 where
     F: Future<Output = Result<Statement, Error>> + Unpin,
-    C: Prepare,
+    C: Query,
 {
     type Output = Result<StatementGuarded<'a, C>, Error>;
 
@@ -143,7 +143,7 @@ where
 
 impl<'c, 's, C> Execute<'c, C> for StatementNamed<'s>
 where
-    C: Query + Prepare + 'c,
+    C: Prepare + 'c,
     's: 'c,
 {
     type ExecuteOutput = ResultFuture<IntoGuardedFuture<'c, C>>;
@@ -170,7 +170,7 @@ where
 
 impl<'s, C, P> Execute<'_, C> for StatementQuery<'s, P>
 where
-    C: Query + Prepare,
+    C: Query,
     P: AsParams + 's,
 {
     type ExecuteOutput = ResultFuture<RowAffected>;
@@ -195,7 +195,7 @@ where
 
 impl<'s, 'c, C, P> Execute<'c, C> for StatementUnnamedBind<'s, P>
 where
-    C: Query + Prepare + 'c,
+    C: Prepare + 'c,
     P: AsParams + 'c,
     's: 'c,
 {
