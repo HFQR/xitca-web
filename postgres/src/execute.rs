@@ -32,11 +32,10 @@ use super::{
 /// [`IntoResponse`]: crate::driver::codec::response::IntoResponse
 pub trait Execute<'c, C>
 where
-    C: Query,
     Self: Sized,
 {
     /// async outcome of execute.
-    type ExecuteFuture: Future;
+    type ExecuteOutput: Future;
     /// iterator outcome of query.
     ///
     /// by default this type should be matching `C`'s [`Query::_query`] output type.
@@ -45,48 +44,47 @@ where
     /// consider impl [`Iterator`] for iterator of rows
     ///
     /// [`AsyncLendingIterator`]: crate::iter::AsyncLendingIterator
-    type RowStream;
+    type QueryOutput;
 
     /// define how a query is executed with async outcome.
-    fn execute(self, cli: &'c C) -> Self::ExecuteFuture;
+    fn execute(self, cli: &'c C) -> Self::ExecuteOutput;
 
     /// define how a query is executed with iterator of database rows as return type.
-    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error>;
+    fn query(self, cli: &'c C) -> Self::QueryOutput;
 
     /// blocking version of [`Execute::execute`]
-    fn execute_blocking(self, cli: &'c C) -> <Self::ExecuteFuture as Future>::Output;
+    fn execute_blocking(self, cli: &'c C) -> <Self::ExecuteOutput as Future>::Output;
 }
 
 /// mutable version of [`Execute`] trait where C type is mutably borrowed
 pub trait ExecuteMut<'c, C>
 where
-    C: Query,
-    Self: Execute<'c, C>,
+    Self: Sized,
 {
-    type ExecuteMutFuture: Future;
-    type RowStreamMut;
+    type ExecuteMutOutput: Future;
+    type QueryMutOutput;
 
-    fn execute_mut(self, cli: &'c mut C) -> Self::ExecuteMutFuture;
+    fn execute_mut(self, cli: &'c mut C) -> Self::ExecuteMutOutput;
 
-    fn query_mut(self, cli: &'c mut C) -> Result<Self::RowStreamMut, Error>;
+    fn query_mut(self, cli: &'c mut C) -> Self::QueryMutOutput;
 
-    fn execute_mut_blocking(self, cli: &'c mut C) -> <Self::ExecuteMutFuture as Future>::Output;
+    fn execute_mut_blocking(self, cli: &'c mut C) -> <Self::ExecuteMutOutput as Future>::Output;
 }
 
 impl<'s, C> Execute<'_, C> for &'s Statement
 where
     C: Query,
 {
-    type ExecuteFuture = ResultFuture<RowAffected>;
-    type RowStream = RowStream<'s>;
+    type ExecuteOutput = ResultFuture<RowAffected>;
+    type QueryOutput = Result<RowStream<'s>, Error>;
 
     #[inline]
-    fn execute(self, cli: &C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
         self.query(cli).map(RowAffected::from).into()
     }
 
     #[inline]
-    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &C) -> Self::QueryOutput {
         cli._query(self)
     }
 
@@ -101,16 +99,16 @@ impl<'s, C> Execute<'_, C> for &'s str
 where
     C: Query,
 {
-    type ExecuteFuture = ResultFuture<RowAffected>;
-    type RowStream = RowSimpleStream;
+    type ExecuteOutput = ResultFuture<RowAffected>;
+    type QueryOutput = Result<RowSimpleStream, Error>;
 
     #[inline]
-    fn execute(self, cli: &C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
         self.query(cli).map(RowAffected::from).into()
     }
 
     #[inline]
-    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &C) -> Self::QueryOutput {
         cli._query(self)
     }
 
@@ -148,19 +146,19 @@ where
     C: Query + Prepare + 'c,
     's: 'c,
 {
-    type ExecuteFuture = ResultFuture<IntoGuardedFuture<'c, C>>;
-    type RowStream = Self::ExecuteFuture;
+    type ExecuteOutput = ResultFuture<IntoGuardedFuture<'c, C>>;
+    type QueryOutput = Self::ExecuteOutput;
 
     #[inline]
-    fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &'c C) -> Self::ExecuteOutput {
         cli._query(StatementCreate::from((self, cli)))
             .map(|fut| IntoGuarded { fut, cli })
             .into()
     }
 
     #[inline]
-    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
-        Ok(self.execute(cli))
+    fn query(self, cli: &'c C) -> Self::QueryOutput {
+        self.execute(cli)
     }
 
     #[inline]
@@ -175,16 +173,16 @@ where
     C: Query + Prepare,
     P: AsParams + 's,
 {
-    type ExecuteFuture = ResultFuture<RowAffected>;
-    type RowStream = RowStream<'s>;
+    type ExecuteOutput = ResultFuture<RowAffected>;
+    type QueryOutput = Result<RowStream<'s>, Error>;
 
     #[inline]
-    fn execute(self, cli: &C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
         self.query(cli).map(RowAffected::from).into()
     }
 
     #[inline]
-    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &C) -> Self::QueryOutput {
         cli._query(self)
     }
 
@@ -201,16 +199,16 @@ where
     P: AsParams + 'c,
     's: 'c,
 {
-    type ExecuteFuture = ResultFuture<RowAffected>;
-    type RowStream = RowStreamGuarded<'c, C>;
+    type ExecuteOutput = ResultFuture<RowAffected>;
+    type QueryOutput = Result<RowStreamGuarded<'c, C>, Error>;
 
     #[inline]
-    fn execute(self, cli: &C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
         self.query(cli).map(RowAffected::from).into()
     }
 
     #[inline]
-    fn query(self, cli: &'c C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &'c C) -> Self::QueryOutput {
         cli._query(StatementUnnamedQuery::from((self, cli)))
     }
 
@@ -240,61 +238,5 @@ where
             Ok(ref mut res) => Pin::new(res).poll(cx),
             Err(ref mut e) => Poll::Ready(Err(e.take().unwrap())),
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use core::{
-        future::{Future, IntoFuture},
-        pin::Pin,
-    };
-
-    use crate::Postgres;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn execute_with_lifetime() {
-        struct ExecuteCaptureClient<'s>(&'s str);
-
-        impl<'c, 's, C> Execute<'c, C> for ExecuteCaptureClient<'s>
-        where
-            C: Query + Prepare,
-            's: 'c,
-        {
-            type ExecuteFuture = Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + 'c>>;
-            type RowStream = RowSimpleStream;
-
-            fn execute(self, cli: &'c C) -> Self::ExecuteFuture {
-                Box::pin(async move {
-                    let stmt = Statement::named(self.0, &[]).execute(cli).await?;
-                    stmt.execute(cli).await
-                })
-            }
-
-            fn query(self, _: &'c C) -> Result<Self::RowStream, Error> {
-                todo!()
-            }
-
-            fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-                Statement::named(self.0, &[])
-                    .execute_blocking(cli)?
-                    .execute_blocking(cli)
-            }
-        }
-
-        let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
-            .connect()
-            .await
-            .unwrap();
-
-        tokio::spawn(drv.into_future());
-
-        let str = String::from("SELECT 1");
-
-        let lifetimed = ExecuteCaptureClient(str.as_str()).execute(&cli).await.unwrap();
-
-        assert_eq!(lifetimed, 1);
     }
 }

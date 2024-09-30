@@ -260,10 +260,10 @@ where
     C: Query,
     B: DerefMut<Target = BytesMut>,
 {
-    type ExecuteFuture = BoxedFuture<'p, Result<u64, Error>>;
-    type RowStream = PipelineStream<'p>;
+    type ExecuteOutput = BoxedFuture<'p, Result<u64, Error>>;
+    type QueryOutput = Result<PipelineStream<'p>, Error>;
 
-    fn execute(self, cli: &C) -> Self::ExecuteFuture {
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
         let res = self.query(cli);
         Box::pin(async move {
             let mut row_affected = 0;
@@ -275,7 +275,7 @@ where
         })
     }
 
-    fn query(self, cli: &C) -> Result<Self::RowStream, Error> {
+    fn query(self, cli: &C) -> Self::QueryOutput {
         let Pipeline { columns, mut buf } = self;
         assert!(!buf.is_empty());
 

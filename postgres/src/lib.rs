@@ -34,7 +34,7 @@ pub use self::{
     error::Error,
     execute::{Execute, ExecuteMut},
     from_sql::FromSqlExt,
-    query::{RowSimpleStream, RowStream, RowStreamOwned},
+    query::{RowSimpleStream, RowSimpleStreamOwned, RowStream, RowStreamOwned},
     session::Session,
     statement::Statement,
 };

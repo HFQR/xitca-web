@@ -303,10 +303,10 @@ where
     's: 'c,
     'p: 'c,
 {
-    type ExecuteMutFuture = BoxedFuture<'c, Result<Arc<Statement>, Error>>;
-    type RowStreamMut = Self::ExecuteMutFuture;
+    type ExecuteMutOutput = BoxedFuture<'c, Result<Arc<Statement>, Error>>;
+    type QueryMutOutput = Self::ExecuteMutOutput;
 
-    fn execute_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::ExecuteMutFuture {
+    fn execute_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::ExecuteMutOutput {
         Box::pin(async move {
             match cli.conn().statements.get(self.stmt) {
                 Some(stmt) => Ok(stmt.clone()),
@@ -315,11 +315,11 @@ where
         })
     }
 
-    fn query_mut(self, cli: &'c mut PoolConnection<'p>) -> Result<Self::RowStreamMut, Error> {
-        Ok(self.execute_mut(cli))
+    fn query_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::QueryMutOutput {
+        self.execute_mut(cli)
     }
 
-    fn execute_mut_blocking(self, cli: &mut PoolConnection) -> <Self::ExecuteMutFuture as Future>::Output {
+    fn execute_mut_blocking(self, cli: &mut PoolConnection) -> <Self::ExecuteMutOutput as Future>::Output {
         match cli.conn().statements.get(self.stmt) {
             Some(stmt) => Ok(stmt.clone()),
             None => cli.prepare_slow_blocking(self),

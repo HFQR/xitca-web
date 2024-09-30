@@ -38,15 +38,14 @@
 - `statement::Statement::unnamed` must bind to value parameters with `bind` or `bind_dyn` before calling `Execute` methods.
     ```rust
     let stmt = Statement::unnamed("SELECT * FROM users WHERE id = $1", &[Type::INT4]);
-    let row_stream = stmt.bind([9527]).query(&client);
+    let row_stream = stmt.bind([9527]).query(&client)?;
     ```
 - `Query::_send_encode_query` method's return type is changed to `Result<(<S as Encode>::Output, Response), Error>`. Enabling further simplify of the surface level API at the cost of more internal complexity
 - `Encode` trait implementation detail change
 - `IntoStream` trait is renamed to `IntoResponse` with implementation detail change
 
 ## Add
-- add `Execute` trait for extending query customization
-- add `Client::prepare_blocking`
+- add `Execute` and `ExecuteMut` traits for extending query customization
 - add `Prepare::{_prepare_blocking, _get_type_blocking}`
 - add `iter::AsyncLendingIteratorExt` for extending async iterator APIs
 - add `statement::Statement::{bind, bind_dyn}` methods for binding value parameters to a prepared statement for query
