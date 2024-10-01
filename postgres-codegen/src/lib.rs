@@ -2,6 +2,7 @@
 //! it doesn't have any usability beyond as tutorial material.
 
 use quote::quote;
+use sqlparser::{dialect::PostgreSqlDialect, parser::Parser};
 use syn::{
     parse::{Parse, ParseStream},
     spanned::Spanned,
@@ -30,7 +31,8 @@ impl Parse for Query {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let sql = input.parse::<LitStr>()?;
 
-        pg_query::parse(&sql.value()).map_err(|e| syn::Error::new(sql.span(), e.to_string()))?;
+        Parser::parse_sql(&PostgreSqlDialect {}, &sql.value())
+            .map_err(|e| syn::Error::new(sql.span(), e.to_string()))?;
 
         let mut exprs = Vec::new();
         let mut types = Vec::new();
