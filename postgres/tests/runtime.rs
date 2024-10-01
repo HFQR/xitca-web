@@ -194,11 +194,7 @@ async fn poll_after_response_finish() {
 async fn query_portal() {
     let mut client = connect("postgres://postgres:postgres@localhost:5432").await;
 
-    "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT);
-    INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');"
-        .execute(&client)
-        .await
-        .unwrap();
+    std::path::Path::new("samples/test.sql").execute(&client).await.unwrap();
 
     let transaction = client.transaction().await.unwrap();
 
