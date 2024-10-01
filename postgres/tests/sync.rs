@@ -5,7 +5,7 @@ use xitca_postgres::{
     pipeline::Pipeline,
     statement::Statement,
     types::Type,
-    Client, Execute, ExecuteMut, Postgres,
+    Client, ExecuteBlocking, ExecuteMut, Postgres,
 };
 
 fn connect() -> Client {
@@ -32,7 +32,7 @@ fn query_unnamed() {
         &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
     )
     .bind_dyn(&[&"alice", &20i32, &"bob", &30i32, &"carol", &40i32])
-    .query(&cli)
+    .query_blocking(&cli)
     .unwrap()
     .into_iter();
 

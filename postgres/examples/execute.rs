@@ -5,8 +5,9 @@ use std::{
     pin::Pin,
 };
 
-use futures::stream::{Stream, TryStreamExt};
-use xitca_postgres::{row::RowOwned, types::Type, Client, Error, Execute, Postgres, RowStreamOwned, Statement};
+use xitca_postgres::{
+    iter::AsyncLendingIteratorExt, types::Type, Client, Error, Execute, Postgres, RowStreamOwned, Statement,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -45,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         type ExecuteOutput = Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + 'c>>;
 
         // like the execute but output an async stream iterator that produces database rows.
-        type QueryOutput = Pin<Box<dyn Stream<Item = Result<RowOwned, Error>> + Send + 'c>>;
+        type QueryOutput = Pin<Box<dyn Future<Output = Result<RowStreamOwned, Error>> + Send + 'c>>;
 
         fn execute(self, cli: &'c Client) -> Self::ExecuteOutput {
             // move PrepareAndExecute<'p> and &'c Client into an async block.
@@ -60,31 +61,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
 
         fn query(self, cli: &'c Client) -> Self::QueryOutput {
-            // async stream macro is used to move prepare statement and query into a single
-            // streaming type.
-            Box::pin(async_stream::try_stream! {
+            Box::pin(async {
                 // prepare statement and query for async iterator of rows
-                let stmt = Statement::named(self.stmt, self.types)
-                    .execute(cli)
-                    .await?;
-                let stream = stmt.query(cli)?;
-
-                // async stream macro does not support lending iterator types and we convert
-                // row stream to an owned version where it does not contain references.
-                let mut stream = RowStreamOwned::from(stream);
-
-                // futures::stream::TryStreamExt trait is utilized here to produce database rows.
-                while let Some(item) = stream.try_next().await? {
-                    yield item;
-                }
+                let stmt = Statement::named(self.stmt, self.types).execute(cli).await?;
+                let stream = stmt.query(cli).await?;
+                // convert borrowed stream to owned stream. as borrowed stream reference the statement this function
+                // just produced.
+                Ok(RowStreamOwned::from(stream))
             })
-        }
-
-        // blocking version execute method. it's much simpler to implement than it's async variant.
-        fn execute_blocking(self, cli: &Client) -> Result<u64, Error> {
-            Statement::named(self.stmt, self.types)
-                .execute_blocking(cli)?
-                .execute_blocking(cli)
         }
     }
 
@@ -103,7 +87,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         types: &[],
     }
     .query(&cli)
-    // use TryStreamExt trait methods to visit rows and collect column index 0 to integers.
+    .await?
+    // use async iterator methods to visit rows and collect column index 0 to integers.
     .map_ok(|row| row.get::<i32>(0))
     .try_collect::<Vec<_>>()
     .await?;

@@ -32,7 +32,7 @@ pub use self::{
     config::Config,
     driver::Driver,
     error::Error,
-    execute::{Execute, ExecuteMut},
+    execute::{Execute, ExecuteBlocking, ExecuteMut},
     from_sql::FromSqlExt,
     query::{RowSimpleStream, RowSimpleStreamOwned, RowStream, RowStreamOwned},
     session::Session,
@@ -53,7 +53,7 @@ pub mod compat {
     //! # async fn convert(client: Client) -> Result<(), Error> {
     //! // prepare a statement and query for rows.
     //! let stmt = Statement::named("SELECT * from users", &[]).execute(&client).await?;
-    //! let mut stream = stmt.query(&client)?;
+    //! let mut stream = stmt.query(&client).await?;
     //!
     //! // assuming we want to spawn a tokio async task and handle the stream inside it.
     //! // but code below would not work as stream is a borrowed type with lending iterator implements.

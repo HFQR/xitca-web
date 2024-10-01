@@ -121,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // you can forward query to xitca-postgres's client completely.
     let transaction = conn.conn.transaction().await?;
-    let mut res = "SELECT 1".query(&transaction)?;
+    let mut res = "SELECT 1".query(&transaction).await?;
     let row = res.try_next().await?.ok_or("row not found")?;
     assert_eq!(Some("1"), row.get(0));
     transaction.rollback().await?;
@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // or use the new type definition of your pool connection for additional state and functionalities your
     // connection type could offer
     let transaction = conn.transaction().await?;
-    let mut res = "SELECT 1".query(&transaction)?;
+    let mut res = "SELECT 1".query(&transaction).await?;
     let row = res.try_next().await?.ok_or("row not found")?;
     assert_eq!(Some("1"), row.get(0));
     transaction.commit().await?;

@@ -87,7 +87,7 @@ async fn try_next<'r>(
 /// # async fn collect(cli: Client) -> Result<(), Error> {
 /// // prepare statement and query for some users from database.
 /// let stmt = Statement::named("SELECT * FROM users", &[]).execute(&cli).await?;
-/// let mut stream = stmt.query(&cli)?;
+/// let mut stream = stmt.query(&cli).await?;
 ///
 /// // assuming users contain name column where it can be parsed to string.
 /// // then collecting all user name to a collection
@@ -97,7 +97,7 @@ async fn try_next<'r>(
 /// }
 ///
 /// // the same operation with owned row stream can be simplified a bit:
-/// let stream = stmt.query(&cli)?;
+/// let stream = stmt.query(&cli).await?;
 /// // use extended api on top of AsyncIterator to collect user names to collection
 /// let strings_2: Vec<String> = RowStreamOwned::from(stream).map_ok(|row| row.get("name")).try_collect().await?;
 ///

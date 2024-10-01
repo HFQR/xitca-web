@@ -8,13 +8,12 @@
 //! - ordered response handling with a single stream type. reduce memory footprint and possibility of deadlock
 //!
 //! [`tokio-postgres`]: https://docs.rs/tokio-postgres/latest/tokio_postgres/#pipelining
-use core::{
-    future::{ready, Ready},
-    ops::{Deref, DerefMut, Range},
-};
+use core::ops::{Deref, DerefMut, Range};
 
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
+
+use crate::ExecuteBlocking;
 
 use super::{
     column::Column,
@@ -241,25 +240,21 @@ where
     B: DerefMut<Target = BytesMut>,
     E: Encode<Output = &'a [Column]>,
 {
-    type ExecuteMutOutput = Ready<Self::QueryMutOutput>;
+    type ExecuteMutOutput = Self::QueryMutOutput;
     type QueryMutOutput = Result<(), Error>;
 
     #[inline]
     fn execute_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::ExecuteMutOutput {
-        ready(self.query_mut(pipe))
+        self.query_mut(pipe)
     }
 
     fn query_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
         let len = pipe.buf.len();
+
         self.encode::<SYNC_MODE>(&mut pipe.buf)
             .map(|columns| pipe.columns.push(columns))
             // revert back to last pipelined query when encoding error occurred.
             .inspect_err(|_| pipe.buf.truncate(len))
-    }
-
-    #[inline]
-    fn execute_mut_blocking(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
-        self.query_mut(pipe)
     }
 }
 
@@ -280,8 +275,8 @@ where
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
         let res = self.query(cli);
         Box::pin(async move {
-            let mut row_affected = 0;
             let mut res = res?;
+            let mut row_affected = 0;
             while let Some(item) = res.try_next().await? {
                 row_affected += item.row_affected().await?;
             }
@@ -289,6 +284,7 @@ where
         })
     }
 
+    #[inline]
     fn query(self, cli: &C) -> Self::QueryOutput {
         let Pipeline { columns, mut buf } = self;
         assert!(!buf.is_empty());
@@ -306,9 +302,18 @@ where
             buf: buf.as_ref(),
         })
     }
+}
+
+impl<'p, C, B, const SYNC_MODE: bool> ExecuteBlocking<'_, C> for Pipeline<'p, B, SYNC_MODE>
+where
+    C: Query,
+    B: DerefMut<Target = BytesMut>,
+{
+    type ExecuteOutput = Result<u64, Error>;
+    type QueryOutput = Result<PipelineStream<'p>, Error>;
 
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        let mut res = self.query(cli)?;
+        let mut res = self.query_blocking(cli)?;
         let mut row_affected = 0;
 
         loop {
@@ -330,6 +335,10 @@ where
                 _ => return Err(Error::unexpected()),
             }
         }
+    }
+
+    fn query_blocking(self, cli: &C) -> Self::QueryOutput {
+        self.query(cli)
     }
 }
 
