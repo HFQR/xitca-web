@@ -317,10 +317,10 @@ async fn pipeline() {
 
     let mut pipe = Pipeline::new();
 
-    stmt.query_mut(&mut pipe).await.unwrap();
-    stmt.query_mut(&mut pipe).await.unwrap();
+    stmt.query_mut(&mut pipe).unwrap();
+    stmt.query_mut(&mut pipe).unwrap();
 
-    let mut res = pipe.query(&cli).await.unwrap();
+    let mut res = pipe.query(&cli).unwrap();
 
     {
         let mut item = res.try_next().await.unwrap().unwrap();

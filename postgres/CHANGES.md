@@ -25,11 +25,11 @@
     
     // use ExecuteMut trait to add query to pipeline
     use xitca_postgres::ExecuteMut;
-    stmt.query_mut(&mut pipe).await?;
-    stmt.query_mut(&mut pipe).await?;
+    stmt.query_mut(&mut pipe)?;
+    stmt.query_mut(&mut pipe)?;
 
     // use Execute trait to start pipeline query
-    let pipe_stream = pipe.query(&client).await?;
+    let pipe_stream = pipe.query(&client)?;
     ```
 - remove `dev::AsParams` trait export. It's not needed for implementing `Query` trait anymore    
 

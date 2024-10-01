@@ -1,8 +1,6 @@
 mod async_impl;
 mod sync_impl;
 
-use core::future::Future;
-
 /// Defining how a query is executed. can be used for customizing encoding, executing and database
 /// data decoding.
 ///
@@ -21,11 +19,11 @@ pub trait Execute<'c, C>
 where
     Self: Sized,
 {
-    /// async outcome of execute.
+    /// outcome of execute.
     /// used for single time database response: number of rows affected by execution for example.
-    type ExecuteOutput: Future;
+    type ExecuteOutput;
 
-    /// async outcome of query.
+    /// outcome of query.
     /// used for repeated database response: database rows for example
     ///
     /// consider impl [`AsyncLendingIterator`] for async iterator of rows
@@ -35,7 +33,7 @@ where
     /// [`Execute::ExecuteOutput`] and it's encouraged to make `query` behave identical to `execute`
     ///
     /// [`AsyncLendingIterator`]: crate::iter::AsyncLendingIterator
-    type QueryOutput: Future;
+    type QueryOutput;
 
     /// define how a statement is executed with single time response
     fn execute(self, cli: &'c C) -> Self::ExecuteOutput;
@@ -49,8 +47,8 @@ pub trait ExecuteMut<'c, C>
 where
     Self: Sized,
 {
-    type ExecuteMutOutput: Future;
-    type QueryMutOutput: Future;
+    type ExecuteMutOutput;
+    type QueryMutOutput;
 
     fn execute_mut(self, cli: &'c mut C) -> Self::ExecuteMutOutput;
 

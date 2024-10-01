@@ -112,8 +112,8 @@ fn pipeline_blocking() {
 
     let mut pipe = Pipeline::new();
 
-    stmt.bind(["alice"]).query_mut(&mut pipe).into_inner().unwrap();
-    stmt.bind(["bob"]).query_mut(&mut pipe).into_inner().unwrap();
+    stmt.bind(["alice"]).query_mut(&mut pipe).unwrap();
+    stmt.bind(["bob"]).query_mut(&mut pipe).unwrap();
 
     let rows_affected = pipe.execute_blocking(&cli).unwrap();
     assert_eq!(rows_affected, 2);
