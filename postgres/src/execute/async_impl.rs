@@ -100,7 +100,7 @@ where
 impl<'s, C, P> Execute<'_, C> for StatementQuery<'s, P>
 where
     C: Query,
-    P: AsParams + 's,
+    P: AsParams,
 {
     type ExecuteOutput = ResultFuture<RowAffected>;
     type QueryOutput = Ready<Result<RowStream<'s>, Error>>;
@@ -119,7 +119,7 @@ where
 impl<'s, 'c, C, P> Execute<'c, C> for StatementUnnamedBind<'s, P>
 where
     C: Prepare + 'c,
-    P: AsParams + 'c,
+    P: AsParams,
     's: 'c,
 {
     type ExecuteOutput = ResultFuture<RowAffected>;
