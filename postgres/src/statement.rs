@@ -195,15 +195,15 @@ impl StatementNamed<'_> {
     }
 }
 
-pub(crate) struct StatementCreate<'a, C> {
+pub(crate) struct StatementCreate<'a, 'c, C> {
     pub(crate) name: String,
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
-    pub(crate) cli: &'a C,
+    pub(crate) cli: &'c C,
 }
 
-impl<'a, C> From<(StatementNamed<'a>, &'a C)> for StatementCreate<'a, C> {
-    fn from((stmt, cli): (StatementNamed<'a>, &'a C)) -> Self {
+impl<'a, 'c, C> From<(StatementNamed<'a>, &'c C)> for StatementCreate<'a, 'c, C> {
+    fn from((stmt, cli): (StatementNamed<'a>, &'c C)) -> Self {
         Self {
             name: StatementNamed::name(),
             stmt: stmt.stmt,
@@ -213,15 +213,15 @@ impl<'a, C> From<(StatementNamed<'a>, &'a C)> for StatementCreate<'a, C> {
     }
 }
 
-pub(crate) struct StatementCreateBlocking<'a, C> {
+pub(crate) struct StatementCreateBlocking<'a, 'c, C> {
     pub(crate) name: String,
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
-    pub(crate) cli: &'a C,
+    pub(crate) cli: &'c C,
 }
 
-impl<'a, C> From<(StatementNamed<'a>, &'a C)> for StatementCreateBlocking<'a, C> {
-    fn from((stmt, cli): (StatementNamed<'a>, &'a C)) -> Self {
+impl<'a, 'c, C> From<(StatementNamed<'a>, &'c C)> for StatementCreateBlocking<'a, 'c, C> {
+    fn from((stmt, cli): (StatementNamed<'a>, &'c C)) -> Self {
         Self {
             name: StatementNamed::name(),
             stmt: stmt.stmt,
@@ -273,15 +273,15 @@ pub struct StatementUnnamedBind<'a, P> {
     params: P,
 }
 
-pub(crate) struct StatementUnnamedQuery<'a, P, C> {
+pub(crate) struct StatementUnnamedQuery<'a, 'c, P, C> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
     pub(crate) params: P,
-    pub(crate) cli: &'a C,
+    pub(crate) cli: &'c C,
 }
 
-impl<'a, P, C> From<(StatementUnnamedBind<'a, P>, &'a C)> for StatementUnnamedQuery<'a, P, C> {
-    fn from((bind, cli): (StatementUnnamedBind<'a, P>, &'a C)) -> Self {
+impl<'a, 'c, P, C> From<(StatementUnnamedBind<'a, P>, &'c C)> for StatementUnnamedQuery<'a, 'c, P, C> {
+    fn from((bind, cli): (StatementUnnamedBind<'a, P>, &'c C)) -> Self {
         Self {
             stmt: bind.stmt,
             types: bind.types,

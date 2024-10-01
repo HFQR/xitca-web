@@ -49,10 +49,9 @@ where
     }
 }
 
-impl<'c, 's, C> ExecuteBlocking<'c, C> for StatementNamed<'s>
+impl<'c, C> ExecuteBlocking<'c, C> for StatementNamed<'_>
 where
     C: Prepare + 'c,
-    's: 'c,
 {
     type ExecuteOutput = Result<StatementGuarded<'c, C>, Error>;
     type QueryOutput = Self::ExecuteOutput;
@@ -72,7 +71,7 @@ where
 impl<'s, C, P> ExecuteBlocking<'_, C> for StatementQuery<'s, P>
 where
     C: Query,
-    P: AsParams + 's,
+    P: AsParams,
 {
     type ExecuteOutput = Result<u64, Error>;
     type QueryOutput = Result<RowStream<'s>, Error>;
@@ -89,11 +88,10 @@ where
     }
 }
 
-impl<'s, 'c, C, P> ExecuteBlocking<'c, C> for StatementUnnamedBind<'s, P>
+impl<'c, C, P> ExecuteBlocking<'c, C> for StatementUnnamedBind<'_, P>
 where
     C: Prepare + 'c,
-    P: AsParams + 'c,
-    's: 'c,
+    P: AsParams,
 {
     type ExecuteOutput = Result<u64, Error>;
     type QueryOutput = Result<RowStreamGuarded<'c, C>, Error>;
