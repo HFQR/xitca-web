@@ -19,7 +19,7 @@ use xitca_io::bytes::BytesMut;
 use super::{
     column::Column,
     driver::codec::{self, encode::Encode, Response},
-    error::Error,
+    error::{Completed, Error},
     execute::{Execute, ExecuteMut},
     iter::AsyncLendingIterator,
     query::Query,
@@ -142,6 +142,7 @@ impl Pipeline<'_, Owned, true> {
     /// start a new pipeline with given capacity.
     /// capacity represent how many queries will be contained by a single pipeline. a determined cap
     /// can possibly reduce memory reallocation when constructing the pipeline.
+    #[inline]
     pub fn with_capacity(cap: usize) -> Self {
         Self::_with_capacity(cap)
     }
@@ -163,6 +164,7 @@ impl Pipeline<'_, Owned, false> {
     /// start a new un-sync pipeline with given capacity.
     /// capacity represent how many queries will be contained by a single pipeline. a determined cap
     /// can possibly reduce memory reallocation when constructing the pipeline.
+    #[inline]
     pub fn unsync_with_capacity(cap: usize) -> Self {
         Self::_with_capacity(cap)
     }
@@ -242,6 +244,7 @@ where
     type ExecuteMutOutput = Ready<Self::QueryMutOutput>;
     type QueryMutOutput = Result<(), Error>;
 
+    #[inline]
     fn execute_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::ExecuteMutOutput {
         ready(self.query_mut(pipe))
     }
@@ -254,6 +257,7 @@ where
             .inspect_err(|_| pipe.buf.truncate(len))
     }
 
+    #[inline]
     fn execute_mut_blocking(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
         self.query_mut(pipe)
     }
@@ -422,12 +426,11 @@ pub struct PipelineItem<'a> {
 
 impl PipelineItem<'_> {
     /// collect rows affected by this pipelined query. [Row] information will be ignored.
-    ///
-    /// # Panic
-    /// calling this method on an already finished PipelineItem will cause panic. PipelineItem is marked as finished
-    /// when its [AsyncLendingIterator::try_next] method returns [Option::None]
     pub async fn row_affected(mut self) -> Result<u64, Error> {
-        assert!(!self.finished, "PipelineItem has already finished");
+        if self.finished {
+            return Err(Completed.into());
+        }
+
         loop {
             match self.res.recv().await? {
                 backend::Message::DataRow(_) => {}
@@ -440,8 +443,12 @@ impl PipelineItem<'_> {
         }
     }
 
-    fn row_affected_blocking(mut self) -> Result<u64, Error> {
-        assert!(!self.finished, "PipelineItem has already finished");
+    /// blocking version of [`PipelineItem::row_affected`]
+    pub fn row_affected_blocking(mut self) -> Result<u64, Error> {
+        if self.finished {
+            return Err(Completed.into());
+        }
+
         loop {
             match self.res.blocking_recv()? {
                 backend::Message::DataRow(_) => {}

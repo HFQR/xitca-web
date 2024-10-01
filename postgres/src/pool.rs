@@ -2,7 +2,7 @@ use core::{
     future::Future,
     mem,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll},
 };
 
 use std::{
@@ -131,26 +131,7 @@ pub struct PoolConnection<'a> {
     _permit: SemaphorePermit<'a>,
 }
 
-impl<'p> PoolConnection<'p> {
-    #[inline(never)]
-    fn prepare_slow<'a>(&'a mut self, named: StatementNamed<'a>) -> BoxedFuture<'a, Result<Arc<Statement>, Error>> {
-        Box::pin(async move {
-            let stmt = Statement::named(named.stmt, named.types).execute(self).await?.leak();
-            Ok(self.insert_cache(named.stmt, stmt))
-        })
-    }
-
-    fn prepare_slow_blocking(&mut self, named: StatementNamed<'_>) -> Result<Arc<Statement>, Error> {
-        let stmt = Statement::named(named.stmt, named.types).execute_blocking(self)?.leak();
-        Ok(self.insert_cache(named.stmt, stmt))
-    }
-
-    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Arc<Statement> {
-        let stmt = Arc::new(stmt);
-        self.conn_mut().statements.insert(Box::from(named), stmt.clone());
-        stmt
-    }
-
+impl PoolConnection<'_> {
     /// function the same as [`Client::transaction`]
     #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
@@ -231,6 +212,12 @@ impl<'p> PoolConnection<'p> {
         self.conn().client.cancel_token()
     }
 
+    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Arc<Statement> {
+        let stmt = Arc::new(stmt);
+        self.conn_mut().statements.insert(Box::from(named), stmt.clone());
+        stmt
+    }
+
     fn conn(&self) -> &PoolClient {
         self.conn.as_ref().unwrap()
     }
@@ -303,29 +290,35 @@ impl PoolClient {
     }
 }
 
-impl<'c, 'p, 's> ExecuteMut<'c, PoolConnection<'p>> for StatementNamed<'s>
+impl<'c, 's> ExecuteMut<'c, PoolConnection<'_>> for StatementNamed<'s>
 where
     's: 'c,
-    'p: 'c,
 {
     type ExecuteMutOutput = StatementCacheFuture<'c>;
     type QueryMutOutput = Self::ExecuteMutOutput;
 
-    fn execute_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::ExecuteMutOutput {
+    fn execute_mut(self, cli: &'c mut PoolConnection) -> Self::ExecuteMutOutput {
         match cli.conn().statements.get(self.stmt) {
             Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
-            None => StatementCacheFuture::Prepared(cli.prepare_slow(self)),
+            None => StatementCacheFuture::Prepared(Box::pin(async move {
+                let stmt = self.execute(cli).await?.leak();
+                Ok(cli.insert_cache(self.stmt, stmt))
+            })),
         }
     }
 
-    fn query_mut(self, cli: &'c mut PoolConnection<'p>) -> Self::QueryMutOutput {
+    #[inline]
+    fn query_mut(self, cli: &'c mut PoolConnection) -> Self::QueryMutOutput {
         self.execute_mut(cli)
     }
 
     fn execute_mut_blocking(self, cli: &mut PoolConnection) -> <Self::ExecuteMutOutput as Future>::Output {
         match cli.conn().statements.get(self.stmt) {
             Some(stmt) => Ok(stmt.clone()),
-            None => cli.prepare_slow_blocking(self),
+            None => {
+                let stmt = self.execute_blocking(cli)?.leak();
+                Ok(cli.insert_cache(self.stmt, stmt))
+            }
         }
     }
 }
@@ -341,19 +334,33 @@ impl Future for StatementCacheFuture<'_> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        match this {
-            Self::Cached(_) => {
-                let Self::Cached(stmt) = mem::replace(this, Self::Done) else {
-                    unreachable!("")
-                };
-                Poll::Ready(Ok(stmt))
-            }
-            Self::Prepared(ref mut fut) => {
-                let res = ready!(fut.as_mut().poll(cx));
-                drop(mem::replace(this, Self::Done));
-                Poll::Ready(res)
+        match mem::replace(this, Self::Done) {
+            Self::Cached(stmt) => Poll::Ready(Ok(stmt)),
+            Self::Prepared(mut fut) => {
+                let res = fut.as_mut().poll(cx);
+                if res.is_pending() {
+                    drop(mem::replace(this, Self::Prepared(fut)));
+                }
+                res
             }
             Self::Done => panic!("StatementCacheFuture polled after finish"),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn pool() {
+        let pool = Pool::builder("postgres://postgres:postgres@localhost:5432")
+            .build()
+            .unwrap();
+
+        let mut conn = pool.get().await.unwrap();
+
+        let stmt = Statement::named("SELECT 1", &[]).execute_mut(&mut conn).await.unwrap();
+        stmt.execute(&conn.consume()).await.unwrap();
     }
 }

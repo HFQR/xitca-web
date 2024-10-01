@@ -182,6 +182,7 @@ impl Statement {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct StatementNamed<'a> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
