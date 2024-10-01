@@ -311,16 +311,6 @@ where
     fn query_mut(self, cli: &'c mut PoolConnection) -> Self::QueryMutOutput {
         self.execute_mut(cli)
     }
-
-    fn execute_mut_blocking(self, cli: &mut PoolConnection) -> <Self::ExecuteMutOutput as Future>::Output {
-        match cli.conn().statements.get(self.stmt) {
-            Some(stmt) => Ok(stmt.clone()),
-            None => {
-                let stmt = self.execute_blocking(cli)?.leak();
-                Ok(cli.insert_cache(self.stmt, stmt))
-            }
-        }
-    }
 }
 
 pub enum StatementCacheFuture<'c> {

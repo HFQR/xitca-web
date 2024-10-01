@@ -16,6 +16,8 @@ use core::{
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
 
+use crate::ExecuteBlocking;
+
 use super::{
     column::Column,
     driver::codec::{self, encode::Encode, Response},
@@ -44,12 +46,12 @@ use super::{
 ///
 ///     // bind value param to statement and query with the pipeline.
 ///     // pipeline can encode multiple queries locally before send it to database.
-///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
-///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
-///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
+///     statement.bind([] as [i32; 0]).query_mut(&mut pipe).await?;
+///     statement.bind([] as [i32; 0]).query_mut(&mut pipe).await?;
+///     statement.bind([] as [i32; 0]).query_mut(&mut pipe).await?;
 ///
 ///     // query the pipeline and on success a streaming response will be returned.
-///     let mut res = pipe.query(client)?;
+///     let mut res = pipe.query(client).await?;
 ///
 ///     // iterate through the query responses. the response order is the same as the order of
 ///     // queries encoded into pipeline with Pipeline::query_xxx api.
@@ -242,7 +244,7 @@ where
     E: Encode<Output = &'a [Column]>,
 {
     type ExecuteMutOutput = Ready<Self::QueryMutOutput>;
-    type QueryMutOutput = Result<(), Error>;
+    type QueryMutOutput = Ready<Result<(), Error>>;
 
     #[inline]
     fn execute_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::ExecuteMutOutput {
@@ -251,15 +253,12 @@ where
 
     fn query_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
         let len = pipe.buf.len();
-        self.encode::<SYNC_MODE>(&mut pipe.buf)
-            .map(|columns| pipe.columns.push(columns))
-            // revert back to last pipelined query when encoding error occurred.
-            .inspect_err(|_| pipe.buf.truncate(len))
-    }
-
-    #[inline]
-    fn execute_mut_blocking(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
-        self.query_mut(pipe)
+        ready(
+            self.encode::<SYNC_MODE>(&mut pipe.buf)
+                .map(|columns| pipe.columns.push(columns))
+                // revert back to last pipelined query when encoding error occurred.
+                .inspect_err(|_| pipe.buf.truncate(len)),
+        )
     }
 }
 
@@ -275,10 +274,10 @@ where
     B: DerefMut<Target = BytesMut>,
 {
     type ExecuteOutput = BoxedFuture<'p, Result<u64, Error>>;
-    type QueryOutput = Result<PipelineStream<'p>, Error>;
+    type QueryOutput = Ready<Result<PipelineStream<'p>, Error>>;
 
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        let res = self.query(cli);
+        let res = self.query(cli).into_inner();
         Box::pin(async move {
             let mut row_affected = 0;
             let mut res = res?;
@@ -289,26 +288,22 @@ where
         })
     }
 
+    #[inline]
     fn query(self, cli: &C) -> Self::QueryOutput {
-        let Pipeline { columns, mut buf } = self;
-        assert!(!buf.is_empty());
-
-        let count = if SYNC_MODE {
-            columns.len()
-        } else {
-            frontend::sync(&mut buf);
-            1
-        };
-
-        cli._query(PipelineQuery {
-            count,
-            columns,
-            buf: buf.as_ref(),
-        })
+        ready(self.query_blocking(cli))
     }
+}
+
+impl<'p, C, B, const SYNC_MODE: bool> ExecuteBlocking<'_, C> for Pipeline<'p, B, SYNC_MODE>
+where
+    C: Query,
+    B: DerefMut<Target = BytesMut>,
+{
+    type ExecuteOutput = Result<u64, Error>;
+    type QueryOutput = Result<PipelineStream<'p>, Error>;
 
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        let mut res = self.query(cli)?;
+        let mut res = self.query_blocking(cli)?;
         let mut row_affected = 0;
 
         loop {
@@ -330,6 +325,24 @@ where
                 _ => return Err(Error::unexpected()),
             }
         }
+    }
+
+    fn query_blocking(self, cli: &C) -> Self::QueryOutput {
+        let Pipeline { columns, mut buf } = self;
+        assert!(!buf.is_empty());
+
+        let count = if SYNC_MODE {
+            columns.len()
+        } else {
+            frontend::sync(&mut buf);
+            1
+        };
+
+        cli._query(PipelineQuery {
+            count,
+            columns,
+            buf: buf.as_ref(),
+        })
     }
 }
 

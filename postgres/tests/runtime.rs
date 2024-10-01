@@ -18,7 +18,7 @@ async fn connect(s: &str) -> Client {
 async fn smoke_test(s: &str) {
     let client = connect(s).await;
     let stmt = Statement::named("SELECT $1::INT", &[]).execute(&client).await.unwrap();
-    let mut stream = stmt.bind([1i32]).query(&client).unwrap();
+    let mut stream = stmt.bind([1i32]).query(&client).await.unwrap();
     let row = stream.try_next().await.unwrap().unwrap();
     assert_eq!(row.get::<i32>(0), 1i32);
 }
@@ -179,7 +179,7 @@ async fn poll_after_response_finish() {
 
     tokio::spawn(drv.into_future());
 
-    let mut stream = "SELECT 1".query(&cli).unwrap();
+    let mut stream = "SELECT 1".query(&cli).await.unwrap();
 
     stream.try_next().await.unwrap().unwrap();
 
@@ -245,6 +245,7 @@ async fn query_unnamed_with_transaction() {
     )
     .bind_dyn(&[&"alice", &20i32, &"bob", &30i32, &"carol", &40i32])
     .query(&transaction)
+    .await
     .unwrap();
 
     let mut inserted_values = Vec::new();
@@ -268,6 +269,7 @@ async fn query_unnamed_with_transaction() {
     )
     .bind_dyn(&[&"alice", &50i32])
     .query(&transaction)
+    .await
     .unwrap();
 
     let row = stream.try_next().await.unwrap().unwrap();
@@ -288,6 +290,7 @@ async fn query_unnamed_with_transaction() {
     let mut stream = Statement::unnamed("UPDATE foo set age = 33", &[])
         .bind_dyn(&[])
         .query(&transaction)
+        .await
         .unwrap();
     assert!(stream.try_next().await.unwrap().is_none());
 }
@@ -314,10 +317,10 @@ async fn pipeline() {
 
     let mut pipe = Pipeline::new();
 
-    stmt.query_mut(&mut pipe).unwrap();
-    stmt.query_mut(&mut pipe).unwrap();
+    stmt.query_mut(&mut pipe).await.unwrap();
+    stmt.query_mut(&mut pipe).await.unwrap();
 
-    let mut res = pipe.query(&cli).unwrap();
+    let mut res = pipe.query(&cli).await.unwrap();
 
     {
         let mut item = res.try_next().await.unwrap().unwrap();

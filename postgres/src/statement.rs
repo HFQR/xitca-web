@@ -131,7 +131,7 @@ impl Statement {
     /// let stmt = Statement::named("SELECT * FROM users WHERE id = $1 AND age = $2", &[Type::INT4, Type::INT4])
     ///     .execute(&cli).await?;
     /// // bind statement to typed value parameters and start query
-    /// let row_stream = stmt.bind([9527_i32, 18]).query(&cli)?;
+    /// let row_stream = stmt.bind([9527_i32, 18]).query(&cli).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -397,7 +397,7 @@ mod test {
 
         drop(stmt);
 
-        let mut stream = stmt_raw.query(&cli).unwrap();
+        let mut stream = stmt_raw.query(&cli).await.unwrap();
 
         let e = stream.try_next().await.err().unwrap();
 

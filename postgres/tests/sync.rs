@@ -5,7 +5,7 @@ use xitca_postgres::{
     pipeline::Pipeline,
     statement::Statement,
     types::Type,
-    Client, Execute, ExecuteMut, Postgres,
+    Client, ExecuteBlocking, ExecuteMut, Postgres,
 };
 
 fn connect() -> Client {
@@ -32,7 +32,7 @@ fn query_unnamed() {
         &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
     )
     .bind_dyn(&[&"alice", &20i32, &"bob", &30i32, &"carol", &40i32])
-    .query(&cli)
+    .query_blocking(&cli)
     .unwrap()
     .into_iter();
 
@@ -112,8 +112,8 @@ fn pipeline_blocking() {
 
     let mut pipe = Pipeline::new();
 
-    stmt.bind(["alice"]).query_mut(&mut pipe).unwrap();
-    stmt.bind(["bob"]).query_mut(&mut pipe).unwrap();
+    stmt.bind(["alice"]).query_mut(&mut pipe).into_inner().unwrap();
+    stmt.bind(["bob"]).query_mut(&mut pipe).into_inner().unwrap();
 
     let rows_affected = pipe.execute_blocking(&cli).unwrap();
     assert_eq!(rows_affected, 2);

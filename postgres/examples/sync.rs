@@ -1,7 +1,7 @@
 //! example of running client in non async environment.
 
 use std::future::IntoFuture;
-use xitca_postgres::{types::Type, Execute, Postgres, Statement};
+use xitca_postgres::{types::Type, ExecuteBlocking, Postgres, Statement};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // prepare a tokio runtime for client's Driver.
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .execute_blocking(&cli)?;
         // query api shares the same convention no matter the context.
-        let stream = stmt.bind_dyn(&[&4i32, &"david"]).query(&cli)?;
+        let stream = stmt.bind_dyn(&[&4i32, &"david"]).query_blocking(&cli)?;
 
         // async row stream implement IntoIterator trait to convert stream into a sync iterator.
         for item in stream {

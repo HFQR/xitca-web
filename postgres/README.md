@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // bind the prepared statement to parameter values it declared.
     // when parameters are different Rust types it's suggested to use dynamic binding as following
     // query with the bind and get an async streaming for database rows on success
-    let mut stream = stmt.bind_dyn(&[&1i32, &"alice"]).query(&cli)?;
+    let mut stream = stmt.bind_dyn(&[&1i32, &"alice"]).query(&cli).await?;
 
     // use async iterator to visit rows
     let row = stream.try_next().await?.ok_or("no row found")?;
@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     assert!(stream.try_next().await?.is_none());
 
     // like execute method. query can be used with raw sql string.
-    let mut stream = "SELECT id, name FROM foo WHERE name = 'david'".query(&cli)?;
+    let mut stream = "SELECT id, name FROM foo WHERE name = 'david'".query(&cli).await?;
     let row = stream.try_next().await?.ok_or("no row found")?;
 
     // unlike query with prepared statement. raw sql query would return rows that can only be parsed to Rust string types.
@@ -104,13 +104,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ## Synchronous API
 `xitca_postgres::Client` can run outside of tokio async runtime and using blocking API to interact with database 
 ```rust
-use xitca_postgres::{Client, Error, Execute};
+use xitca_postgres::{Client, Error, ExecuteBlocking};
 
 fn query(client: &Client) -> Result<(), Error> {
     // execute sql query with blocking api
     "SELECT 1".execute_blocking(client)?;
 
-    let stream = "SELECT 1".query(client)?;
+    let stream = "SELECT 1".query_blocking(client)?;
 
     // use iterator to visit streaming rows
     for item in stream {

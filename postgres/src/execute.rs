@@ -1,20 +1,7 @@
-use core::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+mod async_impl;
+mod sync_impl;
 
-use super::{
-    driver::codec::AsParams,
-    error::Error,
-    prepare::Prepare,
-    query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
-    statement::{
-        Statement, StatementCreate, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementQuery,
-        StatementUnnamedBind, StatementUnnamedQuery,
-    },
-    BoxedFuture,
-};
+use core::future::Future;
 
 /// Defining how a query is executed. can be used for customizing encoding, executing and database
 /// data decoding.
@@ -35,25 +22,26 @@ where
     Self: Sized,
 {
     /// async outcome of execute.
+    /// used for single time database response: number of rows affected by execution for example.
     type ExecuteOutput: Future;
-    /// iterator outcome of query.
-    ///
-    /// by default this type should be matching `C`'s [`Query::_query`] output type.
+
+    /// async outcome of query.
+    /// used for repeated database response: database rows for example
     ///
     /// consider impl [`AsyncLendingIterator`] for async iterator of rows
     /// consider impl [`Iterator`] for iterator of rows
     ///
+    /// for type of statement where no repeated response will returning this type can point to
+    /// [`Execute::ExecuteOutput`] and it's encouraged to make `query` behave identical to `execute`
+    ///
     /// [`AsyncLendingIterator`]: crate::iter::AsyncLendingIterator
-    type QueryOutput;
+    type QueryOutput: Future;
 
-    /// define how a query is executed with async outcome.
+    /// define how a statement is executed with single time response
     fn execute(self, cli: &'c C) -> Self::ExecuteOutput;
 
-    /// define how a query is executed with iterator of database rows as return type.
+    /// define how a statement is queried with repeated response
     fn query(self, cli: &'c C) -> Self::QueryOutput;
-
-    /// blocking version of [`Execute::execute`]
-    fn execute_blocking(self, cli: &'c C) -> <Self::ExecuteOutput as Future>::Output;
 }
 
 /// mutable version of [`Execute`] trait where C type is mutably borrowed
@@ -62,181 +50,22 @@ where
     Self: Sized,
 {
     type ExecuteMutOutput: Future;
-    type QueryMutOutput;
+    type QueryMutOutput: Future;
 
     fn execute_mut(self, cli: &'c mut C) -> Self::ExecuteMutOutput;
 
     fn query_mut(self, cli: &'c mut C) -> Self::QueryMutOutput;
-
-    fn execute_mut_blocking(self, cli: &'c mut C) -> <Self::ExecuteMutOutput as Future>::Output;
 }
 
-impl<'s, C> Execute<'_, C> for &'s Statement
+/// blocking version of [`Execute`] for synchronous environment
+pub trait ExecuteBlocking<'c, C>
 where
-    C: Query,
+    Self: Sized,
 {
-    type ExecuteOutput = ResultFuture<RowAffected>;
-    type QueryOutput = Result<RowStream<'s>, Error>;
+    type ExecuteOutput;
+    type QueryOutput;
 
-    #[inline]
-    fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        self.query(cli).map(RowAffected::from).into()
-    }
+    fn execute_blocking(self, cli: &'c C) -> Self::ExecuteOutput;
 
-    #[inline]
-    fn query(self, cli: &C) -> Self::QueryOutput {
-        cli._query(self)
-    }
-
-    #[inline]
-    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        let stream = self.query(cli)?;
-        RowAffected::from(stream).wait()
-    }
-}
-
-impl<'s, C> Execute<'_, C> for &'s str
-where
-    C: Query,
-{
-    type ExecuteOutput = ResultFuture<RowAffected>;
-    type QueryOutput = Result<RowSimpleStream, Error>;
-
-    #[inline]
-    fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        self.query(cli).map(RowAffected::from).into()
-    }
-
-    #[inline]
-    fn query(self, cli: &C) -> Self::QueryOutput {
-        cli._query(self)
-    }
-
-    #[inline]
-    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        let stream = self.query(cli)?;
-        RowAffected::from(stream).wait()
-    }
-}
-
-type IntoGuardedFuture<'c, C> = IntoGuarded<'c, BoxedFuture<'c, Result<Statement, Error>>, C>;
-
-pub struct IntoGuarded<'a, F, C> {
-    fut: F,
-    cli: &'a C,
-}
-
-impl<'a, F, C> Future for IntoGuarded<'a, F, C>
-where
-    F: Future<Output = Result<Statement, Error>> + Unpin,
-    C: Query,
-{
-    type Output = Result<StatementGuarded<'a, C>, Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        Pin::new(&mut this.fut)
-            .poll(cx)
-            .map_ok(|stmt| stmt.into_guarded(this.cli))
-    }
-}
-
-impl<'c, 's, C> Execute<'c, C> for StatementNamed<'s>
-where
-    C: Prepare + 'c,
-    's: 'c,
-{
-    type ExecuteOutput = ResultFuture<IntoGuardedFuture<'c, C>>;
-    type QueryOutput = Self::ExecuteOutput;
-
-    #[inline]
-    fn execute(self, cli: &'c C) -> Self::ExecuteOutput {
-        cli._query(StatementCreate::from((self, cli)))
-            .map(|fut| IntoGuarded { fut, cli })
-            .into()
-    }
-
-    #[inline]
-    fn query(self, cli: &'c C) -> Self::QueryOutput {
-        self.execute(cli)
-    }
-
-    #[inline]
-    fn execute_blocking(self, cli: &'c C) -> Result<StatementGuarded<'c, C>, Error> {
-        let stmt = cli._query(StatementCreateBlocking::from((self, cli)))??;
-        Ok(stmt.into_guarded(cli))
-    }
-}
-
-impl<'s, C, P> Execute<'_, C> for StatementQuery<'s, P>
-where
-    C: Query,
-    P: AsParams + 's,
-{
-    type ExecuteOutput = ResultFuture<RowAffected>;
-    type QueryOutput = Result<RowStream<'s>, Error>;
-
-    #[inline]
-    fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        self.query(cli).map(RowAffected::from).into()
-    }
-
-    #[inline]
-    fn query(self, cli: &C) -> Self::QueryOutput {
-        cli._query(self)
-    }
-
-    #[inline]
-    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        let stream = self.query(cli)?;
-        RowAffected::from(stream).wait()
-    }
-}
-
-impl<'s, 'c, C, P> Execute<'c, C> for StatementUnnamedBind<'s, P>
-where
-    C: Prepare + 'c,
-    P: AsParams + 'c,
-    's: 'c,
-{
-    type ExecuteOutput = ResultFuture<RowAffected>;
-    type QueryOutput = Result<RowStreamGuarded<'c, C>, Error>;
-
-    #[inline]
-    fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        self.query(cli).map(RowAffected::from).into()
-    }
-
-    #[inline]
-    fn query(self, cli: &'c C) -> Self::QueryOutput {
-        cli._query(StatementUnnamedQuery::from((self, cli)))
-    }
-
-    #[inline]
-    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        let stream = self.query(cli)?;
-        RowAffected::from(stream).wait()
-    }
-}
-
-pub struct ResultFuture<F>(Result<F, Option<Error>>);
-
-impl<F> From<Result<F, Error>> for ResultFuture<F> {
-    fn from(res: Result<F, Error>) -> Self {
-        Self(res.map_err(Some))
-    }
-}
-
-impl<F, T> Future for ResultFuture<F>
-where
-    F: Future<Output = Result<T, Error>> + Unpin,
-{
-    type Output = F::Output;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.get_mut().0 {
-            Ok(ref mut res) => Pin::new(res).poll(cx),
-            Err(ref mut e) => Poll::Ready(Err(e.take().unwrap())),
-        }
-    }
+    fn query_blocking(self, cli: &'c C) -> Self::QueryOutput;
 }
