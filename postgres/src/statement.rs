@@ -383,10 +383,7 @@ mod test {
 
         tokio::task::spawn(drv.into_future());
 
-        "CREATE TEMPORARY TABLE foo (id SERIAL, name TEXT); INSERT INTO foo (name) VALUES ('alice'), ('bob'), ('charlie');"
-            .execute(&cli)
-            .await
-            .unwrap();
+        std::path::Path::new("./samples/test.sql").execute(&cli).await.unwrap();
 
         let stmt = Statement::named("SELECT id, name FROM foo ORDER BY id", &[])
             .execute(&cli)
