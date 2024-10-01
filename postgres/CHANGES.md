@@ -1,4 +1,6 @@
-# unreleased 0.2.0
+# unreleased 0.2.1
+
+# 0.2.0
 ## Remove
 - remove `prepare`, `query`, `execute`, `query_raw`, `execute_raw`, `query_simple` and `execute_simple` methods from all types. Leave only `Execute` trait family as sole API  
     ```rust
