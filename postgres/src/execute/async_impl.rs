@@ -76,10 +76,9 @@ where
     }
 }
 
-impl<'c, 's, C> Execute<'c, C> for StatementNamed<'s>
+impl<'c, C> Execute<'c, C> for StatementNamed<'_>
 where
     C: Prepare + 'c,
-    's: 'c,
 {
     type ExecuteOutput = ResultFuture<IntoGuardedFuture<'c, C>>;
     type QueryOutput = Self::ExecuteOutput;
@@ -116,11 +115,10 @@ where
     }
 }
 
-impl<'s, 'c, C, P> Execute<'c, C> for StatementUnnamedBind<'s, P>
+impl<'c, C, P> Execute<'c, C> for StatementUnnamedBind<'_, P>
 where
     C: Prepare + 'c,
     P: AsParams,
-    's: 'c,
 {
     type ExecuteOutput = ResultFuture<RowAffected>;
     type QueryOutput = Ready<Result<RowStreamGuarded<'c, C>, Error>>;

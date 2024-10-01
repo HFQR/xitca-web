@@ -72,13 +72,13 @@ impl<'s> Encode for &'s Statement {
     }
 }
 
-impl<C> sealed::Sealed for StatementCreate<'_, C> {}
+impl<C> sealed::Sealed for StatementCreate<'_, '_, C> {}
 
-impl<'s, C> Encode for StatementCreate<'s, C>
+impl<'c, C> Encode for StatementCreate<'_, 'c, C>
 where
     C: Prepare,
 {
-    type Output = StatementCreateResponse<'s, C>;
+    type Output = StatementCreateResponse<'c, C>;
 
     #[inline]
     fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
@@ -87,13 +87,13 @@ where
     }
 }
 
-impl<C> sealed::Sealed for StatementCreateBlocking<'_, C> {}
+impl<C> sealed::Sealed for StatementCreateBlocking<'_, '_, C> {}
 
-impl<'s, C> Encode for StatementCreateBlocking<'s, C>
+impl<'c, C> Encode for StatementCreateBlocking<'_, 'c, C>
 where
     C: Prepare,
 {
-    type Output = StatementCreateResponseBlocking<'s, C>;
+    type Output = StatementCreateResponseBlocking<'c, C>;
 
     #[inline]
     fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
@@ -147,14 +147,14 @@ where
     }
 }
 
-impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, P, C> {}
+impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, '_, P, C> {}
 
-impl<'s, C, P> Encode for StatementUnnamedQuery<'s, P, C>
+impl<'c, C, P> Encode for StatementUnnamedQuery<'_, 'c, P, C>
 where
     C: Prepare,
     P: AsParams,
 {
-    type Output = IntoRowStreamGuard<'s, C>;
+    type Output = IntoRowStreamGuard<'c, C>;
 
     #[inline]
     fn encode<const SYNC_MODE: bool>(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
