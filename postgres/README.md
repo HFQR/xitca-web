@@ -161,4 +161,44 @@ fn parse(row: Row<'_>) {
     // any type implement FromSqlExt trait will be parsable by get_zc API.
     let foo: Baz = row.get_zc("baz");
 }
-``` 
+```
+
+## Interop with `rust-postgres` crates
+`xitca-postgres` uses the same postgres protocol and types definition with them. For extended types and utilities related
+crates can be imported for additional features
+```rust
+// add postgres-types = { .., features = ["with-uuid-1"] } to Cargo dependency to enable uuid type support.
+use postgres_types::Type; 
+use uuid::Uuid;
+use xitca_postgres::{Client, Error, Execute, Statement};
+
+// an example of using extended type support rust-postgres offers through postgres-types crate
+async fn bind_ext(cli: Client) -> Result<(), Error> {
+    // prepare statement and query with Uuid type
+    let stmt = Statement::named("SELECT * FROM users WHERE id = $1", &[Type::UUID]).execute(&cli).await?;
+    let stream = stmt.bind([Uuid::default()]).query(&cli).await?;
+    Ok(())
+}
+
+// add postgres-derive to Cargo dependency to enable derive macro support.
+use postgres_derive::ToSql;
+
+// implement derive macro to custom type
+#[derive(ToSql, Debug)]
+struct Worker {
+    id: i32,
+    wage: i32,
+}
+
+async fn derive_macro(cli: Client) -> Result<(), Error> {
+    // create custom type
+    "CREATE TYPE pg_temp.\"Worker\" AS (id INT, wage INT);".execute(&cli).await?;
+    // prepare statement with custom type
+    let stmt = Statement::named("SELECT $1::Worker", &[]).execute(&cli).await?;
+    // bind statement to custom type and execute. this works because the derive macro
+    // added necessary trait implement that make Worker type can be encoded and used 
+    // as custom type we just created.
+    stmt.bind([Worker { id: 9527, wage: 0}]).execute(&cli).await?;
+    Ok(())
+}
+```
