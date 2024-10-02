@@ -1,4 +1,6 @@
-# unreleased 0.2.1
+# 0.2.1
+## Fix
+- relax lifetime bound on various query types 
 
 # 0.2.0
 ## Remove

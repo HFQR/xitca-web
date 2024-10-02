@@ -15,6 +15,8 @@ pub trait AsyncLendingIterator {
     }
 }
 
+impl<I> AsyncLendingIteratorExt for I where I: AsyncLendingIterator {}
+
 pub trait AsyncLendingIteratorExt: AsyncLendingIterator {
     fn map_ok<F, O>(self, func: F) -> MapOk<Self, F>
     where
@@ -22,6 +24,22 @@ pub trait AsyncLendingIteratorExt: AsyncLendingIterator {
         Self: Sized,
     {
         MapOk { iter: self, func }
+    }
+
+    fn map_err<F, O>(self, func: F) -> MapErr<Self, F>
+    where
+        F: Fn(Self::Err) -> O,
+        Self: Sized,
+    {
+        MapErr { iter: self, func }
+    }
+
+    fn try_map<F, T, E>(self, func: F) -> Map<Self, F>
+    where
+        F: Fn(Result<Self::Ok<'_>, Self::Err>) -> Result<T, E>,
+        Self: Sized,
+    {
+        Map { iter: self, func }
     }
 
     #[inline]
@@ -75,8 +93,73 @@ where
     }
 }
 
-impl<I> AsyncLendingIteratorExt for I where I: AsyncLendingIterator {}
+pub struct MapErr<I, F> {
+    iter: I,
+    func: F,
+}
 
-async fn _try_collect_test(stream: crate::RowStreamOwned) -> Result<Vec<String>, crate::error::Error> {
-    stream.map_ok(|row| row.get(0)).try_collect::<Vec<_>>().await
+impl<I, F, O> AsyncLendingIterator for MapErr<I, F>
+where
+    I: AsyncLendingIterator + Send,
+    F: Fn(I::Err) -> O + Send,
+    O: Send,
+{
+    type Ok<'i>
+        = I::Ok<'i>
+    where
+        Self: 'i;
+    type Err = O;
+
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
+        self.iter.try_next().await.map_err(&self.func)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+pub struct Map<I, F> {
+    iter: I,
+    func: F,
+}
+
+impl<I, F, T, E> AsyncLendingIterator for Map<I, F>
+where
+    I: AsyncLendingIterator + Send,
+    F: Fn(Result<I::Ok<'_>, I::Err>) -> Result<T, E> + Send,
+    T: Send,
+    E: Send,
+{
+    type Ok<'i>
+        = T
+    where
+        Self: 'i;
+    type Err = E;
+
+    async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
+        match self.iter.try_next().await {
+            Ok(Some(t)) => (self.func)(Ok(t)).map(Some),
+            Ok(None) => Ok(None),
+            Err(e) => (self.func)(Err(e)).map(Some),
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+async fn _map_ok_err_try_collect(stream: crate::RowStreamOwned) -> Result<Vec<String>, crate::error::Error> {
+    stream
+        .map_ok(|row| row.get(0))
+        .map_err(|e| dbg!(e))
+        .try_collect::<Vec<_>>()
+        .await
+}
+
+async fn _try_map_try_collect(stream: crate::RowStreamOwned) -> Result<Vec<String>, crate::error::Error> {
+    stream.try_map(|row| row?.try_get(0)).try_collect::<Vec<_>>().await
 }

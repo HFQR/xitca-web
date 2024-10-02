@@ -93,7 +93,8 @@ async fn try_next<'r>(
 /// // then collecting all user name to a collection
 /// let mut strings = Vec::new();
 /// while let Some(row) = stream.try_next().await? {
-///     strings.push(row.get::<String>("name"));
+///     let name = row.get::<String>("name");
+///     strings.push(name);
 /// }
 ///
 /// // the same operation with owned row stream can be simplified a bit:
