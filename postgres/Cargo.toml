@@ -49,5 +49,8 @@ rustls-pemfile = { version = "2", optional = true }
 xitca-postgres-codegen = "0.1"
 bb8 = "0.8.5"
 futures = { version = "0.3", default-features = false }
+postgres-derive = "0.4"
+postgres-types = { version = "0.2", features = ["with-uuid-1"] }
 rcgen = "0.13"
 tokio = { version = "1.30", features = ["macros", "rt-multi-thread", "time"] }
+uuid = "1"
