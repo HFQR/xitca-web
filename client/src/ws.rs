@@ -75,7 +75,7 @@ impl<'a> WsRequest<'a> {
     }
 }
 
-impl<'a> WebSocket<'a> {
+impl WebSocket<'_> {
     /// Set max message size.
     ///
     /// By default max size is set to 64kB.
