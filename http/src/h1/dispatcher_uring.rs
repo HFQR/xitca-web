@@ -82,7 +82,7 @@ impl BufOwned {
         }
     }
 
-    async fn read_io(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
+    async fn read_io(&mut self, io: &mut impl AsyncBufRead) -> io::Result<usize> {
         let mut buf = self.buf.take().unwrap();
 
         let len = buf.len();
@@ -93,7 +93,7 @@ impl BufOwned {
         res
     }
 
-    async fn write_io(&mut self, io: &impl AsyncBufWrite) -> io::Result<()> {
+    async fn write_io(&mut self, io: &mut impl AsyncBufWrite) -> io::Result<()> {
         let buf = self.buf.take().unwrap();
         let (res, mut buf) = write_all(io, buf).await;
         buf.clear();
@@ -105,7 +105,8 @@ impl BufOwned {
 impl<'a, Io, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>
     Dispatcher<'a, Io, S, ReqB, D, H_LIMIT, R_LIMIT, W_LIMIT>
 where
-    Io: AsyncBufRead + AsyncBufWrite + 'static,
+    Io: 'static,
+    for<'io> &'io Io: AsyncBufRead + AsyncBufWrite,
     S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -147,10 +148,10 @@ where
                 Err(e) => return Err(e),
             }
 
-            self.write_buf.write_io(&*self.io).await?;
+            self.write_buf.write_io(&mut &*self.io).await?;
 
             if self.ctx.is_connection_closed() {
-                return self.io.shutdown(Shutdown::Both).map_err(Into::into);
+                return (&*self.io).shutdown(Shutdown::Both).map_err(Into::into);
             }
         }
     }
@@ -160,7 +161,7 @@ where
 
         let read = self
             .read_buf
-            .read_io(&*self.io)
+            .read_io(&mut &*self.io)
             .timeout(self.timer.get())
             .await
             .map_err(|_| self.timer.map_to_err())??;
@@ -222,7 +223,7 @@ where
                         }
                     }
 
-                    self.write_buf.write_io(&*self.io).await?;
+                    self.write_buf.write_io(&mut &*self.io).await?;
                 }
             }
 
@@ -243,7 +244,7 @@ where
     #[cold]
     #[inline(never)]
     async fn on_body_error(&mut self, e: BE) -> Result<(), Error<S::Error, BE>> {
-        self.write_buf.write_io(&*self.io).await?;
+        self.write_buf.write_io(&mut &*self.io).await?;
         Err(Error::Body(e))
     }
 
@@ -270,7 +271,8 @@ impl Body {
         notify: Notifier<BufOwned>,
     ) -> Self
     where
-        Io: AsyncBufRead + AsyncBufWrite + 'static,
+        Io: 'static,
+        for<'io> &'io Io: AsyncBufRead + AsyncBufWrite,
     {
         let body = BodyInner {
             io,
@@ -285,7 +287,7 @@ impl Body {
         let state = if is_expect {
             State::ExpectWrite {
                 fut: async {
-                    let (res, _) = write_all(&*body.io, CONTINUE_BYTES).await;
+                    let (res, _) = write_all(&mut &*body.io, CONTINUE_BYTES).await;
                     res.map(|_| body)
                 },
             }
@@ -352,9 +354,9 @@ struct BodyInner<Io> {
 
 async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<BodyInner<Io>>
 where
-    Io: AsyncBufRead,
+    for<'io> &'io Io: AsyncBufRead,
 {
-    let read = body.decoder.read_buf.read_io(&*body.io).await?;
+    let read = body.decoder.read_buf.read_io(&mut &*body.io).await?;
     if read == 0 {
         return Err(io::ErrorKind::UnexpectedEof.into());
     }
@@ -363,7 +365,7 @@ where
 
 impl<Io, F, FutC, FutE> Stream for BodyReader<Io, F, FutC, FutE>
 where
-    Io: AsyncBufRead,
+    for<'io> &'io Io: AsyncBufRead,
     F: Fn(BodyInner<Io>) -> FutC,
     FutC: Future<Output = io::Result<BodyInner<Io>>>,
     FutE: Future<Output = io::Result<BodyInner<Io>>>,

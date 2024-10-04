@@ -95,7 +95,8 @@ impl<S, B, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const 
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
     A: Service<TcpStream>,
-    A::Response: AsyncBufRead + AsyncBufWrite + 'static,
+    A::Response: 'static,
+    for<'io> &'io A::Response: AsyncBufRead + AsyncBufWrite,
     B: Stream<Item = Result<Bytes, BE>>,
     HttpServiceError<S::Error, BE>: From<A::Error>,
 {

@@ -9,20 +9,20 @@ use tokio_uring::buf::IoBuf;
 pub use tokio_uring::buf::{BoundedBuf, BoundedBufMut, Slice};
 
 pub trait AsyncBufRead {
-    fn read<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
+    fn read<B>(&mut self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
         B: BoundedBufMut;
 }
 
 pub trait AsyncBufWrite {
-    fn write<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
+    fn write<B>(&mut self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
         B: BoundedBuf;
 
-    fn shutdown(&self, direction: Shutdown) -> io::Result<()>;
+    fn shutdown(&mut self, direction: Shutdown) -> io::Result<()>;
 }
 
-pub async fn write_all<Io, B>(io: &Io, mut buf: B) -> (io::Result<()>, B)
+pub async fn write_all<Io, B>(io: &mut Io, mut buf: B) -> (io::Result<()>, B)
 where
     Io: AsyncBufWrite,
     B: BoundedBuf<Buf = B> + IoBuf,

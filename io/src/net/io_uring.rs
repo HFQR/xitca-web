@@ -33,7 +33,7 @@ impl TryFrom<Stream> for (TcpStream, SocketAddr) {
 
 impl AsyncBufRead for TcpStream {
     #[inline(always)]
-    async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
+    async fn read<B>(&mut self, buf: B) -> (io::Result<usize>, B)
     where
         B: BoundedBufMut,
     {
@@ -43,7 +43,7 @@ impl AsyncBufRead for TcpStream {
 
 impl AsyncBufWrite for TcpStream {
     #[inline(always)]
-    async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
+    async fn write<B>(&mut self, buf: B) -> (io::Result<usize>, B)
     where
         B: BoundedBuf,
     {
@@ -51,7 +51,32 @@ impl AsyncBufWrite for TcpStream {
     }
 
     #[inline(always)]
-    fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
+    fn shutdown(&mut self, direction: Shutdown) -> io::Result<()> {
+        TcpStream::shutdown(self, direction)
+    }
+}
+
+impl AsyncBufRead for &TcpStream {
+    #[inline(always)]
+    async fn read<B>(&mut self, buf: B) -> (io::Result<usize>, B)
+    where
+        B: BoundedBufMut,
+    {
+        TcpStream::read(self, buf).await
+    }
+}
+
+impl AsyncBufWrite for &TcpStream {
+    #[inline(always)]
+    async fn write<B>(&mut self, buf: B) -> (io::Result<usize>, B)
+    where
+        B: BoundedBuf,
+    {
+        TcpStream::write(self, buf).submit().await
+    }
+
+    #[inline(always)]
+    fn shutdown(&mut self, direction: Shutdown) -> io::Result<()> {
         TcpStream::shutdown(self, direction)
     }
 }
@@ -86,7 +111,7 @@ mod unix {
 
     impl AsyncBufRead for UnixStream {
         #[inline(always)]
-        async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
+        async fn read<B>(&mut self, buf: B) -> (io::Result<usize>, B)
         where
             B: BoundedBufMut,
         {
@@ -96,7 +121,7 @@ mod unix {
 
     impl AsyncBufWrite for UnixStream {
         #[inline(always)]
-        async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
+        async fn write<B>(&mut self, buf: B) -> (io::Result<usize>, B)
         where
             B: BoundedBuf,
         {
@@ -104,7 +129,32 @@ mod unix {
         }
 
         #[inline(always)]
-        fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
+        fn shutdown(&mut self, direction: Shutdown) -> io::Result<()> {
+            UnixStream::shutdown(self, direction)
+        }
+    }
+
+    impl AsyncBufRead for &UnixStream {
+        #[inline(always)]
+        async fn read<B>(&mut self, buf: B) -> (io::Result<usize>, B)
+        where
+            B: BoundedBufMut,
+        {
+            UnixStream::read(self, buf).await
+        }
+    }
+
+    impl AsyncBufWrite for &UnixStream {
+        #[inline(always)]
+        async fn write<B>(&mut self, buf: B) -> (io::Result<usize>, B)
+        where
+            B: BoundedBuf,
+        {
+            UnixStream::write(self, buf).submit().await
+        }
+
+        #[inline(always)]
+        fn shutdown(&mut self, direction: Shutdown) -> io::Result<()> {
             UnixStream::shutdown(self, direction)
         }
     }

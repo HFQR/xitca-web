@@ -118,6 +118,11 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
         let value = HeaderValue::from_maybe_shared(slice.slice(idx.value.0..idx.value.1)).unwrap();
 
         match name {
+            CONNECTION => self.try_set_close_from_header(&value)?,
+            CONTENT_LENGTH => {
+                let len = header::parse_content_length(&value)?;
+                decoder.try_set(TransferCoding::length(len))?;
+            }
             TRANSFER_ENCODING => {
                 if version != Version::HTTP_11 {
                     return Err(ProtoError::HeaderName);
@@ -129,22 +134,17 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     }
                 }
             }
-            CONTENT_LENGTH => {
-                let len = header::parse_content_length(&value)?;
-                decoder.try_set(TransferCoding::length(len))?;
-            }
-            CONNECTION => self.try_set_close_from_header(&value)?,
-            EXPECT => {
-                if !value.as_bytes().eq_ignore_ascii_case(b"100-continue") {
-                    return Err(ProtoError::HeaderValue);
-                }
-                self.set_expect_header()
-            }
             UPGRADE => {
                 if version != Version::HTTP_11 {
                     return Err(ProtoError::HeaderName);
                 }
                 decoder.try_set(TransferCoding::upgrade())?;
+            }
+            EXPECT => {
+                if !value.as_bytes().eq_ignore_ascii_case(b"100-continue") {
+                    return Err(ProtoError::HeaderValue);
+                }
+                self.set_expect_header()
             }
             _ => {}
         }
