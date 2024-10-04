@@ -36,7 +36,7 @@ where
     }
 }
 
-impl<'s, C> Execute<'_, C> for &'s str
+impl<C> Execute<'_, C> for &str
 where
     C: Query,
 {
