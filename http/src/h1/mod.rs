@@ -15,3 +15,6 @@ pub use self::service::H1Service;
 
 #[cfg(feature = "io-uring")]
 mod dispatcher_uring;
+
+#[cfg(feature = "io-uring")]
+pub mod dispatcher_uring_unreal;
