@@ -236,7 +236,7 @@ fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: BodySize, encodin
     warn!("response to HEAD request should not bearing body. It will been dropped without polling.");
 }
 
-fn write_length_header(buf: &mut BytesMut, size: usize) {
+pub(crate) fn write_length_header(buf: &mut BytesMut, size: usize) {
     let mut buffer = itoa::Buffer::new();
     let buffer = buffer.format(size).as_bytes();
 

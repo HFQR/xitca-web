@@ -8,7 +8,7 @@ use xitca_io::{
     bytes::{Buf, BytesMut},
     net::io_uring::TcpStream,
 };
-use xitca_service::Service;
+use xitca_service::{AsyncFn, Service};
 
 pub use httparse::Request;
 
@@ -19,6 +19,7 @@ pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub struct Response<'a, const STEP: usize = 1> {
     buf: &'a mut BytesMut,
     date: &'a DateTimeHandle,
+    want_write_date: bool,
 }
 
 impl<'a> Response<'a> {
@@ -37,12 +38,17 @@ impl<'a> Response<'a> {
         Response {
             buf: self.buf,
             date: self.date,
+            want_write_date: self.want_write_date,
         }
     }
 }
 
 impl<'a> Response<'a, 2> {
-    pub fn header(self, key: &str, val: &str) -> Self {
+    pub fn header(mut self, key: &str, val: &str) -> Self {
+        if key.eq_ignore_ascii_case("date") {
+            self.want_write_date = false;
+        }
+
         self.buf.extend_from_slice(b"\r\n");
         self.buf.extend_from_slice(key.as_bytes());
         self.buf.extend_from_slice(b": ");
@@ -50,19 +56,42 @@ impl<'a> Response<'a, 2> {
         self
     }
 
-    pub fn body(self, body: &[u8]) -> Response<'a, 3> {
-        self.buf.reserve(DateTimeHandle::DATE_VALUE_LENGTH + 12);
-        self.buf.extend_from_slice(b"\r\ndate: ");
-        self.date.with_date(|date| self.buf.extend_from_slice(date));
+    pub fn body(mut self, body: &[u8]) -> Response<'a, 3> {
+        self.try_write_date();
 
-        self.buf.extend_from_slice(b"\r\ncontent-length: ");
-        self.buf.extend_from_slice(body.len().to_string().as_bytes());
+        super::proto::encode::write_length_header(self.buf, body.len());
         self.buf.extend_from_slice(b"\r\n\r\n");
         self.buf.extend_from_slice(body);
 
         Response {
             buf: self.buf,
             date: self.date,
+            want_write_date: self.want_write_date,
+        }
+    }
+
+    pub fn body_writer<F, E>(mut self, func: F) -> Result<Response<'a, 3>, E>
+    where
+        F: for<'b> FnOnce(&'b mut BytesMut) -> Result<(), E>,
+    {
+        self.try_write_date();
+
+        self.buf.extend_from_slice(b"\r\n\r\n");
+
+        func(self.buf)?;
+
+        Ok(Response {
+            buf: self.buf,
+            date: self.date,
+            want_write_date: self.want_write_date,
+        })
+    }
+
+    fn try_write_date(&mut self) {
+        if self.want_write_date {
+            self.buf.reserve(DateTimeHandle::DATE_VALUE_LENGTH + 12);
+            self.buf.extend_from_slice(b"\r\ndate: ");
+            self.date.with_date(|date| self.buf.extend_from_slice(date));
         }
     }
 }
@@ -85,7 +114,7 @@ impl<F, C> Dispatcher<F, C> {
 
 impl<F, C> Service<TcpStream> for Dispatcher<F, C>
 where
-    F: for<'h, 'b> xitca_service::AsyncFn<(Request<'h, 'b>, Response<'h>, &'h C), Output = Response<'h, 3>>,
+    F: for<'h, 'b> AsyncFn<(Request<'h, 'b>, Response<'h>, &'h C), Output = Response<'h, 3>>,
 {
     type Response = ();
     type Error = Error;
@@ -115,6 +144,7 @@ where
                         let res = Response {
                             buf: &mut write_buf,
                             date: self.date.get(),
+                            want_write_date: true,
                         };
 
                         self.handler.call((req, res, &self.ctx)).await;
