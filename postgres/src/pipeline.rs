@@ -13,13 +13,11 @@ use core::ops::{Deref, DerefMut, Range};
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::BytesMut;
 
-use crate::ExecuteBlocking;
-
 use super::{
     column::Column,
     driver::codec::{self, encode::Encode, Response},
     error::{Completed, Error},
-    execute::Execute,
+    execute::{Execute, ExecuteBlocking},
     iter::AsyncLendingIterator,
     query::Query,
     row::Row,

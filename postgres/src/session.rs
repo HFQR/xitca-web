@@ -12,7 +12,7 @@ use xitca_io::{bytes::BytesMut, io::AsyncIo};
 use super::{
     config::{Config, SslMode, SslNegotiation},
     driver::generic::GenericDriver,
-    error::{AuthenticationError, Error},
+    error::{ConfigError, Error},
 };
 
 /// Properties required of a session.
@@ -163,17 +163,17 @@ where
         match drv.recv().await? {
             backend::Message::AuthenticationOk => return Ok(()),
             backend::Message::AuthenticationCleartextPassword => {
-                let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
+                let pass = cfg.get_password().ok_or(ConfigError::MissingPassWord)?;
                 send_pass(drv, pass, buf).await?;
             }
             backend::Message::AuthenticationMd5Password(body) => {
-                let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
-                let user = cfg.get_user().ok_or(AuthenticationError::MissingUserName)?.as_bytes();
+                let pass = cfg.get_password().ok_or(ConfigError::MissingPassWord)?;
+                let user = cfg.get_user().ok_or(ConfigError::MissingUserName)?.as_bytes();
                 let pass = authentication::md5_hash(user, pass, body.salt());
                 send_pass(drv, pass, buf).await?;
             }
             backend::Message::AuthenticationSasl(body) => {
-                let pass = cfg.get_password().ok_or(AuthenticationError::MissingPassWord)?;
+                let pass = cfg.get_password().ok_or(ConfigError::MissingPassWord)?;
 
                 let mut is_scram = false;
                 let mut is_scram_plus = false;
@@ -227,7 +227,7 @@ where
                     _ => return Err(Error::todo()),
                 }
             }
-            backend::Message::ErrorResponse(_) => return Err(Error::from(AuthenticationError::WrongPassWord)),
+            backend::Message::ErrorResponse(_) => return Err(Error::from(ConfigError::WrongPassWord)),
             _ => {}
         }
     }
