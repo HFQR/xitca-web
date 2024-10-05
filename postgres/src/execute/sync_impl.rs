@@ -11,7 +11,7 @@ use crate::{
 
 use super::ExecuteBlocking;
 
-impl<'s, C> ExecuteBlocking<'_, C> for &'s Statement
+impl<'s, C> ExecuteBlocking<&C> for &'s Statement
 where
     C: Query,
 {
@@ -30,7 +30,7 @@ where
     }
 }
 
-impl<C> ExecuteBlocking<'_, C> for &str
+impl<C> ExecuteBlocking<&C> for &str
 where
     C: Query,
 {
@@ -49,7 +49,7 @@ where
     }
 }
 
-impl<'c, C> ExecuteBlocking<'c, C> for StatementNamed<'_>
+impl<'c, C> ExecuteBlocking<&'c C> for StatementNamed<'_>
 where
     C: Prepare + 'c,
 {
@@ -68,7 +68,7 @@ where
     }
 }
 
-impl<'s, C, P> ExecuteBlocking<'_, C> for StatementQuery<'s, P>
+impl<'s, C, P> ExecuteBlocking<&C> for StatementQuery<'s, P>
 where
     C: Query,
     P: AsParams,
@@ -88,7 +88,7 @@ where
     }
 }
 
-impl<'c, C, P> ExecuteBlocking<'c, C> for StatementUnnamedBind<'_, P>
+impl<'c, C, P> ExecuteBlocking<&'c C> for StatementUnnamedBind<'_, P>
 where
     C: Prepare + 'c,
     P: AsParams,
@@ -108,20 +108,20 @@ where
     }
 }
 
-impl<'c, C> ExecuteBlocking<'c, C> for &std::path::Path
+impl<C> ExecuteBlocking<&C> for &std::path::Path
 where
-    C: Query + 'c,
+    C: Query,
 {
     type ExecuteOutput = Result<u64, Error>;
     type QueryOutput = Result<RowSimpleStream, Error>;
 
     #[inline]
-    fn execute_blocking(self, cli: &'c C) -> Self::ExecuteOutput {
+    fn execute_blocking(self, cli: &C) -> Self::ExecuteOutput {
         std::fs::read_to_string(self)?.execute_blocking(cli)
     }
 
     #[inline]
-    fn query_blocking(self, cli: &'c C) -> Self::QueryOutput {
+    fn query_blocking(self, cli: &C) -> Self::QueryOutput {
         std::fs::read_to_string(self)?.query_blocking(cli)
     }
 }

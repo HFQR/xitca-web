@@ -18,7 +18,7 @@ use crate::{
 
 use super::Execute;
 
-impl<'s, C> Execute<'_, C> for &'s Statement
+impl<'s, C> Execute<&C> for &'s Statement
 where
     C: Query,
 {
@@ -36,7 +36,7 @@ where
     }
 }
 
-impl<C> Execute<'_, C> for &str
+impl<C> Execute<&C> for &str
 where
     C: Query,
 {
@@ -76,7 +76,7 @@ where
     }
 }
 
-impl<'c, C> Execute<'c, C> for StatementNamed<'_>
+impl<'c, C> Execute<&'c C> for StatementNamed<'_>
 where
     C: Prepare + 'c,
 {
@@ -96,7 +96,7 @@ where
     }
 }
 
-impl<'s, C, P> Execute<'_, C> for StatementQuery<'s, P>
+impl<'s, C, P> Execute<&C> for StatementQuery<'s, P>
 where
     C: Query,
     P: AsParams,
@@ -115,7 +115,7 @@ where
     }
 }
 
-impl<'c, C, P> Execute<'c, C> for StatementUnnamedBind<'_, P>
+impl<'c, C, P> Execute<&'c C> for StatementUnnamedBind<'_, P>
 where
     C: Prepare + 'c,
     P: AsParams,
@@ -136,7 +136,7 @@ where
     }
 }
 
-impl<'c, C> Execute<'c, C> for &std::path::Path
+impl<'c, C> Execute<&'c C> for &std::path::Path
 where
     C: Query + Sync + 'c,
 {

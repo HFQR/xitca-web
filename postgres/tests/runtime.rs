@@ -6,7 +6,7 @@ use xitca_postgres::{
     pipeline::Pipeline,
     statement::Statement,
     types::Type,
-    Client, Execute, ExecuteMut, Postgres,
+    Client, Execute, Postgres,
 };
 
 async fn connect(s: &str) -> Client {
@@ -313,8 +313,8 @@ async fn pipeline() {
 
     let mut pipe = Pipeline::new();
 
-    stmt.query_mut(&mut pipe).unwrap();
-    stmt.query_mut(&mut pipe).unwrap();
+    stmt.query(&mut pipe).unwrap();
+    stmt.query(&mut pipe).unwrap();
 
     let mut res = pipe.query(&cli).unwrap();
 

@@ -19,7 +19,7 @@ use super::{
     column::Column,
     driver::codec::{self, encode::Encode, Response},
     error::{Completed, Error},
-    execute::{Execute, ExecuteMut},
+    execute::Execute,
     iter::AsyncLendingIterator,
     query::Query,
     row::Row,
@@ -31,7 +31,7 @@ use super::{
 ///
 /// # Examples
 /// ```rust
-/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client, Execute, ExecuteMut, Statement};
+/// use xitca_postgres::{iter::AsyncLendingIterator, pipeline::Pipeline, Client, Execute, Statement};
 ///
 /// async fn pipeline(client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     // prepare a statement that will be called repeatedly.
@@ -43,9 +43,9 @@ use super::{
 ///
 ///     // bind value param to statement and query with the pipeline.
 ///     // pipeline can encode multiple queries locally before send it to database.
-///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
-///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
-///     statement.bind([] as [i32; 0]).query_mut(&mut pipe)?;
+///     statement.bind([] as [i32; 0]).query(&mut pipe)?;
+///     statement.bind([] as [i32; 0]).query(&mut pipe)?;
+///     statement.bind([] as [i32; 0]).query(&mut pipe)?;
 ///
 ///     // query the pipeline and on success a streaming response will be returned.
 ///     let mut res = pipe.query(client)?;
@@ -235,20 +235,20 @@ impl<'b, const SYNC_MODE: bool> Pipeline<'_, Borrowed<'b>, SYNC_MODE> {
     }
 }
 
-impl<'a, B, E, const SYNC_MODE: bool> ExecuteMut<'_, Pipeline<'a, B, SYNC_MODE>> for E
+impl<'a, B, E, const SYNC_MODE: bool> Execute<&mut Pipeline<'a, B, SYNC_MODE>> for E
 where
     B: DerefMut<Target = BytesMut>,
     E: Encode<Output = &'a [Column]>,
 {
-    type ExecuteMutOutput = Self::QueryMutOutput;
-    type QueryMutOutput = Result<(), Error>;
+    type ExecuteOutput = Self::QueryOutput;
+    type QueryOutput = Result<(), Error>;
 
     #[inline]
-    fn execute_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::ExecuteMutOutput {
-        self.query_mut(pipe)
+    fn execute(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::ExecuteOutput {
+        self.query(pipe)
     }
 
-    fn query_mut(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryMutOutput {
+    fn query(self, pipe: &mut Pipeline<'a, B, SYNC_MODE>) -> Self::QueryOutput {
         let len = pipe.buf.len();
 
         self.encode::<SYNC_MODE>(&mut pipe.buf)
@@ -264,7 +264,7 @@ pub struct PipelineQuery<'a, 'b> {
     pub(crate) buf: &'b [u8],
 }
 
-impl<'p, C, B, const SYNC_MODE: bool> Execute<'_, C> for Pipeline<'p, B, SYNC_MODE>
+impl<'p, C, B, const SYNC_MODE: bool> Execute<&C> for Pipeline<'p, B, SYNC_MODE>
 where
     C: Query,
     B: DerefMut<Target = BytesMut>,
@@ -304,7 +304,7 @@ where
     }
 }
 
-impl<'p, C, B, const SYNC_MODE: bool> ExecuteBlocking<'_, C> for Pipeline<'p, B, SYNC_MODE>
+impl<'p, C, B, const SYNC_MODE: bool> ExecuteBlocking<&C> for Pipeline<'p, B, SYNC_MODE>
 where
     C: Query,
     B: DerefMut<Target = BytesMut>,
