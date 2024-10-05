@@ -1,3 +1,10 @@
+# unreleased 0.3.0
+## Remove 
+- remove `ExecuteMut` trait. It's role is replaced by `impl Execute<&mut C>`
+
+## Change
+- change `pool::Pool`'s dead connection detection lifecycle.
+
 # 0.2.1
 ## Fix
 - relax lifetime bound on various query types 

@@ -19,7 +19,7 @@ use super::{
     copy::{r#Copy, CopyIn, CopyOut},
     driver::codec::{encode::Encode, Response},
     error::Error,
-    execute::{Execute, ExecuteMut},
+    execute::Execute,
     iter::AsyncLendingIterator,
     prepare::Prepare,
     query::Query,
@@ -83,10 +83,9 @@ impl Pool {
     /// return as [Error]
     pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
-        let conn = self.conn.lock().unwrap().pop_front();
-        let conn = match conn {
-            Some(conn) => conn,
-            None => self.connect().await?,
+        let conn = match self.conn.lock().unwrap().pop_front() {
+            Some(conn) if !conn.client.closed() => conn,
+            _ => self.connect().await?,
         };
         Ok(PoolConnection {
             pool: self,
@@ -113,16 +112,28 @@ impl Pool {
 /// a set of public is exposed to interact with them.
 ///
 /// # Caching
-/// PoolConnection contains cache set of [`Statement`] to speed up regular used sql queries. By default
-/// when calling [`Execute::execute`] on a [`StatementNamed`] the pool connection does nothing and function
-/// the same as a regular [`Client`]. In order to utilize the cache caller must execute the named statement
-/// through [`ExecuteMut::execute_mut`]. This method call will look up local statement cache hand out a copy
-/// of in the type of [`Arc<Statement>`]. If no copy is found in the cache pool connection will prepare a
-/// new statement and insert it into the cache.
+/// PoolConnection contains cache set of [`Statement`] to speed up regular used sql queries. when calling
+/// [`Execute::execute`] on a [`StatementNamed`] with &[`PoolConnection`] the pool connection does nothing
+/// special and function the same as a regular [`Client`]. In order to utilize the cache caller must execute
+/// the named statement with &mut [`PoolConnection`]. With a mutable reference of pool connection it will do
+/// local cache look up for statement and hand out one in the type of [`Arc<Statement>`] if any found. If no
+/// copy is found in the cache pool connection will prepare a new statement and insert it into the cache.
+/// ## Examples
+/// ```
+/// # use xitca_postgres::{pool::Pool, Execute, Error, Statement};
+/// # async fn cached(pool: &Pool) -> Result<(), Error> {
+/// let mut conn = pool.get().await?;
+/// // prepare a statement without caching
+/// Statement::named("SELECT 1", &[]).execute(&conn).await?;
+/// // prepare a statement with caching from conn.
+/// Statement::named("SELECT 1", &[]).execute(&mut conn).await?;
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// * When to use caching or not:
 /// - query statement repeatedly called intensely can benefit from cache.
-/// - query statement with low latency requirement can benefit from upfront cached.
+/// - query statement with low latency requirement can benefit from upfront cache.
 /// - rare query statement can benefit from no caching by reduce resource usage from the server side. For low
 ///   latency of rare query consider use [`Statement::unnamed`] as alternative.
 pub struct PoolConnection<'a> {
@@ -269,9 +280,6 @@ impl r#Copy for PoolConnection<'_> {
 impl Drop for PoolConnection<'_> {
     fn drop(&mut self) {
         let conn = self.conn.take().unwrap();
-        if conn.client.closed() {
-            return;
-        }
         self.pool.conn.lock().unwrap().push_back(conn);
     }
 }
@@ -290,26 +298,26 @@ impl PoolClient {
     }
 }
 
-impl<'c, 's> ExecuteMut<'c, PoolConnection<'_>> for StatementNamed<'s>
+impl<'c, 's> Execute<&'c mut PoolConnection<'_>> for StatementNamed<'s>
 where
     's: 'c,
 {
-    type ExecuteMutOutput = StatementCacheFuture<'c>;
-    type QueryMutOutput = Self::ExecuteMutOutput;
+    type ExecuteOutput = StatementCacheFuture<'c>;
+    type QueryOutput = Self::ExecuteOutput;
 
-    fn execute_mut(self, cli: &'c mut PoolConnection) -> Self::ExecuteMutOutput {
+    fn execute(self, cli: &'c mut PoolConnection) -> Self::ExecuteOutput {
         match cli.conn().statements.get(self.stmt) {
             Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
             None => StatementCacheFuture::Prepared(Box::pin(async move {
-                let stmt = self.execute(cli).await?.leak();
+                let stmt = self.execute(&*cli).await?.leak();
                 Ok(cli.insert_cache(self.stmt, stmt))
             })),
         }
     }
 
     #[inline]
-    fn query_mut(self, cli: &'c mut PoolConnection) -> Self::QueryMutOutput {
-        self.execute_mut(cli)
+    fn query(self, cli: &'c mut PoolConnection) -> Self::QueryOutput {
+        self.execute(cli)
     }
 }
 
@@ -350,7 +358,7 @@ mod test {
 
         let mut conn = pool.get().await.unwrap();
 
-        let stmt = Statement::named("SELECT 1", &[]).execute_mut(&mut conn).await.unwrap();
+        let stmt = Statement::named("SELECT 1", &[]).execute(&mut conn).await.unwrap();
         stmt.execute(&conn.consume()).await.unwrap();
     }
 }

@@ -15,7 +15,7 @@ mod sync_impl;
 ///
 /// [`Encode`]: crate::driver::codec::encode::Encode
 /// [`IntoResponse`]: crate::driver::codec::response::IntoResponse
-pub trait Execute<'c, C>
+pub trait Execute<C>
 where
     Self: Sized,
 {
@@ -36,34 +36,21 @@ where
     type QueryOutput;
 
     /// define how a statement is executed with single time response
-    fn execute(self, cli: &'c C) -> Self::ExecuteOutput;
+    fn execute(self, cli: C) -> Self::ExecuteOutput;
 
     /// define how a statement is queried with repeated response
-    fn query(self, cli: &'c C) -> Self::QueryOutput;
-}
-
-/// mutable version of [`Execute`] trait where C type is mutably borrowed
-pub trait ExecuteMut<'c, C>
-where
-    Self: Sized,
-{
-    type ExecuteMutOutput;
-    type QueryMutOutput;
-
-    fn execute_mut(self, cli: &'c mut C) -> Self::ExecuteMutOutput;
-
-    fn query_mut(self, cli: &'c mut C) -> Self::QueryMutOutput;
+    fn query(self, cli: C) -> Self::QueryOutput;
 }
 
 /// blocking version of [`Execute`] for synchronous environment
-pub trait ExecuteBlocking<'c, C>
+pub trait ExecuteBlocking<C>
 where
     Self: Sized,
 {
     type ExecuteOutput;
     type QueryOutput;
 
-    fn execute_blocking(self, cli: &'c C) -> Self::ExecuteOutput;
+    fn execute_blocking(self, cli: C) -> Self::ExecuteOutput;
 
-    fn query_blocking(self, cli: &'c C) -> Self::QueryOutput;
+    fn query_blocking(self, cli: C) -> Self::QueryOutput;
 }

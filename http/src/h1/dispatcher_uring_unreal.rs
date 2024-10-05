@@ -3,18 +3,22 @@ use core::mem::MaybeUninit;
 use std::rc::Rc;
 
 use http::StatusCode;
-use httparse::Status;
+use httparse::{Header, Status};
 use xitca_io::{
     bytes::{Buf, BytesMut},
     net::io_uring::TcpStream,
 };
 use xitca_service::{AsyncFn, Service};
 
-pub use httparse::Request;
-
 use crate::date::{DateTime, DateTimeHandle, DateTimeService};
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
+
+pub struct Request<'a> {
+    pub method: &'a str,
+    pub path: &'a str,
+    pub headers: &'a mut [Header<'a>],
+}
 
 pub struct Response<'a, const STEP: usize = 1> {
     buf: &'a mut BytesMut,
@@ -49,10 +53,14 @@ impl<'a> Response<'a, 2> {
             self.want_write_date = false;
         }
 
+        let key = key.as_bytes();
+        let val = val.as_bytes();
+
+        self.buf.reserve(key.len() + val.len() + 4);
         self.buf.extend_from_slice(b"\r\n");
-        self.buf.extend_from_slice(key.as_bytes());
+        self.buf.extend_from_slice(key);
         self.buf.extend_from_slice(b": ");
-        self.buf.extend_from_slice(val.as_bytes());
+        self.buf.extend_from_slice(val);
         self
     }
 
@@ -114,7 +122,7 @@ impl<F, C> Dispatcher<F, C> {
 
 impl<F, C> Service<TcpStream> for Dispatcher<F, C>
 where
-    F: for<'h, 'b> AsyncFn<(Request<'h, 'b>, Response<'h>, &'h C), Output = Response<'h, 3>>,
+    F: for<'h, 'b> AsyncFn<(Request<'h>, Response<'h>, &'h C), Output = Response<'h, 3>>,
 {
     type Response = ();
     type Error = Error;
@@ -135,12 +143,18 @@ where
             read_buf = buf;
 
             'inner: loop {
-                let mut headers = const { [MaybeUninit::uninit(); 8] };
+                let mut headers = [const { MaybeUninit::uninit() }; 8];
 
-                let mut req = Request::new(&mut []);
+                let mut req = httparse::Request::new(&mut []);
 
                 match req.parse_with_uninit_headers(&read_buf, &mut headers)? {
                     Status::Complete(len) => {
+                        let req = Request {
+                            path: req.path.unwrap(),
+                            method: req.method.unwrap(),
+                            headers: req.headers,
+                        };
+
                         let res = Response {
                             buf: &mut write_buf,
                             date: self.date.get(),

@@ -32,7 +32,7 @@ pub use self::{
     config::Config,
     driver::Driver,
     error::Error,
-    execute::{Execute, ExecuteBlocking, ExecuteMut},
+    execute::{Execute, ExecuteBlocking},
     from_sql::FromSqlExt,
     query::{RowSimpleStream, RowSimpleStreamOwned, RowStream, RowStreamOwned},
     session::Session,

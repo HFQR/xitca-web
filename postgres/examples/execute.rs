@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // implement Execute trait
-    impl<'p, 'c> Execute<'c, Client> for PrepareAndExecute<'p>
+    impl<'p, 'c> Execute<&'c Client> for PrepareAndExecute<'p>
     where
         // in execute methods both PrepareAndExecute<'p> and &'c Client are moved into async block
         // and we use c as the output lifetime in Execute::ExecuteOutput's boxed async block.
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
 
         fn query(self, cli: &'c Client) -> Self::QueryOutput {
-            Box::pin(async {
+            Box::pin(async move {
                 // prepare statement and query for async iterator of rows
                 let stmt = Statement::named(self.stmt, self.types).execute(cli).await?;
                 let stream = stmt.query(cli).await?;
