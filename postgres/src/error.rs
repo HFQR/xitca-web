@@ -302,6 +302,9 @@ impl From<FromSqlError> for Error {
 pub enum ConfigError {
     EmptyHost,
     EmptyPort,
+    MissingUserName,
+    MissingPassWord,
+    WrongPassWord,
 }
 
 impl fmt::Display for ConfigError {
@@ -310,6 +313,9 @@ impl fmt::Display for ConfigError {
         match self {
             Self::EmptyHost => f.write_str("no available host name found"),
             Self::EmptyPort => f.write_str("no available host port found"),
+            Self::MissingUserName => f.write_str("username is missing"),
+            Self::MissingPassWord => f.write_str("password is missing"),
+            Self::WrongPassWord => f.write_str("password is wrong"),
         }
     }
 }
@@ -317,29 +323,6 @@ impl fmt::Display for ConfigError {
 impl error::Error for ConfigError {}
 
 from_impl!(ConfigError);
-
-/// error happens when library user failed to provide valid authentication info to database server.
-#[derive(Debug)]
-pub enum AuthenticationError {
-    MissingUserName,
-    MissingPassWord,
-    WrongPassWord,
-}
-
-impl fmt::Display for AuthenticationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::MissingUserName => f.write_str("username is missing")?,
-            Self::MissingPassWord => f.write_str("password is missing")?,
-            Self::WrongPassWord => f.write_str("password is wrong")?,
-        }
-        f.write_str(" for authentication")
-    }
-}
-
-impl error::Error for AuthenticationError {}
-
-from_impl!(AuthenticationError);
 
 #[non_exhaustive]
 #[derive(Debug)]
