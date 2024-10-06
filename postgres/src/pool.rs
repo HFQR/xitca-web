@@ -80,7 +80,7 @@ impl Pool {
 
     /// try to get a connection from pool.
     /// when pool is empty it will try to spawn new connection to database and if the process failed the outcome will
-    /// return as [Error]
+    /// return as [`Error`]
     pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
         let conn = match self.conn.lock().unwrap().pop_front() {
@@ -94,6 +94,7 @@ impl Pool {
         })
     }
 
+    #[cold]
     #[inline(never)]
     fn connect(&self) -> BoxedFuture<'_, Result<PoolClient, Error>> {
         Box::pin(async move {

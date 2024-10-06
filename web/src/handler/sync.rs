@@ -38,9 +38,7 @@ use xitca_service::{fn_build, FnService, Service};
 /// ```
 ///
 /// [handler_service]: super::handler_service
-pub fn handler_sync_service<Arg, F, T, O>(
-    func: F,
-) -> FnService<impl Fn(Arg) -> Ready<Result<HandlerServiceSync<F, T, O>, Infallible>>>
+pub fn handler_sync_service<Arg, F, T, O>(func: F) -> FnService<impl Fn(Arg) -> Ready<FnServiceOutput<F, T, O>>>
 where
     F: Closure<T> + Send + Clone,
 {
@@ -51,6 +49,8 @@ where
         }))
     })
 }
+
+type FnServiceOutput<F, T, O> = Result<HandlerServiceSync<F, T, O>, Infallible>;
 
 pub struct HandlerServiceSync<F, T, O> {
     func: F,

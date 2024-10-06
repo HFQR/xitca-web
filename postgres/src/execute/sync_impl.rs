@@ -51,7 +51,7 @@ where
 
 impl<'c, C> ExecuteBlocking<&'c C> for StatementNamed<'_>
 where
-    C: Prepare + 'c,
+    C: Prepare,
 {
     type ExecuteOutput = Result<StatementGuarded<'c, C>, Error>;
     type QueryOutput = Self::ExecuteOutput;
@@ -90,7 +90,7 @@ where
 
 impl<'c, C, P> ExecuteBlocking<&'c C> for StatementUnnamedBind<'_, P>
 where
-    C: Prepare + 'c,
+    C: Prepare,
     P: AsParams,
 {
     type ExecuteOutput = Result<u64, Error>;

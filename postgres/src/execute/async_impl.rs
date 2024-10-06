@@ -78,7 +78,7 @@ where
 
 impl<'c, C> Execute<&'c C> for StatementNamed<'_>
 where
-    C: Prepare + 'c,
+    C: Prepare,
 {
     type ExecuteOutput = ResultFuture<IntoGuardedFuture<'c, C>>;
     type QueryOutput = Self::ExecuteOutput;
@@ -117,7 +117,7 @@ where
 
 impl<'c, C, P> Execute<&'c C> for StatementUnnamedBind<'_, P>
 where
-    C: Prepare + 'c,
+    C: Prepare,
     P: AsParams,
 {
     type ExecuteOutput = ResultFuture<RowAffected>;
@@ -138,7 +138,7 @@ where
 
 impl<'c, C> Execute<&'c C> for &std::path::Path
 where
-    C: Query + Sync + 'c,
+    C: Query + Sync,
 {
     type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
     type QueryOutput = BoxedFuture<'c, Result<RowSimpleStream, Error>>;
