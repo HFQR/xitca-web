@@ -83,7 +83,8 @@ impl Pool {
     /// return as [`Error`]
     pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
-        let conn = match self.conn.lock().unwrap().pop_front() {
+        let conn = self.conn.lock().unwrap().pop_front();
+        let conn = match conn {
             Some(conn) if !conn.client.closed() => conn,
             _ => self.connect().await?,
         };
