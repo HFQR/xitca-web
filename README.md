@@ -101,6 +101,9 @@ tokio = { version = "*", default-features = false, features = ["full"] }
 
 And then run the application/server using `cargo run` command and it should start the server/application on <http://127.0.0.1:8080>. Open your prefered browser and navigate to the address on which the server has started and you should see a `hello world!!` message appear.
 
+> [!Warning]
+> The project is still not stable. So expect breaking changes to appear at any time.
+
 **[⬆️ Back to Top](#xitca-web)**
 
 # FAQ (Frequently Asked Questions) 🗨️
