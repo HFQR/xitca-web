@@ -34,6 +34,7 @@
 
   - [🚀 Features](#features-)
   - [📊 Minimum Supported Rust Version](#minimum-supported-rust-version-)
+  - [⚡ Quick Start](#quick-start-)
   - [🗨️ FAQ (Frequently Asked Questions)](#faq-frequently-asked-questions-%EF%B8%8F)
   - [📣 More Contributors Wanted](#more-contributors-wanted-)
   - [💖 Supporting Xitca-web](#supporting-xitca-web-)
@@ -64,6 +65,41 @@
 # Minimum Supported Rust Version 📊
 
 The latest release of the crate supports 1.79 and above rust versions.
+
+**[⬆️ Back to Top](#--)**
+
+# Quick Start ⚡
+
+> For a list of other examples, see: [**Examples**](examples)
+
+To get started using Xitca-web add the following code to your `main.rs` file: 
+```rust
+use xitca_web::{handler::handler_service, middleware::Logger, route::get, App};
+
+async fn index() -> &'static str {
+    "Hello world!!"
+}
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    App::new()
+        .at("/", get(handler_service(index)))
+        .enclosed(Logger::new())
+        .serve()
+        .bind("localhost:8080")?
+        .run()
+        .await
+}
+```
+
+And then add the following dependencies to your `Cargo.toml` file:
+
+```toml
+xitca-web = { version = "*" , features = ["logger"]}
+tokio = { version = "*", default-features = false, features = ["full"] }
+```
+
+And then run the application/server using `cargo run` command and it should start the server/application on <http://127.0.0.1:8080>. Open your prefered browser and navigate to the address on which the server has started and you should see a `hello world!!` message appear.
 
 **[⬆️ Back to Top](#--)**
 
