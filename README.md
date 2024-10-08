@@ -7,7 +7,7 @@
   <a href="#">
     <img
       alt="GitHub code size in bytes"
-      src="https://img.shields.io/github/languages/code-size/neon-mmd/websurfx?style=flat-square"
+      src="https://img.shields.io/github/languages/code-size/HFQR/xitca-web?style=flat-square"
     />
   </a>
   <a href=""
@@ -20,7 +20,7 @@
   <br />
   <i>
     A HTTP library and web framework written in 100% safe Rust with zero-copy
-    support
+    serialization/deserilization support
   </i>
 </p>
 
@@ -57,16 +57,16 @@
 - 🗜️ Transparent content compression/decompression (br, gzip, deflate, zstd)
 - 🚰 Multipart streams
 - 📄 Static assets
-- 🔒 SSL support using Xtica-tls or rustls
+- 🔒 SSL support using Xitca-tls or rustls
 - 🔌 Middlewares (Logger, Tracing, etc)
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # Minimum Supported Rust Version 📊
 
 The latest release of the crate supports 1.79 and above rust versions.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # Quick Start ⚡
 
@@ -101,7 +101,7 @@ tokio = { version = "*", default-features = false, features = ["full"] }
 
 And then run the application/server using `cargo run` command and it should start the server/application on <http://127.0.0.1:8080>. Open your prefered browser and navigate to the address on which the server has started and you should see a `hello world!!` message appear.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # FAQ (Frequently Asked Questions) 🗨️
 
@@ -109,19 +109,19 @@ And then run the application/server using `cargo run` command and it should star
 
 The primary reason behind creating Xitca-web is to have more memory safe HTTP framework which uses 100% safe rust unlike HTTP frameworks like actix-web which heavily rely upon unsafe rust code. As well as to provide a framework with low-memory footprint and with very small dependency tree.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # More Contributors Wanted 📣
 
 We are looking for more willing contributors to help grow this project. For more information on how you can contribute, check out the [project board](https://github.com/HFQR/xitca-web/projects?query=is%3Aopen) and the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines and rules for making contributions.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
-# Supporting Websurfx 💖
+# Supporting Xitca-web 💖
 
 > For full details and other ways you can help out, see: [**Contributing**](CONTRIBUTING.md)
 
-If you use Websurfx and would like to contribute to its development, we're glad to have you on board! Contributions of any size or type are always welcome, and we will always acknowledge your efforts.
+If you use Xitca-web and would like to contribute to its development, we're glad to have you on board! Contributions of any size or type are always welcome, and we will always acknowledge your efforts.
 
 Several areas that we need a bit of help with at the moment are:
 
@@ -130,20 +130,20 @@ Several areas that we need a bit of help with at the moment are:
 - Submit a PR to add a new feature, fix a bug, update the docs, or anything else.
 - Star Xitca-web on GitHub.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # Documentation 📘
 
 > [!Note]
 > We welcome any contributions to the [documentation](https://docs.rs/xitca-web/latest/xitca_web/) as this will benefit everyone who uses this project.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # Roadmap 🛣️
 
 > Coming soon! 🙂.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # Contributing 🙋
 
@@ -157,13 +157,13 @@ Check out this [video](https://youtu.be/FccdqCucVSI) by Mr. Nick on how to contr
 
 If you are a developer, have a look at the [CONTRIBUTING.md](CONTRIBUTING.md) document for more information.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # License 📜
 
 Xitca-web is licensed under the [APACHEv2](LICENSE) license.
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 # Credits 🤝
 
@@ -187,7 +187,7 @@ We would like to thank the following people for their contributions and support:
   </a>
 </p>
 
-**[⬆️ Back to Top](#--)**
+**[⬆️ Back to Top](#xitca-web)**
 
 ---
 
