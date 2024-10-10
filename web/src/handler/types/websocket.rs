@@ -1,11 +1,12 @@
 use core::{
+    cmp::Ordering,
     convert::Infallible,
     future::{poll_fn, Future},
     pin::{pin, Pin},
     time::Duration,
 };
 
-use std::{cmp::Ordering, io};
+use std::io;
 
 use futures_core::stream::Stream;
 use http_ws::{
@@ -48,7 +49,7 @@ type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut ResponseSender, Message) -> BoxFutu
 
 type OnErrCB<E> = Box<dyn FnMut(WsError<E>) -> BoxFuture<'static>>;
 
-type OnCloseCB = Box<dyn FnOnce() -> BoxFuture<'static>>;
+type OnCloseCB<B> = Box<dyn for<'a> FnOnce(Pin<&'a mut RequestStream<B>>) -> BoxFuture<'a>>;
 
 pub struct WebSocket<B = RequestBody>
 where
@@ -59,7 +60,7 @@ where
     max_unanswered_ping: u8,
     on_msg: OnMsgCB,
     on_err: OnErrCB<B::Error>,
-    on_close: OnCloseCB,
+    on_close: OnCloseCB<B>,
 }
 
 impl<B> WebSocket<B>
@@ -79,7 +80,7 @@ where
             max_unanswered_ping: 3,
             on_msg: Box::new(|_, _| boxed_future()),
             on_err: Box::new(|_| boxed_future()),
-            on_close: Box::new(|| boxed_future()),
+            on_close: Box::new(|_| boxed_future()),
         }
     }
 
@@ -128,10 +129,10 @@ where
     /// Async function that would be called when closing the websocket connection.
     pub fn on_close<F, Fut>(&mut self, func: F) -> &mut Self
     where
-        F: FnOnce() -> Fut + 'static,
+        F: FnOnce(Pin<&mut RequestStream<B>>) -> Fut + 'static,
         Fut: Future<Output = ()> + 'static,
     {
-        self.on_close = Box::new(|| Box::pin(func()));
+        self.on_close = Box::new(|stream| Box::pin(func(stream)));
         self
     }
 }
@@ -209,16 +210,17 @@ async fn spawn_task<B>(
     mut tx: ResponseSender,
     mut on_msg: OnMsgCB,
     mut on_err: OnErrCB<B::Error>,
-    on_close: OnCloseCB,
+    on_close: OnCloseCB<B>,
 ) where
     B: BodyStream,
 {
     let on_msg = &mut *on_msg;
     let on_err = &mut *on_err;
 
-    let spawn_inner = || async {
+    let mut decode = pin!(decode);
+
+    let spawn_inner = async {
         let mut sleep = pin!(sleep(ping_interval));
-        let mut decode = pin!(decode);
 
         let mut un_answered_ping = 0u8;
 
@@ -280,9 +282,9 @@ async fn spawn_task<B>(
         }
     };
 
-    if let Err(e) = spawn_inner().await {
+    if let Err(e) = spawn_inner.await {
         on_err(e).await;
     }
 
-    on_close().await;
+    on_close(decode).await;
 }
