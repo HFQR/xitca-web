@@ -49,7 +49,7 @@
 
 # Features 🚀
 
-- 🎗️ Supports HTTP/1.x and HTTP/2
+- 🎗️ Supports HTTP/1.x, HTTP/2 and HTTP/3.
 - 💪 Powerful request routing with optional opt-in macros
 - 📼 Full Tokio compatibility
 - 📦 Cross crate integration with Tower.
