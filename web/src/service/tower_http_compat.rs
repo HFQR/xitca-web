@@ -14,7 +14,7 @@ use xitca_http::{
     body::{none_body_hint, BodySize},
     util::service::router::{PathGen, RouteGen, RouterMapErr},
 };
-use xitca_unsafe_collection::fake::FakeSend;
+use xitca_unsafe_collection::fake::{FakeSend, FakeSync};
 
 use crate::{
     body::ResponseBody,
@@ -96,7 +96,7 @@ impl<S> ReadyService for TowerCompatService<S> {
 
 pub struct CompatReqBody<B, C> {
     body: FakeSend<B>,
-    ctx: C,
+    ctx: FakeSend<FakeSync<C>>,
 }
 
 impl<B, C> CompatReqBody<B, C> {
@@ -104,7 +104,7 @@ impl<B, C> CompatReqBody<B, C> {
     pub fn new(body: B, ctx: C) -> Self {
         Self {
             body: FakeSend::new(body),
-            ctx,
+            ctx: FakeSend::new(FakeSync::new(ctx)),
         }
     }
 
@@ -114,7 +114,7 @@ impl<B, C> CompatReqBody<B, C> {
     /// - When called from a thread not where B is originally constructed.
     #[inline]
     pub fn into_parts(self) -> (B, C) {
-        (self.body.into_inner(), self.ctx)
+        (self.body.into_inner(), self.ctx.into_inner().into_inner())
     }
 }
 

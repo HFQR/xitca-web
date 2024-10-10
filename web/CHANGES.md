@@ -3,7 +3,8 @@
 - add default impl to `handler::state::BorrowState` trait for `Box`, `Rc` and `Arc` types
 - add `middleware::WebContext`
 - add `WebContext::extract` method
-- add `service::ServeFile::new_tokio_uring` API. Guarded by `file-tokio-uring` feature.
+- add `service::ServeFile::new_tokio_uring` API. Guarded by `file-tokio-uring` feature
+- add `Pin<&mut RequestStream>` argument to `handler::websocket::Websocket::on_close` method
 
 ## Change
 - change `error::Error` type by removing it's generic type param. Everywhere it had to be written as `Error<C>` can now be written as plain `Error`. Side effect of this change is how error interact with application state(typed data passed into `App::with_state` API). For most cases error type don't interact with app state at all and their impl don't need any change. But in rare case where it's needed it has to be changed in the following pattern:
