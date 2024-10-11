@@ -78,15 +78,14 @@ async fn index() -> &'static str {
     "Hello world!!"
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {
     App::new()
         .at("/", get(handler_service(index)))
         .enclosed(Logger::new())
         .serve()
         .bind("localhost:8080")?
         .run()
-        .await
+        .wait()
 }
 ```
 
@@ -94,7 +93,6 @@ And then add the following dependencies to your `Cargo.toml` file:
 
 ```toml
 xitca-web = { version = "*" , features = ["logger"]}
-tokio = { version = "*", default-features = false, features = ["full"] }
 ```
 
 And then run the application/server using `cargo run` command and it should start the server/application on <http://127.0.0.1:8080>. Open your prefered browser and navigate to the address on which the server has started and you should see a `hello world!!` message appear.
