@@ -32,43 +32,43 @@
   <summary><b>Table of Contents</b></summary>
   <p>
 
-  - [🚀 Features](#features-)
-  - [📊 Minimum Supported Rust Version](#minimum-supported-rust-version-)
-  - [⚡ Quick Start](#quick-start-)
-  - [🗨️ FAQ (Frequently Asked Questions)](#faq-frequently-asked-questions-%EF%B8%8F)
-  - [📣 More Contributors Wanted](#more-contributors-wanted-)
-  - [💖 Supporting Xitca-web](#supporting-xitca-web-)
-  - [📘 Documentation](#documentation-)
-  - [🛣️ Roadmap](#roadmap-%EF%B8%8F)
-  - [🙋 Contributing](#contributing-)
-  - [📜 License](#license-)
-  - [🤝 Credits](#credits-)
+  - [Features](#features)
+  - [Minimum Supported Rust Version](#minimum-supported-rust-version)
+  - [Quick Start](#quick-start)
+  - [FAQ (Frequently Asked Questions)](#faq-frequently-asked-questions)
+  - [More Contributors Wanted](#more-contributors-wanted)
+  - [Supporting Xitca-web](#supporting-xitca-web)
+  - [Documentation](#documentation)
+  - [Roadmap](#roadmap)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Credits](#credits)
 
   </p>
 </details>
 
-# Features 🚀
+# Features
 
-- 🎗️ Supports HTTP/1.x, HTTP/2 and HTTP/3.
-- 💪 Powerful request routing with optional opt-in macros
-- 📼 Full Tokio compatibility
-- 📦 Cross crate integration with Tower.
-- 🔌 Client/server WebSockets support
-- 🗜️ Transparent content compression/decompression (br, gzip, deflate, zstd)
-- 🚰 Multipart streams
-- 📄 Static assets
-- 🔒 SSL support using Xitca-tls or rustls
-- 🔌 Middlewares (Logger, Tracing, etc)
+- Supports HTTP/1.x, HTTP/2 and HTTP/3.
+- Powerful request routing with optional opt-in macros
+- Full Tokio compatibility
+- Cross crate integration with Tower.
+- Client/server WebSockets support
+- Transparent content compression/decompression (br, gzip, deflate, zstd)
+- Multipart streams
+- Static assets
+- SSL support using Xitca-tls or rustls
+- Middlewares (Logger, Tracing, etc)
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# Minimum Supported Rust Version 📊
+# Minimum Supported Rust Version
 
 The latest release of the crate supports 1.79 and above rust versions.
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# Quick Start ⚡
+# Quick Start
 
 > For a list of other examples, see: [**Examples**](examples)
 
@@ -106,7 +106,7 @@ And then run the application/server using `cargo run` command and it should star
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# FAQ (Frequently Asked Questions) 🗨️
+# FAQ (Frequently Asked Questions)
 
 ## Why Yet Another HTTP Framework?
 
@@ -114,13 +114,13 @@ The primary reason behind creating Xitca-web is to have more memory safe HTTP fr
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# More Contributors Wanted 📣
+# More Contributors Wanted
 
 We are looking for more willing contributors to help grow this project. For more information on how you can contribute, check out the [project board](https://github.com/HFQR/xitca-web/projects?query=is%3Aopen) and the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines and rules for making contributions.
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# Supporting Xitca-web 💖
+# Supporting Xitca-web
 
 > For full details and other ways you can help out, see: [**Contributing**](CONTRIBUTING.md)
 
@@ -135,20 +135,20 @@ Several areas that we need a bit of help with at the moment are:
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# Documentation 📘
+# Documentation
 
 > [!Note]
 > We welcome any contributions to the [documentation](https://docs.rs/xitca-web/latest/xitca_web/) as this will benefit everyone who uses this project.
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# Roadmap 🛣️
+# Roadmap
 
-> Coming soon! 🙂.
+> Coming soon!.
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# Contributing 🙋
+# Contributing
 
 Contributions are welcome from anyone. It doesn't matter who you are; you can still contribute to the project in your own way.
 
@@ -162,13 +162,13 @@ If you are a developer, have a look at the [CONTRIBUTING.md](CONTRIBUTING.md) do
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# License 📜
+# License
 
 Xitca-web is licensed under the [APACHEv2](LICENSE) license.
 
 **[⬆️ Back to Top](#xitca-web)**
 
-# Credits 🤝
+# Credits
 
 We would like to thank the following people for their contributions and support:
 
