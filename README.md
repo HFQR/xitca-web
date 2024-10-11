@@ -104,9 +104,9 @@ And then run the application/server using `cargo run` command and it should star
 
 # FAQ (Frequently Asked Questions)
 
-## Why Yet Another HTTP Framework?
+## Why Yet Another HTTP Library and Framework?
 
-The primary reason behind creating Xitca-web is to have more memory safe HTTP framework which uses 100% safe rust unlike HTTP frameworks like actix-web which heavily rely upon unsafe rust code. As well as to provide a framework with low-memory footprint and with very small dependency tree.
+The primary reason behind creating Xitca-web is to provide more memory safe framework which uses 100% safe rust. As well as to provide a framework which provides its own HTTP library, async IO abstraction, tls integration and a database driver all in one package with a low-memory footprint, less synchronization overhead between threads, a very small dependency tree and with good interoperability between with other async frameworks like `tokio`, `async-std`, etc and with crates like Tower and HTTP. Additionally, the following HTTP library and framework was built to provide a simple and compact code base with easier to understand and adoptable API both internally and externally and to provide the choice to the user to opt-out of macro usage when using `xitca-web` which can greatly improve build/compile times by eliminating the extra `proc-macro` build/compile step.
 
 **[⬆️ Back to Top](#xitca-web)**
 
