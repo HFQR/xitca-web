@@ -24,9 +24,7 @@
   </i>
 </p>
 
-<br />
-<img src="./images/server.jpg" alt="An image of a server" align="center" />
-<br />
+<br/>
 
 <details>
   <summary><b>Table of Contents</b></summary>
